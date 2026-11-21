@@ -1225,9 +1225,28 @@ struct SongListView: View {
     @State private var playCountsTask: Task<Void, Never>?
     #endif
 
-    private enum Scope: Hashable, Sendable {
+    enum Scope: Hashable, Sendable {
         case library
         case source(String)
+
+        @MainActor
+        func showsAudiobookshelfContents(in sources: SourcesStore) -> Bool {
+            guard case .source(let id) = self else { return false }
+            return sources.source(id: id)?.type == .audiobookshelf
+        }
+
+        @MainActor
+        func songs(in library: MusicLibrary, sources: SourcesStore) -> [Song] {
+            switch self {
+            case .library:
+                return library.musicSongs
+            case .source(let id):
+                let visible = library.visibleSongs(forSourceID: id)
+                if showsAudiobookshelfContents(in: sources) { return visible }
+                let excluded = library.nonMusicSongIDs
+                return excluded.isEmpty ? visible : visible.filter { !excluded.contains($0.id) }
+            }
+        }
 
         var snapshotCacheKey: String {
             switch self {
@@ -1757,20 +1776,8 @@ struct SongListView: View {
         sourceSongListState?.replacedSongIDs ?? library.lastReplacedSongIDs
     }
 
-    /// 歌曲页是音乐的页面: 有声书、评书、相声在「有声内容」里, 否则一部
-    /// 二十小时的书会按章节把整份列表淹掉。按源看时同样成立 —— 那一页的
-    /// 「歌曲」与资料库里的「歌曲」是同一个概念。
     private var songs: [Song] {
-        switch scope {
-        case .library:
-            library.musicSongs
-        case .source(let sourceID):
-            library.nonMusicSongIDs.isEmpty
-                ? library.visibleSongs(forSourceID: sourceID)
-                : library.visibleSongs(forSourceID: sourceID).filter {
-                    !library.nonMusicSongIDs.contains($0.id)
-                }
-        }
+        scope.songs(in: library, sources: sourcesStore)
     }
 
     private var requiresDownloadedSongSnapshot: Bool {
@@ -3214,9 +3221,9 @@ struct SongListView: View {
         }
     }
 
-    /// 这一页的范围里有没有这首：可见、算音乐，按音乐源看的页还要是这个源的。列表排好以前用它。
+    /// 列表排好以前，定位也按当前页面的来源和内容范围判断。
     private func pageScopeContains(_ songID: String) -> Bool {
-        guard !library.nonMusicSongIDs.contains(songID),
+        guard scope.showsAudiobookshelfContents(in: sourcesStore) || !library.nonMusicSongIDs.contains(songID),
               let song = library.unobservedVisibleSong(id: songID) else { return false }
         switch scope {
         case .library: return true

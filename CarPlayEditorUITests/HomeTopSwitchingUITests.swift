@@ -1031,6 +1031,41 @@ final class HomeTopSwitchingUITests: XCTestCase {
 /// 极简导航「音乐」分类横滑翻页：起手落在卡片、歌曲行上也要能翻（取证页 `sectionSwipe` 是 4000 首带流派的假曲库）。
 @MainActor
 final class LibrarySectionSwipeUITests: XCTestCase {
+    func testPlaylistGroupDisclosureAndPlayAllMenu() throws {
+        let grouping = #"{"groups":[{"id":"empty","name":"Empty Shelf"},{"id":"smart","name":"Smart Shelf"}],"memberships":{"smart:location-smart":"smart"}}"#
+        let app = launch(page: "playlists", extraArguments: [
+            "-primuse.library.playlistGroups.v1", String(decoding: try JSONEncoder().encode(grouping), as: UTF8.self)
+        ])
+        let emptyGroup = app.buttons["playlistGroup.toggle.empty"]
+        let smartGroup = app.buttons["playlistGroup.toggle.smart"]
+        let emptyRow = app.staticTexts["没有歌单"].firstMatch
+        let smartRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Location Smart")).firstMatch
+        XCTAssertTrue(smartGroup.waitForExistence(timeout: 10))
+        XCTAssertFalse(emptyRow.exists)
+        XCTAssertFalse(smartRow.exists)
+        smartGroup.tap()
+        XCTAssertTrue(smartRow.waitForExistence(timeout: 5))
+        XCTAssertFalse(emptyRow.exists)
+
+        emptyGroup.tap()
+        XCTAssertTrue(emptyRow.waitForExistence(timeout: 5))
+        XCTAssertFalse(smartRow.exists)
+        smartGroup.tap()
+        XCTAssertTrue(smartRow.waitForExistence(timeout: 5))
+        XCTAssertFalse(emptyRow.exists)
+        smartGroup.tap()
+        XCTAssertTrue(smartRow.waitForNonExistence(timeout: 5))
+
+        app.buttons["playlistGroup.more.smart"].tap()
+        let playAll = app.buttons["全部播放"]
+        XCTAssertTrue(playAll.waitForExistence(timeout: 5))
+        XCTAssertTrue(playAll.isEnabled)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+        XCTAssertTrue(playAll.waitForNonExistence(timeout: 5))
+        assertActive(app, "playlists")
+        XCTAssertTrue(smartGroup.isHittable)
+    }
+
     func testDragStartingOnGenreCardSwitchesSection() {
         let app = launch(page: "genres")
         // 流派按名字排，第一排是 Ambient、Blues：取屏幕上看得见的卡片，往回从左边那张起手，往后从右边那张起手。
@@ -1093,6 +1128,7 @@ final class LibrarySectionSwipeUITests: XCTestCase {
         app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
         app.launchEnvironment["PRIMUSE_NO_NOTIFICATION_PROMPT"] = "1"
         let hidden = ["recommendations", "playlists", "artists", "albums", "folders", "releaseDate", "statistics"]
+            .filter { $0 != page }
         app.launchArguments = [
             "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
             "-primuse.hasSeenOnboarding", "YES", "-primuse.iCloudSyncEnabled", "NO",

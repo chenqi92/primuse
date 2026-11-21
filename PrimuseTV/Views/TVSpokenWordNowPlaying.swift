@@ -10,14 +10,14 @@ import PrimuseKit
 enum TVSpokenWordText {
     /// 播客单集不是书:标题是这一集,署名是节目名,「正在听的部分」只在带章节时是章节名。
     static func bookTitle(_ store: TVStore) -> String {
-        if store.currentPodcastEpisodeID != nil { return store.nowPlaying.title }
+        if store.currentItemIsPodcast { return store.nowPlaying.title }
         if let title = store.currentSpokenWordBook?.title, !title.isEmpty { return title }
         let np = store.nowPlaying
         return np.album.isEmpty ? np.title : np.album
     }
 
     static func author(_ store: TVStore) -> String? {
-        if store.currentPodcastEpisodeID != nil {
+        if store.currentItemIsPodcast {
             let show = store.nowPlaying.album
             return show.isEmpty ? nil : show
         }
@@ -29,7 +29,7 @@ enum TVSpokenWordText {
     /// 正在听的这一章:单文件的书是章节标记的标题,多文件的书是文件标题(带章节标记时跟在后面)。
     /// 只会重复书名时不显示。
     static func partTitle(_ store: TVStore) -> String? {
-        if store.currentPodcastEpisodeID != nil {
+        if store.currentItemIsPodcast {
             let chapter = store.currentSpokenWordChapter?.title ?? ""
             return chapter.isEmpty ? nil : chapter
         }
@@ -65,7 +65,7 @@ enum TVSpokenWordText {
             rate: store.currentSpokenWordRate
         )
         // 没有章节的播客单集只有它自己,说「剩余」,不说「本章」。
-        let key: String.LocalizationValue = store.currentPodcastEpisodeID != nil && store.spokenWordChapters.isEmpty
+        let key: String.LocalizationValue = store.currentItemIsPodcast && store.spokenWordChapters.isEmpty
             ? "podcast_remaining_format" : "spoken_word_part_remaining_format"
         return String(format: String(localized: key), approximateDuration(remaining))
     }
@@ -108,7 +108,7 @@ struct TVSpokenWordBookRing: View {
 extension TVSpokenWordText {
     /// 「全书 9% · 已听完 11/120 · 剩约 58 小时」,写在目录顶上;播放页上只剩那一圈。
     static func bookSummary(_ store: TVStore) -> String? {
-        guard store.currentPodcastEpisodeID == nil, let book = store.currentSpokenWordBook else { return nil }
+        guard !store.currentItemIsPodcast, let book = store.currentSpokenWordBook else { return nil }
         var parts: [String] = []
         if let summary = store.spokenWordNowPlayingSummary, summary.partCount != nil {
             parts.append(String(

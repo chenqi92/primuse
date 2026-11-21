@@ -45,8 +45,10 @@ enum SpokenWordPlayerText {
         return song
     }
 
-    static func isPodcastEpisode(_ player: AudioPlayerService) -> Bool {
-        podcastEpisode(player) != nil
+    static func offersPodcastNotes(_ player: AudioPlayerService) -> Bool {
+        guard let song = player.currentSong else { return false }
+        return PodcastPlaybackSong.isEpisode(song)
+            || (player.currentListeningSpace == .podcast && SpokenWordStore.shared.isAudiobookshelfEpisode(song))
     }
 
     /// 正在播的播客单集,节目还订着才有详情可看(退订后单集就不在了,入口跟着收起)。
@@ -90,7 +92,7 @@ enum SpokenWordPlayerText {
 
     /// 标题键的旁白提示:书是「前往这本书」,播客是这一集的详情。
     static func openTitleHintKey(_ player: AudioPlayerService) -> LocalizedStringKey {
-        if isPodcastEpisode(player) { return "podcast_player_episode_details" }
+        if PodcastPlaybackSong.isEpisode(player.currentSong) { return "podcast_player_episode_details" }
         return player.currentListeningSpace == .podcast ? "podcast_go_to_show" : "spoken_word_go_to_book"
     }
 
@@ -464,7 +466,7 @@ struct SpokenWordActionTiles: View {
     @Environment(AudioPlayerService.self) private var player
     @State private var bookmarkFeedbackToken = 0
 
-    private var isPodcast: Bool { SpokenWordPlayerText.isPodcastEpisode(player) }
+    private var isPodcast: Bool { player.currentListeningSpace == .podcast }
 
     var body: some View {
         HStack(spacing: layout == .tiles ? 8 : 0) {
@@ -562,7 +564,7 @@ struct SpokenWordActionTiles: View {
                 Text(SpokenWordPlayerText.rateTitleKey(player))
             }
             SpokenWordListeningAidMenuToggles()
-            if !SpokenWordPlayerText.isPodcastEpisode(player),
+            if player.currentItemIsAudiobook,
                let bookID = player.currentBookID, let song = player.currentSong {
                 Divider()
                 SpokenWordIntroOutroMenu(bookID: bookID, song: song)
@@ -626,17 +628,18 @@ struct SpokenWordActionTiles: View {
 
     /// 书是「目录」;播客打开的是节目说明(有章节时还有章节、书签)。
     private var contentsTile: some View {
-        Button(action: onContents) {
+        let offersNotes = SpokenWordPlayerText.offersPodcastNotes(player)
+        return Button(action: onContents) {
             tile {
-                Image(systemName: isPodcast ? "text.alignleft" : "list.bullet")
+                Image(systemName: offersNotes ? "text.alignleft" : "list.bullet")
                     .font(iconFont)
                     .foregroundStyle(palette.primary)
             } caption: {
-                Text(isPodcast ? "podcast_player_notes_short" : "spoken_word_contents_title")
+                Text(offersNotes ? "podcast_player_notes_short" : "spoken_word_contents_title")
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(isPodcast ? "podcast_show_notes" : "spoken_word_contents_title"))
+        .accessibilityLabel(Text(offersNotes ? "podcast_show_notes" : "spoken_word_contents_title"))
     }
 
     private func tile<Icon: View, Caption: View>(

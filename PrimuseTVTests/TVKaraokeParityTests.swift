@@ -250,6 +250,93 @@ final class TVKaraokeParityTests: XCTestCase {
         XCTAssertNil(ring.readLatest(4))
     }
 
+    func testLiveVoicePrimesAfterSilenceAndDropsStaleOrBackloggedAudio() {
+        let ring = TVKaraokeVoiceBuffer()
+        let size = KaraokeMicLink.VoiceCodec.frameCount
+        var output = [Float](repeating: 0, count: size)
+        func append(_ sample: Int16, at time: UInt64 = 1) {
+            ring.append([Int16](repeating: sample, count: size), arrival: time)
+        }
+        func read(at time: UInt64 = 1) -> Int {
+            output.withUnsafeMutableBufferPointer { ring.read(into: $0.baseAddress!, count: size, now: time) }
+        }
+
+        append(100)
+        XCTAssertEqual(read(), 0)
+        append(200)
+        XCTAssertEqual(read(), size)
+        XCTAssertEqual(output[0], Float(100) / 65536)
+        XCTAssertEqual(read(), size)
+        XCTAssertEqual(read(), 0)
+        append(300)
+        XCTAssertEqual(read(), 0)
+        append(400)
+        XCTAssertEqual(read(at: 200_000_001), 0)
+
+        for value in 1...32 { append(Int16(value * 300), at: 210_000_001) }
+        XCTAssertEqual(read(at: 210_000_001), size)
+        XCTAssertGreaterThan(output[0], Float(3000) / 65536)
+        for _ in 0..<32 { append(.min, at: 220_000_001) }
+        XCTAssertEqual(read(at: 220_000_001), size)
+        XCTAssertLessThanOrEqual(abs(output[0]), 0.4)
+    }
+
+    func testLiveVoiceHandlesWiFiPacketBurstsAndBatchedHDMIRenders() {
+        let ring = TVKaraokeVoiceBuffer()
+        let size = KaraokeMicLink.VoiceCodec.frameCount
+        let packet = [Int16](repeating: 10_000, count: size)
+        var output = [Float](repeating: 0, count: size)
+        var frames = 0
+        for clock in stride(from: 0, to: 3000, by: 20) {
+            let now = UInt64(clock) * 1_000_000 + 1000
+            if clock % 60 == 0 {
+                for _ in 0..<6 { ring.append(packet, arrival: now) }
+            }
+            for subBlock in 0..<2 {
+                frames += output.withUnsafeMutableBufferPointer {
+                    ring.read(into: $0.baseAddress!, count: size, now: now + UInt64(subBlock) * 100_000)
+                }
+            }
+        }
+        XCTAssertEqual(frames, 3 * KaraokeMicLink.VoiceCodec.sampleRate)
+    }
+
+    func testMicrophoneOnlyOffersLiveVoiceToCapablePhonesAndKeepsScoringAfterMute() async throws {
+        let server = TVKaraokeMicServer()
+        server.start()
+        defer { server.stop() }
+        for _ in 0..<100 where server.endpoint == nil { try await Task.sleep(for: .milliseconds(25)) }
+        let endpoint = try XCTUnwrap(server.endpoint)
+        let port = try XCTUnwrap(NWEndpoint.Port(rawValue: endpoint.port))
+        let phone = NWConnection(host: "127.0.0.1", port: port, using: .tcp)
+        phone.start(queue: DispatchQueue(label: "TVKaraokeParityTests.voice-control"))
+        defer { phone.cancel() }
+        func send(_ message: KaraokeMicLink.PhoneMessage) {
+            phone.send(content: KaraokeMicLink.encode(message), completion: .idempotent)
+        }
+        var sungNote: Double?
+        server.onReading = { sungNote = $0 }
+        send(.hello(version: 1, key: endpoint.key, deviceName: "Test phone"))
+        send(.reading(sequence: 0, midiNote: 64))
+        for _ in 0..<100 where sungNote == nil { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertEqual(sungNote, 64)
+        server.setLiveVoiceEnabled(true)
+        XCTAssertFalse(server.isLiveVoiceEnabled)
+
+        send(.liveVoiceCapable)
+        for _ in 0..<100 where !server.supportsLiveVoice { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertTrue(server.supportsLiveVoice)
+        XCTAssertFalse(server.isLiveVoiceEnabled)
+        server.setLiveVoiceEnabled(true)
+        XCTAssertTrue(server.isLiveVoiceEnabled)
+        server.setLiveVoiceEnabled(false)
+        send(.reading(sequence: 1, midiNote: 67))
+        for _ in 0..<100 where sungNote != 67 { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertFalse(server.isLiveVoiceEnabled)
+        XCTAssertTrue(server.supportsLiveVoice)
+        XCTAssertEqual(sungNote, 67)
+    }
+
     func testPhoneSilenceEngagesAssistAndVoiceOrStaleLinkStandsDown() async throws {
         let f = try await Fixture()
         try await f.begin()

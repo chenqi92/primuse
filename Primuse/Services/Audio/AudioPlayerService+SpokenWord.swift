@@ -1205,7 +1205,7 @@ extension AudioPlayerService {
     private func adjacentBookQueueIndex(offset: Int) -> Int? {
         guard let song = currentSong else { return nil }
         // 播客单集不按节目划成书:队列里挨着的单集就是上一集 / 下一集,哪档节目都行。
-        if PodcastPlaybackSong.isEpisode(song) {
+        if listeningSpace(of: song) == .podcast {
             let index = queueEntries.indices.contains(currentIndex) && queueEntries[currentIndex].song.id == song.id
                 ? currentIndex
                 : queueEntries.firstIndex { $0.song.id == song.id }
@@ -1214,7 +1214,7 @@ extension AudioPlayerService {
                 currentIndex: index,
                 offset: offset,
                 count: queueEntries.count
-            ) { PodcastPlaybackSong.isEpisode(self.queueEntries[$0].song) }
+            ) { self.listeningSpace(of: self.queueEntries[$0].song) == .podcast }
         }
         guard let targetID = SpokenWordBookNavigationPolicy.adjacentItemID(
                   from: song.id,

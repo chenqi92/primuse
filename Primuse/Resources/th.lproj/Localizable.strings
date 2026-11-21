@@ -5278,14 +5278,18 @@
 "karaoke_ai_word_timing" = "จังหวะคำประมาณโดย AI";
 "karaoke_tv_unsupported" = "รูปแบบของเพลงนี้ลดเสียงร้องบน Apple TV ไม่ได้";
 "karaoke_tv_scan_title" = "ร้องด้วย iPhone";
-"karaoke_tv_scan_hint" = "สแกนด้วยกล้อง iPhone จะให้คะแนนการร้อง เสียงของคุณไม่ออกทางทีวี";
+"karaoke_tv_scan_hint" = "สแกนรหัสด้วยกล้อง iPhone เพื่อรับคะแนนการร้องเพลง เมื่อเชื่อมต่อแล้ว คุณสามารถเปิดเสียงร้องของคุณผ่านทีวีได้";
+"karaoke_tv_live_voice" = "เล่นเสียงร้องของฉันผ่านทีวี";
 "karaoke_tv_mic_connected_format" = "%@ เชื่อมต่อแล้ว";
 "karaoke_remote_title" = "ไมค์สำหรับ Apple TV";
 "karaoke_remote_connecting" = "กำลังเชื่อมต่อ Apple TV…";
 "karaoke_remote_connected" = "เชื่อมต่อแล้ว เริ่มร้องได้เลย";
 "karaoke_remote_rejected" = "Apple TV ไม่รับรหัสนี้ สแกนรหัสบนทีวีอีกครั้ง";
 "karaoke_remote_failed" = "เชื่อมต่อ Apple TV ไม่ได้ ตรวจสอบว่าอยู่ในเครือข่ายเดียวกัน";
-"karaoke_remote_hint" = "ถือ iPhone ไว้ใกล้ปาก เสียงร้องได้ยินในห้องตามปกติ iPhone แค่ให้คะแนน";
+"karaoke_remote_hint" = "ถือ iPhone ไว้ใกล้ปาก";
+"karaoke_remote_live_hint" = "กำลังส่งเสียงร้องของคุณไปยังทีวี";
+"karaoke_live_request" = "ส่งเสียงร้องของคุณไปยัง Apple TV เครื่องนี้หรือไม่";
+"karaoke_live_allow" = "ส่งเสียงร้องของฉัน";
 "karaoke_tv_ai_local" = "แยกเสียงด้วย AI บน Apple TV";
 "karaoke_tv_ai_local_hint" = "Apple TV เครื่องนี้จะแยกเสียงร้องเอง บน Apple TV ใช้ได้เฉพาะวิธีที่ช้ากว่า หนึ่งเพลงจึงอาจใช้เวลานาน หากต้องการให้เร็วขึ้น ให้สแกนโค้ดเพื่อใช้ iPhone เป็นไมโครโฟนแล้วให้ iPhone แยกเสียงแทน";
 "karaoke_tv_ai_active" = "ใช้การแยกเสียงร้องด้วย AI จาก iPhone อยู่";
@@ -5924,7 +5928,7 @@
 "podcast_mark_played" = "ทำเครื่องหมายว่าฟังแล้ว";
 "podcast_mark_unplayed" = "ทำเครื่องหมายว่ายังไม่ได้ฟัง";
 "podcast_my_shows" = "รายการ";
-"podcast_local_shows" = "ไฟล์ของฉัน";
+"podcast_local_shows" = "รายการในคลัง";
 "podcast_local_episode_count %lld" = "%lld ตอน";
 "podcast_new_episodes_count %lld" = "%lld ตอนใหม่";
 "podcast_no_episodes" = "ยังไม่มีตอน";
@@ -7984,12 +7988,6 @@
 "scrape_progress_capsule_failed" = "เขียนไม่สำเร็จ · แตะเพื่อดู";
 "scrape_progress_embed_failed" = "ไม่สามารถฝังภาพปกลงในไฟล์เสียงได้";
 "scrape_progress_source_timeout" = "แหล่งเพลงไม่ตอบสนองภายใน 30 วินาที ภาพปกถูกบันทึกไว้ในอุปกรณ์นี้เท่านั้น";
-"playback_app_volume" = "ระดับเสียงในแอป";
-"playback_app_volume_desc" = "เมื่อเปิด แถบปรับเสียงในหน้าจอเล่นจะปรับระดับเสียงของ Primuse เอง และลดเสียงให้เบากว่าระดับเสียงของระบบได้อีก เหมาะเมื่อระดับต่ำสุดของระบบยังดังเกินไป ระดับเสียงของระบบและแอปอื่นไม่ได้รับผลกระทบ และปุ่มปรับเสียงยังคงปรับระดับเสียงของระบบ เพลงจาก Apple Music และขณะแคสต์ไปยังอุปกรณ์อื่นจะยังแสดงแถบเสียงของระบบ";
-"playback_app_volume_high_fidelity_note" = "ความเที่ยงตรงสูงโดยตรงไม่ผ่านมิกเซอร์ ระดับเสียงในแอปจึงไม่มีผล เปลี่ยนกลับเป็นเอฟเฟกต์และการประมวลผลเพื่อใช้งาน";
-"scrobble_lb_server_placeholder" = "URL เซิร์ฟเวอร์ (เว้นว่างเพื่อใช้ listenbrainz.org)";
-"scrobble_lb_server_invalid" = "URL เซิร์ฟเวอร์ไม่ถูกต้อง";
-"scrobble_lb_server_footer" = "หากใช้เซิร์ฟเวอร์ที่โฮสต์เองซึ่งรองรับ ListenBrainz เช่น Maloja, Koito หรือ multi-scrobbler ให้ป้อน URL ของ API และใช้โทเค็นจากเซิร์ฟเวอร์นั้น";
 
 "lyrics_versions_title" = "เวอร์ชันเนื้อเพลง";
 "lyrics_versions_external" = "ภายนอก";
@@ -8004,3 +8002,12 @@
 "lyrics_versions_hide_all" = "ซ่อนทุกเวอร์ชันใน Primuse";
 "lyrics_versions_remove_one_confirm" = "นำ “%@” ออกหรือไม่";
 "lyrics_versions_remove_all_confirm" = "นำเนื้อเพลงทั้ง %lld เวอร์ชันออกหรือไม่";
+"tag_editor_picture_use_for_display" = "ใช้เป็นภาพปกเพลง";
+"artwork_choose_image_file" = "เลือกจากไฟล์";
+"tag_editor_picture_next" = "รูปถัดไป";
+"playback_app_volume" = "ระดับเสียงในแอป";
+"playback_app_volume_desc" = "เมื่อเปิด แถบปรับเสียงในหน้าจอเล่นจะปรับระดับเสียงของ Primuse เอง และลดเสียงให้เบากว่าระดับเสียงของระบบได้อีก เหมาะเมื่อระดับต่ำสุดของระบบยังดังเกินไป ระดับเสียงของระบบและแอปอื่นไม่ได้รับผลกระทบ และปุ่มปรับเสียงยังคงปรับระดับเสียงของระบบ เพลงจาก Apple Music และขณะแคสต์ไปยังอุปกรณ์อื่นจะยังแสดงแถบเสียงของระบบ";
+"playback_app_volume_high_fidelity_note" = "ความเที่ยงตรงสูงโดยตรงไม่ผ่านมิกเซอร์ ระดับเสียงในแอปจึงไม่มีผล เปลี่ยนกลับเป็นเอฟเฟกต์และการประมวลผลเพื่อใช้งาน";
+"scrobble_lb_server_placeholder" = "URL เซิร์ฟเวอร์ (เว้นว่างเพื่อใช้ listenbrainz.org)";
+"scrobble_lb_server_invalid" = "URL เซิร์ฟเวอร์ไม่ถูกต้อง";
+"scrobble_lb_server_footer" = "หากใช้เซิร์ฟเวอร์ที่โฮสต์เองซึ่งรองรับ ListenBrainz เช่น Maloja, Koito หรือ multi-scrobbler ให้ป้อน URL ของ API และใช้โทเค็นจากเซิร์ฟเวอร์นั้น";

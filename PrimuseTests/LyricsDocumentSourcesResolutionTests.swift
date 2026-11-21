@@ -418,10 +418,16 @@ final class LyricsDocumentSourcesResolutionTests: XCTestCase {
         sources.add(source)
         let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
         library.addSongs([song])
-        addTeardownBlock {
-            _ = await library.persistIncrementalNowAndWait()
+        var retainedLibrary: MusicLibrary? = library
+        addTeardownBlock { @MainActor [weak library] in
+            try await retainedLibrary?.persistNowAndWait().get()
+            await retainedLibrary?.waitForPendingIndex()
+            retainedLibrary = nil
             LyricsDocumentPinStore.shared.clearPin(forSongID: song.id)
             await MetadataAssetStore.shared.invalidateCaches(forSongIDs: [song.id])
+            guard library == nil else {
+                return XCTFail("The test library is still open at \(directory.path)")
+            }
             try FileManager.default.removeItem(at: directory)
         }
 

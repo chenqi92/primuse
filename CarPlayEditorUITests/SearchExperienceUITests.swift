@@ -428,6 +428,105 @@ final class MediaVersionDeviceUITests: XCTestCase {
         add(attachment)
     }
 
+    private func checkDisplayPicture(in app: XCUIApplication, expectsReplacement: Bool) {
+        let result = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", title, "Editor QA")
+        ).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 15))
+        let expected = expectsReplacement ? (239, 187, 68) : (177, 58, 87)
+        func showsExpectedColor() -> Bool? {
+            guard let image = result.screenshot().image.cgImage else { return nil }
+            let width = 128, height = 28
+            var rgba = [UInt8](repeating: 0, count: width * height * 4)
+            return rgba.withUnsafeMutableBytes { storage in
+                guard let context = CGContext(data: storage.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                              bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+                context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+                let bytes = storage.bindMemory(to: UInt8.self)
+                let matchingPixels = stride(from: 0, to: bytes.count, by: 4).filter {
+                    abs(Int(bytes[$0]) - expected.0) < 25 && abs(Int(bytes[$0 + 1]) - expected.1) < 25
+                        && abs(Int(bytes[$0 + 2]) - expected.2) < 25
+                }.count
+                return matchingPixels > 25
+            }
+        }
+        let deadline = Date().addingTimeInterval(12)
+        var matches = showsExpectedColor()
+        while matches != true && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+            matches = showsExpectedColor()
+        }
+        XCTAssertEqual(matches, true)
+        let attachment = XCTAttachment(screenshot: result.screenshot())
+        attachment.name = expectsReplacement ? "song-row-selected-gold-cover" : "song-row-original-cover"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testReplaceMiddlePictureWithoutChoosingDisplayArtwork() throws {
+        let app = try openFixture(scan: true)
+        openEditor("编辑标签", in: app)
+        let stack = element("tagEditor.cover.next", app)
+        XCTAssertTrue(stack.waitForExistence(timeout: 20))
+        XCTAssertEqual(stack.value as? String, "1/3")
+        stack.tap()
+        XCTAssertTrue(waitUntil(stack, "value == %@", "2/3"))
+        record(app, name: "middle-picture-before")
+        element("tagEditor.cover.replace", app).tap()
+        element("tagEditor.cover.chooseFile", app).tap()
+        pickReplacement(in: app)
+        let save = app.navigationBars.buttons["保存"]
+        XCTAssertTrue(waitUntil(save, "enabled == true"))
+        XCTAssertEqual(stack.value as? String, "2/3")
+        record(app, name: "middle-picture-after")
+        save.tap()
+        XCTAssertTrue(stack.waitForNonExistence(timeout: 30))
+        checkDisplayPicture(in: app, expectsReplacement: false)
+        openEditor("编辑标签", in: app)
+        XCTAssertTrue(stack.waitForExistence(timeout: 20))
+        XCTAssertEqual(stack.value as? String, "1/3")
+        stack.tap()
+        XCTAssertTrue(waitUntil(stack, "value == %@", "2/3"))
+        record(app, name: "middle-picture-reopened")
+        stack.tap()
+        XCTAssertTrue(waitUntil(stack, "value == %@", "3/3"))
+        stack.tap()
+        XCTAssertTrue(waitUntil(stack, "value == %@", "1/3"))
+        app.navigationBars.buttons["取消"].tap()
+    }
+
+    private func pickReplacement(in app: XCUIApplication) {
+        func item(_ name: String) -> XCUIElement {
+            app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@ OR label BEGINSWITH %@",
+                                                                                name, name + "，", name + ",")).firstMatch
+        }
+        let image = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label MATCHES %@", #"Replacement(\.png)?([，,].*)?"#)
+        ).firstMatch
+        let browse = app.buttons["浏览"].firstMatch
+        var enteredFixture = app.navigationBars["MediaVersionsQA"].exists
+        if !enteredFixture, browse.waitForExistence(timeout: 4), browse.isHittable { browse.tap() }
+        for _ in 0..<5 {
+            if enteredFixture { break }
+            if item("MediaVersionsQA").exists, item("MediaVersionsQA").isHittable {
+                item("MediaVersionsQA").tap()
+                enteredFixture = true
+                break
+            }
+            if item("Primuse").exists, item("Primuse").isHittable { item("Primuse").tap(); continue }
+            let device = item("我的 iPhone")
+            if device.exists && device.isHittable { device.tap(); continue }
+            if browse.exists && browse.isHittable { browse.tap(); continue }
+            let back = app.navigationBars.buttons.element(boundBy: 0)
+            if back.exists && back.label != "取消" && back.isHittable { back.tap() }
+        }
+        XCTAssertTrue(enteredFixture, "Only images in MediaVersionsQA may be selected")
+        XCTAssertTrue(image.waitForExistence(timeout: 8))
+        image.tap()
+        if app.buttons["打开"].waitForExistence(timeout: 1), app.buttons["打开"].isHittable { app.buttons["打开"].tap() }
+    }
+
     func testBrowseEditTwoVersionsAndChoosePlayback() throws {
         let app = try openFixture()
         openEditor("编辑标签", in: app)
@@ -492,6 +591,25 @@ final class MediaVersionDeviceUITests: XCTestCase {
 
     func testRemoveOneThenAllAndReopenEmptyAfterRescan() throws {
         var app = try openFixture()
+        openEditor("编辑标签", in: app)
+        let stack = element("tagEditor.cover.next", app)
+        XCTAssertTrue(stack.waitForExistence(timeout: 15))
+        XCTAssertEqual(stack.value as? String, "1/3")
+        stack.tap()
+        XCTAssertTrue(waitUntil(stack, "value == %@", "2/3"))
+        element("tagEditor.cover.options", app).tap()
+        element("tagEditor.cover.useForDisplay", app).tap()
+        let save = app.navigationBars.buttons["保存"]
+        XCTAssertTrue(waitUntil(save, "enabled == true"))
+        save.tap()
+        XCTAssertTrue(stack.waitForNonExistence(timeout: 25))
+        checkDisplayPicture(in: app, expectsReplacement: true)
+        openEditor("编辑标签", in: app)
+        XCTAssertTrue(stack.waitForExistence(timeout: 15))
+        XCTAssertTrue((stack.value as? String)?.hasSuffix("/3") == true)
+        record(app, name: "explicit-display-cover-reopened")
+        app.navigationBars.buttons["取消"].tap()
+
         openEditor("编辑歌词", in: app)
         openMenu(app)
         let options = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'lyrics.version.option.'"))

@@ -557,6 +557,18 @@ private struct LibraryArtworkPreviewSelection: Sendable {
     var artistFallbackSongs: [String: [Song]] = [:]
 }
 
+private enum LibraryPodcastCover: Identifiable {
+    case subscription(PodcastShow)
+    case libraryEpisode(Song)
+
+    var id: String {
+        switch self {
+        case .subscription(let show): "subscription:" + show.id
+        case .libraryEpisode(let song): "episode:" + song.id
+        }
+    }
+}
+
 struct LibraryHubStartupPreview: Codable {
     struct Scope: Codable, Equatable {
         let sources: Set<String>
@@ -1729,8 +1741,15 @@ struct LibraryView: View {
                 RadioStationArtworkView(station: station, size: 36, cornerRadius: 7)
             }
         case .podcasts:
-            overlappingPreview(Array(PodcastStore.shared.shows.prefix(3))) { show in
-                PodcastArtwork(show: show, size: 36, cornerRadius: 7)
+            overlappingPreview(podcastCovers) { cover in
+                switch cover {
+                case .subscription(let show):
+                    PodcastArtwork(show: show, size: 36, cornerRadius: 7)
+                case .libraryEpisode(let song):
+                    CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 36,
+                                      cornerRadius: 7, sourceID: song.sourceID,
+                                      filePath: song.filePath, fileFormat: song.fileFormat)
+                }
             }
         case .ambient:
             overlappingPreview(Array(library.ambientSongs.prefix(3))) { song in
@@ -1762,6 +1781,13 @@ struct LibraryView: View {
     /// 退回列表最前面三个, 扫描时每次入库预览都要来回跳一下、整排封面重新加载。
     private var hasArtworkPreviewSelection: Bool {
         !artworkPreviewSelection.revision.isEmpty
+    }
+
+    private var podcastCovers: [LibraryPodcastCover] {
+        let episodes = library.localPodcastPreviewSongs
+        let subscriptions = PodcastStore.shared.shows.prefix(episodes.isEmpty ? 3 : 2)
+        return subscriptions.map(LibraryPodcastCover.subscription)
+            + episodes.prefix(3 - subscriptions.count).map(LibraryPodcastCover.libraryEpisode)
     }
 
     private var previewSongs: [Song] {
@@ -2237,7 +2263,7 @@ struct LibraryView: View {
         case .radio:
             return countText(radioStationsStore.stations.count, unitKey: "radio_stations_count")
         case .podcasts:
-            return countText(PodcastStore.shared.shows.count, unitKey: "podcast_shows_count")
+            return countText(PodcastStore.shared.shows.count + library.localPodcastShowCount, unitKey: "podcast_shows_count")
         case .ambient:
             return count(library.ambientSongs.count, unitKey: "ambient_sounds_count")
         case .musicVideos:

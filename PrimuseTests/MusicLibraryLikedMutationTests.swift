@@ -1346,6 +1346,35 @@ final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
         }
     }
 
+    func testChoosingSongCoverUpdatesAlbumRowDespitePendingFolderCover() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseChosenSongCover-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        var first = Song(id: "one", title: "One", albumTitle: "Album", artistName: "Artist",
+                         trackNumber: 1, fileFormat: .m4a, filePath: "/Album/One.m4a", sourceID: "local")
+        first.coverArtFileName = "/Album/cover.jpg"
+        var second = Song(id: "two", title: "Two", albumTitle: "Album", artistName: "Artist",
+                          trackNumber: 2, fileFormat: .m4a, filePath: "/Album/Two.m4a", sourceID: "local")
+        second.coverArtFileName = first.coverArtFileName
+        library.addSongs([first, second], affectedSourceIDs: ["local"])
+        await library.waitForPendingIndex()
+        let edited = try XCTUnwrap(library.song(id: second.id))
+        let albumID = try XCTUnwrap(edited.albumID)
+        XCTAssertEqual(library.songs(forAlbum: albumID).map(\.coverArtFileName), [first.coverArtFileName, second.coverArtFileName])
+
+        library.updateAssetReferences(songID: second.id, coverRef: "/Album/folder.jpg", lyricsRef: "/Album/Two.lrc")
+        let selected = "selected-" + String(repeating: "a", count: 64) + ".jpg"
+        library.replaceSong(edited, choosingCover: selected)
+
+        let rows = library.songs(forAlbum: albumID)
+        XCTAssertEqual(rows.map(\.coverArtFileName), [first.coverArtFileName, selected])
+        XCTAssertEqual(rows.last?.lyricsFileName, "/Album/Two.lrc")
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The selected cover did not finish persistence")
+        }
+    }
+
     /// A3: 派生索引落地改成"整组查找表一次换掉 + 旧的一组交给回收队列"。
     /// 换完之后每一个查找器都必须解析出和换之前一样的结果; 封面回退映射没变
     /// 的那次重建不能再 bump `albumArtworkLookupRevision`。

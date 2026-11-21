@@ -1,7 +1,9 @@
 #if os(iOS)
+import AVFoundation
 import Network
 import PrimuseKit
 import SwiftUI
+import Synchronization
 import UIKit
 
 /// `primuse://karaoke-mic` from an Apple TV's karaoke stage.
@@ -10,9 +12,8 @@ struct KaraokeRemoteMicTarget: Identifiable {
     let endpoint: KaraokeMicLink.Endpoint
 }
 
-/// The iPhone as the singing microphone for an Apple TV: it listens, works
-/// out the sung pitch and sends only that to the TV, which scores it. The
-/// voice itself is heard in the room as usual.
+/// The iPhone sends pitch for scoring; live vocals require a TV request
+/// and consent on this phone.
 @MainActor
 @Observable
 final class KaraokeRemoteMicController {
@@ -30,6 +31,13 @@ final class KaraokeRemoteMicController {
     private(set) var isTVPlaying = false
     private(set) var score: Int?
     private(set) var currentNote: Double?
+    private(set) var sendsLiveVoice = false
+    struct VoiceRequest: Identifiable, Equatable {
+        let port: UInt16
+        let token: String
+        var id: String { token }
+    }
+    var presentedVoiceRequest: VoiceRequest?
 
     /// The AI vocal this phone provides for the TV's current song.
     enum StemStatus: Equatable {
@@ -52,6 +60,10 @@ final class KaraokeRemoteMicController {
     @ObservationIgnored private let microphone = KaraokeMicrophone()
     @ObservationIgnored private var connection: NWConnection?
     @ObservationIgnored private var tickTask: Task<Void, Never>?
+    @ObservationIgnored private var startTask: Task<Void, Never>?
+    @ObservationIgnored private var voiceSender: KaraokeVoiceSender?
+    @ObservationIgnored private var voiceRequest: VoiceRequest?
+    @ObservationIgnored private var allowsLiveVoice = false
     @ObservationIgnored private var sequence = 0
     @ObservationIgnored private var detector: KaraokePitchDetector?
     @ObservationIgnored private var isAnalyzing = false
@@ -62,37 +74,57 @@ final class KaraokeRemoteMicController {
     }
 
     func start() {
-        guard state == .starting else { return }
-        Task { @MainActor in
+        guard state == .starting, startTask == nil else { return }
+        startTask = Task { @MainActor in
             do {
-                try await microphone.start()
+                try await microphone.start(forRemoteStage: true)
             } catch KaraokeMicrophone.StartError.permissionDenied {
+                guard !Task.isCancelled else { return }
                 state = .micDenied
                 return
             } catch {
+                guard !Task.isCancelled else { return }
                 plog("⚠️ Karaoke remote mic: microphone failed: \(error.localizedDescription)")
                 state = .failed
                 return
             }
+            guard !Task.isCancelled else { return }
             connect()
         }
     }
 
     func stop() {
+        startTask?.cancel()
+        startTask = nil
+        allowsLiveVoice = false
+        stopLiveVoice()
         tickTask?.cancel()
         tickTask = nil
         stemTask?.cancel()
         stemTask = nil
         uploadConnection?.cancel()
         uploadConnection = nil
-        if let connection {
-            connection.send(
-                content: KaraokeMicLink.encode(KaraokeMicLink.PhoneMessage.goodbye),
-                completion: .contentProcessed { _ in connection.cancel() }
-            )
-        }
+        connection?.cancel()
         connection = nil
         microphone.stop()
+    }
+
+    func suspend() {
+        stop()
+        state = .starting
+        currentNote = nil
+        score = nil
+        songTitle = ""
+        tvSongID = nil
+        sentSongID = nil
+        stemStatus = .none
+    }
+
+    func refreshInput(changedEngine: AVAudioEngine? = nil) {
+        guard state == .connected || state == .connecting,
+              microphone.remoteInputNeedsRestart(changedEngine: changedEngine) else { return }
+        suspend()
+        start()
     }
 
     private func connect() {
@@ -102,8 +134,12 @@ final class KaraokeRemoteMicController {
         }
         state = .connecting
         let connection = NWConnection(host: NWEndpoint.Host(endpoint.host), port: port, using: .tcp)
-        connection.stateUpdateHandler = { [weak self] update in
-            Task { @MainActor [weak self] in self?.connectionChanged(update) }
+        connection.stateUpdateHandler = { [weak self, weak connection] update in
+            guard let connection else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.connection === connection else { return }
+                self.connectionChanged(update)
+            }
         }
         connection.start(queue: queue)
         self.connection = connection
@@ -121,8 +157,7 @@ final class KaraokeRemoteMicController {
             connection?.send(content: KaraokeMicLink.encode(hello), completion: .idempotent)
         case .failed, .cancelled:
             if state == .connecting || state == .connected { state = .failed }
-            tickTask?.cancel()
-            tickTask = nil
+            stop()
         default:
             break
         }
@@ -138,6 +173,7 @@ final class KaraokeRemoteMicController {
                 }
                 if isComplete || error != nil {
                     if self.state == .connected { self.state = .failed }
+                    self.stop()
                     return
                 }
                 self.receive(on: connection, framer: framer)
@@ -148,8 +184,29 @@ final class KaraokeRemoteMicController {
     private func handle(_ message: KaraokeMicLink.TVMessage) {
         switch message {
         case .accepted:
+            guard state == .connecting else { return }
             state = .connected
+            if microphone.usesLiveInput {
+                send(.liveVoiceCapable)
+            }
             startStreaming()
+        case .liveVoice(let port, let token):
+            guard state == .connected, microphone.usesLiveInput else { return }
+            let request = VoiceRequest(port: port, token: token)
+            guard voiceRequest != request else { return }
+            stopLiveVoice()
+            guard port > 0, UUID(uuidString: token) != nil else {
+                send(.liveVoiceFailed(token: token))
+                return
+            }
+            voiceRequest = request
+            if allowsLiveVoice {
+                allowVoice(request)
+            } else {
+                presentedVoiceRequest = request
+            }
+        case .stopLiveVoice:
+            stopLiveVoice()
         case .rejected:
             state = .rejected
             stop()
@@ -162,6 +219,47 @@ final class KaraokeRemoteMicController {
             provideStem()
         case .stemReceived(let songID):
             if songID == tvSongID { stemStatus = .sent }
+        }
+    }
+
+    private func send(_ message: KaraokeMicLink.PhoneMessage) {
+        connection?.send(content: KaraokeMicLink.encode(message), completion: .idempotent)
+    }
+
+    private func stopLiveVoice() {
+        voiceRequest = nil
+        presentedVoiceRequest = nil
+        voiceSender?.stop()
+        voiceSender = nil
+        sendsLiveVoice = false
+    }
+
+    func declineVoice(_ request: VoiceRequest) {
+        guard voiceRequest == request else { return }
+        stopLiveVoice()
+        send(.liveVoiceFailed(token: request.token))
+    }
+
+    func allowVoice(_ request: VoiceRequest) {
+        guard voiceRequest == request, state == .connected, voiceSender == nil else { return }
+        presentedVoiceRequest = nil
+        allowsLiveVoice = true
+        guard let sender = KaraokeVoiceSender(
+            host: endpoint.host, port: request.port, token: request.token,
+            ring: microphone.ring, sampleRate: microphone.sampleRate,
+            hardwareBufferDuration: AVAudioSession.sharedInstance().ioBufferDuration,
+            inputCadence: microphone.inputCadence
+        ) else {
+            declineVoice(request)
+            return
+        }
+        voiceSender = sender
+        send(.liveVoiceStarting(token: request.token))
+        sender.start { [weak self] ready in
+            Task { @MainActor [weak self] in
+                guard let self, self.voiceRequest == request else { return }
+                if ready { self.sendsLiveVoice = true } else { self.declineVoice(request) }
+            }
         }
     }
 
@@ -300,6 +398,7 @@ final class KaraokeRemoteMicController {
             }.value
             guard let self else { return }
             self.isAnalyzing = false
+            guard self.connection === connection, self.state == .connected else { return }
             // No fresh audio yet: nothing to report.
             guard case .some(let reading) = note else { return }
             self.currentNote = reading
@@ -310,9 +409,219 @@ final class KaraokeRemoteMicController {
     }
 }
 
+/// The capture callback only writes the existing ring. Conversion, encryption
+/// and network I/O run on one serial queue with a bounded playout horizon.
+private final class KaraokeVoiceSender: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "primuse.karaoke-live-voice", qos: .userInitiated)
+    private let ring: KaraokeSampleRing
+    private let inputCadence: KaraokeInputCadence
+    private let codec: KaraokeMicLink.VoiceCodec
+    private let connection: NWConnection
+    private let converter: AVAudioConverter
+    private let input: AVAudioPCMBuffer
+    private let output: AVAudioPCMBuffer
+    private let maximumBacklog: Int
+    private let stopped = Atomic<Bool>(false)
+    private let context = NWConnection.ContentContext(identifier: "live-voice", expiration: 35)
+    private var cursor: Int
+    private var timer: DispatchSourceTimer?
+    private var inflight = 0
+    private var sequence: UInt32 = 0
+    private var frame = [Int16](repeating: 0, count: KaraokeMicLink.VoiceCodec.frameCount)
+    private var filled = 0
+    private var suppliedInput = false
+    private var reportedFirstSend = false
+    private var onStatus: (@Sendable (Bool) -> Void)?
+    private var measurement: CadenceMeasurement?
+
+    private struct CadenceMeasurement {
+        let start = DispatchTime.now().uptimeNanoseconds
+        let firstInputFrame: Int
+        let firstInputBlock: Int
+        var lastSend: UInt64?
+        var maxGap: UInt64 = 0
+        var shortGaps = 0
+        var longGaps = 0
+        var sent = 0
+        var trimmedFrames = 0
+        var backpressuredFrames = 0
+        var maxBacklog = 0
+
+        mutating func recordSend() {
+            let now = DispatchTime.now().uptimeNanoseconds
+            if let lastSend {
+                let gap = now - lastSend
+                maxGap = max(maxGap, gap)
+                if gap < 5_000_000 { shortGaps += 1 }
+                if gap >= 20_000_000 { longGaps += 1 }
+            }
+            lastSend = now
+            sent += 1
+        }
+    }
+
+    init?(host: String, port: UInt16, token: String, ring: KaraokeSampleRing, sampleRate: Double,
+          hardwareBufferDuration: Double, inputCadence: KaraokeInputCadence) {
+        let rate = Double(KaraokeMicLink.VoiceCodec.sampleRate)
+        guard let port = NWEndpoint.Port(rawValue: port), (8_000...192_000).contains(sampleRate),
+              let source = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+              let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: rate, channels: 1, interleaved: false),
+              let input = AVAudioPCMBuffer(pcmFormat: source, frameCapacity: AVAudioFrameCount(ceil(sampleRate * 0.010))),
+              let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: AVAudioFrameCount(rate * 0.05)),
+              let converter = AVAudioConverter(from: source, to: target) else { return nil }
+        self.ring = ring
+        self.inputCadence = inputCadence
+        self.input = input
+        self.output = output
+        self.converter = converter
+        // Some audio routes deliver a larger hardware block even when the
+        // preferred I/O duration is short. Drain that block across ticks.
+        let horizon = min(0.12, max(0.035, hardwareBufferDuration + 0.015))
+        maximumBacklog = Int(ceil(sampleRate * horizon))
+        converter.primeMethod = .none
+        cursor = ring.totalWritten
+        codec = KaraokeMicLink.VoiceCodec(token: token)
+        let parameters = NWParameters.udp
+        parameters.serviceClass = .interactiveVoice
+        connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: parameters)
+    }
+
+    func start(onStatus: @escaping @Sendable (Bool) -> Void) {
+        queue.async { [weak self] in
+            guard let self, !self.stopped.load(ordering: .acquiring) else { return }
+            self.onStatus = onStatus
+            self.connection.stateUpdateHandler = { [weak self] state in
+                guard let self, !self.stopped.load(ordering: .acquiring) else { return }
+                switch state {
+                case .ready:
+                    guard self.timer == nil else { return }
+                    self.cursor = self.ring.totalWritten
+                    self.measurement = CadenceMeasurement(firstInputFrame: self.cursor, firstInputBlock: self.inputCadence.blockCount)
+                    // Pace the packets even when a hardware callback supplies
+                    // several packets' worth of samples at once.
+                    let timer = DispatchSource.makeTimerSource(flags: .strict, queue: self.queue)
+                    timer.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .microseconds(300))
+                    timer.setEventHandler { [weak self] in self?.drain() }
+                    self.timer = timer
+                    timer.resume()
+                case .failed, .cancelled:
+                    self.fail()
+                default:
+                    break
+                }
+            }
+            self.connection.start(queue: self.queue)
+        }
+    }
+
+    func stop() {
+        stopped.store(true, ordering: .releasing)
+        connection.cancel()
+        queue.async { [self] in
+            reportCadenceIfNeeded(finishing: true)
+            timer?.cancel()
+            timer = nil
+            onStatus = nil
+        }
+    }
+
+    private func fail() {
+        guard !stopped.load(ordering: .acquiring) else { return }
+        onStatus?(false)
+        stop()
+    }
+
+    private func drain() {
+        guard !stopped.load(ordering: .acquiring), let destination = input.floatChannelData?[0] else { return }
+        let end = ring.totalWritten
+        reportCadenceIfNeeded(finishing: false)
+        guard end > cursor else { return }
+        if let maxBacklog = measurement?.maxBacklog, end - cursor > maxBacklog { measurement?.maxBacklog = end - cursor }
+        // After a scheduling stall or network backpressure, resume at live
+        // time. An old syllable delivered late is heard as an echo.
+        if inflight >= 4 {
+            measurement?.backpressuredFrames += end - cursor
+            cursor = end
+            filled = 0
+            converter.reset()
+            return
+        }
+        if end - cursor > maximumBacklog {
+            measurement?.trimmedFrames += end - cursor - maximumBacklog
+            cursor = end - maximumBacklog
+            filled = 0
+        }
+        let count = min(end - cursor, Int(input.frameCapacity))
+        let next = cursor + count
+        guard ring.copy(cursor..<next, into: destination) else { return }
+        cursor = next
+        input.frameLength = AVAudioFrameCount(count)
+        output.frameLength = 0
+        suppliedInput = false
+        let status = converter.convert(to: output, error: nil) { [self] _, status in
+            if suppliedInput {
+                status.pointee = .noDataNow
+                return nil
+            }
+            suppliedInput = true
+            status.pointee = .haveData
+            return input
+        }
+        guard status != .error, let samples = output.int16ChannelData?[0] else {
+            fail()
+            return
+        }
+        var offset = 0
+        while offset < Int(output.frameLength) {
+            let take = min(frame.count - filled, Int(output.frameLength) - offset)
+            frame.withUnsafeMutableBufferPointer {
+                $0.baseAddress!.advanced(by: filled).update(from: samples.advanced(by: offset), count: take)
+            }
+            offset += take
+            filled += take
+            if filled == frame.count {
+                sendFrame()
+                filled = 0
+            }
+        }
+    }
+
+    private func sendFrame() {
+        sequence &+= 1
+        guard inflight < 4, !stopped.load(ordering: .acquiring),
+              let packet = frame.withUnsafeBufferPointer({ codec.encode(sequence: sequence, samples: $0) }) else { return }
+        inflight += 1
+        measurement?.recordSend()
+        connection.send(content: packet, contentContext: context, completion: .contentProcessed { [weak self] error in
+            guard let self, !self.stopped.load(ordering: .acquiring) else { return }
+            self.inflight -= 1
+            if error != nil {
+                self.fail()
+            } else if !self.reportedFirstSend {
+                self.reportedFirstSend = true
+                self.onStatus?(true)
+            }
+        })
+    }
+
+    private func reportCadenceIfNeeded(finishing: Bool) {
+        guard let snapshot = measurement else { return }
+        let elapsed = DispatchTime.now().uptimeNanoseconds - snapshot.start
+        guard finishing || elapsed >= 6_000_000_000 else { return }
+        measurement = nil
+        let seconds = max(0.001, Double(elapsed) / 1_000_000_000)
+        let frames = ring.totalWritten - snapshot.firstInputFrame
+        let blocks = inputCadence.blockCount - snapshot.firstInputBlock
+        let meanFrames = blocks > 0 ? frames / blocks : 0
+        let pps = (Double(snapshot.sent) / seconds * 10).rounded() / 10
+        plog("Karaoke live voice send: elapsedMS=\(elapsed / 1_000_000) captureHz=\(Int(Double(frames) / seconds)) hardwareMeanFrames=\(meanFrames) hardwareMaxFrames=\(inputCadence.maximumFrames) packets=\(snapshot.sent) packetsPerSecond=\(pps) sendGapUnder5MS=\(snapshot.shortGaps) sendGapAtLeast20MS=\(snapshot.longGaps) maxSendGapMS=\(snapshot.maxGap / 1_000_000) maxInputBacklogFrames=\(snapshot.maxBacklog) trimmedInputFrames=\(snapshot.trimmedFrames) backpressuredInputFrames=\(snapshot.backpressuredFrames)")
+    }
+}
+
 struct KaraokeRemoteMicView: View {
     @State private var controller: KaraokeRemoteMicController
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     init(endpoint: KaraokeMicLink.Endpoint) {
         _controller = State(initialValue: KaraokeRemoteMicController(endpoint: endpoint))
@@ -367,7 +676,7 @@ struct KaraokeRemoteMicView: View {
                     }
                 }
                 Spacer()
-                Text("karaoke_remote_hint")
+                Text(controller.sendsLiveVoice ? "karaoke_remote_live_hint" : "karaoke_remote_hint")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.55))
                     .multilineTextAlignment(.center)
@@ -376,10 +685,29 @@ struct KaraokeRemoteMicView: View {
             .padding(24)
         }
         .preferredColorScheme(.dark)
+        .alert(item: Binding(get: { controller.presentedVoiceRequest }, set: { controller.presentedVoiceRequest = $0 })) { request in
+            Alert(
+                title: Text("karaoke_live_request"),
+                primaryButton: .default(Text("karaoke_live_allow")) { controller.allowVoice(request) },
+                secondaryButton: .cancel(Text("cancel")) { controller.declineVoice(request) }
+            )
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { controller.suspend() }
+            if phase == .active { controller.start() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(on: DispatchQueue.main)) { _ in
+            if scenePhase == .active { controller.refreshInput() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .AVAudioEngineConfigurationChange).receive(on: DispatchQueue.main)) { event in
+            if scenePhase == .active, let engine = event.object as? AVAudioEngine {
+                controller.refreshInput(changedEngine: engine)
+            }
+        }
         .onAppear {
             // 手机当麦克风时不锁屏；和播放时屏幕常亮各持一份，离开时不会把对方的也关掉。
             ScreenWakeLeases.update(owner: "karaokeRemoteMic", holds: true)
-            controller.start()
+            if scenePhase == .active { controller.start() }
         }
         .onDisappear {
             ScreenWakeLeases.update(owner: "karaokeRemoteMic", holds: false)

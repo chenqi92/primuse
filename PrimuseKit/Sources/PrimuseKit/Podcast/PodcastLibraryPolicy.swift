@@ -352,6 +352,13 @@ public struct PodcastLibrarySectionLayout: Equatable, Sendable {
         order.filter { !hidden.contains($0) }
     }
 
+    public func visibleSections(hasSubscriptions: Bool, hasLibraryEpisodes: Bool) -> [PodcastLibrarySection] {
+        if hasSubscriptions { return visibleSections }
+        guard hasLibraryEpisodes else { return [] }
+        // 只有资料库节目时，它们占用常驻的「我的节目」，即使先前收起了额外的资料库区块也能进入。
+        return visibleSections.filter { $0 == .myShows || $0 == .continueListening || $0 == .likedEpisodes }
+    }
+
     public var isDefault: Bool { self == Self() }
 
     public func isVisible(_ section: PodcastLibrarySection) -> Bool {

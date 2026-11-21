@@ -12,6 +12,23 @@ struct PodcastLibrarySectionLayoutTests {
         #expect(layout.encoded.isEmpty)
     }
 
+    @Test("A library with only file or server podcasts opens its shows, continue listening and liked episodes")
+    func libraryShowsWithoutSubscriptions() {
+        let layout = PodcastLibrarySectionLayout()
+        #expect(layout.visibleSections(hasSubscriptions: false, hasLibraryEpisodes: true) == [.myShows, .continueListening, .likedEpisodes])
+        #expect(layout.visibleSections(hasSubscriptions: false, hasLibraryEpisodes: false).isEmpty)
+        #expect(layout.visibleSections(hasSubscriptions: true, hasLibraryEpisodes: true) == layout.visibleSections)
+    }
+
+    @Test("Hiding library shows in a mixed library preserves the only show entry after the last unsubscribe")
+    func lastSubscriptionRemoved() {
+        var layout = PodcastLibrarySectionLayout(order: [.likedEpisodes, .myShows], hidden: [.localShows])
+        #expect(!layout.visibleSections(hasSubscriptions: true, hasLibraryEpisodes: true).contains(.localShows))
+        #expect(layout.visibleSections(hasSubscriptions: false, hasLibraryEpisodes: true) == [.likedEpisodes, .myShows, .continueListening])
+        layout.setVisible(false, for: .likedEpisodes)
+        #expect(layout.visibleSections(hasSubscriptions: false, hasLibraryEpisodes: true) == [.myShows, .continueListening])
+    }
+
     @Test("Moving liked episodes above latest episodes round-trips through storage")
     func moveRoundTrips() {
         var layout = PodcastLibrarySectionLayout()

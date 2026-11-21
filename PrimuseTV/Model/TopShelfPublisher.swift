@@ -33,8 +33,15 @@ enum TopShelfPublisher {
     }
 
     struct PodcastDraft: Sendable {
-        let episode: PodcastEpisode
-        let show: PodcastShow
+        enum Artwork: Sendable {
+            case rss(URL?)
+            case library(source: MusicSource?, reference: String?)
+        }
+
+        let id: String
+        let title: String
+        let showTitle: String
+        let artwork: Artwork
         let playbackProgress: Double?
         let lastListenedAt: Date?
         let playURL: String
@@ -60,7 +67,7 @@ enum TopShelfPublisher {
         if !bookItems.isEmpty {
             sections.append(TopShelfSection(id: "books", title: String(localized: "home_books_in_progress_title"), items: bookItems))
         }
-        let podcastItems = await podcastItems(from: podcasts)
+        let podcastItems = await podcastItems(from: podcasts, artworkSource: radioLogoSource)
         if !podcastItems.isEmpty {
             sections.append(TopShelfSection(id: "podcasts", title: String(localized: "listening_space_podcast"), items: podcastItems))
         }
@@ -148,27 +155,41 @@ enum TopShelfPublisher {
         return out
     }
 
-    private static func podcastItems(from drafts: [PodcastDraft]) async -> [TopShelfItem] {
-        let artwork = await withTaskGroup(of: (String, Data?).self) { group in
-            for draft in drafts {
-                guard let url = draft.episode.artworkURL ?? draft.show.artworkURL else { continue }
+    private static func podcastItems(
+        from drafts: [PodcastDraft],
+        artworkSource: @escaping @MainActor @Sendable (String) -> TVRadioLogoSourceContext?
+    ) async -> [TopShelfItem] {
+        await withTaskGroup(of: (Int, TopShelfItem).self) { group in
+            for (index, draft) in drafts.enumerated() {
                 group.addTask {
-                    (draft.episode.id, await TVPodcastArtworkLoader.shared.data(for: url))
+                    let id: String
+                    let image: String?
+                    switch draft.artwork {
+                    case .rss(let url):
+                        id = "podcast:" + draft.id
+                        if let url, let data = await TVPodcastArtworkLoader.shared.data(for: url) {
+                            image = writeCover(data, key: id)
+                        } else {
+                            image = nil
+                        }
+                    case .library(let source, let reference):
+                        id = "libraryPodcast:" + draft.id
+                        let data = await TVArtworkLoader.shared.songCover(
+                            songID: draft.id, coverRef: reference, source: source, credentialProvider: {
+                                guard let source, let current = await artworkSource(source.id), current.source == source else { return nil }
+                                return current.credential
+                            }
+                        )
+                        image = data.flatMap { writeCover($0, key: id) }
+                    }
+                    let item = TopShelfItem(id: id, title: draft.title, subtitle: draft.showTitle, imageFileName: image,
+                                            playURL: draft.playURL, playbackProgress: draft.playbackProgress)
+                    return (index, item)
                 }
             }
-            var images: [String: Data] = [:]
-            for await (id, data) in group { images[id] = data }
-            return images
-        }
-        guard !Task.isCancelled else { return [] }
-        return drafts.map { draft in
-            let id = "podcast:" + draft.episode.id
-            return TopShelfItem(
-                id: id, title: draft.episode.title.isEmpty ? draft.show.title : draft.episode.title,
-                subtitle: draft.show.title,
-                imageFileName: artwork[draft.episode.id].flatMap { writeCover($0, key: id) },
-                playURL: draft.playURL, playbackProgress: draft.playbackProgress
-            )
+            var items: [(Int, TopShelfItem)] = []
+            for await item in group { items.append(item) }
+            return items.sorted { $0.0 < $1.0 }.map(\.1)
         }
     }
 

@@ -5278,14 +5278,18 @@
 "karaoke_ai_word_timing" = "Kelime zamanlaması yapay zekâ tahmini";
 "karaoke_tv_unsupported" = "Bu şarkının biçiminde Apple TV’de vokal kısılamaz.";
 "karaoke_tv_scan_title" = "iPhone ile söyle";
-"karaoke_tv_scan_hint" = "Kamerayla tarayın. iPhone şarkıyı puanlar; sesiniz TV’den çalınmaz.";
+"karaoke_tv_scan_hint" = "Puanlama için kodu iPhone kameranızla tarayın. Bağlandıktan sonra sesinizi TV’den duymayı seçebilirsiniz.";
+"karaoke_tv_live_voice" = "Sesimi TV’den çal";
 "karaoke_tv_mic_connected_format" = "%@ bağlı";
 "karaoke_remote_title" = "Apple TV için mikrofon";
 "karaoke_remote_connecting" = "Apple TV’ye bağlanılıyor…";
 "karaoke_remote_connected" = "Bağlandı. Söylemeye başla.";
 "karaoke_remote_rejected" = "Apple TV bu kodu kabul etmedi. TV’deki kodu yeniden tarayın.";
 "karaoke_remote_failed" = "Apple TV’ye ulaşılamadı. İki cihazın da aynı ağda olduğundan emin olun.";
-"karaoke_remote_hint" = "iPhone’u ağzınıza yakın tutun. Sesiniz odada her zamanki gibi duyulur; iPhone yalnızca puanlar.";
+"karaoke_remote_hint" = "iPhone’u ağzınıza yakın tutun.";
+"karaoke_remote_live_hint" = "Sesiniz TV’ye gönderiliyor.";
+"karaoke_live_request" = "Sesiniz bu Apple TV’ye gönderilsin mi?";
+"karaoke_live_allow" = "Sesimi gönder";
 "karaoke_tv_ai_local" = "Apple TV’de yapay zekâ ile ayrıştırma";
 "karaoke_tv_ai_local_hint" = "Bu Apple TV vokali kendisi ayırır. Apple TV’de yalnızca daha yavaş bir yöntem kullanılabildiği için bir şarkı uzun sürebilir. Daha hızlı olması için kodu tarayıp iPhone’u mikrofon olarak kullanın ve ayırma işini iPhone yapsın.";
 "karaoke_tv_ai_active" = "iPhone’dan gelen yapay zekâ vokal ayırma açık.";
@@ -5924,7 +5928,7 @@
 "podcast_mark_played" = "Dinlendi olarak işaretle";
 "podcast_mark_unplayed" = "Dinlenmedi olarak işaretle";
 "podcast_my_shows" = "Programlar";
-"podcast_local_shows" = "Kendi Dosyalarım";
+"podcast_local_shows" = "Arşivdeki Programlar";
 "podcast_local_episode_count %lld" = "%lld bölüm";
 "podcast_new_episodes_count %lld" = "%lld yeni bölüm";
 "podcast_no_episodes" = "Henüz bölüm yok.";
@@ -7984,12 +7988,6 @@
 "scrape_progress_capsule_failed" = "Hata · Görmek için dokunun";
 "scrape_progress_embed_failed" = "Kapak ses dosyasına gömülemedi.";
 "scrape_progress_source_timeout" = "Müzik kaynağı 30 saniye içinde yanıt vermedi. Kapak yalnızca bu cihaza kaydedildi.";
-"playback_app_volume" = "Uygulama Ses Düzeyi";
-"playback_app_volume_desc" = "Açıkken oynatma ekranındaki ses kaydırıcısı Primuse'un kendi ses düzeyini ayarlar ve sesi sistem ses düzeyinin de altına indirebilir; sistemin en düşük seviyesi bile çok yüksek geldiğinde işe yarar. Sistem ses düzeyi ve diğer uygulamalar etkilenmez, ses düğmeleri sistem ses düzeyini değiştirmeye devam eder. Apple Music şarkılarında ve başka cihazlara yayın yaparken sistem kaydırıcısı gösterilir.";
-"playback_app_volume_high_fidelity_note" = "Yüksek doğruluklu doğrudan oynatma mikseri atladığı için uygulama ses düzeyi etkili olmaz. Kullanmak için Efektler ve İşleme moduna geri dönün.";
-"scrobble_lb_server_placeholder" = "Sunucu URL'si (boş bırakılırsa listenbrainz.org)";
-"scrobble_lb_server_invalid" = "Geçersiz sunucu URL'si";
-"scrobble_lb_server_footer" = "Maloja, Koito veya multi-scrobbler gibi ListenBrainz uyumlu kendi sunucunuzu kullanıyorsanız API URL'sini girin ve o sunucudan aldığınız jetonu kullanın.";
 
 "lyrics_versions_title" = "Şarkı sözü sürümleri";
 "lyrics_versions_external" = "Harici";
@@ -8004,3 +8002,12 @@
 "lyrics_versions_hide_all" = "Tüm sürümleri Primuse içinde gizle";
 "lyrics_versions_remove_one_confirm" = "“%@” kaldırılsın mı?";
 "lyrics_versions_remove_all_confirm" = "Şarkı sözlerinin %lld sürümü de kaldırılsın mı?";
+"tag_editor_picture_use_for_display" = "Şarkı kapağı olarak kullan";
+"artwork_choose_image_file" = "Dosyalar’dan Seç";
+"tag_editor_picture_next" = "Sonraki resim";
+"playback_app_volume" = "Uygulama Ses Düzeyi";
+"playback_app_volume_desc" = "Açıkken oynatma ekranındaki ses kaydırıcısı Primuse'un kendi ses düzeyini ayarlar ve sesi sistem ses düzeyinin de altına indirebilir; sistemin en düşük seviyesi bile çok yüksek geldiğinde işe yarar. Sistem ses düzeyi ve diğer uygulamalar etkilenmez, ses düğmeleri sistem ses düzeyini değiştirmeye devam eder. Apple Music şarkılarında ve başka cihazlara yayın yaparken sistem kaydırıcısı gösterilir.";
+"playback_app_volume_high_fidelity_note" = "Yüksek doğruluklu doğrudan oynatma mikseri atladığı için uygulama ses düzeyi etkili olmaz. Kullanmak için Efektler ve İşleme moduna geri dönün.";
+"scrobble_lb_server_placeholder" = "Sunucu URL'si (boş bırakılırsa listenbrainz.org)";
+"scrobble_lb_server_invalid" = "Geçersiz sunucu URL'si";
+"scrobble_lb_server_footer" = "Maloja, Koito veya multi-scrobbler gibi ListenBrainz uyumlu kendi sunucunuzu kullanıyorsanız API URL'sini girin ve o sunucudan aldığınız jetonu kullanın.";

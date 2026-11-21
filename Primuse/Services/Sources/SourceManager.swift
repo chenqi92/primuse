@@ -2217,6 +2217,10 @@ extension RoutedConnectorProxy {
         }
     }
 
+    func writeEmbeddedPictures(_ edits: [String: Data], for song: Song) async throws -> EmbeddedMetadataWritebackResult {
+        try await routing.withMutation { try await $0.writeEmbeddedPictures(edits, for: song) }
+    }
+
     func writeEmbeddedComment(
         _ comment: EmbeddedLyricsEdit,
         for song: Song
@@ -2979,11 +2983,17 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
 
 private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector,
-    ServerListeningProgressConnector, ServerChapterProvidingConnector, ServerTranscriptFileConnector {
+    ServerListeningProgressConnector, ServerChapterProvidingConnector, ServerTranscriptFileConnector, ServerPodcastNotesConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func podcastNotes(for path: String) async throws -> String? {
+        try await routing.withRead { connector in
+            try await (connector as? any ServerPodcastNotesConnector)?.podcastNotes(for: path)
+        }
+    }
 
     func fetchServerLyrics(for path: String) async -> String? {
         try? await routing.withRead { connector in
@@ -16219,6 +16229,12 @@ final class SourceManager {
         return (try? await provider.fetchServerChapters(songPath: song.filePath)) ?? []
     }
 
+    func serverPodcastNotes(for song: Song) async -> String? {
+        guard let source = await source(withID: song.sourceID),
+              let provider = connector(for: source) as? any ServerPodcastNotesConnector else { return nil }
+        return try? await provider.podcastNotes(for: song.filePath)
+    }
+
     func source(withID id: String) async -> MusicSource? {
         guard let sources = try? await sourcesProvider() else { return nil }
         return sources.first { $0.id == id }
@@ -16679,6 +16695,13 @@ final class SourceManager {
         }
     }
 
+    func writeEmbeddedPictures(_ edits: [String: Data], for song: Song) async throws -> Song {
+        guard await tagMetadataPersistenceMode(for: song) == .embedded else {
+            throw EmbeddedMetadataWritebackSourceError.unsupported
+        }
+        return try await replaceEmbeddedAssets(of: song, coverData: nil, lyrics: .keep, pictureEdits: edits)
+    }
+
     /// Stores or removes the comment inside the audio file and leaves every
     /// other tag alone. Returns the song with the replaced file's identity.
     func writeEmbeddedComment(_ comment: EmbeddedLyricsEdit, for song: Song) async throws -> Song {
@@ -16704,10 +16727,12 @@ final class SourceManager {
         of song: Song,
         coverData: Data?,
         lyrics: EmbeddedLyricsEdit,
-        comment: EmbeddedLyricsEdit = .keep
+        comment: EmbeddedLyricsEdit = .keep,
+        pictureEdits: [String: Data] = [:]
     ) async throws -> Song {
         try await replaceEmbeddedAssetsReporting(
-            of: song, coverData: coverData, lyrics: lyrics, comment: comment, policy: nil
+            of: song, coverData: coverData, lyrics: lyrics, comment: comment,
+            policy: nil, pictureEdits: pictureEdits
         ).song
     }
 
@@ -16716,7 +16741,8 @@ final class SourceManager {
         coverData: Data?,
         lyrics: EmbeddedLyricsEdit,
         comment: EmbeddedLyricsEdit = .keep,
-        policy: EmbeddedAssetWritePolicy?
+        policy: EmbeddedAssetWritePolicy?,
+        pictureEdits: [String: Data] = [:]
     ) async throws -> (song: Song, unchanged: Bool, lyricsHandling: EmbeddedAssetLyricsHandling) {
         let connector = try await connectorForSong(song)
         // The file may already have reached the replace stage when a later
@@ -16724,7 +16750,9 @@ final class SourceManager {
         defer { deleteAudioCache(for: song) }
         do {
             let result: EmbeddedMetadataWritebackResult
-            if comment == .keep, let policy {
+            if !pictureEdits.isEmpty {
+                result = try await connector.writeEmbeddedPictures(pictureEdits, for: song)
+            } else if comment == .keep, let policy {
                 result = try await connector.writeEmbeddedAssets(
                     original: song,
                     coverData: coverData,

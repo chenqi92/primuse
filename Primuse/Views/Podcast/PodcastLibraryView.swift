@@ -345,28 +345,35 @@ struct PodcastLibraryContent: View {
     private var store: PodcastStore { PodcastStore.shared }
 
     var body: some View {
+        let sections = PodcastLibrarySectionLayout.decode(sectionLayoutRawValue).visibleSections(
+            hasSubscriptions: !store.shows.isEmpty,
+            hasLibraryEpisodes: !library.localPodcastSongs.isEmpty
+        )
         Group {
             if !store.isLoaded {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 200)
-            } else if store.shows.isEmpty {
-                VStack(spacing: 20) {
-                    // 没订阅、但资料库里有自己下载的节目:先摆出来,再是发现。
-                    PodcastLocalShowsSection(navigation: navigation)
-                    PodcastWelcomeView(navigation: navigation)
-                    PodcastRegionHiddenNote()
-                }
             } else if let findQuery = LibraryFindPolicy.query(findText) {
                 let localMatches = PodcastLocalShowsSection.hasMatches(findQuery, in: library)
-                if PodcastShowsGrid.shows(matching: findQuery, in: store.shows).isEmpty, !localMatches {
+                let subscriptionMatches = !PodcastShowsGrid.shows(matching: findQuery, in: store.shows).isEmpty
+                if !subscriptionMatches && !localMatches {
                     ContentUnavailableView.search(text: findText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
                 } else {
                     VStack(alignment: .leading, spacing: 28) {
-                        PodcastLocalShowsSection(navigation: navigation, findQuery: findQuery)
-                        PodcastShowsGrid(navigation: navigation, findQuery: findQuery, organizes: onManageShows == nil)
+                        if localMatches {
+                            PodcastLocalShowsSection(navigation: navigation, findQuery: findQuery)
+                        }
+                        if subscriptionMatches {
+                            PodcastShowsGrid(navigation: navigation, findQuery: findQuery, organizes: onManageShows == nil)
+                        }
                     }
+                }
+            } else if sections.isEmpty {
+                VStack(spacing: 20) {
+                    PodcastWelcomeView(navigation: navigation)
+                    PodcastRegionHiddenNote()
                 }
             } else {
                 // 普通 VStack:惰性栈给 ForEach 的每一项都留间距,当下没内容的区块(没有听到一半的、
@@ -374,7 +381,7 @@ struct PodcastLibraryContent: View {
                 // 区块只有几块,里面的节目网格自己是惰性的。
                 VStack(alignment: .leading, spacing: 28) {
                     // 先后与显隐由「…›调整区块」定。
-                    ForEach(PodcastLibrarySectionLayout.decode(sectionLayoutRawValue).visibleSections, id: \.self) { section in
+                    ForEach(sections, id: \.self) { section in
                         sectionContent(section)
                     }
                     PodcastRegionHiddenNote()
@@ -394,7 +401,12 @@ struct PodcastLibraryContent: View {
     private func sectionContent(_ section: PodcastLibrarySection) -> some View {
         switch section {
         // 文件夹与标签只在播客页上整理;首页那一面和电台那一面一样,只摆节目。
-        case .myShows: PodcastShowsGrid(navigation: navigation, onManage: onManageShows, organizes: onManageShows == nil)
+        case .myShows:
+            if store.shows.isEmpty {
+                PodcastLocalShowsSection(navigation: navigation, titleKey: "podcast_my_shows", onManage: onManageShows)
+            } else {
+                PodcastShowsGrid(navigation: navigation, onManage: onManageShows, organizes: onManageShows == nil)
+            }
         case .continueListening: PodcastContinueListeningRow(navigation: navigation)
         case .latestEpisodes: PodcastLatestEpisodesSection(navigation: navigation)
         case .likedEpisodes: PodcastLikedEpisodesSection(navigation: navigation)
@@ -427,12 +439,13 @@ extension PodcastLibrarySection {
     }
 }
 
-/// 「…」菜单里的「调整区块」。还没订阅时页面是发现,没有区块可排,不出现。
+/// 「…」菜单里的「调整区块」。资料库为空时页面是发现，没有区块可排。
 struct PodcastSectionsEditorButton: View {
     let navigation: PodcastNavigationModel
+    @Environment(MusicLibrary.self) private var library
 
     var body: some View {
-        if !PodcastStore.shared.shows.isEmpty {
+        if !PodcastStore.shared.shows.isEmpty || !library.localPodcastSongs.isEmpty {
             Button {
                 navigation.showsSectionEditor = true
             } label: {
@@ -601,29 +614,24 @@ struct PodcastRegionHiddenNote: View {
 private struct PodcastContinueListeningRow: View {
     let navigation: PodcastNavigationModel
 
-    @Environment(AudioPlayerService.self) private var player
-    private var store: PodcastStore { PodcastStore.shared }
+    @Environment(MusicLibrary.self) private var library
 
     var body: some View {
-        let items = store.inProgressEpisodes(limit: 12)
+        let items = PodcastResumeItem.recent(in: library, limit: 12)
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 PodcastSectionHeader(titleKey: "podcast_continue_listening")
                     .padding(.horizontal, 16)
                 if items.count == 1, let item = items.first {
                     // 只有一集时不做横滑,卡片铺满一行,不在右边留一大块空。
-                    PodcastContinueCard(episode: item.episode, show: item.show, width: nil) {
-                        navigation.open(episodeID: item.episode.id)
-                    }
+                    PodcastContinueCard(item: item, width: nil) { open(item) }
                     .frame(maxWidth: 560, alignment: .leading)
                     .padding(.horizontal, 16)
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: 12) {
-                            ForEach(items, id: \.episode.id) { item in
-                                PodcastContinueCard(episode: item.episode, show: item.show) {
-                                    navigation.open(episodeID: item.episode.id)
-                                }
+                            ForEach(items, id: \.id) { item in
+                                PodcastContinueCard(item: item) { open(item) }
                             }
                         }
                         .padding(.horizontal, 16)
@@ -633,12 +641,18 @@ private struct PodcastContinueListeningRow: View {
             }
         }
     }
+
+    private func open(_ item: PodcastResumeItem) {
+        switch item.source {
+        case .subscription(let episode, _): navigation.open(episodeID: episode.id)
+        case .library(_, let showID, _): navigation.pushedLocalShowID = showID
+        }
+    }
 }
 
 /// 听到一半的一集:大封面、听到哪、一个继续键。
 struct PodcastContinueCard: View {
-    let episode: PodcastEpisode
-    let show: PodcastShow
+    let item: PodcastResumeItem
     /// `nil` 时撑满给它的宽度。
     var width: CGFloat? = 260
     var openDetail: () -> Void
@@ -648,20 +662,19 @@ struct PodcastContinueCard: View {
     private var tint: Color { ListeningSpace.podcast.tint }
 
     var body: some View {
-        let state = PodcastStore.shared.state(for: episode)
-        let isCurrent = player.currentSong?.id == episode.id
-        let total = episode.duration ?? 0
-        let position = isCurrent ? player.currentTime : (state.position ?? 0)
+        let isCurrent = player.currentSong?.id == item.id
+        let total = item.position.duration
+        let position = isCurrent ? player.currentTime : item.position.position
         VStack(alignment: .leading, spacing: 10) {
             Button(action: openDetail) {
                 HStack(alignment: .top, spacing: 12) {
-                    PodcastArtwork(episode: episode, show: show, size: 72, cornerRadius: 10)
+                    item.artwork(size: 72, cornerRadius: 10)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(show.title)
+                        Text(item.showTitle)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(tint)
                             .lineLimit(1)
-                        Text(episode.title)
+                        Text(item.title)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
                             .lineLimit(3)
@@ -678,7 +691,7 @@ struct PodcastContinueCard: View {
                     if isCurrent {
                         player.togglePlayPause()
                     } else {
-                        PodcastPlaybackLauncher.play(episode, player: player) { pendingInsecureHost = $0 }
+                        item.resume(player: player) { pendingInsecureHost = $0 }
                     }
                 } label: {
                     Label(
@@ -707,9 +720,16 @@ struct PodcastContinueCard: View {
         .frame(width: width, alignment: .leading)
         .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
         .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .contextMenu { PodcastEpisodeMenu(episode: episode, needsInsecureConsent: { pendingInsecureHost = $0 }) }
+        .contextMenu {
+            switch item.source {
+            case .subscription(let episode, _):
+                PodcastEpisodeMenu(episode: episode, needsInsecureConsent: { pendingInsecureHost = $0 })
+            case .library:
+                Button(action: openDetail) { Label("podcast_go_to_show", systemImage: "rectangle.stack") }
+            }
+        }
         .podcastInsecureHTTPAlert(host: $pendingInsecureHost) {
-            PodcastPlaybackLauncher.play(episode, player: player) { _ in }
+            item.resume(player: player) { _ in }
         }
     }
 }
@@ -913,18 +933,7 @@ struct PodcastShowsGrid: View {
         VStack(alignment: .leading, spacing: 12) {
             PodcastSectionHeader(titleKey: "podcast_my_shows") {
                 if let onManage {
-                    Button(action: onManage) {
-                        Text(String(
-                            format: String(localized: "home_radio_wall_manage %lld"),
-                            store.shows.count
-                        ))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(tint)
-                        .frame(minHeight: 32)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("podcast.home.manage")
+                    PodcastManageShowsButton(count: store.shows.count, action: onManage)
                 }
                 Menu {
                     Picker(selection: $sort) {
@@ -1069,11 +1078,30 @@ extension PodcastShowsGrid {
 
 // MARK: - Local shows
 
-/// 资料库里自己下载的播客文件(标成播客,或流派写着播客的),按节目(专辑)分组。
+private struct PodcastManageShowsButton: View {
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(String(format: String(localized: "home_radio_wall_manage %lld"), count))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(ListeningSpace.podcast.tint)
+                .frame(minHeight: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("podcast.home.manage")
+    }
+}
+
+/// 资料库里的播客单集按节目分组，包括本机文件和媒体服务里的单集。
 /// 点进去是这档节目的各集,播放、续听、倍速和有声书一样。
 struct PodcastLocalShowsSection: View {
     let navigation: PodcastNavigationModel
     var findQuery: LibraryFindPolicy.Query?
+    var titleKey: LocalizedStringKey = "podcast_local_shows"
+    var onManage: (() -> Void)?
 
     @Environment(MusicLibrary.self) private var library
 
@@ -1103,8 +1131,12 @@ struct PodcastLocalShowsSection: View {
                 }
                 if !shows.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        PodcastSectionHeader(titleKey: "podcast_local_shows")
-                            .padding(.horizontal, 16)
+                        PodcastSectionHeader(titleKey: titleKey) {
+                            if let onManage {
+                                PodcastManageShowsButton(count: shows.count, action: onManage)
+                            }
+                        }
+                        .padding(.horizontal, 16)
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                             ForEach(shows) { @Sendable entry in
                                 LazyItemCell {

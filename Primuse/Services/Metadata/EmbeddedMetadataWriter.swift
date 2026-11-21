@@ -100,6 +100,7 @@ struct EmbeddedMetadataEdits: Sendable, Equatable {
     /// The comment tag, kept / set / removed like the lyrics; album intros
     /// are written into each track with it.
     var comment: EmbeddedLyricsEdit = .keep
+    var pictureEdits: [String: Data] = [:]
 
     func writes(_ field: TagMetadataWritebackField) -> Bool {
         changedFields?.contains(field) ?? true
@@ -162,7 +163,7 @@ enum EmbeddedMetadataWriter {
         }
 
         if case .field(let request) = edits.lyrics {
-            guard edits.tags == nil, edits.coverData == nil, edits.comment == .keep else {
+            guard edits.tags == nil, edits.coverData == nil, edits.pictureEdits.isEmpty, edits.comment == .keep else {
                 throw EmbeddedMetadataWriterError.verificationFailed("lyrics")
             }
             do {
@@ -187,17 +188,40 @@ enum EmbeddedMetadataWriter {
             throw EmbeddedMetadataWriterError.unsupportedFormat(fileExtension)
         }
         if case .ordered(let entries) = edits.lyrics {
-            guard edits.tags == nil, edits.comment == .keep, edits.coverData == nil else {
+            guard edits.tags == nil, edits.comment == .keep, edits.coverData == nil, edits.pictureEdits.isEmpty else {
                 throw EmbeddedMetadataWriterError.verificationFailed("lyrics")
             }
             let changed = try EmbeddedLyricsArchive.replacing(in: fileData, fileExtension: fileExtension, edits: entries)
             try changed.write(to: fileURL, options: .atomic)
             return try currentTags(at: fileURL)
         }
-        let original = edits.lyrics == .keep ? try OrderedTagContainer.tagSnapshot(in: fileData, format: format) : Data()
-        if !original.isEmpty { _ = try OrderedTagContainer.items(in: original, format: format) }
+        if !edits.pictureEdits.isEmpty {
+            guard edits.tags == nil, edits.comment == .keep, edits.lyrics == .keep, edits.coverData == nil else {
+                throw EmbeddedMetadataWriterError.verificationFailed("cover artwork")
+            }
+            let changed = try EmbeddedPictureArchive.replacing(in: fileData, format: format, edits: edits.pictureEdits)
+            try changed.write(to: fileURL, options: .atomic)
+            return try currentTags(at: fileURL)
+        }
+
+        let original = try OrderedTagContainer.tagSnapshot(in: fileData, format: format)
         let audioFile = try AudioFile(readingPropertiesAndMetadataFrom: fileURL)
         let metadata = audioFile.metadata
+        // Unsupported tag layouts must not pass through an unordered tag-library
+        // rewrite if that would risk losing pictures.
+        let sourceHasOrderedTag = !original.isEmpty
+        if sourceHasOrderedTag { _ = try OrderedTagContainer.items(in: original, format: format) }
+        let sourcePictures: [EmbeddedPictureArchive.Picture]
+        do {
+            sourcePictures = try EmbeddedPictureArchive.pictures(in: original, format: format)
+        } catch {
+            guard metadata.attachedPictures.isEmpty else { throw error }
+            sourcePictures = []
+        }
+        let orderedCover = sourcePictures.first(where: { $0.role == 3 }) ?? sourcePictures.first
+        let preservesPictureSet = !sourcePictures.isEmpty
+        let existingCoverEdit = edits.coverData.flatMap { data in orderedCover.map { [$0.id: data] } }
+
         if let tags = edits.tags {
             if edits.writes(.title) { metadata.title = tags.title }
             if edits.writes(.artist) { metadata.artist = tags.artist }
@@ -281,7 +305,7 @@ enum EmbeddedMetadataWriter {
             metadata.comment = nil
         }
 
-        if let coverData = edits.coverData {
+        if let coverData = edits.coverData, existingCoverEdit == nil {
             if fileExtension == "m4a" {
                 // MP4 `covr` entries do not retain ID3/FLAC picture roles.
                 metadata.removeAllAttachedPictures()
@@ -293,7 +317,7 @@ enum EmbeddedMetadataWriter {
 
         try audioFile.writeMetadata()
 
-        if let coverData = edits.coverData {
+        if let coverData = edits.coverData, existingCoverEdit == nil {
             switch fileExtension {
             case "mp3":
                 try repairID3PictureMIME(at: fileURL, coverData: coverData)
@@ -319,9 +343,18 @@ enum EmbeddedMetadataWriter {
             )
         }
 
-        if edits.lyrics == .keep, !original.isEmpty {
+        if preservesPictureSet || edits.lyrics == .keep {
             let saved = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-            let restored = try EmbeddedLyricsArchive.preserving(from: original, in: saved, fileExtension: fileExtension)
+            var restored = saved
+            if preservesPictureSet {
+                restored = try EmbeddedPictureArchive.preserving(from: original, in: restored, format: format)
+                if let existingCoverEdit {
+                    restored = try EmbeddedPictureArchive.replacing(in: restored, format: format, edits: existingCoverEdit)
+                }
+            }
+            if edits.lyrics == .keep, sourceHasOrderedTag {
+                restored = try EmbeddedLyricsArchive.preserving(from: original, in: restored, fileExtension: fileExtension)
+            }
             if restored != saved { try restored.write(to: fileURL, options: .atomic) }
         }
 
@@ -353,7 +386,7 @@ enum EmbeddedMetadataWriter {
                 try require(verified.discNumber == tags.discNumber, field: "disc number")
             }
         }
-        if let coverData = edits.coverData {
+        if let coverData = edits.coverData, existingCoverEdit == nil {
             try require(verified.coverData == coverData, field: "cover artwork")
         }
         switch edits.comment {

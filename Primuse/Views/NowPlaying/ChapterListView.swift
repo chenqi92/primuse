@@ -121,9 +121,10 @@ struct SpokenWordContentsView: View {
     }
 
     private var content: some View {
-        VStack(spacing: 0) {
+        let items = tabItems
+        return VStack(spacing: 0) {
             PlayerPaneTabBar(
-                items: tabItems,
+                items: items,
                 selection: $tab,
                 primary: palette?.primary ?? .primary,
                 secondary: palette?.secondary ?? .secondary,
@@ -171,23 +172,18 @@ struct SpokenWordContentsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .playerPaneTopFade()
         }
-        .onChange(of: textTab == nil) { _, hasNoText in
-            if hasNoText, tab == .text { tab = defaultTab }
-        }
-        .onChange(of: isPodcast) { _, podcast in
-            // 从播客换到书(或反过来)时,别停在对方才有的那一页。
-            if !podcast, tab == .notes || tab == .upNext { tab = .contents }
-            if podcast, tab == .contents, !player.hasChapters { tab = .notes }
+        .onChange(of: items.map(\.value)) { _, available in
+            if !available.contains(tab) { tab = defaultTab }
         }
         .onChange(of: requestedTab.wrappedValue) { _, _ in applyRequestedTab() }
         .onAppear {
             if tab == .contents { tab = defaultTab }
             applyRequestedTab()
         }
-        .task(id: podcastEpisode?.id) { await loadPodcastNotes() }
+        .task(id: notesSongID) { await loadPodcastNotes() }
     }
 
-    private var isPodcast: Bool { PodcastPlaybackSong.isEpisode(player.currentSong) }
+    private var offersNotes: Bool { SpokenWordPlayerText.offersPodcastNotes(player) }
 
     /// 页签左边缘对齐目录的序号那一列:行左边留 16,Mac 的列表自己还要再缩进 8。
     #if os(macOS)
@@ -199,10 +195,12 @@ struct SpokenWordContentsView: View {
     private var tabItems: [PlayerPaneTabBar<Tab>.Item] {
         typealias Item = PlayerPaneTabBar<Tab>.Item
         var items: [Item] = []
-        if isPodcast {
+        if player.currentListeningSpace == .podcast {
             // 播客:节目说明在前;章节只在单集带章节时有;「接下来」是队列里后面的单集。
-            items.append(Item(value: .notes, title: String(localized: "podcast_player_notes_short")))
-            if player.hasChapters {
+            if offersNotes {
+                items.append(Item(value: .notes, title: String(localized: "podcast_player_notes_short")))
+            }
+            if player.hasChapters || !offersNotes {
                 items.append(Item(value: .contents, title: String(localized: "podcast_chapters")))
             }
             if textTab != nil {
@@ -222,12 +220,12 @@ struct SpokenWordContentsView: View {
 
     /// 书先看目录;播客有章节时先看章节,没有就是节目说明。
     private var defaultTab: Tab {
-        isPodcast && !player.hasChapters ? .notes : .contents
+        offersNotes && !player.hasChapters ? .notes : .contents
     }
 
     private func applyRequestedTab() {
         guard let requested = requestedTab.wrappedValue else { return }
-        tab = requested
+        tab = tabItems.contains { $0.value == requested } ? requested : defaultTab
         requestedTab.wrappedValue = nil
     }
 
@@ -251,21 +249,30 @@ struct SpokenWordContentsView: View {
         }
     }
 
-    /// 正在放的播客单集(放的是书时为空)。
-    private var podcastEpisode: PodcastEpisode? {
-        guard let song = player.currentSong, PodcastPlaybackSong.isEpisode(song) else { return nil }
-        return PodcastStore.shared.episode(id: song.id)?.episode
+    private var notesSongID: String? {
+        guard offersNotes, let song = player.currentSong else { return nil }
+        if PodcastPlaybackSong.isEpisode(song) {
+            return PodcastStore.shared.episode(id: song.id)?.episode.id
+        }
+        return song.id
     }
 
     /// 播客单集的节目说明;单集没有章节时面板一打开就是这一页,点里面的时间跳过去。
     private func loadPodcastNotes() async {
-        guard let episode = podcastEpisode, let notes = episode.showNotes, !notes.isEmpty else {
-            notesBlocks = []
-            return
+        notesBlocks = []
+        guard let song = player.currentSong, song.id == notesSongID else { return }
+        let notes: String?
+        if PodcastPlaybackSong.isEpisode(song) {
+            notes = PodcastStore.shared.episode(id: song.id)?.episode.showNotes
+        } else {
+            notes = await player.sourceManager?.serverPodcastNotes(for: song)
         }
-        notesBlocks = await Task.detached(priority: .userInitiated) {
+        guard !Task.isCancelled, let notes, !notes.isEmpty else { return }
+        let blocks = await Task.detached(priority: .userInitiated) {
             PodcastShowNotes.blocks(from: notes)
         }.value
+        guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
+        notesBlocks = blocks
     }
 
     private var bookmarksTabTitle: String {

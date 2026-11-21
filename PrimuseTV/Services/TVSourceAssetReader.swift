@@ -9,8 +9,14 @@ actor TVSourceAssetReader {
     static let shared = TVSourceAssetReader()
     private let registry: StreamResolverRegistry
     private let session: URLSession
+    private let audiobookshelfTransport: AudiobookshelfRequestTransport?
 
-    init(registry: StreamResolverRegistry = .shared, session: URLSession? = nil) {
+    init(
+        registry: StreamResolverRegistry = .shared,
+        session: URLSession? = nil,
+        audiobookshelfTransport: AudiobookshelfRequestTransport? = nil
+    ) {
+        self.audiobookshelfTransport = audiobookshelfTransport
         self.registry = registry
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
@@ -41,15 +47,18 @@ actor TVSourceAssetReader {
                 .contains(type)
     }
 
-    private struct CachedAudiobookshelfClient {
+    private final class CachedAudiobookshelfClient {
         let identity: String
         let client: AudiobookshelfServiceClient
+        var items: [String: AudiobookshelfCatalogItem] = [:]
+        var transcriptCheckedAt: [String: Date] = [:]
+
+        init(identity: String, client: AudiobookshelfServiceClient) {
+            self.identity = identity
+            self.client = client
+        }
     }
     private var audiobookshelfClients: [String: CachedAudiobookshelfClient] = [:]
-
-    private var audiobookshelfItems: [String: AudiobookshelfCatalogItem] = [:]
-    /// 为找文字稿向服务端重新取过条目的时刻:音频旁边没登记文字稿的书隔一阵才再取(#461)。
-    private var audiobookshelfTranscriptCheckedAt: [String: Date] = [:]
 
     /// 把本机这首歌的位置报到 Audiobookshelf(整本书的时间轴由条目的文件布局换算)。
     func reportAudiobookshelfProgress(
@@ -61,19 +70,11 @@ actor TVSourceAssetReader {
     ) async {
         guard source.type == .audiobookshelf,
               let reference = AudiobookshelfAPIProtocol.trackReference(from: song.filePath) else { return }
-        let client = audiobookshelfClient(for: source, credential: credential)
+        let cache = audiobookshelfCache(for: source, credential: credential)
         do {
-            let item: AudiobookshelfCatalogItem
-            if let cached = audiobookshelfItems[reference.itemID] {
-                item = cached
-            } else if let fetched = try await client.item(id: reference.itemID) {
-                audiobookshelfItems[reference.itemID] = fetched
-                item = fetched
-            } else {
-                return
-            }
+            guard let item = try await audiobookshelfItem(for: reference, lastModified: song.lastModified, in: cache) else { return }
             guard let payload = item.serverProgress(for: reference.kind, position: position, isFinished: isFinished) else { return }
-            try await client.updateMediaProgress(
+            try await cache.client.updateMediaProgress(
                 itemID: item.id,
                 episodeID: payload.episodeID,
                 currentTime: payload.currentTime,
@@ -86,15 +87,42 @@ actor TVSourceAssetReader {
     }
 
     /// 封面与进度上报共用一份登录会话;配置或凭据变了才重建。
-    private func audiobookshelfClient(for source: MusicSource, credential: SourceCredential?) -> AudiobookshelfServiceClient {
+    private func audiobookshelfCache(for source: MusicSource, credential: SourceCredential?) -> CachedAudiobookshelfClient {
         let identity = Self.cacheIdentity(source: source, credential: credential)
-        if let cached = audiobookshelfClients[source.id], cached.identity == identity { return cached.client }
-        if let stale = audiobookshelfClients.removeValue(forKey: source.id) {
-            Task { await stale.client.invalidateSession() }
+        if let cached = audiobookshelfClients[source.id], cached.identity == identity { return cached }
+        if let staleClient = audiobookshelfClients.removeValue(forKey: source.id)?.client {
+            Task { await staleClient.invalidateSession() }
         }
-        let client = AudiobookshelfServiceClient(source: source, credential: credential)
-        audiobookshelfClients[source.id] = CachedAudiobookshelfClient(identity: identity, client: client)
-        return client
+        let client = AudiobookshelfServiceClient(source: source, credential: credential, transport: audiobookshelfTransport)
+        let cache = CachedAudiobookshelfClient(identity: identity, client: client)
+        audiobookshelfClients[source.id] = cache
+        return cache
+    }
+
+    private func audiobookshelfItem(
+        for reference: AudiobookshelfAPIProtocol.TrackReference, lastModified: Date?, in cache: CachedAudiobookshelfClient
+    ) async throws -> AudiobookshelfCatalogItem? {
+        if let item = cache.items[reference.itemID],
+           (lastModified ?? .distantPast) <= (item.updatedAt ?? .distantPast),
+           item.audioFile(for: reference.kind) != nil { return item }
+        let item = try await cache.client.item(id: reference.itemID)
+        cache.items[reference.itemID] = item
+        return item
+    }
+
+    func audiobookshelfListeningDetails(
+        for song: Song, source: MusicSource, credential: SourceCredential?
+    ) async -> (chapters: [MediaChapter], showNotes: String?) {
+        guard source.type == .audiobookshelf,
+              let reference = AudiobookshelfAPIProtocol.trackReference(from: song.filePath) else { return ([], nil) }
+        let cache = audiobookshelfCache(for: source, credential: credential)
+        guard let item = try? await audiobookshelfItem(for: reference, lastModified: song.lastModified, in: cache) else { return ([], nil) }
+        let notes: String?
+        switch reference.kind {
+        case .episode(let id): notes = item.episodes.first { $0.id == id }?.showNotes
+        case .file: notes = nil
+        }
+        return (item.chapters(for: reference.kind), notes)
     }
 
     private struct CachedTingReaderClient {
@@ -155,18 +183,10 @@ actor TVSourceAssetReader {
                 )
             case .audiobookshelf:
                 guard let reference = AudiobookshelfAPIProtocol.trackReference(from: song.filePath) else { return nil }
-                let client = audiobookshelfClient(for: source, credential: credential)
-                let records = try await client.mediaProgress().filter { $0.libraryItemID == reference.itemID }
+                let cache = audiobookshelfCache(for: source, credential: credential)
+                let records = try await cache.client.mediaProgress().filter { $0.libraryItemID == reference.itemID }
                 guard !records.isEmpty else { return nil }
-                let item: AudiobookshelfCatalogItem
-                if let cached = audiobookshelfItems[reference.itemID] {
-                    item = cached
-                } else if let fetched = try await client.item(id: reference.itemID) {
-                    audiobookshelfItems[reference.itemID] = fetched
-                    item = fetched
-                } else {
-                    return nil
-                }
+                guard let item = try await audiobookshelfItem(for: reference, lastModified: song.lastModified, in: cache) else { return nil }
                 // 书是整本一条进度,播客每集一条;换算到这个文件 / 这一集。
                 for record in records {
                     guard let track = item.trackProgress(from: record).first(where: { $0.kind == reference.kind }) else {
@@ -220,18 +240,10 @@ actor TVSourceAssetReader {
                 return result
             case .audiobookshelf:
                 guard let reference = AudiobookshelfAPIProtocol.trackReference(from: song.filePath) else { return nil }
-                let client = audiobookshelfClient(for: source, credential: credential)
-                let records = try await client.mediaProgress().filter { $0.libraryItemID == reference.itemID }
+                let cache = audiobookshelfCache(for: source, credential: credential)
+                let records = try await cache.client.mediaProgress().filter { $0.libraryItemID == reference.itemID }
                 guard !records.isEmpty else { return [:] }
-                let item: AudiobookshelfCatalogItem
-                if let cached = audiobookshelfItems[reference.itemID] {
-                    item = cached
-                } else if let fetched = try await client.item(id: reference.itemID) {
-                    audiobookshelfItems[reference.itemID] = fetched
-                    item = fetched
-                } else {
-                    return nil
-                }
+                guard let item = try await audiobookshelfItem(for: reference, lastModified: song.lastModified, in: cache) else { return nil }
                 var result: [String: TVServerSpokenWordProgress] = [:]
                 for record in records {
                     guard let stamp = record.lastUpdate else { continue }
@@ -347,7 +359,7 @@ actor TVSourceAssetReader {
                         .artwork(reference: reference, maxBytes: maximumBytes)
                 } else if routed.type == .audiobookshelf {
                     guard AudiobookshelfAPIProtocol.coverItemID(fromReference: reference) != nil else { return nil }
-                    data = try await audiobookshelfClient(for: routed, credential: credential)
+                    data = try await audiobookshelfCache(for: routed, credential: credential).client
                         .coverData(reference: reference, maximumBytes: maximumBytes)
                 } else if routed.type == .tingReader {
                     guard TingReaderAPIProtocol.coverReference(from: reference) != nil else { return nil }
@@ -419,15 +431,15 @@ actor TVSourceAssetReader {
         source: MusicSource,
         credential: SourceCredential?
     ) async throws -> ServerLyricsReadResult {
-        let client = audiobookshelfClient(for: source, credential: credential)
+        let cache = audiobookshelfCache(for: source, credential: credential)
         var refreshed = false
-        var item = audiobookshelfItems[reference.itemID]
+        var item = cache.items[reference.itemID]
         if item?.listsLibraryFiles != true {
-            item = try await fetchAudiobookshelfTranscriptItem(reference.itemID, client: client)
+            item = try await fetchAudiobookshelfTranscriptItem(reference.itemID, in: cache)
             refreshed = true
         }
         while let current = item {
-            switch try await client.transcriptDocument(
+            switch try await cache.client.transcriptDocument(
                 for: reference,
                 in: current,
                 maximumBytes: LyricsSidecarTargetPolicy.maximumSpokenWordReadByteCount
@@ -436,14 +448,14 @@ actor TVSourceAssetReader {
                 return .content(text)
             case .stale where !refreshed:
                 break
-            case .absent where !refreshed && audiobookshelfTranscriptCheckedAt[reference.itemID].map({
+            case .absent where !refreshed && cache.transcriptCheckedAt[reference.itemID].map({
                 Date().timeIntervalSince($0) >= 10 * 60
             }) ?? true:
                 break
             case .stale, .absent:
                 return .absent
             }
-            item = try await fetchAudiobookshelfTranscriptItem(reference.itemID, client: client)
+            item = try await fetchAudiobookshelfTranscriptItem(reference.itemID, in: cache)
             refreshed = true
         }
         return .absent
@@ -451,11 +463,11 @@ actor TVSourceAssetReader {
 
     private func fetchAudiobookshelfTranscriptItem(
         _ id: String,
-        client: AudiobookshelfServiceClient
+        in cache: CachedAudiobookshelfClient
     ) async throws -> AudiobookshelfCatalogItem? {
-        let item = try await client.item(id: id)
-        audiobookshelfTranscriptCheckedAt[id] = Date()
-        audiobookshelfItems[id] = item
+        let item = try await cache.client.item(id: id)
+        cache.transcriptCheckedAt[id] = Date()
+        cache.items[id] = item
         return item
     }
 

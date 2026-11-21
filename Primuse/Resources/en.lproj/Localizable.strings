@@ -5136,14 +5136,18 @@
 "karaoke_ai_word_timing" = "Word timing estimated by AI";
 "karaoke_tv_unsupported" = "Vocals can’t be reduced for this song’s format on Apple TV.";
 "karaoke_tv_scan_title" = "Sing with your iPhone";
-"karaoke_tv_scan_hint" = "Scan with the Camera. Your iPhone scores the singing; your voice isn’t played through the TV.";
+"karaoke_tv_scan_hint" = "Scan with your iPhone camera to join scoring. Once connected, you can turn on voice playback on the TV.";
+"karaoke_tv_live_voice" = "Play my voice through the TV";
 "karaoke_tv_mic_connected_format" = "%@ is listening";
 "karaoke_remote_title" = "Microphone for Apple TV";
 "karaoke_remote_connecting" = "Connecting to Apple TV…";
 "karaoke_remote_connected" = "Connected. Start singing.";
 "karaoke_remote_rejected" = "The Apple TV didn’t accept this code. Scan the code on the TV again.";
 "karaoke_remote_failed" = "Couldn’t reach the Apple TV. Make sure both are on the same network.";
-"karaoke_remote_hint" = "Hold the iPhone near your mouth. Your voice is heard in the room as usual; the iPhone only scores it.";
+"karaoke_remote_hint" = "Hold your iPhone close to your mouth.";
+"karaoke_remote_live_hint" = "Your voice is being sent to the TV.";
+"karaoke_live_request" = "Send your voice to this Apple TV?";
+"karaoke_live_allow" = "Send My Voice";
 "karaoke_tv_ai_local" = "AI separation on Apple TV";
 "karaoke_tv_ai_local_hint" = "This Apple TV separates the vocals itself. On Apple TV it can only use a slower way, so one song can take a long time. For faster results, scan the code to use your iPhone as the microphone and let the iPhone separate.";
 "karaoke_tv_ai_active" = "AI vocal separation from your iPhone is on.";
@@ -5782,7 +5786,7 @@
 "podcast_mark_played" = "Mark as Played";
 "podcast_mark_unplayed" = "Mark as Unplayed";
 "podcast_my_shows" = "Shows";
-"podcast_local_shows" = "On This Device";
+"podcast_local_shows" = "Library Shows";
 "podcast_local_episode_count %lld" = "%lld episodes";
 "podcast_new_episodes_count %lld" = "%lld new episodes";
 "podcast_no_episodes" = "No episodes yet.";
@@ -7839,12 +7843,6 @@
 "scrape_progress_capsule_failed" = "Write failed · Tap to view";
 "scrape_progress_embed_failed" = "The cover couldn’t be embedded in the audio file.";
 "scrape_progress_source_timeout" = "The music source didn’t respond within 30 seconds. The cover is saved on this device only.";
-"playback_app_volume" = "App Volume";
-"playback_app_volume_desc" = "When on, the volume slider on the Now Playing screen controls Primuse's own volume, lowering it further below the system volume — useful when even the lowest system step is too loud. System volume and other apps are unaffected, and the volume buttons still change the system volume. Apple Music songs and casting to other devices still use the system volume slider.";
-"playback_app_volume_high_fidelity_note" = "High Fidelity Direct bypasses the mixer, so App Volume has no effect. Switch back to Effects & Processing to use it.";
-"scrobble_lb_server_placeholder" = "Server URL (leave blank for listenbrainz.org)";
-"scrobble_lb_server_invalid" = "Invalid server URL";
-"scrobble_lb_server_footer" = "For a self-hosted ListenBrainz-compatible server such as Maloja, Koito or multi-scrobbler, enter its API URL and use a token from that server.";
 
 "lyrics_versions_title" = "Lyric versions";
 "lyrics_versions_external" = "External";
@@ -7859,3 +7857,12 @@
 "lyrics_versions_hide_all" = "Hide all versions in Primuse";
 "lyrics_versions_remove_one_confirm" = "Remove “%@”?";
 "lyrics_versions_remove_all_confirm" = "Remove all %lld lyric versions?";
+"tag_editor_picture_use_for_display" = "Use as song artwork";
+"artwork_choose_image_file" = "Choose from Files";
+"tag_editor_picture_next" = "Next picture";
+"playback_app_volume" = "App Volume";
+"playback_app_volume_desc" = "When on, the volume slider on the Now Playing screen controls Primuse's own volume, lowering it further below the system volume — useful when even the lowest system step is too loud. System volume and other apps are unaffected, and the volume buttons still change the system volume. Apple Music songs and casting to other devices still use the system volume slider.";
+"playback_app_volume_high_fidelity_note" = "High Fidelity Direct bypasses the mixer, so App Volume has no effect. Switch back to Effects & Processing to use it.";
+"scrobble_lb_server_placeholder" = "Server URL (leave blank for listenbrainz.org)";
+"scrobble_lb_server_invalid" = "Invalid server URL";
+"scrobble_lb_server_footer" = "For a self-hosted ListenBrainz-compatible server such as Maloja, Koito or multi-scrobbler, enter its API URL and use a token from that server.";

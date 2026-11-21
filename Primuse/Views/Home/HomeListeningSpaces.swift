@@ -1,6 +1,101 @@
 import PrimuseKit
 import SwiftUI
 
+@MainActor
+struct PodcastResumeItem {
+    enum Source {
+        case subscription(PodcastEpisode, PodcastShow)
+        case library(Song, showID: String, showTitle: String)
+    }
+
+    let source: Source
+    let position: SpokenWordStore.StoredPosition
+
+    var title: String {
+        switch source {
+        case .subscription(let episode, _): episode.title
+        case .library(let song, _, _): song.title
+        }
+    }
+
+    var showTitle: String {
+        switch source {
+        case .subscription(_, let show): show.title
+        case .library(_, _, let title): title
+        }
+    }
+
+    var id: String {
+        switch source {
+        case .subscription(let episode, _): episode.id
+        case .library(let song, _, _): song.id
+        }
+    }
+
+    static func recent(
+        in library: MusicLibrary, limit: Int,
+        progress: SpokenWordStore = .shared,
+        subscription: @MainActor (String) -> (episode: PodcastEpisode, show: PodcastShow)? = { id in
+            let store = PodcastStore.shared
+            guard let found = store.episode(id: id), !store.state(for: found.episode).isFinished else { return nil }
+            return found
+        }
+    ) -> [Self] {
+        guard limit > 0 else { return [] }
+        _ = library.localPodcastContentRevision
+        let showIDs = library.localPodcastBookIDs
+        // 只按听过的播客排序，资料库里的所有单集无需重新分组。
+        let positions = progress.positions.filter { showIDs[$0.key] != nil || PodcastIdentity.isEpisodeID($0.key) }
+            .sorted {
+                if $0.value.updatedAt != $1.value.updatedAt { return $0.value.updatedAt > $1.value.updatedAt }
+                let lhsIsFeed = PodcastIdentity.isEpisodeID($0.key)
+                if lhsIsFeed != PodcastIdentity.isEpisodeID($1.key) { return lhsIsFeed }
+                return $0.key < $1.key
+            }
+        var items: [Self] = []
+        for (id, stored) in positions {
+            guard !progress.isFinished(songID: id) else { continue }
+            if let showID = showIDs[id] {
+                guard !progress.isArchived(bookID: showID),
+                      let song = library.unobservedVisibleSong(id: id), song.isPlayable else { continue }
+                let title = library.localPodcastShowTitle(forSongID: id) ?? song.albumTitle ?? song.title
+                items.append(Self(source: .library(song, showID: showID, showTitle: title), position: stored))
+            } else if let (episode, show) = subscription(id) {
+                var position = stored
+                position.duration = episode.duration ?? stored.duration
+                items.append(Self(source: .subscription(episode, show), position: position))
+            }
+            if items.count == limit { break }
+        }
+        return items
+    }
+
+    @ViewBuilder
+    func artwork(size: CGFloat, cornerRadius: CGFloat) -> some View {
+        switch source {
+        case .subscription(let episode, let show):
+            PodcastArtwork(episode: episode, show: show, size: size, cornerRadius: cornerRadius)
+        case .library(let song, _, _):
+            CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: size, cornerRadius: cornerRadius,
+                              sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat,
+                              placeholderIcon: "antenna.radiowaves.left.and.right")
+        }
+    }
+
+    func resume(player: AudioPlayerService, needsInsecureConsent: @escaping @MainActor (String) -> Void) {
+        switch source {
+        case .subscription(let episode, _):
+            PodcastPlaybackLauncher.play(episode, player: player, needsInsecureConsent: needsInsecureConsent)
+        case .library(let song, _, _):
+            if player.currentSong?.id == song.id {
+                if !player.isPlaying { player.togglePlayPause() }
+            } else {
+                Task { await player.play(queue: [song], startingAt: 0) }
+            }
+        }
+    }
+}
+
 /// Home's first row: "continue" for each way of listening, one card each,
 /// newest first. Each card resumes by its own space's rules — the music queue
 /// someone left, the last station, the book where it was left — and the
@@ -11,6 +106,7 @@ struct HomeContinueSpacesRow: View {
     var openSpace: (ListeningSpace) -> Void
 
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     @Environment(RadioStationsStore.self) private var radioStore
     @Environment(\.homeCoverCardWidth) private var cardWidth
 
@@ -19,7 +115,7 @@ struct HomeContinueSpacesRow: View {
             case music(MusicSessionMemoryStore.Memory)
             case radio(RadioStation)
             case book(SpokenWordBook, [Song])
-            case podcast(PodcastEpisode, PodcastShow)
+            case podcast(PodcastResumeItem)
         }
         let space: ListeningSpace
         let content: Content
@@ -67,9 +163,9 @@ struct HomeContinueSpacesRow: View {
             candidates.append(.init(space: .spokenWord, lastListenedAt: listenedAt))
             contents[.spokenWord] = .book(book, songs)
         }
-        if let recent = PodcastStore.shared.mostRecentInProgress {
-            candidates.append(.init(space: .podcast, lastListenedAt: recent.updatedAt))
-            contents[.podcast] = .podcast(recent.episode, recent.show)
+        if let recent = PodcastResumeItem.recent(in: library, limit: 1).first {
+            candidates.append(.init(space: .podcast, lastListenedAt: recent.position.updatedAt))
+            contents[.podcast] = .podcast(recent)
         }
 
         let playing = player.isPlaying ? player.currentListeningSpace : nil
@@ -130,8 +226,8 @@ struct HomeContinueSpacesRow: View {
         case .book(_, let songs):
             // 和书架、首页书排同一种书封:竖版封面整张放进方框,两边垫模糊底,不裁。
             SpokenWordBookCover(song: songs.first, width: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
-        case .podcast(let episode, let show):
-            PodcastArtwork(episode: episode, show: show, size: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
+        case .podcast(let recent):
+            recent.artwork(size: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
         }
     }
 
@@ -140,7 +236,7 @@ struct HomeContinueSpacesRow: View {
         case .music(let memory): memory.title
         case .radio(let station): station.name
         case .book(let book, _): book.title
-        case .podcast(let episode, _): episode.title
+        case .podcast(let recent): recent.title
         }
     }
 
@@ -158,13 +254,12 @@ struct HomeContinueSpacesRow: View {
                 )
             }
             return book.author ?? ""
-        case .podcast(let episode, let show):
-            if let total = episode.duration,
-               let position = SpokenWordStore.shared.position(forSongID: episode.id)?.position,
-               total > position {
-                return PodcastFormat.remaining(total - position)
+        case .podcast(let recent):
+            let remaining = recent.position.duration - recent.position.position
+            if remaining > 0 {
+                return PodcastFormat.remaining(remaining)
             }
-            return show.title
+            return recent.showTitle
         }
     }
 
@@ -185,9 +280,8 @@ struct HomeContinueSpacesRow: View {
             Task { _ = await player.play(station: station, within: radioStore.stations) }
         case .book(let book, let songs):
             SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
-        case .podcast(let episode, _):
-            // 明文 http 的音频要先放行:交给播客页去问。
-            PodcastPlaybackLauncher.play(episode, player: player) { _ in openSpace(.podcast) }
+        case .podcast(let recent):
+            recent.resume(player: player) { _ in openSpace(.podcast) }
         }
     }
 }
@@ -1121,17 +1215,27 @@ struct QueueBookmarkButton: View {
 
     var body: some View {
         if player.canBookmarkCurrentQueue {
-            Button {
+            let isSaved = player.isCurrentQueueBookmarked
+            let title = Text(isSaved ? LocalizedStringKey("queue_bookmark_remove") : LocalizedStringKey("queue_bookmark_save"))
+            PMScrollingButton {
                 Task { await player.toggleCurrentQueueBookmark() }
             } label: {
-                Label(LocalizedStringKey(player.isCurrentQueueBookmarked ? "queue_bookmark_remove" : "queue_bookmark_save"),
-                      systemImage: player.isCurrentQueueBookmarked ? "bookmark.fill" : "bookmark")
-                    .font(.subheadline)
-                    .frame(minHeight: 44)
+                Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
+                    #if os(macOS)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .frame(width: 22, height: 32)
+                    #else
+                    .font(.footnote.weight(.semibold))
+                    .frame(width: 36, height: 44)
+                    #endif
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .foregroundStyle(Color.accentColor)
             .disabled(player.queueBookmarkStore.isBusy)
+            .accessibilityLabel(title)
+            #if os(macOS)
+            .pmScrollingHelp(title)
+            #endif
             .accessibilityIdentifier("queueBookmarkToggle")
         }
     }

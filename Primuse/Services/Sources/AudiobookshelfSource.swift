@@ -1,6 +1,19 @@
 import Foundation
 import PrimuseKit
 
+protocol ServerPodcastNotesConnector: MusicSourceConnector {
+    func podcastNotes(for path: String) async throws -> String?
+}
+
+extension AudiobookshelfSource: ServerPodcastNotesConnector {
+    func podcastNotes(for path: String) async throws -> String? {
+        guard let reference = AudiobookshelfAPIProtocol.trackReference(from: path),
+              case .episode(let episodeID) = reference.kind else { return nil }
+        let item = try await catalogItem(id: reference.itemID)
+        return item?.episodes.first { $0.id == episodeID }?.showNotes
+    }
+}
+
 /// Audiobookshelf(有声书 / 播客服务器)的只读整库 connector。
 ///
 /// 服务器里只有书库和播客库,没有音乐:源类型本身就把全部内容归到有声
@@ -386,15 +399,15 @@ actor AudiobookshelfSource: RefreshingMetadataSongConnector, ServerLibraryListin
 }
 
 extension AudiobookshelfSource: ServerCatalogChangeDetectingConnector {
-    /// 各库条目数之和。能看见书增减;改了标签的要等下次扫描。
     func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
         try await connect()
         let libraries = try await scannedLibraries()
-        let total = try await client.catalogItemCount(libraryIDs: libraries.map(\.id))
+        let snapshot = try await client.catalogSnapshot(libraries: libraries)
         return ServerCatalogScanStatus(
             isScanning: false,
-            itemCount: Int64(total),
-            lastCompletedScanAt: nil
+            itemCount: Int64(snapshot.itemCount),
+            lastCompletedScanAt: nil,
+            contentRevision: snapshot.contentRevision
         )
     }
 }
@@ -486,9 +499,8 @@ extension AudiobookshelfSource: ServerListeningProgressConnector {
 extension AudiobookshelfSource: ServerChapterProvidingConnector {
     func fetchServerChapters(songPath: String) async throws -> [MediaChapter] {
         guard let reference = AudiobookshelfAPIProtocol.trackReference(from: songPath),
-              case .file(let ino) = reference.kind else { return [] }
-        guard let item = try await catalogItem(id: reference.itemID) else { return [] }
-        return item.chapters(forIno: ino)
+              let item = try await catalogItem(id: reference.itemID) else { return [] }
+        return item.chapters(for: reference.kind)
     }
 }
 

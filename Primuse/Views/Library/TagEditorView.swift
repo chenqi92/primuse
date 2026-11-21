@@ -80,6 +80,26 @@ struct TagEditorView: View {
     @State private var showEncodingFixes = false
     /// 选中但还没保存的新封面。nil 表示"维持原 song.coverArtFileName"。
     @State private var pickedCoverData: Data?
+    private struct CoverSlot {
+        let picture: EmbeddedPictureArchive.Picture
+        let thumbnail: Data?
+    }
+    private struct CoverImportTarget {
+        let songID: String
+        let slotID: String?
+    }
+    private var coverImportTarget: CoverImportTarget {
+        let id = coverSlots.indices.contains(visibleCoverIndex) ? coverSlots[visibleCoverIndex].picture.id : nil
+        return CoverImportTarget(songID: initialSong.id, slotID: id)
+    }
+    @State private var coverSlots: [CoverSlot] = []
+    @State private var visibleCoverIndex = 0
+    @State private var stagedPictures: [String: Data] = [:]
+    @State private var displayPictureID: String?
+    @State private var savedDisplayPicture: Data?
+    @State private var inspectingPictures = false
+    @State private var choosingPictureFile = false
+
     /// PhotosPicker 的 selection token。change 时把它解码成 Data 存到
     /// pickedCoverData。
     @State private var coverPickerItem: PhotosPickerItem?
@@ -120,6 +140,23 @@ struct TagEditorView: View {
             legacyBody
             #endif
         }
+        #if os(iOS)
+        .fileImporter(isPresented: $choosingPictureFile, allowedContentTypes: [.image]) { result in
+            guard case .success(let url) = result else { return }
+            let target = coverImportTarget
+            Task {
+                do {
+                    let bytes = try await Task.detached(priority: .userInitiated) {
+                        let accessed = url.startAccessingSecurityScopedResource()
+                        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                        return try Data(contentsOf: url)
+                    }.value
+                    await preparePickedCover(bytes, for: target)
+                } catch { writebackErrorMessage = error.localizedDescription }
+            }
+        }
+        #endif
+        .task(id: song.id) { await loadEmbeddedPictures(for: song) }
         .task(id: song.id) {
             let requestedSongID = song.id
             if initialSong.id != requestedSongID {
@@ -355,12 +392,18 @@ struct TagEditorView: View {
     private var filenameHeader: some View {
         HStack(alignment: .top, spacing: 14) {
             ZStack(alignment: .bottomTrailing) {
-                coverPreview
-                    .frame(width: 76, height: 76)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                if coverSlots.count > 1 {
+                    stackedCovers(size: 76)
+                } else {
+                    coverPreview
+                        .frame(width: 76, height: 76)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
 
-                Button {
-                    presentCoverPicker()
+                Menu {
+                    Button(String(localized: "artwork_choose_photo")) { presentCoverPicker() }
+                    Button(String(localized: "artwork_choose_image_file")) { choosingPictureFile = true }
+                        .accessibilityIdentifier("tagEditor.cover.chooseFile")
                 } label: {
                     Image(systemName: "pencil")
                         .font(.system(size: 11, weight: .bold))
@@ -371,6 +414,9 @@ struct TagEditorView: View {
                 }
                 .buttonStyle(.plain)
                 .offset(x: 5, y: 5)
+                .accessibilityLabel(Text("tag_editor_mac_change_cover"))
+                .accessibilityIdentifier("tagEditor.cover.replace")
+                .disabled(coverPickerUnavailable)
             }
 
             if !fileNameDisplay.isEmpty {
@@ -1055,12 +1101,16 @@ struct TagEditorView: View {
     private var macBody: some View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
-                macCoverPreview(size: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                    }
+                if coverSlots.count > 1 {
+                    stackedCovers(size: 56)
+                } else {
+                    macCoverPreview(size: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(String(localized: "tag_editor_mac_title"))
@@ -1104,6 +1154,8 @@ struct TagEditorView: View {
                         }
                 }
                 .buttonStyle(.plain)
+                .disabled(coverPickerUnavailable)
+                .accessibilityIdentifier("tagEditor.cover.replace")
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -1358,7 +1410,7 @@ struct TagEditorView: View {
 
     private var macChangedCount: Int {
         metadataEdits.count + (requestedRenameStem == nil ? 0 : 1)
-            + (pickedCoverData == nil ? 0 : 1) + (hasLyricsChanges ? 1 : 0)
+            + (pickedCoverData == nil ? 0 : 1) + stagedPictures.count + (displayPictureID == nil ? 0 : 1) + (hasLyricsChanges ? 1 : 0)
     }
 
     private var macLyricsEditor: some View {
@@ -1589,6 +1641,89 @@ struct TagEditorView: View {
         }
     }
 
+    private var coverPickerUnavailable: Bool {
+        inspectingPictures || isSaving || isLoadingCover || (coverSlots.count > 1 && tagMetadataPersistenceMode != .embedded)
+    }
+
+    @MainActor
+    private func loadEmbeddedPictures(for target: Song) async {
+        inspectingPictures = true
+        defer { if !Task.isCancelled && song.id == target.id { inspectingPictures = false } }
+        do {
+            let data = try await sourceManager.editorEmbeddedFileData(for: target)
+            let slots = try await Task.detached(priority: .utility) {
+                let pictures = try EmbeddedPictureArchive.pictures(in: data, format: target.fileFormat)
+                guard pictures.count > 1 else { return [CoverSlot]() }
+                return pictures.map { picture in
+                    CoverSlot(picture: picture, thumbnail: ArtworkImageCompatibility.staticFirstFrameJPEG(
+                        from: picture.data, maximumPixelSize: 256))
+                }
+            }.value
+            guard !Task.isCancelled, song.id == target.id else { return }
+            coverSlots = slots
+            visibleCoverIndex = slots.firstIndex { $0.picture.role == 3 } ?? 0
+        } catch {
+            if !Task.isCancelled && song.id == target.id { coverSlots = []; visibleCoverIndex = 0 }
+        }
+    }
+
+    private func stackedCovers(size: CGFloat) -> some View {
+        let count = coverSlots.count
+        return Button {
+            visibleCoverIndex = (visibleCoverIndex + 1) % count
+        } label: {
+            ZStack {
+                ForEach(Array((0..<min(count, 3)).reversed()), id: \.self) { depth in
+                    let slot = coverSlots[(visibleCoverIndex + depth) % count]
+                    Group {
+                        if let preview = stagedPictures[slot.picture.id] ?? slot.thumbnail, let image = PlatformImage(data: preview) {
+                            Image(platformImage: image).resizable().scaledToFill()
+                        } else {
+                            Image(systemName: "photo").frame(maxWidth: .infinity, maxHeight: .infinity).background(.regularMaterial)
+                        }
+                    }
+                    .frame(width: size - 8, height: size - 8)
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.12))
+                    .overlay { RoundedRectangle(cornerRadius: size * 0.12).stroke(.primary.opacity(0.15), lineWidth: 0.5) }
+                    .rotationEffect(.degrees(Double(depth) * 4))
+                    .offset(x: CGFloat(depth) * 2.5, y: CGFloat(depth) * -2)
+                }
+            }
+            .frame(width: size, height: size)
+            .overlay(alignment: .topLeading) {
+                Text(verbatim: "\(visibleCoverIndex + 1)/\(count)").font(.caption2.monospacedDigit())
+                    .padding(.horizontal, 4).background(.regularMaterial, in: Capsule())
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("tag_editor_picture_next"))
+        .accessibilityValue(Text(verbatim: "\(visibleCoverIndex + 1)/\(count)"))
+        .accessibilityIdentifier("tagEditor.cover.next")
+        .disabled(isSaving || isLoadingCover)
+        .overlay(alignment: .bottomLeading) {
+            Menu {
+                Button {
+                    let slot = coverSlots[visibleCoverIndex].picture
+                    displayPictureID = slot.id
+                    savedDisplayPicture = stagedPictures[slot.id] ?? slot.data
+                } label: {
+                    Label(String(localized: "tag_editor_picture_use_for_display"), systemImage: "photo")
+                }
+                .accessibilityIdentifier("tagEditor.cover.useForDisplay")
+            } label: {
+                Image(systemName: "ellipsis.circle.fill").symbolRenderingMode(.palette)
+                    .foregroundStyle(.primary, .regularMaterial).padding(3)
+            }
+            #if os(macOS)
+            .menuStyle(.borderlessButton)
+            #endif
+            .fixedSize()
+            .accessibilityLabel(Text("tag_editor_picture_use_for_display"))
+            .accessibilityIdentifier("tagEditor.cover.options")
+            .disabled(isSaving || isLoadingCover)
+        }
+    }
+
     @ViewBuilder
     private var coverPreview: some View {
         if let data = pickedCoverData, let img = PlatformImage(data: data) {
@@ -1610,12 +1745,14 @@ struct TagEditorView: View {
     }
 
     private func loadPickedCover(_ item: PhotosPickerItem?) async {
+        let target = coverImportTarget
         guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
-        await preparePickedCover(data)
+        await preparePickedCover(data, for: target)
     }
 
     @MainActor
-    private func preparePickedCover(_ data: Data) async {
+    private func preparePickedCover(_ data: Data, for target: CoverImportTarget) async {
+        guard target.songID == initialSong.id, !isSaving else { return }
         let requestID = UUID()
         coverImportID = requestID
         isLoadingCover = true
@@ -1623,12 +1760,19 @@ struct TagEditorView: View {
         let processed = await Task.detached(priority: .userInitiated) {
             LibraryArtworkImageProcessor.processUpload(data)
         }.value
-        guard !Task.isCancelled, coverImportID == requestID else { return }
+        guard !Task.isCancelled, coverImportID == requestID, target.songID == initialSong.id else { return }
         guard let processed else {
             writebackErrorMessage = String(localized: "artwork_invalid_image")
             return
         }
-        pickedCoverData = processed
+        if let slotID = target.slotID {
+            guard coverSlots.contains(where: { $0.picture.id == slotID }) else { return }
+            guard let embeddable = SidecarWriteService.embeddableCoverData(processed) else {
+                writebackErrorMessage = String(localized: "artwork_invalid_image")
+                return
+            }
+            stagedPictures[slotID] = embeddable
+        } else { pickedCoverData = processed }
     }
 
     private var metadataEdits: [TagCleanupProposal] {
@@ -1656,7 +1800,7 @@ struct TagEditorView: View {
     }
 
     private var hasChanges: Bool {
-        !metadataEdits.isEmpty || requestedRenameStem != nil || pickedCoverData != nil || hasLyricsChanges
+        !metadataEdits.isEmpty || requestedRenameStem != nil || pickedCoverData != nil || !stagedPictures.isEmpty || displayPictureID != nil || hasLyricsChanges
     }
 
     private var hasLyricsChanges: Bool {
@@ -1750,7 +1894,7 @@ struct TagEditorView: View {
 
         // 冲突判断按库里记的文件身份做：从正在播放或列表打开时拿到的那份可能是
         // 重扫前的旧行，拿它去写回会一直判成「编辑期间已发生变化」。
-        let original = resolvedConflict?.original ?? library.storedSong(id: song.id) ?? song
+        var original = resolvedConflict?.original ?? library.storedSong(id: song.id) ?? song
         let renameStem = requestedRenameStem
         let lyricsChanged = hasDefaultLyricsChanges
         var updated = resolvedConflict?.updated ?? BatchTagEditService.song(original, applying: metadataEdits)
@@ -1769,6 +1913,35 @@ struct TagEditorView: View {
             coverData = resolvedConflict.coverData == nil ? nil : pickedCoverData
         } else {
             coverData = pickedCoverData
+        }
+
+        let localDisplayPicture = displayPictureID.flatMap { id in
+            stagedPictures[id] ?? savedDisplayPicture
+        }
+        if !stagedPictures.isEmpty {
+            do {
+                let current = try await sourceManager.writeEmbeddedPictures(stagedPictures, for: original)
+                var refreshed = current
+                if let main = (coverSlots.first(where: { $0.picture.role == 3 }) ?? coverSlots.first)?.picture,
+                   let replacement = stagedPictures[main.id],
+                   current.coverArtFileName == nil || StoredArtworkOrigin.resolve(current.coverArtFileName) == .embedded {
+                    refreshed.coverArtFileName = await MetadataAssetStore.shared.storeAttributedCover(replacement, songID: current.id, origin: .embedded)
+                    CachedArtworkView.invalidateCache(for: current.id)
+                }
+                library.replaceSong(refreshed)
+                original = refreshed
+                updated.filePath = refreshed.filePath
+                updated.fileSize = refreshed.fileSize
+                updated.lastModified = refreshed.lastModified
+                updated.revision = refreshed.revision
+                updated.coverArtFileName = refreshed.coverArtFileName
+                stagedPictures = [:]
+                savedDisplayPicture = localDisplayPicture
+                await loadEmbeddedPictures(for: refreshed)
+            } catch {
+                writebackErrorMessage = error.localizedDescription
+                return false
+            }
         }
 
         // Do not update that reference before remote verification: otherwise a
@@ -1847,7 +2020,7 @@ struct TagEditorView: View {
             updated.coverArtFileName = fileName
             CachedArtworkView.invalidateCache(for: song.id)
         }
-        if let coverData {
+        if let coverData = localDisplayPicture ?? coverData {
             guard let newFileName = await MetadataAssetStore.shared.storeAttributedCover(
                 coverData, songID: song.id, origin: .selected
             ) else {
@@ -1863,9 +2036,14 @@ struct TagEditorView: View {
                 return false
             }
             updated.coverArtFileName = newFileName
-            library.replaceSong(updated)
+            library.replaceSong(updated, choosingCover: newFileName)
             // 换的图在其它设备上也换(iCloud 同步手改的标签)。
             SongTagEditStore.shared.recordUserChosenCovers(songIDs: [song.id])
+            if localDisplayPicture != nil {
+                displayPictureID = nil
+                savedDisplayPicture = nil
+                CachedArtworkView.invalidateCache(for: song.id)
+            }
         }
 
         // 冲突里选了「文件里的值」的那几项没写文件,资料库这一行也要跟着文件。
@@ -2196,6 +2374,9 @@ struct TagEditorView: View {
         lyricsText = originalLyricsText
         pendingLyricsLines = initialLyricsLines
         stagedLyricVersions = [:]
+        stagedPictures = [:]
+        displayPictureID = nil
+        savedDisplayPicture = nil
         pickedCoverData = nil
         coverPickerItem = nil
     }
@@ -2203,6 +2384,10 @@ struct TagEditorView: View {
     @MainActor
     private func resetEditorState(for song: Song) {
         initialSong = song
+        coverSlots = []
+        visibleCoverIndex = 0
+        coverImportID = UUID()
+        isLoadingCover = false
         title = song.title
         fileNameStem = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
         canRenameFile = false
@@ -2237,6 +2422,9 @@ struct TagEditorView: View {
         showLyricsEditor = false
         showResetConfirm = false
         showEncodingFixes = false
+        stagedPictures = [:]
+        displayPictureID = nil
+        savedDisplayPicture = nil
         pickedCoverData = nil
         coverPickerItem = nil
         didApplySplit = false
@@ -2283,8 +2471,9 @@ struct TagEditorView: View {
 
     private func presentCoverPicker() {
         #if os(iOS)
+        let target = coverImportTarget
         TagEditorCoverPickerSession.present { data in
-            Task { await preparePickedCover(data) }
+            Task { await preparePickedCover(data, for: target) }
         }
         #endif
     }

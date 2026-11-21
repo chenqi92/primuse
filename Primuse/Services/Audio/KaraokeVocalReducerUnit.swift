@@ -77,6 +77,21 @@ final class KaraokeSampleRing: @unchecked Sendable {
         written.load(ordering: .acquiring)
     }
 
+    /// Copies contiguous microphone frames without advancing the scoring reader.
+    func copy(_ range: Range<Int>, into destination: UnsafeMutablePointer<Float>) -> Bool {
+        let end = totalWritten
+        guard !range.isEmpty, range.lowerBound >= 0, range.upperBound <= end,
+              end - range.lowerBound <= capacity,
+              let storage = storage.load(ordering: .acquiring) else { return false }
+        let offset = range.lowerBound % capacity
+        let first = min(capacity - offset, range.count)
+        destination.update(from: storage + offset, count: first)
+        if first < range.count {
+            (destination + first).update(from: storage, count: range.count - first)
+        }
+        return totalWritten - range.lowerBound <= capacity
+    }
+
     /// The newest `count` samples and the absolute index just past them,
     /// without consuming anything.
     func latestWindow(_ count: Int) -> (samples: [Float], endIndex: Int)? {

@@ -8,5 +8,5 @@
 "NSAppleMusicUsageDescription" = "Primuse benötigt Zugriff auf deine Apple Music-/iTunes-Mediathek, um lokale Titel als Wiedergabequelle zu importieren.";
 "NSLocalNetworkUsageDescription" = "Primuse benötigt Zugriff auf das lokale Netzwerk, um deine NAS-Geräte, Medienserver und andere Musikquellen zu finden und sich mit ihnen zu verbinden.";
 "NSMotionUsageDescription" = "Primuse nutzt die Bewegungsdaten deiner Kopfhörer, damit Spatial Audio beim Drehen des Kopfes stabil ausgerichtet bleibt.";
-"NSMicrophoneUsageDescription" = "Primuse verwendet das Mikrofon im Karaoke-Modus, um deinen Gesang zu bewerten, dich über Kopfhörer mithören zu lassen und deinen Auftritt auf diesem Gerät aufzunehmen.";
+"NSMicrophoneUsageDescription" = "Primuse verwendet das Mikrofon im Karaoke-Modus, um deinen Gesang zu bewerten, dich über Kopfhörer mithören zu lassen und deinen Auftritt auf diesem Gerät aufzunehmen. Du kannst deinen Gesang auch vom iPhone an ein Apple TV senden.";
 "NSSpeechRecognitionUsageDescription" = "Primuse verwendet die Spracherkennung auf dem Gerät, um Transkripte für Podcastfolgen und Hörbücher zu erstellen. Das Audio bleibt auf diesem Gerät.";

@@ -2673,7 +2673,7 @@ final class AppServices {
             guard let books = await self.siriCatalogBookList(),
                   !Task.isCancelled else { return }
             let stations = self.siriShortcutRadioStations
-            let shows = Array(PodcastStore.shared.shows.prefix(50))
+            let shows = self.siriPodcastCatalog(subscriptions: PodcastStore.shared.shows, limit: 50)
             var signature = stations.map { "r\($0.id)\u{1F}\($0.name)" }
                 + books.map { "b\($0.id)\u{1F}\($0.title)" }
                 + shows.map { "p\($0.id)\u{1F}\($0.title)" }
@@ -2718,7 +2718,7 @@ final class AppServices {
             settingsCount: SettingsCatalog.available.filter(\.isPage).count,
             stationCount: siriShortcutRadioStations.count,
             bookCount: min(bookCount, SiriListeningCatalog.bookLimit),
-            podcastCount: min(PodcastStore.shared.shows.count, SiriListeningCatalog.podcastShowLimit)
+            podcastCount: min(PodcastStore.shared.shows.count + musicLibrary.localPodcastShowCount, SiriListeningCatalog.podcastShowLimit)
         )
     }
 

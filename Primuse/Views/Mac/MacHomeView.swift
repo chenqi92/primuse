@@ -2419,7 +2419,7 @@ private struct MacHomeResumeShelf: View {
         case music(MusicSessionMemoryStore.Memory)
         case radio(RadioStation, lastPlayedAt: Date)
         case book(SpokenWordBook, songs: [Song])
-        case podcast(PodcastEpisode, PodcastShow)
+        case podcast(PodcastResumeItem)
 
         var id: ListeningSpace {
             switch self {
@@ -2509,9 +2509,9 @@ private struct MacHomeResumeShelf: View {
         }
 
         // 播客: 最近听到一半的那一集。
-        if let recent = PodcastStore.shared.mostRecentInProgress {
-            candidates.append(ListeningResumeCandidate(space: .podcast, lastListenedAt: recent.updatedAt))
-            cardsBySpace[.podcast] = .podcast(recent.episode, recent.show)
+        if let recent = PodcastResumeItem.recent(in: library, limit: 1).first {
+            candidates.append(ListeningResumeCandidate(space: .podcast, lastListenedAt: recent.position.updatedAt))
+            cardsBySpace[.podcast] = .podcast(recent)
         }
 
         let playingSpace = MacListeningSpaceStyle.playingSpace(of: player)
@@ -2551,7 +2551,10 @@ private struct MacHomeResumeShelf: View {
                     title: "The Firestorm Over a Rape Allegation at a Boarding School",
                     duration: 1800, enclosureURL: enclosure, firstSeenAt: Date()
                 )
-                return .podcast(episode, show)
+                return .podcast(PodcastResumeItem(
+                    source: .subscription(episode, show),
+                    position: .init(position: 0, duration: episode.duration ?? 0, updatedAt: Date())
+                ))
             default:
                 return nil
             }
@@ -2607,21 +2610,21 @@ private struct MacHomeResumeShelf: View {
                 )
                 .frame(width: size, height: size)
             }
-        case .podcast(let episode, let show):
-            let position = SpokenWordStore.shared.position(forSongID: episode.id)?.position ?? 0
-            let total = episode.duration ?? 0
+        case .podcast(let recent):
+            let position = recent.position.position
+            let total = recent.position.duration
             MacHomeResumeTile(
                 space: .podcast,
-                title: episode.title,
-                subtitle: podcastDetail(show: show, position: position, total: total),
+                title: recent.title,
+                subtitle: podcastDetail(showTitle: recent.showTitle, position: position, total: total),
                 progress: total > 0 ? min(1, position / total) : nil,
                 action: {
-                    PodcastPlaybackLauncher.play(episode, player: player) { _ in
+                    recent.resume(player: player) { _ in
                         NotificationCenter.default.post(name: .primuseSelectSpokenWord, object: LibrarySection.podcasts)
                     }
                 }
             ) {
-                PodcastArtwork(episode: episode, show: show, size: size, cornerRadius: PMRadius.m)
+                recent.artwork(size: size, cornerRadius: PMRadius.m)
             }
         }
     }
@@ -2637,8 +2640,8 @@ private struct MacHomeResumeShelf: View {
     }
 
     /// 播客第二行: 节目名 + 这一集还剩多久。
-    private func podcastDetail(show: PodcastShow, position: Double, total: Double) -> String {
-        var parts = [show.title]
+    private func podcastDetail(showTitle: String, position: Double, total: Double) -> String {
+        var parts = [showTitle]
         if total > 0, position > 0, total - position > 0 {
             parts.append(String(
                 format: String(localized: "spoken_word_remaining_format"),

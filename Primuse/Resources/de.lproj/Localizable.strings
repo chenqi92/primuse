@@ -5372,14 +5372,18 @@
 "karaoke_ai_word_timing" = "Worttiming von KI geschätzt";
 "karaoke_tv_unsupported" = "Bei diesem Format lässt sich der Gesang auf Apple TV nicht absenken.";
 "karaoke_tv_scan_title" = "Mit dem iPhone singen";
-"karaoke_tv_scan_hint" = "Mit der Kamera scannen. Das iPhone bewertet den Gesang; deine Stimme kommt nicht aus dem Fernseher.";
+"karaoke_tv_scan_hint" = "Scanne den Code mit der iPhone-Kamera, um deinen Gesang bewerten zu lassen. Nach dem Verbinden kannst du deine Stimme über den Fernseher hören.";
+"karaoke_tv_live_voice" = "Meine Stimme über den Fernseher wiedergeben";
 "karaoke_tv_mic_connected_format" = "%@ hört zu";
 "karaoke_remote_title" = "Mikrofon für Apple TV";
 "karaoke_remote_connecting" = "Verbindung mit Apple TV …";
 "karaoke_remote_connected" = "Verbunden. Los geht’s.";
 "karaoke_remote_rejected" = "Das Apple TV hat den Code nicht angenommen. Scanne den Code auf dem Fernseher erneut.";
 "karaoke_remote_failed" = "Apple TV nicht erreichbar. Beide Geräte müssen im selben Netz sein.";
-"karaoke_remote_hint" = "Halte das iPhone nah an den Mund. Deine Stimme klingt wie gewohnt im Raum; das iPhone bewertet nur.";
+"karaoke_remote_hint" = "Halte das iPhone nah an deinen Mund.";
+"karaoke_remote_live_hint" = "Deine Stimme wird an den Fernseher übertragen.";
+"karaoke_live_request" = "Deinen Gesang an dieses Apple TV senden?";
+"karaoke_live_allow" = "Gesang senden";
 "karaoke_tv_ai_local" = "KI-Trennung auf Apple TV";
 "karaoke_tv_ai_local_hint" = "Dieses Apple TV trennt den Gesang selbst. Auf dem Apple TV geht das nur mit einer langsameren Methode, ein Song kann also lange dauern. Schneller geht es, wenn du den Code scannst, dein iPhone als Mikrofon nutzt und das iPhone trennen lässt.";
 "karaoke_tv_ai_active" = "KI-Gesangstrennung vom iPhone ist aktiv.";
@@ -6018,7 +6022,7 @@
 "podcast_mark_played" = "Als gehört markieren";
 "podcast_mark_unplayed" = "Als ungehört markieren";
 "podcast_my_shows" = "Sendungen";
-"podcast_local_shows" = "Eigene Dateien";
+"podcast_local_shows" = "Sendungen in der Mediathek";
 "podcast_local_episode_count %lld" = "%lld Folgen";
 "podcast_new_episodes_count %lld" = "%lld neue Folgen";
 "podcast_no_episodes" = "Noch keine Folgen.";
@@ -8078,12 +8082,6 @@
 "scrape_progress_capsule_failed" = "Fehler · Zum Anzeigen tippen";
 "scrape_progress_embed_failed" = "Das Cover konnte nicht in die Audiodatei eingebettet werden.";
 "scrape_progress_source_timeout" = "Die Musikquelle hat nicht innerhalb von 30 Sekunden geantwortet. Das Cover ist nur auf diesem Gerät gespeichert.";
-"playback_app_volume" = "App-Lautstärke";
-"playback_app_volume_desc" = "Wenn aktiviert, steuert der Lautstärkeregler im Wiedergabebildschirm die eigene Lautstärke von Primuse und senkt sie noch unter die Systemlautstärke – praktisch, wenn selbst die niedrigste Systemstufe zu laut ist. Systemlautstärke und andere Apps bleiben unverändert, die Lautstärketasten ändern weiterhin die Systemlautstärke. Bei Apple-Music-Titeln und beim Streamen auf andere Geräte bleibt es beim Systemregler.";
-"playback_app_volume_high_fidelity_note" = "Hi-Fi-Direktausgabe umgeht den Mixer, daher wirkt die App-Lautstärke nicht. Wechsle zurück zu „Effekte & Verarbeitung“, um sie zu nutzen.";
-"scrobble_lb_server_placeholder" = "Server-URL (leer für listenbrainz.org)";
-"scrobble_lb_server_invalid" = "Ungültige Server-URL";
-"scrobble_lb_server_footer" = "Für einen selbst gehosteten, ListenBrainz-kompatiblen Server wie Maloja, Koito oder multi-scrobbler gib dessen API-URL ein und verwende ein Token dieses Servers.";
 
 "lyrics_versions_title" = "Liedtextversionen";
 "lyrics_versions_external" = "Extern";
@@ -8098,3 +8096,12 @@
 "lyrics_versions_hide_all" = "Alle Versionen in Primuse ausblenden";
 "lyrics_versions_remove_one_confirm" = "„%@“ entfernen?";
 "lyrics_versions_remove_all_confirm" = "Alle %lld Liedtextversionen entfernen?";
+"tag_editor_picture_use_for_display" = "Als Titelbild verwenden";
+"artwork_choose_image_file" = "Aus Dateien auswählen";
+"tag_editor_picture_next" = "Nächstes Bild";
+"playback_app_volume" = "App-Lautstärke";
+"playback_app_volume_desc" = "Wenn aktiviert, steuert der Lautstärkeregler im Wiedergabebildschirm die eigene Lautstärke von Primuse und senkt sie noch unter die Systemlautstärke – praktisch, wenn selbst die niedrigste Systemstufe zu laut ist. Systemlautstärke und andere Apps bleiben unverändert, die Lautstärketasten ändern weiterhin die Systemlautstärke. Bei Apple-Music-Titeln und beim Streamen auf andere Geräte bleibt es beim Systemregler.";
+"playback_app_volume_high_fidelity_note" = "Hi-Fi-Direktausgabe umgeht den Mixer, daher wirkt die App-Lautstärke nicht. Wechsle zurück zu „Effekte & Verarbeitung“, um sie zu nutzen.";
+"scrobble_lb_server_placeholder" = "Server-URL (leer für listenbrainz.org)";
+"scrobble_lb_server_invalid" = "Ungültige Server-URL";
+"scrobble_lb_server_footer" = "Für einen selbst gehosteten, ListenBrainz-kompatiblen Server wie Maloja, Koito oder multi-scrobbler gib dessen API-URL ein und verwende ein Token dieses Servers.";

@@ -5278,14 +5278,18 @@
 "karaoke_ai_word_timing" = "शब्दों का समय AI का अनुमान";
 "karaoke_tv_unsupported" = "इस गाने के फ़ॉर्मैट में Apple TV पर वोकल कम नहीं किया जा सकता।";
 "karaoke_tv_scan_title" = "iPhone से गाएँ";
-"karaoke_tv_scan_hint" = "कैमरा से स्कैन करें। iPhone गाने का स्कोर देता है; आपकी आवाज़ TV पर नहीं चलती।";
+"karaoke_tv_scan_hint" = "स्कोर पाने के लिए iPhone के कैमरे से कोड स्कैन करें। कनेक्ट होने के बाद आप अपनी आवाज़ टीवी पर चला सकते हैं।";
+"karaoke_tv_live_voice" = "मेरी आवाज़ टीवी पर चलाएँ";
 "karaoke_tv_mic_connected_format" = "%@ जुड़ा है";
 "karaoke_remote_title" = "Apple TV के लिए माइक";
 "karaoke_remote_connecting" = "Apple TV से जुड़ रहा है…";
 "karaoke_remote_connected" = "जुड़ गया। गाना शुरू करें।";
 "karaoke_remote_rejected" = "Apple TV ने यह कोड स्वीकार नहीं किया। TV पर दिख रहा कोड फिर से स्कैन करें।";
 "karaoke_remote_failed" = "Apple TV तक नहीं पहुँच सके। पक्का करें कि दोनों एक ही नेटवर्क पर हैं।";
-"karaoke_remote_hint" = "iPhone को मुँह के पास रखें। आपकी आवाज़ कमरे में वैसे ही सुनाई देगी; iPhone सिर्फ़ स्कोर देता है।";
+"karaoke_remote_hint" = "iPhone को अपने मुँह के पास रखें।";
+"karaoke_remote_live_hint" = "आपकी आवाज़ टीवी पर भेजी जा रही है।";
+"karaoke_live_request" = "अपनी आवाज़ इस Apple TV पर भेजें?";
+"karaoke_live_allow" = "मेरी आवाज़ भेजें";
 "karaoke_tv_ai_local" = "Apple TV पर AI पृथक्करण";
 "karaoke_tv_ai_local_hint" = "यह Apple TV खुद ही आवाज़ अलग करता है। Apple TV पर सिर्फ़ धीमा तरीका इस्तेमाल हो सकता है, इसलिए एक गाने में काफ़ी समय लग सकता है। जल्दी चाहिए तो कोड स्कैन करके iPhone को माइक्रोफ़ोन बनाएँ और iPhone से अलग करवाएँ।";
 "karaoke_tv_ai_active" = "iPhone से AI वोकल सेपरेशन चालू है।";
@@ -5924,7 +5928,7 @@
 "podcast_mark_played" = "सुना हुआ चिह्नित करें";
 "podcast_mark_unplayed" = "बिना सुना चिह्नित करें";
 "podcast_my_shows" = "शो";
-"podcast_local_shows" = "मेरी फ़ाइलें";
+"podcast_local_shows" = "लाइब्रेरी के शो";
 "podcast_local_episode_count %lld" = "%lld एपिसोड";
 "podcast_new_episodes_count %lld" = "%lld नए एपिसोड";
 "podcast_no_episodes" = "अभी कोई एपिसोड नहीं है।";
@@ -7984,12 +7988,6 @@
 "scrape_progress_capsule_failed" = "लिखना विफल · देखने के लिए टैप करें";
 "scrape_progress_embed_failed" = "कवर को ऑडियो फ़ाइल में एम्बेड नहीं किया जा सका।";
 "scrape_progress_source_timeout" = "म्यूज़िक सोर्स ने 30 सेकंड में जवाब नहीं दिया। कवर सिर्फ़ इस डिवाइस पर सहेजा गया है।";
-"playback_app_volume" = "ऐप वॉल्यूम";
-"playback_app_volume_desc" = "चालू करने पर, प्लेबैक स्क्रीन का वॉल्यूम स्लाइडर Primuse का अपना वॉल्यूम बदलता है और आवाज़ को सिस्टम वॉल्यूम से भी कम कर सकता है — तब काम का है जब सिस्टम का सबसे कम स्तर भी ज़्यादा तेज़ लगे। सिस्टम वॉल्यूम और दूसरे ऐप पर असर नहीं पड़ता, और वॉल्यूम बटन पहले की तरह सिस्टम वॉल्यूम बदलते हैं। Apple Music गानों और दूसरे डिवाइस पर कास्ट करते समय सिस्टम वॉल्यूम स्लाइडर ही दिखता है।";
-"playback_app_volume_high_fidelity_note" = "हाई फिडेलिटी डायरेक्ट मिक्सर से होकर नहीं जाता, इसलिए ऐप वॉल्यूम का असर नहीं होता। इसे इस्तेमाल करने के लिए प्रभाव और प्रसंस्करण पर वापस जाएँ।";
-"scrobble_lb_server_placeholder" = "सर्वर URL (listenbrainz.org के लिए खाली छोड़ें)";
-"scrobble_lb_server_invalid" = "सर्वर URL अमान्य है";
-"scrobble_lb_server_footer" = "Maloja, Koito या multi-scrobbler जैसे ListenBrainz-संगत सेल्फ़-होस्टेड सर्वर के लिए उसका API URL दर्ज करें और उसी सर्वर का टोकन इस्तेमाल करें।";
 
 "lyrics_versions_title" = "बोल के संस्करण";
 "lyrics_versions_external" = "बाहरी";
@@ -8004,3 +8002,12 @@
 "lyrics_versions_hide_all" = "Primuse में सभी संस्करण छिपाएँ";
 "lyrics_versions_remove_one_confirm" = "“%@” हटाएँ?";
 "lyrics_versions_remove_all_confirm" = "बोल के सभी %lld संस्करण हटाएँ?";
+"tag_editor_picture_use_for_display" = "गाने के कवर के रूप में इस्तेमाल करें";
+"artwork_choose_image_file" = "फ़ाइलों से चुनें";
+"tag_editor_picture_next" = "अगली तस्वीर";
+"playback_app_volume" = "ऐप वॉल्यूम";
+"playback_app_volume_desc" = "चालू करने पर, प्लेबैक स्क्रीन का वॉल्यूम स्लाइडर Primuse का अपना वॉल्यूम बदलता है और आवाज़ को सिस्टम वॉल्यूम से भी कम कर सकता है — तब काम का है जब सिस्टम का सबसे कम स्तर भी ज़्यादा तेज़ लगे। सिस्टम वॉल्यूम और दूसरे ऐप पर असर नहीं पड़ता, और वॉल्यूम बटन पहले की तरह सिस्टम वॉल्यूम बदलते हैं। Apple Music गानों और दूसरे डिवाइस पर कास्ट करते समय सिस्टम वॉल्यूम स्लाइडर ही दिखता है।";
+"playback_app_volume_high_fidelity_note" = "हाई फिडेलिटी डायरेक्ट मिक्सर से होकर नहीं जाता, इसलिए ऐप वॉल्यूम का असर नहीं होता। इसे इस्तेमाल करने के लिए प्रभाव और प्रसंस्करण पर वापस जाएँ।";
+"scrobble_lb_server_placeholder" = "सर्वर URL (listenbrainz.org के लिए खाली छोड़ें)";
+"scrobble_lb_server_invalid" = "सर्वर URL अमान्य है";
+"scrobble_lb_server_footer" = "Maloja, Koito या multi-scrobbler जैसे ListenBrainz-संगत सेल्फ़-होस्टेड सर्वर के लिए उसका API URL दर्ज करें और उसी सर्वर का टोकन इस्तेमाल करें।";

@@ -2462,6 +2462,52 @@ extension ListeningFeaturesTests {
         XCTAssertNil(model.snapshot.nowListening)
     }
 
+    func testPodcastResumeMixesVisibleLibraryAndSubscribedEpisodesByListeningDate() async throws {
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        let source = MusicSource(id: UUID().uuidString, name: "Shelf", type: .audiobookshelf)
+        func libraryEpisode(_ id: String) -> Song {
+            Song(id: id, title: id, albumID: "show", albumTitle: "Field Notes", duration: 240, fileFormat: .flac,
+                 filePath: "/audiobookshelf/items/show/episodes/\(id).flac", sourceID: source.id, genre: "Podcast")
+        }
+        let first = libraryEpisode("first")
+        let next = libraryEpisode("next")
+        library.addSongs([first, next])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.localPodcastShowCount, 1)
+        XCTAssertEqual(library.localPodcastPreviewSongs.count, 1)
+        let showID = try XCTUnwrap(library.localPodcastShowID(forSongID: first.id))
+
+        let progress = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("resume.json"))
+        let date = Date(timeIntervalSince1970: 1_000)
+        let url = try XCTUnwrap(URL(string: "https://example.invalid/rss"))
+        let show = PodcastShow(id: "subscription", feedURL: url, title: "Subscribed", subscribedAt: date)
+        let episode = PodcastEpisode(id: PodcastIdentity.episodeID(showID: show.id, guid: "one"),
+                                     showID: show.id, guid: "one", title: "One", enclosureURL: url, firstSeenAt: date)
+        func record(_ id: String, after seconds: TimeInterval) {
+            progress.adoptServerProgress(songID: id, position: 45, duration: 240, isFinished: false,
+                                         updatedAt: date.addingTimeInterval(seconds))
+        }
+        func recent(_ limit: Int) -> [PodcastResumeItem] {
+            PodcastResumeItem.recent(in: library, limit: limit, progress: progress) {
+                $0 == episode.id ? (episode, show) : nil
+            }
+        }
+
+        record(first.id, after: 20)
+        record(episode.id, after: 20)
+        record(next.id, after: 30)
+        XCTAssertEqual(recent(3).map(\.id), [next.id, episode.id, first.id])
+        XCTAssertEqual(recent(1).first?.position.position, 45)
+        progress.markFinished(true, songIDs: [next.id])
+        XCTAssertEqual(recent(1).map(\.id), [episode.id])
+        progress.setArchived(true, bookIDs: [showID])
+        XCTAssertEqual(recent(3).map(\.id), [episode.id])
+        progress.setArchived(false, bookIDs: [showID])
+        library.updateDisabledSourceIDs([source.id])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(recent(3).map(\.id), [episode.id])
+    }
+
     #if os(iOS)
     func testLocalPodcastShelfLoadsFromInitiallyEmptyContent() async throws {
         let library = MusicLibrary(storageDirectory: makeDirectory())

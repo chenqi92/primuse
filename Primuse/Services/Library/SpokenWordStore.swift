@@ -273,6 +273,12 @@ final class SpokenWordStore {
 
     func isPodcast(_ song: Song) -> Bool { kind(for: song) == .podcast }
 
+    func isAudiobookshelfEpisode(_ song: Song) -> Bool {
+        guard declaredSpokenWordSources[song.sourceID] == .audiobookshelf,
+              case .episode = AudiobookshelfAPIProtocol.trackReference(from: song.filePath)?.kind else { return false }
+        return true
+    }
+
     /// 环境音:不进音乐的整库集合,播放方式照音乐。
     func isAmbient(_ song: Song) -> Bool { kind(for: song) == .ambient }
 
@@ -331,7 +337,7 @@ final class SpokenWordStore {
     @ObservationIgnored private var folderTagSources: [LibraryFolderSourceDescriptor] = []
     /// Sources whose type alone makes everything in them spoken word (an
     /// audiobook server); nothing in them needs tagging.
-    @ObservationIgnored private var declaredSpokenWordSourceIDs: Set<String> = []
+    @ObservationIgnored private var declaredSpokenWordSources: [String: MusicSourceType] = [:]
     @ObservationIgnored private var cachedFolderRules: (revision: Int, rules: SpokenWordFolderRules)?
     @ObservationIgnored private var folderTagRefreshTask: Task<Void, Never>?
 
@@ -341,7 +347,8 @@ final class SpokenWordStore {
         let rules = SpokenWordFolderRules(
             folderTags: folders,
             sources: folderTagSources,
-            declaredSpokenWordSourceIDs: declaredSpokenWordSourceIDs,
+            declaredSpokenWordSourceIDs: Set(declaredSpokenWordSources.keys),
+            audiobookshelfSourceIDs: Set(declaredSpokenWordSources.compactMap { $0.value == .audiobookshelf ? $0.key : nil }),
             taggedFileKinds: taggedFolderFiles(folders: folders)
         )
         cachedFolderRules = (nonProgressRevision, rules)
@@ -736,13 +743,14 @@ final class SpokenWordStore {
         }
         let descriptorsChanged = descriptors != folderTagSources
         folderTagSources = descriptors
-        let declared = Set(
+        let declared = Dictionary(
             sources.lazy
                 .filter { !$0.isDeleted && $0.type.declaredListeningContentKind == .spokenWord }
-                .map(\.id)
+                .map { ($0.id, $0.type) },
+            uniquingKeysWith: { first, _ in first }
         )
-        let declaredChanged = declared != declaredSpokenWordSourceIDs
-        declaredSpokenWordSourceIDs = declared
+        let declaredChanged = declared != declaredSpokenWordSources
+        declaredSpokenWordSources = declared
         let opaque = Set(
             sources.lazy
                 .filter { !$0.isDeleted && $0.type.usesOpaqueDirectoryIdentifiers }

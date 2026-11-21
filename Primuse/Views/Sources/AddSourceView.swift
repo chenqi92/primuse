@@ -990,7 +990,7 @@ struct AddSourceView: View {
                                 .foregroundStyle(PMColor.textFaint)
                         }
                         Spacer(minLength: 20)
-                        serverLibraryChoicePicker(library.id)
+                        serverLibraryChoicePicker(library)
                             .fixedSize()
                     }
                     .padding(.horizontal, 14)
@@ -1035,7 +1035,7 @@ struct AddSourceView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 12)
-                        serverLibraryChoicePicker(library.id)
+                        serverLibraryChoicePicker(library)
                             .fixedSize()
                     }
                 }
@@ -1043,16 +1043,18 @@ struct AddSourceView: View {
         }
     }
 
-    private func serverLibraryChoicePicker(_ libraryID: String) -> some View {
-        Picker("", selection: serverLibraryChoiceBinding(libraryID)) {
+    private func serverLibraryChoicePicker(_ library: ServerLibraryDescriptor) -> some View {
+        let spokenWordLabel: LocalizedStringKey = sourceType == .audiobookshelf && library.kind == .podcasts
+            ? "listening_space_podcast" : "library_kind_spoken_word"
+        return Picker("", selection: serverLibraryChoiceBinding(library.id)) {
             // 有声书服务器里没有音乐库,只剩「同步成有声 / 不同步」两种。
             if sourceType.declaredListeningContentKind == nil {
                 Text("library_kind_music").tag(ServerLibraryChoice.music)
             }
-            Text("library_kind_spoken_word").tag(ServerLibraryChoice.spokenWord)
+            Text(spokenWordLabel).tag(ServerLibraryChoice.spokenWord)
             // 整库都是白噪音、雨声这类声音:归到环境音(关了「单独归类环境音」时不给,已经选了的照样列出)。
             if sourceType.declaredListeningContentKind == nil,
-               SpokenWordStore.shared.separatesAmbient || serverLibraryChoices[libraryID] == .ambient {
+               SpokenWordStore.shared.separatesAmbient || serverLibraryChoices[library.id] == .ambient {
                 Text("listening_space_ambient").tag(ServerLibraryChoice.ambient)
             }
             Text("library_kind_excluded").tag(ServerLibraryChoice.excluded)

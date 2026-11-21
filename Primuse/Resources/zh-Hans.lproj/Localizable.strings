@@ -5465,14 +5465,18 @@
 "karaoke_ai_word_timing" = "逐字时间由 AI 推断";
 "karaoke_tv_unsupported" = "这首歌的格式在 Apple TV 上无法降低人声。";
 "karaoke_tv_scan_title" = "用 iPhone 当麦克风";
-"karaoke_tv_scan_hint" = "用相机扫码。iPhone 负责打分，歌声不经电视播放。";
+"karaoke_tv_scan_hint" = "用 iPhone 相机扫码即可参与评分。连接后可选择让电视播放你的歌声。";
+"karaoke_tv_live_voice" = "通过电视播放我的歌声";
 "karaoke_tv_mic_connected_format" = "%@ 已连接";
 "karaoke_remote_title" = "为 Apple TV 当麦克风";
 "karaoke_remote_connecting" = "正在连接 Apple TV…";
 "karaoke_remote_connected" = "已连接，开始唱吧。";
 "karaoke_remote_rejected" = "Apple TV 没有接受这个二维码，请重新扫描电视上的码。";
 "karaoke_remote_failed" = "连不上 Apple TV，请确认两台设备在同一个网络。";
-"karaoke_remote_hint" = "把 iPhone 拿在嘴边。歌声照常唱给房间里的人听，手机只负责打分。";
+"karaoke_remote_hint" = "请将 iPhone 靠近嘴边。";
+"karaoke_remote_live_hint" = "歌声正在传送到电视。";
+"karaoke_live_request" = "将你的歌声传送到这台 Apple TV？";
+"karaoke_live_allow" = "传送歌声";
 "karaoke_tv_ai_local" = "Apple TV 本机 AI 分离";
 "karaoke_tv_ai_local_hint" = "由这台 Apple TV 自己分离人声。Apple TV 上只能用较慢的方式分离，一首歌可能要分离很久。想快一点，可以扫码用 iPhone 当麦克风，让 iPhone 来分离。";
 "karaoke_tv_ai_active" = "已使用 iPhone 提供的 AI 人声分离。";
@@ -6111,7 +6115,7 @@
 "podcast_mark_played" = "标为已播放";
 "podcast_mark_unplayed" = "标为未播放";
 "podcast_my_shows" = "我的节目";
-"podcast_local_shows" = "本地节目";
+"podcast_local_shows" = "资料库节目";
 "podcast_local_episode_count %lld" = "%lld 集";
 "podcast_new_episodes_count %lld" = "%lld 个新单集";
 "podcast_no_episodes" = "还没有单集。";
@@ -8171,12 +8175,6 @@
 "scrape_progress_capsule_failed" = "写入失败，点按查看";
 "scrape_progress_embed_failed" = "封面没能嵌入音频文件。";
 "scrape_progress_source_timeout" = "音乐源 30 秒内没有响应，封面只保存在本机。";
-"playback_app_volume" = "应用内音量";
-"playback_app_volume_desc" = "打开后，播放页的音量条调的是 Primuse 自己的音量：在系统音量的基础上再调小，适合系统最低一格仍嫌太响的时候。系统音量和其他 App 不受影响，音量键照旧调系统音量。Apple Music 歌曲和投放到其他设备时，音量条仍是系统音量。";
-"playback_app_volume_high_fidelity_note" = "「高保真直通」不经过混音，应用内音量不起作用；切回「音效处理」后生效。";
-"scrobble_lb_server_placeholder" = "服务器地址（留空使用 listenbrainz.org）";
-"scrobble_lb_server_invalid" = "服务器地址无效";
-"scrobble_lb_server_footer" = "使用 Maloja、Koito、multi-scrobbler 等兼容 ListenBrainz 的自建服务时，填写它的接口地址，令牌也在那台服务器上获取。";
 
 "lyrics_versions_title" = "歌词版本";
 "lyrics_versions_external" = "外置";
@@ -8191,3 +8189,12 @@
 "lyrics_versions_hide_all" = "在 Primuse 中隐藏全部版本";
 "lyrics_versions_remove_one_confirm" = "移除“%@”？";
 "lyrics_versions_remove_all_confirm" = "移除全部 %lld 个歌词版本？";
+"tag_editor_picture_use_for_display" = "设为歌曲封面";
+"artwork_choose_image_file" = "从文件中选择";
+"tag_editor_picture_next" = "下一张图片";
+"playback_app_volume" = "应用内音量";
+"playback_app_volume_desc" = "打开后，播放页的音量条调的是 Primuse 自己的音量：在系统音量的基础上再调小，适合系统最低一格仍嫌太响的时候。系统音量和其他 App 不受影响，音量键照旧调系统音量。Apple Music 歌曲和投放到其他设备时，音量条仍是系统音量。";
+"playback_app_volume_high_fidelity_note" = "「高保真直通」不经过混音，应用内音量不起作用；切回「音效处理」后生效。";
+"scrobble_lb_server_placeholder" = "服务器地址（留空使用 listenbrainz.org）";
+"scrobble_lb_server_invalid" = "服务器地址无效";
+"scrobble_lb_server_footer" = "使用 Maloja、Koito、multi-scrobbler 等兼容 ListenBrainz 的自建服务时，填写它的接口地址，令牌也在那台服务器上获取。";

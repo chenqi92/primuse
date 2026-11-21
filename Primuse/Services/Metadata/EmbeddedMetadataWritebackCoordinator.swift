@@ -426,6 +426,11 @@ extension EmbeddedMetadataWritebackAdapter {
         )
     }
 
+    func writeEmbeddedPictures(_ edits: [String: Data], for song: Song) async throws -> EmbeddedMetadataWritebackResult {
+        try await EmbeddedMetadataWritebackCoordinator.write(adapter: self, original: song, updated: song,
+            coverData: nil, writesTextTags: false, pictureEdits: edits)
+    }
+
     func writeEmbeddedComment(
         _ comment: EmbeddedLyricsEdit,
         for song: Song
@@ -472,11 +477,16 @@ enum EmbeddedMetadataWritebackCoordinator {
         lyrics: EmbeddedLyricsEdit = .keep,
         writesTextTags: Bool = true,
         comment: EmbeddedLyricsEdit = .keep,
-        assetPolicy: EmbeddedAssetWritePolicy = .replace
+        assetPolicy: EmbeddedAssetWritePolicy = .replace,
+        pictureEdits: [String: Data] = [:]
     ) async throws -> EmbeddedMetadataWritebackResult {
         guard AudioMetadataWritebackPolicy.embeddedFormats.contains(updated.fileFormat),
               !updated.isCueTrack,
               !updated.isStreamDescriptor else {
+            throw EmbeddedMetadataCoordinatedWritebackError.unsupported
+        }
+        if !pictureEdits.isEmpty,
+           writesTextTags || coverData != nil || lyrics != .keep || comment != .keep || assetPolicy != .replace {
             throw EmbeddedMetadataCoordinatedWritebackError.unsupported
         }
 
@@ -633,7 +643,8 @@ enum EmbeddedMetadataWritebackCoordinator {
             coverData: writtenCover,
             lyrics: writtenLyrics,
             changedFields: changedTags,
-            comment: comment
+            comment: comment,
+            pictureEdits: pictureEdits
         )
         let previousTags = try? EmbeddedMetadataWriter.currentTags(at: workingURL)
         let verification = try await run(source: sourceName, stage: .edit) {

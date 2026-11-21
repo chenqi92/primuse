@@ -226,6 +226,27 @@ struct SpokenWordFolderRulesTests {
         #expect(rules.kind(sourceID: "abs", filePath: "chapter", serverLibraryID: "books") == .spokenWord)
     }
 
+    @Test("Existing Audiobookshelf episode references reach the podcast library, including libraries tagged by older versions")
+    func audiobookshelfEpisodeClassification() {
+        let rules = SpokenWordFolderRules(
+            folderTags: ["abs": [SpokenWordFolderTag.libraryPath(libraryID: "shows"): .spokenWord]],
+            sources: [descriptor("abs", .audiobookshelf), descriptor("other", .tingReader)],
+            declaredSpokenWordSourceIDs: ["abs", "other"],
+            audiobookshelfSourceIDs: ["abs"]
+        )
+        let inputs = SpokenWordClassificationInputs(overrides: ["corrected": .spokenWord], folderRules: rules)
+        let episode = "/audiobookshelf/items/show/episodes/ep-1.mp3"
+        let book = "/audiobookshelf/items/book/files/12.mp3"
+        var verdicts: [String: ListeningContentKind] = [:]
+        for libraryID in [nil, "shows"] as [String?] {
+            #expect(inputs.inferredKind(sourceID: "abs", filePath: episode, genre: "News", serverLibraryID: libraryID) == .podcast)
+            #expect(inputs.kind(songID: "ep", sourceID: "abs", filePath: episode, genre: "News", serverLibraryID: libraryID, genreVerdicts: &verdicts) == .podcast)
+            #expect(inputs.kind(songID: "corrected", sourceID: "abs", filePath: episode, genre: nil, serverLibraryID: libraryID) == .spokenWord)
+        }
+        #expect(inputs.kind(songID: "book", sourceID: "abs", filePath: book, genre: "Podcast") == .spokenWord)
+        #expect(inputs.kind(songID: "other", sourceID: "other", filePath: episode, genre: nil) == .spokenWord)
+    }
+
     @Test("Songs under a tagged folder match; siblings and look-alike names do not")
     func matching() {
         let rules = SpokenWordFolderRules(folders: ["nas": ["/Books"]], sources: [descriptor("nas", .smb)])

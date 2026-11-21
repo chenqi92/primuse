@@ -1,9 +1,8 @@
+import CryptoKit
 import Foundation
 
-/// The link between an Apple TV karaoke stage and an iPhone used as the
-/// singing microphone. The phone only sends what it hears as pitch; the
-/// voice itself is never streamed, so network and TV output latency cannot
-/// turn into an echo in the room.
+/// Pairing and scoring stay on the control connection. Optional live vocals
+/// use a separate datagram channel so a delayed frame never blocks a new one.
 public enum KaraokeMicLink {
     public static let scheme = "primuse"
     public static let host = "karaoke-mic"
@@ -52,6 +51,10 @@ public enum KaraokeMicLink {
     /// Phone → TV.
     public enum PhoneMessage: Equatable, Sendable, Codable {
         case hello(version: Int, key: String, deviceName: String)
+        /// Sent after acceptance, so version 1 peers can still pair and score.
+        case liveVoiceCapable
+        case liveVoiceStarting(token: String)
+        case liveVoiceFailed(token: String)
         /// One analysis step: sung MIDI note, or nil for silence.
         case reading(sequence: Int, midiNote: Double?)
         /// The phone is separating the TV's song with the AI model.
@@ -65,6 +68,8 @@ public enum KaraokeMicLink {
     /// TV → phone.
     public enum TVMessage: Equatable, Sendable, Codable {
         case accepted(songTitle: String)
+        case liveVoice(port: UInt16, token: String)
+        case stopLiveVoice
         case rejected
         case status(songTitle: String, isPlaying: Bool, score: Int?)
         /// The TV's current song, so the phone can provide its AI vocal.
@@ -74,6 +79,45 @@ public enum KaraokeMicLink {
 
     /// Largest vocal stem the TV accepts (about 15 minutes at 48 kHz).
     public static let maximumStemBytes = 200_000_000
+
+    /// One 10 ms packet of mono, little-endian PCM. A fresh token for each
+    /// enable binds the authentication tag to this particular microphone run.
+    public struct VoiceCodec: Sendable {
+        public static let sampleRate = 24_000
+        public static let frameCount = 240
+        private static let payloadBytes = 4 + frameCount * 2
+        private let key: SymmetricKey
+
+        public init(token: String) {
+            key = SymmetricKey(data: SHA256.hash(data: Data(token.utf8)))
+        }
+
+        public func encode(sequence: UInt32, samples: UnsafeBufferPointer<Int16>) -> Data? {
+            guard samples.count == Self.frameCount else { return nil }
+            var payload = Data(count: Self.payloadBytes)
+            payload.withUnsafeMutableBytes { bytes in
+                bytes.storeBytes(of: sequence.littleEndian, as: UInt32.self)
+                for index in samples.indices {
+                    bytes.storeBytes(of: samples[index].littleEndian, toByteOffset: 4 + index * 2, as: Int16.self)
+                }
+            }
+            return try? ChaChaPoly.seal(payload, using: key).combined
+        }
+
+        public func decode(_ data: Data) -> (sequence: UInt32, samples: [Int16])? {
+            // 12-byte nonce and 16-byte authentication tag.
+            guard data.count == Self.payloadBytes + 28,
+                  let box = try? ChaChaPoly.SealedBox(combined: data),
+                  let payload = try? ChaChaPoly.open(box, using: key) else { return nil }
+            return payload.withUnsafeBytes { bytes in
+                let sequence = UInt32(littleEndian: bytes.loadUnaligned(as: UInt32.self))
+                let samples = (0..<Self.frameCount).map { index in
+                    Int16(littleEndian: bytes.loadUnaligned(fromByteOffset: 4 + index * 2, as: Int16.self))
+                }
+                return (sequence, samples)
+            }
+        }
+    }
 
     public static func encode<T: Encodable>(_ message: T) -> Data {
         var data = (try? JSONEncoder().encode(message)) ?? Data()

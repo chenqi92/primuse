@@ -5372,14 +5372,18 @@
 "karaoke_ai_word_timing" = "단어 타이밍은 AI 추정";
 "karaoke_tv_unsupported" = "이 곡의 형식은 Apple TV에서 보컬을 줄일 수 없습니다.";
 "karaoke_tv_scan_title" = "iPhone을 마이크로 사용";
-"karaoke_tv_scan_hint" = "카메라로 스캔하세요. iPhone이 채점하며 노랫소리는 TV로 나오지 않습니다.";
+"karaoke_tv_scan_hint" = "iPhone 카메라로 코드를 스캔하면 노래 점수를 확인할 수 있습니다. 연결한 후 내 목소리를 TV로 들을 수도 있습니다.";
+"karaoke_tv_live_voice" = "내 목소리를 TV로 듣기";
 "karaoke_tv_mic_connected_format" = "%@ 연결됨";
 "karaoke_remote_title" = "Apple TV용 마이크";
 "karaoke_remote_connecting" = "Apple TV에 연결 중…";
 "karaoke_remote_connected" = "연결되었습니다. 노래하세요.";
 "karaoke_remote_rejected" = "Apple TV가 이 코드를 받지 않았습니다. TV의 코드를 다시 스캔하세요.";
 "karaoke_remote_failed" = "Apple TV에 연결할 수 없습니다. 같은 네트워크인지 확인하세요.";
-"karaoke_remote_hint" = "iPhone을 입 가까이 드세요. 노랫소리는 평소처럼 방에 들리고 iPhone은 채점만 합니다.";
+"karaoke_remote_hint" = "iPhone을 입 가까이 대세요.";
+"karaoke_remote_live_hint" = "목소리를 TV로 보내고 있습니다.";
+"karaoke_live_request" = "내 목소리를 이 Apple TV로 보낼까요?";
+"karaoke_live_allow" = "내 목소리 보내기";
 "karaoke_tv_ai_local" = "Apple TV에서 AI 음성 분리";
 "karaoke_tv_ai_local_hint" = "이 Apple TV가 직접 보컬을 분리합니다. Apple TV에서는 느린 방식만 쓸 수 있어 한 곡에 오래 걸릴 수 있습니다. 더 빠르게 하려면 코드를 스캔해 iPhone을 마이크로 쓰고 iPhone이 분리하게 하세요.";
 "karaoke_tv_ai_active" = "iPhone의 AI 보컬 분리를 사용 중입니다.";
@@ -6018,7 +6022,7 @@
 "podcast_mark_played" = "재생한 것으로 표시";
 "podcast_mark_unplayed" = "재생 안 한 것으로 표시";
 "podcast_my_shows" = "프로그램";
-"podcast_local_shows" = "내 파일";
+"podcast_local_shows" = "보관함 프로그램";
 "podcast_local_episode_count %lld" = "에피소드 %lld개";
 "podcast_new_episodes_count %lld" = "새 에피소드 %lld개";
 "podcast_no_episodes" = "아직 에피소드가 없습니다.";
@@ -8078,12 +8082,6 @@
 "scrape_progress_capsule_failed" = "기록 실패 · 탭하여 보기";
 "scrape_progress_embed_failed" = "커버를 오디오 파일에 삽입하지 못했습니다.";
 "scrape_progress_source_timeout" = "음악 소스가 30초 안에 응답하지 않았습니다. 커버는 이 기기에만 저장되었습니다.";
-"playback_app_volume" = "앱 내 음량";
-"playback_app_volume_desc" = "켜면 재생 화면의 음량 슬라이더가 Primuse 자체 음량을 조절합니다. 시스템 음량보다 더 작게 줄일 수 있어 시스템 최소 음량도 너무 클 때 유용합니다. 시스템 음량과 다른 앱에는 영향이 없으며, 음량 버튼은 계속 시스템 음량을 조절합니다. Apple Music 곡과 다른 기기로 캐스팅할 때는 시스템 음량 슬라이더가 표시됩니다.";
-"playback_app_volume_high_fidelity_note" = "고음질 다이렉트는 믹서를 거치지 않아 앱 내 음량이 적용되지 않습니다. 효과 및 처리로 되돌리면 적용됩니다.";
-"scrobble_lb_server_placeholder" = "서버 URL (비워 두면 listenbrainz.org)";
-"scrobble_lb_server_invalid" = "서버 URL이 올바르지 않습니다";
-"scrobble_lb_server_footer" = "Maloja, Koito, multi-scrobbler 등 ListenBrainz 호환 자체 호스팅 서버를 사용할 때는 해당 API URL을 입력하고 그 서버에서 받은 토큰을 사용하세요.";
 
 "lyrics_versions_title" = "가사 버전";
 "lyrics_versions_external" = "외부";
@@ -8098,3 +8096,12 @@
 "lyrics_versions_hide_all" = "Primuse에서 모든 버전 숨기기";
 "lyrics_versions_remove_one_confirm" = "‘%@’을(를) 제거할까요?";
 "lyrics_versions_remove_all_confirm" = "가사 버전 %lld개를 모두 제거할까요?";
+"tag_editor_picture_use_for_display" = "곡 표지로 사용";
+"artwork_choose_image_file" = "파일에서 선택";
+"tag_editor_picture_next" = "다음 이미지";
+"playback_app_volume" = "앱 내 음량";
+"playback_app_volume_desc" = "켜면 재생 화면의 음량 슬라이더가 Primuse 자체 음량을 조절합니다. 시스템 음량보다 더 작게 줄일 수 있어 시스템 최소 음량도 너무 클 때 유용합니다. 시스템 음량과 다른 앱에는 영향이 없으며, 음량 버튼은 계속 시스템 음량을 조절합니다. Apple Music 곡과 다른 기기로 캐스팅할 때는 시스템 음량 슬라이더가 표시됩니다.";
+"playback_app_volume_high_fidelity_note" = "고음질 다이렉트는 믹서를 거치지 않아 앱 내 음량이 적용되지 않습니다. 효과 및 처리로 되돌리면 적용됩니다.";
+"scrobble_lb_server_placeholder" = "서버 URL (비워 두면 listenbrainz.org)";
+"scrobble_lb_server_invalid" = "서버 URL이 올바르지 않습니다";
+"scrobble_lb_server_footer" = "Maloja, Koito, multi-scrobbler 등 ListenBrainz 호환 자체 호스팅 서버를 사용할 때는 해당 API URL을 입력하고 그 서버에서 받은 토큰을 사용하세요.";

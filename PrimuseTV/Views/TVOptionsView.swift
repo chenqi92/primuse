@@ -1156,14 +1156,6 @@ extension TVLyricsTranslationController.Activity {
         case .idle, .notNeeded, .translating: TVColor.textMuted
         }
     }
-
-    /// 翻好或不必翻的提示看一眼就够;要动手或出了问题的一直留着。
-    var isTransient: Bool {
-        switch self {
-        case .done, .notNeeded: true
-        case .idle, .translating, .needsModel, .unsupported, .failed: false
-        }
-    }
 }
 
 extension TVLyricsTranslationController.IntelligentIssue {

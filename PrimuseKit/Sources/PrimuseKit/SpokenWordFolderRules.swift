@@ -323,6 +323,7 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
     private let policies: [String: LibraryFolderPathPolicy]
     private let rootKinds: [String: [String: ListeningContentKind]]
     private let wholeSources: [String: ListeningContentKind]
+    private let audiobookshelfSourceIDs: Set<String>
     private let libraryKinds: [String: [String: ListeningContentKind]]
     private let taggedFileKinds: [String: [String: ListeningContentKind]]
 
@@ -344,6 +345,7 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
         folderTags: [String: [String: ListeningContentKind]],
         sources: [LibraryFolderSourceDescriptor],
         declaredSpokenWordSourceIDs: Set<String> = [],
+        audiobookshelfSourceIDs: Set<String> = [],
         taggedFileKinds: [String: [String: ListeningContentKind]] = [:]
     ) {
         var policies: [String: LibraryFolderPathPolicy] = [:]
@@ -379,6 +381,7 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
         self.policies = policies
         self.rootKinds = rootKinds
         self.wholeSources = wholeSources
+        self.audiobookshelfSourceIDs = audiobookshelfSourceIDs
         self.libraryKinds = libraryKinds
         self.taggedFileKinds = taggedFileKinds.filter { !$0.value.isEmpty }
     }
@@ -388,6 +391,17 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
     }
 
     public func kind(sourceID: String, filePath: String, serverLibraryID: String? = nil) -> ListeningContentKind? {
+        let kind = taggedKind(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID)
+        // 旧版给 ABS 书库和播客库都存了有声书标签。已入库的单集引用保留了服务端的类型。
+        if kind == .spokenWord, audiobookshelfSourceIDs.contains(sourceID),
+           filePath.contains("/episodes/"),
+           case .episode? = AudiobookshelfAPIProtocol.trackReference(from: filePath)?.kind {
+            return .podcast
+        }
+        return kind
+    }
+
+    private func taggedKind(sourceID: String, filePath: String, serverLibraryID: String?) -> ListeningContentKind? {
         if let serverLibraryID, let kind = libraryKinds[sourceID]?[serverLibraryID] { return kind }
         if let kind = taggedFileKinds[sourceID]?[filePath] { return kind }
         if let policy = policies[sourceID] {

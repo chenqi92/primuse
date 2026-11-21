@@ -5278,14 +5278,18 @@
 "karaoke_ai_word_timing" = "توقيت الكلمات مقدّر بالذكاء الاصطناعي";
 "karaoke_tv_unsupported" = "لا يمكن خفض صوت المغني لصيغة هذه الأغنية على Apple TV.";
 "karaoke_tv_scan_title" = "غنِّ باستخدام iPhone";
-"karaoke_tv_scan_hint" = "امسح بالكاميرا. يقيّم iPhone الغناء، ولا يُشغَّل صوتك عبر التلفاز.";
+"karaoke_tv_scan_hint" = "امسح الرمز بكاميرا iPhone للمشاركة في التقييم. بعد الاتصال، يمكنك تشغيل صوتك عبر التلفاز.";
+"karaoke_tv_live_voice" = "تشغيل صوتي عبر التلفاز";
 "karaoke_tv_mic_connected_format" = "%@ متصل";
 "karaoke_remote_title" = "ميكروفون لـ Apple TV";
 "karaoke_remote_connecting" = "جارٍ الاتصال بـ Apple TV…";
 "karaoke_remote_connected" = "تم الاتصال. ابدأ الغناء.";
 "karaoke_remote_rejected" = "لم يقبل Apple TV هذا الرمز. امسح الرمز على التلفاز مرة أخرى.";
 "karaoke_remote_failed" = "تعذّر الوصول إلى Apple TV. تأكد من أن الجهازين على الشبكة نفسها.";
-"karaoke_remote_hint" = "أمسك iPhone قرب فمك. يُسمع صوتك في الغرفة كالمعتاد، وiPhone يقيّم فقط.";
+"karaoke_remote_hint" = "أمسك iPhone بالقرب من فمك.";
+"karaoke_remote_live_hint" = "يُرسَل صوتك إلى التلفاز.";
+"karaoke_live_request" = "هل تريد إرسال صوتك إلى جهاز Apple TV هذا؟";
+"karaoke_live_allow" = "إرسال صوتي";
 "karaoke_tv_ai_local" = "فصل الصوت بالذكاء الاصطناعي على Apple TV";
 "karaoke_tv_ai_local_hint" = "يفصل جهاز Apple TV هذا الصوت بنفسه. لا يمكن على Apple TV إلا استخدام طريقة أبطأ، لذا قد تستغرق الأغنية الواحدة وقتًا طويلًا. للحصول على نتيجة أسرع، امسح الرمز لاستخدام iPhone كميكروفون ودَع iPhone يتولى الفصل.";
 "karaoke_tv_ai_active" = "فصل الصوت بالذكاء الاصطناعي من iPhone مفعّل.";
@@ -5924,7 +5928,7 @@
 "podcast_mark_played" = "تمييز كمستمع إليه";
 "podcast_mark_unplayed" = "تمييز كغير مستمع إليه";
 "podcast_my_shows" = "البرامج";
-"podcast_local_shows" = "ملفاتي";
+"podcast_local_shows" = "برامج المكتبة";
 "podcast_local_episode_count %lld" = "%lld حلقة";
 "podcast_new_episodes_count %lld" = "%lld حلقة جديدة";
 "podcast_no_episodes" = "لا توجد حلقات بعد.";
@@ -7984,12 +7988,6 @@
 "scrape_progress_capsule_failed" = "فشلت الكتابة · اضغط للعرض";
 "scrape_progress_embed_failed" = "تعذّر تضمين الغلاف في الملف الصوتي.";
 "scrape_progress_source_timeout" = "لم يستجب مصدر الموسيقى خلال 30 ثانية. حُفظ الغلاف على هذا الجهاز فقط.";
-"playback_app_volume" = "مستوى صوت التطبيق";
-"playback_app_volume_desc" = "عند التشغيل، يتحكم شريط مستوى الصوت في شاشة التشغيل بمستوى صوت Primuse الخاص، ويمكنه خفض الصوت إلى ما دون مستوى صوت النظام، وهو مفيد عندما يكون أدنى مستوى في النظام مرتفعًا جدًا. لا يتأثر مستوى صوت النظام ولا التطبيقات الأخرى، وتظل أزرار الصوت تغيّر مستوى صوت النظام. مع أغاني Apple Music وعند البث إلى أجهزة أخرى يبقى شريط صوت النظام هو المعروض.";
-"playback_app_volume_high_fidelity_note" = "وضع الدقة العالية المباشرة لا يمر عبر المازج، لذا لا يعمل مستوى صوت التطبيق. ارجع إلى «التأثيرات والمعالجة» لاستخدامه.";
-"scrobble_lb_server_placeholder" = "عنوان الخادم (اتركه فارغًا لاستخدام listenbrainz.org)";
-"scrobble_lb_server_invalid" = "عنوان الخادم غير صالح";
-"scrobble_lb_server_footer" = "عند استخدام خادم مستضاف ذاتيًا متوافق مع ListenBrainz مثل Maloja أو Koito أو multi-scrobbler، أدخل عنوان واجهته البرمجية واستخدم رمزًا من ذلك الخادم.";
 
 "lyrics_versions_title" = "إصدارات الكلمات";
 "lyrics_versions_external" = "خارجي";
@@ -8004,3 +8002,12 @@
 "lyrics_versions_hide_all" = "إخفاء كل الإصدارات في Primuse";
 "lyrics_versions_remove_one_confirm" = "إزالة «%@»؟";
 "lyrics_versions_remove_all_confirm" = "إزالة كل إصدارات الكلمات وعددها %lld؟";
+"tag_editor_picture_use_for_display" = "استخدام كغلاف للأغنية";
+"artwork_choose_image_file" = "اختيار من الملفات";
+"tag_editor_picture_next" = "الصورة التالية";
+"playback_app_volume" = "مستوى صوت التطبيق";
+"playback_app_volume_desc" = "عند التشغيل، يتحكم شريط مستوى الصوت في شاشة التشغيل بمستوى صوت Primuse الخاص، ويمكنه خفض الصوت إلى ما دون مستوى صوت النظام، وهو مفيد عندما يكون أدنى مستوى في النظام مرتفعًا جدًا. لا يتأثر مستوى صوت النظام ولا التطبيقات الأخرى، وتظل أزرار الصوت تغيّر مستوى صوت النظام. مع أغاني Apple Music وعند البث إلى أجهزة أخرى يبقى شريط صوت النظام هو المعروض.";
+"playback_app_volume_high_fidelity_note" = "وضع الدقة العالية المباشرة لا يمر عبر المازج، لذا لا يعمل مستوى صوت التطبيق. ارجع إلى «التأثيرات والمعالجة» لاستخدامه.";
+"scrobble_lb_server_placeholder" = "عنوان الخادم (اتركه فارغًا لاستخدام listenbrainz.org)";
+"scrobble_lb_server_invalid" = "عنوان الخادم غير صالح";
+"scrobble_lb_server_footer" = "عند استخدام خادم مستضاف ذاتيًا متوافق مع ListenBrainz مثل Maloja أو Koito أو multi-scrobbler، أدخل عنوان واجهته البرمجية واستخدم رمزًا من ذلك الخادم.";

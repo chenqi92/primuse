@@ -407,10 +407,11 @@ final class EmbeddedLyricsFieldWriteTests: XCTestCase {
         let cover = try XCTUnwrap(coverData)
         _ = try await EmbeddedMetadataWriter.writeAndVerify(.init(tags: nil, coverData: cover, lyrics: .keep), to: url)
         XCTAssertEqual(try entries(), beforeCover)
-        XCTAssertEqual(try EmbeddedMetadataWriter.currentTags(at: url).coverData, cover)
+        let pictures = try EmbeddedPictureArchive.pictures(in: Data(contentsOf: url), format: .mp3)
+        XCTAssertEqual(pictures.map(\.data), [cover])
         _ = try await write(.removeAllOriginals, to: url)
         XCTAssertEqual(try entries().map(\.text), ["Marée de cuivre"])
-        XCTAssertEqual(try EmbeddedMetadataWriter.currentTags(at: url).coverData, cover)
+        XCTAssertEqual(try EmbeddedPictureArchive.pictures(in: Data(contentsOf: url), format: .mp3), pictures)
     }
 
     // MARK: 刮削往音频文件里嵌歌词

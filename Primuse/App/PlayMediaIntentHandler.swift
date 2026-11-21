@@ -90,7 +90,7 @@ final class PlayMediaIntentHandler: NSObject,
                 _ = await AppServices.shared.musicLibrary.whenReady(timeout: .seconds(8))
             }
             if query.kind == .podcast {
-                _ = await AppServices.shared.siriPodcastShowsWhenLoaded()
+                await AppServices.shared.waitForSiriPodcastCatalog(query: query.mediaName, identifiers: identifiers)
             }
 
             guard let target = Self.resolveTarget(
@@ -346,9 +346,8 @@ final class PlayMediaIntentHandler: NSObject,
                     completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
                     return
                 }
-                let shows = SiriListeningCatalog.namedItems(
-                    shows: await AppServices.shared.siriPodcastShowsWhenLoaded()
-                )
+                let catalog = await AppServices.shared.siriPodcastCatalogWhenReady(query: query.mediaName, identifiers: identifiers)
+                let shows = SiriPodcastShow.namedItems(catalog, query: query.mediaName, identifiers: identifiers)
                 if !SiriRequestNeeds.allRadio(identifiers),
                    SiriNamedMediaResolver.resolve(
                        query: query.mediaName,
@@ -996,7 +995,7 @@ final class PlayMediaIntentHandler: NSObject,
                query: query,
                selectedItemIDs: identifiers,
                namespace: "podcastshow",
-               items: SiriListeningCatalog.namedItems(shows: PodcastStore.shared.shows)
+               items: SiriPodcastShow.namedItems(services.siriPodcastCatalog(subscriptions: PodcastStore.shared.shows), query: query, identifiers: identifiers)
            ) {
             return services.podcastPlanForIntent(showID: resolved.selected.id).map(IntentTarget.podcast)
         }

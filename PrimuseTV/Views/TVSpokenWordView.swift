@@ -38,10 +38,12 @@ enum TVSpokenWordBooks {
     }
 
     /// 作者 · 已听完几章。
-    static func subtitle(_ book: SpokenWordBook) -> String {
+    static func subtitle(_ book: SpokenWordBook, isPodcast: Bool = false) -> String {
         var parts: [String] = []
         if let author = book.author { parts.append(author) }
-        if book.chapterCount > 1 {
+        if isPodcast {
+            parts.append(String(format: String(localized: "podcast_episode_count %lld"), book.items.count))
+        } else if book.chapterCount > 1 {
             parts.append(String(
                 format: String(localized: "spoken_word_book_progress_format"),
                 book.finishedCount,
@@ -483,6 +485,7 @@ struct TVSpokenWordCover: View {
     /// 封面宽度;高度按书的比例算。
     let size: CGFloat
     var radius: CGFloat = TVRadius.cover
+    var isPodcast = false
 
     var body: some View {
         let songID = book.resumeItem?.id ?? book.items.first?.id ?? ""
@@ -494,15 +497,15 @@ struct TVSpokenWordCover: View {
             album: book.title,
             songID: songID,
             coverRef: song?.coverRef,
-            tint: palette?.primary ?? TVColor.spokenWordSpace,
+            tint: palette?.primary ?? (isPodcast ? TVColor.podcastSpace : TVColor.spokenWordSpace),
             tint2: palette?.secondary ?? .black,
             glyph: book.title.isEmpty ? "♪" : String(book.title.prefix(1)),
-            placeholderKind: .book,
+            placeholderKind: isPodcast ? .podcast : .book,
             size: size,
-            height: SpokenWordCoverLayout.height(forWidth: size),
+            height: isPodcast ? size : SpokenWordCoverLayout.height(forWidth: size),
             radius: radius
         )
-        .bookCoverLayout()
+        .bookCoverLayout(!isPodcast)
     }
 }
 
@@ -534,6 +537,7 @@ struct TVSpokenWordProgressBar: View {
 struct TVSpokenWordBookCard: View {
     let book: SpokenWordBook
     let width: CGFloat
+    var isPodcast = false
     /// 父视图的焦点绑定(见 `TVFocusButton`):从播放页回来时把焦点放回这张卡片。
     var focusBinding: FocusState<String?>.Binding? = nil
     var focusID: String? = nil
@@ -542,16 +546,16 @@ struct TVSpokenWordBookCard: View {
     var body: some View {
         TVFocusButton(ring: false, action: action, focusBinding: focusBinding, focusID: focusID) { focused in
             VStack(alignment: .leading, spacing: 0) {
-                TVSpokenWordCover(book: book, size: width)
+                TVSpokenWordCover(book: book, size: width, isPodcast: isPodcast)
                     .tvCardFocus(focused, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 8) {
-                    if book.isInProgress || book.isFinished {
+                    if !isPodcast && (book.isInProgress || book.isFinished) {
                         TVSpokenWordProgressBar(fraction: book.fractionComplete, finished: book.isFinished)
                     }
                     Text(book.title).tvFont(.cardTitle)
                         .foregroundStyle(TVColor.text)
                         .lineLimit(2, reservesSpace: true)
-                    Text(TVSpokenWordBooks.subtitle(book)).tvFont(.caption)
+                    Text(TVSpokenWordBooks.subtitle(book, isPodcast: isPodcast)).tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint)
                         .lineLimit(1)
                 }
@@ -639,6 +643,7 @@ struct TVSpokenWordBookDetailView: View {
     let bookID: String
     /// 打开时的那份;章节播放、位置变化后按 id 从曲库重新整理。
     let fallback: SpokenWordBook
+    var isLocalPodcast = false
     /// 打开时焦点落到的那一章 / 那一集(从播放页回来时是开播的那一条)。
     var initialFocusItemID: String? = nil
     /// 开始播放时调用,这时 `store.currentSongID` 就是开播的那一条。
@@ -646,10 +651,6 @@ struct TVSpokenWordBookDetailView: View {
 
     @FocusState private var focusedItemID: String?
     @State private var showsIntroOutro = false
-
-    private var isLocalPodcast: Bool {
-        store.library.localPodcastBookIDs.values.contains(bookID)
-    }
 
     private var currentBook: SpokenWordBook {
         // 播客页里本机下载的节目也用这一页。打开这一页的书架页在后台分好组,
@@ -684,25 +685,27 @@ struct TVSpokenWordBookDetailView: View {
             TVColor.bg.opacity(0.34).ignoresSafeArea()
             HStack(alignment: .top, spacing: 72) {
                 VStack(alignment: .leading, spacing: 22) {
-                    TVSpokenWordCover(book: book, size: 270)
+                    TVSpokenWordCover(book: book, size: 270, isPodcast: isPodcast)
                     Text(book.title)
                         .tvFont(.pageTitle)
                         .foregroundStyle(TVColor.text)
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
-                    let subtitle = TVSpokenWordBooks.subtitle(book)
+                    let subtitle = TVSpokenWordBooks.subtitle(book, isPodcast: isPodcast)
                     if !subtitle.isEmpty {
                         Text(subtitle).tvFont(.body).foregroundStyle(TVColor.textMuted)
                     }
-                    if let remaining = TVSpokenWordBooks.remaining(book) {
+                    if !isPodcast, let remaining = TVSpokenWordBooks.remaining(book) {
                         Text(remaining).tvFont(.caption).foregroundStyle(TVColor.textFaint)
                     }
-                    TVSpokenWordProgressBar(fraction: book.fractionComplete, finished: book.isFinished)
-                        .frame(width: 320)
+                    if !isPodcast {
+                        TVSpokenWordProgressBar(fraction: book.fractionComplete, finished: book.isFinished)
+                            .frame(width: 320)
+                    }
                     TVPillButton(
                         title: book.canContinue
-                            ? String(localized: "spoken_word_continue")
-                            : String(localized: "spoken_word_start"),
+                            ? String(localized: isPodcast ? "podcast_continue" : "spoken_word_continue")
+                            : String(localized: isPodcast ? "podcast_play" : "spoken_word_start"),
                         systemImage: "play.fill",
                         style: .solid
                     ) {

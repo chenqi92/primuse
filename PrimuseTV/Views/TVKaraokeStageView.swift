@@ -40,6 +40,7 @@ struct TVKaraokeStageContent: View {
     /// 不给时照旧 dismiss。
     private let onClose: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showsMicrophone = false
     /// 进页落在播放键上;−/+ 调到头变成不可用时由这里把焦点交给同一行另一颗。
     @Namespace private var stageFocus
@@ -100,6 +101,9 @@ struct TVKaraokeStageContent: View {
             }
         }
         .focusScope(stageFocus)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { session.micServer.setLiveVoiceEnabled(false) }
+        }
         .task {
             // 叠在沉浸播放页上时,按下的那颗键随即不可用,系统接着把焦点放到哪颗说不准;
             // 没落在带编号的键上就交给播放键,和单独一页进来时一样。
@@ -459,6 +463,14 @@ struct TVKaraokeStageContent: View {
             .padding(.horizontal, 28)
             .padding(.vertical, 18)
             .tvPanel(radius: 20)
+            if session.micServer.supportsLiveVoice {
+                let enabled = session.micServer.isLiveVoiceEnabled
+                actionButton("karaoke_tv_live_voice", symbol: enabled ? "speaker.wave.2.fill" : "speaker.slash",
+                             selected: enabled) {
+                    session.micServer.setLiveVoiceEnabled(!session.micServer.isLiveVoiceEnabled)
+                }
+                .accessibilityIdentifier("karaoke.tv.liveVoice")
+            }
         case .idle, .failed:
             EmptyView()
         }

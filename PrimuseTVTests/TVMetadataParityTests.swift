@@ -7,6 +7,33 @@ import UIKit
 
 @MainActor
 final class TVMetadataParityTests: XCTestCase {
+    func testAudiobookshelfEpisodeDetailsAreScopedToTheServerAndAccount() async throws {
+        let transport = AudiobookshelfRequestTransport(data: { request in
+            guard let url = request.url, url.path == "/api/items/show" else { throw URLError(.badURL) }
+            let title = url.host == "second.invalid" ? "Second Server"
+                : (request.value(forHTTPHeaderField: "Authorization") == "Bearer alternate" ? "Other Account" : "First Server")
+            let episode: [String: Any] = [
+                "id": "episode", "description": title,
+                "audioFile": ["ino": "file", "duration": 120, "metadata": ["ext": ".mp3"]],
+                "chapters": [["start": 0, "end": 120, "title": title]]
+            ]
+            let item: [String: Any] = ["id": "show", "mediaType": "podcast", "media": ["episodes": [episode]]]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            return (data, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }, download: { _ in throw URLError(.unsupportedURL) })
+        let reader = TVSourceAssetReader(audiobookshelfTransport: transport)
+        let first = MusicSource(name: "First", type: .audiobookshelf, host: "first.invalid", authType: .apiKey)
+        let second = MusicSource(name: "Second", type: .audiobookshelf, host: "second.invalid", authType: .apiKey)
+        let path = AudiobookshelfAPIProtocol.trackPath(itemID: "show", kind: .episode(id: "episode"), fileExtension: "mp3")
+        for (source, token, expected) in [(first, "fixture", "First Server"), (second, "fixture", "Second Server"),
+                                          (first, "alternate", "Other Account")] {
+            let song = Song(id: "track", title: "Episode", fileFormat: .mp3, filePath: path, sourceID: source.id)
+            let details = await reader.audiobookshelfListeningDetails(for: song, source: source, credential: SourceCredential(token: token))
+            XCTAssertEqual(details.chapters.map(\.title), [expected])
+            XCTAssertEqual(details.showNotes, expected)
+        }
+    }
+
     func testServerCatalogPublishesEarlyRowsThenReturnsOneEnrichedRow() async throws {
         let connector = TVEnrichingCatalogFixture()
         let scanner = TVSourceScanner()

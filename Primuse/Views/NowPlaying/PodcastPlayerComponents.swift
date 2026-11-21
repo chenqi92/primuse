@@ -242,7 +242,7 @@ private struct PodcastUpNextRow: View {
     private var secondary: Color { palette?.secondary ?? .secondary }
 
     var body: some View {
-        let isEpisode = PodcastPlaybackSong.isEpisode(song)
+        let isEpisode = PodcastPlaybackSong.isEpisode(song) || SpokenWordStore.shared.isPodcast(song)
         HStack(spacing: 12) {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,

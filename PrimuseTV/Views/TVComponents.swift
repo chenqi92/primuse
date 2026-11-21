@@ -160,6 +160,7 @@ struct TVLibraryReviewControl: View {
     @AppStorage(LibraryReviewPreferences.enabledKey) private var isEnabled = false
 
     let subject: LibraryReviewSubject
+    let onInteraction: () -> Void
     @State private var showsCommentEditor = false
 
     private var review: LibraryReview? {
@@ -208,6 +209,7 @@ struct TVLibraryReviewControl: View {
     private func starButton(_ value: Int) -> some View {
         let filled = value <= rating
         return TVFocusButton(radius: 12, scale: 1.06, lift: 0, action: {
+            onInteraction()
             store.library.updateLibraryReview(
                 for: subject,
                 rating: value == review?.rating ? nil : value,
@@ -229,7 +231,10 @@ struct TVLibraryReviewControl: View {
 
     private var commentButton: some View {
         let hasComment = review?.comment.isEmpty == false
-        return TVFocusButton(radius: 12, scale: 1.06, lift: 0, action: { showsCommentEditor = true }) { focused in
+        return TVFocusButton(radius: 12, scale: 1.06, lift: 0, action: {
+            onInteraction()
+            showsCommentEditor = true
+        }) { focused in
             Image(systemName: hasComment ? "text.bubble.fill" : "text.bubble")
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(hasComment ? TVColor.brand : (focused ? TVColor.text : TVColor.textMuted))

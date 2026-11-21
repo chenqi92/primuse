@@ -860,6 +860,8 @@ protocol MusicSourceConnector: Sendable {
         writesTextTags: Bool
     ) async throws -> EmbeddedMetadataWritebackResult
 
+    func writeEmbeddedPictures(_ edits: [String: Data], for song: Song) async throws -> EmbeddedMetadataWritebackResult
+
     /// Rewrites only the embedded comment, with the same guarded whole-file
     /// replacement as `writeEmbeddedMetadata`; every other tag stays as it is.
     func writeEmbeddedComment(
@@ -1845,6 +1847,10 @@ extension MusicSourceConnector {
         lyrics: EmbeddedLyricsEdit,
         writesTextTags: Bool
     ) async throws -> EmbeddedMetadataWritebackResult {
+        throw EmbeddedMetadataWritebackSourceError.unsupported
+    }
+
+    func writeEmbeddedPictures(_ edits: [String: Data], for song: Song) async throws -> EmbeddedMetadataWritebackResult {
         throw EmbeddedMetadataWritebackSourceError.unsupported
     }
 

@@ -54,4 +54,52 @@ struct PlaylistGroupingTests {
         #expect(grouping.groups.first?.name == "Study")
         #expect(PlaylistGrouping.decode("invalid").groups.isEmpty)
     }
+
+    @Test func playbackCombinesOnlyGroupMembersInListOrderWithoutRepeatingSongs() throws {
+        var grouping = PlaylistGrouping()
+        let created = grouping.create(name: "通勤")
+        let id = try #require(created)
+        let morning = Playlist(id: "morning", name: "晨间")
+        let evening = Playlist(id: "evening", name: "傍晚")
+        let rules = SmartPlaylist(id: "rules", name: "最近收藏")
+        let ai = SmartPlaylist(id: "ai", name: "推荐", kind: .ai)
+        grouping.move([PlaylistGrouping.reference(id: evening.id),
+                       PlaylistGrouping.reference(id: morning.id),
+                       PlaylistGrouping.reference(id: ai.id, smart: true),
+                       PlaylistGrouping.reference(id: rules.id, smart: true),
+                       PlaylistGrouping.reference(id: "unloaded")], to: id)
+
+        var resolvedPlaylists: [String] = []
+        var resolvedSmartPlaylists: [String] = []
+        let queue = grouping.playbackSongIDs(
+            for: id,
+            playlists: [Playlist(id: rules.id, name: "其他"), morning, evening],
+            smartPlaylists: [rules, SmartPlaylist(id: morning.id, name: "其他"), ai],
+            songIDsForPlaylist: { playlist in
+                resolvedPlaylists.append(playlist.id)
+                return playlist.id == morning.id ? ["b", "a"] : ["a", "c"]
+            },
+            songIDsForSmartPlaylist: { smart in
+                resolvedSmartPlaylists.append(smart.id)
+                return smart.id == rules.id ? ["d", "c"] : ["a", "e"]
+            }
+        )
+        #expect(resolvedPlaylists == [morning.id, evening.id])
+        #expect(resolvedSmartPlaylists == [rules.id, ai.id])
+        #expect(queue == ["b", "a", "c", "d", "e"])
+    }
+
+    @Test func groupWithOnlyUnloadedOrEmptyPlaylistsHasNoPlaybackQueue() throws {
+        var grouping = PlaylistGrouping()
+        let created = grouping.create(name: "通勤")
+        let id = try #require(created)
+        let empty = Playlist(id: "empty", name: "新歌单")
+        grouping.move([PlaylistGrouping.reference(id: empty.id),
+                       PlaylistGrouping.reference(id: "unloaded", smart: true)], to: id)
+        let queue = grouping.playbackSongIDs(
+            for: id, playlists: [empty], smartPlaylists: [],
+            songIDsForPlaylist: { _ in [] }, songIDsForSmartPlaylist: { _ in ["outside"] }
+        )
+        #expect(queue.isEmpty)
+    }
 }

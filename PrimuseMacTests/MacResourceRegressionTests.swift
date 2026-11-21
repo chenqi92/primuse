@@ -1033,6 +1033,75 @@ private final class AutomaticScanFixtureFileManager: FileManager, @unchecked Sen
 
 @MainActor
 final class MacResourceRegressionTests: XCTestCase {
+    func testAudiobookshelfSourceAndPodcastLibraryAfterRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let abs = MusicSource(id: "abs", name: "Shelf", type: .audiobookshelf)
+        let nas = MusicSource(id: "nas", name: "Files", type: .webdav)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode([abs, nas]).write(to: directory.appendingPathComponent("sources.json"))
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        let kinds = SpokenWordStore(storeURL: directory.appendingPathComponent("kinds.json"))
+        kinds.updateFolderTagSources([abs, nas])
+        kinds.registerDefaultSpokenWordLibraries(sourceID: abs.id, libraryIDs: ["shows", "books"])
+        let episode = Song(id: "episode", title: "Morning", albumTitle: "Field Notes", fileFormat: .mp3,
+                           filePath: "/audiobookshelf/items/show/episodes/ep.mp3", sourceID: abs.id, serverLibraryID: "shows")
+        let book = Song(id: "chapter", title: "Opening", fileFormat: .mp3,
+                        filePath: "/audiobookshelf/items/book/files/12.mp3", sourceID: abs.id, serverLibraryID: "books")
+        let music = Song(id: "music", title: "Rain", fileFormat: .mp3, filePath: "/music.mp3", sourceID: nas.id)
+        let otherBook = Song(id: "other-book", title: "Evening", fileFormat: .m4a, filePath: "/book.m4b", sourceID: nas.id)
+        let seed = MusicLibrary(storageDirectory: directory)
+        seed.addSongs([episode, book, music, otherBook])
+        guard case .success = await seed.persistNowAndWait() else { return XCTFail("Fixture did not persist") }
+
+        let prepared = await MusicLibrary.prepareStartup(storageDirectory: directory, spokenWordClassification: kinds.classificationSnapshot)
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        library.publish(prepared)
+        XCTAssertEqual(library.localPodcastSongs.map(\.id), [episode.id])
+        XCTAssertEqual(library.localPodcastShowCount, 1)
+        XCTAssertEqual(library.localPodcastPreviewSongs.map(\.id), [episode.id])
+        XCTAssertTrue(kinds.isAudiobookshelfEpisode(episode))
+        XCTAssertFalse(kinds.isAudiobookshelfEpisode(book))
+        XCTAssertEqual(Set(library.spokenWordSongs.map(\.id)), [book.id, otherBook.id])
+        XCTAssertEqual(library.localPodcastShowTitle(forSongID: episode.id), "Field Notes")
+        XCTAssertEqual(Set(SongListView.Scope.source(abs.id).songs(in: library, sources: sources).map(\.id)), [episode.id, book.id])
+        XCTAssertEqual(SongListView.Scope.source(nas.id).songs(in: library, sources: sources).map(\.id), [music.id])
+        XCTAssertEqual(SongListView.Scope.library.songs(in: library, sources: sources).map(\.id), [music.id])
+    }
+
+    func testPodcastTransportCrossesFromABSIntoOtherShowsAndStopsAtBooks() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "PodcastQueue-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in }
+        )
+        let first = Song(id: "abs-a", title: "Morning", albumTitle: "Field Notes", fileFormat: .mp3,
+                         filePath: "/audiobookshelf/items/show-a/episodes/a.mp3", sourceID: "abs", genre: "Podcast")
+        let second = Song(id: "abs-b", title: "Evening", albumTitle: "Night Sky", fileFormat: .mp3,
+                          filePath: "/audiobookshelf/items/show-b/episodes/b.mp3", sourceID: "abs", genre: "Podcast")
+        let feed = Song(id: "feed-c", title: "Orbit", fileFormat: .mp3, filePath: "/c.mp3",
+                        sourceID: PodcastPlaybackSong.sourceID, genre: "Podcast")
+        let book = Song(id: "abs-book", title: "Opening", fileFormat: .mp3,
+                        filePath: "/audiobookshelf/items/book/files/1.mp3", sourceID: "abs", genre: "Audiobook")
+        let queue = [first, second, feed, book]
+        defer { player.currentSong = nil }
+        for (index, item) in queue.prefix(3).enumerated() {
+            player.setQueue(queue, startAt: index)
+            player.currentSong = item
+            XCTAssertEqual(player.currentListeningSpace, .podcast)
+            XCTAssertEqual(player.hasPreviousBookItem, index > 0)
+            XCTAssertEqual(player.hasNextBookItem, index < 2)
+        }
+    }
+
     func testMovingLocalSongToSourceRootKeepsPlaylistAndHistoryAfterDeepScan() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         addTeardownBlock { try FileManager.default.removeItem(at: root) }

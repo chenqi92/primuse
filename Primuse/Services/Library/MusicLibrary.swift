@@ -4780,6 +4780,11 @@ final class MusicLibrary {
         didSet { localPodcastContentRevision &+= 1 }
     }
     private(set) var localPodcastContentRevision: UInt64 = 0
+    var localPodcastShowCount: Int {
+        _ = localPodcastContentRevision
+        return localPodcastBookIDSet.count
+    }
+    private(set) var localPodcastPreviewSongs: [Song] = []
     /// Local podcast item id → the show it is grouped into, the way
     /// `spokenWordBookIDs` does it for books.
     @ObservationIgnored private(set) var localPodcastBookIDs: [String: String] = [:]
@@ -5069,6 +5074,7 @@ final class MusicLibrary {
         let spokenWordSongIDs: Set<String>
         /// The listener's own podcast files (`ListeningContentKind.podcast`).
         let podcastSongs: [Song]
+        let podcastPreviewSongs: [Song]
         /// 环境音,和 `musicSongs` 在同一趟里分出来。
         let ambientSongs: [Song]
         let ambientSongIDs: Set<String>
@@ -6204,6 +6210,9 @@ final class MusicLibrary {
         spokenWordDisplayTitles = prepared.spokenWordDisplayTitles
         spokenWordBookIDSet = prepared.spokenWordBookIDSet
         localPodcastBookIDSet = prepared.podcastBookIDSet
+        if localPodcastPreviewSongs != prepared.podcastPreviewSongs {
+            localPodcastPreviewSongs = prepared.podcastPreviewSongs
+        }
         if spokenWordBookCount != prepared.spokenWordBookIDSet.count {
             spokenWordBookCount = prepared.spokenWordBookIDSet.count
         }
@@ -6414,6 +6423,14 @@ final class MusicLibrary {
         let podcastPlacement = podcastSongs.isEmpty
             ? SpokenWordBookGrouping.BookPlacement()
             : SpokenWordBookGrouping.bookPlacement(for: podcastSongs.map { SpokenWordBookItem(song: $0) })
+        var podcastShowIDs: Set<String> = []
+        var podcastPreviewSongs: [Song] = []
+        for song in podcastSongs {
+            guard let showID = podcastPlacement.bookIDs[song.id], podcastShowIDs.insert(showID).inserted else { continue }
+            if podcastPreviewSongs.count < 3 {
+                podcastPreviewSongs.append(song)
+            }
+        }
         var releaseMetadataIndex = lookups.releaseMetadataIndex
         autoreleasepool { releaseMetadataIndex.prepare(albums: nextVisibleAlbums) }
         autoreleasepool {
@@ -6428,13 +6445,14 @@ final class MusicLibrary {
             spokenWordChapterCount: SpokenWordChapterTally.total(spokenWordSongs),
             spokenWordSongIDs: spokenWordSongIDs,
             podcastSongs: podcastSongs,
+            podcastPreviewSongs: podcastPreviewSongs,
             ambientSongs: ambientSongs,
             ambientSongIDs: ambientSongIDs,
             musicVideoSongs: musicVideoSongs,
             podcastPlacement: podcastPlacement,
             spokenWordBookIDs: spokenWordPlacement.bookIDs,
             spokenWordBookIDSet: Set(spokenWordPlacement.bookIDs.values),
-            podcastBookIDSet: Set(podcastPlacement.bookIDs.values),
+            podcastBookIDSet: podcastShowIDs,
             spokenWordDisplayTitles: spokenWordPlacement.displayTitles,
             albums: nextVisibleAlbums,
             artists: nextVisibleArtists,
@@ -14324,10 +14342,10 @@ final class MusicLibrary {
         if !renames.isEmpty { collectionRenameHandler(renames) }
     }
 
-    func replaceSong(_ updatedSong: Song) {
+    func replaceSong(_ updatedSong: Song, choosingCover selectedCover: String? = nil) {
         // S2: 与 `replaceSongs` 一致地排队。空库上 `validatedSongIndex` 返回 nil,
         // 不排队的话标签编辑 / 歌词回写 / 播放时长纠正会被直接丢掉。
-        if deferringUntilReady({ [weak self] in self?.replaceSong(updatedSong) }) { return }
+        if deferringUntilReady({ [weak self] in self?.replaceSong(updatedSong, choosingCover: selectedCover) }) { return }
         let playlistCleanupWasVerified = playlistCleanupIsVerified
         // 整行替换必须排在已入队的旁挂资源补丁之后, 否则窗口内的补丁会把
         // 这次替换里的封面/歌词/MV 指针盖回旧值; 反过来, 调用方拿到的整行
@@ -14343,6 +14361,8 @@ final class MusicLibrary {
         let previousSong = songsReference.value[index]
         let oldCoverRef = previousSong.coverArtFileName
         var s = updatedSong
+        // 用户刚选的封面晚于排队的旁挂引用。歌词和 MV 仍取各自的最新补丁。
+        if let selectedCover { s.coverArtFileName = selectedCover }
         let keepsGrouping = Self.sharesGroupingInputs(previousSong, s)
         if keepsGrouping {
             // A duration correction at playback start or a technical refresh:

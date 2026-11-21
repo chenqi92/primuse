@@ -86,16 +86,17 @@ struct TVPodcastsView: View {
                         if !podcasts.isLoaded {
                             ProgressView()
                                 .frame(maxWidth: .infinity, minHeight: 420)
-                        } else if podcasts.shows.isEmpty {
-                            localShowsSection(cell: cell)
-                            welcome(cell: cell)
-                            regionHiddenNote
                         } else {
-                            showsSection(cell: cell)
-                            continueListening
-                            latestEpisodes
+                            if !podcasts.shows.isEmpty {
+                                showsSection(cell: cell)
+                                continueListening
+                                latestEpisodes
+                            }
                             likedEpisodes
                             localShowsSection(cell: cell)
+                            if podcasts.shows.isEmpty && store.library.localPodcastSongs.isEmpty {
+                                welcome(cell: cell)
+                            }
                             regionHiddenNote
                         }
                     }
@@ -130,7 +131,7 @@ struct TVPodcastsView: View {
                         startedPlayback(from: source.map { TVPodcastPresentation.show($0) }, episodeID: store.currentPodcastEpisodeID)
                     }
                 case .localShow(let book):
-                    TVSpokenWordBookDetailView(bookID: book.id, fallback: book, initialFocusItemID: reopenedEpisodeID) {
+                    TVSpokenWordBookDetailView(bookID: book.id, fallback: book, isLocalPodcast: true, initialFocusItemID: reopenedEpisodeID) {
                         startedPlayback(from: presentation, episodeID: store.currentSongID)
                     }
                 }
@@ -175,12 +176,13 @@ struct TVPodcastsView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 18) {
+        let showCount = podcasts.shows.count + store.spokenWordShelf(.localPodcasts).books.count
+        return HStack(alignment: .center, spacing: 18) {
             Text(String(localized: "listening_space_podcast"))
                 .tvFont(.pageTitle)
                 .foregroundStyle(TVColor.text)
-            if !podcasts.shows.isEmpty {
-                Text(verbatim: "\(podcasts.shows.count) " + String(localized: "podcast_shows_count"))
+            if showCount > 0 {
+                Text(verbatim: "\(showCount) " + String(localized: "podcast_shows_count"))
                     .tvFont(.caption)
                     .foregroundStyle(TVColor.textFaint)
             }
@@ -324,7 +326,7 @@ struct TVPodcastsView: View {
                     ForEach(shows) { @Sendable book in
                         LazyItemCell {
                             TVSpokenWordBookCard(
-                                book: book, width: cell, focusBinding: $focusedCard, focusID: "local:" + book.id
+                                book: book, width: cell, isPodcast: true, focusBinding: $focusedCard, focusID: "local:" + book.id
                             ) {
                                 memory.cardID = "local:" + book.id
                                 presented = .localShow(book)
@@ -987,7 +989,7 @@ struct TVLocalPodcastEpisodeCard: View {
                     tint: TVColor.podcastSpace,
                     tint2: .black,
                     glyph: TVLibraryTint.glyph(showTitle ?? title),
-                    placeholderKind: .book,
+                    placeholderKind: .podcast,
                     size: width
                 )
                 .tvCardFocus(focused, radius: TVRadius.cover)
@@ -1683,57 +1685,74 @@ struct TVPodcastNowPlayingColumn: View {
     var onInteraction: () -> Void = {}
 
     var body: some View {
-        let notes = store.currentPodcastEpisodeID
-            .flatMap { PodcastStore.shared.episode(id: $0)?.episode }
-            .flatMap { PodcastShowNotes.plainSummary($0.showNotes ?? $0.subtitle, limit: 1_600) }
+        let rssEpisode = store.currentPodcastEpisodeID.flatMap { PodcastStore.shared.episode(id: $0)?.episode }
+        let notes = PodcastShowNotes.plainSummary(rssEpisode?.showNotes ?? rssEpisode?.subtitle ?? store.libraryPodcastShowNotes, limit: 1_600)
         let upNext = Array(store.podcastUpNext.prefix(4))
+        let libraryUpNext = Array(store.queueUpNextIDs.prefix(4))
         VStack(alignment: .leading, spacing: 18) {
-            TVEyebrow(text: String(localized: "podcast_show_notes"))
             if let notes {
+                TVEyebrow(text: String(localized: "podcast_show_notes"))
                 Text(notes)
                     .tvFont(.caption)
                     .foregroundStyle(TVColor.textMuted)
-                    .lineLimit(upNext.isEmpty ? 18 : 9)
+                    .lineLimit(upNext.isEmpty && libraryUpNext.isEmpty ? 18 : 9)
                     .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
+            } else if upNext.isEmpty && libraryUpNext.isEmpty {
+                TVEyebrow(text: String(localized: "podcast_show_notes"))
                 Text(String(localized: "podcast_no_episodes"))
                     .tvFont(.caption)
                     .foregroundStyle(TVColor.textFaint)
             }
-            if !upNext.isEmpty {
+            if !upNext.isEmpty || !libraryUpNext.isEmpty {
                 TVEyebrow(text: String(localized: "up_next"))
                     .padding(.top, 12)
                 ForEach(Array(upNext.enumerated()), id: \.element.id) { index, episode in
-                    TVFocusButton(radius: 14, scale: 1.02, lift: 0, ring: false, action: {
-                        onInteraction()
-                        store.playPodcastUpNext(at: index)
-                    }) { focused in
-                        HStack(spacing: 18) {
-                            TVPodcastArtwork(
-                                url: episode.artworkURL ?? PodcastStore.shared.show(id: episode.showID)?.artworkURL,
-                                side: 64,
-                                radius: 8
+                    nextRow(title: episode.title, meta: TVPodcastText.meta(episode, state: PodcastStore.shared.state(for: episode)),
+                            play: { store.playPodcastUpNext(at: index) }) {
+                        TVPodcastArtwork(
+                            url: episode.artworkURL ?? PodcastStore.shared.show(id: episode.showID)?.artworkURL,
+                            side: 64, radius: 8
+                        )
+                    }
+                }
+                ForEach(Array(libraryUpNext.enumerated()), id: \.offset) { index, id in
+                    if let song = store.library.song(id: id) {
+                        nextRow(title: store.library.displayTitle(for: song), meta: PodcastFormat.duration(song.duration) ?? "",
+                                play: { store.playQueueItem(at: index) }) {
+                            TVArtworkView(
+                                coverKey: song.albumID ?? id, artist: song.artistName ?? "", album: song.albumTitle ?? "",
+                                songID: id, coverRef: song.coverArtFileName, tint: TVColor.podcastSpace, tint2: .black,
+                                glyph: TVLibraryTint.glyph(song.title), placeholderKind: .podcast, size: 64, radius: 8
                             )
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(episode.title).tvFont(.caption, weight: .semibold)
-                                    .foregroundStyle(TVColor.text)
-                                    .lineLimit(1)
-                                Text(TVPodcastText.meta(episode, state: PodcastStore.shared.state(for: episode)))
-                                    .tvFont(.meta)
-                                    .foregroundStyle(TVColor.textFaint)
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
                         }
-                        .padding(14)
-                        .background(focused ? TVColor.surfaceStrong : TVColor.card,
-                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                 }
             }
             Spacer(minLength: 0)
         }
         .focusSection()
+    }
+
+    private func nextRow<Artwork: View>(
+        title: String, meta: String, play: @escaping () -> Void, @ViewBuilder artwork: () -> Artwork
+    ) -> some View {
+        let cover = artwork()
+        return TVFocusButton(radius: 14, scale: 1.02, lift: 0, ring: false, action: {
+            onInteraction()
+            play()
+        }) { focused in
+            HStack(spacing: 18) {
+                cover
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).tvFont(.caption, weight: .semibold).foregroundStyle(TVColor.text).lineLimit(1)
+                    Text(meta).tvFont(.meta).foregroundStyle(TVColor.textFaint).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .background(focused ? TVColor.surfaceStrong : TVColor.card,
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
     }
 }
 

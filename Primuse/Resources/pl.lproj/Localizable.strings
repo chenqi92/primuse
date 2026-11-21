@@ -5278,14 +5278,18 @@
 "karaoke_ai_word_timing" = "Czas słów oszacowany przez AI";
 "karaoke_tv_unsupported" = "Format tego utworu nie pozwala ściszyć wokalu na Apple TV.";
 "karaoke_tv_scan_title" = "Śpiewaj z iPhone’em";
-"karaoke_tv_scan_hint" = "Zeskanuj aparatem. iPhone ocenia śpiew; głos nie leci z telewizora.";
+"karaoke_tv_scan_hint" = "Zeskanuj kod aparatem iPhone’a, aby uzyskać ocenę śpiewu. Po połączeniu możesz włączyć odtwarzanie swojego głosu przez telewizor.";
+"karaoke_tv_live_voice" = "Odtwarzaj mój głos przez telewizor";
 "karaoke_tv_mic_connected_format" = "%@ połączony";
 "karaoke_remote_title" = "Mikrofon do Apple TV";
 "karaoke_remote_connecting" = "Łączenie z Apple TV…";
 "karaoke_remote_connected" = "Połączono. Śpiewaj!";
 "karaoke_remote_rejected" = "Apple TV nie przyjął tego kodu. Zeskanuj kod z telewizora ponownie.";
 "karaoke_remote_failed" = "Nie można połączyć się z Apple TV. Upewnij się, że oba urządzenia są w tej samej sieci.";
-"karaoke_remote_hint" = "Trzymaj iPhone’a przy ustach. Głos słychać w pokoju jak zwykle; iPhone tylko ocenia.";
+"karaoke_remote_hint" = "Trzymaj iPhone’a blisko ust.";
+"karaoke_remote_live_hint" = "Twój głos jest przesyłany do telewizora.";
+"karaoke_live_request" = "Przesłać Twój głos do tego Apple TV?";
+"karaoke_live_allow" = "Prześlij mój głos";
 "karaoke_tv_ai_local" = "Separacja AI na Apple TV";
 "karaoke_tv_ai_local_hint" = "To Apple TV samo oddziela wokal. Na Apple TV możliwa jest tylko wolniejsza metoda, więc jeden utwór może trwać długo. Aby było szybciej, zeskanuj kod, użyj iPhone’a jako mikrofonu i pozwól iPhone’owi oddzielić wokal.";
 "karaoke_tv_ai_active" = "Używana jest separacja wokalu AI z iPhone’a.";
@@ -5924,7 +5928,7 @@
 "podcast_mark_played" = "Oznacz jako odtworzony";
 "podcast_mark_unplayed" = "Oznacz jako nieodtworzony";
 "podcast_my_shows" = "Podcasty";
-"podcast_local_shows" = "Własne pliki";
+"podcast_local_shows" = "Audycje w bibliotece";
 "podcast_local_episode_count %lld" = "Odcinki: %lld";
 "podcast_new_episodes_count %lld" = "Nowe odcinki: %lld";
 "podcast_no_episodes" = "Brak odcinków.";
@@ -7984,12 +7988,6 @@
 "scrape_progress_capsule_failed" = "Błąd · Stuknij, aby zobaczyć";
 "scrape_progress_embed_failed" = "Nie udało się osadzić okładki w pliku audio.";
 "scrape_progress_source_timeout" = "Źródło muzyki nie odpowiedziało w ciągu 30 sekund. Okładka została zapisana tylko na tym urządzeniu.";
-"playback_app_volume" = "Głośność aplikacji";
-"playback_app_volume_desc" = "Po włączeniu suwak głośności na ekranie odtwarzania reguluje własną głośność Primuse i pozwala ściszyć dźwięk poniżej głośności systemu — przydatne, gdy nawet najniższy poziom systemu jest za głośny. Głośność systemu i inne aplikacje pozostają bez zmian, a przyciski głośności nadal zmieniają głośność systemu. Przy utworach Apple Music i przesyłaniu na inne urządzenia nadal widać suwak systemowy.";
-"playback_app_volume_high_fidelity_note" = "Bezpośrednie odtwarzanie Hi-Fi omija mikser, więc głośność aplikacji nie działa. Wróć do trybu Efekty i przetwarzanie, aby z niej korzystać.";
-"scrobble_lb_server_placeholder" = "Adres serwera (puste = listenbrainz.org)";
-"scrobble_lb_server_invalid" = "Nieprawidłowy adres serwera";
-"scrobble_lb_server_footer" = "W przypadku własnego serwera zgodnego z ListenBrainz, np. Maloja, Koito lub multi-scrobbler, wpisz adres jego API i użyj tokenu z tego serwera.";
 
 "lyrics_versions_title" = "Wersje tekstu";
 "lyrics_versions_external" = "Zewnętrzna";
@@ -8004,3 +8002,12 @@
 "lyrics_versions_hide_all" = "Ukryj wszystkie wersje w Primuse";
 "lyrics_versions_remove_one_confirm" = "Usunąć „%@”?";
 "lyrics_versions_remove_all_confirm" = "Usunąć wszystkie wersje tekstu (%lld)?";
+"tag_editor_picture_use_for_display" = "Ustaw jako okładkę utworu";
+"artwork_choose_image_file" = "Wybierz z Plików";
+"tag_editor_picture_next" = "Następny obraz";
+"playback_app_volume" = "Głośność aplikacji";
+"playback_app_volume_desc" = "Po włączeniu suwak głośności na ekranie odtwarzania reguluje własną głośność Primuse i pozwala ściszyć dźwięk poniżej głośności systemu — przydatne, gdy nawet najniższy poziom systemu jest za głośny. Głośność systemu i inne aplikacje pozostają bez zmian, a przyciski głośności nadal zmieniają głośność systemu. Przy utworach Apple Music i przesyłaniu na inne urządzenia nadal widać suwak systemowy.";
+"playback_app_volume_high_fidelity_note" = "Bezpośrednie odtwarzanie Hi-Fi omija mikser, więc głośność aplikacji nie działa. Wróć do trybu Efekty i przetwarzanie, aby z niej korzystać.";
+"scrobble_lb_server_placeholder" = "Adres serwera (puste = listenbrainz.org)";
+"scrobble_lb_server_invalid" = "Nieprawidłowy adres serwera";
+"scrobble_lb_server_footer" = "W przypadku własnego serwera zgodnego z ListenBrainz, np. Maloja, Koito lub multi-scrobbler, wpisz adres jego API i użyj tokenu z tego serwera.";

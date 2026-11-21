@@ -93,12 +93,12 @@ struct TVNowPlayingView: View {
     @State private var spokenWordBookmarkFeedback = 0
     @State private var showImmersive = tvDebugImmersiveLaunch.show
     @State private var immersiveStartsWithEffectPicker = tvDebugImmersiveLaunch.picker
-    /// 全屏效果盖上那一刻的进度与歌词行。不参与观察(同 `TVInteractionClock`)。
+    /// 全屏效果盖上那一刻的进度与歌词行。不参与观察。
     @State private var coveredPlayback = TVCoveredPlaybackSnapshot()
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     /// 最近一次遥控操作的时间戳。播放中静置一段时间自动进入沉浸展示。
-    /// 不用 @State 的 Date:每次移动焦点都会写它,写一次就让整个播放页(连同货架)重算一遍。
+    /// 只有底部浏览提示订阅时间变化，播放页其余部分按需读取。
     @State private var interactionClock = TVInteractionClock()
     /// 输出路由变了(换 HDMI 口、接功放)就加一,让元信息行重读输出采样率 ——
     /// AVAudioSession 的采样率不可观察。
@@ -459,7 +459,8 @@ struct TVNowPlayingView: View {
                         // 有声内容:左边是书与听书的控件,右边是这本书的目录与书签。
                         spokenWordLeftColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
                             .focusSection()
-                        if store.currentPodcastEpisodeID != nil, store.spokenWordChapters.isEmpty {
+                        if store.currentItemIsPodcast, store.spokenWordChapters.isEmpty,
+                           store.currentPodcastEpisodeID != nil || store.libraryPodcastShowNotes != nil || !store.queueUpNextIDs.isEmpty {
                             // 没有章节的播客单集:右栏是节目说明和接下来要放的几集。
                             TVPodcastNowPlayingColumn(onInteraction: registerInteraction)
                                 .frame(width: 720)
@@ -591,18 +592,46 @@ struct TVNowPlayingView: View {
         store.engine.status == .loading || store.engine.status == .playing
     }
 
-    private var loadingStatus: some View {
-        HStack(spacing: 14) {
-            ProgressView()
-            if let progress = store.engine.downloadProgress {
-                Text(String(localized: "offline_downloading") + " " + progress.formatted(.percent.precision(.fractionLength(0))))
-                    .monospacedDigit()
-            } else {
-                Text(String(localized: "radio_buffering"))
+    @ViewBuilder
+    private func loadingStatus(showsVideoPreparation: Bool = false) -> some View {
+        if store.isLoading, store.playbackIssue == nil,
+           !showsVideoPreparation || MusicVideoPreparationStatus.shared.songID != store.nowPlaying.songID {
+            TVPlaybackLoadingBadge(progress: store.engine.downloadProgress)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private struct TVPlaybackLoadingBadge: View {
+        let progress: Double?
+        @State private var isVisible = false
+
+        var body: some View {
+            HStack(spacing: 10) {
+                if let progress {
+                    Image(systemName: "arrow.down.circle")
+                    Text(progress, format: .percent.precision(.fractionLength(0)))
+                        .monospacedDigit()
+                } else {
+                    ProgressView().controlSize(.small).tint(.white)
+                    Text("radio_buffering")
+                }
+            }
+            .tvFont(.meta, weight: .semibold)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.black.opacity(0.76), in: Capsule())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(progress == nil ? "radio_buffering" : "offline_downloading"))
+            .accessibilityValue(Text(verbatim: progress?.formatted(.percent.precision(.fractionLength(0))) ?? ""))
+            .accessibilityIdentifier("tv.playback.loading")
+            .accessibilityHidden(!isVisible)
+            .opacity(isVisible ? 1 : 0)
+            .task {
+                do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+                isVisible = true
             }
         }
-        .tvFont(.caption)
-        .accessibilityIdentifier("tv.playback.loading")
     }
 
     private var focusMode: TVNowPlayingFocusMode {
@@ -691,6 +720,7 @@ struct TVNowPlayingView: View {
                 musicVideoChrome
                     .transition(.opacity)
             }
+            loadingStatus(showsVideoPreparation: true)
         }
         .environment(\.colorScheme, .dark)
         .onAppear { scheduleMusicVideoChromeHide() }
@@ -756,8 +786,6 @@ struct TVNowPlayingView: View {
                     .foregroundStyle(.white.opacity(0.74))
                     .monospacedDigit()
                     .padding(.bottom, 18)
-            } else if store.isLoading {
-                loadingStatus.padding(.bottom, 18)
             }
 
             scrubber(immersiveDark: true)
@@ -883,6 +911,9 @@ struct TVNowPlayingView: View {
             .accessibilityLabel(Text(PMString("ext.tv.player.browse")))
             .accessibilityHint(Text(PMString("ext.tv.nowPlaying.artworkHint")))
             .accessibilityIdentifier("tv.nowPlaying.artworkControls")
+            .overlay(alignment: .topLeading) {
+                loadingStatus(showsVideoPreparation: true).padding(14)
+            }
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(np.title).tvFont(.pageTitle).tracking(-0.8)
                     .foregroundStyle(TVColor.text).lineLimit(2)
@@ -892,14 +923,17 @@ struct TVNowPlayingView: View {
             artistLine(np).padding(.top, 8)
             if store.isMedleyActive {
                 TVPillButton(title: store.medleyBadgeTitle,
-                             systemImage: "shuffle") { store.continueCurrentMedleySongInFull() }
+                             systemImage: "shuffle") {
+                    registerInteraction()
+                    store.continueCurrentMedleySongInFull()
+                }
                     .accessibilityLabel(Text("medley_continue_full"))
                     .accessibilityIdentifier("tv.medley.continueFull")
                     .padding(.top, 12)
             }
             audioInfoButton(np, color: TVColor.textFaint).padding(.top, 4)
 
-            TVLibraryReviewControl(subject: .song(np.songID))
+            TVLibraryReviewControl(subject: .song(np.songID), onInteraction: registerInteraction)
                 .padding(.top, 16)
 
             if let issue = store.playbackIssue {
@@ -910,8 +944,6 @@ struct TVNowPlayingView: View {
                 Label(preparing, systemImage: "film")
                     .tvFont(.meta, weight: .medium).foregroundStyle(TVColor.textMuted)
                     .monospacedDigit().padding(.top, 14)
-            } else if store.isLoading {
-                loadingStatus.padding(.top, 12)
             }
 
             Spacer(minLength: 24)
@@ -982,6 +1014,10 @@ struct TVNowPlayingView: View {
         // 图标与上面的传输键对齐,聚焦的底色往外长。
         .padding(.leading, -20)
         .accessibilityLabel(Text(PMString("ext.tv.player.shelf.hint")))
+        .accessibilityIdentifier("tv.nowPlaying.shelfHint")
+        .modifier(TVShelfHintVisibility(
+            clock: interactionClock, isActive: isEnabled && !showShelf && activePresentationCount == 0
+        ))
     }
 
     /// 从传输键进货架:有队列先看「接下来」,单曲播放时看本专辑。
@@ -1005,6 +1041,11 @@ struct TVNowPlayingView: View {
                         if store.currentPodcastEpisodeID != nil {
                             // 播客单集的封面是方的,不放进书框;按图片地址缓存,和播客页的卡片共用一份。
                             TVPodcastArtwork(url: np.coverRef.flatMap(URL.init(string:)), side: 340, radius: 16)
+                        } else if store.currentItemIsPodcast {
+                            TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                                          songID: np.songID, coverRef: np.coverRef,
+                                          tint: np.tint, tint2: np.tint2, glyph: np.glyph,
+                                          placeholderKind: .podcast, size: 340, radius: 16)
                         } else if let book = store.currentSpokenWordBook {
                             // 和播客单集封面同一个尺寸:书封也是方的。
                             TVSpokenWordCover(book: book, size: 340, radius: 16)
@@ -1028,9 +1069,12 @@ struct TVNowPlayingView: View {
                 .focusEffectDisabled()
                 .accessibilityLabel(Text(PMString(store.isPlaying ? "ext.control.pause" : "ext.control.play")))
                 .accessibilityIdentifier("tv.nowPlaying.artworkControls")
+                .overlay(alignment: .topLeading) {
+                    loadingStatus().padding(14)
+                }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    TVEyebrow(text: String(localized: store.currentPodcastEpisodeID != nil
+                    TVEyebrow(text: String(localized: store.currentItemIsPodcast
                         ? "listening_space_podcast" : "listening_space_spoken_word"))
                     Text(TVSpokenWordText.bookTitle(store))
                         .tvFont(size: 56, weight: .bold, design: .serif, relativeTo: .largeTitle)
@@ -1049,7 +1093,7 @@ struct TVNowPlayingView: View {
                             if author != nil { Text(verbatim: "·") }
                             // 章节位置前那一圈是全书进度;百分比与全书还剩多久在右栏目录顶上。
                             HStack(spacing: 10) {
-                                if store.currentPodcastEpisodeID == nil,
+                                if !store.currentItemIsPodcast,
                                    let summary = store.spokenWordNowPlayingSummary {
                                     TVSpokenWordBookRing(fraction: summary.bookFraction)
                                         .frame(width: 22, height: 22)
@@ -1068,8 +1112,6 @@ struct TVNowPlayingView: View {
                 Label(issue.message, systemImage: "exclamationmark.triangle.fill")
                     .tvFont(.meta, weight: .medium).foregroundStyle(TVColor.warn)
                     .lineLimit(3).frame(maxWidth: 680, alignment: .leading).padding(.top, 14)
-            } else if store.isLoading {
-                loadingStatus.padding(.top, 12)
             }
 
             Spacer(minLength: 24)
@@ -2147,21 +2189,23 @@ struct TVScrubber: View {
 
 // MARK: - 圆形传输按钮
 
-/// 歌词上方的一行翻译状态:正在翻、翻好了、缺离线翻译包、智能翻译没用上。不可聚焦,
-/// 要动手的事交给播放控制里的「歌词翻译」键;翻好之类的提示几秒后自己淡出。
+/// 当前歌曲的翻译提示短暂显示，详细状态可在播放控制的「歌词翻译」面板中查看。
 private struct TVLyricsTranslationStatusLine: View {
     let songID: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dismissedKey: String?
+    @State private var dismissedKey: NoticeKey?
     private var controller: TVLyricsTranslationController { .shared }
 
-    private struct Line: Equatable {
-        let key: String
+    private struct NoticeKey: Equatable {
+        let songID: String?
+        let text: String
+    }
+
+    private struct Line {
         let text: String
         let systemImage: String
         let tint: Color
         let hint: String?
-        let isTransient: Bool
     }
 
     private var line: Line? {
@@ -2169,28 +2213,27 @@ private struct TVLyricsTranslationStatusLine: View {
               let songID, controller.activitySongID == songID else { return nil }
         let activity = controller.activity
         if case .needsModel = activity, let text = activity.statusText {
-            return Line(key: "needsModel|\(songID)", text: text, systemImage: activity.systemImage,
-                        tint: activity.tint, hint: String(localized: "lyrics_translation_tv_open_panel_hint"),
-                        isTransient: false)
+            return Line(text: text, systemImage: activity.systemImage,
+                        tint: activity.tint, hint: String(localized: "lyrics_translation_tv_open_panel_hint"))
         }
         if let issue = controller.intelligentIssue {
             if case .translating = activity { return nil }
-            return Line(key: "aiIssue|\(songID)",
-                        text: issue.fellBackText,
+            return Line(text: issue.fellBackText,
                         systemImage: issue.systemImage, tint: TVColor.warn,
-                        hint: String(localized: "lyrics_translation_tv_open_panel_hint"),
-                        isTransient: false)
+                        hint: String(localized: "lyrics_translation_tv_open_panel_hint"))
         }
         guard let text = activity.statusText else { return nil }
         if case .notNeeded = activity { return nil }
-        return Line(key: "\(text)|\(songID)", text: text, systemImage: activity.systemImage,
-                    tint: activity.tint, hint: nil, isTransient: activity.isTransient)
+        return Line(text: text, systemImage: activity.systemImage,
+                    tint: activity.tint, hint: nil)
     }
 
     var body: some View {
-        let line = self.line.flatMap { $0.key == dismissedKey ? nil : $0 }
+        let line = self.line
+        let key = line.map { NoticeKey(songID: songID, text: $0.text) }
+        let isVisible = key != nil && key != dismissedKey
         ZStack {
-            if let line {
+            if isVisible, let line {
                 HStack(spacing: 12) {
                     Image(systemName: line.systemImage)
                         .font(.system(size: 22, weight: .semibold))
@@ -2210,18 +2253,19 @@ private struct TVLyricsTranslationStatusLine: View {
                 .padding(.vertical, 12)
                 .background(TVColor.surfaceStrong.opacity(0.9), in: Capsule())
                 .transition(.opacity)
-                .task(id: line.key) {
-                    guard line.isTransient else { return }
-                    try? await Task.sleep(for: .seconds(4))
-                    guard !Task.isCancelled else { return }
-                    dismissedKey = line.key
-                }
             }
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: line)
+        .task(id: key) {
+            dismissedKey = nil
+            guard let key else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            dismissedKey = key
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isVisible)
         .padding(.top, 8)
         .allowsHitTesting(false)
-        .accessibilityHidden(line == nil)
+        .accessibilityHidden(!isVisible)
     }
 }
 
@@ -2428,9 +2472,10 @@ private struct TVNowPlayingArtworkButton: View, @MainActor Equatable {
     }
 }
 
-/// 播放页「最近一次遥控操作」的时刻。普通引用类型、不参与观察:写它不会让视图重算。
+/// 播放页最近一次遥控操作的时刻。
+@Observable
 final class TVInteractionClock {
-    private var lastInteraction = ProcessInfo.processInfo.systemUptime
+    private(set) var lastInteraction = ProcessInfo.processInfo.systemUptime
 
     func touch() { lastInteraction = ProcessInfo.processInfo.systemUptime }
 
@@ -2439,7 +2484,42 @@ final class TVInteractionClock {
     }
 }
 
-/// 全屏效果盖住播放页时，页面停在的进度与歌词时刻。和 `TVInteractionClock` 一样不参与观察:
+struct TVShelfHintVisibility: ViewModifier {
+    let clock: TVInteractionClock
+    let isActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.accessibilitySwitchControlEnabled) private var switchControl
+    @State private var dismissedInteraction: TimeInterval?
+
+    func body(content: Content) -> some View {
+        let interaction = clock.lastInteraction
+        let visible = voiceOver || switchControl || interaction != dismissedInteraction
+        return content
+            .opacity(visible ? 1 : 0)
+            .disabled(!visible)
+            .accessibilityHidden(!visible)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: visible)
+            .onChange(of: isActive, initial: true) { _, active in
+                if active { clock.touch() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIFocusSystem.didUpdateNotification)) { note in
+                guard isActive, let context = note.userInfo?[UIFocusSystem.focusUpdateContextUserInfoKey]
+                        as? UIFocusUpdateContext, !context.focusHeading.isEmpty else { return }
+                clock.touch()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIFocusSystem.movementDidFailNotification)) { _ in
+                if isActive { clock.touch() }
+            }
+            .task(id: isActive && !voiceOver && !switchControl ? interaction : nil) {
+                guard isActive, !voiceOver, !switchControl else { return }
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                dismissedInteraction = interaction
+            }
+    }
+}
+
+/// 全屏效果盖住播放页时，页面停在的进度与歌词时刻。
 /// 盖上前记一次，盖着时读它而不读 `store`,播放页就不再跟着进度回调重算。
 final class TVCoveredPlaybackSnapshot {
     private(set) var isCaptured = false
@@ -2470,7 +2550,7 @@ enum TVPlayerShelfFocusAnchor: Equatable {
     case control(TVPlayerRowControl)
 }
 
-/// 和 `TVInteractionClock` 一样不参与观察:每挪一次焦点都要写,写了不该让播放页重算。
+/// 焦点恢复记录不参与观察，每次移动焦点只需记住最近的控件。
 final class TVPlayerShelfFocusMemory {
     /// 播放页上最近拿到焦点的那颗键(把手、进度条不算)。
     var lastFocused: TVPlayerShelfFocusAnchor?

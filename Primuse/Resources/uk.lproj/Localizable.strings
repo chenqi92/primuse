@@ -5278,14 +5278,18 @@
 "karaoke_ai_word_timing" = "Розбивку за словами оцінено ШІ";
 "karaoke_tv_unsupported" = "Для формату цієї пісні не можна приглушити вокал на Apple TV.";
 "karaoke_tv_scan_title" = "Співайте з iPhone";
-"karaoke_tv_scan_hint" = "Відскануйте камерою. iPhone оцінює спів, голос не виводиться через ТБ.";
+"karaoke_tv_scan_hint" = "Відскануйте код камерою iPhone, щоб отримувати бали за спів. Після підключення можна ввімкнути відтворення свого голосу на телевізорі.";
+"karaoke_tv_live_voice" = "Відтворювати мій голос на телевізорі";
 "karaoke_tv_mic_connected_format" = "%@ під’єднано";
 "karaoke_remote_title" = "Мікрофон для Apple TV";
 "karaoke_remote_connecting" = "Під’єднання до Apple TV…";
 "karaoke_remote_connected" = "Під’єднано. Співайте!";
 "karaoke_remote_rejected" = "Apple TV не прийняв цей код. Відскануйте код на ТБ ще раз.";
 "karaoke_remote_failed" = "Не вдається зв’язатися з Apple TV. Переконайтеся, що пристрої в одній мережі.";
-"karaoke_remote_hint" = "Тримайте iPhone біля рота. Голос чути в кімнаті як зазвичай; iPhone лише оцінює.";
+"karaoke_remote_hint" = "Тримайте iPhone близько до рота.";
+"karaoke_remote_live_hint" = "Ваш голос передається на телевізор.";
+"karaoke_live_request" = "Передавати ваш голос на цей Apple TV?";
+"karaoke_live_allow" = "Передавати голос";
 "karaoke_tv_ai_local" = "ШІ-розділення на Apple TV";
 "karaoke_tv_ai_local_hint" = "Ця Apple TV сама відокремлює вокал. На Apple TV доступний лише повільніший спосіб, тож одна пісня може оброблятися довго. Щоб було швидше, відскануйте код, використайте iPhone як мікрофон і доручіть розділення iPhone.";
 "karaoke_tv_ai_active" = "Використовується ШІ-відокремлення вокалу з iPhone.";
@@ -5924,7 +5928,7 @@
 "podcast_mark_played" = "Позначити як прослуханий";
 "podcast_mark_unplayed" = "Позначити як непрослуханий";
 "podcast_my_shows" = "Подкасти";
-"podcast_local_shows" = "Власні файли";
+"podcast_local_shows" = "Подкасти з медіатеки";
 "podcast_local_episode_count %lld" = "Випусків: %lld";
 "podcast_new_episodes_count %lld" = "Нових випусків: %lld";
 "podcast_no_episodes" = "Випусків поки немає.";
@@ -7984,12 +7988,6 @@
 "scrape_progress_capsule_failed" = "Помилка · Торкніться, щоб переглянути";
 "scrape_progress_embed_failed" = "Не вдалося вбудувати обкладинку в аудіофайл.";
 "scrape_progress_source_timeout" = "Джерело музики не відповіло за 30 секунд. Обкладинку збережено лише на цьому пристрої.";
-"playback_app_volume" = "Гучність застосунку";
-"playback_app_volume_desc" = "Якщо ввімкнено, повзунок гучності на екрані відтворення регулює власну гучність Primuse і дозволяє зробити звук тихішим за системну гучність — зручно, коли навіть найнижчий рівень системи надто гучний. Системна гучність та інші застосунки не змінюються, кнопки гучності й далі регулюють системну гучність. Для пісень Apple Music і під час трансляції на інші пристрої показується системний повзунок.";
-"playback_app_volume_high_fidelity_note" = "Пряме відтворення високої точності йде в обхід мікшера, тож гучність застосунку не діє. Поверніться до режиму «Ефекти та обробка», щоб нею користуватися.";
-"scrobble_lb_server_placeholder" = "Адреса сервера (порожньо — listenbrainz.org)";
-"scrobble_lb_server_invalid" = "Недійсна адреса сервера";
-"scrobble_lb_server_footer" = "Для власного сервера, сумісного з ListenBrainz (Maloja, Koito, multi-scrobbler тощо), вкажіть адресу його API та використовуйте токен із цього сервера.";
 
 "lyrics_versions_title" = "Версії тексту";
 "lyrics_versions_external" = "Зовнішня";
@@ -8004,3 +8002,12 @@
 "lyrics_versions_hide_all" = "Приховати всі версії у Primuse";
 "lyrics_versions_remove_one_confirm" = "Прибрати «%@»?";
 "lyrics_versions_remove_all_confirm" = "Прибрати всі версії тексту (%lld)?";
+"tag_editor_picture_use_for_display" = "Зробити обкладинкою пісні";
+"artwork_choose_image_file" = "Вибрати з Файлів";
+"tag_editor_picture_next" = "Наступне зображення";
+"playback_app_volume" = "Гучність застосунку";
+"playback_app_volume_desc" = "Якщо ввімкнено, повзунок гучності на екрані відтворення регулює власну гучність Primuse і дозволяє зробити звук тихішим за системну гучність — зручно, коли навіть найнижчий рівень системи надто гучний. Системна гучність та інші застосунки не змінюються, кнопки гучності й далі регулюють системну гучність. Для пісень Apple Music і під час трансляції на інші пристрої показується системний повзунок.";
+"playback_app_volume_high_fidelity_note" = "Пряме відтворення високої точності йде в обхід мікшера, тож гучність застосунку не діє. Поверніться до режиму «Ефекти та обробка», щоб нею користуватися.";
+"scrobble_lb_server_placeholder" = "Адреса сервера (порожньо — listenbrainz.org)";
+"scrobble_lb_server_invalid" = "Недійсна адреса сервера";
+"scrobble_lb_server_footer" = "Для власного сервера, сумісного з ListenBrainz (Maloja, Koito, multi-scrobbler тощо), вкажіть адресу його API та використовуйте токен із цього сервера.";

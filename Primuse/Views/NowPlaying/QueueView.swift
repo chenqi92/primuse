@@ -390,7 +390,6 @@ struct QueueView: View {
         .padding(.horizontal, 8)
     }
 
-    /// 正在播放那一首,下面是「保存这个队列」:列表顶上现在是已播放,打开时停在这一段。
     private func nowPlayingSection(_ currentEntry: QueueEntry, layout: QueueHistoryLayout) -> some View {
         queueSection(title: "now_playing") {
             queueRow(
@@ -401,9 +400,6 @@ struct QueueView: View {
                 isPlaying: true,
                 offersStopPoint: true
             )
-            QueueBookmarkButton(player: player)
-                .padding(.horizontal, 8)
-                .padding(.top, 4)
         }
     }
 
@@ -470,7 +466,7 @@ struct QueueView: View {
             }
             .joined(separator: ", ")
 
-        let row = HStack(alignment: .center, spacing: 10) {
+        let songDetails = HStack(alignment: .center, spacing: 10) {
             ZStack {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
@@ -522,8 +518,6 @@ struct QueueView: View {
 
             Spacer(minLength: 8)
 
-            // 时长与删除键放进同一个固定高度的容器, 与 44pt 封面同高居中,
-            // 不再各自按内容高度对齐而显得偏上。
             HStack(spacing: 2) {
                 if stopsHere {
                     // 播完这首就停在这里。
@@ -538,24 +532,42 @@ struct QueueView: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-
-                if let reorderID, allowsRemoval {
-                    Button {
-                        pmWithAnimation(.list) {
-                            _ = player.removeUpcomingQueueEntry(reorderID)
-                        }
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 36, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHidden(true)
-                }
             }
-            .frame(height: 44)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { playEntry(entry) }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(verbatim: accessibilityLabel))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { playEntry(entry) }
+        .modifier(QueueStopPointMenu(isOffered: showsStopPoint) {
+            stopPointButton(for: entry, stopsHere: stopsHere)
+        })
+        .modifier(QueueStopPointAccessibility(
+            isOffered: showsStopPoint && reorderID == nil,
+            stopsHere: stopsHere,
+            toggle: { player.toggleStopAfterQueueEntry(entry.id) }
+        ))
+
+        let row = HStack(spacing: 2) {
+            songDetails
+            if isPlaying {
+                QueueBookmarkButton(player: player)
+            } else if let reorderID, allowsRemoval {
+                Button {
+                    pmWithAnimation(.list) {
+                        _ = player.removeUpcomingQueueEntry(reorderID)
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -579,7 +591,6 @@ struct QueueView: View {
         .pmAnimation(.list, value: isDropTarget)
         .opacity(dimmed || unreachable || restriction != nil ? 0.58 : 1)
         .contentShape(Rectangle())
-        .onTapGesture { playEntry(entry) }
         // 拖起这一行时, SwiftUI 会把它渲染进一个独立的预览宿主。那个宿主不继承
         // 按类型注入的可观察对象, 而这一行要读两个: 标题下方的艺术家名走
         // MusicLibrary, 封面 CachedArtworkView 同时读 MusicLibrary 与
@@ -587,9 +598,6 @@ struct QueueView: View {
         // 表现为一碰拖动就闪退。显式带上, 让预览宿主解析得到。
         .environment(library)
         .environment(sourceManager)
-        .modifier(QueueStopPointMenu(isOffered: showsStopPoint) {
-            stopPointButton(for: entry, stopsHere: stopsHere)
-        })
 
         if let reorderID {
             let accessibleRow = row
@@ -644,15 +652,6 @@ struct QueueView: View {
             }
         } else {
             row
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(Text(verbatim: accessibilityLabel))
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAction { playEntry(entry) }
-                .modifier(QueueStopPointAccessibility(
-                    isOffered: showsStopPoint,
-                    stopsHere: stopsHere,
-                    toggle: { player.toggleStopAfterQueueEntry(entry.id) }
-                ))
         }
     }
 

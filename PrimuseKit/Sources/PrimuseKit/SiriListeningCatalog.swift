@@ -71,6 +71,93 @@ public enum SiriListeningCatalog {
     }
 }
 
+/// A Siri show ID survives a shortcut round trip and identifies which player owns its episodes.
+public struct SiriPodcastShow: Sendable, Equatable {
+    public let id: String
+    public let title: String
+    public let author: String?
+
+    private static let libraryPrefix = "library-show:"
+
+    public static func libraryID(for id: String) -> String? {
+        id.hasPrefix(libraryPrefix) ? String(id.dropFirst(libraryPrefix.count)) : nil
+    }
+
+    public static func needsLibrary(
+        subscriptions: [PodcastShow],
+        query: String?,
+        identifiers: [String],
+        needsUnnamedLookup: @autoclosure () -> Bool
+    ) -> Bool {
+        if SiriRequestNeeds.allRadio(identifiers) { return false }
+        let ids = SiriMediaIdentifier.values(from: identifiers, expectedNamespace: "podcastshow")
+        if ids.contains(where: { libraryID(for: $0) != nil }) { return true }
+        if query == nil, identifiers.isEmpty { return needsUnnamedLookup() }
+        let match = SiriNamedMediaResolver.resolve(
+            query: query, selectedItemIDs: identifiers, namespace: "podcastshow",
+            items: SiriListeningCatalog.namedItems(shows: subscriptions)
+        )
+        return match?.matchScore != 1_000
+    }
+
+    public static func mayHaveNewerLibraryProgress<Position>(
+        than subscriptionDate: Date?, positions: [String: Position],
+        updatedAt: (Position) -> Date, isFinished: (String) -> Bool
+    ) -> Bool {
+        positions.contains { id, position in
+            !PodcastIdentity.isEpisodeID(id) && !isFinished(id)
+                && updatedAt(position) > (subscriptionDate ?? .distantPast)
+        }
+    }
+
+    public static func mostRecentLibraryEpisode<Position>(
+        in positions: [String: Position], newerThan subscriptionDate: Date?,
+        updatedAt: (Position) -> Date, playableEpisode: (String) -> Song?
+    ) -> Song? {
+        var recent: (song: Song, date: Date)?
+        for (id, position) in positions {
+            let date = updatedAt(position)
+            guard date > (subscriptionDate ?? .distantPast), !PodcastIdentity.isEpisodeID(id) else { continue }
+            if let recent, recent.date > date || (recent.date == date && recent.song.id <= id) { continue }
+            guard let song = playableEpisode(id), song.isPlayable else { continue }
+            recent = (song, date)
+        }
+        return recent?.song
+    }
+
+    public static func catalog(
+        subscriptions: [PodcastShow],
+        libraryEpisodes: [Song],
+        libraryShowCount: Int,
+        limit: Int = .max,
+        placement: (String) -> (id: String, title: String)?
+    ) -> [Self] {
+        var shows = subscriptions.prefix(max(0, limit)).map { Self(id: $0.id, title: $0.title, author: $0.author) }
+        guard shows.count < limit, libraryShowCount > 0 else { return shows }
+        var seen = Set<String>()
+        for song in libraryEpisodes {
+            guard let group = placement(song.id), seen.insert(group.id).inserted else { continue }
+            shows.append(Self(id: libraryPrefix + group.id, title: group.title, author: song.albumArtistName ?? song.artistName))
+            if shows.count >= limit || seen.count == libraryShowCount { break }
+        }
+        return shows
+    }
+
+    public static func namedItems(_ shows: [Self], query: String?, identifiers: [String] = []) -> [SiriNamedMediaItem] {
+        let groups = Dictionary(grouping: shows) { libraryID(for: $0.id) != nil }
+        func candidates(from group: [Self]?) -> SiriNamedMediaResolution? {
+            let items = (group ?? []).map { show in
+                SiriNamedMediaItem(id: show.id, name: show.title, aliases: show.author.map { ["\(show.title) \($0)"] } ?? [])
+            }
+            return SiriNamedMediaResolver.resolve(query: query, selectedItemIDs: identifiers, namespace: "podcastshow", items: items)
+        }
+        let rss = candidates(from: groups[false])
+        let library = candidates(from: groups[true])
+        if let rss, rss.matchScore >= (library?.matchScore ?? 0) { return rss.candidates }
+        return library?.candidates ?? []
+    }
+}
+
 /// What "用 Primuse 定时…" asks for, resolved against what is playing.
 public enum SiriSleepTimerRequest: String, CaseIterable, Sendable {
     case minutes15

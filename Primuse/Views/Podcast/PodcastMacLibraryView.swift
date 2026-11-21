@@ -7,7 +7,7 @@ import SwiftUI
 ///
 /// 页头一行:标题、「我的节目 / 发现」、搜索框、「…」菜单。搜索与热门榜都在页里,不再弹发现页。
 /// 热门榜和搜索结果排成多栏紧凑网格 —— Mac 窗口宽,一行一档会把大半屏留给空白。
-/// 一档都没订时没有切换,整页就是发现。
+/// 订阅和资料库节目都为空时直接显示发现。
 struct MacPodcastLibraryView: View {
     enum Page: Hashable {
         case library
@@ -23,7 +23,6 @@ struct MacPodcastLibraryView: View {
     @Environment(MusicLibrary.self) private var library
     private var store: PodcastStore { PodcastStore.shared }
     private var hasShows: Bool { !store.shows.isEmpty }
-    /// 没订阅也可能有自己下载的节目:那时同样有「我的」这一页。
     private var hasLibraryContent: Bool { hasShows || !library.localPodcastSongs.isEmpty }
     private var isSearching: Bool { !search.trimmedQuery.isEmpty }
 
@@ -102,8 +101,9 @@ struct MacPodcastLibraryView: View {
     }
 
     private var summary: String {
-        guard hasShows else { return String(localized: "podcast_welcome_message") }
-        var parts = ["\(store.shows.count) \(String(localized: "podcast_shows_count"))"]
+        guard hasLibraryContent else { return String(localized: "podcast_welcome_message") }
+        let total = store.shows.count + library.localPodcastShowCount
+        var parts = ["\(total.formatted()) \(String(localized: "podcast_shows_count"))"]
         let newCount = store.shows.reduce(0) { $0 + store.newEpisodeCount(showID: $1.id) }
         if newCount > 0 {
             parts.append(String(format: String(localized: "podcast_new_episodes_count %lld"), newCount))
@@ -211,16 +211,9 @@ struct MacPodcastLibraryView: View {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 240)
         } else if hasLibraryContent, page == .library {
-            // 订阅内容沿用各端共用的区块;它们自带 16 点边距,这里只补到和页头对齐。
-            Group {
-                if hasShows {
-                    PodcastLibraryContent(navigation: navigation)
-                } else {
-                    PodcastLocalShowsSection(navigation: navigation)
-                }
-            }
-            .padding(.horizontal, -16)
-            .pmAppearFade(.contentAppear)
+            PodcastLibraryContent(navigation: navigation)
+                .padding(.horizontal, -16)
+                .pmAppearFade(.contentAppear)
         } else {
             VStack(alignment: .leading, spacing: 20) {
                 MacPodcastDiscoverSection(openShow: openDirectoryShow)

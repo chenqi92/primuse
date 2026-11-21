@@ -102,7 +102,7 @@ struct PrimusePodcastShowEntity: AppEntity, Identifiable, Hashable {
     let title: String
     let author: String?
 
-    init(_ show: PodcastShow) {
+    init(_ show: SiriPodcastShow) {
         id = show.id
         title = show.title
         author = show.author
@@ -115,17 +115,17 @@ struct PrimusePodcastShowEntity: AppEntity, Identifiable, Hashable {
 
 struct PrimusePodcastShowQuery: EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [PrimusePodcastShowEntity] {
-        let shows = await AppServices.shared.siriPodcastShowsWhenLoaded()
+        let shows = await AppServices.shared.siriPodcastCatalogWhenReady(identifiers: identifiers)
         let byID = Dictionary(shows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return identifiers.compactMap { byID[$0].map(PrimusePodcastShowEntity.init) }
     }
 
     func entities(matching string: String) async throws -> [PrimusePodcastShowEntity] {
-        let shows = await AppServices.shared.siriPodcastShowsWhenLoaded()
+        let shows = await AppServices.shared.siriPodcastCatalogWhenReady(query: string)
         guard let result = SiriNamedMediaResolver.resolve(
             query: string,
             namespace: "podcastshow",
-            items: SiriListeningCatalog.namedItems(shows: shows)
+            items: SiriPodcastShow.namedItems(shows, query: string)
         ) else { return [] }
         let byID = Dictionary(shows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return result.candidates.compactMap { byID[$0.id].map(PrimusePodcastShowEntity.init) }
@@ -133,7 +133,7 @@ struct PrimusePodcastShowQuery: EntityStringQuery {
 
     /// The values of "用 Primuse 播放播客<节目>".
     func suggestedEntities() async throws -> [PrimusePodcastShowEntity] {
-        _ = await AppServices.shared.siriPodcastShowsWhenLoaded()
+        await AppServices.shared.waitForSiriPodcastCatalog(suggestsShows: true)
         return await MainActor.run {
             AppServices.shared.siriShortcutPodcastShows.map(PrimusePodcastShowEntity.init)
         }
@@ -154,7 +154,7 @@ struct PrimusePlayPodcastIntent: AudioPlaybackIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let services = AppServices.shared
-        let shows = await services.siriPodcastShowsWhenLoaded()
+        let shows = await services.siriPodcastCatalogWhenReady(identifiers: show.map { [$0.id] } ?? [])
         plog("🎙️ AppIntent podcast named=\(show != nil) shows=\(shows.count)")
         guard !shows.isEmpty else {
             return .result(dialog: IntentDialog("intent_podcast_none_subscribed"))
@@ -176,12 +176,12 @@ struct PrimusePlayPodcastIntent: AudioPlaybackIntent {
         case .started, .stillStarting:
             let message = String(
                 format: String(localized: "intent_podcast_playing_format"),
-                plan.episode.title,
+                plan.episodeTitle,
                 plan.showTitle
             )
             return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: message)))
         case .needsApp:
-            let message = String(format: String(localized: "intent_podcast_needs_app_format"), plan.episode.title)
+            let message = String(format: String(localized: "intent_podcast_needs_app_format"), plan.episodeTitle)
             return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: message)))
         case .failed:
             return .result(dialog: IntentDialog("intent_podcast_nothing"))
@@ -263,8 +263,12 @@ struct PrimuseSetSleepTimerIntent: AudioPlaybackIntent {
 
 /// The episode a Siri request plays, and the ones queued after it.
 struct PodcastIntentPlan {
-    let episode: PodcastEpisode
-    let continuing: [PodcastEpisode]
+    enum Playback {
+        case subscription(PodcastEpisode, continuing: [PodcastEpisode])
+        case library([Song])
+    }
+    let playback: Playback
+    let episodeTitle: String
     let showTitle: String
 }
 
@@ -411,17 +415,53 @@ extension AppServices {
         return store.shows
     }
 
-    var siriShortcutPodcastShows: [PodcastShow] {
+    func siriPodcastCatalog(subscriptions: [PodcastShow], limit: Int = .max) -> [SiriPodcastShow] {
+        let library = musicLibrary
+        return SiriPodcastShow.catalog(
+            subscriptions: subscriptions, libraryEpisodes: library.localPodcastSongs,
+            libraryShowCount: library.localPodcastShowCount, limit: limit
+        ) { id in
+            guard let showID = library.localPodcastShowID(forSongID: id),
+                  let title = library.localPodcastShowTitle(forSongID: id) else { return nil }
+            return (showID, title)
+        }
+    }
+
+    func waitForSiriPodcastCatalog(query: String? = nil, identifiers: [String] = [], suggestsShows: Bool = false) async {
+        let rss = await siriPodcastShowsWhenLoaded()
+        guard !musicLibrary.isReady else { return }
+        func needsUnnamedLookup() -> Bool {
+            let lastSubscription = PodcastStore.shared.mostRecentInProgress?.updatedAt
+            if suggestsShows, lastSubscription == nil, rss.count < SiriListeningCatalog.podcastShowLimit { return true }
+            let progress = SpokenWordStore.shared
+            return SiriPodcastShow.mayHaveNewerLibraryProgress(than: lastSubscription, positions: progress.positions,
+                updatedAt: { $0.updatedAt }, isFinished: progress.isFinished(songID:))
+        }
+        if SiriPodcastShow.needsLibrary(subscriptions: rss, query: query, identifiers: identifiers,
+                                        needsUnnamedLookup: needsUnnamedLookup()) {
+            _ = await musicLibrary.whenReady(timeout: .seconds(3))
+        }
+    }
+
+    func siriPodcastCatalogWhenReady(query: String? = nil, identifiers: [String] = []) async -> [SiriPodcastShow] {
+        await waitForSiriPodcastCatalog(query: query, identifiers: identifiers, suggestsShows: true)
+        return siriPodcastCatalog(subscriptions: PodcastStore.shared.shows)
+    }
+
+    var siriShortcutPodcastShows: [SiriPodcastShow] {
         let store = PodcastStore.shared
-        return SiriListeningCatalog.shortcutShows(
-            store.shows,
-            recentShowIDs: store.inProgressEpisodes(limit: 50).map { $0.show.id }
+        let subscriptions = SiriListeningCatalog.shortcutShows(
+            store.shows, recentShowIDs: store.inProgressEpisodes(limit: 50).map { $0.show.id }
         )
+        return siriPodcastCatalog(subscriptions: subscriptions, limit: SiriListeningCatalog.podcastShowLimit)
     }
 
     /// The episode the show page's play button would start, and what follows.
     func podcastPlanForIntent(showID: String) -> PodcastIntentPlan? {
         let store = PodcastStore.shared
+        if let id = SiriPodcastShow.libraryID(for: showID) {
+            return libraryPodcastPlan(showID: id)
+        }
         guard let show = store.show(id: showID) else { return nil }
         let episodes = store.episodes(forShowID: showID)
         guard let target = PodcastEpisodeListPolicy.resumeTarget(
@@ -434,19 +474,30 @@ extension AppServices {
 
     /// The episode last listened to and not finished, across every show.
     func podcastPlanForInProgressEpisode() -> PodcastIntentPlan? {
-        let store = PodcastStore.shared
-        guard let current = store.mostRecentInProgress else { return nil }
-        return podcastPlan(
-            episode: current.episode,
-            in: store.episodes(forShowID: current.show.id),
-            showTitle: current.show.title
-        )
+        guard let item = PodcastResumeItem.recent(in: musicLibrary, limit: 1).first else { return nil }
+        switch item.source {
+        case .library(let song, let showID, _):
+            return libraryPodcastPlan(showID: showID, from: song.id)
+        case .subscription(let episode, let show):
+            return podcastPlan(episode: episode, in: PodcastStore.shared.episodes(forShowID: show.id), showTitle: show.title)
+        }
     }
 
     func podcastPlanForEpisodeIntent(id: String) -> PodcastIntentPlan? {
         let store = PodcastStore.shared
         guard let found = store.episode(id: id), store.isSubscribed(found.show.id) else { return nil }
         return podcastPlan(episode: found.episode, in: store.episodes(forShowID: found.show.id), showTitle: found.show.title)
+    }
+
+    private func libraryPodcastPlan(showID: String, from episodeID: String? = nil) -> PodcastIntentPlan? {
+        let songs = musicLibrary.localPodcastSongs.filter { $0.isPlayable && musicLibrary.localPodcastBookIDs[$0.id] == showID }
+        let items = songs.map { SpokenWordBookSupport.item(for: $0, store: .shared) }
+        let books = SpokenWordBookGrouping.books(from: items)
+        guard let book = books.first(where: { $0.id == showID }) ?? books.first else { return nil }
+        let settings = LocalPodcastShowSettingsStore.shared.settings(for: showID)
+        let queue = LocalPodcastPlayback.queue(for: book, songs: songs, from: episodeID, settings: settings)
+        guard let first = queue.first else { return nil }
+        return PodcastIntentPlan(playback: .library(queue), episodeTitle: first.title, showTitle: book.title)
     }
 
     private func podcastPlan(
@@ -460,7 +511,7 @@ extension AppServices {
             in: episodes,
             state: { store.state(for: $0) }
         ).dropFirst())
-        return PodcastIntentPlan(episode: episode, continuing: continuing, showTitle: showTitle)
+        return PodcastIntentPlan(playback: .subscription(episode, continuing: continuing), episodeTitle: episode.title, showTitle: showTitle)
     }
 
     /// Answers inside Siri's time budget. An episode on a cleartext host
@@ -468,14 +519,19 @@ extension AppServices {
     func startPodcastForIntent(_ plan: PodcastIntentPlan) async -> PrimuseIntentPlaybackStart {
         let player = playerService
         return await IntentResponseDeadline.race(within: .seconds(4)) {
-            if !PodcastDownloadStore.shared.isDownloaded(plan.episode.id) {
-                do {
-                    _ = try await PodcastNetwork.reachableURL(for: plan.episode.enclosureURL)
-                } catch PodcastNetwork.Failure.insecureHTTP {
-                    return PrimuseIntentPlaybackStart.needsApp
-                } catch {}
+            switch plan.playback {
+            case .library(let queue):
+                await player.play(queue: queue, startingAt: 0)
+            case .subscription(let episode, let continuing):
+                if !PodcastDownloadStore.shared.isDownloaded(episode.id) {
+                    do {
+                        _ = try await PodcastNetwork.reachableURL(for: episode.enclosureURL)
+                    } catch PodcastNetwork.Failure.insecureHTTP {
+                        return PrimuseIntentPlaybackStart.needsApp
+                    } catch {}
+                }
+                await player.playPodcast(episode, continuing: continuing)
             }
-            await player.playPodcast(plan.episode, continuing: plan.continuing)
             return .started
         } onTimeout: {
             .stillStarting

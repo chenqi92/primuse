@@ -2119,7 +2119,7 @@ struct MacNowPlayingView: View {
                 content: SpokenTranscriptEmptyState.Content(
                     song: song,
                     onOpenGeneration: { transcriptGenerationSong = player.currentSong },
-                    onShowNotes: SpokenWordPlayerText.isPodcastEpisode(player)
+                    onShowNotes: SpokenWordPlayerText.offersPodcastNotes(player)
                         ? { contentsRequestedTab = .notes }
                         : nil
                 ),

@@ -5372,14 +5372,18 @@
 "karaoke_ai_word_timing" = "Minutage des mots estimé par l’IA";
 "karaoke_tv_unsupported" = "Le format de ce morceau ne permet pas de baisser la voix sur l’Apple TV.";
 "karaoke_tv_scan_title" = "Chanter avec l’iPhone";
-"karaoke_tv_scan_hint" = "Scannez avec l’appareil photo. L’iPhone note le chant ; votre voix ne passe pas par la TV.";
+"karaoke_tv_scan_hint" = "Scannez le code avec l’appareil photo de votre iPhone pour obtenir un score. Une fois la connexion établie, vous pouvez activer la diffusion de votre voix sur le téléviseur.";
+"karaoke_tv_live_voice" = "Diffuser ma voix sur le téléviseur";
 "karaoke_tv_mic_connected_format" = "%@ est connecté";
 "karaoke_remote_title" = "Micro pour l’Apple TV";
 "karaoke_remote_connecting" = "Connexion à l’Apple TV…";
 "karaoke_remote_connected" = "Connecté. Chantez !";
 "karaoke_remote_rejected" = "L’Apple TV a refusé ce code. Scannez à nouveau le code affiché.";
 "karaoke_remote_failed" = "Impossible de joindre l’Apple TV. Vérifiez que les deux appareils sont sur le même réseau.";
-"karaoke_remote_hint" = "Tenez l’iPhone près de la bouche. Votre voix s’entend normalement dans la pièce ; l’iPhone ne fait que noter.";
+"karaoke_remote_hint" = "Tenez votre iPhone près de votre bouche.";
+"karaoke_remote_live_hint" = "Votre voix est transmise au téléviseur.";
+"karaoke_live_request" = "Transmettre votre voix à cette Apple TV ?";
+"karaoke_live_allow" = "Transmettre ma voix";
 "karaoke_tv_ai_local" = "Séparation IA sur Apple TV";
 "karaoke_tv_ai_local_hint" = "Cette Apple TV sépare elle-même la voix. Sur Apple TV, seule une méthode plus lente est possible, et un morceau peut prendre longtemps. Pour aller plus vite, scannez le code pour utiliser votre iPhone comme micro et laissez l’iPhone séparer.";
 "karaoke_tv_ai_active" = "Séparation vocale IA de l’iPhone activée.";
@@ -6018,7 +6022,7 @@
 "podcast_mark_played" = "Marquer comme écouté";
 "podcast_mark_unplayed" = "Marquer comme non écouté";
 "podcast_my_shows" = "Émissions";
-"podcast_local_shows" = "Mes fichiers";
+"podcast_local_shows" = "Émissions de la bibliothèque";
 "podcast_local_episode_count %lld" = "%lld épisodes";
 "podcast_new_episodes_count %lld" = "%lld nouveaux épisodes";
 "podcast_no_episodes" = "Aucun épisode pour l'instant.";
@@ -8078,12 +8082,6 @@
 "scrape_progress_capsule_failed" = "Échec · Touchez pour voir";
 "scrape_progress_embed_failed" = "Impossible d’intégrer la pochette dans le fichier audio.";
 "scrape_progress_source_timeout" = "La source musicale n’a pas répondu en 30 secondes. La pochette est enregistrée uniquement sur cet appareil.";
-"playback_app_volume" = "Volume de l’app";
-"playback_app_volume_desc" = "Si activé, le curseur de volume de l’écran de lecture règle le volume propre à Primuse, qui peut descendre encore sous le volume du système — utile quand même le niveau le plus bas du système est trop fort. Le volume du système et les autres apps ne sont pas affectés, et les boutons de volume continuent de régler le volume du système. Pour les morceaux Apple Music et la diffusion vers d’autres appareils, le curseur reste celui du système.";
-"playback_app_volume_high_fidelity_note" = "Haute fidélité directe contourne le mixeur : le volume de l’app n’a donc aucun effet. Revenez à Effets et traitement pour l’utiliser.";
-"scrobble_lb_server_placeholder" = "URL du serveur (vide pour listenbrainz.org)";
-"scrobble_lb_server_invalid" = "URL du serveur non valide";
-"scrobble_lb_server_footer" = "Pour un serveur auto-hébergé compatible ListenBrainz comme Maloja, Koito ou multi-scrobbler, saisissez son URL d’API et utilisez un jeton fourni par ce serveur.";
 
 "lyrics_versions_title" = "Versions des paroles";
 "lyrics_versions_external" = "Externe";
@@ -8098,3 +8096,12 @@
 "lyrics_versions_hide_all" = "Masquer toutes les versions dans Primuse";
 "lyrics_versions_remove_one_confirm" = "Retirer « %@ » ?";
 "lyrics_versions_remove_all_confirm" = "Retirer les %lld versions des paroles ?";
+"tag_editor_picture_use_for_display" = "Utiliser comme pochette du morceau";
+"artwork_choose_image_file" = "Choisir dans Fichiers";
+"tag_editor_picture_next" = "Image suivante";
+"playback_app_volume" = "Volume de l’app";
+"playback_app_volume_desc" = "Si activé, le curseur de volume de l’écran de lecture règle le volume propre à Primuse, qui peut descendre encore sous le volume du système — utile quand même le niveau le plus bas du système est trop fort. Le volume du système et les autres apps ne sont pas affectés, et les boutons de volume continuent de régler le volume du système. Pour les morceaux Apple Music et la diffusion vers d’autres appareils, le curseur reste celui du système.";
+"playback_app_volume_high_fidelity_note" = "Haute fidélité directe contourne le mixeur : le volume de l’app n’a donc aucun effet. Revenez à Effets et traitement pour l’utiliser.";
+"scrobble_lb_server_placeholder" = "URL du serveur (vide pour listenbrainz.org)";
+"scrobble_lb_server_invalid" = "URL du serveur non valide";
+"scrobble_lb_server_footer" = "Pour un serveur auto-hébergé compatible ListenBrainz comme Maloja, Koito ou multi-scrobbler, saisissez son URL d’API et utilisez un jeton fourni par ce serveur.";

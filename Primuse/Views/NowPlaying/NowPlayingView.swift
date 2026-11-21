@@ -2757,7 +2757,7 @@ struct NowPlayingView: View {
 
     /// iPad 横屏目录常驻右栏:目录键把右栏翻回目录那一页(播客没有章节时是节目说明)。
     private func flipResidentContents() {
-        contentsRequestedTab = SpokenWordPlayerText.isPodcastEpisode(player) && !player.hasChapters
+        contentsRequestedTab = SpokenWordPlayerText.offersPodcastNotes(player) && !player.hasChapters
             ? .notes
             : .contents
     }
@@ -3528,7 +3528,7 @@ struct NowPlayingView: View {
     private func openQueue() {
         // 播客的「队列」就是后面排着的单集:直接翻到「接下来」。
         let podcastUpNext: SpokenWordContentsView.Tab? = usesSpokenWordTransport
-            && SpokenWordPlayerText.isPodcastEpisode(player) ? .upNext : nil
+            && currentItemIsPodcast ? .upNext : nil
         guard isPlayerSplit else {
             // 有声内容的「队列」就是这本书的目录。
             if usesSpokenWordTransport {
@@ -7005,7 +7005,7 @@ struct NowPlayingView: View {
         return SpokenTranscriptEmptyState.Content(
             song: player.currentSong,
             onOpenGeneration: { transcriptGenerationSong = player.currentSong },
-            onShowNotes: SpokenWordPlayerText.isPodcastEpisode(player)
+            onShowNotes: SpokenWordPlayerText.offersPodcastNotes(player)
                 ? { openContentsPanel(tab: .notes) }
                 : nil
         )
@@ -7326,7 +7326,7 @@ struct NowPlayingView: View {
             if usesSpokenWordTransport {
                 // 书的这一颗就是目录,播客是「接下来」:传输键那一行两端摆着同一样时不再重复。
                 let queueInTransport = spokenControls.placedActions.contains(
-                    SpokenWordPlayerText.isPodcastEpisode(player) ? .upNext : .contents
+                    currentItemIsPodcast ? .upNext : .contents
                 )
                 if !queueInTransport {
                     NowPlayingGlassActionButton(
@@ -9574,7 +9574,7 @@ struct NowPlayingView: View {
                 sourceID: player.currentSong?.sourceID,
                 filePath: player.currentSong?.filePath,
                 fileFormat: player.currentSong?.fileFormat,
-                placeholderIcon: PodcastPlaybackSong.isEpisode(player.currentSong)
+                placeholderIcon: currentItemIsPodcast
                     ? "antenna.radiowaves.left.and.right"
                     : "music.note",
                 fillsProposedSize: true,
@@ -10333,7 +10333,7 @@ struct NowPlayingView: View {
             canOpenPodcastEpisode: isPodcastEpisode && currentPodcastEpisodeID != nil
                 && shows(.podcastEpisodeDetails),
             canOpenPodcastShow: currentItemIsPodcast && PodcastPlayerSheetTarget.show(for: player) != nil
-                && shows(isPodcastEpisode ? .podcastGoToShow : .goToBook),
+                && shows(.podcastGoToShow),
             showsPodcastMarkPlayed: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastMarkPlayed),
             showsPodcastDownload: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastDownload),
             spokenWordVideoShown: shows(.spokenWordVideo) && player.offersSpokenWordVideoToggle ? player.isSpokenWordVideoShown : nil,
@@ -11184,7 +11184,7 @@ struct NowPlayingView: View {
         height: CGFloat = 44,
         action: (() -> Void)? = nil
     ) -> some View {
-        let isPodcast = SpokenWordPlayerText.isPodcastEpisode(player)
+        let offersNotes = SpokenWordPlayerText.offersPodcastNotes(player)
         return Button {
             if let action {
                 action()
@@ -11192,14 +11192,14 @@ struct NowPlayingView: View {
                 openContentsPanel()
             }
         } label: {
-            Image(systemName: isPodcast ? "text.alignleft" : "list.bullet")
+            Image(systemName: offersNotes ? "text.alignleft" : "list.bullet")
                 .font(font)
                 .foregroundStyle(tint)
                 .frame(width: 44, height: height)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(isPodcast ? "podcast_show_notes" : "spoken_word_contents_title"))
+        .accessibilityLabel(Text(offersNotes ? "podcast_show_notes" : "spoken_word_contents_title"))
         .modifier(NowPlayingControlDragCancellation())
     }
 

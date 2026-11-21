@@ -255,14 +255,23 @@ final class M4ATagWritebackTests: XCTestCase {
     func testScannedMultiVersionMusicRemainsPlayableAfterClearingLyrics() async throws {
         let files = FileManager.default
         let seed = files.temporaryDirectory.appendingPathComponent("PrimuseMediaVersionsSeed")
-        try XCTSkipUnless(files.fileExists(atPath: seed.appendingPathComponent("Glass Harbor Versions.m4a").path),
+        try XCTSkipUnless(files.fileExists(atPath: seed.appendingPathComponent("Replacement.png").path),
                           "Requires the multi-version music acceptance fixture")
         let music = directory.appendingPathComponent("Music", isDirectory: true)
         try files.copyItem(at: seed, to: music)
         let audio = music.appendingPathComponent("Glass Harbor Versions.m4a")
         let original = try Data(contentsOf: audio)
+        let originalPictures = try EmbeddedPictureArchive.pictures(in: original, format: .m4a)
         let embedded = try EmbeddedLyricsArchive.entries(in: original, fileExtension: "m4a")
+        XCTAssertEqual(originalPictures.count, 3)
         XCTAssertEqual(embedded.count, 2)
+        let tagOnly = EmbeddedMetadataEdits(tags: tags(title: "Glass Harbor Review", album: nil),
+                                           coverData: nil, lyrics: .keep, changedFields: [.title])
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(tagOnly, to: audio)
+        let renamed = try Data(contentsOf: audio)
+        XCTAssertEqual(try EmbeddedPictureArchive.pictures(in: renamed, format: .m4a), originalPictures)
+        XCTAssertEqual(try EmbeddedLyricsArchive.entries(in: renamed, fileExtension: "m4a"), embedded)
+        let middle = try XCTUnwrap(originalPictures.dropFirst().first)
         let source = MusicSource(id: UUID().uuidString, name: "Versions", type: .local, basePath: music.path)
         let store = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("Sources"))
         try store.addDurably(source)
@@ -286,7 +295,14 @@ final class M4ATagWritebackTests: XCTestCase {
             }
         }
 
-        let song = try await scan()
+        let firstScan = try await scan()
+        let replacement = try Data(contentsOf: music.appendingPathComponent("Replacement.png"))
+        let song = try await manager.writeEmbeddedPictures([middle.id: replacement], for: firstScan)
+        let changed = try Data(contentsOf: audio)
+        var expectedPictures = originalPictures.map(\.data)
+        expectedPictures[1] = replacement
+        XCTAssertEqual(try EmbeddedPictureArchive.pictures(in: changed, format: .m4a).map(\.data), expectedPictures)
+        XCTAssertEqual(try EmbeddedLyricsArchive.entries(in: changed, fileExtension: "m4a"), embedded)
         let all = try await versions(song)
         XCTAssertEqual(all.count, 4)
         let selected = try XCTUnwrap(all.first { $0.name.hasSuffix(".en.lrc") })
@@ -301,17 +317,12 @@ final class M4ATagWritebackTests: XCTestCase {
         try await LyricsDocumentCatalog.remove(remaining, for: updated, sourceManager: manager, removeAll: true,
                                               sourcesStore: store, library: library)
         let rescanned = try await scan()
-        XCTAssertEqual(rescanned.id, song.id)
+        XCTAssertEqual(rescanned.id, firstScan.id)
         let reopened = try await versions(rescanned)
         XCTAssertTrue(reopened.isEmpty)
         let written = try Data(contentsOf: audio)
         XCTAssertTrue(try EmbeddedLyricsArchive.entries(in: written, fileExtension: "m4a").isEmpty)
-        func pictureItems(_ data: Data) throws -> [Data] {
-            try OrderedTagContainer.items(in: data, format: .m4a).filter { $0.key == "covr" }.map(\.payload)
-        }
-        let originalPictures = try pictureItems(original)
-        XCTAssertFalse(originalPictures.isEmpty)
-        XCTAssertEqual(try pictureItems(written), originalPictures)
+        XCTAssertEqual(try EmbeddedPictureArchive.pictures(in: written, format: .m4a).map(\.data), expectedPictures)
         for language in ["zh", "en"] {
             XCTAssertFalse(files.fileExists(atPath: audio.deletingPathExtension().appendingPathExtension(language + ".lrc").path))
         }

@@ -32,7 +32,8 @@ struct PlaylistListView: View {
     @State private var playlistOrderDraft: [String] = []
     @State private var initialPlaylistOrder: [String] = []
     @AppStorage(PlaylistGrouping.storageKey) private var groupingRawValue = ""
-    @State private var collapsedGroupIDs: Set<String> = []
+    @State private var expandedGroupID: String?
+    @State private var expandedSearchGroupID: String?
     @State private var showsGroupEditor = false
     @State private var editingGroupID: String?
     @State private var groupName = ""
@@ -89,15 +90,6 @@ struct PlaylistListView: View {
     }
 
     private var shownPlaylists: [Playlist] { ordered(shown(playlists, name: \.name)) }
-    private var shownAISmartPlaylists: [SmartPlaylist] { shown(aiSmartPlaylists, name: \.name) }
-    private var shownRuleSmartPlaylists: [SmartPlaylist] { shown(ruleSmartPlaylists, name: \.name) }
-
-    private var findHasNoResults: Bool {
-        findQuery != nil
-            && shown(playlists, name: \.name).isEmpty
-            && shownAISmartPlaylists.isEmpty
-            && shownRuleSmartPlaylists.isEmpty
-    }
 
     private var operationAvailability: PlaylistOperationAvailability {
         #if os(tvOS)
@@ -163,7 +155,8 @@ struct PlaylistListView: View {
                     var updated = grouping
                     updated.dissolve(id: group.id)
                     groupingRawValue = updated.encoded()
-                    collapsedGroupIDs.remove(group.id)
+                    if expandedGroupID == group.id { expandedGroupID = nil }
+                    if expandedSearchGroupID == group.id { expandedSearchGroupID = nil }
                     dissolvingGroup = nil
                 }
             }
@@ -172,6 +165,13 @@ struct PlaylistListView: View {
         }
         .onChange(of: findText) { _, _ in
             if isOrderingPlaylists { finishPlaylistOrder(save: false) }
+            if findQuery != nil {
+                let matches = pageSections.groups
+                let preferred = expandedSearchGroupID ?? expandedGroupID
+                expandedSearchGroupID = matches.contains { $0.id == preferred } ? preferred : matches.first?.id
+            } else {
+                expandedSearchGroupID = nil
+            }
         }
         .onDisappear {
             if isOrderingPlaylists { finishPlaylistOrder(save: false) }
@@ -194,25 +194,60 @@ struct PlaylistListView: View {
         return playlistOrderDraft.compactMap { byID[$0] }
     }
 
-    private func playlists(in groupID: String?) -> [Playlist] {
-        let state = grouping
-        return pagePlaylists.filter { state.groupID(for: PlaylistGrouping.reference(id: $0.id)) == groupID }
+    private struct GroupSection: Identifiable {
+        let group: PlaylistGrouping.Group
+        let playlists: [Playlist]
+        let smartPlaylists: [SmartPlaylist]
+        var id: String { group.id }
+        var count: Int { playlists.count + smartPlaylists.count }
     }
 
-    private func smartPlaylists(in groupID: String?) -> [SmartPlaylist] {
-        let state = grouping
-        return shown(smartPlaylists, name: \.name).filter {
-            state.groupID(for: PlaylistGrouping.reference(id: $0.id, smart: true)) == groupID
+    private struct PageSections {
+        let groups: [GroupSection]
+        let ungroupedPlaylists: [Playlist]
+        let ungroupedAISmartPlaylists: [SmartPlaylist]
+        let ungroupedRuleSmartPlaylists: [SmartPlaylist]
+
+        var isEmpty: Bool {
+            groups.isEmpty && ungroupedPlaylists.isEmpty
+                && ungroupedAISmartPlaylists.isEmpty && ungroupedRuleSmartPlaylists.isEmpty
         }
     }
 
-    private var ungroupedPlaylists: [Playlist] { playlists(in: nil) }
-    private var ungroupedAISmartPlaylists: [SmartPlaylist] { smartPlaylists(in: nil).filter { $0.effectiveKind == .ai } }
-    private var ungroupedRuleSmartPlaylists: [SmartPlaylist] { smartPlaylists(in: nil).filter { $0.effectiveKind == .rules } }
-    private var visibleGroups: [PlaylistGrouping.Group] {
-        grouping.groups.filter {
-            findQuery == nil || !playlists(in: $0.id).isEmpty || !smartPlaylists(in: $0.id).isEmpty
+    private var pageSections: PageSections {
+        let state = grouping
+        let groupIDs = Set(state.groups.map(\.id))
+        func groupID(for reference: String) -> String? {
+            guard let id = state.memberships[reference], groupIDs.contains(id) else { return nil }
+            return id
         }
+        let ordinary = Dictionary(grouping: pagePlaylists) { groupID(for: PlaylistGrouping.reference(id: $0.id)) }
+        let smart = Dictionary(grouping: shown(smartPlaylists, name: \.name)) {
+            groupID(for: PlaylistGrouping.reference(id: $0.id, smart: true))
+        }
+        let isSearching = findQuery != nil
+        let groups = state.groups.compactMap { group -> GroupSection? in
+            let section = GroupSection(
+                group: group, playlists: ordinary[group.id] ?? [], smartPlaylists: smart[group.id] ?? []
+            )
+            return isSearching && section.count == 0 ? nil : section
+        }
+        let ungroupedSmart = smart[nil] ?? []
+        return PageSections(
+            groups: groups,
+            ungroupedPlaylists: ordinary[nil] ?? [],
+            ungroupedAISmartPlaylists: ungroupedSmart.filter { $0.effectiveKind == .ai },
+            ungroupedRuleSmartPlaylists: ungroupedSmart.filter { $0.effectiveKind == .rules }
+        )
+    }
+
+    private var visibleExpandedGroupID: String? {
+        findQuery == nil ? expandedGroupID : expandedSearchGroupID
+    }
+
+    private func setExpandedGroup(_ id: String?) {
+        if findQuery == nil { expandedGroupID = id }
+        else { expandedSearchGroupID = id }
     }
 
     private func beginPlaylistOrder() {
@@ -245,39 +280,39 @@ struct PlaylistListView: View {
     }
 
     @ViewBuilder
-    private var playlistSections: some View {
-        ForEach(visibleGroups) { group in
+    private func playlistSections(_ sections: PageSections) -> some View {
+        ForEach(sections.groups) { section in
             Section {
-                if isOrderingPlaylists || findQuery != nil || !collapsedGroupIDs.contains(group.id) {
-                    playlistRows(playlists(in: group.id))
-                    ForEach(smartPlaylists(in: group.id)) { smart in
+                if visibleExpandedGroupID == section.id {
+                    playlistRows(section.playlists)
+                    ForEach(section.smartPlaylists) { smart in
                         smartPlaylistLink(smart)
                     }
-                    if playlists(in: group.id).isEmpty && smartPlaylists(in: group.id).isEmpty {
+                    if section.count == 0 {
                         Text("no_playlists").foregroundStyle(.secondary)
                     }
                 }
             } header: {
-                groupHeader(group)
+                groupHeader(section)
             }
         }
-        if !ungroupedAISmartPlaylists.isEmpty {
+        if !sections.ungroupedAISmartPlaylists.isEmpty {
             Section("ai_smart_playlists_section") {
-                ForEach(ungroupedAISmartPlaylists) { smart in smartPlaylistLink(smart) }
-                    .onDelete { deleteSmartPlaylists(at: $0, in: ungroupedAISmartPlaylists) }
+                ForEach(sections.ungroupedAISmartPlaylists) { smart in smartPlaylistLink(smart) }
+                    .onDelete { deleteSmartPlaylists(at: $0, in: sections.ungroupedAISmartPlaylists) }
                     .deleteDisabled(isOrderingPlaylists)
             }
         }
-        if !ungroupedRuleSmartPlaylists.isEmpty {
+        if !sections.ungroupedRuleSmartPlaylists.isEmpty {
             Section("rule_smart_playlists_section") {
-                ForEach(ungroupedRuleSmartPlaylists) { smart in smartPlaylistLink(smart) }
-                    .onDelete { deleteSmartPlaylists(at: $0, in: ungroupedRuleSmartPlaylists) }
+                ForEach(sections.ungroupedRuleSmartPlaylists) { smart in smartPlaylistLink(smart) }
+                    .onDelete { deleteSmartPlaylists(at: $0, in: sections.ungroupedRuleSmartPlaylists) }
                     .deleteDisabled(isOrderingPlaylists)
             }
         }
-        if !ungroupedPlaylists.isEmpty {
+        if !sections.ungroupedPlaylists.isEmpty {
             Section {
-                playlistRows(ungroupedPlaylists)
+                playlistRows(sections.ungroupedPlaylists)
             } header: {
                 if !grouping.groups.isEmpty {
                     Text("playlist_group_ungrouped")
@@ -339,25 +374,34 @@ struct PlaylistListView: View {
         }
     }
 
-    private func groupHeader(_ group: PlaylistGrouping.Group) -> some View {
-        HStack(spacing: 8) {
+    private func groupHeader(_ section: GroupSection) -> some View {
+        let group = section.group
+        let isExpanded = visibleExpandedGroupID == group.id
+        return HStack(spacing: 8) {
             Button {
-                if collapsedGroupIDs.contains(group.id) { collapsedGroupIDs.remove(group.id) }
-                else { collapsedGroupIDs.insert(group.id) }
+                setExpandedGroup(isExpanded ? nil : group.id)
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "folder")
                     Text(verbatim: group.name)
                     Spacer()
-                    Text(verbatim: (playlists(in: group.id).count + smartPlaylists(in: group.id).count).formatted())
+                    Text(verbatim: section.count.formatted())
                         .monospacedDigit()
-                    Image(systemName: collapsedGroupIDs.contains(group.id) && findQuery == nil && !isOrderingPlaylists
-                          ? "chevron.right" : "chevron.down")
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.forward")
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityValue(Text(LocalizedStringKey(
+                isExpanded ? "library_release_date_expanded" : "library_release_date_collapsed"
+            )))
+            .accessibilityIdentifier("playlistGroup.toggle.\(group.id)")
             Menu {
+                Button { playGroup(group.id) } label: {
+                    Label("play_all", systemImage: "play.fill")
+                }
+                .disabled(section.count == 0)
+                Divider()
                 Button("playlist_group_rename") { editGroup(group) }
                 Button("playlist_group_dissolve", role: .destructive) { dissolvingGroup = group }
             } label: {
@@ -367,9 +411,21 @@ struct PlaylistListView: View {
             }
             .accessibilityLabel(Text(verbatim: group.name + ", ") + Text("a11y_more_actions"))
             .accessibilityIdentifier("playlistGroup.more.\(group.id)")
+            .disabled(isOrderingPlaylists)
         }
         .textCase(nil)
-        .disabled(isOrderingPlaylists)
+    }
+
+    private func playGroup(_ id: String) {
+        let songIDs = grouping.playbackSongIDs(
+            for: id, playlists: ordered(playlists), smartPlaylists: smartPlaylists,
+            songIDsForPlaylist: { library.songIDs(forPlaylist: $0.id) },
+            songIDsForSmartPlaylist: { smart in
+                SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared).map(\.id)
+            }
+        )
+        guard !songIDs.isEmpty else { return }
+        Task { await player.play(queueIDs: songIDs) }
     }
 
     private func groupMoveMenu(references: [String]) -> some View {
@@ -395,7 +451,7 @@ struct PlaylistListView: View {
         var updated = grouping
         updated.move(references, to: groupID)
         groupingRawValue = updated.encoded()
-        if let groupID { collapsedGroupIDs.remove(groupID) }
+        if let groupID { setExpandedGroup(groupID) }
     }
 
     private func editGroup(_ group: PlaylistGrouping.Group? = nil, references: [String] = []) {
@@ -411,6 +467,7 @@ struct PlaylistListView: View {
             updated.rename(id: id, name: groupName)
         } else if let id = updated.create(name: groupName) {
             updated.move(groupEditorReferences, to: id)
+            setExpandedGroup(id)
         }
         groupingRawValue = updated.encoded()
     }
@@ -429,12 +486,13 @@ struct PlaylistListView: View {
             } else if isManagingPlaylists {
                 playlistManageList
             } else {
-                List { playlistSections }
+                let sections = pageSections
+                List { playlistSections(sections) }
                 #if os(iOS)
                 .environment(\.editMode, .constant(isOrderingPlaylists ? .active : .inactive))
                 #endif
                 .overlay {
-                    if findHasNoResults {
+                    if findQuery != nil && sections.isEmpty {
                         ContentUnavailableView.search(text: findText)
                     }
                 }
@@ -788,14 +846,14 @@ struct PlaylistListView: View {
         }
     }
 
-    private var macGroupedPlaylists: some View {
-        ForEach(visibleGroups) { group in
+    private func macGroupedPlaylists(_ groups: [GroupSection]) -> some View {
+        ForEach(groups) { section in
             VStack(alignment: .leading, spacing: 10) {
-                groupHeader(group)
+                groupHeader(section)
                     .font(.subheadline.weight(.semibold))
-                if findQuery != nil || !collapsedGroupIDs.contains(group.id) {
+                if visibleExpandedGroupID == section.id {
                     LazyVGrid(columns: macPlaylistGridColumns, alignment: .leading, spacing: 12) {
-                        ForEach(playlists(in: group.id)) { playlist in
+                        ForEach(section.playlists) { playlist in
                             if isManagingPlaylists {
                                 playlistCard(playlist)
                                     .overlay(alignment: .topTrailing) {
@@ -814,11 +872,11 @@ struct PlaylistListView: View {
                                     .pmHoverLift()
                             }
                         }
-                        ForEach(smartPlaylists(in: group.id)) { smart in
+                        ForEach(section.smartPlaylists) { smart in
                             macSmartPlaylistCard(smart)
                         }
                     }
-                    if playlists(in: group.id).isEmpty && smartPlaylists(in: group.id).isEmpty {
+                    if section.count == 0 {
                         Text("no_playlists").foregroundStyle(.secondary)
                     }
                 }
@@ -839,7 +897,7 @@ struct PlaylistListView: View {
                 }
                 .padding(.horizontal, 36)
                 .padding(.top, 32)
-                List { playlistSections }
+                List { playlistSections(pageSections) }
                     .listStyle(.plain)
             }
             .background(PMColor.bg.ignoresSafeArea())
@@ -849,7 +907,8 @@ struct PlaylistListView: View {
     }
 
     private var macBrowseBody: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        let sections = pageSections
+        return ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 macPlaylistsHeader
 
@@ -860,14 +919,14 @@ struct PlaylistListView: View {
                         description: Text("no_playlists_desc")
                     )
                     .frame(maxWidth: .infinity, minHeight: 320)
-                } else if findHasNoResults {
+                } else if findQuery != nil && sections.isEmpty {
                     ContentUnavailableView.search(text: findText)
                         .frame(maxWidth: .infinity, minHeight: 320)
                 } else {
                     playlistOverview
-                    macGroupedPlaylists
+                    macGroupedPlaylists(sections.groups)
 
-                    if !ungroupedAISmartPlaylists.isEmpty {
+                    if !sections.ungroupedAISmartPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             macSubsectionTitle("ai_smart_playlists_section")
                             LazyVGrid(
@@ -875,7 +934,7 @@ struct PlaylistListView: View {
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(ungroupedAISmartPlaylists) { smart in
+                                ForEach(sections.ungroupedAISmartPlaylists) { smart in
                                     macSmartPlaylistCard(smart)
                                 }
                             }
@@ -883,7 +942,7 @@ struct PlaylistListView: View {
                         .pmFadeTransition(motion: .contentAppear)
                     }
 
-                    if !ungroupedRuleSmartPlaylists.isEmpty {
+                    if !sections.ungroupedRuleSmartPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             macSubsectionTitle("rule_smart_playlists_section")
                             LazyVGrid(
@@ -891,7 +950,7 @@ struct PlaylistListView: View {
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(ungroupedRuleSmartPlaylists) { smart in
+                                ForEach(sections.ungroupedRuleSmartPlaylists) { smart in
                                     macSmartPlaylistCard(smart)
                                 }
                             }
@@ -899,7 +958,7 @@ struct PlaylistListView: View {
                         .pmFadeTransition(motion: .contentAppear)
                     }
 
-                    if !ungroupedPlaylists.isEmpty {
+                    if !sections.ungroupedPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             if !grouping.groups.isEmpty {
                                 macSubsectionTitle("playlist_group_ungrouped")
@@ -912,7 +971,7 @@ struct PlaylistListView: View {
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(ungroupedPlaylists) { playlist in
+                                ForEach(sections.ungroupedPlaylists) { playlist in
                                     if isManagingPlaylists {
                                         playlistCard(playlist)
                                             .overlay(alignment: .topTrailing) {

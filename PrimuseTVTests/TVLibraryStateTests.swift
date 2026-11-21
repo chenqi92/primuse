@@ -469,6 +469,42 @@ final class TVLibraryStateTests: XCTestCase {
         store.engine.stop()
     }
 
+    func testLibraryPodcastPlaysWithEpisodeTitleAndShowNameWithoutSubscriptions() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let source = MusicSource(name: "Fixture ABS", type: .audiobookshelf)
+        try fixture.sources.addDurably(source)
+        let store = fixture.store()
+        var episode = fixture.song("episode-a-" + source.id)
+        episode.sourceID = source.id
+        episode.filePath = AudiobookshelfAPIProtocol.trackPath(itemID: "show", kind: .episode(id: "a"), fileExtension: "mp3")
+        episode.genre = "Technology"
+        episode.albumTitle = "Fixture Show"
+        episode.artistName = "Fixture Host"
+        var next = episode
+        next.id = "episode-b-" + source.id
+        next.title = "Next Episode"
+        next.filePath = AudiobookshelfAPIProtocol.trackPath(itemID: "show", kind: .episode(id: "b"), fileExtension: "mp3")
+        var chapter = fixture.song("book-" + source.id)
+        chapter.sourceID = source.id
+        chapter.filePath = AudiobookshelfAPIProtocol.trackPath(itemID: "book", kind: .file(ino: "1"), fileExtension: "mp3")
+        chapter.albumTitle = "Fixture Book"
+        fixture.library.addSongs([episode, next, chapter])
+        await fixture.library.waitForPendingIndex()
+        store.reload(reloadLibrary: false, migrateLegacyIDs: false)
+        XCTAssertEqual(Set(fixture.library.localPodcastSongs.map(\.id)), [episode.id, next.id])
+        XCTAssertEqual(fixture.library.spokenWordSongs.map(\.id), [chapter.id])
+        XCTAssertTrue(store.playSpokenWordBook(songIDs: [episode.id, next.id], startingAt: episode.id))
+        defer { store.engine.stop() }
+        XCTAssertTrue(store.currentItemIsPodcast)
+        XCTAssertEqual(TVSpokenWordText.bookTitle(store), episode.title)
+        XCTAssertEqual(TVSpokenWordText.author(store), "Fixture Show")
+        XCTAssertNil(TVSpokenWordText.partTitle(store))
+        XCTAssertEqual(store.queueUpNextIDs, [next.id])
+        store.playQueueItem(at: 0)
+        XCTAssertEqual(TVSpokenWordText.bookTitle(store), next.title)
+    }
+
     func testTopShelfBookLinkResumesSavedChapterWithoutMusic() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
@@ -570,7 +606,7 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertLessThanOrEqual(store.currentTime, 120)
         XCTAssertTrue(store.songs.isEmpty)
         let draft = try XCTUnwrap(store.topShelfPodcastDrafts().first)
-        XCTAssertEqual(draft.episode.id, episode.id)
+        XCTAssertEqual(draft.id, episode.id)
         XCTAssertEqual(try XCTUnwrap(draft.playbackProgress), 0.2, accuracy: 0.001)
         store.engine.stop()
     }
@@ -590,11 +626,63 @@ final class TVLibraryStateTests: XCTestCase {
         }
         let store = fixture.store(podcastStore: podcasts)
         let drafts = store.topShelfPodcastDrafts()
-        XCTAssertEqual(drafts.map(\.episode.id), [episodes[2].id, episodes[0].id])
+        XCTAssertEqual(drafts.map(\.id), [episodes[2].id, episodes[0].id])
         XCTAssertEqual(drafts.compactMap(\.playbackProgress), [0.3, 0.3])
         let link = try XCTUnwrap(URLComponents(string: drafts[0].playURL))
         XCTAssertEqual(link.host, "podcast")
         XCTAssertEqual(link.queryItems?.first { $0.name == "show" }?.value, episodes[2].showID)
+    }
+
+    func testTopShelfMixesRSSAndAudiobookshelfByListeningTimeAndResumesTheLibraryEpisode() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let (podcasts, rss) = try makeTopShelfPodcasts(fixture)
+        podcasts.loadIfNeeded()
+        try await waitForPodcasts(podcasts)
+        let source = MusicSource(name: "Fixture ABS", type: .audiobookshelf)
+        try fixture.sources.addDurably(source)
+        let store = fixture.store(podcastStore: podcasts)
+        let episodes: [Song] = (1...3).map { index in
+            Song(id: source.id + "-\(index)", title: "Episode \(index)", albumTitle: "Fixture Show",
+                 trackNumber: index, duration: 600, fileFormat: .mp3,
+                 filePath: AudiobookshelfAPIProtocol.trackPath(itemID: "show", kind: .episode(id: "\(index)"), fileExtension: "mp3"),
+                 sourceID: source.id, dateAdded: Date(timeIntervalSince1970: Double(index)), coverArtFileName: "fixture-cover")
+        }
+        fixture.library.addSongs(episodes)
+        await fixture.library.waitForPendingIndex()
+        store.reload(reloadLibrary: false, migrateLegacyIDs: false)
+        let progress = SpokenWordStore.shared
+        let time = Date().addingTimeInterval(-60)
+        for (id, offset) in [(rss[0].id, 30.0), (episodes[0].id, 20.0), (rss[1].id, 10.0)] {
+            XCTAssertTrue(progress.adoptServerProgress(songID: id, position: 150, duration: 600, isFinished: false,
+                                                      updatedAt: time.addingTimeInterval(offset)))
+        }
+        progress.markFinished(true, songIDs: [episodes[2].id])
+        defer {
+            progress.markFinished(false, songIDs: [episodes[2].id])
+            for id in [rss[0].id, rss[1].id, episodes[0].id] { progress.clearPosition(forSongID: id) }
+            store.engine.stop()
+        }
+
+        let drafts = store.topShelfPodcastDrafts()
+        XCTAssertEqual(drafts.map(\.id), [rss[0].id, episodes[0].id, rss[1].id])
+        let episode = try XCTUnwrap(drafts.first { $0.id == episodes[0].id })
+        let showID = try XCTUnwrap(fixture.library.localPodcastShowID(forSongID: episode.id))
+        progress.setArchived(true, bookIDs: [showID])
+        XCTAssertEqual(store.topShelfPodcastDrafts().map(\.id), [rss[0].id, rss[1].id])
+        progress.setArchived(false, bookIDs: [showID])
+        XCTAssertEqual(episode.showTitle, "Fixture Show")
+        XCTAssertEqual(try XCTUnwrap(episode.playbackProgress), 0.25, accuracy: 0.001)
+        guard case .library(let artworkSource, let reference) = episode.artwork else { return XCTFail("Expected library artwork") }
+        XCTAssertEqual(artworkSource?.id, source.id)
+        XCTAssertEqual(reference, "fixture-cover")
+        XCTAssertTrue(store.songs.isEmpty)
+        store.handleDeepLink(try XCTUnwrap(URL(string: episode.playURL)))
+        XCTAssertNil(store.currentPodcastEpisodeID)
+        XCTAssertEqual(store.currentSongID, episodes[0].id)
+        XCTAssertEqual(store.queueUpNextIDs, [episodes[1].id])
+        XCTAssertGreaterThan(store.currentTime, 0)
+        XCTAssertLessThanOrEqual(store.currentTime, 150)
     }
 
     func testUnavailableTopShelfPodcastLinkIsConsumedAfterLoad() async throws {

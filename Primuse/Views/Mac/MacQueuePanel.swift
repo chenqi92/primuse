@@ -93,9 +93,6 @@ struct MacQueuePanel: View {
                             queueSection(title: "now_playing", accent: true) {
                                 queueRow(entry: currentEntry, ordinal: layout.currentOrdinal, totalCount: layout.totalCount, displayedSong: current, isPlaying: true)
                                     .id(currentEntry.id)
-                                // 「保存这个队列」放在正在播放下面:顶上现在是已播放,打开时停在这一段。
-                                QueueBookmarkButton(player: player)
-                                    .padding(.horizontal, 6)
                             }
                             .id(Self.nowPlayingAnchor)
                         }
@@ -273,7 +270,7 @@ struct MacQueuePanel: View {
         let accessibilityLabel = [ordinal.formatted(), song.title, library.artistDisplayName(for: song)]
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: ", ")
-        let row = HStack(alignment: .center, spacing: 8) {
+        let playbackTarget = HStack(alignment: .center, spacing: 8) {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
                 songID: song.id,
@@ -312,30 +309,34 @@ struct MacQueuePanel: View {
 
             Spacer(minLength: 8)
 
-            HStack(spacing: 2) {
-                Text(song.duration.formattedDuration)
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(PMColor.textFaint)
+            Text(song.duration.formattedDuration)
+                .font(.system(size: 10.5, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(PMColor.textFaint)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { playEntry(entry) }
 
-                if let reorderID, allowsRemoval {
-                    Button {
-                        pmWithAnimation(.list) {
-                            _ = player.removeUpcomingQueueEntry(reorderID)
-                        }
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(PMColor.textFaint)
-                            .frame(width: 22, height: 32)
-                            .contentShape(Rectangle())
+        let row = HStack(spacing: 2) {
+            playbackTarget
+            if isPlaying {
+                QueueBookmarkButton(player: player)
+            } else if let reorderID, allowsRemoval {
+                Button {
+                    pmWithAnimation(.list) {
+                        _ = player.removeUpcomingQueueEntry(reorderID)
                     }
-                    .buttonStyle(.plain)
-                    .help(Text("remove_from_queue"))
-                    .accessibilityHidden(true)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(PMColor.textFaint)
+                        .frame(width: 22, height: 32)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help(Text("remove_from_queue"))
+                .accessibilityHidden(true)
             }
-            .frame(height: 32)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 5)
@@ -356,7 +357,6 @@ struct MacQueuePanel: View {
         .pmAnimation(.list, value: isDropTarget)
         .opacity(dimmed || unreachable || restriction != nil ? 0.52 : 1)
         .contentShape(Rectangle())
-        .onTapGesture { playEntry(entry) }
         // 拖起这一行时渲染进独立的拖拽预览宿主, 那里不继承按类型注入的可观察
         // 对象。行内的艺术家名与封面都要读 MusicLibrary / SourceManager, 取不到
         // 就会触发运行时陷阱。显式带上。

@@ -4457,33 +4457,63 @@ final class TVStore {
     private static let topShelfLastPlayedKey = "tv.topShelf.lastPlayedAt.v1"
 
     private var topShelfPlaybackSectionID: String {
-        if currentPodcastEpisodeID != nil { return "podcasts" }
+        if currentItemIsPodcast { return "podcasts" }
         if isLiveRadio { return "radio" }
         return currentItemIsSpokenWord ? "books" : "recent"
     }
 
     func topShelfPodcastDrafts() -> [TopShelfPublisher.PodcastDraft] {
-        var entries = podcastStore.inProgressEpisodes(limit: 8)
-        if let id = currentPodcastEpisodeID, let current = podcastStore.episode(id: id),
-           !podcastStore.state(for: current.episode).isFinished {
-            entries.removeAll { $0.episode.id == id }
-            entries.insert((current.episode, current.show,
-                            SpokenWordStore.shared.position(forSongID: id)?.updatedAt ?? .distantPast), at: 0)
+        let progress = SpokenWordStore.shared
+        func fraction(_ stored: SpokenWordStore.StoredPosition?, duration: Double?) -> Double? {
+            let length = (stored?.duration).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? duration ?? 0
+            guard length.isFinite, length > 0 else { return nil }
+            return (min(1, max(0, (stored?.position ?? 0) / length)) * 100).rounded(.down) / 100
         }
-        return entries.prefix(8).map { entry in
-            let stored = SpokenWordStore.shared.position(forSongID: entry.episode.id)
-            let duration = (stored?.duration).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? entry.episode.duration ?? 0
-            let progress = duration.isFinite && duration > 0
-                ? (min(1, max(0, (stored?.position ?? 0) / duration)) * 100).rounded(.down) / 100 : nil
+
+        let currentID = currentItemIsPodcast ? nowPlaying.songID : nil
+        let playingID = isPlaying ? currentID : nil
+        func newer(_ lhs: String, _ rhs: String) -> Bool {
+            if (lhs == playingID) != (rhs == playingID) { return lhs == playingID }
+            let left = progress.positions[lhs]?.updatedAt ?? .distantPast
+            let right = progress.positions[rhs]?.updatedAt ?? .distantPast
+            return left == right ? lhs < rhs : left > right
+        }
+        var rss = podcastStore.inProgressEpisodes(limit: 8)
+        if let id = currentPodcastEpisodeID, !rss.contains(where: { $0.episode.id == id }),
+           let current = podcastStore.episode(id: id), !podcastStore.state(for: current.episode).isFinished {
+            rss.append((current.episode, current.show, progress.position(forSongID: id)?.updatedAt ?? .distantPast))
+        }
+        var drafts: [TopShelfPublisher.PodcastDraft] = rss.map { entry in
+            let stored = progress.position(forSongID: entry.episode.id)
             var link = URLComponents()
             link.scheme = "primuse"
             link.host = "podcast"
             link.queryItems = [URLQueryItem(name: "id", value: entry.episode.id),
                                URLQueryItem(name: "show", value: entry.show.id)]
-            return .init(episode: entry.episode, show: entry.show, playbackProgress: progress,
-                         lastListenedAt: stored?.updatedAt,
+            return .init(id: entry.episode.id, title: entry.episode.title.isEmpty ? entry.show.title : entry.episode.title,
+                         showTitle: entry.show.title, artwork: .rss(entry.episode.artworkURL ?? entry.show.artworkURL),
+                         playbackProgress: fraction(stored, duration: entry.episode.duration), lastListenedAt: stored?.updatedAt,
                          playURL: link.string ?? Self.topShelfLink(host: "podcast", key: "id", entry.episode.id))
         }
+        func canResumeLibraryEpisode(_ id: String) -> Bool {
+            guard let showID = library.localPodcastBookIDs[id], !progress.isArchived(bookID: showID),
+                  progress.finishedDate(forSongID: id) == nil else { return false }
+            return library.unobservedVisibleSong(id: id)?.isPlayable == true
+        }
+        var localIDs = progress.positions.keys.filter(canResumeLibraryEpisode)
+        if let id = currentID, progress.positions[id] == nil, canResumeLibraryEpisode(id) {
+            localIDs.append(id)
+        }
+        for id in localIDs.sorted(by: newer).prefix(8) {
+            guard let song = library.visibleSong(id: id) else { continue }
+            let stored = progress.position(forSongID: id)
+            drafts.append(.init(id: id, title: library.displayTitle(for: song),
+                                showTitle: library.localPodcastShowTitle(forSongID: id) ?? song.albumTitle ?? "",
+                                artwork: .library(source: sourcesStore.source(id: song.sourceID), reference: song.coverArtFileName),
+                                playbackProgress: fraction(stored, duration: song.duration), lastListenedAt: stored?.updatedAt,
+                                playURL: Self.topShelfLink(host: "podcast", key: "song", id)))
+        }
+        return Array(drafts.sorted { newer($0.id, $1.id) }.prefix(8))
     }
 
     private static func topShelfLink(host: String, key: String, _ value: String) -> String {
@@ -4526,6 +4556,22 @@ final class TVStore {
         let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
         func q(_ name: String) -> String? { comps?.queryItems?.first { $0.name == name }?.value }
         if url.host == "podcast" {
+            if let songID = q("song") {
+                guard library.isReady, !hasPendingSnapshotRecovery else { return }
+                if let showID = library.localPodcastShowID(forSongID: songID) {
+                    let songs = library.localPodcastSongs.filter { library.localPodcastBookIDs[$0.id] == showID }
+                    if let book = TVSpokenWordBooks.books(songs: songs, store: .shared).first(where: { $0.id == showID }) {
+                        let settings = LocalPodcastShowSettingsStore.shared.settings(for: showID)
+                        let queue = LocalPodcastPlayback.queue(for: book, songs: songs, from: songID, settings: settings)
+                        if playSpokenWordBook(songIDs: queue.map(\.id), startingAt: songID) { return }
+                    }
+                }
+                if isFinalAttempt || hasSettledRadioList {
+                    pendingDeepLink = nil
+                    playbackIssue = .failed(String(localized: "podcast_episode_missing"))
+                }
+                return
+            }
             guard let id = q("id"), !id.isEmpty else {
                 pendingDeepLink = nil
                 return
@@ -6547,7 +6593,20 @@ final class TVStore {
         }
         guard isSpokenWord else { return requested }
         noteSpokenWordItemSelected(song.id)
-        if let raw = library.song(id: song.id) { currentSpokenWordIntroOutro = spokenWordIntroOutro(for: raw) }
+        if let raw = library.song(id: song.id) {
+            currentSpokenWordIntroOutro = spokenWordIntroOutro(for: raw)
+            if let source = source(id: raw.sourceID), source.type == .audiobookshelf {
+                let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+                sourceChapterTask = Task { @MainActor [weak self] in
+                    let details = await TVSourceAssetReader.shared.audiobookshelfListeningDetails(
+                        for: raw, source: source, credential: credential
+                    )
+                    guard !Task.isCancelled, let self, self.currentSongID == raw.id else { return }
+                    self.sourceChapters = details.chapters
+                    self.libraryPodcastShowNotes = details.showNotes
+                }
+            }
+        }
         if let override = pendingSpokenWordStartOverride {
             pendingSpokenWordStartOverride = nil
             if override.songID == song.id, requested <= 0, !isRecovery {
@@ -6589,7 +6648,7 @@ final class TVStore {
                 }
             }
             // 续播时整本书一起取:别的设备可能已经听到了这本书的另一条。
-            let bookProgress = resuming
+            let bookProgress = resuming && !SpokenWordStore.shared.isPodcast(raw)
                 ? await TVSourceAssetReader.shared.serverSpokenWordBookProgress(
                     song: raw, source: source, credential: credential
                 )
@@ -6906,11 +6965,11 @@ final class TVStore {
     }
 
     /// 这一条文件里的章节标记(AVPlayer 从流里读,SFB 路径从下载的文件里读);
-    /// 读不出来的播客单集用 feed 和 ID3 标签里的。
+    /// 媒体流没有章节时再用服务端或 RSS 单集提供的章节。
     var spokenWordChapters: [MediaChapter] {
         guard currentItemIsSpokenWord, !isLiveRadio else { return [] }
         if let chapters = library.generatedChapters(for: nowPlaying.songID) { return chapters }
-        return engine.chapters.isEmpty ? podcastChapters : engine.chapters
+        return engine.chapters.isEmpty ? sourceChapters : engine.chapters
     }
 
     /// 播放头所在的章节;读播放头。
@@ -8403,7 +8462,8 @@ final class TVStore {
         nowPlaying = TVNowPlaying(
             songID: song.id,
             coverRef: rawSong?.coverArtFileName,
-            title: song.title, artist: song.artist, album: a?.title ?? "",
+            title: song.title, artist: song.artist,
+            album: library.localPodcastShowTitle(forSongID: song.id) ?? a?.title ?? rawSong?.albumTitle ?? "",
             albumID: song.albumID,
             tint: albumPalette?.primary.color ?? songPalette?.primary.color
                 ?? a?.tint ?? fallback.0,
@@ -8486,16 +8546,20 @@ final class TVStore {
 
     /// 正在放的播客单集。换成曲库、电台、目录歌曲时清掉(见 `resetPodcastPlayback`)。
     private(set) var currentPodcastEpisodeID: String?
+    var currentItemIsPodcast: Bool {
+        guard hasNowPlaying, currentItemIsSpokenWord, !isLiveRadio else { return false }
+        return currentPodcastEpisodeID != nil || library.localPodcastShowID(forSongID: nowPlaying.songID) != nil
+    }
     /// 这一集放完接着放的单集(连续播放开着时):节目页按收听顺序,最新单集按列表顺序。
     private(set) var podcastUpNext: [PodcastEpisode] = []
     /// 正在放的单集当作一首虚拟歌:续播位置、按节目记的语速都按它算(专辑 = 节目名),和手机一致。
     @ObservationIgnored private var currentPodcastSong: Song?
     /// 这一集的片尾已经跳过了,别每拍再触发一次。
     @ObservationIgnored private var podcastOutroHandledEpisodeID: String?
-    /// 这一集在 feed 里、章节 JSON 里或音频文件 ID3 标签里的章节,和手机同一套找法
-    /// (`PodcastChapterLoader`)。AVPlayer 从流里读不出章节时用它。
-    private(set) var podcastChapters: [MediaChapter] = []
-    @ObservationIgnored private var podcastChapterTask: Task<Void, Never>?
+    /// 媒体流没有章节时使用 ABS 条目或 RSS 单集提供的章节。
+    private var sourceChapters: [MediaChapter] = []
+    private(set) var libraryPodcastShowNotes: String?
+    @ObservationIgnored private var sourceChapterTask: Task<Void, Never>?
 
     /// 播一集播客。不进曲库队列;有声那一套照常生效:记位置、续播、按节目变速、睡眠定时。
     /// 已经在放这一集就只是继续。
@@ -8689,21 +8753,22 @@ final class TVStore {
         currentPodcastSong = nil
         podcastUpNext = []
         podcastOutroHandledEpisodeID = nil
-        podcastChapterTask?.cancel()
-        podcastChapterTask = nil
-        podcastChapters = []
+        sourceChapterTask?.cancel()
+        sourceChapterTask = nil
+        sourceChapters = []
+        libraryPodcastShowNotes = nil
     }
 
     /// 换到一集时找它的章节:feed 里直接写的立刻有,JSON 和音频文件里的取回来再换上。
     private func loadPodcastChapters(for episode: PodcastEpisode) {
-        podcastChapterTask?.cancel()
-        podcastChapters = episode.chapters.map { MediaChapter(startTime: $0.start, title: $0.title) }
-        guard podcastChapters.isEmpty else { return }
+        sourceChapterTask?.cancel()
+        sourceChapters = episode.chapters.map { MediaChapter(startTime: $0.start, title: $0.title) }
+        guard sourceChapters.isEmpty else { return }
         let episodeID = episode.id
-        podcastChapterTask = Task { @MainActor [weak self] in
+        sourceChapterTask = Task { @MainActor [weak self] in
             let chapters = await PodcastChapterLoader.chapters(for: episode)
             guard !Task.isCancelled, let self, self.currentPodcastEpisodeID == episodeID else { return }
-            self.podcastChapters = chapters
+            self.sourceChapters = chapters
         }
     }
 
@@ -9996,7 +10061,11 @@ extension TVStore {
             let client = AudiobookshelfServiceClient(source: source, credential: credential)
             let excluded = Set(source.excludedServerLibraryIDs)
             let libraries = try await client.libraries().filter { $0.mediaType != .other && !excluded.contains($0.id) }
-            return totalOnly(try await client.catalogItemCount(libraryIDs: libraries.map(\.id)))
+            let snapshot = try await client.catalogSnapshot(libraries: libraries)
+            return ServerCatalogScanStatus(
+                isScanning: false, itemCount: Int64(snapshot.itemCount),
+                lastCompletedScanAt: nil, contentRevision: snapshot.contentRevision
+            )
         case .tingReader:
             // 统计不分账号,只拿书数、章节数与总时长当内容指纹;它是公开接口,不用登录。
             let stats = try await TingReaderServiceClient(source: source, credential: credential).catalogStats()

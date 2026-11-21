@@ -36,6 +36,30 @@ public struct PlaylistGrouping: Codable, Equatable, Sendable {
         return id
     }
 
+    public func playbackSongIDs(
+        for groupID: String,
+        playlists: [Playlist],
+        smartPlaylists: [SmartPlaylist],
+        songIDsForPlaylist: (Playlist) -> [String],
+        songIDsForSmartPlaylist: (SmartPlaylist) -> [String]
+    ) -> [String] {
+        guard groups.contains(where: { $0.id == groupID }) else { return [] }
+        var seen = Set<String>()
+        var queue: [String] = []
+        func append(_ songIDs: [String]) {
+            for id in songIDs where seen.insert(id).inserted {
+                queue.append(id)
+            }
+        }
+        for playlist in playlists where memberships[Self.reference(id: playlist.id)] == groupID {
+            append(songIDsForPlaylist(playlist))
+        }
+        for smart in smartPlaylists where memberships[Self.reference(id: smart.id, smart: true)] == groupID {
+            append(songIDsForSmartPlaylist(smart))
+        }
+        return queue
+    }
+
     public func acceptsName(_ name: String, replacing id: String? = nil) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return !name.isEmpty && !groups.contains {

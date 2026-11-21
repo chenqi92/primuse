@@ -100,9 +100,46 @@ extension KaraokeMicLinkTests {
     @Test("New TV messages round-trip")
     func tvMessages() {
         var framer = KaraokeMicLink.Framer()
-        let messages: [KaraokeMicLink.TVMessage] = [.nowPlaying(songID: "abc"), .nowPlaying(songID: nil), .stemReceived(songID: "abc")]
+        let messages: [KaraokeMicLink.TVMessage] = [
+            .nowPlaying(songID: "abc"), .nowPlaying(songID: nil), .stemReceived(songID: "abc"),
+            .liveVoice(port: 38_000, token: "session"), .stopLiveVoice,
+        ]
         let data = messages.map { KaraokeMicLink.encode($0) }.reduce(Data(), +)
         #expect(framer.append(data, as: KaraokeMicLink.TVMessage.self) == messages)
+    }
+
+    @Test("An older receiver can ignore live vocals and keep scoring")
+    func scoringCompatibility() {
+        enum OldPhoneMessage: Decodable, Equatable {
+            case hello(version: Int, key: String, deviceName: String)
+            case reading(sequence: Int, midiNote: Double?)
+        }
+        let messages: [KaraokeMicLink.PhoneMessage] = [
+            .hello(version: KaraokeMicLink.protocolVersion, key: "k", deviceName: "phone"),
+            .liveVoiceCapable, .liveVoiceFailed(token: "old"), .reading(sequence: 1, midiNote: 62),
+        ]
+        let stream = messages.map { KaraokeMicLink.encode($0) }.reduce(Data(), +)
+        var framer = KaraokeMicLink.Framer()
+        #expect(framer.append(stream, as: OldPhoneMessage.self) == [
+            .hello(version: 1, key: "k", deviceName: "phone"), .reading(sequence: 1, midiNote: 62),
+        ])
+    }
+
+    @Test("Only intact voice frames from this run can be decoded")
+    func voiceFrame() throws {
+        let codec = KaraokeMicLink.VoiceCodec(token: UUID().uuidString)
+        var samples = (0..<KaraokeMicLink.VoiceCodec.frameCount).map { Int16($0 - 100) }
+        samples[0] = .min
+        samples[1] = .max
+        var packet = try #require(samples.withUnsafeBufferPointer { codec.encode(sequence: 42, samples: $0) })
+        let frame = try #require(codec.decode(packet))
+        #expect(frame.sequence == 42)
+        #expect(frame.samples == samples)
+        #expect(KaraokeMicLink.VoiceCodec(token: UUID().uuidString).decode(packet) == nil)
+        #expect(codec.decode(packet.dropLast()) == nil)
+        packet[packet.count - 1] ^= 1
+        #expect(codec.decode(packet) == nil)
+        #expect([Int16(1)].withUnsafeBufferPointer { codec.encode(sequence: 1, samples: $0) } == nil)
     }
 }
 

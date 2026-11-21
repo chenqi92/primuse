@@ -195,6 +195,8 @@ public struct AudiobookshelfEpisode: Sendable, Equatable {
     public let season: Int?
     public let episodeNumber: Int?
     public let publishedAt: Date?
+    public let showNotes: String?
+    public let chapters: [AudiobookshelfChapter]
     public let audioFile: AudiobookshelfAudioFile
 
     public init?(json: [String: Any]) {
@@ -207,6 +209,9 @@ public struct AudiobookshelfEpisode: Sendable, Equatable {
         self.season = absInt(json["season"])
         self.episodeNumber = absInt(json["episode"])
         self.publishedAt = absDate(json["publishedAt"]) ?? absDate(json["pubDate"])
+        self.showNotes = absNonemptyString(json["description"])
+        let chapters = json["chapters"] as? [[String: Any]] ?? fileJSON["chapters"] as? [[String: Any]] ?? []
+        self.chapters = chapters.compactMap(AudiobookshelfChapter.init(json:)).sorted { $0.start < $1.start }
         self.audioFile = audioFile
     }
 }
@@ -307,16 +312,17 @@ public struct AudiobookshelfCatalogItem: Sendable, Equatable {
                 if let l = lhs.publishedAt, let r = rhs.publishedAt, l != r { return l < r }
                 return lhs.index < rhs.index
             } ?? []
-        self.reportedAudioFileCount = absInt(media["numAudioFiles"]) ?? absInt(media["numTracks"])
         let listedFiles = json["libraryFiles"] as? [[String: Any]]
         self.listsLibraryFiles = listedFiles != nil
         self.libraryFiles = listedFiles?.compactMap(AudiobookshelfLibraryFile.init(json:)) ?? []
         self.isSingleFileItem = (json["isFile"] as? Bool) ?? false
         switch self.mediaType {
         case .book:
-            self.mediaIsComplete = media["audioFiles"] != nil
+            self.mediaIsComplete = media["audioFiles"] is [[String: Any]]
+            self.reportedAudioFileCount = absInt(media["numAudioFiles"]) ?? absInt(media["numTracks"])
         case .podcast:
-            self.mediaIsComplete = media["episodes"] != nil
+            self.mediaIsComplete = media["episodes"] is [[String: Any]]
+            self.reportedAudioFileCount = absInt(media["numEpisodes"])
         }
     }
 
@@ -343,6 +349,16 @@ public struct AudiobookshelfCatalogItem: Sendable, Equatable {
     public func chapters(forIno ino: String) -> [MediaChapter] {
         guard let track = track(forIno: ino) else { return [] }
         return Self.fileChapters(chapters, track: track)
+    }
+
+    public func chapters(for kind: AudiobookshelfAPIProtocol.TrackKind) -> [MediaChapter] {
+        switch kind {
+        case .file(let ino):
+            return chapters(forIno: ino)
+        case .episode(let id):
+            guard let episode = episodes.first(where: { $0.id == id }) else { return [] }
+            return episode.chapters.map { MediaChapter(startTime: $0.start, title: $0.title) }
+        }
     }
 
     public static func fileChapters(_ chapters: [AudiobookshelfChapter], track: AudiobookshelfTrack) -> [MediaChapter] {
@@ -1016,24 +1032,55 @@ public actor AudiobookshelfServiceClient {
         return AudiobookshelfCatalogItem(json: dictionary)
     }
 
-    /// 各库条目总数之和,给「服务端有没有变」的探针用。
-    public func catalogItemCount(libraryIDs: [String]) async throws -> Int {
+    public func catalogSnapshot(libraries: [AudiobookshelfLibrary]) async throws -> (itemCount: Int, contentRevision: String?) {
         var total = 0
-        for libraryID in libraryIDs {
-            let payload = try await authorizedJSON(
-                path: "/api/libraries/\(AudiobookshelfAPIProtocol.encodedPathComponent(libraryID))/items",
-                queryItems: [
-                    URLQueryItem(name: "limit", value: "1"),
-                    URLQueryItem(name: "page", value: "0"),
-                    URLQueryItem(name: "minified", value: "1"),
-                ]
-            )
-            guard let dictionary = payload as? [String: Any], let count = absInt(dictionary["total"]) else {
-                throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.responseNotJSON"))
+        var podcastRevisions: [String] = []
+        for library in libraries {
+            let path = "/api/libraries/\(AudiobookshelfAPIProtocol.encodedPathComponent(library.id))"
+            let libraryCount: Int
+            if library.mediaType == .podcast, let stats = try await podcastCatalogStats(path: path) {
+                libraryCount = stats.itemCount
+                podcastRevisions.append("\(library.id):\(stats.revision)")
+            } else {
+                let payload = try await authorizedJSON(
+                    path: "\(path)/items",
+                    queryItems: [
+                        URLQueryItem(name: "limit", value: "1"),
+                        URLQueryItem(name: "page", value: "0"),
+                        URLQueryItem(name: "minified", value: "1"),
+                    ]
+                )
+                guard let dictionary = payload as? [String: Any], let count = absInt(dictionary["total"]) else {
+                    throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.responseNotJSON"))
+                }
+                libraryCount = count
             }
-            total += count
+            guard libraryCount >= 0, libraryCount <= Int.max - total else {
+                throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.invalidPageCount"))
+            }
+            total += libraryCount
         }
-        return total
+        return (total, podcastRevisions.isEmpty ? nil : podcastRevisions.sorted().joined(separator: "|"))
+    }
+
+    private func podcastCatalogStats(path: String) async throws -> (itemCount: Int, revision: String)? {
+        let payload: Any
+        do {
+            payload = try await authorizedJSON(path: "\(path)/stats")
+        } catch AudiobookshelfServiceError.badServerResponse(let status) where [404, 405, 501].contains(status) {
+            return nil
+        } catch AudiobookshelfServiceError.authenticationFailed {
+            // Some servers restrict statistics separately. The item list still checks the account.
+            return nil
+        }
+        guard let stats = payload as? [String: Any],
+              let shows = absInt(stats["totalItems"]), shows >= 0,
+              let episodes = absInt(stats["numAudioTracks"]), episodes >= 0,
+              episodes <= Int.max - shows else { return nil }
+        // Automatic retention may replace one episode with another without changing the count.
+        let duration = absDouble(stats["totalDuration"]) ?? 0
+        let size = absInt64(stats["totalSize"]) ?? 0
+        return (shows + episodes, "\(shows):\(episodes):\(duration):\(size)")
     }
 
     // MARK: Media

@@ -47,6 +47,38 @@ struct SiriListeningCatalogTests {
         #expect(ordered.map(\.id) == ["c", "a", "b"])
     }
 
+    @Test("Named podcast requests reach the library, preserving RSS ownership of tied titles and saved selections")
+    func libraryPodcasts() throws {
+        let episodes = ["one", "two", "three"].map { id in
+            Song(id: id, title: id, fileFormat: .mp3, filePath: "/\(id).mp3", sourceID: "abs")
+        }
+        let subscriptions = [show("Story FM")]
+        let catalog = SiriPodcastShow.catalog(subscriptions: subscriptions, libraryEpisodes: episodes, libraryShowCount: 2) {
+            $0 == "three" ? ("dup", "Story FM") : ("news", "Science News")
+        }
+        #expect(catalog.map(\.title) == ["Story FM", "Science News", "Story FM"])
+        let news = try #require(SiriPodcastShow.namedItems(catalog, query: "Science News").first)
+        #expect(SiriPodcastShow.libraryID(for: news.id) == "news")
+        #expect(SiriPodcastShow.namedItems(catalog, query: "Story FM").first?.id == subscriptions[0].id)
+        let saved = SiriMediaIdentifier.namespaced(catalog[2].id, as: "podcastshow")
+        #expect(SiriPodcastShow.namedItems(catalog, query: nil, identifiers: [saved]).first?.id == catalog[2].id)
+        #expect(SiriPodcastShow.namedItems(catalog, query: "Story FM", identifiers: ["radio:station"]).isEmpty)
+        #expect(SiriPodcastShow.needsLibrary(subscriptions: subscriptions, query: nil, identifiers: [saved], needsUnnamedLookup: false))
+        #expect(!SiriPodcastShow.needsLibrary(subscriptions: subscriptions, query: "Story FM", identifiers: [], needsUnnamedLookup: true))
+        #expect(!SiriPodcastShow.needsLibrary(subscriptions: subscriptions, query: nil, identifiers: [], needsUnnamedLookup: false))
+        let positions = ["one": now, "three": now.addingTimeInterval(-30), "archived": now.addingTimeInterval(20)]
+        func recent(after subscriptionDate: Date?) -> String? {
+            SiriPodcastShow.mostRecentLibraryEpisode(in: positions, newerThan: subscriptionDate, updatedAt: { $0 }) { id in
+                episodes.first { $0.id == id }
+            }?.id
+        }
+        #expect(recent(after: nil) == "one")
+        #expect(recent(after: now) == nil)
+        #expect(recent(after: now.addingTimeInterval(-10)) == "one")
+        #expect(!SiriPodcastShow.mayHaveNewerLibraryProgress(than: now, positions: positions, updatedAt: { $0 }, isFinished: { $0 == "archived" }))
+        #expect(SiriPodcastShow.mayHaveNewerLibraryProgress(than: now.addingTimeInterval(-10), positions: positions, updatedAt: { $0 }, isFinished: { _ in false }))
+    }
+
     @Test("Sleep timer requests follow what is playing")
     func sleepTimer() {
         #expect(SiriSleepTimerRequest.minutes30.resolution(space: nil, hasChapters: false) == .set(.minutes(30)))
@@ -69,7 +101,7 @@ struct SiriListeningCatalogTests {
         #expect(SiriMediaIdentifier.value(from: show, expectedNamespace: "song") == nil)
     }
 
-    @Test("Podcasts never wait for the music library; books do")
+    @Test("The generic music lookup leaves podcast-specific preparation to the podcast handler")
     func libraryNeeds() {
         #expect(!SiriRequestNeeds.libraryForPlayback(SiriMediaSearchQuery(kind: .podcast, mediaName: "x"), identifierGroups: []))
         #expect(SiriRequestNeeds.libraryForPlayback(SiriMediaSearchQuery(kind: .audiobook), identifierGroups: []))

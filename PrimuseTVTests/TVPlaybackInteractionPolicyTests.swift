@@ -7,7 +7,102 @@ import PrimuseKit
 import XCTest
 import UIKit
 import SwiftUI
+import Vision
 @testable import PrimuseTV
+
+@MainActor
+private func withWindow<Content: View>(_ content: Content, run: (UIWindow) async throws -> Void) async throws {
+    let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previous = scene.keyWindow
+    let window = UIWindow(windowScene: scene)
+    window.rootViewController = UIHostingController(rootView: content)
+    window.makeKeyAndVisible()
+    defer {
+        window.isHidden = true
+        window.rootViewController = nil
+        previous?.makeKey()
+    }
+    try await Task.sleep(for: .milliseconds(150))
+    try await run(window)
+}
+
+@MainActor
+final class TVPlayerHintTests: XCTestCase {
+    private struct Handle: View {
+        @Environment(\.isEnabled) private var enabled
+        let onChange: (Bool) -> Void
+
+        var body: some View {
+            Button("Browse") {}
+                .onChange(of: enabled, initial: true) { _, value in onChange(value) }
+        }
+    }
+
+    func testIdleHandleLeavesNavigationAndReturnsWhenMovementHitsAnEdge() async throws {
+        let clock = TVInteractionClock()
+        let hidden = expectation(description: "Idle handle leaves focus navigation")
+        let restored = expectation(description: "Directional input restores the handle")
+        var states = [Bool]()
+        let handle = Handle { enabled in
+            states.append(enabled)
+            if !enabled { hidden.fulfill() }
+            if states.contains(false), enabled { restored.fulfill() }
+        }
+        .modifier(TVShelfHintVisibility(clock: clock, isActive: true))
+
+        try await withWindow(handle) { _ in
+            await fulfillment(of: [hidden], timeout: 9)
+            NotificationCenter.default.post(name: UIFocusSystem.movementDidFailNotification, object: nil)
+            await fulfillment(of: [restored], timeout: 2)
+            XCTAssertEqual(states, [true, false, true])
+        }
+    }
+
+    func testDownloadProgressAppearsOnTheArtworkAndClearsAfterLoading() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: directory)
+        let store = TVStore(sourcesStore: SourcesStore(storageDirectoryURL: directory),
+                            library: library,
+                            sessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+        addTeardownBlock { @MainActor [weak library] in
+            if library == nil { try? FileManager.default.removeItem(at: directory) }
+        }
+        store.nowPlaying.songID = "loading-artwork"
+        store.nowPlaying.title = "Glass Lantern"
+        store.hasNowPlaying = true
+        let player = TVNowPlayingView().environment(store).environment(MusicIntelligenceService())
+            .environment(TVThemeState.shared).environment(TVAppearanceState())
+            .environment(\.locale, Locale(identifier: "en_US"))
+        try await withWindow(player) { window in
+            store.engine.prepareForSelection(startAt: 0)
+            store.engine.downloadProgress = 0.42
+            try await Task.sleep(for: .milliseconds(800))
+            let labels = try renderedText(in: window)
+            let progress = try XCTUnwrap(labels.first { $0.string.contains("42%") })
+            let title = try XCTUnwrap(labels.first { $0.string.contains("Glass Lantern") })
+            XCTAssertGreaterThan(progress.boundingBox.minY, title.boundingBox.maxY)
+            XCTAssertLessThan(progress.boundingBox.midX, 0.5)
+            store.engine.stop()
+            try await Task.sleep(for: .milliseconds(150))
+            XCTAssertFalse(try renderedText(in: window).contains { $0.string.contains("42%") })
+        }
+    }
+
+    private func renderedText(in window: UIWindow) throws -> [(string: String, boundingBox: CGRect)] {
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        add(XCTAttachment(image: image))
+        let request = VNRecognizeTextRequest()
+        request.usesLanguageCorrection = false
+        request.recognitionLanguages = ["en-US"]
+        try VNImageRequestHandler(cgImage: XCTUnwrap(image.cgImage)).perform([request])
+        return (request.results ?? []).compactMap { observation in
+            observation.topCandidates(1).first.map { ($0.string, observation.boundingBox) }
+        }
+    }
+}
 
 @MainActor
 final class TVTabTransitionTests: XCTestCase {
@@ -194,18 +289,6 @@ final class TVTabTransitionTests: XCTestCase {
 
     private func withHost(_ probe: TabProbe, run: () async throws -> Void) async throws {
         try await withWindow(TabHarness(probe: probe)) { _ in try await run() }
-    }
-
-    private func withWindow<Content: View>(_ content: Content, run: (UIWindow) async throws -> Void) async throws {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previous = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene)
-        let host = UIHostingController(rootView: content)
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKey() }
-        try await Task.sleep(for: .milliseconds(150))
-        try await run(window)
     }
 
     private func highlightViews(in view: UIView) -> [TVTabFocusHighlightView] {

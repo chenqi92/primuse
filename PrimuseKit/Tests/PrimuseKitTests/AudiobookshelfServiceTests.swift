@@ -152,7 +152,7 @@ struct AudiobookshelfServiceTests {
         #expect(firstFile.map(\.startTime) == [0, 30])
         #expect(firstFile.map(\.title) == ["Chapter 1", "Chapter 2"])
         // Chapter 2 started at 30 s of the book and is still running when file two begins at 60 s.
-        let secondFile = item.chapters(forIno: "12")
+        let secondFile = item.chapters(for: .file(ino: "12"))
         #expect(secondFile.map(\.startTime) == [0, 30])
         #expect(secondFile.map(\.title) == ["Chapter 2", "Chapter 3"])
         #expect(item.chapters(forIno: "99").isEmpty)
@@ -226,6 +226,10 @@ struct AudiobookshelfServiceTests {
             "media": ["metadata": ["title": "Ebook only"], "numAudioFiles": 0],
         ]
         #expect(AudiobookshelfCatalogItem(json: empty)?.needsExpandedFetch == false)
+        for count in [0, 2] {
+            let podcast: [String: Any] = ["id": "show", "mediaType": "podcast", "media": ["numEpisodes": count]]
+            #expect(AudiobookshelfCatalogItem(json: podcast)?.needsExpandedFetch == (count > 0))
+        }
     }
 
     @Test("Podcast episodes become songs under the podcast, newest last")
@@ -237,6 +241,8 @@ struct AudiobookshelfServiceTests {
                 "metadata": ["title": "Daily Show", "author": "Some Host", "genres": ["News"]],
                 "episodes": [
                     ["id": "ep_2", "index": 2, "title": "Second", "publishedAt": 1_700_100_000_000, "season": 1, "episode": 2,
+                     "description": "<p>Guests and links for episode two.</p>",
+                     "chapters": [["start": 40, "title": "Guest"], ["start": 0, "title": "Welcome"]],
                      "audioFile": ["ino": "22", "index": 1, "duration": 1200.0, "metadata": ["filename": "two.mp3", "ext": ".mp3", "size": 50]]],
                     ["id": "ep_1", "index": 1, "title": "First", "publishedAt": 1_700_000_000_000,
                      "audioFile": ["ino": "21", "index": 1, "duration": 600.0, "metadata": ["filename": "one.mp3", "ext": ".mp3", "size": 40]]],
@@ -256,6 +262,18 @@ struct AudiobookshelfServiceTests {
         #expect(songs[0].albumTitle == "Daily Show")
         #expect(songs[0].artistName == "Some Host")
         #expect(songs[0].year == 2023)
+        let second = item.chapters(for: .episode(id: "ep_2"))
+        #expect(second.map(\.startTime) == [0, 40])
+        #expect(second.map(\.title) == ["Welcome", "Guest"])
+        #expect(item.chapters(for: .episode(id: "ep_1")).isEmpty)
+        #expect(item.episodes.map(\.showNotes) == [nil, "<p>Guests and links for episode two.</p>"])
+        let position = try #require(item.serverProgress(for: .episode(id: "ep_2"), position: 105, isFinished: false))
+        #expect(position.episodeID == "ep_2")
+        #expect(position.currentTime == 105)
+        #expect(position.duration == 1200)
+        let progress = AudiobookshelfMediaProgress(libraryItemID: "li_pod", episodeID: "ep_2", currentTime: 105,
+                                                   duration: 1200, isFinished: false, lastUpdate: nil)
+        #expect(item.trackProgress(from: progress).map(\.kind) == [.episode(id: "ep_2")])
     }
 
     @Test("Libraries, progress and login payloads parse in both the new and the legacy shape")
@@ -303,6 +321,48 @@ struct AudiobookshelfExpansionTests {
     private static func response(_ url: URL, status: Int = 200, json: Any) throws -> (Data, URLResponse) {
         (try JSONSerialization.data(withJSONObject: json),
          HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!)
+    }
+
+    @Test("Catalog checks notice episode downloads and replacements within a show and fall back on older servers")
+    func podcastCatalogChanges() async throws {
+        let recorder = AudiobookshelfExpansionRequests()
+        let transport = AudiobookshelfRequestTransport(data: { request in
+            let url = try #require(request.url)
+            await recorder.append(url.path)
+            switch url.path {
+            case "/api/libraries/books/items", "/api/libraries/legacy/items":
+                return try Self.response(url, json: ["total": 5])
+            case "/api/libraries/legacy/stats":
+                return try Self.response(url, status: 404, json: [:])
+            case "/api/libraries/pods/stats":
+                let pass = await recorder.requests.filter { $0 == url.path }.count
+                let episodeCounts = [0, 4, 4]
+                let sizes = [0, 1000, 1450]
+                return try Self.response(url, json: ["totalItems": 2, "numAudioTracks": episodeCounts[pass - 1],
+                                                     "totalSize": sizes[pass - 1]])
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }, download: { _ in throw URLError(.unsupportedURL) })
+        let client = AudiobookshelfServiceClient(sourceID: UUID().uuidString, host: "books.invalid",
+            port: nil, useSSL: true, basePath: nil, username: "", secret: "fixture", authType: .apiKey, transport: transport)
+        let book = AudiobookshelfLibrary(id: "books", name: "Books", mediaType: .book)
+        let pod = AudiobookshelfLibrary(id: "pods", name: "Podcasts", mediaType: .podcast)
+        let first = try await client.catalogSnapshot(libraries: [book, pod])
+        let added = try await client.catalogSnapshot(libraries: [book, pod])
+        let replaced = try await client.catalogSnapshot(libraries: [book, pod])
+        #expect(first.itemCount == 7)
+        #expect(added.itemCount == 11)
+        #expect(replaced.itemCount == added.itemCount)
+        #expect(replaced.contentRevision != added.contentRevision)
+        #expect(await recorder.requests.count == 6)
+        let legacy = AudiobookshelfLibrary(id: "legacy", name: "Legacy", mediaType: .podcast)
+        let fallback = try await client.catalogSnapshot(libraries: [legacy])
+        #expect(fallback.itemCount == 5)
+        #expect(fallback.contentRevision == nil)
+        let empty = try await client.catalogSnapshot(libraries: [])
+        #expect(empty.itemCount == 0)
+        #expect(empty.contentRevision == nil)
     }
 
     private static func client(
