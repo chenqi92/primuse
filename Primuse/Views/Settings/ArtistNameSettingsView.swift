@@ -1,6 +1,19 @@
 import PrimuseKit
 import SwiftUI
 
+extension Binding where Value == Int {
+    func genreSeparator(_ option: GenreSeparatorOptions) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { GenreSeparatorOptions(rawValue: wrappedValue).contains(option) },
+            set: { isOn in
+                var options = GenreSeparatorOptions(rawValue: wrappedValue)
+                if isOn { options.insert(option) } else { options.remove(option) }
+                wrappedValue = options.rawValue
+            }
+        )
+    }
+}
+
 struct ArtistNameSettingsView: View {
     @State private var store = ArtistNameSettingsStore.shared
     @State private var newSeparator = ""
@@ -8,17 +21,6 @@ struct ArtistNameSettingsView: View {
     @State private var displaySeparatorDraft = ""
     @State private var showsResetConfirmation = false
     @AppStorage(GenreSplitPreference.storageKey) private var genreSeparatorsRaw = 0
-
-    private func genreSeparatorBinding(_ option: GenreSeparatorOptions) -> Binding<Bool> {
-        Binding(
-            get: { GenreSeparatorOptions(rawValue: genreSeparatorsRaw).contains(option) },
-            set: { isOn in
-                var options = GenreSeparatorOptions(rawValue: genreSeparatorsRaw)
-                if isOn { options.insert(option) } else { options.remove(option) }
-                genreSeparatorsRaw = options.rawValue
-            }
-        )
-    }
 
     private var preview: String {
         ArtistNameParser.displayName(
@@ -125,9 +127,9 @@ struct ArtistNameSettingsView: View {
             .settingsAnchor("artists.mergeSameNamedAlbums")
 
             Section {
-                Toggle("genre_split_slash", isOn: genreSeparatorBinding(.slash))
-                Toggle("genre_split_comma", isOn: genreSeparatorBinding(.comma))
-                Toggle("genre_split_bar", isOn: genreSeparatorBinding(.bar))
+                Toggle("genre_split_slash", isOn: $genreSeparatorsRaw.genreSeparator(.slash))
+                Toggle("genre_split_comma", isOn: $genreSeparatorsRaw.genreSeparator(.comma))
+                Toggle("genre_split_bar", isOn: $genreSeparatorsRaw.genreSeparator(.bar))
             } header: {
                 SettingsInfoHeader("genre_split_title") {
                     Text("genre_split_footer")

@@ -6,6 +6,47 @@ import PrimuseKit
 @testable import Primuse
 
 @MainActor
+final class MacArtistSettingsTests: XCTestCase {
+    func testArtistSettingsShortcutsScrollToTheirControls() async throws {
+        let ids = ["artists.genreSeparators", "artists.mergeCollaborativeAlbums", "artists.mergeSameNamedAlbums"]
+        for id in ids {
+            let navigation = MacSettingsNavigationModel()
+            navigation.select(item: try XCTUnwrap(SettingsCatalog.byID[id]))
+            let host = NSHostingView(rootView: MacSettingsView(navigation: navigation).applyPrimuseEnvironments())
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 940, height: 680),
+                                  styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer { window.close() }
+
+            func scrollViews(in view: NSView) -> [NSScrollView] {
+                if let scroll = view as? NSScrollView { return [scroll] }
+                return view.subviews.flatMap { scrollViews(in: $0) }
+            }
+            host.layoutSubtreeIfNeeded()
+            let deadline = ContinuousClock.now + .seconds(3)
+            var offset: CGFloat = 0
+            repeat {
+                try await Task.sleep(for: .milliseconds(50))
+                let detail = scrollViews(in: host).max { $0.bounds.width < $1.bounds.width }
+                offset = detail?.documentVisibleRect.minY ?? 0
+            } while offset <= 0 && ContinuousClock.now < deadline
+            XCTAssertGreaterThan(offset, 0, id)
+        }
+    }
+
+    func testGenreSwitchesPreserveTheOtherSelectedSeparators() {
+        var stored = GenreSeparatorOptions.comma.rawValue
+        let rawValue = Binding(get: { stored }, set: { stored = $0 })
+        XCTAssertTrue(rawValue.genreSeparator(.comma).wrappedValue)
+        rawValue.genreSeparator(.slash).wrappedValue = true
+        rawValue.genreSeparator(.bar).wrappedValue = true
+        rawValue.genreSeparator(.comma).wrappedValue = false
+        XCTAssertEqual(GenreSeparatorOptions(rawValue: stored), [.slash, .bar])
+    }
+}
+
+@MainActor
 final class MacDesktopLyricsClickThroughTests: XCTestCase {
     func testClickThroughOverridesAnEngagedPanelUntilDisabled() {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100),

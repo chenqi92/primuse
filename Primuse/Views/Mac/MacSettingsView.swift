@@ -4158,6 +4158,7 @@ private struct MacSTEffectsView: View {
 
 private struct MacSTArtistNameView: View {
     @State private var store = ArtistNameSettingsStore.shared
+    @AppStorage(GenreSplitPreference.storageKey) private var genreSeparatorsRaw = 0
     @State private var newSeparator = ""
     @State private var newProtectedName = ""
     @State private var displaySeparatorDraft = ""
@@ -4312,6 +4313,30 @@ private struct MacSTArtistNameView: View {
                     }
                 }
             }
+
+            MacSTSection {
+                MacSTGroup {
+                    toggleRow("artist_name_settings_merge_collaborative_albums", divider: false, isOn: Binding(
+                        get: { store.configuration.mergesCollaborativeAlbums },
+                        set: { store.setMergesCollaborativeAlbums($0) }
+                    ))
+                    .settingsAnchor("artists.mergeCollaborativeAlbums")
+                    toggleRow("artist_name_settings_merge_same_named_albums", isOn: Binding(
+                        get: { store.configuration.mergesSameNamedAlbums },
+                        set: { store.setMergesSameNamedAlbums($0) }
+                    ))
+                    .settingsAnchor("artists.mergeSameNamedAlbums")
+                }
+            }
+
+            MacSTSection(String(localized: "genre_split_title"), hint: String(localized: "genre_split_footer")) {
+                MacSTGroup {
+                    toggleRow("genre_split_slash", divider: false, isOn: $genreSeparatorsRaw.genreSeparator(.slash))
+                    toggleRow("genre_split_comma", isOn: $genreSeparatorsRaw.genreSeparator(.comma))
+                    toggleRow("genre_split_bar", isOn: $genreSeparatorsRaw.genreSeparator(.bar))
+                }
+            }
+            .settingsAnchor("artists.genreSeparators")
         }
         .onAppear {
             displaySeparatorDraft = store.configuration.displaySeparator
@@ -4327,6 +4352,13 @@ private struct MacSTArtistNameView: View {
                 store.resetToDefaults()
             }
             Button(String(localized: "cancel"), role: .cancel) {}
+        }
+    }
+
+    private func toggleRow(_ title: LocalizedStringResource, divider: Bool = true, isOn: Binding<Bool>) -> some View {
+        MacSTRow(String(localized: title), divider: divider) {
+            MacSTToggle(isOn: isOn)
+                .accessibilityRepresentation { Toggle(isOn: isOn) { Text(title) } }
         }
     }
 
