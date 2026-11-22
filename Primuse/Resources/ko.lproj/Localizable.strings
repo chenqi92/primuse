@@ -8165,3 +8165,5 @@
 "tv_settings_context_rate" = "App Store에서 Primuse를 평가합니다.";
 "tv_settings_context_more_format" = "외 %lld개";
 "tv_settings_context_not_connected" = "연결 안 됨";
+"player_hides_grabber" = "상단 손잡이 숨기기";
+"player_hides_grabber_description" = "재생 화면 맨 위의 작은 막대를 표시하지 않습니다. 아래로 쓸어내리면 그대로 닫힙니다.";

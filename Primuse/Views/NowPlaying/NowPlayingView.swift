@@ -4054,6 +4054,7 @@ struct NowPlayingView: View {
                 Capsule()
                     .fill(appearance.tertiary)
                     .frame(width: 48, height: 5)
+                    .playerGrabberVisibility()
                     .padding(.top, topSafeArea + 6)
                     .padding(.bottom, 10)
                     .pmLayoutSwitchFade()
@@ -5802,6 +5803,7 @@ struct NowPlayingView: View {
                 Capsule()
                     .fill(appearance.tertiary)
                     .frame(width: 48, height: 5)
+                    .playerGrabberVisibility()
                     .padding(.top, topSafeArea + 6)
             }
 
@@ -7793,6 +7795,7 @@ struct NowPlayingView: View {
             Capsule()
                 .fill(appearance.tertiary)
                 .frame(width: 48, height: 5)
+                .playerGrabberVisibility()
                 .padding(.top, topSafeArea + 6)
                 .padding(.bottom, 10)
 
@@ -8172,6 +8175,7 @@ struct NowPlayingView: View {
                         Capsule()
                             .fill(appearance.tertiary)
                             .frame(width: 48, height: 5)
+                            .playerGrabberVisibility()
                             .frame(maxWidth: .infinity)
                             .frame(height: 5)
                             .padding(.top, topSafeArea + 6)
@@ -8922,6 +8926,7 @@ struct NowPlayingView: View {
             Capsule()
                 .fill(style.tertiary)
                 .frame(width: 48, height: 5)
+                .playerGrabberVisibility()
                 .frame(maxWidth: .infinity)
                 .padding(.top, 6)
                 .padding(.bottom, 10)
@@ -22172,6 +22177,27 @@ enum NowPlayingArrangement: Equatable {
     case split(canSplit: Bool)
     /// 桌面半折:折痕的上下沿(播放页自己的坐标)。
     case tabletop(foldMinY: CGFloat, foldMaxY: CGFloat)
+}
+
+// MARK: - Grabber
+
+/// 播放页顶上那根下拉把手按「隐藏顶部把手」画不画：只画成透明、照旧占位，版面、下拉收起和点按都不变。
+/// 偏好只在这一层读，拨开关时不牵动整页。
+struct PlayerGrabberVisibility: ViewModifier {
+    @AppStorage(PlayerAppearancePreferences.hidesGrabberKey)
+    private var hidesGrabber = PlayerAppearancePreferences.hidesGrabberByDefault
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(hidesGrabber ? 0 : 1)
+            .accessibilityHidden(hidesGrabber)
+    }
+}
+
+extension View {
+    func playerGrabberVisibility() -> some View {
+        modifier(PlayerGrabberVisibility())
+    }
 }
 
 // MARK: - Lyrics info badges

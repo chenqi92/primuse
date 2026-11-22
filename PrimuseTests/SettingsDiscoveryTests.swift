@@ -195,6 +195,28 @@ final class SettingsDiscoveryTests: XCTestCase {
         }
     }
 
+    /// 「隐藏顶部把手」：「播放器」设置里搜得到，按名字切换两种状态都存得住；默认不隐藏。
+    @MainActor
+    func testPlayerGrabberHidingIsDiscoverableAndPersistsBothStates() throws {
+        let id = "player.hidesGrabber"
+        #if os(iOS)
+        XCTAssertEqual(SettingsCatalog.byID[id]?.page, .player)
+        for query in ["把手", "grabber"] {
+            XCTAssertTrue(SettingsCatalog.search(query).contains { $0.id == id }, query)
+        }
+        #endif
+        try withService { service, playback, defaults in
+            XCTAssertEqual(service.booleanValue(for: id), false)
+            try service.setEnabled(true, for: id)
+            let restored = SettingsActionService(playback: playback, defaults: defaults)
+            XCTAssertEqual(restored.booleanValue(for: id), true)
+            XCTAssertTrue(defaults.bool(forKey: PlayerAppearancePreferences.hidesGrabberKey))
+            try restored.setEnabled(false, for: id)
+            XCTAssertEqual(service.booleanValue(for: id), false)
+            XCTAssertFalse(defaults.bool(forKey: PlayerAppearancePreferences.hidesGrabberKey))
+        }
+    }
+
     func testCatalogHasUniqueStableIDsAndPlatformAppropriateDestinations() {
         let all = SettingsCatalog.definitions
         XCTAssertEqual(Set(all.map(\.id)).count, all.count)

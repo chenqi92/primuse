@@ -29,6 +29,7 @@ struct AmbientNowPlayingLayout<Volume: View>: View {
             Capsule()
                 .fill(tertiary)
                 .frame(width: 48, height: 5)
+                .playerGrabberVisibility()
                 .padding(.top, topInset + 6)
 
             if let error = player.lastPlaybackError {

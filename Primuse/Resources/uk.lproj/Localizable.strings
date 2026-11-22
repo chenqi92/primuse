@@ -8071,3 +8071,5 @@
 "tv_settings_context_rate" = "Оцініть Primuse в App Store.";
 "tv_settings_context_more_format" = "Ще %lld";
 "tv_settings_context_not_connected" = "Не підключено";
+"player_hides_grabber" = "Сховати верхній повзунок";
+"player_hides_grabber_description" = "Невелика смужка вгорі плеєра більше не показується. Змахування вниз, як і раніше, закриває плеєр.";

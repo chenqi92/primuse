@@ -339,6 +339,10 @@ enum PlayerAppearancePreferences {
     /// 点开那一行的菜单里照样能去专辑。只管音乐;有声书、播客那一行的书名、节目名照旧。
     static let showsAlbumInSubtitleKey = "primuse.player.showsAlbumInSubtitle"
     static let showsAlbumInSubtitleByDefault = true
+    /// 播放页顶上那根下拉把手画不画。关掉只是不画，位置照旧留着，往下拉照样收起播放页。只有 iPhone、iPad
+    /// 的播放页有它。键名不带点号(见 #344 的教训)。
+    static let hidesGrabberKey = "playerHidesGrabber"
+    static let hidesGrabberByDefault = false
     /// 音量条的画法(`NowPlayingVolumeBarStyle` 的原始值,#338):系统样式带圆钮,或者和进度条同一种画法。
     static let volumeBarStyleKey = "primuse.player.volumeBarStyle"
     static let volumeThicknessKey = "playerVolumeThickness"

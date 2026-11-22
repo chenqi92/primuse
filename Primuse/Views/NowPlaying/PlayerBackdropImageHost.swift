@@ -194,6 +194,7 @@ struct FullBleedTopChrome: View {
                 .fill(appearance.primary.opacity(appearance.isLight ? 0.3 : 0.36))
                 .frame(width: 48, height: 5)
                 .shadow(color: .black.opacity(appearance.isLight ? 0 : 0.16), radius: 1.5)
+                .playerGrabberVisibility()
                 .padding(.top, topSafeArea + 6)
                 .offset(x: grabberOffset)
         }

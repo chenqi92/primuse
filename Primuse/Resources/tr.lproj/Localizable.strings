@@ -8071,3 +8071,5 @@
 "tv_settings_context_rate" = "Primuse’u App Store’da puanlayın.";
 "tv_settings_context_more_format" = "%lld tane daha";
 "tv_settings_context_not_connected" = "Bağlı değil";
+"player_hides_grabber" = "Üstteki tutamacı gizle";
+"player_hides_grabber_description" = "Oynatıcının en üstündeki küçük çubuk artık gösterilmez. Aşağı kaydırmak oynatıcıyı yine kapatır.";

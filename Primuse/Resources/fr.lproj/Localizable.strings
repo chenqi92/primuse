@@ -8165,3 +8165,5 @@
 "tv_settings_context_rate" = "Notez Primuse sur l’App Store.";
 "tv_settings_context_more_format" = "%lld de plus";
 "tv_settings_context_not_connected" = "Non connecté";
+"player_hides_grabber" = "Masquer la poignée du haut";
+"player_hides_grabber_description" = "La petite barre en haut du lecteur n’est plus affichée. Balayer vers le bas ferme toujours le lecteur.";

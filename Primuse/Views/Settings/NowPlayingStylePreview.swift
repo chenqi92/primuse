@@ -728,6 +728,7 @@ private struct MusicPortraitPreviewScreen: View {
                 Capsule()
                     .fill(appearance.tertiary)
                     .frame(width: 48, height: 5)
+                    .playerGrabberVisibility()
                     .padding(.top, canvas.topSafeArea + 6)
                     .padding(.bottom, 10)
 

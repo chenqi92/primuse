@@ -692,6 +692,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var showsReplayGainBadge = PlayerAppearancePreferences.showsReplayGainBadgeByDefault
     @AppStorage(PlayerAppearancePreferences.tapArtworkOpensLyricsKey)
     private var tapArtworkOpensLyrics = PlayerAppearancePreferences.tapArtworkOpensLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.hidesGrabberKey)
+    private var hidesGrabber = PlayerAppearancePreferences.hidesGrabberByDefault
     @AppStorage(ExternalDisplayContentMode.storageKey)
     private var externalDisplayModeRawValue = ExternalDisplayContentMode.defaultValue.rawValue
     @AppStorage(ExternalDisplayContentMode.effectStorageKey)
@@ -812,6 +814,12 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                 }
                 .settingsAnchor("player.tapArtworkOpensLyrics")
+                Toggle(isOn: $hidesGrabber) {
+                    SettingsInfoLabel("player_hides_grabber") {
+                        Text("player_hides_grabber_description")
+                    }
+                }
+                .settingsAnchor("player.hidesGrabber")
             }
             // 线缆或隔空播放接上电视、显示器时外接屏上显示什么;原来固定是封面与歌词那一页。
             Section {

@@ -8071,3 +8071,5 @@
 "tv_settings_context_rate" = "Avalie o Primuse na App Store.";
 "tv_settings_context_more_format" = "Mais %lld";
 "tv_settings_context_not_connected" = "Não conectado";
+"player_hides_grabber" = "Ocultar a alça superior";
+"player_hides_grabber_description" = "A pequena barra no topo do player deixa de aparecer. Deslizar para baixo continua fechando o player.";

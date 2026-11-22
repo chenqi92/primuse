@@ -8165,3 +8165,5 @@
 "tv_settings_context_rate" = "Bewerte Primuse im App Store.";
 "tv_settings_context_more_format" = "%lld weitere";
 "tv_settings_context_not_connected" = "Nicht verbunden";
+"player_hides_grabber" = "Oberen Griff ausblenden";
+"player_hides_grabber_description" = "Der kleine Balken oben im Player wird nicht mehr angezeigt. Nach unten wischen schließt den Player weiterhin.";

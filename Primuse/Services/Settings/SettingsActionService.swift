@@ -28,7 +28,7 @@ struct SettingsActionService {
         "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen", "playback.mixWithOthers", "playback.appVolume",
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
         "lyrics.exploreWordTiming", "appearance.activityStatus", "lyrics.translationEnabled", "lyrics.bundledTranslation", "lyrics.simulatedWordTiming", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
-        "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "appearance.artworkLyrics", "appearance.playerProgressGlow",
+        "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "player.hidesGrabber", "appearance.artworkLyrics", "appearance.playerProgressGlow",
         "appearance.playerProgressArtworkColors",
         "appearance.replayGainBadge",
         "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "player.pinMiniPlayer", "playback.spokenWordSmartRewind",
@@ -166,6 +166,7 @@ struct SettingsActionService {
         case "appearance.volumeBar": preference(PlayerAppearancePreferences.showsVolumeBarKey, fallback: PlayerAppearancePreferences.showsVolumeBarByDefault)
         case "appearance.replayGainBadge": preference(PlayerAppearancePreferences.showsReplayGainBadgeKey, fallback: PlayerAppearancePreferences.showsReplayGainBadgeByDefault)
         case "appearance.playerAlbumInSubtitle": preference(PlayerAppearancePreferences.showsAlbumInSubtitleKey, fallback: PlayerAppearancePreferences.showsAlbumInSubtitleByDefault)
+        case "player.hidesGrabber": preference(PlayerAppearancePreferences.hidesGrabberKey, fallback: PlayerAppearancePreferences.hidesGrabberByDefault)
         case "appearance.artworkLyrics": preference(PlayerAppearancePreferences.showsArtworkLyricsKey, fallback: PlayerAppearancePreferences.showsArtworkLyricsByDefault)
         case "appearance.playerProgressGlow": preference(PlayerAppearancePreferences.progressGlowKey, fallback: PlayerAppearancePreferences.progressGlowByDefault)
         case "appearance.playerProgressArtworkColors": preference(PlayerAppearancePreferences.progressArtworkColorsKey, fallback: PlayerAppearancePreferences.progressArtworkColorsByDefault)
@@ -219,6 +220,7 @@ struct SettingsActionService {
         case "appearance.volumeBar": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsVolumeBarKey)
         case "appearance.replayGainBadge": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsReplayGainBadgeKey)
         case "appearance.playerAlbumInSubtitle": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+        case "player.hidesGrabber": defaults.set(enabled, forKey: PlayerAppearancePreferences.hidesGrabberKey)
         case "appearance.artworkLyrics": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsArtworkLyricsKey)
         case "appearance.playerProgressGlow": defaults.set(enabled, forKey: PlayerAppearancePreferences.progressGlowKey)
         case "appearance.playerProgressArtworkColors": defaults.set(enabled, forKey: PlayerAppearancePreferences.progressArtworkColorsKey)

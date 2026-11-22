@@ -8142,3 +8142,5 @@
 "tv_settings_context_rate" = "到 App Store 給 Primuse 評個分。";
 "tv_settings_context_more_format" = "還有 %lld 個";
 "tv_settings_context_not_connected" = "未連接";
+"player_hides_grabber" = "隱藏頂部把手";
+"player_hides_grabber_description" = "播放頁最上面那根小橫條不再顯示，往下拉照樣能收起播放頁。";

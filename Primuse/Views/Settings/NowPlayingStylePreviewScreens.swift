@@ -535,6 +535,7 @@ struct AudiobookPreviewScreen: View {
                     Capsule()
                         .fill(style.tertiary)
                         .frame(width: 48, height: 5)
+                        .playerGrabberVisibility()
                         .padding(.top, canvas.topSafeArea + 6)
                         .padding(.bottom, 10)
                 } else {
@@ -957,6 +958,7 @@ struct PodcastPreviewScreen: View {
                 Capsule()
                     .fill(appearance.tertiary)
                     .frame(width: 48, height: 5)
+                    .playerGrabberVisibility()
                     .padding(.top, canvas.topSafeArea + 6)
                     .padding(.bottom, 10)
 
@@ -1238,6 +1240,7 @@ struct RadioPreviewScreen: View {
                     Capsule()
                         .fill(appearance.tertiary)
                         .frame(width: 48, height: 5)
+                        .playerGrabberVisibility()
                         .padding(.top, canvas.topSafeArea + 6)
 
                     Spacer(minLength: 12)
