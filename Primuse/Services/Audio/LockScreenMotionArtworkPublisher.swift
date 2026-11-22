@@ -698,8 +698,13 @@ extension LockScreenMotionArtworkPublisher {
             let data = CachedArtworkView.largestLocalCoverData(
                 songID: songID, coverRef: reference, sourceID: sourceID, filePath: filePath
             )
+            let localImage = data.flatMap { decodeImage(data: $0, maximumPixelSize: stillWallpaperLongEdge) }
+            // 本机那份可能只是列表用的小图（服务器源常只缓存过 480 的）：发给系统的那张更大就用它，
+            // 铺满全屏时没那么糊。一样大时用本机的。
+            let sharper = [localImage, publishedImage].compactMap { $0 }
+                .max { min($0.width, $0.height) < min($1.width, $1.height) }
             guard !Task.isCancelled,
-                  let image = data.flatMap({ decodeImage(data: $0, maximumPixelSize: stillWallpaperLongEdge) }) ?? publishedImage,
+                  let image = sharper,
                   let layout = LockScreenWallpaperLayout(
                     sourceWidth: Double(image.width),
                     sourceHeight: Double(image.height),
