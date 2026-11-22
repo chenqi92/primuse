@@ -25,6 +25,8 @@ struct ImmersiveEffectDrawer: View {
     /// 点了某张卡片（哪怕它就是当前效果）。播放页用它来「选完直接进全屏」；
     /// 全屏内不需要，留空即可。
     let onPick: ((FullscreenPlayerEffect) -> Void)?
+    /// 全屏效果页没有「更多」:横竖屏切换没摆在页面上时放在这里,和常亮、收起并排。nil 时不出现。
+    let onToggleOrientation: (() -> Void)?
     let onClose: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -54,6 +56,7 @@ struct ImmersiveEffectDrawer: View {
         viewportSize: CGSize,
         safeAreaInsets: EdgeInsets,
         onPick: ((FullscreenPlayerEffect) -> Void)? = nil,
+        onToggleOrientation: (() -> Void)? = nil,
         onClose: @escaping () -> Void
     ) {
         _selection = selection
@@ -63,6 +66,7 @@ struct ImmersiveEffectDrawer: View {
         self.viewportSize = viewportSize
         self.safeAreaInsets = safeAreaInsets
         self.onPick = onPick
+        self.onToggleOrientation = onToggleOrientation
         self.onClose = onClose
         // 打开时就停在当前效果上（中间那一遍里的那张）。初值放在 init 里，转轮第一次布局就能就位；
         // 出现时再按格子明确滚一次（`placeWheel`），初值没被照着滚过去也不会停在第一张上。
@@ -223,6 +227,7 @@ struct ImmersiveEffectDrawer: View {
                 .foregroundStyle(ImmersiveStagePalette.ink)
                 .lineLimit(1)
             Spacer(minLength: 8)
+            orientationButton
             screenIdleMenu
             closeButton
         }
@@ -264,6 +269,7 @@ struct ImmersiveEffectDrawer: View {
             .pmAnimation(.control, value: centeredEffect.id)
 
             Spacer(minLength: 8)
+            orientationButton
             screenIdleMenu
             closeButton
         }
@@ -314,6 +320,20 @@ struct ImmersiveEffectDrawer: View {
         .accessibilityLabel(Text("screen_idle_short_title"))
         .accessibilityValue(Text(LocalizedStringKey(screenIdleMode.titleKey)))
         .accessibilityIdentifier("immersive.screenIdleMenu")
+    }
+
+    @ViewBuilder
+    private var orientationButton: some View {
+        if let onToggleOrientation {
+            let isLandscape = viewportSize.width > viewportSize.height
+            ImmersiveGlassActionButton(
+                symbol: isLandscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
+                label: isLandscape ? "player_orientation_to_portrait" : "player_orientation_to_landscape",
+                diameter: Self.closeButtonDiameter,
+                action: onToggleOrientation
+            )
+            .accessibilityIdentifier("player.orientation.toggle")
+        }
     }
 
     private var closeButton: some View {

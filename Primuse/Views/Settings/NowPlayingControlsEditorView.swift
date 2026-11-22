@@ -92,8 +92,6 @@ struct NowPlayingControlsEditorView: View {
     private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
     private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
-    @AppStorage(PlayerAppearancePreferences.showsOrientationButtonKey)
-    private var showsOrientationButton = PlayerAppearancePreferences.showsOrientationButtonByDefault
     @AppStorage(PlayerAppearancePreferences.followsDeviceOrientationKey)
     private var followsDeviceOrientation = PlayerAppearancePreferences.followsDeviceOrientationByDefault
     @AppStorage(InterfaceOrientationPreference.storageKey)
@@ -167,7 +165,7 @@ struct NowPlayingControlsEditorView: View {
 
     /// 设置搜索跳过来的几项在全局那一页,先切过去再定位。
     private static let globalAnchors: Set<String> = [
-        "appearance.playerOrientationButton", "appearance.playerFollowsDeviceOrientation",
+        "appearance.playerFollowsDeviceOrientation",
         "appearance.playerProgressStyle", "appearance.playerProgressThickness", "appearance.playerProgressGlow",
         "appearance.playerProgressArtworkColors", "appearance.playerProgressMotion",
         "appearance.volumeBar", "appearance.playerVolumeStyle", "appearance.playerVolumeThickness",
@@ -406,15 +404,9 @@ struct NowPlayingControlsEditorView: View {
                 .listRowBackground(Color.clear)
         }
 
-        // 横竖屏(只有手机有横屏播放页):右上角那颗切换键,以及跟不跟着手机方向转。
-        if UIDevice.current.userInterfaceIdiom == .phone {
+        // 横竖屏(只有手机有横屏播放页):跟不跟着手机方向转。切换键是「播放页按钮」里的一颗,在各种播放页里摆。
+        if Self.offersOrientationControl {
             Section {
-                Toggle(isOn: $showsOrientationButton) {
-                    SettingsInfoLabel("player_orientation_button_title") {
-                        Text("player_orientation_button_description")
-                    }
-                }
-                .settingsAnchor("appearance.playerOrientationButton")
                 let fixedOrientation = InterfaceOrientationPreference(storedValue: interfaceOrientationRawValue)
                 if fixedOrientation == .automatic {
                     Toggle(isOn: $followsDeviceOrientation) {
@@ -619,6 +611,11 @@ struct NowPlayingControlsEditorView: View {
 }
 
 extension NowPlayingControlsEditorView {
+    /// 横竖屏切换只有手机上有(平板、Mac 不能手动转屏),别的设备上编辑页不列出来。
+    fileprivate static var offersOrientationControl: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+    }
+
     /// 挑按钮面板里的选项:(跟歌名旁)、空着,然后是这一格能放的按钮。
     fileprivate static func choices(
         allowing allows: (NowPlayingControlAction) -> Bool,
@@ -627,7 +624,7 @@ extension NowPlayingControlsEditorView {
         var choices: [NowPlayingSlotChoice] = []
         if followsHeader { choices.append(.followHeader) }
         choices.append(.empty)
-        for action in NowPlayingControlAction.allCases where allows(action) {
+        for action in NowPlayingControlAction.allCases where allows(action) && action.isOfferedInEditor {
             choices.append(.action(action))
         }
         return choices
@@ -1847,8 +1844,9 @@ private struct RadioControlsSections: View {
             info: "player_transport_style_radio_footer"
         )
 
+        let items = layout.order.filter(\.isOfferedInEditor)
         Section {
-            ForEach(layout.order) { item in
+            ForEach(items) { item in
                 Toggle(isOn: Binding(
                     get: { layout.isShown(item) },
                     set: { storage = layout.settingItem(item, shown: $0).encoded() }
@@ -1860,7 +1858,16 @@ private struct RadioControlsSections: View {
                     }
                 }
             }
-            .onMove { storage = layout.movingItems(fromOffsets: $0, toOffset: $1).encoded() }
+            .onMove { source, destination in
+                // 列表里可能少了不列的项(平板上的横竖屏切换),位置换回整串里的再挪。
+                let order = layout.order
+                let from = IndexSet(source.compactMap { order.firstIndex(of: items[$0]) })
+                var to = order.count
+                if destination < items.count, let index = order.firstIndex(of: items[destination]) {
+                    to = index
+                }
+                storage = layout.movingItems(fromOffsets: from, toOffset: to).encoded()
+            }
         } header: {
             Text("player_controls_radio_items_header")
         } footer: {
@@ -2004,7 +2011,7 @@ private struct NowPlayingMenuItemsEditor: View {
         ("player_menu_group_playback", [
             .lyrics, .queue, .cast, .miniPlayerLyrics, .floatingLyrics, .lyricsFontSize, .lyricsFont, .lyricsWeight,
             .lyricsScrollMotion, .translationFontSize, .lyricsTranslation, .lyricsTiming, .lyricsMotion, .fullScreenEffect,
-            .lockControls, .sleepTimer, .equalizer, .playbackRate, .pitch,
+            .lockControls, .orientation, .sleepTimer, .equalizer, .playbackRate, .pitch,
         ]),
     ]
 
@@ -2029,7 +2036,8 @@ private struct SpokenWordMenuItemsEditor: View {
 
     private static let playbackItems: [NowPlayingMenuItem] = [
         .spokenWordVideo, .transcript, .cast, .lyricsFontSize, .lyricsFont, .lyricsWeight, .lyricsScrollMotion,
-        .translationFontSize, .transcriptOffset, .lyricsTranslation, .lockControls, .sleepTimer, .equalizer, .playbackRate,
+        .translationFontSize, .transcriptOffset, .lyricsTranslation, .lockControls, .orientation, .sleepTimer, .equalizer,
+        .playbackRate,
     ]
 
     private static let audiobookGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
@@ -2082,7 +2090,7 @@ private struct NowPlayingMenuItemsForm: View {
         Form {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 Section {
-                    ForEach(group.1) { item in
+                    ForEach(group.1.filter(\.isOfferedInEditor)) { item in
                         Toggle(isOn: Binding(
                             get: { shows(item) },
                             set: { setShown(item, $0) }
@@ -2175,7 +2183,13 @@ extension NowPlayingMenuItem {
         case .exportText: "doc.text"
         case .lyricsTiming: "ruler"
         case .singAlong: KaraokeSingAlongText.symbol
+        case .orientation: "rectangle.landscape.rotate"
         }
+    }
+
+    /// 这台设备的编辑页里列不列出来:横竖屏切换只在手机上列。
+    var isOfferedInEditor: Bool {
+        self != .orientation || NowPlayingControlsEditorView.offersOrientationControl
     }
 
     var editorTitleKey: LocalizedStringKey {
@@ -2240,6 +2254,7 @@ extension NowPlayingMenuItem {
         case .exportText: "lyrics_export_menu_item"
         case .lyricsTiming: "lyrics_timing_title"
         case .singAlong: "sing_along_title"
+        case .orientation: "player_controls_action_orientation"
         }
     }
 }
@@ -2274,7 +2289,10 @@ private struct NowPlayingControlPicker: View {
                     if !isAppending {
                         row(nil)
                     }
-                    ForEach(NowPlayingControlAction.allCases) { action in
+                    // 别的设备同步来、这台设备上不列的按钮正摆在这一格时照样列出来,看得出这一格放着什么。
+                    ForEach(NowPlayingControlAction.allCases.filter {
+                        $0.isOfferedInEditor || (!isAppending && layout.action(at: position) == $0)
+                    }) { action in
                         row(action)
                     }
                 } footer: {
@@ -2463,7 +2481,13 @@ extension NowPlayingControlAction {
         case .playMode: "list.number"
         case .abRepeat: "selection.pin.in.out"
         case .queueBookmark: "bookmark"
+        case .orientation: "rectangle.landscape.rotate"
         }
+    }
+
+    /// 这台设备的编辑页里列不列出来:横竖屏切换只在手机上列。
+    var isOfferedInEditor: Bool {
+        self != .orientation || NowPlayingControlsEditorView.offersOrientationControl
     }
 
     var editorTitleKey: LocalizedStringKey {
@@ -2486,6 +2510,7 @@ extension NowPlayingControlAction {
         case .playMode: "queue_play_mode"
         case .abRepeat: "ab_repeat"
         case .queueBookmark: "queue_bookmark_save"
+        case .orientation: "player_controls_action_orientation"
         }
     }
 }
@@ -2654,6 +2679,7 @@ extension NowPlayingRadioControlItem {
         case .share: "square.and.arrow.up"
         case .history: "clock.arrow.circlepath"
         case .sleepTimer: "moon.zzz"
+        case .orientation: "rectangle.landscape.rotate"
         }
     }
 
@@ -2664,7 +2690,13 @@ extension NowPlayingRadioControlItem {
         case .share: "share"
         case .history: "radio_detail_heard_title"
         case .sleepTimer: "sleep_timer"
+        case .orientation: "player_controls_action_orientation"
         }
+    }
+
+    /// 这台设备的编辑页里列不列出来:横竖屏切换只在手机上列。
+    var isOfferedInEditor: Bool {
+        self != .orientation || NowPlayingControlsEditorView.offersOrientationControl
     }
 }
 // MARK: - 一键套用

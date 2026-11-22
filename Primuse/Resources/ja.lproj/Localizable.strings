@@ -7216,14 +7216,13 @@
 "transcript_reader_scroll_indicator" = "スクロールバーを表示";
 "transcript_reader_justify_footer" = "両端揃えでは、段落の最後の行以外がすべて左右の端まで揃います。";
 "player_orientation_section_title" = "画面の向き";
-"player_orientation_button_title" = "向きの切り替えボタン";
-"player_orientation_button_description" = "再生画面の右上に、横向きと縦向きを切り替えるボタンを置きます。iPhone を回さなくても切り替えられます。";
+"player_controls_action_orientation" = "向きの切り替え";
 "player_follows_device_orientation_title" = "iPhone の向きに合わせて回転";
-"player_follows_device_orientation_description" = "オフにすると、iPhone を回しても再生画面は今の向きのままです。向きは切り替えボタンで変えます。";
+"player_follows_device_orientation_description" = "オフにすると、iPhone を回しても再生画面は今の向きのままです。向きは「向きの切り替え」で変えます。再生画面に置けるほか、置いていないときは「その他」にあります。";
 "player_orientation_to_landscape" = "横向きで表示";
 "player_orientation_to_portrait" = "縦向きで表示";
 "interface_orientation_title" = "画面の向き";
-"interface_orientation_description" = "「縦向き」か「横向き」を選ぶと、iPhone を回してもアプリ全体がその向きのままになります。システムの画面縦向きのロックは縦向きしか固定できないので、スタンドに横置きするときはここで横向きに固定できます。再生画面右上の切り替えボタンで一時的に向きを変えられ、再生画面を閉じるとここで選んだ向きに戻ります。";
+"interface_orientation_description" = "「縦向き」か「横向き」を選ぶと、iPhone を回してもアプリ全体がその向きのままになります。システムの画面縦向きのロックは縦向きしか固定できないので、スタンドに横置きするときはここで横向きに固定できます。再生画面の「向きの切り替え」で一時的に向きを変えられ、再生画面を閉じるとここで選んだ向きに戻ります。";
 "interface_orientation_automatic" = "自動";
 "interface_orientation_portrait" = "縦向き";
 "interface_orientation_landscape" = "横向き";

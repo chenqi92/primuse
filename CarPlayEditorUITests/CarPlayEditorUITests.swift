@@ -38,10 +38,11 @@ final class FullscreenOrientationUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Exit full-screen effect"].waitForNonExistence(timeout: 5))
     }
 
-    func testFullscreenRespectsTheOrientationButtonSetting() {
+    /// 横竖屏切换是「播放页按钮」里的一颗,默认哪儿都没摆:全屏效果页上没有,摆上才出现。
+    func testFullscreenShowsTheOrientationToggleOnlyWhenPlaced() {
         let app = orientationApp()
         restoreHomeAfterTest(app)
-        app.launchArguments = orientationArguments(effect: "vinylDeck", showsButton: false)
+        app.launchArguments = orientationArguments(effect: "vinylDeck", placesToggle: false)
         app.launch()
         XCTAssertTrue(app.buttons["Exit full-screen effect"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["player.orientation.toggle"].exists)
@@ -58,15 +59,24 @@ final class FullscreenOrientationUITests: XCTestCase {
         return app
     }
 
+    /// `placesToggle`:把横竖屏切换摆到播放页歌名旁和全屏效果页右上角(默认哪儿都没摆)。
     private func orientationArguments(effect: String, entersInLandscape: Bool = false,
-                                      showsButton: Bool = true) -> [String] {
+                                      placesToggle: Bool = true) -> [String] {
         ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
          "-primuse.hasSeenOnboarding", "YES", "-primuse.iCloudSyncEnabled", "NO",
          "-primuse.launch.consecutiveAborts", "0", "-primuse.launch.safeModeLatched", "NO",
          "-primuse.interface.orientation", "automatic", "-primuse.fullscreenPlayerEffect", effect,
          "-primuse.player.followsDeviceOrientation", "NO",
-         "-primuse.player.showsOrientationButton", showsButton ? "YES" : "NO",
+         "-primuse.player.controls.music.v1",
+         placesToggle ? quotedArgument(#"{"slots":{"header":"orientation"}}"#) : "{}",
+         "-primuse.player.controls.music.fullscreenEffect.v1",
+         placesToggle ? quotedArgument(#"{"slots":{"topTrailing":"orientation"}}"#) : "{}",
          "-primuse.player.entersFullscreenInLandscape", entersInLandscape ? "YES" : "NO"]
+    }
+
+    /// 启动参数按旧式属性表解析:JSON 外面包一层引号才会当成字符串读进去,不被当成字典。
+    private func quotedArgument(_ json: String) -> String {
+        "\"" + json.replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     private func rotate(_ app: XCUIApplication, toLandscape: Bool) {

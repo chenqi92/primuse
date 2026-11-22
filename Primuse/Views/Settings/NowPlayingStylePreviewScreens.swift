@@ -1312,7 +1312,8 @@ struct RadioPreviewScreen: View {
                 }
 
                 HStack(spacing: 0) {
-                    ForEach(layout.visibleItems) { item in
+                    // 横竖屏切换只在手机上有。
+                    ForEach(layout.visibleItems.filter { $0 != .orientation || canvas.isPhone }) { item in
                         bottomItem(item)
                             .frame(maxWidth: .infinity)
                     }

@@ -2509,8 +2509,6 @@ struct NowPlayingView: View {
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.entersFullscreenInLandscapeKey)
     private var entersFullscreenInLandscape = PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault
-    @AppStorage(PlayerAppearancePreferences.showsOrientationButtonKey)
-    private var showsOrientationButton = PlayerAppearancePreferences.showsOrientationButtonByDefault
     @AppStorage(PlayerAppearancePreferences.followsDeviceOrientationKey)
     private var followsDeviceOrientation = PlayerAppearancePreferences.followsDeviceOrientationByDefault
     /// 这次全屏是转横屏带进去的：转回竖屏时只退出这一种，自己点进去的全屏不动。
@@ -4976,7 +4974,6 @@ struct NowPlayingView: View {
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
                         onShowQueue: { showQueue = true },
-                        onToggleOrientation: immersiveOrientationAction,
                         occlusions: occlusions,
                         // Duo 竖栏的设备按整屏居中、只让开遮挡区(上面那个参数),不再套窗口的左右安全区。
                         windowSafeArea: centersOnFullScreen ? nil : safeInsets,
@@ -4984,7 +4981,7 @@ struct NowPlayingView: View {
                             guard let album = currentAlbum else { return }
                             presentAlbum(album, prefersMatchedArtworkSource: false)
                         },
-                        chromeControls: NowPlayingControlLayoutCache.effectPlayerControls(for: effectPlayerControlStorage),
+                        chromeControls: effectPlayerChromeControls,
                         chromeControl: { action, placement, ink in
                             // 右上角和胶囊下面那一排都直接压在舞台上,用玻璃圆钮;胶囊里的和上一首、下一首同一种画法。
                             let style: NowPlayingControlStyle = switch placement {
@@ -4992,7 +4989,8 @@ struct NowPlayingView: View {
                             case .pill: .effectPill(ink: ink)
                             }
                             return AnyView(controlButton(action, style: style))
-                        }
+                        },
+                        onToggleOrientation: orientationControlAvailable ? { togglePlayerOrientation() } : nil
                     )
                     .zIndex(100)
                 }
@@ -5696,21 +5694,6 @@ struct NowPlayingView: View {
             .padding(.top, showsVolumeRow ? 14 : 14 + controlGap)
             .padding(.bottom, max(bottomSafeArea, 16))
         }
-        // 横竖屏切换键和音乐页一样摆在把手那一行的右边，不占版面的高度。
-        .overlay(alignment: .topTrailing) {
-            if showsPortraitOrientationButton(usesToolColumn: false) {
-                // 整屏居中(iPhone Duo)时让开竖排的状态栏与摄像头那一块。
-                let clearance = OcclusionAvoidancePolicy.sideClearance(
-                    regions: occlusions,
-                    bandMinY: Double(topSafeArea),
-                    bandMaxY: Double(topSafeArea + 6 + 2.5 + 15),
-                    width: Double(geo.size.width)
-                ).trailing
-                playerOrientationButton(diameter: 30)
-                    .padding(.top, topSafeArea + 6 + 2.5 - 15)
-                    .padding(.trailing, clearance > 0 ? CGFloat(clearance) + 12 : 26)
-            }
-        }
         // 侧边安全区按侧取值，内容不会压到侧置系统控件或摄像头区域下面。
         // 整屏居中(iPhone Duo)时两侧都是 0,只由台标让开遮挡区。
         .padding(.leading, centersOnFullScreen ? 0 : safeInsets.leading)
@@ -6027,8 +6010,8 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 左边一组是锁和竖版底排里那几项(照「播放页按钮 › 电台」的顺序与显隐，码率那行字不在这里)，
-    /// 右边是横竖屏切换键和收起键。
+    /// 左边一组是锁和竖版底排里那几项(照「播放页按钮 › 电台」的顺序与显隐，码率那行字不在这里，
+    /// 横竖屏切换打开了也在这一组)，右边是收起键。
     private var liveRadioLandscapeChromeRow: some View {
         let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
         return HStack(spacing: 10) {
@@ -6047,10 +6030,6 @@ struct NowPlayingView: View {
             }
 
             Spacer(minLength: 0)
-
-            if showsLandscapeOrientationButton {
-                playerOrientationButton(diameter: diameter)
-            }
 
             NowPlayingGlassActionButton(
                 symbol: "arrow.down.right.and.arrow.up.left",
@@ -6099,6 +6078,8 @@ struct NowPlayingView: View {
             }
         case .sleepTimer:
             liveRadioLandscapeSleepTimerButton(diameter: diameter)
+        case .orientation:
+            playerOrientationButton(diameter: diameter)
         case .info:
             EmptyView()
         }
@@ -6177,13 +6158,15 @@ struct NowPlayingView: View {
         .accessibilityHidden(true)
     }
 
-    /// 底排真画得出来的那几项：分享要有电台地址、听过的歌要有电台，缺了就不占一格。
+    /// 底排真画得出来的那几项：分享要有电台地址、听过的歌要有电台，缺了就不占一格；
+    /// 横竖屏切换只在能手动转的画布(手机)上有。
     private var radioBottomRowItems: [NowPlayingRadioControlItem] {
         let station = player.currentRadioStation
         return radioControlLayout.visibleItems.filter { item in
             switch item {
             case .share: station?.url != nil
             case .history: station != nil
+            case .orientation: orientationControlAvailable
             case .airPlay, .info, .sleepTimer: true
             }
         }
@@ -6221,6 +6204,17 @@ struct NowPlayingView: View {
                 }
             case .sleepTimer:
                 radioSleepTimerButton
+            case .orientation:
+                // 竖屏时转到横屏,横屏时转回竖屏。
+                Button(action: togglePlayerOrientation) {
+                    Image(systemName: heightClass.isCompact ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate")
+                        .frame(width: 36, height: 36)
+                }
+                .foregroundStyle(appearance.secondary)
+                .accessibilityLabel(Text(heightClass.isCompact
+                    ? "player_orientation_to_portrait"
+                    : "player_orientation_to_landscape"))
+                .accessibilityIdentifier("player.orientation.toggle")
             }
 
         }
@@ -7323,22 +7317,14 @@ struct NowPlayingView: View {
         #endif
     }
 
-    /// 竖屏把手右边那颗横竖屏切换键。iPhone Duo 竖栏那一列排着播放页按钮时不放。
-    private func showsPortraitOrientationButton(usesToolColumn: Bool) -> Bool {
-        showsOrientationButton && orientationControlAvailable && !usesToolColumn
+    /// 全屏效果页那几格。不能手动横竖屏的画布上，横竖屏切换那一格当作空着。
+    private var effectPlayerChromeControls: NowPlayingEffectPlayerControls {
+        let controls = NowPlayingControlLayoutCache.effectPlayerControls(for: effectPlayerControlStorage)
+        return orientationControlAvailable ? controls : controls.removing(.orientation)
     }
 
-    /// 手机横屏顶上那排圆钮里的横竖屏切换键，排在收起键前面：和竖屏一样在右上角。
-    private var showsLandscapeOrientationButton: Bool {
-        showsOrientationButton && orientationControlAvailable
-    }
-
-    private var immersiveOrientationAction: (() -> Void)? {
-        guard showsOrientationButton && orientationControlAvailable else { return nil }
-        return { togglePlayerOrientation() }
-    }
-
-    /// 横竖屏切换键：竖屏时转到横屏，横屏时转回竖屏，不用等手机转过去。
+    /// 电台横屏顶上那排圆钮里的横竖屏切换键：竖屏时转到横屏，横屏时转回竖屏，不用等手机转过去。
+    /// 音乐那几种版面走「播放页按钮」的 `.orientation`。
     private func playerOrientationButton(diameter: CGFloat) -> some View {
         let isLandscape = heightClass.isCompact
         return NowPlayingGlassActionButton(
@@ -7380,7 +7366,6 @@ struct NowPlayingView: View {
         let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
         // 一排里固定的:锁、全屏效果、歌名旁那一格(有时)、更多、收起;圆钮之间隔 10。
         let fixedCount = 4 + (musicControlLayout.compactLandscapeChrome().trailing != nil ? 1 : 0)
-            + (showsLandscapeOrientationButton ? 1 : 0)
         let leadingLimit = max(1, Int(((width + 10) / (diameter + 10)).rounded(.down)) - fixedCount)
         let chrome = musicControlLayout.compactLandscapeChrome(leadingLimit: leadingLimit)
         // 有声内容:传输键两侧已经摆着的键,这一排不再重复。
@@ -7478,10 +7463,6 @@ struct NowPlayingView: View {
                         leadingLimit: leadingLimit
                     )
                 )
-            }
-
-            if showsLandscapeOrientationButton {
-                playerOrientationButton(diameter: diameter)
             }
 
             // 全屏歌词时这一颗退出全屏（回到普通歌词），其它时候收起播放页；图标两者相同。
@@ -7994,14 +7975,6 @@ struct NowPlayingView: View {
                             .frame(width: 48, height: 5)
                             .frame(maxWidth: .infinity)
                             .frame(height: 5)
-                            // 横竖屏切换键和把手同一条线、右边和下面歌名那一行的「更多」对齐，不占版面的高度。
-                            .overlay(alignment: .trailing) {
-                                if showsPortraitOrientationButton(usesToolColumn: usesToolColumn) {
-                                    playerOrientationButton(diameter: 30)
-                                        .modifier(NowPlayingControlDragCancellation())
-                                        .padding(.trailing, 18 + insets.rows)
-                                }
-                            }
                             .padding(.top, topSafeArea + 6)
                             .padding(.horizontal, 8)
                             .padding(.bottom, 10)
@@ -10372,7 +10345,8 @@ struct NowPlayingView: View {
         if let controlSurface, !isSpokenWord {
             menuFallback = musicControlLayout.menuFallback(
                 on: controlSurface,
-                lyricsReachableFromArtwork: tapArtworkOpensLyrics && !player.isMusicVideoPlaybackActive
+                lyricsReachableFromArtwork: tapArtworkOpensLyrics && !player.isMusicVideoPlaybackActive,
+                orientationAvailable: orientationControlAvailable
             )
             menuSuppressed = musicControlLayout.menuSuppressed(on: controlSurface)
         } else {
@@ -10395,6 +10369,9 @@ struct NowPlayingView: View {
             ? spokenWordControlLayout.hiddenMenuItems
             : musicControlLayout.hiddenMenuItems
         let shows: (NowPlayingMenuItem) -> Bool = { !menuHidden.contains($0) }
+        // 有声书、播客的按钮里没有横竖屏切换:手机上一直放在「更多」里(它们的「『更多』菜单」里能关)。
+        let orientationFallback: [NowPlayingMenuItem] = isSpokenWord && orientationControlAvailable && shows(.orientation)
+            ? [.orientation] : []
         var columnOverflow = columnOverflow
         columnOverflow.like = columnOverflow.like && shows(.like)
         columnOverflow.effect = columnOverflow.effect && shows(.fullScreenEffect)
@@ -10485,8 +10462,9 @@ struct NowPlayingView: View {
                 || LyricsTranslationSettingsStore.shared.mode == .baidu,
             lyricsHaveBundledTranslations: lyricsHaveBundledTranslations,
             showsBundledLyricsTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations,
-            fallbackActions: menuFallback,
+            fallbackActions: menuFallback + orientationFallback,
             spokenFallbackActions: spokenFallback.filter { $0 != .transcript || !lyrics.isEmpty },
+            isLandscape: heightClass.isCompact,
             isShowingLyrics: showLyrics,
             isShuffleEnabled: player.shuffleEnabled,
             shufflePreference: playbackSettings.shufflePreference,
@@ -10603,6 +10581,7 @@ struct NowPlayingView: View {
                 immersiveControlsAutoHideTask?.cancel()
                 isCompactLandscapeLocked = true
             },
+            onToggleOrientation: { togglePlayerOrientation() },
             onSelectLyricsTranslation: { mode in
                 let settings = LyricsTranslationSettingsStore.shared
                 guard let mode else {
@@ -11665,11 +11644,13 @@ struct NowPlayingView: View {
     /// 音乐播放页的按钮摆法。有声内容(书、播客)读默认那份,它们有自己的 `spokenWordControlLayout`。
     /// 看歌词时(歌词顶替封面,或横屏、分栏里歌词那一栏开着)用「歌词界面」那组,没单独摆就是同一组。
     /// 只有真单独改了歌词页按钮时才读 `showLyrics`，避免默认配置下切歌词引起底栏与传输键整排重算。
+    /// 不能手动横竖屏的画布(平板、展开的折叠屏内屏、Mac)上横竖屏切换当作没摆。
     private var musicControlLayout: NowPlayingControlLayout {
         guard !usesSpokenWordTransport else { return .default }
         return NowPlayingControlLayoutCache.layout(
             for: controlLayoutStorage,
             lyricsPageStorage: lyricsPageControlStorage,
+            hidesOrientation: !orientationControlAvailable,
             isLyricsVisible: { showLyrics }
         )
     }
@@ -11679,6 +11660,7 @@ struct NowPlayingView: View {
         return NowPlayingControlLayoutCache.layout(
             for: controlLayoutStorage,
             lyricsPageStorage: lyricsPageControlStorage,
+            hidesOrientation: !orientationControlAvailable,
             isLyricsVisible: { true }
         )
     }
@@ -11690,8 +11672,10 @@ struct NowPlayingView: View {
     /// 全屏歌词(及 iPad 横屏看歌词)按「全屏歌词」那份配置摆的几格。「跟歌名旁」跟的是看歌词时歌名旁那一格。
     private var immersiveLyricsActions: [NowPlayingImmersiveLyricsSlot: NowPlayingControlAction] {
         guard !usesSpokenWordTransport else { return [:] }
-        return NowPlayingControlLayoutCache.immersiveLyricsControls(for: immersiveLyricsControlStorage)
+        let actions = NowPlayingControlLayoutCache.immersiveLyricsControls(for: immersiveLyricsControlStorage)
             .actions(header: musicControlLayout.action(in: .header))
+        // 不能手动横竖屏的画布上,横竖屏切换那一格空着。
+        return orientationControlAvailable ? actions : actions.filter { $0.value != .orientation }
     }
 
     /// 全屏歌词顶上一排「更多」左边那几颗。
@@ -11701,13 +11685,14 @@ struct NowPlayingView: View {
     }
 
     /// 歌词页顶上多出来那一格此刻放什么:按「歌词界面」的配置;页面上已经摆着同一颗键、
-    /// 或者这首歌用不了(卡拉OK要有歌词、不是 Apple Music)时不放。
+    /// 或者这首歌用不了(卡拉OK要有歌词、不是 Apple Music)时不放。横竖屏切换在不能手动转的画布上不放。
     private func lyricsHeaderExtraAction(
         onSurface surface: NowPlayingControlSurface,
         controlLayout: NowPlayingControlLayout? = nil
     ) -> NowPlayingControlAction? {
         guard !usesSpokenWordTransport, let extra = lyricsPageControls.headerExtra else { return nil }
         if extra == .karaoke, !offersLyricsKaraokeAction { return nil }
+        if extra == .orientation, !orientationControlAvailable { return nil }
         let resolvedLayout = controlLayout ?? musicControlLayout
         guard !resolvedLayout.visibleActions(on: surface).contains(extra) else { return nil }
         return extra
@@ -11818,6 +11803,8 @@ struct NowPlayingView: View {
             return AnyView(NowPlayingDeferredContent {
                 standardControl(.lyrics, style: style)
             })
+        } else if action == .orientation {
+            return AnyView(standardControl(.orientation, style: style).accessibilityIdentifier("player.orientation.toggle"))
         } else {
             return AnyView(standardControl(action, style: style))
         }
@@ -12364,6 +12351,13 @@ struct NowPlayingView: View {
                 isActive: player.castingRenderer != nil,
                 requiresSong: true
             )
+        case .orientation:
+            // 竖屏时转到横屏,横屏时转回竖屏;没在放歌时也能转。
+            let isLandscape = heightClass.isCompact
+            return NowPlayingControlFace(
+                symbol: isLandscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
+                label: String(localized: isLandscape ? "player_orientation_to_portrait" : "player_orientation_to_landscape")
+            )
         }
     }
 
@@ -12471,6 +12465,7 @@ struct NowPlayingView: View {
         case .addToPlaylist: addCurrentSongToPlaylist()
         case .share: shareSong = player.currentSong
         case .cast: showCastPicker = true
+        case .orientation: togglePlayerOrientation()
         case .airPlay, .playbackSpeed: break
         }
     }
@@ -16434,11 +16429,13 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// 这首歌词自带译文时才给「显示歌词自带的译文」。
     let lyricsHaveBundledTranslations: Bool
     let showsBundledLyricsTranslations: Bool
-    /// 页面上点不到、要在菜单里补上的(「播放页按钮」里没摆出来的心形、歌词、队列、随机、循环,
+    /// 页面上点不到、要在菜单里补上的(「播放页按钮」里没摆出来的心形、歌词、队列、随机、循环、横竖屏切换,
     /// 以及手机横屏右栏窄到让出来的两端)。
     let fallbackActions: [NowPlayingMenuItem]
     /// 有声书、播客页上藏起来的入口。
     let spokenFallbackActions: [SpokenWordMenuFallback]
+    /// 横竖屏切换那一项往哪边转:横屏时转回竖屏,竖屏时转到横屏。
+    let isLandscape: Bool
     let isShowingLyrics: Bool
     let isShuffleEnabled: Bool
     /// 随机键没摆在播放页上时,菜单里随机播放下面跟着抽歌偏好(#332)。
@@ -16659,32 +16656,40 @@ private struct NowPlayingControlNotice: Equatable {
 private enum NowPlayingControlLayoutCache {
     private static var storage = ""
     private static var layout = NowPlayingControlLayout.default
+    /// 同一份去掉横竖屏切换的(不能手动转的画布上用),跟着一起解。
+    private static var layoutWithoutOrientation = NowPlayingControlLayout.default
 
-    static func layout(for storage: String) -> NowPlayingControlLayout {
+    static func layout(for storage: String, hidesOrientation: Bool = false) -> NowPlayingControlLayout {
         if storage != Self.storage {
             Self.storage = storage
             layout = NowPlayingControlLayout.decode(storage)
+            layoutWithoutOrientation = layout.removing(.orientation)
         }
-        return layout
+        return hidesOrientation ? layoutWithoutOrientation : layout
     }
 
     private static var lyricsLayoutKey: (cover: String, lyrics: String)?
     private static var lyricsLayout = NowPlayingControlLayout.default
+    private static var lyricsLayoutWithoutOrientation = NowPlayingControlLayout.default
 
     /// 只有单独配置了不同的歌词页按钮时才调用 `isLyricsVisible()`，避免无差异配置在切歌词时建立观察。
     static func layout(
         for storage: String,
         lyricsPageStorage: String,
+        hidesOrientation: Bool,
         isLyricsVisible: () -> Bool
     ) -> NowPlayingControlLayout {
         let cover = layout(for: storage)
-        guard !lyricsPageStorage.isEmpty else { return cover }
+        let shownCover = hidesOrientation ? layoutWithoutOrientation : cover
+        guard !lyricsPageStorage.isEmpty else { return shownCover }
         if lyricsLayoutKey?.cover != storage || lyricsLayoutKey?.lyrics != lyricsPageStorage {
             lyricsLayoutKey = (storage, lyricsPageStorage)
             lyricsLayout = lyricsPageControls(for: lyricsPageStorage).resolvedLayout(cover: cover)
+            lyricsLayoutWithoutOrientation = lyricsLayout.removing(.orientation)
         }
-        guard lyricsLayout != cover else { return cover }
-        return isLyricsVisible() ? lyricsLayout : cover
+        guard lyricsLayout != cover else { return shownCover }
+        guard isLyricsVisible() else { return shownCover }
+        return hidesOrientation ? lyricsLayoutWithoutOrientation : lyricsLayout
     }
 
     private static var lyricsPage: (storage: String, controls: NowPlayingLyricsPageControls)?
@@ -16791,6 +16796,7 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
     let onShowEffectPicker: () -> Void
     let onAdjustLyricsTiming: () -> Void
     let onLockControls: () -> Void
+    let onToggleOrientation: () -> Void
     /// nil 表示关闭歌词翻译;选了方式就按这个方式打开。
     let onSelectLyricsTranslation: (LyricsTranslationMode?) -> Void
     let onSetBundledLyricsTranslationsShown: (Bool) -> Void
@@ -16959,6 +16965,14 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
                 Text(verbatim: snapshot.repeatBehavior.localizedTitle)
             }
             .pickerStyle(.menu)
+        case .orientation:
+            Button(action: onToggleOrientation) {
+                if snapshot.isLandscape {
+                    Label(String(localized: "player_orientation_to_portrait"), systemImage: "rectangle.portrait.rotate")
+                } else {
+                    Label(String(localized: "player_orientation_to_landscape"), systemImage: "rectangle.landscape.rotate")
+                }
+            }
         default:
             EmptyView()
         }

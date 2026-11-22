@@ -26,6 +26,9 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
     /// A-B 循环:点一下设 A、再点设 B,在一首歌里反复放这一段。
     case abRepeat
     case queueBookmark
+    /// 横竖屏切换:竖屏时转到横屏,横屏时转回竖屏,不用等手机转过去。只有手机上有,
+    /// 平板、展开的折叠屏内屏和 Mac 上这一格当作空着(配置在 iPhone 与 iPad 之间同步)。
+    case orientation
 
     public var id: String { rawValue }
 
@@ -42,6 +45,7 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
         case .queue: [.queue]
         case .shuffle: [.shuffle, .shufflePreference]
         case .repeatMode: [.repeatMode]
+        case .orientation: [.orientation]
         default: []
         }
     }
@@ -52,7 +56,8 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
         case .dislike, .sleepTimer, .equalizer, .playbackSpeed, .karaoke,
              .fullScreen, .addToPlaylist, .share, .cast:
             true
-        case .like, .lyrics, .airPlay, .queue, .shuffle, .repeatMode, .playMode, .abRepeat, .queueBookmark:
+        case .like, .lyrics, .airPlay, .queue, .shuffle, .repeatMode, .playMode, .abRepeat, .queueBookmark,
+             .orientation:
             false
         }
     }
@@ -211,6 +216,8 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case lyricsTiming
     /// 「伴唱」(#377):把正在放的歌换成伴奏,原唱压低。
     case singAlong
+    /// 横竖屏切换:没摆在播放页上时补进来,只在手机上出现;有声书、播客的播放页上没有这颗键,一直在菜单里。
+    case orientation
 
     public var id: String { rawValue }
 
@@ -592,6 +599,18 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         NowPlayingControlLayout(stored: [:], storedBar: nil, hiddenStatus: hiddenStatus, hiddenMenu: hiddenMenu, statusOrder: storedStatusOrder)
     }
 
+    /// 把 `action` 当作没摆:单格空着,最下面那一排去掉这一颗。这块画布上用不了的按钮(平板上的横竖屏切换)
+    /// 铺版面前先去掉;只用来画,不存回去。
+    public func removing(_ action: NowPlayingControlAction) -> NowPlayingControlLayout {
+        var result = self
+        // 别的版本写进来同一颗摆了两处时,去掉前面那处后面那处才露出来,去到没有为止。
+        for _ in 0...(NowPlayingControlSlot.single.count + bar.count) {
+            guard let position = result.position(of: action) else { break }
+            result = result.placing(nil, at: position)
+        }
+        return result
+    }
+
     // MARK: 归一
 
     /// 最下面那一排存的一项:认得的按钮,或者别的版本写进来、这里认不出的名字。
@@ -775,13 +794,16 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         return visible
     }
 
-    /// 页面上点不到、要补进「更多」的,按目录顺序。
+    /// 页面上点不到、要补进「更多」的,按目录顺序。`orientationAvailable` 是这块画布上能不能手动横竖屏
+    /// (手机上能;平板、展开的折叠屏内屏不能,横竖屏切换也就不补)。
     public func menuFallback(
         on surface: NowPlayingControlSurface,
-        lyricsReachableFromArtwork: Bool = false
+        lyricsReachableFromArtwork: Bool = false,
+        orientationAvailable: Bool = false
     ) -> [NowPlayingMenuItem] {
         var reachable = visibleActions(on: surface).union(surface.alwaysReachable)
         if lyricsReachableFromArtwork { reachable.insert(.lyrics) }
+        if !orientationAvailable { reachable.insert(.orientation) }
         // 「播放方式」那一颗里随机、循环都选得到,摆着它时不再往「更多」里补。
         if reachable.contains(.playMode) { reachable.formUnion([.shuffle, .repeatMode]) }
         return menuFallback(forMissing: NowPlayingControlAction.allCases.filter { !reachable.contains($0) })

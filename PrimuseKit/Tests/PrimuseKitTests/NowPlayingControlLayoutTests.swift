@@ -495,4 +495,58 @@ import Testing
         #expect(!shown.showsMenuItem(.lyricsWeight))
         #expect(shown.showingAllMenuItems().hiddenMenuItems.isEmpty)
     }
+
+    // MARK: 横竖屏切换
+
+    @Test func orientationRoundTripsInEveryPosition() {
+        #expect(NowPlayingControlAction.orientation.rawValue == "orientation")
+        #expect(!NowPlayingControlAction.orientation.duplicatesMenuItem)
+        #expect(NowPlayingControlAction.orientation.fitsTransportEdge)
+        #expect(!Layout.default.placedActions.contains(.orientation))
+        let positions: [NowPlayingControlPosition] = [
+            .slot(.header), .slot(.leadingEdge), .slot(.trailingEdge), .bar(0), .bar(3),
+        ]
+        for position in positions {
+            let layout = Layout.default.placing(.orientation, at: position)
+            #expect(layout.action(at: position) == .orientation)
+            #expect(Layout.decode(layout.encoded()) == layout)
+        }
+    }
+
+    /// 没摆在页面上时只在能手动转的画布(手机)上补进「更多」;摆着、看得见时不补,让掉了再补回来。
+    @Test func orientationFallsBackIntoTheMenuOnlyWhereItCanRotate() {
+        #expect(Layout.default.menuFallback(on: .portrait, orientationAvailable: true) == [.orientation])
+        #expect(Layout.default.menuFallback(on: .portrait).isEmpty)
+        let column = NowPlayingControlSurface.toolColumn(showsTransportEdges: true, headerOverflows: false)
+        #expect(Layout.default.menuFallback(on: column, orientationAvailable: true) == [.orientation])
+        let placed = Layout.default.placing(.orientation, at: .bar(3))
+        #expect(placed.menuFallback(on: .portrait, orientationAvailable: true).isEmpty)
+        #expect(placed.compactLandscapeChrome().leading == [.queue, .orientation, .airPlay])
+        #expect(placed.menuFallback(on: .compactLandscape(showsTransportEdges: true), orientationAvailable: true).isEmpty)
+        let narrow = NowPlayingControlSurface.compactLandscape(showsTransportEdges: true, leadingLimit: 2)
+        #expect(placed.menuFallback(on: narrow, orientationAvailable: true) == [.orientation])
+        let header = Layout.default.placing(.orientation, at: .slot(.header))
+        #expect(header.compactLandscapeChrome().trailing == .orientation)
+        #expect(header.immersiveLyricsAction() == .orientation)
+        #expect(header.menuFallback(on: .portrait, orientationAvailable: true) == [.like])
+        let hidden = Layout.default.settingMenuItem(.orientation, visible: false)
+        #expect(hidden.menuFallback(on: .portrait, orientationAvailable: true).isEmpty)
+    }
+
+    /// 平板这类不能手动转的画布上铺版面前去掉:单格空着,最下面那一排少这一颗。
+    @Test func removingOrientationLeavesItsPlaceEmpty() {
+        #expect(Layout.default.removing(.orientation) == .default)
+        let header = Layout.default.placing(.orientation, at: .slot(.header))
+        #expect(header.removing(.orientation).action(in: .header) == nil)
+        #expect(header.removing(.orientation).bar == header.bar)
+        let appended = Layout.default.placing(.orientation, at: .bar(3))
+        #expect(appended.removing(.orientation) == .default)
+        // 别的设备写进两处时两处都去掉。
+        let twice = Layout.decode(#"{"slots":{"header":"orientation","leadingEdge":"orientation"}}"#)
+        #expect(twice.action(in: .header) == .orientation)
+        let removed = twice.removing(.orientation)
+        #expect(removed.action(in: .header) == nil)
+        #expect(removed.action(in: .leadingEdge) == nil)
+        #expect(!removed.placedActions.contains(.orientation))
+    }
 }

@@ -65,6 +65,16 @@ import Testing
         #expect(off.settingCollapsesControlsOnScroll(true).encoded() == "")
     }
 
+    @Test func headerExtraTakesTheOrientationButton() {
+        #expect(Controls.allowsHeaderExtra(.orientation))
+        let controls = Controls.default.settingHeaderExtra(.orientation)
+        #expect(controls.headerExtra == .orientation)
+        #expect(Controls.decode(controls.encoded()) == controls)
+        let layout = NowPlayingControlLayout.default
+        #expect(!layout.menuFallback(on: .portraitLyrics(headerExtra: .orientation), orientationAvailable: true)
+            .contains(.orientation))
+    }
+
     @Test func lyricsSurfaceCountsTheHeaderExtraAsOnThePage() {
         let layout = NowPlayingControlLayout.default.placing(nil, at: .slot(.header))
         #expect(layout.menuFallback(on: .portrait).contains(.like))
@@ -129,6 +139,22 @@ import Testing
         #expect(layout.menuFallback(on: .configuredImmersiveLyrics(visible: [])) == [.like])
         #expect(layout.menuFallback(on: .configuredImmersiveLyrics(visible: [.like])).isEmpty)
         #expect(layout.menuSuppressed(on: .configuredImmersiveLyrics(visible: [.sleepTimer])) == [.sleepTimer])
+    }
+
+    @Test func orientationGoesOnEverySlotAndFollowsTheHeader() {
+        #expect(Controls.allows(.orientation))
+        for slot in Controls.Slot.allCases {
+            #expect(Controls.default.canPlace(.action(.orientation), in: slot))
+        }
+        let controls = Controls.default.placing(.action(.orientation), in: .dockTrailing)
+        #expect(controls.actions(header: .like) == [.topPrimary: .like, .dockTrailing: .orientation])
+        #expect(Controls.decode(controls.encoded()) == controls)
+        #expect(Controls.default.actions(header: .orientation) == [.topPrimary: .orientation])
+        let layout = NowPlayingControlLayout.default
+        #expect(layout.menuFallback(on: .configuredImmersiveLyrics(visible: [.like]), orientationAvailable: true)
+            == [.orientation])
+        #expect(layout.menuFallback(on: .configuredImmersiveLyrics(visible: [.like, .orientation]), orientationAvailable: true)
+            .isEmpty)
     }
 }
 
@@ -215,6 +241,22 @@ import Testing
         #expect(controls.action(in: .bottomRowLeading) == nil)
         #expect(!controls.hasBottomRow)
     }
+
+    /// 横竖屏切换转的是这一页本身,可以放;平板这类不能手动转的画布上那一格当作空着。
+    @Test func orientationCanBePlacedAndIsRemovedWhereItCannotRotate() {
+        #expect(Controls.allows(.orientation))
+        let controls = Controls.default.placing(.orientation, in: .bottomRowTrailing)
+        #expect(controls.action(in: .bottomRowTrailing) == .orientation)
+        #expect(controls.hasBottomRow)
+        #expect(Controls.decode(controls.encoded()) == controls)
+        let removed = controls.removing(.orientation)
+        #expect(removed.action(in: .bottomRowTrailing) == nil)
+        #expect(!removed.hasBottomRow)
+        #expect(removed.action(in: .topTrailing) == .queue)
+        #expect(Controls.default.removing(.orientation) == .default)
+        let twice = Controls.decode(#"{"slots":{"pillLeading":"orientation","topTrailing":"orientation"}}"#)
+        #expect(twice.removing(.orientation).actions.isEmpty)
+    }
 }
 
 @Suite struct NowPlayingRadioControlLayoutTests {
@@ -223,7 +265,7 @@ import Testing
     @Test func defaultShowsEverythingInTheOriginalOrder() {
         #expect(Layout.decode("") == .default)
         #expect(Layout.default.encoded() == "")
-        #expect(Layout.default.visibleItems == [.airPlay, .info, .share, .history, .sleepTimer])
+        #expect(Layout.default.visibleItems == [.airPlay, .info, .share, .history, .sleepTimer, .orientation])
         #expect(Layout.default.showsVolumeBar)
     }
 
@@ -232,16 +274,33 @@ import Testing
             .settingItem(.info, shown: false)
             .settingItem(.airPlay, shown: false)
             .movingItems(fromOffsets: IndexSet(integer: 4), toOffset: 0)
-        #expect(layout.visibleItems == [.sleepTimer, .share, .history])
+        #expect(layout.visibleItems == [.sleepTimer, .share, .history, .orientation])
         #expect(!layout.isShown(.airPlay))
         #expect(Layout.decode(layout.encoded()) == layout)
-        #expect(layout.settingItem(.airPlay, shown: true).visibleItems == [.sleepTimer, .airPlay, .share, .history])
+        #expect(layout.settingItem(.airPlay, shown: true).visibleItems == [.sleepTimer, .airPlay, .share, .history, .orientation])
     }
 
     @Test func volumeBarAndMissingItems() {
         let layout = Layout.default.settingShowsVolumeBar(false)
         #expect(!Layout.decode(layout.encoded()).showsVolumeBar)
         let partial = Layout.decode(#"{"order":["history","airPlay","nope"]}"#)
-        #expect(partial.order == [.history, .sleepTimer, .airPlay, .info, .share])
+        #expect(partial.order == [.history, .sleepTimer, .orientation, .airPlay, .info, .share])
+    }
+
+    /// 横竖屏切换默认摆在这一排末尾(电台页没有「更多」可补);关掉记在 hidden 里,
+    /// 加这一项之前存下的配置读出来它也摆着。
+    @Test func orientationIsShownByDefault() {
+        #expect(Layout.default.order.last == .orientation)
+        #expect(Layout.default.isShown(.orientation))
+        let off = Layout.default.settingItem(.orientation, shown: false)
+        #expect(off.visibleItems == [.airPlay, .info, .share, .history, .sleepTimer])
+        #expect(!off.isDefault)
+        #expect(off.encoded() == #"{"hidden":["orientation"]}"#)
+        #expect(Layout.decode(off.encoded()) == off)
+        #expect(off.settingItem(.orientation, shown: true).encoded() == "")
+        let old = Layout.decode(#"{"hidden":["info"]}"#)
+        #expect(old.isShown(.orientation))
+        #expect(old.visibleItems == [.airPlay, .share, .history, .sleepTimer, .orientation])
+        #expect(old.encoded() == #"{"hidden":["info"]}"#)
     }
 }

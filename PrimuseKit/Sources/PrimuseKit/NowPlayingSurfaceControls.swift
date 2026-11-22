@@ -298,9 +298,10 @@ public struct NowPlayingEffectPlayerControls: Equatable, Sendable {
 
     /// 全屏效果页上能放的。这一页没有「更多」,歌词、全屏、投放这类会换走整页的不放。
     /// 卡拉OK 例外:点了先收起全屏,再和播放页上一样盖上卡拉OK(同一时刻只有一场)。
+    /// 横竖屏切换转的是这一页本身,不换走它。
     public static let allowedActions: [NowPlayingControlAction] = [
         .like, .dislike, .queue, .shuffle, .repeatMode, .playMode, .abRepeat, .sleepTimer,
-        .airPlay, .equalizer, .playbackSpeed, .karaoke, .addToPlaylist, .share,
+        .airPlay, .equalizer, .playbackSpeed, .karaoke, .addToPlaylist, .share, .orientation,
     ]
 
     private var stored: [String: String]
@@ -349,6 +350,17 @@ public struct NowPlayingEffectPlayerControls: Equatable, Sendable {
         return NowPlayingControlAction(rawValue: raw)
     }
 
+    /// 把 `action` 当作没摆,那一格空着(这块画布上用不了的按钮,如平板上的横竖屏切换)。只用来画,不存回去。
+    public func removing(_ action: NowPlayingControlAction) -> NowPlayingEffectPlayerControls {
+        var result = self
+        // 同一颗写在两格时,去掉前面那格后面那格才露出来,去到没有为止。
+        for _ in Slot.allCases {
+            guard let slot = Slot.allCases.first(where: { result.action(in: $0) == action }) else { break }
+            result = result.placing(nil, in: slot)
+        }
+        return result
+    }
+
     /// 放不进去时原样返回;按钮原来在别的格时两格对调。只改动到的格,别的格里认不出的名字原样留着。
     public func placing(_ action: NowPlayingControlAction?, in slot: Slot) -> NowPlayingEffectPlayerControls {
         if let action, !Self.allows(action) { return self }
@@ -380,6 +392,8 @@ public enum NowPlayingRadioControlItem: String, CaseIterable, Codable, Hashable,
     /// 这个台听过的歌(电台详情)。
     case history
     case sleepTimer
+    /// 横竖屏切换,只在手机上出现。电台页没有「更多」可补,默认就摆在这一排末尾,不要可以关掉。
+    case orientation
 
     public var id: String { rawValue }
 }
@@ -390,7 +404,9 @@ public struct NowPlayingRadioControlLayout: Equatable, Sendable {
 
     public static let storageKey = "primuse.player.controls.radio.v1"
     public static let defaultOrder: [Item] = Item.allCases
-    public static let `default` = NowPlayingRadioControlLayout(order: defaultOrder, hidden: [], showsVolumeBar: true)
+    /// 默认关着的项(现在没有)。打开了才记下来(`shown`),旧版本读不到这个字段,照样当它关着。
+    public static let defaultHidden: Set<Item> = []
+    public static let `default` = NowPlayingRadioControlLayout(order: defaultOrder, hidden: defaultHidden, showsVolumeBar: true)
 
     /// 全部项,按用户排的顺序(含藏起来的)。
     public private(set) var order: [Item]
@@ -406,6 +422,8 @@ public struct NowPlayingRadioControlLayout: Equatable, Sendable {
     private struct Stored: Codable {
         var order: [String]?
         var hidden: [String]?
+        /// 默认关着、被打开了的项(`defaultHidden` 里的)。
+        var shown: [String]?
         var showsVolumeBar: Bool?
     }
 
@@ -415,18 +433,22 @@ public struct NowPlayingRadioControlLayout: Equatable, Sendable {
               let stored = try? JSONDecoder().decode(Stored.self, from: data) else {
             return .default
         }
+        let shown = Set((stored.shown ?? []).compactMap(Item.init(rawValue:)))
         return NowPlayingRadioControlLayout(
             order: (stored.order ?? []).compactMap(Item.init(rawValue:)),
-            hidden: Set((stored.hidden ?? []).compactMap(Item.init(rawValue:))),
+            hidden: Set((stored.hidden ?? []).compactMap(Item.init(rawValue:))).union(defaultHidden.subtracting(shown)),
             showsVolumeBar: stored.showsVolumeBar ?? true
         )
     }
 
     public func encoded() -> String {
         guard !isDefault else { return "" }
+        let hiddenNames = order.filter { hidden.contains($0) && !Self.defaultHidden.contains($0) }.map(\.rawValue)
+        let shownNames = order.filter { Self.defaultHidden.contains($0) && !hidden.contains($0) }.map(\.rawValue)
         let stored = Stored(
             order: order == Self.defaultOrder ? nil : order.map(\.rawValue),
-            hidden: hidden.isEmpty ? nil : order.filter { hidden.contains($0) }.map(\.rawValue),
+            hidden: hiddenNames.isEmpty ? nil : hiddenNames,
+            shown: shownNames.isEmpty ? nil : shownNames,
             showsVolumeBar: showsVolumeBar ? nil : false
         )
         return NowPlayingSurfaceStorage.encode(stored)

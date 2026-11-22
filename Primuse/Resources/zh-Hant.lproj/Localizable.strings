@@ -7192,14 +7192,13 @@
 "transcript_reader_scroll_indicator" = "顯示捲軸";
 "transcript_reader_justify_footer" = "左右對齊時，每段最後一行以外的行都會排滿到左右兩邊。";
 "player_orientation_section_title" = "橫豎螢幕";
-"player_orientation_button_title" = "橫豎螢幕切換鍵";
-"player_orientation_button_description" = "在播放頁右上角放一顆鍵，點一下就在橫向和直向之間切換，不用把手機轉過去。";
+"player_controls_action_orientation" = "橫豎螢幕切換";
 "player_follows_device_orientation_title" = "跟隨手機方向轉向";
-"player_follows_device_orientation_description" = "關閉後播放頁停在目前的方向，轉動手機也不跟著轉，橫豎螢幕用切換鍵換。";
+"player_follows_device_orientation_description" = "關閉後播放頁停在目前的方向，轉動手機也不跟著轉。橫豎螢幕用「橫豎螢幕切換」換：可以擺在播放頁上，沒擺時在「更多」裡。";
 "player_orientation_to_landscape" = "橫向顯示";
 "player_orientation_to_portrait" = "直向顯示";
 "interface_orientation_title" = "螢幕方向";
-"interface_orientation_description" = "選「直式」或「橫式」後整個 App 停在這個方向，轉動手機也不跟著轉；系統的方向鎖定只能鎖直式，手機橫放在支架上時可以在這裡鎖橫式。播放頁右上角的切換鍵照樣能暫時換方向，收起播放頁回到這裡選的方向。";
+"interface_orientation_description" = "選「直式」或「橫式」後整個 App 停在這個方向，轉動手機也不跟著轉；系統的方向鎖定只能鎖直式，手機橫放在支架上時可以在這裡鎖橫式。播放頁上的「橫豎螢幕切換」照樣能暫時換方向，收起播放頁回到這裡選的方向。";
 "interface_orientation_automatic" = "自動";
 "interface_orientation_portrait" = "直式";
 "interface_orientation_landscape" = "橫式";

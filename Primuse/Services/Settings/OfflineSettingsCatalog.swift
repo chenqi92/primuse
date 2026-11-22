@@ -138,7 +138,6 @@ enum OfflineSettingsCatalog {
         "primuse.player.showsArtworkLyrics",
         "primuse.player.showsLyricsBrowseTimeline",
         "primuse.player.showsLyricsInterlude",
-        "primuse.player.showsOrientationButton",
         "primuse.player.showsReplayGainBadge",
         "primuse.player.showsVolumeBar",
         "primuse.player.skipButtonStyle",

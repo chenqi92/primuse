@@ -7121,10 +7121,9 @@
 "transcript_reader_scroll_indicator" = "إظهار شريط التمرير";
 "transcript_reader_justify_footer" = "عند ضبط النص، يمتد كل سطر حتى الحافتين باستثناء السطر الأخير من كل فقرة.";
 "player_orientation_section_title" = "الاتجاه";
-"player_orientation_button_title" = "زر التدوير";
-"player_orientation_button_description" = "يضع زرًا أعلى المشغّل يبدّل بين الوضع الأفقي والرأسي دون تدوير الهاتف.";
+"player_controls_action_orientation" = "تدوير الشاشة";
 "player_follows_device_orientation_title" = "التدوير مع الهاتف";
-"player_follows_device_orientation_description" = "عند الإيقاف يبقى المشغّل على اتجاهه الحالي عند تدوير الهاتف، واستخدم زر التدوير للتبديل.";
+"player_follows_device_orientation_description" = "عند الإيقاف يبقى المشغّل على اتجاهه الحالي عند تدوير الهاتف. بدّل الاتجاه بـ«تدوير الشاشة»: ضعه في المشغّل أو تجده في قائمة «المزيد».";
 "player_orientation_to_landscape" = "عرض أفقي";
 "player_orientation_to_portrait" = "عرض رأسي";
 "interface_orientation_title" = "اتجاه الشاشة";

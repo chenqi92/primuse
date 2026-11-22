@@ -22,7 +22,6 @@ struct ImmersivePlayerView: View {
     let onDismiss: () -> Void
     let onMinimize: () -> Void
     let onShowQueue: () -> Void
-    var onToggleOrientation: (() -> Void)? = nil
     /// 遮挡区(iPhone Duo 外屏竖排的状态栏与前置摄像头),用全屏页自己的坐标,由播放页量好交进来。
     /// 全屏播放是沉浸式、不滚动的界面,按整屏居中,只让开这一块:顶部控件排在遮挡那一侧让开,
     /// 舞台内容只有上沿落进遮挡区那段高度时才在那一侧让。没有竖栏的设备为空,排版不变。
@@ -38,6 +37,8 @@ struct ImmersivePlayerView: View {
     var chromeControls: NowPlayingEffectPlayerControls = .default
     /// 队列以外的按钮由播放页画、走播放页同一套动作(弹出的面板也挂在播放页上)。nil 时那几格空着。
     var chromeControl: ((NowPlayingControlAction, ImmersiveChromeControlPlacement, Color) -> AnyView)? = nil
+    /// 横竖屏切换。这一页没有「更多」:没摆在上面那几格里时放进效果面板顶上。不能手动转屏时为 nil。
+    var onToggleOrientation: (() -> Void)? = nil
     /// 画在外接屏上(设置 › 播放器 › 外接显示器选「全屏效果」)。外接屏不接受触摸:不出控件和顶部说明,
     /// 也不进休憩变暗 —— 那块屏上没人能点一下把它叫醒;构图按大屏排,不照手机。
     var presentsOnExternalDisplay = false
@@ -321,6 +322,7 @@ struct ImmersivePlayerView: View {
                         appliesOnSettle: true,
                         viewportSize: geometry.size,
                         safeAreaInsets: safeArea,
+                        onToggleOrientation: drawerOrientationAction,
                         onClose: { showsEffectPicker = false }
                     )
                     .pmSlideTransition(
@@ -686,19 +688,6 @@ struct ImmersivePlayerView: View {
                 .accessibilityLabel(Text("immersive_disc_settings"))
             }
             topTrailingChromeControl
-            if let onToggleOrientation {
-                let isLandscape = metrics.size.width > metrics.size.height
-                ImmersiveGlassActionButton(
-                    symbol: isLandscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
-                    label: isLandscape ? "player_orientation_to_portrait" : "player_orientation_to_landscape",
-                    tint: chromeInk,
-                    diameter: 44
-                ) {
-                    revealChrome()
-                    onToggleOrientation()
-                }
-                .accessibilityIdentifier("player.orientation.toggle")
-            }
         }
     }
 
@@ -818,6 +807,12 @@ struct ImmersivePlayerView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text("fullscreen_effect_settings_title"))
+    }
+
+    /// 效果面板顶上的横竖屏切换:这一页上已经摆着那颗键时不再重复。
+    private var drawerOrientationAction: (() -> Void)? {
+        guard let onToggleOrientation, !chromeControls.actions.values.contains(.orientation) else { return nil }
+        return onToggleOrientation
     }
 
     /// 右上角那一格,默认是队列。

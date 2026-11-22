@@ -303,10 +303,8 @@ enum PlayerAppearancePreferences {
     /// 横屏另有自己的双栏播放页(封面与控件在左、歌词在右)。
     static let entersFullscreenInLandscapeKey = "primuse.player.entersFullscreenInLandscape"
     static let entersFullscreenInLandscapeByDefault = false
-    /// 手机播放页右上角的横竖屏切换键(见 `PlayerOrientationControl`)。
-    static let showsOrientationButtonKey = "primuse.player.showsOrientationButton"
-    static let showsOrientationButtonByDefault = true
-    /// 手机播放页跟着手机方向转屏;关掉时播放页停在当时的方向,只按切换键转。
+    /// 手机播放页跟着手机方向转屏;关掉时播放页停在当时的方向,只按横竖屏切换转(「播放页按钮」的 `.orientation`,
+    /// 没摆在页面上时在「更多」里)。
     static let followsDeviceOrientationKey = "primuse.player.followsDeviceOrientation"
     static let followsDeviceOrientationByDefault = true
     /// 原生全屏(竖屏)那一面显示大封面而不是歌词(#311)。记住上次的选择，下次进全屏还是这一面。
