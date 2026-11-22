@@ -85,6 +85,10 @@ struct HomeHeroCoverWallMetrics {
     static let cornerRadius: CGFloat = 18
     /// 整面墙最多几张不同的封面。
     static let maximumTiles = 24
+    /// 最多几排。量到的尺寸再怪，加排也有个头。
+    static let maximumRows = 8
+    /// 画布宽过这个就按它排：再宽的卡片也只摆这么多封面。
+    static let maximumViewportWidth: CGFloat = 2048
 
     let cardWidth: CGFloat
     let cardHeight: CGFloat
@@ -96,10 +100,14 @@ struct HomeHeroCoverWallMetrics {
 
     /// - Parameter compactCanvasHeight: 紧凑高度(手机横屏)时首页画布的高度;nil 是竖屏、iPad。
     init(viewportWidth: CGFloat, compactCanvasHeight: CGFloat? = nil) {
-        let width = viewportWidth > 0 ? viewportWidth : HomeHeroCarouselMetrics.fallbackWidth
+        // 还没量到、量出无穷大或 NaN 时按默认宽度排：下面按高度加排的循环要有尽头。
+        let width = viewportWidth.isFinite && viewportWidth > 0
+            ? min(viewportWidth, Self.maximumViewportWidth)
+            : HomeHeroCarouselMetrics.fallbackWidth
         cardWidth = max(width - 40, 200)
         if let compactCanvasHeight {
-            let canvas = compactCanvasHeight > 0 ? compactCanvasHeight : HomeHeroCarouselMetrics.fallbackWidth
+            let canvas = compactCanvasHeight.isFinite && compactCanvasHeight > 0
+                ? compactCanvasHeight : HomeHeroCarouselMetrics.fallbackWidth
             cardHeight = min(max((canvas * 0.42).rounded(), 130), 190)
         } else {
             cardHeight = min(max((cardWidth * 0.56).rounded(), 180), 260)
@@ -112,7 +120,7 @@ struct HomeHeroCoverWallMetrics {
         // 四排盖满;卡片特别宽、封面到了上限还盖不满时再加排。
         var rows = 4
         let side = min(max(((coveredHeight - CGFloat(rows - 1) * Self.spacing) / CGFloat(rows)).rounded(.up), 44), 108)
-        while CGFloat(rows) * (side + Self.spacing) - Self.spacing < coveredHeight { rows += 1 }
+        while rows < Self.maximumRows, CGFloat(rows) * (side + Self.spacing) - Self.spacing < coveredHeight { rows += 1 }
         tileSide = side
         rowCount = rows
         contentHeight = CGFloat(rows) * (side + Self.spacing) - Self.spacing

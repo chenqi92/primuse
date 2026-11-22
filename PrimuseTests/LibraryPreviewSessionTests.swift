@@ -353,6 +353,19 @@ final class HomeHeroCarouselLayoutTests: XCTestCase {
         add(attachment)
     }
 
+    /// 量到的尺寸不正常时封面墙照样算得出有限的尺寸，不会一直加排。
+    func testCoverWallMetricsStayFiniteForAbnormalSizes() {
+        for width in [CGFloat.infinity, .nan, 0, -10, 1_000_000] {
+            for compact in [nil, CGFloat.infinity, .nan, 0] as [CGFloat?] {
+                let metrics = HomeHeroCoverWallMetrics(viewportWidth: width, compactCanvasHeight: compact)
+                XCTAssertTrue(metrics.cardWidth.isFinite && metrics.cardHeight.isFinite, "\(width) \(String(describing: compact))")
+                XCTAssertTrue(metrics.contentWidth.isFinite && metrics.contentHeight.isFinite)
+                XCTAssertLessThanOrEqual(metrics.rowCount, HomeHeroCoverWallMetrics.maximumRows)
+                XCTAssertLessThan(metrics.tilesRenderedPerRow, 200)
+            }
+        }
+    }
+
     func testCoverWallCoversTheTiltedCardAndLoopsSeamlessly() {
         let angle = HomeHeroCoverWallMetrics.tiltDegrees * Double.pi / 180
         for size in [CGSize(width: 375, height: 667), CGSize(width: 440, height: 956),
