@@ -8134,3 +8134,6 @@
 "toolbar_quick_locate_short" = "表示";
 "toolbar_quick_find_short" = "検索";
 "toolbar_quick_manage_short" = "管理";
+"scrape_tally_copied_to_source_format" = "既存分を書き戻し %d";
+"scrape_tally_only_in_app_format" = "Primuse 内のみ %d";
+"scrape_tally_only_in_app_hint" = "Primuse 内にしかないカバーと歌詞はミュージックソースに書き込まれていません。取得設定で「カバー書き戻し」と「歌詞書き戻し」をオンにして、もう一度欠落分を取得すると書き込まれます。";

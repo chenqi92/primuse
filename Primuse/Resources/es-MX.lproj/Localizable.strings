@@ -8039,3 +8039,6 @@
 "toolbar_quick_locate_short" = "Localizar";
 "toolbar_quick_find_short" = "Buscar";
 "toolbar_quick_manage_short" = "Administrar";
+"scrape_tally_copied_to_source_format" = "Existentes guardadas en el origen %d";
+"scrape_tally_only_in_app_format" = "Solo en Primuse %d";
+"scrape_tally_only_in_app_hint" = "Las portadas y letras que solo están en Primuse no se guardaron en la fuente. Activa «Guardar portada en el origen» y «Guardar letras en el origen» en los ajustes de búsqueda y vuelve a completar los metadatos faltantes.";

@@ -8039,3 +8039,6 @@
 "toolbar_quick_locate_short" = "Localizar";
 "toolbar_quick_find_short" = "Buscar";
 "toolbar_quick_manage_short" = "Gerenciar";
+"scrape_tally_copied_to_source_format" = "Existentes salvas na origem %d";
+"scrape_tally_only_in_app_format" = "Só no Primuse %d";
+"scrape_tally_only_in_app_hint" = "As capas e letras que estão só no Primuse não foram gravadas na fonte. Ative “Salvar capa na origem” e “Salvar letras na origem” nos ajustes de busca e complete os metadados ausentes de novo.";

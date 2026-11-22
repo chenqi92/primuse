@@ -8226,3 +8226,6 @@
 "toolbar_quick_locate_short" = "定位";
 "toolbar_quick_find_short" = "查找";
 "toolbar_quick_manage_short" = "管理";
+"scrape_tally_copied_to_source_format" = "用已有的写回 %d";
+"scrape_tally_only_in_app_format" = "只在 Primuse 里 %d";
+"scrape_tally_only_in_app_hint" = "只在 Primuse 里的封面和歌词没有写进音乐源。打开刮削设置里的「封面写回」「歌词写回」，再补全一次缺失，就会写进去。";

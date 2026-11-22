@@ -8039,3 +8039,6 @@
 "toolbar_quick_locate_short" = "Bul";
 "toolbar_quick_find_short" = "Ara";
 "toolbar_quick_manage_short" = "Yönet";
+"scrape_tally_copied_to_source_format" = "Mevcutlar kaynağa yazıldı %d";
+"scrape_tally_only_in_app_format" = "Yalnızca Primuse'ta %d";
+"scrape_tally_only_in_app_hint" = "Yalnızca Primuse'ta olan kapaklar ve şarkı sözleri müzik kaynağına yazılmadı. Bulma ayarlarında \"Kapak Geri Yazma\" ve \"Şarkı sözlerini kaynağa geri yazma\" seçeneklerini açıp eksik üst verileri yeniden tamamlayın.";

@@ -8039,3 +8039,6 @@
 "toolbar_quick_locate_short" = "تحديد الموقع";
 "toolbar_quick_find_short" = "بحث";
 "toolbar_quick_manage_short" = "إدارة";
+"scrape_tally_copied_to_source_format" = "الموجودة حُفظت في المصدر %d";
+"scrape_tally_only_in_app_format" = "في Primuse فقط %d";
+"scrape_tally_only_in_app_hint" = "لم تُحفظ الأغلفة وكلمات الأغاني الموجودة في Primuse فقط في مصدر الموسيقى. فعّل «حفظ الغلاف في المصدر» و«حفظ كلمات الأغاني في المصدر» في إعدادات الجلب، ثم أكمل البيانات الناقصة مرة أخرى.";

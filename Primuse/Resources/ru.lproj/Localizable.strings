@@ -8039,3 +8039,6 @@
 "toolbar_quick_locate_short" = "Найти";
 "toolbar_quick_find_short" = "Поиск";
 "toolbar_quick_manage_short" = "Управление";
+"scrape_tally_copied_to_source_format" = "Имеющиеся записаны в источник %d";
+"scrape_tally_only_in_app_format" = "Только в Primuse %d";
+"scrape_tally_only_in_app_hint" = "Обложки и тексты, которые есть только в Primuse, не записаны в источник. Включите «Обратная запись обложки» и «Запись текста в источник» в настройках поиска и ещё раз дополните недостающие метаданные.";

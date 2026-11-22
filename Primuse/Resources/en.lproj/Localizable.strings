@@ -7894,3 +7894,6 @@
 "toolbar_quick_locate_short" = "Locate";
 "toolbar_quick_find_short" = "Find";
 "toolbar_quick_manage_short" = "Manage";
+"scrape_tally_copied_to_source_format" = "Copied to source %d";
+"scrape_tally_only_in_app_format" = "Only in Primuse %d";
+"scrape_tally_only_in_app_hint" = "Artwork and lyrics that are only in Primuse were not written to your music source. Turn on Cover Write-Back and Lyrics Write-Back in scraping settings, then fill in missing metadata again.";

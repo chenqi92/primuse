@@ -8110,3 +8110,6 @@
 "toolbar_quick_locate_short" = "定位";
 "toolbar_quick_find_short" = "尋找";
 "toolbar_quick_manage_short" = "管理";
+"scrape_tally_copied_to_source_format" = "用已有的寫回 %d";
+"scrape_tally_only_in_app_format" = "只在 Primuse 裡 %d";
+"scrape_tally_only_in_app_hint" = "只在 Primuse 裡的封面和歌詞沒有寫進音樂來源。打開刮削設定裡的「封面寫回」「歌詞寫回」，再補全一次缺少的資料，就會寫進去。";

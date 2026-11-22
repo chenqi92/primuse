@@ -15,6 +15,11 @@ public enum ScrapePartOutcome: String, Codable, Sendable, CaseIterable {
     case saveFailed
     /// 这一轮不管这部分：只补歌词时的封面、字段规则设成跳过的、服务端曲库的封面和歌词。
     case notRequested
+    /// 本机已有、音乐源里没有：没去重新搜，把本机正在用的那份写进了音乐源。批量刮削先按「已有」记，
+    /// 写回真的写成了再挪过来（`BatchScrapeTally.recordCopiedToSource`）；不算「已更新」。
+    case copiedToSource
+    /// 本机已有、音乐源里没有，「封面写回」「歌词写回」又关着：这一轮不动，完成提示里说一声怎么写进去。
+    case onlyInApp
 }
 
 public enum ScrapePartJudgment {
@@ -89,6 +94,12 @@ public enum ScrapeAssetReferenceState: String, Codable, Sendable {
     case staleLocal
     /// 引用指着音乐源上的旁路文件，「已知缺失」的记录说它不在了。
     case staleSource
+    /// 本机有，音乐源里没有：在线取到或刮到后只存进了本机（见 `ScrapeAssetPresencePolicy` 的两条判定）。
+    /// 只在只补缺失、这首歌又能写回音乐源的那一轮认出来；其余时候它就是 `.present`。
+    case appOnly
+
+    /// 本机读得到这一份，不用为了显示再去刮。
+    public var hasLocalCopy: Bool { self == .present || self == .appOnly }
 
     /// 刮不到时要把失效的本机引用清掉，免得界面一直是默认封面、又永远不再补。
     public var clearsReferenceWhenMissed: Bool { self == .staleLocal }
@@ -149,6 +160,34 @@ public enum ScrapeAssetPresencePolicy {
         if isLocalCacheName { return referenceExists() ? .present : .staleLocal }
         if reference.contains("/") { return sourceConfirmedAbsent() ? .staleSource : .present }
         return .present
+    }
+
+    /// 本机这份歌词是不是只在 Primuse 里：来源标记是在线歌词源，而且看不出音乐源上有这首歌自己的歌词——
+    /// 歌曲记着的不是源上的歌词文件，来源候选里没有歌词文件、内嵌、服务端、「音乐」App 的版本，读标签时
+    /// 也没记下过内嵌歌词。没有来源标记的老缓存分不清是从文件读的还是在线取的，按不是处理。
+    public static func lyricsLiveOnlyInApp(
+        cachedKind: LyricsDocumentSource.Kind?,
+        retainedKinds: [LyricsDocumentSource.Kind],
+        reference: String?,
+        hasEmbeddedRecord: Bool
+    ) -> Bool {
+        guard cachedKind == .online, !hasEmbeddedRecord else { return false }
+        if let reference, reference.contains("/") { return false }
+        return !retainedKinds.contains { kind in
+            switch kind {
+            case .file, .embedded, .server, .appleMusic: true
+            case .online, .transcript: false
+            }
+        }
+    }
+
+    /// 封面只在 Primuse 里：引用是本机刮到或手选存下的那种，存下时记了「还没写进音乐源」，记的正是这一张。
+    /// 写回成功会清掉记录；这条规则加上之前存下的封面没有记录，按不是处理。
+    public static func coverLivesOnlyInApp(reference: String?, pendingContentID: String?) -> Bool {
+        guard let reference, let pendingContentID,
+              let origin = StoredArtworkOrigin.resolve(reference),
+              origin == .scraped || origin == .selected else { return false }
+        return StoredArtworkOrigin.contentID(reference) == pendingContentID
     }
 
     /// 本机歌词缓存自己起的文件名：32 位小写十六进制加 `.json`。
@@ -324,12 +363,17 @@ public struct BatchScrapePartCounts: Codable, Equatable, Sendable {
     public var alreadyPresent = 0
     public var notFound = 0
     public var saveFailed = 0
+    public var copiedToSource = 0
+    public var onlyInApp = 0
 
-    public init(filled: Int = 0, alreadyPresent: Int = 0, notFound: Int = 0, saveFailed: Int = 0) {
+    public init(filled: Int = 0, alreadyPresent: Int = 0, notFound: Int = 0, saveFailed: Int = 0,
+                copiedToSource: Int = 0, onlyInApp: Int = 0) {
         self.filled = filled
         self.alreadyPresent = alreadyPresent
         self.notFound = notFound
         self.saveFailed = saveFailed
+        self.copiedToSource = copiedToSource
+        self.onlyInApp = onlyInApp
     }
 
     public init(from decoder: Decoder) throws {
@@ -338,6 +382,8 @@ public struct BatchScrapePartCounts: Codable, Equatable, Sendable {
         alreadyPresent = try container.decodeIfPresent(Int.self, forKey: .alreadyPresent) ?? 0
         notFound = try container.decodeIfPresent(Int.self, forKey: .notFound) ?? 0
         saveFailed = try container.decodeIfPresent(Int.self, forKey: .saveFailed) ?? 0
+        copiedToSource = try container.decodeIfPresent(Int.self, forKey: .copiedToSource) ?? 0
+        onlyInApp = try container.decodeIfPresent(Int.self, forKey: .onlyInApp) ?? 0
     }
 
     public mutating func record(_ outcome: ScrapePartOutcome) {
@@ -346,6 +392,8 @@ public struct BatchScrapePartCounts: Codable, Equatable, Sendable {
         case .alreadyPresent: alreadyPresent += 1
         case .notFound: notFound += 1
         case .saveFailed: saveFailed += 1
+        case .copiedToSource: copiedToSource += 1
+        case .onlyInApp: onlyInApp += 1
         case .notRequested: break
         }
     }
@@ -415,6 +463,18 @@ public struct BatchScrapeTally: Codable, Equatable, Sendable {
         }
     }
 
+    /// 本机那份写进了音乐源：这一部分从「已有」挪到「用已有的写回」。
+    public mutating func recordCopiedToSource(cover: Bool, lyrics: Bool) {
+        if cover, self.cover.alreadyPresent > 0 {
+            self.cover.alreadyPresent -= 1
+            self.cover.copiedToSource += 1
+        }
+        if lyrics, self.lyrics.alreadyPresent > 0 {
+            self.lyrics.alreadyPresent -= 1
+            self.lyrics.copiedToSource += 1
+        }
+    }
+
     public mutating func recordSongError(songID: String, title: String, detail: String?) {
         songErrors += 1
         recordFailure(.init(songID: songID, title: title, part: .song, detail: detail))
@@ -435,12 +495,16 @@ public struct BatchScrapeTally: Codable, Equatable, Sendable {
         func segments(_ counts: BatchScrapePartCounts) -> [BatchScrapeSummary.Segment] {
             var result: [BatchScrapeSummary.Segment] = []
             if counts.filled > 0 { result.append(.filled(counts.filled)) }
+            if counts.copiedToSource > 0 { result.append(.copiedToSource(counts.copiedToSource)) }
+            if counts.onlyInApp > 0 { result.append(.onlyInApp(counts.onlyInApp)) }
             if counts.alreadyPresent > 0 { result.append(.alreadyPresent(counts.alreadyPresent)) }
             if counts.notFound > 0 { result.append(.notFound(counts.notFound)) }
             if counts.saveFailed > 0 { result.append(.saveFailed(counts.saveFailed)) }
             return result
         }
-        let filledAnything = cover.filled + lyrics.filled + tags.filled > 0
+        // 把已有的写回音乐源、或者认出了只在 Primuse 里的，都不是「什么都没找到」：分项要列出来。
+        let filledAnything = cover.filled + lyrics.filled + tags.filled
+            + cover.copiedToSource + lyrics.copiedToSource + cover.onlyInApp + lyrics.onlyInApp > 0
         let failedAnything = cover.saveFailed + lyrics.saveFailed + writebackFailed + songErrors > 0 || hasFailures
         return BatchScrapeSummary(
             foundNothing: !filledAnything && !failedAnything,
@@ -460,6 +524,8 @@ public struct BatchScrapeSummary: Equatable, Sendable {
         case alreadyPresent(Int)
         case notFound(Int)
         case saveFailed(Int)
+        case copiedToSource(Int)
+        case onlyInApp(Int)
     }
 
     /// 什么都没补上，也没有失败：只显示「没有找到可以补充的内容」。
@@ -480,5 +546,13 @@ public struct BatchScrapeSummary: Equatable, Sendable {
         self.writebackWritten = writebackWritten
         self.writebackFailed = writebackFailed
         self.songErrors = songErrors
+    }
+
+    /// 有只在 Primuse 里、因为写回开关关着没写进音乐源的封面或歌词：完成提示要说怎么写进去。
+    public var hasOnlyInApp: Bool {
+        (cover + lyrics).contains { segment in
+            if case .onlyInApp = segment { return true }
+            return false
+        }
     }
 }

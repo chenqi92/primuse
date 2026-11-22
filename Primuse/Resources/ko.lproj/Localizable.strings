@@ -8133,3 +8133,6 @@
 "toolbar_quick_locate_short" = "현재 곡";
 "toolbar_quick_find_short" = "찾기";
 "toolbar_quick_manage_short" = "관리";
+"scrape_tally_copied_to_source_format" = "기존 항목 기록 %d";
+"scrape_tally_only_in_app_format" = "Primuse에만 있음 %d";
+"scrape_tally_only_in_app_hint" = "Primuse에만 있는 커버와 가사는 음악 소스에 기록되지 않았습니다. 가져오기 설정에서 '커버 기록'과 '가사 기록'을 켠 뒤 누락된 항목을 다시 가져오면 기록됩니다.";

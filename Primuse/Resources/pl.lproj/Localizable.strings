@@ -8039,3 +8039,6 @@
 "toolbar_quick_locate_short" = "Znajdź";
 "toolbar_quick_find_short" = "Szukaj";
 "toolbar_quick_manage_short" = "Zarządzaj";
+"scrape_tally_copied_to_source_format" = "Istniejące zapisane w źródle %d";
+"scrape_tally_only_in_app_format" = "Tylko w Primuse %d";
+"scrape_tally_only_in_app_hint" = "Okładki i teksty, które są tylko w Primuse, nie zostały zapisane w źródle. Włącz „Zapis okładki w źródle” i „Zapis tekstu w źródle” w ustawieniach pobierania, a potem jeszcze raz uzupełnij brakujące metadane.";

@@ -8039,3 +8039,6 @@
 "toolbar_quick_locate_short" = "ढूँढें";
 "toolbar_quick_find_short" = "खोजें";
 "toolbar_quick_manage_short" = "प्रबंधित करें";
+"scrape_tally_copied_to_source_format" = "मौजूदा स्रोत में लिखे गए %d";
+"scrape_tally_only_in_app_format" = "सिर्फ़ Primuse में %d";
+"scrape_tally_only_in_app_hint" = "जो कवर और गीत के बोल सिर्फ़ Primuse में हैं, वे म्यूज़िक सोर्स में नहीं लिखे गए। खोज सेटिंग में \"कवर स्रोत में वापस लिखना\" और \"गीत के बोल स्रोत में वापस लिखना\" चालू करें, फिर छूटा हुआ मेटाडेटा दोबारा भरें।";

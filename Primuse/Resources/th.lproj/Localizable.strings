@@ -8039,3 +8039,6 @@
 "toolbar_quick_locate_short" = "ระบุตำแหน่ง";
 "toolbar_quick_find_short" = "ค้นหา";
 "toolbar_quick_manage_short" = "จัดการ";
+"scrape_tally_copied_to_source_format" = "เขียนของที่มีอยู่กลับไปยังต้นทาง %d";
+"scrape_tally_only_in_app_format" = "อยู่ใน Primuse เท่านั้น %d";
+"scrape_tally_only_in_app_hint" = "ปกและเนื้อเพลงที่อยู่ใน Primuse เท่านั้นยังไม่ได้เขียนลงแหล่งเพลง เปิด \"เขียนปกกลับไปยังต้นทาง\" และ \"เขียนเนื้อเพลงกลับไปยังต้นทาง\" ในการตั้งค่าการค้นหา แล้วเติมเมทาดาทาที่ขาดอีกครั้ง";

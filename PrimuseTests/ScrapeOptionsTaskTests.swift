@@ -743,6 +743,96 @@ final class BatchScrapeAccountingTests: XCTestCase {
         XCTAssertTrue(clearedPinned)
     }
 
+    /// 本机已有、音乐源里没有的封面和歌词（播放时在线取到的歌词、后台补全刮到的封面）：只补缺失、能写回时
+    /// 不重新去搜，把本机那份交给写回；写回开关关着只计数。写进音乐源之后不再算只在 Primuse 里。
+    func testLocalOnlyAssetsAreOfferedToSourceWritebackWhenFillingGaps() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = makeService(root)
+        let store = MetadataAssetStore.shared
+        let original = song()
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [original.id]) }
+        let online = LyricsDocumentSource.online(identifier: "lrclib", name: "LRCLIB")
+            .stamped([LyricLine(timestamp: 1, text: "Paper lanterns cross the quiet sky")])
+        let cachedOnline = await store.cacheLyrics(online, forSongID: original.id)
+        XCTAssertTrue(cachedOnline)
+        let image = try pngData()
+        let stored = await store.storeAttributedCover(image, songID: original.id, origin: .scraped)
+        let reference = try XCTUnwrap(stored)
+        await store.noteCoverOnlyInApp(reference: reference, songID: original.id)
+        var withAssets = original
+        withAssets.coverArtFileName = reference
+        withAssets.lyricsFileName = store.expectedLyricsFileName(for: original.id)
+
+        let lyricsOnlyInApp = await store.lyricsLivingOnlyInApp(for: withAssets)
+        XCTAssertNotNil(lyricsOnlyInApp)
+        XCTAssertTrue(store.coverLivesOnlyInApp(withAssets))
+
+        var copyScope = MusicScraperService.ScrapeScope(
+            considered: [.cover, .lyrics], fetched: [], assets: .init(cover: .appOnly, lyrics: .appOnly)
+        )
+        copyScope.sourceCopy = .init(inspectsCover: true, writesCover: true, inspectsLyrics: true, writesLyrics: true)
+        copyScope.appOnlyLyrics = lyricsOnlyInApp
+        let copied = await service.applyScrapedResult(
+            nil, scope: copyScope, to: withAssets, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(copied.parts.cover, .copiedToSource)
+        XCTAssertEqual(copied.parts.lyrics, .copiedToSource)
+        XCTAssertEqual(copied.parts.result, .unchanged, "Counted once the writeback actually lands")
+        XCTAssertTrue(copied.copiesLocalCover)
+        XCTAssertTrue(copied.copiesLocalLyrics)
+        XCTAssertFalse(copied.persists, "The library row itself does not change")
+        XCTAssertNotNil(copied.storedCover)
+        XCTAssertEqual(copied.cachedLyrics?.first?.text, "Paper lanterns cross the quiet sky")
+        XCTAssertTrue(copied.writesBackCover)
+        XCTAssertTrue(copied.writesBackLyrics)
+        XCTAssertFalse(copied.overwritesCover, "A file that already has artwork keeps it")
+        XCTAssertFalse(copied.overwritesLyrics)
+
+        copyScope.sourceCopy = .init(inspectsCover: true, writesCover: false, inspectsLyrics: true, writesLyrics: false)
+        let kept = await service.applyScrapedResult(
+            nil, scope: copyScope, to: withAssets, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(kept.parts.cover, .onlyInApp)
+        XCTAssertEqual(kept.parts.lyrics, .onlyInApp)
+        XCTAssertNil(kept.storedCover)
+        XCTAssertNil(kept.cachedLyrics)
+
+        await store.noteCoverInSource(songID: original.id)
+        await store.noteLyricsInSource(lyricsOnlyInApp ?? [], songID: original.id)
+        XCTAssertFalse(store.coverLivesOnlyInApp(withAssets))
+        let afterCopy = await store.lyricsLivingOnlyInApp(for: withAssets)
+        XCTAssertNil(afterCopy)
+        await cleanUp(original.id)
+    }
+
+    /// 刮削时用的封面是从这个文件、旁边的图片读出来的：本来就在音乐源里，不记成待写回。
+    func testCoverReadFromTheFileIsNotMarkedLocalOnly() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = makeService(root)
+        let store = MetadataAssetStore.shared
+        let original = song()
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [original.id]) }
+        let image = try pngData()
+        var result = processed(original, cover: image, lyrics: nil)
+        result.coverReadFromFile = true
+        let applied = await service.applyScrapedResult(
+            result, scope: scope([.cover]), to: original, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(applied.parts.cover, .filled)
+        XCTAssertFalse(applied.writesBackCover)
+        XCTAssertFalse(store.coverLivesOnlyInApp(applied.song))
+
+        let online = await service.applyScrapedResult(
+            processed(original, cover: image, lyrics: nil), scope: scope([.cover]),
+            to: original, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertTrue(store.coverLivesOnlyInApp(online.song), "A cover scraped online stays pending until it reaches the source")
+        await store.noteCoverInSource(songID: original.id)
+        await cleanUp(original.id)
+    }
+
     /// 写回之后给缓存打来源标记不能把点名刮到的那份的钉住弄丢。
     func testSourceStampKeepsTheScrapedVersionPinned() async throws {
         let root = try temporaryRoot()

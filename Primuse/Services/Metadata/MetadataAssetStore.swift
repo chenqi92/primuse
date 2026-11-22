@@ -3011,6 +3011,100 @@ enum LibraryArtworkImageProcessor {
 }
 
 
+// MARK: - 只在 Primuse 里、还没写进音乐源的封面和歌词
+
+extension MetadataAssetStore {
+    /// 每首歌最多两个小文件：`.cover-pending` 记刮到后只存进本机的那张封面（内容 ID），
+    /// `.lyrics-in-source` 记写进过音乐源的那份歌词（指纹）。
+    nonisolated private var sourceCopyDirectoryURL: URL {
+        lyricsDirectoryURL.deletingLastPathComponent().appendingPathComponent("source-copy", isDirectory: true)
+    }
+
+    nonisolated private func sourceCopyURL(songID: String, kind: String) -> URL {
+        sourceCopyDirectoryURL.appendingPathComponent(hashedFileName(for: songID, pathExtension: kind))
+    }
+
+    nonisolated private func writeSourceCopyRecord(_ value: String, songID: String, kind: String) {
+        try? FileManager.default.createDirectory(at: sourceCopyDirectoryURL, withIntermediateDirectories: true)
+        try? Data(value.utf8).write(to: sourceCopyURL(songID: songID, kind: kind), options: .atomic)
+    }
+
+    nonisolated private func sourceCopyRecord(songID: String, kind: String) -> String? {
+        guard let data = try? Data(contentsOf: sourceCopyURL(songID: songID, kind: kind)) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// 刮到的封面只存进了本机（写回开关关着、源不能写、后台补全、写回失败）：记下这一张。
+    /// 之后只补缺失、又能写回的那一轮把它写进音乐源。
+    func noteCoverOnlyInApp(reference: String, songID: String) {
+        guard let contentID = StoredArtworkOrigin.contentID(reference) else { return }
+        writeSourceCopyRecord(contentID, songID: songID, kind: "cover-pending")
+    }
+
+    /// 封面写进了音乐源（或者文件里本来就有一张、只补缺失没换）：不再算只在 Primuse 里。
+    func noteCoverInSource(songID: String) {
+        try? FileManager.default.removeItem(at: sourceCopyURL(songID: songID, kind: "cover-pending"))
+    }
+
+    /// 歌曲现在指着的封面是不是只在 Primuse 里。只读一个小文件，调用方放在后台。
+    nonisolated func coverLivesOnlyInApp(_ song: Song) -> Bool {
+        guard let reference = song.coverArtFileName, StoredArtworkOrigin.resolve(reference) != nil else { return false }
+        return ScrapeAssetPresencePolicy.coverLivesOnlyInApp(
+            reference: reference,
+            pendingContentID: sourceCopyRecord(songID: song.id, kind: "cover-pending")
+        )
+    }
+
+    /// 这份歌词写进了音乐源（歌词文件或音频文件）。缓存的来源标记通常会跟着改成文件或内嵌；
+    /// 用户在来源页选定了一份时缓存不改，靠这条记录认出它已经在源里了。
+    func noteLyricsInSource(_ lines: [LyricLine], songID: String) {
+        guard !lines.isEmpty else { return }
+        writeSourceCopyRecord(LyricsDocumentFingerprint(lines: lines).rawValue, songID: songID, kind: "lyrics-in-source")
+    }
+
+    /// 只看本机歌词缓存文件记着的来源，不规整、不过用户的决定、不占 actor：整库补全时先拿它筛掉不是
+    /// 在线来的，每首只多一次轻量解码。调用方放在后台。
+    nonisolated func cachedLyricsSourceKind(forSongID songID: String) -> LyricsDocumentSource.Kind? {
+        let url = lyricsDirectoryURL.appendingPathComponent(expectedLyricsFileName(for: songID))
+        guard let data = try? Data(contentsOf: url),
+              let probes = try? JSONDecoder().decode([LyricsSourceProbe].self, from: data) else { return nil }
+        // 和 `LyricsDocumentSource.of` 一样：记在第一行上，规整时可能挪进后面几行或和声里。
+        for probe in probes.prefix(4) {
+            if let source = probe.documentSource { return source.kind }
+            if let source = probe.background?.lazy.compactMap(\.documentSource).first { return source.kind }
+        }
+        return nil
+    }
+
+    /// 本机正在用的那份歌词只在 Primuse 里时交回它（见 `ScrapeAssetPresencePolicy.lyricsLiveOnlyInApp`），否则 nil。
+    /// 便宜的先查：指着源上歌词文件的、缓存不是在线来的，都不用再读候选和内嵌记录。
+    func lyricsLivingOnlyInApp(for song: Song) -> [LyricLine]? {
+        if let reference = song.lyricsFileName, reference.contains("/") { return nil }
+        guard let cached = cachedLyrics(forSongID: song.id), !cached.isEmpty,
+              LyricsDocumentSource.of(cached)?.kind == .online else { return nil }
+        if let copied = sourceCopyRecord(songID: song.id, kind: "lyrics-in-source"),
+           copied == LyricsDocumentFingerprint(lines: cached).rawValue {
+            return nil
+        }
+        let retained = lyricsSourceCollection(forSongID: song.id).candidates.compactMap { $0.source?.kind }
+        let hasEmbeddedRecord = embeddedFallbackLyrics(forSongID: song.id) != nil
+            || embeddedLyricsAlternatives(forSongID: song.id) != nil
+        guard ScrapeAssetPresencePolicy.lyricsLiveOnlyInApp(
+            cachedKind: LyricsDocumentSource.of(cached)?.kind,
+            retainedKinds: retained,
+            reference: song.lyricsFileName,
+            hasEmbeddedRecord: hasEmbeddedRecord
+        ) else { return nil }
+        return cached
+    }
+}
+
+/// 只解码一份歌词缓存记着的来源（`LyricLine` 的 `documentSource`、`background` 两个键），其余字段跳过。
+private struct LyricsSourceProbe: Decodable {
+    let documentSource: LyricsDocumentSource?
+    let background: [LyricsSourceProbe]?
+}
+
 /// Bounds network work across artwork views, palette extraction and playback.
 /// A reserved foreground slot prevents a wall of thumbnails from delaying the
 /// current song. A queued thumbnail can be upgraded before its request starts.

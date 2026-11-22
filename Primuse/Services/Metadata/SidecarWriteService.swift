@@ -41,6 +41,9 @@ actor SidecarWriteService {
 
         var coverWritten: Bool = false
         var lyricsWritten: Bool = false
+        /// `keepsExistingFiles` 时歌旁边已经有封面文件 / 歌词文件，没写：音乐源里本来就有。
+        var coverKept = false
+        var lyricsKept = false
         var lyricsRemoved: Bool = false
         var lyricsTargetChanged: Bool = false
         /// Issued only after the connector has proved the write at the exact
@@ -126,6 +129,8 @@ actor SidecarWriteService {
     ///   - createsLyricsFile: false in embed-only mode. A lyrics document that
     ///     already sits beside the song is still updated; none is created.
     ///   - createsCoverFile: the same for the cover file.
+    ///   - keepsExistingFiles: 只补缺失、把本机已有的那份写回源时传 true：歌旁边已经有封面文件、
+    ///     任何一种歌词文件（含读得出、写不进的 `.vtt` 之类）就不动它，记成 `coverKept` / `lyricsKept`。
     func writeSidecars(
         for song: Song,
         using connector: any MusicSourceConnector,
@@ -134,7 +139,8 @@ actor SidecarWriteService {
         lyricsContent: String? = nil,
         expectedLyricsTarget: LyricsPreflightResult? = nil,
         createsLyricsFile: Bool = true,
-        createsCoverFile: Bool = true
+        createsCoverFile: Bool = true,
+        keepsExistingFiles: Bool = false
     ) async -> WriteResult {
         var result = WriteResult()
         guard await canWriteBeside(song, using: connector) else {
@@ -153,6 +159,11 @@ actor SidecarWriteService {
             if !writesCover {
                 plog("📁 Sidecar: embed-only mode, no cover file created beside \(songBaseName)")
             }
+        }
+        if writesCover, keepsExistingFiles, await coverFileExists(named: coverFileName, beside: song, using: connector) {
+            writesCover = false
+            result.coverKept = true
+            plog("📁 Sidecar: \(coverFileName) already sits beside the song; kept it")
         }
         if writesCover, let coverData {
             let jpegData: Data = recompressJPEG(coverData) ?? coverData
@@ -189,6 +200,11 @@ actor SidecarWriteService {
             do {
                 let targets = try await lyricsTargets(for: song, using: connector)
                 let target = targets.write
+                if keepsExistingFiles, targets.document.exists {
+                    result.lyricsKept = true
+                    plog("📝 Sidecar: a lyrics file already sits beside \(songBaseName); kept it")
+                    return result
+                }
                 guard createsLyricsFile || targets.document.exists else {
                     plog("📝 Sidecar: embed-only mode, no lyrics file created beside \(songBaseName)")
                     return result

@@ -257,4 +257,75 @@ struct BatchScrapeTallyTests {
         #expect(!tally.summary.foundNothing)
         #expect(ScrapeWritebackOutcome.written.combined(with: .failed(.lyricsNotLocated)) == .failed(.lyricsNotLocated))
     }
+
+    /// 播放时在线取到的歌词只在 Primuse 里；音乐源上看得出有这首歌自己的歌词，或者分不清从哪来的，都不算。
+    @Test func onlineLyricsLiveOnlyInAppUnlessTheSourceHasItsOwn() {
+        #expect(ScrapeAssetPresencePolicy.lyricsLiveOnlyInApp(
+            cachedKind: .online, retainedKinds: [.online], reference: "0123456789abcdef0123456789abcdef.json",
+            hasEmbeddedRecord: false))
+        #expect(ScrapeAssetPresencePolicy.lyricsLiveOnlyInApp(
+            cachedKind: .online, retainedKinds: [], reference: nil, hasEmbeddedRecord: false))
+        // 没有来源标记的老缓存、读文件来的都不算。
+        #expect(!ScrapeAssetPresencePolicy.lyricsLiveOnlyInApp(
+            cachedKind: nil, retainedKinds: [], reference: nil, hasEmbeddedRecord: false))
+        #expect(!ScrapeAssetPresencePolicy.lyricsLiveOnlyInApp(
+            cachedKind: .embedded, retainedKinds: [], reference: nil, hasEmbeddedRecord: false))
+        // 来源页选了在线那份，文件里、歌旁边、服务端其实有自己的。
+        for kind: LyricsDocumentSource.Kind in [.file, .embedded, .server, .appleMusic] {
+            #expect(!ScrapeAssetPresencePolicy.lyricsLiveOnlyInApp(
+                cachedKind: .online, retainedKinds: [.online, kind], reference: nil, hasEmbeddedRecord: false))
+        }
+        #expect(!ScrapeAssetPresencePolicy.lyricsLiveOnlyInApp(
+            cachedKind: .online, retainedKinds: [], reference: "/Music/Window at Dawn.lrc", hasEmbeddedRecord: false))
+        #expect(!ScrapeAssetPresencePolicy.lyricsLiveOnlyInApp(
+            cachedKind: .online, retainedKinds: [], reference: nil, hasEmbeddedRecord: true))
+    }
+
+    /// 封面只认存下时记了「还没写进音乐源」的那一张；换了图、读文件来的、没有记录的都不算。
+    @Test func coverLivesOnlyInAppOnlyForTheRecordedLocalCopy() {
+        let id = String(repeating: "a", count: 64)
+        let other = String(repeating: "b", count: 64)
+        #expect(ScrapeAssetPresencePolicy.coverLivesOnlyInApp(reference: "scraped-\(id).jpg", pendingContentID: id))
+        #expect(ScrapeAssetPresencePolicy.coverLivesOnlyInApp(reference: "selected-\(id).jpg", pendingContentID: id))
+        #expect(!ScrapeAssetPresencePolicy.coverLivesOnlyInApp(reference: "scraped-\(id).jpg", pendingContentID: other))
+        #expect(!ScrapeAssetPresencePolicy.coverLivesOnlyInApp(reference: "scraped-\(id).jpg", pendingContentID: nil))
+        #expect(!ScrapeAssetPresencePolicy.coverLivesOnlyInApp(reference: "embedded-\(id).jpg", pendingContentID: id))
+        #expect(!ScrapeAssetPresencePolicy.coverLivesOnlyInApp(reference: "/Music/cover.jpg", pendingContentID: id))
+        #expect(ScrapeAssetReferenceState.appOnly.hasLocalCopy)
+        #expect(ScrapeAssetPresence(cover: .appOnly, lyrics: .appOnly).treatingStaleAsPresent
+            == ScrapeAssetPresence(cover: .present, lyrics: .present))
+    }
+
+    /// 本机那份写进音乐源之后才从「已有」挪成「用已有的写回」，不算更新；写回开关关着、只在 Primuse 里的
+    /// 也要列出来，并提示怎么写进去。
+    @Test func localCopiesAreListedInTheSummary() {
+        #expect(ScrapeSongParts(cover: .alreadyPresent, lyrics: .copiedToSource, tags: .notFound).result == .unchanged)
+        #expect(ScrapeSongParts(cover: .onlyInApp, lyrics: .onlyInApp, tags: .notFound).result == .unchanged)
+
+        var copied = BatchScrapeTally()
+        copied.record(ScrapeSongParts(cover: .alreadyPresent, lyrics: .alreadyPresent, tags: .notRequested))
+        copied.recordCopiedToSource(cover: false, lyrics: true)
+        #expect(copied.lyrics.copiedToSource == 1)
+        #expect(copied.lyrics.alreadyPresent == 0)
+        #expect(copied.cover.alreadyPresent == 1)
+        #expect(!copied.summary.foundNothing)
+        #expect(copied.summary.lyrics == [.copiedToSource(1)])
+        #expect(!copied.summary.hasOnlyInApp)
+        // 没有可挪的「已有」时不凭空多出一首。
+        copied.recordCopiedToSource(cover: false, lyrics: true)
+        #expect(copied.lyrics.copiedToSource == 1)
+
+        var kept = BatchScrapeTally()
+        kept.record(ScrapeSongParts(cover: .onlyInApp, lyrics: .alreadyPresent, tags: .notRequested))
+        #expect(!kept.summary.foundNothing)
+        #expect(kept.summary.cover == [.onlyInApp(1)])
+        #expect(kept.summary.hasOnlyInApp)
+    }
+
+    @Test func oldCheckpointCountsDecodeWithoutTheLocalCopyFields() throws {
+        let data = Data(#"{"filled":2,"alreadyPresent":3,"notFound":1,"saveFailed":0}"#.utf8)
+        let counts = try JSONDecoder().decode(BatchScrapePartCounts.self, from: data)
+        #expect(counts == BatchScrapePartCounts(filled: 2, alreadyPresent: 3, notFound: 1))
+        #expect(counts.copiedToSource == 0 && counts.onlyInApp == 0)
+    }
 }

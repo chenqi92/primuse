@@ -8133,3 +8133,6 @@
 "toolbar_quick_locate_short" = "Finden";
 "toolbar_quick_find_short" = "Suchen";
 "toolbar_quick_manage_short" = "Verwalten";
+"scrape_tally_copied_to_source_format" = "Vorhandene zurückgeschrieben %d";
+"scrape_tally_only_in_app_format" = "Nur in Primuse %d";
+"scrape_tally_only_in_app_hint" = "Cover und Liedtexte, die nur in Primuse liegen, wurden nicht in die Musikquelle geschrieben. Schalte in den Abrufeinstellungen „Cover-Rückschreibung“ und „Liedtext-Rückschreibung“ ein und ergänze die fehlenden Daten noch einmal.";

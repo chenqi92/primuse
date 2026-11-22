@@ -8039,3 +8039,6 @@
 "toolbar_quick_locate_short" = "Знайти";
 "toolbar_quick_find_short" = "Пошук";
 "toolbar_quick_manage_short" = "Керувати";
+"scrape_tally_copied_to_source_format" = "Наявні записано в джерело %d";
+"scrape_tally_only_in_app_format" = "Лише в Primuse %d";
+"scrape_tally_only_in_app_hint" = "Обкладинки й тексти, які є лише в Primuse, не записано в джерело. Увімкніть «Запис обкладинки» та «Запис тексту в джерело» в налаштуваннях пошуку й ще раз доповніть відсутні метадані.";

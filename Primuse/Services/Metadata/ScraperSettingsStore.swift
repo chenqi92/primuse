@@ -169,8 +169,8 @@ struct ScraperSettings: Codable, Sendable {
             ? Self.assetPresence(for: song)
             : .referencesOnly(cover: song.coverArtFileName, lyrics: song.lyricsFileName))
         return fieldRules.request(parts: parts, overwriteByDefault: force || !onlyFillMissingFields, fillOnly: fillOnly)
-            .needed(for: song.scrapeFields, hasCover: presence.cover == .present,
-                    hasLyrics: presence.lyrics == .present, titleIsPlaceholder: titleIsPlaceholder)
+            .needed(for: song.scrapeFields, hasCover: presence.cover.hasLocalCopy,
+                    hasLyrics: presence.lyrics.hasLocalCopy, titleIsPlaceholder: titleIsPlaceholder)
     }
 
     /// 这一轮在范围里的字段（选了这部分、字段规则不是跳过），还没按歌曲已有的内容收窄。

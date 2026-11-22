@@ -8133,3 +8133,6 @@
 "toolbar_quick_locate_short" = "Localiser";
 "toolbar_quick_find_short" = "Rechercher";
 "toolbar_quick_manage_short" = "Gérer";
+"scrape_tally_copied_to_source_format" = "Existantes réécrites %d";
+"scrape_tally_only_in_app_format" = "Seulement dans Primuse %d";
+"scrape_tally_only_in_app_hint" = "Les pochettes et paroles présentes uniquement dans Primuse n’ont pas été écrites dans la source. Activez « Écriture des pochettes » et « Écriture des paroles » dans les réglages de récupération, puis complétez à nouveau les métadonnées manquantes.";
