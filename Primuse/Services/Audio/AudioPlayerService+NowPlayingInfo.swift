@@ -477,7 +477,11 @@ extension AudioPlayerService {
               !next.id.isEmpty,
               next.id != currentSong?.id else { return }
         let artworkCacheKey = Self.systemArtworkCacheKey(for: next)
-        guard nowPlayingArtworkCache.object(forKey: artworkCacheKey as NSString) == nil else { return }
+        if let cached = nowPlayingArtworkCache.object(forKey: artworkCacheKey as NSString) {
+            // 锁屏全屏的那份也提前备好: 切歌时和这张方块封面同一份快照发出去, 不会先方后满。
+            lockScreenMotionArtworkPublisher.prefetch(song: next, artwork: cached, player: self)
+            return
+        }
         guard prefetchingArtworkSongID != next.id else { return }
         prefetchingArtworkSongID = next.id
 
@@ -504,12 +508,19 @@ extension AudioPlayerService {
                     self.prefetchingArtworkSongID = nil
                     self.nowPlayingArtworkPrefetchTask = nil
                 }
+                var artwork: MPMediaItemArtwork?
                 if let image {
+                    let made = Self.makeArtwork(from: image)
                     self.nowPlayingArtworkCache.setObject(
-                        Self.makeArtwork(from: image),
+                        made,
                         forKey: artworkCacheKey as NSString,
                         cost: Self.nowPlayingArtworkCost(image)
                     )
+                    artwork = made
+                }
+                // 还是下一首时才备锁屏那份(没有封面时动态素材照样能备)。
+                if self.nextSongInQueue()?.id == next.id {
+                    self.lockScreenMotionArtworkPublisher.prefetch(song: next, artwork: artwork, player: self)
                 }
             }
         }

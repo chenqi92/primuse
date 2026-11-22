@@ -71,9 +71,16 @@ final class LockScreenMotionArtworkPublisher {
         let entries: [String: Any]
     }
 
+    /// 准备好的素材留两份（当前这首和提前备好的下一首）：切歌时直接发，不用先方后满。
+    /// 动态素材的预览图是解好码的整幅位图，不多留。
+    private static let preparedLimit = 2
+
     private weak var player: AudioPlayerService?
-    private var prepared: Prepared?
+    private var preparedMaterials: [Prepared] = []
     private var preparingKey: String?
+    /// 提前给队列里下一首准备的那一份。和当前这首的准备各走各的，互不取消。
+    private var prefetchingKey: String?
+    private var prefetchTask: Task<Void, Never>?
     private var failedKey: String?
     private var failedMotionKey: String?
     /// 上一次真的放进「正在播放」的素材；设置或素材变了时拿它判断要不要补发。
@@ -84,6 +91,7 @@ final class LockScreenMotionArtworkPublisher {
 
     isolated deinit {
         preparation?.cancel()
+        prefetchTask?.cancel()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
     }
 
@@ -95,32 +103,105 @@ final class LockScreenMotionArtworkPublisher {
         guard Self.isSupportedBySystem else { return }
         self.player = player
         installObserversIfNeeded()
-        guard let request = materialRequest(song: song, player: player) else {
+        let published = Self.publishedArtwork(for: song, player: player)
+        guard let request = materialRequest(song: song, player: player, published: published) else {
             cancelPreparation()
-            prepared = nil
             publishedKey = nil
             return
         }
         let key = request.key
-        if let prepared, prepared.materialKey == key {
+        if let prepared = rememberedMaterial(key) {
             for (entryKey, value) in prepared.entries { info[entryKey] = value }
             publishedKey = key
             return
         }
         publishedKey = nil
         guard failedKey != key, preparingKey != key else { return }
-        var publishedImage: CGImage?
-        if request.candidates.first?.kind == .coverImage,
-           player.publishedArtworkSongID == song.id, let artwork = player.cachedNowPlayingArtwork {
-            publishedImage = artwork.image(at: artwork.bounds.size)?.platformCGImage
+        if prefetchingKey == key, let task = prefetchTask {
+            // 提前准备的那一份还没做完：接过来当这首的准备，做完照常补发，不另做一份。
+            preparation?.cancel()
+            preparation = task
+            preparingKey = key
+            prefetchTask = nil
+            prefetchingKey = nil
+            return
         }
-        startPreparation(request, publishedImage: publishedImage)
+        startPreparation(request, publishedImage: Self.stillSourceImage(for: request, published: published))
+    }
+
+    /// 队列里下一首的锁屏素材提前准备好，切歌那一刻和方形封面同一份「正在播放」发出去。
+    /// `artwork` 是给下一首提前备好的系统封面（切歌后会原样发出去，同一个对象，素材的键对得上）。
+    func prefetch(song: Song, artwork: MPMediaItemArtwork?, player: AudioPlayerService) {
+        guard Self.isSupportedBySystem, song.id != player.currentSong?.id,
+              let request = materialRequest(song: song, player: player, published: artwork) else { return }
+        let key = request.key
+        guard rememberedMaterial(key, touch: false) == nil, preparingKey != key, prefetchingKey != key else { return }
+        prefetchTask?.cancel()
+        prefetchingKey = key
+        let supported = Self.supportedAspects()
+        let composition = request.composesWallpaper ? Self.tallComposition() : nil
+        let publishedImage = Self.stillSourceImage(for: request, published: artwork)
+        // 比当前这首的准备更不急：放在后台优先级。
+        prefetchTask = Task(priority: .background) { [weak self] in
+            let material = await Self.prepareMaterial(
+                from: request.candidates, publishedImage: publishedImage,
+                supported: supported,
+                composition: composition
+            )
+            guard !Task.isCancelled else { return }
+            self?.finishPrefetch(material, request: request)
+        }
+    }
+
+    private func finishPrefetch(_ material: PreparedMaterial?, request: MaterialRequest) {
+        let key = request.key
+        if preparingKey == key {
+            // 做完之前已经切到这首、被当前这首接了过去（见 `decorate`）。
+            finishPreparation(material, request: request)
+            return
+        }
+        guard prefetchingKey == key else { return }
+        prefetchingKey = nil
+        prefetchTask = nil
+        // 没准备成就算了：轮到这首时照常再准备一次。
+        if let material, let prepared = Self.prepared(material, key: key) { remember(prepared) }
+    }
+
+    private static func publishedArtwork(for song: Song, player: AudioPlayerService) -> MPMediaItemArtwork? {
+        player.publishedArtworkSongID == song.id ? player.cachedNowPlayingArtwork : nil
+    }
+
+    /// 静态封面合成时本机没有封面文件，就用发给系统的那张。
+    private static func stillSourceImage(for request: MaterialRequest, published: MPMediaItemArtwork?) -> CGImage? {
+        guard request.candidates.first?.kind == .coverImage, let published else { return nil }
+        return published.image(at: published.bounds.size)?.platformCGImage
+    }
+
+    private func rememberedMaterial(_ key: String, touch: Bool = true) -> Prepared? {
+        guard let index = preparedMaterials.lastIndex(where: { $0.materialKey == key }) else { return nil }
+        let found = preparedMaterials[index]
+        if touch, index != preparedMaterials.count - 1 {
+            preparedMaterials.remove(at: index)
+            preparedMaterials.append(found)
+        }
+        return found
+    }
+
+    private func remember(_ prepared: Prepared) {
+        preparedMaterials.removeAll { $0.materialKey == prepared.materialKey }
+        preparedMaterials.append(prepared)
+        if preparedMaterials.count > Self.preparedLimit {
+            preparedMaterials.removeFirst(preparedMaterials.count - Self.preparedLimit)
+        }
     }
 
     /// 停止播放、清空「正在播放」时调用。
     func reset() {
         cancelPreparation()
-        prepared = nil
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        prefetchingKey = nil
+        preparedMaterials = []
         failedMotionKey = nil
         failedKey = nil
         publishedKey = nil
@@ -172,7 +253,12 @@ final class LockScreenMotionArtworkPublisher {
     }
 
     /// 主线程上只做字典查找和字符串解析；文件核对、读画幅、取首帧都在后台准备时做。
-    private func materialRequest(song: Song, player: AudioPlayerService) -> MaterialRequest? {
+    /// - Parameter published: 这首歌发给系统的方块封面（还没发时为 nil）。
+    private func materialRequest(
+        song: Song,
+        player: AudioPlayerService,
+        published: MPMediaItemArtwork?
+    ) -> MaterialRequest? {
         let context = Self.context(for: song, player: player)
         if LockScreenMotionArtworkPolicy.permitsPublishing(context) {
             let motion = motionCandidates(for: song, player: player)
@@ -190,7 +276,6 @@ final class LockScreenMotionArtworkPublisher {
            override.mode == .uploaded, let id = override.uploadedContentID, LibraryArtworkContentIDPolicy.isValid(id) {
             reference = "selected-\(id).jpg"
         }
-        let published = player.publishedArtworkSongID == song.id ? player.cachedNowPlayingArtwork : nil
         guard published != nil || StoredArtworkOrigin.resolve(reference) == .selected else { return nil }
         let freshness = MetadataAssetStore.shared.artworkFreshnessToken(sourceID: song.sourceID, reference: reference)
         let revision = [reference ?? "", freshness, published.map { String(describing: ObjectIdentifier($0)) } ?? ""]
@@ -289,17 +374,22 @@ final class LockScreenMotionArtworkPublisher {
             }
             return
         }
-        guard #available(iOS 26.0, macOS 26.0, *) else { return }
+        guard let prepared = Self.prepared(material, key: key) else { return }
+        remember(prepared)
+        failedKey = nil
+        republish()
+    }
+
+    private static func prepared(_ material: PreparedMaterial, key: String) -> Prepared? {
+        guard #available(iOS 26.0, macOS 26.0, *) else { return nil }
         var entries: [String: Any] = [:]
         for rendition in material.renditions {
             let entryKey = rendition.slot == .tall
                 ? MPNowPlayingInfoProperty3x4AnimatedArtwork
                 : MPNowPlayingInfoProperty1x1AnimatedArtwork
-            entries[entryKey] = Self.makeArtwork(rendition)
+            entries[entryKey] = makeArtwork(rendition)
         }
-        prepared = Prepared(materialKey: key, entries: entries)
-        failedKey = nil
-        republish()
+        return Prepared(materialKey: key, entries: entries)
     }
 
     @available(iOS 26.0, macOS 26.0, *)
@@ -324,7 +414,7 @@ final class LockScreenMotionArtworkPublisher {
     /// 设置或素材变了：这首歌该发的和已经发出去的不一样时才补发。
     private func refreshIfNeeded() {
         guard let player, let song = player.currentSong else { return }
-        let desired = materialRequest(song: song, player: player)?.key
+        let desired = materialRequest(song: song, player: player, published: Self.publishedArtwork(for: song, player: player))?.key
         if desired != nil, desired == preparingKey { return }
         guard desired != publishedKey else { return }
         failedKey = nil
