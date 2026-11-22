@@ -1116,8 +1116,10 @@ struct LibraryView: View {
     @ViewBuilder
     private func standardSectionTabs(selection: LibrarySection?) -> some View {
         #if os(iOS)
-        // iPhone Duo 竖栏放得下时分类在竖栏里(`sectionRail`),顶上不再摆一排。
-        if sectionRailEdge == nil || LibrarySectionRailState.shared.doesNotFit {
+        // iPhone Duo 竖栏放得下时分类在竖栏里(`sectionRail`),顶上不再摆一排。各页的竖栏空当不一样,按这一页算。
+        if sectionRailEdge == nil || LibrarySectionRailState.shared.doesNotFit(
+            selection, itemCount: railSections(selection: selection).count
+        ) {
             StandardLibrarySectionTabs(selection: selection) { section in
                 guard section != selection else { return }
                 selectMusicSection(section, from: selection)
@@ -1139,15 +1141,23 @@ struct LibraryView: View {
         return edge
     }
 
+    private func railSections(selection: LibrarySection?) -> [LibrarySection] {
+        StandardLibrarySectionTabsPolicy.sections(
+            enabled: showsStandardSectionTabs, mode: appNavigationMode,
+            selection: selection, visibleSections: visibleLibrarySections
+        )
+    }
+
     @ViewBuilder
     private func sectionRail(selection: LibrarySection?) -> some View {
         if let edge = sectionRailEdge {
-            let sections = StandardLibrarySectionTabsPolicy.sections(
-                enabled: showsStandardSectionTabs, mode: appNavigationMode,
-                selection: selection, visibleSections: visibleLibrarySections
-            )
+            let sections = railSections(selection: selection)
             if !sections.isEmpty {
-                LibrarySectionRail(sections: sections, selection: selection, edge: edge) { section in
+                // 多选时页面换了一套工具栏,分类先收起来,竖栏让给那些按钮。
+                LibrarySectionRail(
+                    sections: sections, selection: selection, edge: edge,
+                    isSuspended: sectionHasBatchSelection
+                ) { section in
                     guard section != selection else { return }
                     selectMusicSection(section, from: selection)
                 }
