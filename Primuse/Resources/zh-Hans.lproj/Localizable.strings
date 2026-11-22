@@ -26,6 +26,10 @@
 "library_edit_quick_access" = "编辑收藏";
 "library_add_quick_access" = "添加收藏";
 "library_review_feature_title" = "评分与评论";
+"library_marks_section" = "存到音乐文件夹";
+"library_marks_write" = "评分和红心写进 album.nfo";
+"library_marks_write_comments" = "评论也一起写进去";
+"library_marks_footer" = "写进专辑文件夹里的 album.nfo（和专辑简介同一个文件），卸载重装、换设备或重新添加音乐源后，扫描时会读回来。只对能写文件的音乐源生效（SMB、WebDAV、S3、本地文件夹等）；所有歌平铺在同一个文件夹里时不写。评论写进去后，能访问这个文件夹的人都看得到。";
 "library_review_feature_description" = "在歌曲、专辑、歌单和流派页面显示个人星级与评论。此功能默认关闭。";
 "library_review_title" = "评分与评论";
 "library_review_add_comment" = "添加评论";

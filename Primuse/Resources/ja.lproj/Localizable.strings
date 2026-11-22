@@ -4659,6 +4659,10 @@
 "carplay_cover_wall" = "ジャケットウォール";
 "carplay_module_hidden" = "非表示";
 "library_review_feature_title" = "評価とコメント";
+"library_marks_section" = "音楽フォルダに保存";
+"library_marks_write" = "評価とお気に入りを album.nfo に書き込む";
+"library_marks_write_comments" = "コメントも含める";
+"library_marks_footer" = "各アルバムフォルダの album.nfo（アルバム紹介と同じファイル）に保存し、再インストールや端末の変更、ソースの再追加の後、スキャン時に読み戻します。ファイルを書き込めるソース（SMB、WebDAV、S3、ローカルフォルダなど）で有効です。すべての曲が 1 つのフォルダにある場合は書き込みません。フォルダにアクセスできる人はコメントを読めます。";
 "library_review_feature_description" = "曲、アルバム、プレイリスト、ジャンルに自分の星評価とコメントを表示します。この機能は初期設定ではオフです。";
 "library_review_title" = "評価とコメント";
 "library_review_add_comment" = "コメントを追加";

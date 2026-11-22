@@ -5945,6 +5945,7 @@ final class TVStore {
         var cursor = 0
         var retryPass = 0
         var retryIDs: Set<String> = []
+        var importedFolderMarks = false
         maintenanceGenerations[source.id] = generation
         postScanMaintenance.enqueue(sourceID: source.id) { [weak self] in
             guard let self, let ticket = self.postScanMaintenance.operationToken(for: source.id) else { throw CancellationError() }
@@ -6022,10 +6023,89 @@ final class TVStore {
                 }
                 if cursor < songIDs.count { throw SourceMaintenanceQueue.Continuation() }
             }
+            if !importedFolderMarks {
+                // 读回 album.nfo 里的评分、评论与红心;不在前台时等回来再读。
+                guard self.serverCatalogSceneIsActive else { throw SourceMaintenanceQueue.Continuation(delay: 5) }
+                importedFolderMarks = true
+                await self.importFolderMarks(source: source, credential: credential, fence: fence)
+            }
             guard fence() else { throw CancellationError() }
             if let checkpointURL { try? FileManager.default.removeItem(at: checkpointURL) }
             self.library.flushDeferredLibraryMaintenance()
             self.enqueueSnapshotUpload()
+        }
+    }
+
+    /// 扫描后读回各专辑文件夹 album.nfo 里的评分、评论与红心(手机、Mac 写进去的;电视只读不写)。
+    /// 每个文件夹记一个歌曲 id 签名(`LibraryFolderMarksSignatures`,存在缓存目录),没变就不再读:
+    /// 重装后第一次全读,之后只在歌曲 id 变了时重读。
+    private func importFolderMarks(
+        source: MusicSource,
+        credential: SourceCredential?,
+        fence: @MainActor () -> Bool
+    ) async {
+        guard LibraryFolderMarksPolicy.supports(source.type),
+              !TVSourceScanner.serverCatalogTypes.contains(source.type),
+              let lister = scanner.makeLister(source: source, credential: credential) else { return }
+        let snapshot = library.visibleSongs
+        let sourceID = source.id
+        let layout = await Task.detached(priority: .utility) {
+            MusicLibrary.folderMarkLayout(of: snapshot, sourceID: sourceID)
+        }.value
+        guard fence() else { return }
+        let signaturesURL = LibraryFolderMarksSignatures.defaultURL()
+        let stored = signaturesURL.map(LibraryFolderMarksSignatures.load(from:)) ?? [:]
+        let fileName = LibraryInsightNFO.fileName(for: .album)
+        var updates: [String: String] = [:]
+        var readFiles = 0
+        var matchedSongs = 0
+        for (albumID, folder) in layout.folders.sorted(by: { $0.value < $1.value }) {
+            guard fence() else { break }
+            guard let songs = layout.groups[albumID] else { continue }
+            let key = LibraryFolderMarksSignatures.key(sourceID: sourceID, folder: folder)
+            let signature = MusicLibrary.folderMarksSignature(of: songs)
+            guard stored[key] != signature else { continue }
+            do {
+                let files = try await lister.list(folder).filter { !$0.isDir }
+                // 区分大小写的存储上可能同时有 Album.nfo 和 album.nfo:先认原样的那个,和手机、Mac 写的是同一个。
+                let entry = files.first(where: { $0.name == fileName })
+                    ?? files.first(where: { $0.name.caseInsensitiveCompare(fileName) == .orderedSame })
+                if let entry, entry.size > 0, entry.size <= Int64(LibraryInsightNFO.maximumReadBytes) {
+                    // 一个文件夹一个读取池,读完就关:几百张专辑不会同时占着几百条连接。
+                    let pool = TVMetadataReaderPool(source: source, credential: credential)
+                    var data: Data
+                    do {
+                        data = try await pool.read(path: entry.path, size: entry.size, offset: 0, length: entry.size)
+                    } catch {
+                        await pool.closeAll()
+                        throw error
+                    }
+                    await pool.closeAll()
+                    if data.starts(with: [0xEF, 0xBB, 0xBF]) { data = data.dropFirst(3) }
+                    readFiles += 1
+                    // 读的这一会儿扫描被取消了:不合并,也不记签名,下次再读。
+                    guard fence() else { break }
+                    if let text = String(data: data, encoding: .utf8),
+                       let marks = LibraryFolderMarksNFO.read(text) {
+                        matchedSongs += library.applyFolderMarks(
+                            marks, songs: songs, folder: folder, albumID: albumID
+                        ).matchedSongs
+                    }
+                }
+                updates[key] = signature
+            } catch {
+                // 读不了(网络断了、文件太大):签名不记,下次扫描再读。
+                continue
+            }
+        }
+        if let signaturesURL {
+            LibraryFolderMarksSignatures.update(
+                at: signaturesURL, sourceID: sourceID,
+                currentFolders: Set(layout.folders.values), setting: updates
+            )
+        }
+        if readFiles > 0 {
+            plog("📥 TV library marks read nfo=\(readFiles) songs=\(matchedSongs) source=\(source.type.rawValue)")
         }
     }
 

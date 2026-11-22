@@ -9497,8 +9497,36 @@ final class MusicLibrary {
             libraryReviewsBySubject[key] = merged
             libraryReviewRevision &+= 1
             persistSnapshot()
+            // 不发 `primuseLibraryReviewsDidChange`(那条会让 iCloud 再传回去);album.nfo 写回另听这一条,
+            // 电视上打的分经 iCloud 到了手机、Mac,也写进专辑文件夹。
+            NotificationCenter.default.post(
+                name: .primuseLibraryRemoteReviewsDidApply, object: nil, userInfo: ["keys": [key]]
+            )
         }
         return !LibraryReviewReconciliationPolicy.isEquivalent(merged, remote)
+    }
+
+    /// 从音乐源上的 album.nfo 读回的评分评论(`LibraryFolderMarksService`):评分与评论各按自己的
+    /// 修改时间取新的,和 iCloud 合并同一套规则;有变化的照常发通知,iCloud 与别的设备跟着收到。
+    func mergeFolderMarkReviews(_ reviews: [LibraryReview]) {
+        // S2: 发布前本机的评分还没装载,合并要等到重放时做。
+        if deferringUntilReady({ [weak self] in self?.mergeFolderMarkReviews(reviews) }) { return }
+        var changedKeys: [String] = []
+        for review in reviews {
+            let key = review.subject.storageKey
+            let merged = libraryReviewsBySubject[key].map {
+                LibraryReviewReconciliationPolicy.winner(local: $0, remote: review)
+            } ?? review
+            guard libraryReviewsBySubject[key].map({
+                !LibraryReviewReconciliationPolicy.isEquivalent($0, merged)
+            }) ?? true else { continue }
+            libraryReviewsBySubject[key] = merged
+            changedKeys.append(key)
+        }
+        guard !changedKeys.isEmpty else { return }
+        libraryReviewRevision &+= 1
+        persistSnapshot(after: 0.2)
+        notifyLibraryReviewsChanged(changedKeys)
     }
 
     /// 别处送来的评分绑着同一个服务端条目,只是账号指纹不同(音乐源换了线路,本机或对方还
@@ -12043,6 +12071,11 @@ final class MusicLibrary {
         let ids = Set(membership[Self.likedSongsPlaylistID] ?? [])
         likedSongIDLookup = (playlistMembershipRevision, ids)
         return ids.contains(songID)
+    }
+
+    /// 「我喜欢」里现在的全部歌曲 id(album.nfo 写回据此比对哪些歌的红心变了)。
+    func likedSongIDSnapshot() -> Set<String> {
+        Set(playlistSongIDs[Self.likedSongsPlaylistID] ?? [])
     }
 
     func likedSongIDs(fromSourceID sourceID: String) -> [String] {
@@ -19802,6 +19835,8 @@ extension Notification.Name {
     /// 本机的评分或评论变了(含扫描读回的服务端评分、改绑服务端条目)。userInfo["keys"] 是
     /// `LibraryReviewSubject.storageKey`,iCloud 同步据此上传;套用 iCloud 送来的评分时不发。
     static let primuseLibraryReviewsDidChange = Notification.Name("primuse.libraryReviewsDidChange")
+    /// iCloud 送来的评分评论合进了曲库(userInfo `keys`)。和上一条分开:iCloud 不该为它再传回去。
+    static let primuseLibraryRemoteReviewsDidApply = Notification.Name("primuse.libraryRemoteReviewsDidApply")
     static let primuseArtworkOverridesDidChange = Notification.Name("primuse.artworkOverridesDidChange")
     static let primusePlaylistDidDelete = Notification.Name("primuse.playlistDidDelete")
     static let primuseSmartPlaylistsDidChange = Notification.Name("primuse.smartPlaylistsDidChange")
@@ -19947,4 +19982,179 @@ extension MusicLibrary {
         }
         return visibleArtists.contains { $0.name == subject.artistName && artistHasAppleMusicSongs($0.id) }
     }
+}
+
+// MARK: - album.nfo 里的评分、评论与红心
+
+/// 手机、Mac 的 `LibraryFolderMarksService` 与电视的扫描后维护共用:专辑分组、文件里一项与曲库评分的
+/// 互转、读回后合进曲库。
+extension MusicLibrary {
+    struct FolderMarksApplyResult {
+        var matchedSongs = 0
+        /// 合并后在曲库里真的变了的评分键。
+        var changedReviewKeys: Set<String> = []
+        var likedSongIDs: [String] = []
+    }
+
+    /// 一个源的歌按专辑分组,算出各专辑的文件夹。没有专辑标签的歌和流地址算作别的专辑,
+    /// 和写简介时(`LibraryInsightWriteback`)的判断一致。不碰曲库状态,调用方拿快照放后台线程算。
+    nonisolated static func folderMarkLayout(of songs: [Song], sourceID: String) -> FolderMarkLayout {
+        var groups: [String: [Song]] = [:]
+        var others: [String] = []
+        for song in songs where song.sourceID == sourceID && !song.filePath.isEmpty {
+            if let albumID = song.albumID, !song.isStreamDescriptor {
+                groups[albumID, default: []].append(song)
+            } else {
+                others.append(song.filePath)
+            }
+        }
+        let folders = LibraryInsightFolderPolicy.albumFolders(
+            tracksByAlbum: groups.mapValues { $0.map(\.filePath) },
+            otherTrackPaths: others
+        )
+        return FolderMarkLayout(groups: groups, folders: folders)
+    }
+
+    /// 要写的改动落在哪些专辑文件夹上:`wanted` 是由歌曲改动查出来的(源 → 专辑),
+    /// `albumIDs` 是专辑本身的评分评论(可能跨几个源)。同一个文件夹只出一项。
+    nonisolated static func folderMarkTargets(
+        songs: [Song],
+        wanted: [String: Set<String>],
+        albumIDs: Set<String>,
+        sourceIDs: Set<String>
+    ) -> [FolderMarkTarget] {
+        var wanted = wanted
+        if !albumIDs.isEmpty {
+            for song in songs {
+                if let albumID = song.albumID, albumIDs.contains(albumID) {
+                    wanted[song.sourceID, default: []].insert(albumID)
+                }
+            }
+        }
+        wanted = wanted.filter { sourceIDs.contains($0.key) }
+        guard !wanted.isEmpty else { return [] }
+        let songsBySource = Dictionary(grouping: songs.lazy.filter { wanted[$0.sourceID] != nil }, by: \.sourceID)
+        var targets: [FolderMarkTarget] = []
+        for (sourceID, albums) in wanted.sorted(by: { $0.key < $1.key }) {
+            let layout = folderMarkLayout(of: songsBySource[sourceID] ?? [], sourceID: sourceID)
+            for albumID in albums.sorted() {
+                guard let folder = layout.folders[albumID], let albumSongs = layout.groups[albumID] else { continue }
+                targets.append(FolderMarkTarget(sourceID: sourceID, albumID: albumID, folder: folder, songs: albumSongs))
+            }
+        }
+        return targets
+    }
+
+    /// 把一个专辑文件夹的标记合进曲库:评分评论按各自的修改时间取新的,红心只加不减。
+    @discardableResult
+    func applyFolderMarks(
+        _ marks: LibraryFolderMarks,
+        songs: [Song],
+        folder: String,
+        albumID: String
+    ) -> FolderMarksApplyResult {
+        var result = FolderMarksApplyResult()
+        var reviews: [LibraryReview] = []
+        for song in songs {
+            guard let file = LibraryFolderMarksPolicy.relativePath(of: song.filePath, inFolder: folder),
+                  let track = marks.track(
+                    for: LibraryFolderMarks.Key(file: file, cueTrack: Self.folderMarkCueTrack(of: song)),
+                    duration: song.duration
+                  ) else { continue }
+            result.matchedSongs += 1
+            let subject = LibraryReviewSubject.song(song.id)
+            if let review = Self.folderMarkReview(from: track.mark, subject: subject,
+                                                  local: storedLibraryReview(for: subject)) {
+                reviews.append(review)
+            }
+            if track.mark.liked == true, !isLiked(songID: song.id) { result.likedSongIDs.append(song.id) }
+        }
+        if let album = marks.album {
+            let subject = LibraryReviewSubject.album(albumID)
+            if let review = Self.folderMarkReview(from: album, subject: subject, local: storedLibraryReview(for: subject)) {
+                reviews.append(review)
+            }
+        }
+        if !reviews.isEmpty {
+            let before = Dictionary(
+                reviews.map { ($0.subject.storageKey, storedLibraryReview(for: $0.subject)) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            mergeFolderMarkReviews(reviews)
+            for review in reviews
+            where storedLibraryReview(for: review.subject) != before[review.subject.storageKey] ?? nil {
+                result.changedReviewKeys.insert(review.subject.storageKey)
+            }
+        }
+        if !result.likedSongIDs.isEmpty { likeSongs(result.likedSongIDs) }
+        return result
+    }
+
+    nonisolated static func folderMarkCueTrack(of song: Song) -> Int? {
+        guard song.cueSheetPath != nil else { return nil }
+        return song.sacdTrackNumber ?? song.trackNumber
+    }
+
+    nonisolated static func folderMark(from review: LibraryReview?) -> LibraryFolderMarks.Mark {
+        guard let review else { return LibraryFolderMarks.Mark() }
+        return LibraryFolderMarks.Mark(
+            rating: review.isDeleted ? nil : review.rating,
+            ratingModifiedAt: Date(timeIntervalSince1970: review.ratingVersion),
+            comment: review.isDeleted ? "" : review.comment,
+            commentModifiedAt: Date(timeIntervalSince1970: review.commentVersion)
+        )
+    }
+
+    /// 文件里的一项变成曲库的评分评论。没有时间的值算最旧(只补本机空着的);文件里只有清空记录、
+    /// 本机也没有这一条时不必建删除记录。
+    nonisolated static func folderMarkReview(
+        from mark: LibraryFolderMarks.Mark,
+        subject: LibraryReviewSubject,
+        local: LibraryReview?
+    ) -> LibraryReview? {
+        let rating = LibraryReviewPreferences.normalizedRating(mark.rating)
+        let comment = LibraryReviewPreferences.normalizedComment(mark.comment ?? "")
+        let hasValue = rating != nil || !comment.isEmpty
+        guard hasValue || local != nil else { return nil }
+        guard hasValue || mark.ratingModifiedAt != nil || mark.commentModifiedAt != nil else { return nil }
+        let ratingVersion = mark.ratingModifiedAt?.timeIntervalSince1970 ?? 0
+        let commentVersion = mark.commentModifiedAt?.timeIntervalSince1970 ?? 0
+        let latest = Date(timeIntervalSince1970: max(ratingVersion, commentVersion))
+        return LibraryReview(
+            subject: subject,
+            rating: rating,
+            comment: comment,
+            updatedAt: latest,
+            deletedAt: hasValue ? nil : latest,
+            ratingModifiedAt: ratingVersion,
+            commentModifiedAt: commentVersion
+        )
+    }
+
+    /// 一组歌的 id 签名(FNV-1a):扫描后只重读歌曲 id 变了的专辑文件夹。
+    nonisolated static func folderMarksSignature(of songs: [Song]) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for id in songs.map(\.id).sorted() {
+            for byte in id.utf8 {
+                hash ^= UInt64(byte)
+                hash = hash &* 0x0000_0100_0000_01b3
+            }
+            hash ^= 0x1f
+        }
+        return String(hash, radix: 16)
+    }
+}
+
+/// 一个源里各专辑的歌与专辑文件夹(`MusicLibrary.folderMarkLayout`)。
+struct FolderMarkLayout: Sendable {
+    var groups: [String: [Song]] = [:]
+    var folders: [String: String] = [:]
+}
+
+/// 一个要写 album.nfo 的专辑文件夹。
+struct FolderMarkTarget: Sendable {
+    let sourceID: String
+    let albumID: String
+    let folder: String
+    let songs: [Song]
 }

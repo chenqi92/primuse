@@ -4658,6 +4658,10 @@
 "carplay_cover_wall" = "커버 월";
 "carplay_module_hidden" = "숨김";
 "library_review_feature_title" = "평점 및 댓글";
+"library_marks_section" = "음악 폴더에 저장";
+"library_marks_write" = "평점과 좋아요를 album.nfo에 쓰기";
+"library_marks_write_comments" = "댓글도 포함";
+"library_marks_footer" = "각 앨범 폴더의 album.nfo(앨범 소개와 같은 파일)에 저장하고, 앱을 다시 설치하거나 기기를 바꾸거나 소스를 다시 추가한 뒤 스캔할 때 다시 읽어 옵니다. 파일을 쓸 수 있는 소스(SMB, WebDAV, S3, 로컬 폴더 등)에서만 동작하며, 모든 곡이 한 폴더에 있으면 쓰지 않습니다. 폴더에 접근할 수 있는 사람은 댓글을 볼 수 있습니다.";
 "library_review_feature_description" = "곡, 앨범, 플레이리스트 및 장르에 개인 별점과 댓글을 표시합니다. 이 기능은 기본적으로 꺼져 있습니다.";
 "library_review_title" = "평점 및 댓글";
 "library_review_add_comment" = "댓글 추가";

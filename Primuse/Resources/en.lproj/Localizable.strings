@@ -26,6 +26,10 @@
 "library_edit_quick_access" = "Edit Favorites";
 "library_add_quick_access" = "Add Favorites";
 "library_review_feature_title" = "Ratings & Comments";
+"library_marks_section" = "Save to Music Folders";
+"library_marks_write" = "Write Ratings and Likes to album.nfo";
+"library_marks_write_comments" = "Include Comments";
+"library_marks_footer" = "Saved in album.nfo in each album folder (the same file as the album intro) and read back when scanning after reinstalling, switching devices or adding the source again. Works with sources that accept files (SMB, WebDAV, S3, local folders and more); skipped when all songs sit in one folder. Anyone who can open the folder can read the comments.";
 "library_review_feature_description" = "Show personal star ratings and comments on songs, albums, playlists, and genres. This is off by default.";
 "library_review_title" = "Rating & Comment";
 "library_review_add_comment" = "Add Comment";

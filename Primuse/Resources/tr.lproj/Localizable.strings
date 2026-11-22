@@ -4564,6 +4564,10 @@
 "carplay_cover_wall" = "Kapak duvarı";
 "carplay_module_hidden" = "Gizli";
 "library_review_feature_title" = "Puanlar ve yorumlar";
+"library_marks_section" = "Müzik Klasörlerine Kaydet";
+"library_marks_write" = "Puanları ve Beğenileri album.nfo Dosyasına Yaz";
+"library_marks_write_comments" = "Yorumları da Ekle";
+"library_marks_footer" = "Her albüm klasöründeki album.nfo dosyasına (albüm tanıtımıyla aynı dosya) kaydedilir; yeniden yükleme, cihaz değişikliği veya kaynağı yeniden ekleme sonrasında tarama sırasında geri okunur. Dosya yazılabilen kaynaklarda (SMB, WebDAV, S3, yerel klasörler vb.) çalışır; tüm şarkılar tek bir klasördeyse yazılmaz. Klasöre erişebilen herkes yorumları okuyabilir.";
 "library_review_feature_description" = "Şarkılarda, albümlerde, çalma listelerinde ve türlerde kişisel yıldız puanlarınızı ve yorumlarınızı gösterin. Bu özellik varsayılan olarak kapalıdır.";
 "library_review_title" = "Puan ve yorum";
 "library_review_add_comment" = "Yorum ekle";

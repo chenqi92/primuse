@@ -27,6 +27,10 @@
 "library_edit_quick_access" = "編輯收藏";
 "library_add_quick_access" = "新增收藏";
 "library_review_feature_title" = "評分與評論";
+"library_marks_section" = "存到音樂資料夾";
+"library_marks_write" = "評分和紅心寫進 album.nfo";
+"library_marks_write_comments" = "評論也一併寫入";
+"library_marks_footer" = "寫進專輯資料夾裡的 album.nfo（和專輯簡介同一個檔案），解除安裝重裝、換裝置或重新加入音樂來源後，掃描時會讀回來。只對能寫入檔案的音樂來源生效（SMB、WebDAV、S3、本機資料夾等）；所有歌曲平鋪在同一個資料夾裡時不寫入。評論寫入後，能存取這個資料夾的人都看得到。";
 "library_review_feature_description" = "在歌曲、專輯、播放清單和曲風頁面顯示個人星級與評論。此功能預設關閉。";
 "library_review_title" = "評分與評論";
 "library_review_add_comment" = "加入評論";

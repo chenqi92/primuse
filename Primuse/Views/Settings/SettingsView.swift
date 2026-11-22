@@ -975,6 +975,10 @@ private struct LibraryDisplaySettingsView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
+    @AppStorage(LibraryFolderMarksPolicy.writeEnabledKey)
+    private var marksWriteEnabled = true
+    @AppStorage(LibraryFolderMarksPolicy.commentsWriteEnabledKey)
+    private var marksCommentsWriteEnabled = true
     @State private var backupFlow = LibraryBackupFlow()
     @State private var showsBackupImporter = false
     @State private var confirmsDiscardingWaitingMarks = false
@@ -1025,6 +1029,19 @@ private struct LibraryDisplaySettingsView: View {
                     }
                 }
                 .settingsAnchor("library.ratingsAndComments")
+            }
+
+            // 评分、评论与红心写进专辑文件夹的 album.nfo(和简介同一个文件),重装后扫描时读回。
+            Section {
+                Toggle("library_marks_write", isOn: $marksWriteEnabled)
+                    .settingsAnchor("library.marksWriteback")
+                Toggle("library_marks_write_comments", isOn: $marksCommentsWriteEnabled)
+                    .disabled(!marksWriteEnabled)
+                    .settingsAnchor("library.marksComments")
+            } header: {
+                SettingsInfoHeader("library_marks_section") {
+                    Text("library_marks_footer")
+                }
             }
 
             backupSection

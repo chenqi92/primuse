@@ -7812,6 +7812,10 @@ private struct MacSTSharePickerAnchor: NSViewRepresentable {
 private struct MacSTThemeView: View {
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
+    @AppStorage(LibraryFolderMarksPolicy.writeEnabledKey)
+    private var marksWriteEnabled = true
+    @AppStorage(LibraryFolderMarksPolicy.commentsWriteEnabledKey)
+    private var marksCommentsWriteEnabled = true
     @AppStorage(AppThemePreferences.customAmbientEnabledKey)
     private var usesCustomAmbientColor = false
     @AppStorage(AppThemePreferences.customAmbientHexKey)
@@ -8655,6 +8659,18 @@ private struct MacSTThemeView: View {
                     MacSTToggle(isOn: $ratingsAndCommentsEnabled)
                 }
                 .settingsAnchor("library.ratingsAndComments")
+                MacSTRow(
+                    String(localized: "library_marks_write"),
+                    hint: String(localized: "library_marks_footer")
+                ) {
+                    MacSTToggle(isOn: $marksWriteEnabled)
+                }
+                .settingsAnchor("library.marksWriteback")
+                MacSTRow(String(localized: "library_marks_write_comments")) {
+                    MacSTToggle(isOn: $marksCommentsWriteEnabled)
+                        .disabled(!marksWriteEnabled)
+                }
+                .settingsAnchor("library.marksComments")
                 MacSTRow(String(localized: "library_quick_access_cover_style")) {
                     MacSTPicker(
                         selection: $quickAccessCoverStyle,

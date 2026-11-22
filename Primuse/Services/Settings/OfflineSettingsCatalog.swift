@@ -27,6 +27,7 @@ enum OfflineSettingsCatalog {
         ImmersiveMotionIntensity.storageKey, ImmersiveLyricsMotionSettings.storageKey,
         LibrarySongBrowseModePreference.storageKey, SongListAppearance.storageKey, LibraryReviewPreferences.enabledKey,
         LibraryInsightWritebackPolicy.embedCommentEnabledKey, LibraryInsightWritebackPolicy.fileWriteEnabledKey,
+        LibraryFolderMarksPolicy.writeEnabledKey, LibraryFolderMarksPolicy.commentsWriteEnabledKey,
         EmbeddedCoverPolicy.modeDefaultsKey, EmbeddedLyricsCopyPolicy.modeDefaultsKey,
         EmbeddedLyricsVariantPriority.storageKey,
         EmbeddedLyricsVariantPriority.timingOrderKey,

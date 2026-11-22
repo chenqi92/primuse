@@ -4658,6 +4658,10 @@
 "carplay_cover_wall" = "Coverwand";
 "carplay_module_hidden" = "Ausgeblendet";
 "library_review_feature_title" = "Bewertungen & Kommentare";
+"library_marks_section" = "In Musikordnern speichern";
+"library_marks_write" = "Bewertungen und Favoriten in album.nfo schreiben";
+"library_marks_write_comments" = "Kommentare einschließen";
+"library_marks_footer" = "Gespeichert in album.nfo im jeweiligen Albumordner (dieselbe Datei wie die Albumbeschreibung) und beim Scannen nach einer Neuinstallation, einem Gerätewechsel oder erneutem Hinzufügen der Quelle wieder eingelesen. Funktioniert mit Quellen, die Dateien annehmen (SMB, WebDAV, S3, lokale Ordner u. a.); entfällt, wenn alle Titel in einem Ordner liegen. Wer den Ordner öffnen kann, kann die Kommentare lesen.";
 "library_review_feature_description" = "Persönliche Sternebewertungen und Kommentare zu Titeln, Alben, Playlists und Genres anzeigen. Diese Funktion ist standardmäßig deaktiviert.";
 "library_review_title" = "Bewertung & Kommentar";
 "library_review_add_comment" = "Kommentar hinzufügen";

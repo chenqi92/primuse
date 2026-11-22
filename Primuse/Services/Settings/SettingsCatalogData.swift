@@ -227,6 +227,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "library.iconStyle", titleKey: "library_icon_style_title", iosPage: .libraryDisplay, macPage: nil, keywords: ["图标", "彩色", "简洁", "单色", "极简", "色块", "icon", "colorful", "simple", "monochrome", "minimal"]),
         SettingDefinition(id: "library.showRowNumbers", titleKey: "library_show_row_numbers", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["序号", "编号", "曲序", "number", "index"]),
         SettingDefinition(id: "library.songRowSwipeActions", titleKey: "library_song_row_swipe_actions", iosPage: .libraryDisplay, macPage: nil, keywords: ["左滑", "右滑", "横滑", "队列", "swipe", "queue"]),
+        SettingDefinition(id: "library.marksWriteback", titleKey: "library_marks_write", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["album.nfo", "nfo", "评分", "红心", "我喜欢", "备份", "保存", "rating", "like", "backup"]),
+        SettingDefinition(id: "library.marksComments", titleKey: "library_marks_write_comments", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["album.nfo", "评论", "留言", "comment"], anchor: "library.marksWriteback"),
         SettingDefinition(id: "library.flatBrowse", titleKey: "library_default_flat_view", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.minimalStartListening", titleKey: "listening_intent_minimal_songs_toggle", iosPage: .libraryDisplay, macPage: nil, keywords: ["开始听", "极简", "minimal", "intent"]),
         SettingDefinition(id: "library.sectionOrder", titleKey: "library_sections_settings_label", iosPage: .libraryDisplay, macPage: .appearance),

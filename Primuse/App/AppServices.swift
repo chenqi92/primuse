@@ -1166,6 +1166,8 @@ final class AppServices {
     let serverCollectionFavoriteSync: ServerCollectionFavoriteSyncService
     let serverBookFavoriteSync: ServerBookFavoriteSyncService
     let serverRatingSync: ServerRatingSyncService
+    /// 评分、评论与红心写进专辑文件夹的 album.nfo,扫描后从那里读回。
+    let folderMarks: LibraryFolderMarksService
     let serverListeningStats: ServerListeningStatsService
     let musicIntelligence: MusicIntelligenceService
 
@@ -1351,6 +1353,7 @@ final class AppServices {
             player: player
         )
         let ratingSync = ServerRatingSyncService(sourceManager: manager, sourcesStore: store, library: library)
+        let folderMarks = LibraryFolderMarksService(library: library, sourceManager: manager, sourcesStore: store)
         let collectionFavoriteSync = ServerCollectionFavoriteSyncService(
             sourcesProvider: { [weak store] in store?.sources ?? [] },
             connectorProvider: { [weak manager] source in manager?.serverCollectionFavoriteConnector(for: source) },
@@ -1391,6 +1394,7 @@ final class AppServices {
         self.serverCollectionFavoriteSync = collectionFavoriteSync
         self.serverBookFavoriteSync = bookFavoriteSync
         self.serverRatingSync = ratingSync
+        self.folderMarks = folderMarks
         self.serverListeningStats = ServerListeningStatsService(sourceManager: manager)
         let theme = ThemeService()
         ListeningSpaceTintSettings.shared.themeService = theme
@@ -1596,10 +1600,12 @@ final class AppServices {
         metadataBackfill.automaticWorkIsAllowed = automaticEnrichmentAllowed
         scraper.automaticWorkIsAllowed = automaticEnrichmentAllowed
         scanService.successfulSourceScanHandler = {
-            [weak metadataBackfill, weak library, weak serverCatalogAutoRefresh, weak alwaysDownload, weak peerScanSeeds]
+            [weak metadataBackfill, weak library, weak serverCatalogAutoRefresh, weak alwaysDownload, weak peerScanSeeds,
+             weak folderMarks]
             sourceID,
             completion in
             metadataBackfill?.sourceScanSucceeded(forSourceID: sourceID)
+            folderMarks?.sourceScanSucceeded(sourceID: sourceID)
             peerScanSeeds?.sourceScanSucceeded(sourceID: sourceID)
             SongTagEditStore.shared.libraryRowsMayHaveChanged()
             PendingTagWritebackStore.shared.scheduleAutomaticRetry(after: .seconds(3), reachableSourceID: sourceID)
@@ -2062,6 +2068,7 @@ final class AppServices {
         LaunchDiagnostics.mark(.deferredStartup)
         #endif
         serverRatingSync.resume()
+        folderMarks.start()
         PendingTagWritebackStore.shared.scheduleAutomaticRetry(after: .seconds(45))
         let startedAt = ProcessInfo.processInfo.systemUptime
 

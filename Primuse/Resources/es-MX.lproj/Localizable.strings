@@ -4564,6 +4564,10 @@
 "carplay_cover_wall" = "Muro de portadas";
 "carplay_module_hidden" = "Oculto";
 "library_review_feature_title" = "Calificaciones y comentarios";
+"library_marks_section" = "Guardar en las carpetas de música";
+"library_marks_write" = "Escribir calificaciones y favoritos en album.nfo";
+"library_marks_write_comments" = "Incluir comentarios";
+"library_marks_footer" = "Se guarda en el archivo album.nfo de cada carpeta de álbum (el mismo de la reseña del álbum) y se vuelve a leer al escanear después de reinstalar, cambiar de dispositivo o volver a agregar la fuente. Funciona con fuentes que permiten escribir archivos (SMB, WebDAV, S3, carpetas locales y más); no se escribe si todas las canciones están en una sola carpeta. Cualquier persona con acceso a la carpeta puede leer los comentarios.";
 "library_review_feature_description" = "Mostrar tus calificaciones con estrellas y comentarios en canciones, álbumes, playlists y géneros. Esta función está desactivada de forma predeterminada.";
 "library_review_title" = "Calificación y comentario";
 "library_review_add_comment" = "Agregar comentario";

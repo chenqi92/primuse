@@ -4658,6 +4658,10 @@
 "carplay_cover_wall" = "Mur de pochettes";
 "carplay_module_hidden" = "Masqué";
 "library_review_feature_title" = "Notes et commentaires";
+"library_marks_section" = "Enregistrer dans les dossiers de musique";
+"library_marks_write" = "Écrire les notes et favoris dans album.nfo";
+"library_marks_write_comments" = "Inclure les commentaires";
+"library_marks_footer" = "Enregistré dans le fichier album.nfo de chaque dossier d’album (le même que la présentation de l’album) et relu lors de l’analyse après une réinstallation, un changement d’appareil ou un nouvel ajout de la source. Fonctionne avec les sources qui acceptent l’écriture de fichiers (SMB, WebDAV, S3, dossiers locaux…) ; ignoré si tous les morceaux sont dans un seul dossier. Toute personne ayant accès au dossier peut lire les commentaires.";
 "library_review_feature_description" = "Afficher vos notes et commentaires sur les morceaux, albums, playlists et genres. Cette fonction est désactivée par défaut.";
 "library_review_title" = "Note et commentaire";
 "library_review_add_comment" = "Ajouter un commentaire";

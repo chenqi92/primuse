@@ -2346,6 +2346,56 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertEqual(Set(rescanned.map(\.albumID)), [albumID])
     }
 
+    /// 手机、Mac 写进专辑文件夹 album.nfo 的评分、评论与红心:电视扫描后读回来(重装、换设备后的找回)。
+    func testScanReadsRatingsCommentsAndLikesFromAlbumNFO() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        store.setSceneActiveForTesting(true)
+        let source = try store.prepareTransferSource()
+        let folderName = "TV NFO Marks QA \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try waveFixture(duration: 6).write(to: folder.appendingPathComponent("Album.wav"))
+        try cueSheet(secondTitle: "Second").write(to: folder.appendingPathComponent("Album.cue"))
+        try Data("""
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <album>
+            <title>Sheet Album</title>
+            <review>Intro kept by Kodi.</review>
+            <primuse version="1">
+                <albummark rating="5" ratingat="2026-11-20T10:00:00.000Z"></albummark>
+                <track file="Album.wav" cue="2" title="Second" duration="2" rating="4" ratingat="2026-11-20T10:01:00.000Z" liked="true" likedat="2026-11-20T10:02:00.000Z" commentat="2026-11-20T10:03:00.000Z">
+                    <comment>from the folder</comment>
+                </track>
+                <track file="Album.wav" cue="1" title="First" duration="300" rating="1" ratingat="2026-11-20T10:04:00.000Z"></track>
+            </primuse>
+        </album>
+        """.utf8).write(to: folder.appendingPathComponent("album.nfo"))
+
+        let scanned = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(scanned)
+        let tracks = cueTracks(fixture, cuePath: "/\(folderName)/Album.cue")
+        XCTAssertEqual(tracks.count, 3)
+        let first = tracks[0]
+        let second = tracks[1]
+        let albumID = try XCTUnwrap(second.albumID)
+
+        // 读回放在扫描之后的后台维护里。
+        let deadline = Date().addingTimeInterval(30)
+        while fixture.library.libraryReview(for: .song(second.id)) == nil, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        XCTAssertEqual(fixture.library.libraryReview(for: .song(second.id))?.rating, 4)
+        XCTAssertEqual(fixture.library.libraryReview(for: .song(second.id))?.comment, "from the folder")
+        XCTAssertTrue(fixture.library.isLiked(songID: second.id))
+        XCTAssertEqual(fixture.library.libraryReview(for: .album(albumID))?.rating, 5)
+        // 第一轨记的时长和这首差得远(文件换过),不认。
+        XCTAssertNil(fixture.library.libraryReview(for: .song(first.id)))
+    }
+
     /// 带 ID3 标签的 WAV(标签放在 `id3 ` 块里),与 TVMetadataParityTests 的写法一致。
     private func taggedWaveFixture(title: String, album: String) -> Data {
         func le<T: FixedWidthInteger>(_ value: T) -> Data {
