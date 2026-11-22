@@ -36,9 +36,7 @@ struct OpenSubsonicLyricsTests {
         ]
         """#)
 
-        let text = try #require(OpenSubsonicLyricsConverter.text(from: tracks))
-        let lines = LyricsContentParser.parseText(text)
-
+        let lines = OpenSubsonicLyricsConverter.read(from: tracks).lines
         #expect(lines.count == 2)
         #expect(lines[0].text == "I sing")
         #expect(lines[0].timestamp == 0.9)
@@ -51,6 +49,33 @@ struct OpenSubsonicLyricsTests {
         #expect(lines[1].text == "Next line")
         #expect(lines[1].timestamp == 3.0)
         #expect(lines[1].syllables == nil)
+    }
+
+    @Test("Repairs a server's misdecoded words after resolving byte offsets and preserves legacy source text")
+    func repairsTimedWordsAtTheirOriginalByteOffsets() throws {
+        func misdecoded(_ text: String) throws -> String {
+            let bytes = try #require(text.data(using: TextEncodingRepair.gb18030))
+            return try #require(String(data: bytes, encoding: .isoLatin1))
+        }
+        let first = try misdecoded("银色风铃")
+        let second = try misdecoded("纸灯轻摇")
+        let whole = first + " · " + second
+        let secondStart = (first + " · ").utf8.count
+        let tracks = try decodeTracks(#"""
+        [{"line":[{"start":0,"value":"\#(whole)"}],"cueLine":[{"index":0,"value":"\#(whole)","cue":[
+          {"start":25,"end":480,"value":"\#(first)","byteStart":0,"byteEnd":\#(first.utf8.count - 1)},
+          {"start":550,"end":920,"value":"\#(second)","byteStart":\#(secondStart),"byteEnd":\#(whole.utf8.count - 1)}
+        ]}]}]
+        """#)
+        let words = try #require(OpenSubsonicLyricsConverter.read(from: tracks).lines.first?.syllables)
+        #expect(words.map(\.text) == ["银色风铃 · ", "纸灯轻摇"])
+        #expect(words.map(\.start) == [0.025, 0.55])
+        #expect(words.map(\.end) == [0.48, 0.92])
+
+        let legacy = try decodeTracks(#"[{"synced":false,"line":[{"value":"\#(first)"}]}]"#)
+        let response = OpenSubsonicLyricsConverter.read(from: legacy)
+        #expect(response == .content(first))
+        #expect(response.lines.first?.text == "银色风铃")
     }
 
     @Test("Prefers the cue-capable main track when a server returns duplicate mains")
@@ -470,7 +495,7 @@ struct OpenSubsonicLyricsTests {
            "cueLine":[{"index":0,"start":1200,"agentId":"a","value":"hui sheng"}]}
         ]
         """#)
-        let lines = LyricsContentParser.parseText(try #require(OpenSubsonicLyricsConverter.text(from: tracks)))
+        let lines = OpenSubsonicLyricsConverter.read(from: tracks).lines
         #expect(lines.map(\.text) == ["叩窗", "回信"])
         #expect(lines.map(\.voice) == [.primary, .secondary])
         #expect(lines.map { $0.manualTranslation?.text } == ["Knock", "Reply"])
@@ -558,8 +583,8 @@ struct OpenSubsonicLyricsTests {
         let coordinator = LyricsSourceRefreshCoordinator()
         let key = LyricsSourceRefreshKey(sourceID: "library", songID: "clock")
         let old = LyricsContentParser.parseText("[00:01.00]砂钟")
-        let fetch: @Sendable () throws -> [LyricLine] = {
-            LyricsContentParser.parseText(try #require(OpenSubsonicLyricsConverter.text(from: tracks)))
+        let fetch: @Sendable () -> [LyricLine] = {
+            OpenSubsonicLyricsConverter.read(from: tracks).lines
         }
         let result = await coordinator.refresh(key: key, currentDocument: old, trigger: .explicit,
                                                fetch: fetch, replace: { _ in true })

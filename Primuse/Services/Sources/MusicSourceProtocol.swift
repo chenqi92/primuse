@@ -2879,15 +2879,7 @@ struct ServerLyricsCapabilities: Equatable, Sendable {
     )
 }
 
-/// 服务端直接提供歌词的能力 (Subsonic getLyricsBySongId / getLyrics，或
-/// Emby 的文本字幕流)。返回 LRC 文本(带 `[mm:ss.xx]` 时间轴)或纯文本
-/// (无时间轴), 交由 `LyricsParser` 统一解析; 没有歌词时返回 nil。
-enum ServerLyricsReadResult: Sendable {
-    case content(String)
-    case absent
-    case unavailable
-}
-
+/// 服务端可以交付已配对的歌词行，也可以交付原始文本文档。
 protocol ServerLyricsConnector: MusicSourceConnector {
     var serverLyricsCapabilities: ServerLyricsCapabilities { get }
     func fetchServerLyrics(for path: String) async -> String?

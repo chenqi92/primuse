@@ -1823,18 +1823,16 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     // MARK: - Lyrics (ServerLyricsConnector)
 
     func fetchServerLyrics(for path: String) async -> String? {
-        guard case .content(let content) = await readServerLyrics(for: path) else {
-            return nil
-        }
-        return content
+        await readServerLyrics(for: path).sourceText
     }
 
     func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
         guard let songID = songID(from: path) else { return .unavailable }
         do {
             try await connect()
-            let content = try await routedLyrics(songID: songID)
-            guard let content,
+            // Airsonic's legacy API has no structured lyrics endpoint.
+            if isOpenSubsonic { return try await modernLyrics(songID: songID) }
+            guard let content = try await legacyLyrics(songID: songID),
                   !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return .absent
             }
@@ -1844,20 +1842,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
     }
 
-    private func routedLyrics(songID: String) async throws -> String? {
-        // getLyricsBySongId is an OpenSubsonic extension. Calling it on
-        // Airsonic Advanced produces a server-side 404 exception before the
-        // legacy fallback, even though playback itself succeeds. Route by the
-        // capability advertised by ping so each family receives only the API
-        // it implements.
-        if isOpenSubsonic {
-            return try await modernLyrics(songID: songID)
-        }
-        return try await legacyLyrics(songID: songID)
-    }
-
     /// OpenSubsonic getLyricsBySongId —— 结构化(可带时间轴)歌词。
-    private func modernLyrics(songID: String) async throws -> String? {
+    private func modernLyrics(songID: String) async throws -> ServerLyricsReadResult {
         // songLyrics v2 gates cue-level karaoke timing behind enhanced=true.
         // Most older servers ignore the optional parameter and keep returning
         // the version 1 line array. If one rejects unknown parameters, retry
@@ -1883,8 +1869,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 throw error
             }
         }
-        guard let tracks = container.lyricsList?.structuredLyrics else { return nil }
-        return OpenSubsonicLyricsConverter.text(from: tracks)
+        return OpenSubsonicLyricsConverter.read(from: container.lyricsList?.structuredLyrics ?? [])
     }
 
     /// 老 Subsonic getLyrics —— 按 artist+title 匹配, 只返回无时间轴纯文本。

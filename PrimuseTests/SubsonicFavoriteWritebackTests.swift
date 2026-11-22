@@ -6,6 +6,33 @@ import XCTest
 
 @MainActor
 final class SubsonicFavoriteWritebackTests: XCTestCase {
+    func testNavidromeDocumentKeepsIndependentReadingCuesThroughOfflineCache() async throws {
+        let host = "three-tracks.invalid"
+        SubsonicFavoriteURLProtocol.configure(host: host, mode: .success)
+        let (source, session) = makeSource(host: host)
+        defer { session.invalidateAndCancel() }
+        let path = "/songs/paper-score.m4a"
+        let response = await source.readServerLyrics(for: path)
+        guard case .document(let lines) = response else { return XCTFail("Expected structured lyrics") }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = MetadataAssetStore(storageDirectory: folder)
+        let saved = await store.cacheLyrics(LyricsDocumentSource.server("Navidrome").stamped(lines), forSongID: "paper-score")
+        XCTAssertTrue(saved)
+        let reloaded = await MetadataAssetStore(storageDirectory: folder).cachedLyrics(forSongID: "paper-score")
+        let line = try XCTUnwrap(reloaded?.first)
+        XCTAssertEqual(line.text, "雾钟")
+        XCTAssertEqual(line.syllables?.map(\.start), [0.2, 0.5])
+        XCTAssertEqual(line.manualTranslation?.text, "Mist bell")
+        XCTAssertEqual(line.romanization, "wu zhong")
+        XCTAssertEqual(line.romanizationSyllables?.map(\.start), [0.22, 0.53])
+        XCTAssertEqual(line.romanizationSyllables?.map(\.end), [0.51, 0.82])
+        let raw = try XCTUnwrap(response.sourceText)
+        XCTAssertTrue(LyricsContentParser.isTTML(raw))
+        XCTAssertEqual(LyricsParser.parse(raw).first?.romanizationSyllables, line.romanizationSyllables)
+        await source.disconnect()
+    }
+
     func testZSpaceStandardSubsonicCatalogAndPlaylistsDoNotRequireOpenSubsonic() async throws {
         let host = "zspace-legacy.invalid"
         SubsonicFavoriteURLProtocol.configure(host: host, mode: .legacyCatalogue)
@@ -628,6 +655,19 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
+        case "/rest/getLyricsBySongId.view" where URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.contains(URLQueryItem(name: "id", value: "paper-score")) == true:
+            respond(json: #"""
+            {"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[
+              {"kind":"main","lang":"zh","synced":true,"line":[{"start":200,"value":"雾钟"}],
+               "cueLine":[{"index":0,"start":200,"end":900,"value":"雾钟","cue":[
+                 {"start":200,"end":500,"value":"雾"},{"start":500,"end":900,"value":"钟"}]}]},
+              {"kind":"translation","lang":"en","synced":true,"line":[{"start":200,"value":"Mist bell"}]},
+              {"kind":"pronunciation","lang":"zh-latn","synced":true,"line":[{"start":220,"value":"wu zhong"}],
+               "cueLine":[{"index":0,"start":220,"end":820,"value":"wu zhong","cue":[
+                 {"start":220,"end":510,"value":"wu "},{"start":530,"end":820,"value":"zhong"}]}]}
+            ]}}}
+            """#)
         case "/rest/getLyricsBySongId.view":
             respond(json: #"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[{"lang":"zho","synced":true,"line":[{"start":1000,"value":"纸灯照过长街"}]}]}}}"#)
         case "/rest/getInternetRadioStations.view":

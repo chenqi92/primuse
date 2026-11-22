@@ -265,8 +265,10 @@ func subsonicLyricsClientLoadsOpenSubsonicLyrics(sourceType: MusicSourceType) as
             return (200, Data(#"""
                 {"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[
                   {"kind":"main","synced":true,"line":[{"start":1000,"value":"石灯"}]},
-                  {"kind":"translation","lang":"eng","synced":true,"line":[{"start":1000,"value":"Stone lamp"}]},
-                  {"kind":"pronunciation","synced":true,"line":[{"start":1000,"value":"shi deng"}]}
+                  {"kind":"translation","lang":"eng","synced":true,"line":[{"start":1000,"value":"Stone lamp"}],
+                   "cueLine":[{"index":0,"cue":[{"start":1020,"end":1460,"value":"Stone "},{"start":1510,"end":2030,"value":"lamp"}]}]},
+                  {"kind":"pronunciation","synced":true,"line":[{"start":1000,"value":"shi deng"}],
+                   "cueLine":[{"index":0,"cue":[{"start":1070,"end":1480,"value":"shi "},{"start":1500,"end":2010,"value":"deng"}]}]}
                 ]}}}
                 """#.utf8))
         default:
@@ -289,15 +291,17 @@ func subsonicLyricsClientLoadsOpenSubsonicLyrics(sourceType: MusicSourceType) as
         credential: SourceCredential(password: "secret")
     )
 
-    guard case .content(let text) = result else {
+    guard case .document(let lines) = result else {
         Issue.record("Expected OpenSubsonic lyrics, got \(result)")
         return
     }
-    let line = try #require(LyricsContentParser.parseText(text).first)
+    let line = try #require(lines.first)
     #expect(line.text == "石灯")
     #expect(line.timestamp == 1)
     #expect(line.manualTranslation?.text == "Stone lamp")
     #expect(line.romanization == "shi deng")
+    #expect(line.manualTranslation?.syllables?.map(\.start) == [1.02, 1.51])
+    #expect(line.romanizationSyllables?.map(\.end) == [1.48, 2.01])
     let requests = SubsonicLyricsURLProtocol.requests(host: host)
     #expect(requests.map { $0.url?.lastPathComponent } == ["ping.view", "getLyricsBySongId.view"])
     let lyricsQuery = Dictionary(uniqueKeysWithValues:

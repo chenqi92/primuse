@@ -2204,7 +2204,7 @@ enum LyricsWriteback {
     ) async -> VersionDeletionOutcome {
         let store = MetadataAssetStore.shared
         var outcome = VersionDeletionOutcome()
-        if entry.isEmbedded || entry.serverText != nil || entry.cachedOnly {
+        if entry.isEmbedded || entry.server != nil || entry.cachedOnly {
             let hides: Bool
             if case .readOnly = plan { hides = true } else { hides = false }
             do {
@@ -2552,7 +2552,7 @@ enum LyricsWriteback {
         let connector = try await sourceManager.auxiliaryConnector(for: song)
         guard let server = connector as? any ServerLyricsConnector,
               text == nil ? server.serverLyricsCapabilities.canDelete : server.serverLyricsCapabilities.canWrite,
-              case .content(let current) = await server.readServerLyrics(for: song.filePath),
+              let current = await server.readServerLyrics(for: song.filePath).sourceText,
               current == original else {
             throw SidecarWriteService.LyricsDocumentWriteError.changedElsewhere(song.title)
         }

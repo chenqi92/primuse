@@ -119,25 +119,18 @@ enum LyricsLoader {
             currentDocument: currentDocument,
             trigger: trigger,
             fetch: {
-                let raw: String
                 let response = await server.readServerLyrics(for: sourcePath)
                 try Task.checkCancellation()
                 switch response {
-                case .content(let content):
+                case .content, .document:
                     await MetadataAssetStore.shared.clearSourceLyricsAbsence(songID: songID)
-                    raw = content
                 case .absent:
                     await MetadataAssetStore.shared.recordSourceLyricsAbsence(for: song)
                     return nil
                 case .unavailable:
                     throw SourceError.connectionFailed("Lyrics source unavailable")
                 }
-                guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return nil
-                }
-                // 服务端按 Latin-1 / 1252 解过的 GBK / Big5 字节一个没丢, 先倒回原文。
-                let text = TextEncodingRepair.repairedLyricsDocument(raw) ?? raw
-                let parsed = LyricsParser.parseText(text)
+                let parsed = response.lines
                 guard !parsed.isEmpty else { return nil }
                 guard let usable = await usableServerDocument(
                     serverSource?.stamped(parsed) ?? parsed,
@@ -270,6 +263,8 @@ enum LyricsLoader {
                 let capabilities = server.serverLyricsCapabilities
                 if capabilities.canRead {
                     switch await server.readServerLyrics(for: song.filePath) {
+                    case .document(let lines):
+                        return .content(LyricsContentParser.serializeTTML(lines))
                     case .content(let raw)
                         where !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
                         return .content(TextEncodingRepair.repairedLyricsDocument(raw) ?? raw)

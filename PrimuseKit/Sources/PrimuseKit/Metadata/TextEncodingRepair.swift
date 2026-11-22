@@ -81,7 +81,11 @@ public enum TextEncodingRepair {
     /// 同一份歌词里看着像乱码的行合在一起定下是哪种误读, 再逐行套用; 套不上的行原样留着,
     /// 本来就是 UTF-8 的行不碰。没有可修的返回 nil。
     public static func repairedLyricsDocument(_ text: String) -> String? {
-        let lines = text.components(separatedBy: "\n")
+        repairedLyricFragments(text.components(separatedBy: "\n"))?.joined(separator: "\n")
+    }
+
+    /// Keep the same fragment boundaries when each string belongs to a timed cue.
+    static func repairedLyricFragments(_ lines: [String]) -> [String]? {
         let corrupted = lines.indices.filter { looksCorrupted(lines[$0]) }
         guard !corrupted.isEmpty,
               let rewrite = bestRewrite(for: corrupted.map { lines[$0] }.joined(separator: "\n"))?.rewrite
@@ -90,7 +94,7 @@ public enum TextEncodingRepair {
         for index in corrupted {
             if let candidate = rewrite.apply(to: lines[index]) { repaired[index] = candidate }
         }
-        return repaired == lines ? nil : repaired.joined(separator: "\n")
+        return repaired == lines ? nil : repaired
     }
 
     private static func bestRewrite(for text: String) -> (rewrite: Rewrite, text: String)? {

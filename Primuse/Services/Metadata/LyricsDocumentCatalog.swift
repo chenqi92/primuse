@@ -6,6 +6,15 @@ import PrimuseKit
 /// Only file-backed entries can write their original bytes back to the source.
 @MainActor
 enum LyricsDocumentCatalog {
+    struct ServerVersion: Equatable, Sendable {
+        let type: String
+        let canDelete: Bool
+        let lines: [LyricLine]
+        let originalText: String?
+
+        var editableText: String { originalText ?? LyricsContentParser.serializeTTML(lines) }
+    }
+
     struct Entry: Identifiable, Equatable, Sendable {
         var document: LyricsSidecarDocument
         let format: LyricsDocumentFormat?
@@ -22,17 +31,15 @@ enum LyricsDocumentCatalog {
         var embeddedRole: EmbeddedLyricField.Role?
         var embeddedLanguage: String?
         var openedAudioFile: LyricsWriteback.OpenedAudioFile?
-        var serverText: String?
-        var serverType: String?
-        var serverCanDelete = false
+        var server: ServerVersion?
         var localEdit: LyricsVersionPreferences.LocalEdit?
         var cachedOnly = false
 
         var isEmbedded: Bool { embeddedID != nil }
         var isPhysicallyWritable: Bool { isEditable && candidate == nil && !cachedOnly }
-        var isPhysicallyRemovable: Bool { serverText == nil ? isPhysicallyWritable : serverCanDelete }
+        var isPhysicallyRemovable: Bool { server?.canDelete ?? isPhysicallyWritable }
         var sourceKind: LyricsDocumentSource.Kind? {
-            if serverText != nil { return .server }
+            if server != nil { return .server }
             if cachedOnly { return LyricsDocumentSource.of(localEdit?.lines ?? [])?.kind }
             if let candidate { return candidate.source?.kind }
             return isEmbedded ? .embedded : .file
@@ -44,7 +51,7 @@ enum LyricsDocumentCatalog {
         var formatLabel: String? {
             if let edit = localEdit { return Self.formatName(edit.text) }
             if let format { return format.label }
-            let text = embeddedText ?? serverText
+            let text = embeddedText ?? server?.originalText
             guard let text else {
                 if let lines = candidate?.lines { return LyricsTimingLevel(lines: lines) == .plain ? "TXT" : nil }
                 return nil
@@ -163,18 +170,28 @@ enum LyricsDocumentCatalog {
         if case .notFileBased = sidecars, let type = sourcesStore.source(id: song.sourceID)?.type,
            type.isServerLibrary,
            let connector = try? await sourceManager.auxiliaryConnector(for: song),
-           let server = connector as? any ServerLyricsConnector, server.serverLyricsCapabilities.canRead,
-           case .content(let text) = await server.readServerLyrics(for: song.filePath) {
-            let lines = LyricsDocumentSource.server(type.rawValue).stamped(LyricsParser.parse(text))
+           let server = connector as? any ServerLyricsConnector, server.serverLyricsCapabilities.canRead {
+            let response = await server.readServerLyrics(for: song.filePath)
+            let lines = LyricsDocumentSource.server(type.rawValue).stamped(response.lines)
             if !lines.isEmpty, await !store.isHiddenLyricsVersion(lines, forSongID: song.id) {
                 let capabilities = server.serverLyricsCapabilities
+                let originalText: String?
+                let format: LyricsDocumentFormat?
+                if case .content(let text) = response {
+                    originalText = text
+                    format = LyricsDocumentFormat(rawValue: Entry.formatName(text).lowercased())
+                } else {
+                    originalText = nil
+                    format = .ttml
+                }
                 serverEntry = Entry(document: .init(name: type.rawValue, path: "server-current:" + type.rawValue,
-                                                    size: Int64(text.utf8.count), modifiedDate: nil),
-                                    format: LyricsDocumentFormat(rawValue: Entry.formatName(text).lowercased()),
+                                                    size: Int64(originalText?.utf8.count ?? 0), modifiedDate: nil),
+                                    format: format,
                                     isActive: cached.map { LyricsDocumentSource.of($0)?.kind == .server
                                         && EmbeddedLyricsPrecedencePolicy.sameDocument(lines, $0) } ?? false,
-                                    isEditable: capabilities.canWrite, translation: nil, serverText: text,
-                                    serverType: type.rawValue, serverCanDelete: capabilities.canDelete)
+                                    isEditable: capabilities.canWrite, translation: nil,
+                                    server: ServerVersion(type: type.rawValue, canDelete: capabilities.canDelete,
+                                                          lines: lines, originalText: originalText))
                 await store.rememberLyricsCandidate(lines, forSongID: song.id)
                 sources = await store.lyricsSourceCollection(forSongID: song.id)
             }
@@ -274,9 +291,9 @@ enum LyricsDocumentCatalog {
         for candidate in sources.candidates {
             // 歌词文件的那几份已经按文件列出来了；「另存为新版本」留下的旧版本例外，它原来的文件已经换了内容。
             let kept = sources.isKept(candidate.id)
-            if !kept, let serverText = serverEntry?.serverText, candidate.source?.kind == .server,
+            if !kept, let server = serverEntry?.server, candidate.source?.kind == .server,
                candidate.lines.first?.documentIsLocalOverride != true,
-               EmbeddedLyricsPrecedencePolicy.sameDocument(LyricsParser.parse(serverText), candidate.lines) { continue }
+               EmbeddedLyricsPrecedencePolicy.sameDocument(server.lines, candidate.lines) { continue }
             if !kept, candidate.lines.first?.documentIsLocalOverride == true,
                choices.edits.values.contains(where: { LyricsDocumentFingerprint(lines: $0.lines) == LyricsDocumentFingerprint(lines: candidate.lines) }) { continue }
             if !kept, candidate.source?.kind == .embedded, candidate.lines.first?.documentIsLocalOverride != true,
@@ -481,7 +498,7 @@ enum LyricsDocumentCatalog {
     static func read(_ entry: Entry, for song: Song, sourceManager: SourceManager) async throws -> Content {
         if let edit = entry.localEdit { return textContent(edit.text) }
         if let text = entry.embeddedText { return textContent(text) }
-        if let text = entry.serverText { return textContent(text) }
+        if let server = entry.server { return textContent(server.editableText) }
         guard let candidate = entry.candidate else {
             return try await read(entry.document, for: song, sourceManager: sourceManager)
         }
@@ -608,9 +625,7 @@ enum LyricsDocumentCatalog {
             let snapshot = await MetadataAssetStore.shared.embeddedLyricsAlternatives(forSongID: song.id)
             return embeddedLines(entry, text: text, snapshot: snapshot)
         }
-        if let text = entry.serverText, let type = entry.serverType {
-            return LyricsDocumentSource.server(type).stamped(LyricsParser.parse(text))
-        }
+        if let server = entry.server { return server.lines }
         let content = try await read(entry.document, for: song, sourceManager: sourceManager,
                                      maximumBytes: LyricsSidecarTargetPolicy.maximumReadByteCount(for: song))
         var parsed = LyricsParser.parseDocument(content.text, fileName: entry.name)
@@ -733,10 +748,10 @@ enum LyricsDocumentCatalog {
                 let previous = LyricsDocumentSource.embedded.stamped(LyricsParser.parse(original.text))
                 choices.removedDocuments.formUnion(try await MetadataAssetStore.shared.discardLyricsVersionCopies(previous, forSongID: song.id))
             }
-        } else if entry.serverText != nil, let type = entry.serverType {
+        } else if let server = entry.server {
             try await LyricsWriteback.replaceServerVersion(for: song, expecting: original.text, with: text,
                                                          sourceManager: sourceManager)
-            lines = LyricsDocumentSource.server(type).stamped(lines)
+            lines = LyricsDocumentSource.server(server.type).stamped(lines)
         } else {
             _ = try await MusicScraperService.replaceLyricsDocumentWithTimeout(
                 seconds: 30, sourceManager: sourceManager, for: song, named: entry.name,
@@ -812,7 +827,7 @@ enum LyricsDocumentCatalog {
         }
         for entry in selected {
             if let previous = entries.first(where: { $0.id == entry.id }),
-               previous.document != entry.document || previous.serverText != entry.serverText || previous.localEdit != entry.localEdit {
+               previous.document != entry.document || previous.server?.editableText != entry.server?.editableText || previous.localEdit != entry.localEdit {
                 throw changed(entry)
             }
         }
@@ -864,9 +879,9 @@ enum LyricsDocumentCatalog {
         }
         for entry in selected where !physical.contains(where: { $0.id == entry.id }) {
             let parsed: [LyricLine]
-            if !hidingOnly, entry.isPhysicallyRemovable, let original = entry.serverText {
-                parsed = LyricsDocumentSource.server(entry.serverType ?? "").stamped(LyricsParser.parse(original))
-                try await LyricsWriteback.replaceServerVersion(for: currentSong, expecting: original, with: nil,
+            if !hidingOnly, entry.isPhysicallyRemovable, let server = entry.server {
+                parsed = server.lines
+                try await LyricsWriteback.replaceServerVersion(for: currentSong, expecting: server.editableText, with: nil,
                                                              sourceManager: sourceManager)
             } else if !hidingOnly, entry.isPhysicallyRemovable {
                 let snapshot = try await read(entry.document, for: currentSong, sourceManager: sourceManager,
@@ -1020,8 +1035,8 @@ enum LyricsDocumentCatalog {
             }
             return .embeddedField(entry.embeddedText)
         }
-        if entry.serverText != nil {
-            return entry.serverCanDelete ? .serverVersion : .readOnly(String(localized: "lyrics_version_delete_read_only_server"))
+        if let server = entry.server {
+            return server.canDelete ? .serverVersion : .readOnly(String(localized: "lyrics_version_delete_read_only_server"))
         }
         guard let candidate = entry.candidate else {
             return documents.sourceIsWritable

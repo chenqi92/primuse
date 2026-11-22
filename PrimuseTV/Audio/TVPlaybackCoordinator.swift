@@ -2754,13 +2754,9 @@ final class TVPlaybackCoordinator {
                 lines = LyricsContentParser.parse(text)
             }
         case .subsonicServer:
-            if case .content(let text) = await readSubsonicServerLyrics(for: song.filePath, source: source, credential: credential) {
-                lines = LyricsContentParser.parse(text)
-            }
+            lines = await readSubsonicServerLyrics(for: song.filePath, source: source, credential: credential).lines
         case .daoLiYuService, .songloftService, .synologyAudioStationService, .mediaServer, .audiobookshelfService:
-            if case .content(let text) = await TVSourceAssetReader.shared.lyrics(path: song.filePath, source: source, credential: credential) {
-                lines = LyricsContentParser.parse(text)
-            }
+            lines = await TVSourceAssetReader.shared.lyrics(path: song.filePath, source: source, credential: credential).lines
         case .sourceFile:
             var paths = [Self.storedLyricsReference(of: song), Self.guessedLyricsPath(for: song, source: source, credential: credential)].compactMap { $0 }
             if song.isCueTrack {
@@ -2831,7 +2827,7 @@ final class TVPlaybackCoordinator {
                           !text.isEmpty else { return }
                     try self.ensureCurrent(requestID, store: store)
                     try await self.cacheAndApplyServerLyrics(
-                        text,
+                        .content(text),
                         song: song,
                         requestID: requestID,
                         store: store,
@@ -2850,15 +2846,10 @@ final class TVPlaybackCoordinator {
                     path: song.filePath, source: source, credential: credential
                 )
                 guard self.isCurrent(requestID, store: store) else { return }
-                if case .content(let text) = result {
-                    do {
-                        try await self.cacheAndApplyServerLyrics(
-                            text, song: song, requestID: requestID, store: store,
-                            destinationID: destinationID,
-                            logSource: source.type.displayName
-                        )
-                    } catch { return }
-                }
+                try? await self.cacheAndApplyServerLyrics(
+                    result, song: song, requestID: requestID, store: store,
+                    destinationID: destinationID, logSource: source.type.displayName
+                )
                 return
             case .subsonicServer:
                 let result = await self.readSubsonicServerLyrics(
@@ -2868,10 +2859,10 @@ final class TVPlaybackCoordinator {
                 )
                 guard self.isCurrent(requestID, store: store) else { return }
                 switch result {
-                case .content(let text):
+                case .content, .document:
                     do {
                         try await self.cacheAndApplyServerLyrics(
-                            text,
+                            result,
                             song: song,
                             requestID: requestID,
                             store: store,
@@ -3377,7 +3368,7 @@ final class TVPlaybackCoordinator {
     }
 
     private func cacheAndApplyServerLyrics(
-        _ text: String,
+        _ response: ServerLyricsReadResult,
         song: Song,
         requestID: UUID,
         store: TVStore,
@@ -3385,7 +3376,7 @@ final class TVPlaybackCoordinator {
         logSource: String,
         documentSource: LyricsDocumentSource? = nil
     ) async throws {
-        let parsed = LyricsParser.parseText(TextEncodingRepair.repairedLyricsDocument(text) ?? text)
+        let parsed = response.lines
         guard !parsed.isEmpty else { return }
         guard let usable = LossyDecodedLyricsRepair.usableDocument(parsed) else {
             lossilyDecodedServerLyrics = (song.id, parsed)
@@ -3421,9 +3412,8 @@ final class TVPlaybackCoordinator {
             fetch: {
                 let response = await self.readSubsonicServerLyrics(for: song.filePath, source: source, credential: credential)
                 switch response {
-                case .content(let text):
-                    let parsed = LyricsContentParser.parseText(TextEncodingRepair.repairedLyricsDocument(text) ?? text)
-                    guard let usable = LossyDecodedLyricsRepair.usableDocument(parsed, references: [cached]) else { return nil }
+                case .content, .document:
+                    guard let usable = LossyDecodedLyricsRepair.usableDocument(response.lines, references: [cached]) else { return nil }
                     return LyricsDocumentSource.server(source.type.rawValue).stamped(usable)
                 case .absent: return nil
                 case .unavailable: throw URLError(.cannotLoadFromNetwork)
@@ -3463,7 +3453,7 @@ final class TVPlaybackCoordinator {
                 credential: credential
             )
             switch result {
-            case .content(_), .absent:
+            case .content, .document, .absent:
                 await runtime.record(candidate.kind, for: source.id)
                 return result
             case .unavailable:

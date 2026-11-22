@@ -42,6 +42,10 @@ public enum OpenSubsonicLyricsConverter {
     }
 
     public static func text(from tracks: [Track]) -> String? {
+        read(from: tracks).sourceText
+    }
+
+    public static func read(from tracks: [Track]) -> ServerLyricsReadResult {
         let mains = tracks.filter { normalizedKind($0.kind) == "main" && $0.line?.isEmpty == false }
         let main = mains.first(where: hasRenderableCues)
             ?? mains.first { track in
@@ -51,7 +55,7 @@ public enum OpenSubsonicLyricsConverter {
                 }
             }
             ?? mains.first { $0.line?.contains { lineValue($0.value) != nil } == true }
-        guard let main, let lines = main.line else { return nil }
+        guard let main, let lines = main.line else { return .absent }
 
         let language = main.lang.flatMap(LyricLanguageCodePolicy.canonicalIdentifier)
         let companions = tracks.compactMap { Companion($0, originalLanguage: language) }
@@ -64,19 +68,19 @@ public enum OpenSubsonicLyricsConverter {
                 guard main.synced != false, let start = line.start else { return value }
                 return lrcTimestamp(adjustedTimestamp(start, offset: main.offset ?? 0)) + value
             }.joined(separator: "\n")
-            guard !body.isEmpty else { return nil }
-            guard let language else { return body }
+            guard !body.isEmpty else { return .absent }
+            guard let language else { return .content(body) }
             if main.synced != false, lines.contains(where: { $0.start != nil }) {
-                return "[la:\(language)]\n" + body
+                return .content("[la:\(language)]\n" + body)
             }
-            var parsed = LyricsContentParser.parseText(body)
-            guard !parsed.isEmpty else { return nil }
+            var parsed = LyricsContentParser.parseText(repairedText(body))
+            guard !parsed.isEmpty else { return .absent }
             parsed[0].metadataLines = ["[la:\(language)]"] + (parsed[0].metadataLines ?? [])
-            return LyricsContentParser.serializeTTML(parsed)
+            return .document(parsed)
         }
 
         var originals = rows(in: main)
-        guard !originals.isEmpty else { return nil }
+        guard !originals.isEmpty else { return .absent }
         if !companions.isEmpty {
             let timeline = Timeline(originals)
             for companion in companions {
@@ -93,7 +97,7 @@ public enum OpenSubsonicLyricsConverter {
             document = LyricBilingualPairingPolicy.pair(document)
         }
         if let language { document[0].metadataLines = ["[la:\(language)]"] }
-        return LyricsContentParser.serializeTTML(document)
+        return .document(document)
     }
 
     private static func hasRenderableCues(_ track: Track) -> Bool {
@@ -157,7 +161,7 @@ public enum OpenSubsonicLyricsConverter {
                 let start = layer.start.map { adjustedTimestamp($0, offset: offset) } ?? parentStart
                 let end = layer.end.map { adjustedTimestamp($0, offset: offset) } ?? parentEnd
                 let syllables = syllables(in: layer, end: end, nextStart: nextStart, offset: offset)
-                guard let value = lyricText(syllables?.map(\.text).joined()) ?? lyricText(layer.value) else { continue }
+                guard let value = lyricText(syllables?.map(\.text).joined()) ?? lyricText(layer.value).map(repairedText) else { continue }
                 let lineStart = start.map { Double($0) / 1000 }
                 let onset = [lineStart, syllables?.first?.start].compactMap { $0 }.min()
                 let agent = layer.agentId.flatMap { agents[$0] }
@@ -171,7 +175,7 @@ public enum OpenSubsonicLyricsConverter {
             }
             if result.count == priorCount, let value = lyricText(parent.value) {
                 let line = LyricLine(
-                    timestamp: Double(parentStart ?? 0) / 1000, text: value,
+                    timestamp: Double(parentStart ?? 0) / 1000, text: repairedText(value),
                     isSynchronized: parentStart != nil, endTimestamp: parentEnd.map { Double($0) / 1000 }
                 )
                 result.append(Row(parentIndex: index, agent: nil, line: LyricTextEntityPolicy.decoded(line)))
@@ -344,38 +348,36 @@ public enum OpenSubsonicLyricsConverter {
         return annotation
     }
 
-    /// byteStart/byteEnd point into cueLine.value's final UTF-8 bytes. Taking
-    /// each segment up to the next cue retains spaces and any untimed text.
+    /// Resolve inclusive offsets in the server's UTF-8 string before repairing
+    /// the words. Untimed punctuation and whitespace keep their original text.
     private static func resolvedValues(
         for cues: [TimedCue],
         canonicalLine: String?
     ) -> [String] {
-        let fallback = cues.map(\.value)
-        guard let canonicalLine, !canonicalLine.isEmpty else { return fallback }
-        let bytes = Array(canonicalLine.utf8)
-        var result: [String] = []
-        for index in cues.indices {
-            guard let start = cues[index].byteStart,
-                  let end = cues[index].byteEnd,
-                  start >= 0, end >= start, end < bytes.count else {
-                return fallback
-            }
-            let lower = index == cues.startIndex ? 0 : start
-            let upper: Int
-            if cues.indices.contains(index + 1) {
-                guard let nextStart = cues[index + 1].byteStart,
-                      nextStart > end, nextStart <= bytes.count else { return fallback }
-                upper = nextStart
-            } else {
-                upper = bytes.count
-            }
-            guard lower < upper,
-                  let value = String(bytes: bytes[lower..<upper], encoding: .utf8) else {
-                return fallback
-            }
-            result.append(value)
+        func fallback() -> [String] {
+            let words = cues.map(\.value)
+            return TextEncodingRepair.repairedLyricFragments(words) ?? words
         }
-        return result
+        guard !cues.isEmpty, let canonicalLine, !canonicalLine.isEmpty else { return fallback() }
+        let bytes = Array(canonicalLine.utf8)
+        var words: [String] = []
+        var gaps: [String] = []
+        var previousEnd = 0
+        for cue in cues {
+            guard let start = cue.byteStart, let end = cue.byteEnd,
+                  start >= previousEnd, end >= start, end < bytes.count,
+                  let gap = String(bytes: bytes[previousEnd..<start], encoding: .utf8),
+                  let word = String(bytes: bytes[start...end], encoding: .utf8) else { return fallback() }
+            gaps.append(gap)
+            words.append(word)
+            previousEnd = end + 1
+        }
+        guard let tail = String(bytes: bytes[previousEnd...], encoding: .utf8) else { return fallback() }
+        gaps.append(tail)
+        var values = TextEncodingRepair.repairedLyricFragments(words) ?? words
+        values[0] = gaps[0] + values[0]
+        for index in values.indices { values[index] += gaps[index + 1] }
+        return values
     }
 
     private static func normalizedKind(_ value: String?) -> String {
@@ -390,6 +392,10 @@ public enum OpenSubsonicLyricsConverter {
     private static func lyricText(_ value: String?) -> String? {
         guard let text = value?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text
+    }
+
+    private static func repairedText(_ text: String) -> String {
+        return TextEncodingRepair.repairedLyricsDocument(text) ?? text
     }
 
     private static func oneLine(_ value: String) -> String {

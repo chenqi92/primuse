@@ -1001,7 +1001,7 @@ struct LyricsDocumentEditorView: View {
         loadError = nil
         do {
             let fresh: LyricsDocumentCatalog.Content
-            if entry.candidate != nil || entry.isEmbedded || entry.localEdit != nil || entry.serverText != nil {
+            if entry.candidate != nil || entry.isEmbedded || entry.localEdit != nil || entry.server != nil {
                 fresh = try await LyricsDocumentCatalog.read(entry, for: song, sourceManager: sourceManager)
             } else {
                 fresh = try await LyricsDocumentCatalog.readFresh(named: entry.name, for: song, sourceManager: sourceManager)

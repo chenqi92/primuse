@@ -293,11 +293,7 @@ public actor SubsonicStreamResolver: StreamResolver {
     }
 }
 
-public enum SubsonicLyricsReadResult: Equatable, Sendable {
-    case content(String)
-    case absent
-    case unavailable
-}
+public typealias SubsonicLyricsReadResult = ServerLyricsReadResult
 
 /// Lightweight Subsonic lyrics reader shared by clients that only need the
 /// protocol document and should not depend on the full library connector.
@@ -451,14 +447,10 @@ public struct SubsonicLyricsClient: @unchecked Sendable {
                 ping = try await request("ping", context: context)
             }
 
-            let text: String?
             if ping.openSubsonic == true {
-                text = try await modernLyrics(songID: songID, context: context)
-            } else {
-                text = try await legacyLyrics(songID: songID, context: context)
+                return try await modernLyrics(songID: songID, context: context)
             }
-            guard let text,
-                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard let text = try await legacyLyrics(songID: songID, context: context) else {
                 return .absent
             }
             return .content(text)
@@ -467,7 +459,7 @@ public struct SubsonicLyricsClient: @unchecked Sendable {
         }
     }
 
-    private func modernLyrics(songID: String, context: RequestContext) async throws -> String? {
+    private func modernLyrics(songID: String, context: RequestContext) async throws -> ServerLyricsReadResult {
         let payload: LyricsPayload
         do {
             payload = try await request(
@@ -493,8 +485,7 @@ public struct SubsonicLyricsClient: @unchecked Sendable {
                 context: context
             )
         }
-        guard let tracks = payload.lyricsList?.structuredLyrics else { return nil }
-        return OpenSubsonicLyricsConverter.text(from: tracks)
+        return OpenSubsonicLyricsConverter.read(from: payload.lyricsList?.structuredLyrics ?? [])
     }
 
     private func legacyLyrics(songID: String, context: RequestContext) async throws -> String? {
