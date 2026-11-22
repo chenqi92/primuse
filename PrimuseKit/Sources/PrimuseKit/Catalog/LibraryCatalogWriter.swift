@@ -24,8 +24,10 @@ extension LibraryCatalog {
     /// 新行按输入顺序追加到库尾,与 `IncrementalSongStore.apply` 的顺序语义一致。
     @discardableResult
     public func apply(upserts: [Song], deletingIDs: some Collection<String> = [String]()) throws -> LibraryCatalogChangeSummary {
-        try pool.write { db in
+        let configuration = groupingConfiguration
+        return try pool.write { db in
             var context = try SongWriteContext(db: db)
+            var grouping = GroupingMaintenance(db: db, configuration: configuration)
             var inserted = ContiguousArray<Int32>()
             var updated = ContiguousArray<Int32>()
             var deleted = ContiguousArray<Int32>()
@@ -36,18 +38,23 @@ extension LibraryCatalog {
                 guard let rowid = try Int64.fetchOne(
                     db, sql: "SELECT rowid FROM song WHERE id = ?", arguments: [id]
                 ) else { continue }
+                try grouping.noteExisting(rowid: rowid)
+                try grouping.removeDerivedRows(rowid: rowid)
                 try context.deleteSong(rowid: rowid, id: id)
                 deleted.append(try Self.rowid32(rowid))
             }
 
             for incoming in upserts {
                 let song = incoming.withoutAppliedPlaybackRange
-                switch try context.upsert(song) {
-                case .inserted(let rowid): inserted.append(try Self.rowid32(rowid))
-                case .updated(let rowid): updated.append(try Self.rowid32(rowid))
+                let outcome = try context.upsert(song) { rowid in try grouping.noteExisting(rowid: rowid) }
+                switch outcome {
+                case .inserted(let rowid), .updated(let rowid):
+                    if case .inserted = outcome { inserted.append(try Self.rowid32(rowid)) } else { updated.append(try Self.rowid32(rowid)) }
+                    try grouping.deriveRow(rowid: rowid, song: song, sourceKey: try context.sourceKey(for: song.sourceID))
                 case .unchanged: unchanged += 1
                 }
             }
+            try grouping.flush()
 
             let revision = inserted.isEmpty && updated.isEmpty && deleted.isEmpty
                 ? try Self.revision(in: db)
@@ -143,6 +150,10 @@ extension LibraryCatalog {
             var context = try SongWriteContext(db: db)
             let key = try context.sourceKey(for: sourceID)
             try db.execute(sql: "UPDATE source SET enabled = ? WHERE key = ?", arguments: [enabled ? 1 : 0, key])
+            // 书架只排可见的有声条目,停用/启用源都要重新归书。
+            var grouping = GroupingMaintenance(db: db, configuration: groupingConfiguration)
+            grouping.dirty.allBooks = true
+            try grouping.rebuildBooks()
             try Self.bumpRevision(in: db)
         }
     }
@@ -168,7 +179,6 @@ struct SongWriteContext {
     let db: Database
     private var sources: [String: SourceEntry] = [:]
     private var nextOrderKey: Int64?
-    private var markedNonNFCIdentifier = false
     var recordsChanges = true
 
     init(db: Database) throws {
@@ -179,8 +189,9 @@ struct SongWriteContext {
         let columns = ["id", "orderKey", "sourceKey"]
             + LibraryCatalogSongCodec.StoredValues.columnNames
             + LibraryCatalogDerivedFields.columnNames
+        // 类别由分组维护写(只在变了时才改,免得四条排序索引白白搬动),更新时不覆盖。
         let updates = (["sourceKey"] + LibraryCatalogSongCodec.StoredValues.columnNames
-            + LibraryCatalogDerivedFields.columnNames)
+            + LibraryCatalogDerivedFields.columnNames.filter { $0 != "kind" })
             .map { "\($0) = excluded.\($0)" }
             .joined(separator: ", ")
         return """
@@ -229,12 +240,6 @@ struct SongWriteContext {
         return nextOrderKey!
     }
 
-    private mutating func noteFlags(_ flags: Int) throws {
-        guard flags & LibraryCatalogSongFlags.nonNFCIdentifier != 0, !markedNonNFCIdentifier else { return }
-        try LibraryCatalog.setMeta(LibraryCatalog.MetaKey.nonNFCIdentifiers, "1", in: db)
-        markedNonNFCIdentifier = true
-    }
-
     private func folderParent(sourceKey: Int64, filePath: String, traits: LibraryCatalogDerivedFields.SourceTraits) throws -> String? {
         guard traits.usesFolderParents else { return nil }
         return try String.fetchOne(
@@ -277,7 +282,6 @@ struct SongWriteContext {
             fileNameOverride: fileNameOverride,
             folderParent: try folderParent(sourceKey: source.key, filePath: song.filePath, traits: source.traits)
         )
-        try noteFlags(derived.flags)
         let orderKey = rowid == nil ? try allocateOrderKey() : 0
         var values: [DatabaseValueConvertible?] = [song.id, orderKey, source.key]
         values.append(contentsOf: stored.databaseValues)
@@ -362,14 +366,15 @@ struct SongWriteContext {
         )
     }
 
-    /// 写一行先算好的新歌。
-    mutating func insertPrepared(_ row: PreparedRow, orderKey: Int64) throws -> Int64 {
+    /// 写一行先算好的新歌;给了分组派生就一并写(类别直接进插入语句,不再事后更新)。
+    mutating func insertPrepared(_ row: PreparedRow, orderKey: Int64, grouping: GroupingMaintenance.RowValues? = nil) throws -> Int64 {
         guard !row.song.id.utf8.contains(0) else { throw LibraryCatalogError.invalidIdentifier(row.song.id) }
         let source = try sourceEntry(for: row.song.sourceID)
-        try noteFlags(row.derived.flags)
+        var derived = row.derived
+        if let grouping { derived.kind = grouping.kind }
         var values: [DatabaseValueConvertible?] = [row.song.id, orderKey, source.key]
         values.append(contentsOf: row.stored.databaseValues)
-        values.append(contentsOf: row.derived.databaseValues)
+        values.append(contentsOf: derived.databaseValues)
         try db.cachedStatement(sql: Self.insertSQL).execute(arguments: StatementArguments(values))
         let rowid = db.lastInsertedRowID
         if recordsChanges { try recordChange(.inserted, rowid: rowid, id: row.song.id) }
@@ -387,7 +392,6 @@ struct SongWriteContext {
             fileNameOverride: nil,
             folderParent: try folderParent(sourceKey: source.key, filePath: song.filePath, traits: source.traits)
         )
-        try noteFlags(derived.flags)
         var values: [DatabaseValueConvertible?] = [song.id, orderKey, source.key]
         values.append(contentsOf: stored.databaseValues)
         values.append(contentsOf: derived.databaseValues)

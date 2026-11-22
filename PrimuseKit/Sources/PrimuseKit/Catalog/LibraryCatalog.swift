@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import os
 import SQLite3
 
 public enum LibraryCatalogError: Error, Equatable, Sendable {
@@ -18,6 +19,17 @@ public enum LibraryCatalogError: Error, Equatable, Sendable {
 public final class LibraryCatalog: @unchecked Sendable {
     public let path: String
     let pool: DatabasePool
+    let songListCache = LibrarySongListCache()
+    private let groupingState = OSAllocatedUnfairLock(initialState: LibraryGroupingConfiguration())
+
+    /// 分组派生当前用的 App 输入。`setGroupingConfiguration` 换掉并按需整库重建。
+    public var groupingConfiguration: LibraryGroupingConfiguration {
+        groupingState.withLock { $0 }
+    }
+
+    func replaceGroupingConfiguration(_ configuration: LibraryGroupingConfiguration) {
+        groupingState.withLock { $0 = configuration }
+    }
 
     enum MetaKey {
         static let schemaVersion = "schemaVersion"
@@ -30,8 +42,10 @@ public final class LibraryCatalog: @unchecked Sendable {
         static let importCursorID = "import.cursor.id"
         static let importStoreRevision = "import.storeRevision"
         static let importedCount = "import.count"
-        /// 一旦写进过 id 不是 NFC 的歌就记 "1":排序的 id 兜底改用 Swift 的字符串比较。
-        static let nonNFCIdentifiers = "nonNFCIdentifiers"
+        static let groupingFingerprint = "grouping.fingerprint"
+        static let groupingRebuildPhase = "grouping.rebuild.phase"
+        static let groupingRebuildCursor = "grouping.rebuild.cursor"
+        static let groupingGeneration = "grouping.generation"
     }
 
     /// 打开(不存在就新建)目录。打开只做迁移检查与 meta 读取,与曲库大小无关;
@@ -58,6 +72,8 @@ public final class LibraryCatalog: @unchecked Sendable {
         try pool.write { db in
             if try Self.metaValue(MetaKey.schemaVersion, in: db) == nil {
                 try Self.setMeta(MetaKey.schemaVersion, String(LibraryCatalogSchema.schemaVersion), in: db)
+                // 新建的空目录按默认输入算是已分好组;此后每次 `apply` 增量维护。
+                try Self.setMeta(MetaKey.groupingFingerprint, LibraryGroupingConfiguration().fingerprint, in: db)
             }
             let identifier = locale.identifier
             let stored = try Self.metaValue(MetaKey.collationLocale, in: db)
@@ -79,6 +95,7 @@ public final class LibraryCatalog: @unchecked Sendable {
 
     /// 前后台切换、内存告警时调用:放掉各连接的页缓存。
     public func releaseMemory() {
+        songListCache.removeAll()
         pool.releaseMemory()
     }
 

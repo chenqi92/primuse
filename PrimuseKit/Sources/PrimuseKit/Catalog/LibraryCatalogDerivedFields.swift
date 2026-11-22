@@ -3,17 +3,13 @@ import GRDB
 
 /// 每行的派生列(不依赖整库分组的部分)。
 struct LibraryCatalogDerivedFields {
-    var directoryKey: String
     var fileNameKey: String
     var fileNameOverride: String?
     var titleKey: Data
     /// 排序用的非空文本:比较器把 nil 当 ""(`artistName ?? ""`)。单独存成非空列,
     /// 覆盖索引才能直接读出来做降序时的组界判断。
-    var artistSortKey: String
     var albumSortKey: String
     var albumIDSortKey: String
-    var artistKey: Data
-    var albumKey: Data
     var sectionBucket: Int
     var durationKey: Double
     var discKey: Int
@@ -27,15 +23,13 @@ struct LibraryCatalogDerivedFields {
     var effectiveAlbumArtist: String?
 
     var databaseValues: [DatabaseValueConvertible?] {
-        [directoryKey, fileNameKey, fileNameOverride, titleKey, artistSortKey, albumSortKey, albumIDSortKey,
-         artistKey, albumKey, sectionBucket,
+        [fileNameKey, fileNameOverride, titleKey, albumSortKey, albumIDSortKey, sectionBucket,
          durationKey, discKey, trackKey, kind, flags, matchKey, albumTitleKey, inferenceDirectory,
          effectiveAlbumID, effectiveAlbumArtist]
     }
 
     static let columnNames = [
-        "directoryKey", "fileNameKey", "fileNameOverride", "titleKey", "artistSortKey", "albumSortKey",
-        "albumIDSortKey", "artistKey", "albumKey",
+        "fileNameKey", "fileNameOverride", "titleKey", "albumSortKey", "albumIDSortKey",
         "sectionBucket", "durationKey", "discKey", "trackKey", "kind", "flags", "matchKey",
         "albumTitleKey", "inferenceDirectory", "effectiveAlbumID", "effectiveAlbumArtist",
     ]
@@ -52,7 +46,6 @@ struct LibraryCatalogDerivedFields {
         fileNameOverride: String?,
         folderParent: String?
     ) -> LibraryCatalogDerivedFields {
-        let directory = AlbumArtistInferencePolicy.directory(ofPath: song.filePath)
         let duration = song.appliedPlaybackRange?.songDuration ?? song.duration
         // 读音键的首字母下标就是字母索引(与 `indexLetter(for:)` 同一个函数,空名字归 "#")。
         let titleKey = LibraryCollationPolicy.songTitleKey(for: song.title)
@@ -63,15 +56,11 @@ struct LibraryCatalogDerivedFields {
         let albumBucket = albumKey.bucketIndex
         let albumTitle = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         return LibraryCatalogDerivedFields(
-            directoryKey: directory,
             fileNameKey: fileNameOverride ?? fileName(for: song, fromIndex: source.fileNamesFromIndex),
             fileNameOverride: fileNameOverride,
             titleKey: keyData(titleKey),
-            artistSortKey: columnText(song.artistName ?? ""),
             albumSortKey: columnText(song.albumTitle ?? ""),
             albumIDSortKey: columnText(song.albumID ?? ""),
-            artistKey: keyData(artistKey),
-            albumKey: keyData(albumKey),
             sectionBucket: titleBucket | artistBucket << 5 | albumBucket << 10,
             durationKey: duration.isFinite ? max(0, duration) : 0,
             discKey: AlbumTrackOrder.discNumber(for: song),
@@ -80,7 +69,8 @@ struct LibraryCatalogDerivedFields {
             flags: flags(for: song, duration: duration),
             matchKey: ExternalTrackMatchPolicy.normalizedCoreTitle(song.title),
             albumTitleKey: albumTitle?.isEmpty == false ? albumTitle : nil,
-            inferenceDirectory: source.usesFolderParents ? folderParent : directory,
+            // 只有按条目 id 寻址、文件夹来自扫描索引的源才存;其余按所在文件夹(`folderKey`)判同目录。
+            inferenceDirectory: source.usesFolderParents ? folderParent : nil,
             effectiveAlbumID: song.albumID,
             effectiveAlbumArtist: nil
         )
@@ -128,9 +118,6 @@ struct LibraryCatalogDerivedFields {
         if song.coverArtFileName?.isEmpty == false { flags |= LibraryCatalogSongFlags.hasCover }
         if song.lyricsFileName?.isEmpty == false { flags |= LibraryCatalogSongFlags.hasLyricsFile }
         if song.serverCatalogAlbum != nil { flags |= LibraryCatalogSongFlags.serverCatalogAlbum }
-        if !song.id.utf8.allSatisfy({ $0 < 0x80 }), song.id != song.id.precomposedStringWithCanonicalMapping {
-            flags |= LibraryCatalogSongFlags.nonNFCIdentifier
-        }
         return flags
     }
 }
@@ -146,8 +133,6 @@ public enum LibraryCatalogSongFlags {
     public static let hasCover = 1 << 7
     public static let hasLyricsFile = 1 << 8
     public static let serverCatalogAlbum = 1 << 9
-    /// id 不是 NFC:按字节比较与 Swift 的 `<` 不一致,排序的 id 兜底要改用 Swift 比较。
-    public static let nonNFCIdentifier = 1 << 10
 }
 
 /// 歌曲的内容类别(派生列 `kind`)。

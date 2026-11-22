@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E877075D20ECE2F99C5B431B /* LibraryCatalogGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 066A393B790D5ACDCC16DED2 /* LibraryCatalogGrouping.swift */; };
+		226C165299E8C201670FEC57 /* LibraryCatalogGroupingQueries.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C3C48AA4782F9C3A25BB346 /* LibraryCatalogGroupingQueries.swift */; };
+		69CB6BD9353988B385BC1918 /* LibraryCatalogGroupingRebuild.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91554D33EF7B6F8EB824DC83 /* LibraryCatalogGroupingRebuild.swift */; };
 		C41C3640AAB520B96E6F1776 /* LibraryGroupingReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0210F9DFEF81109E5850D765 /* LibraryGroupingReference.swift */; };
 		9BC4957393F7A97387484FF6 /* LibraryCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE1764239E6A89FC4F1867B /* LibraryCatalog.swift */; };
 		4DFC775877CB7D04E9818B47 /* LibraryCatalogDerivedFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F039187306870A8B720278C /* LibraryCatalogDerivedFields.swift */; };
@@ -2807,6 +2810,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		066A393B790D5ACDCC16DED2 /* LibraryCatalogGrouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogGrouping.swift; sourceTree = "<group>"; };
+		8C3C48AA4782F9C3A25BB346 /* LibraryCatalogGroupingQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogGroupingQueries.swift; sourceTree = "<group>"; };
+		91554D33EF7B6F8EB824DC83 /* LibraryCatalogGroupingRebuild.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogGroupingRebuild.swift; sourceTree = "<group>"; };
 		0210F9DFEF81109E5850D765 /* LibraryGroupingReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryGroupingReference.swift; sourceTree = "<group>"; };
 		9CE1764239E6A89FC4F1867B /* LibraryCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalog.swift; sourceTree = "<group>"; };
 		5F039187306870A8B720278C /* LibraryCatalogDerivedFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogDerivedFields.swift; sourceTree = "<group>"; };
@@ -4745,6 +4751,9 @@
 		4B4F67F57E8415891D0A0AD5 /* Catalog */ = {
 			isa = PBXGroup;
 			children = (
+				066A393B790D5ACDCC16DED2 /* LibraryCatalogGrouping.swift */,
+				8C3C48AA4782F9C3A25BB346 /* LibraryCatalogGroupingQueries.swift */,
+				91554D33EF7B6F8EB824DC83 /* LibraryCatalogGroupingRebuild.swift */,
 				0210F9DFEF81109E5850D765 /* LibraryGroupingReference.swift */,
 				9CE1764239E6A89FC4F1867B /* LibraryCatalog.swift */,
 				5F039187306870A8B720278C /* LibraryCatalogDerivedFields.swift */,
@@ -7887,6 +7896,9 @@
 				B4B2EE9DE0E67D544069628C /* LibraryRowList.swift in Sources */,
 				DE40D3A49F3A2F9F012856F0 /* LibraryScale.swift in Sources */,
 				C41C3640AAB520B96E6F1776 /* LibraryGroupingReference.swift in Sources */,
+				E877075D20ECE2F99C5B431B /* LibraryCatalogGrouping.swift in Sources */,
+				226C165299E8C201670FEC57 /* LibraryCatalogGroupingQueries.swift in Sources */,
+				69CB6BD9353988B385BC1918 /* LibraryCatalogGroupingRebuild.swift in Sources */,
 				0A12E737FD6DE9550881552D /* AlbumArtistInferencePolicy.swift in Sources */,
 				01B6F2B3999C32DE93DC4189 /* AlbumBackdropCache.swift in Sources */,
 				7B8790E4F535FA4D8A3E3962 /* AlbumFlowLayoutPolicy.swift in Sources */,

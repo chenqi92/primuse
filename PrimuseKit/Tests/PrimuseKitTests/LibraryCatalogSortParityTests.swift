@@ -49,6 +49,8 @@ struct LibraryCatalogSortParityTests {
         )
 
         let temporary = try TemporaryCatalog()
+        // 按 id 的先后写入:行号的先后就是 id 的先后,比较器的 id 兜底与目录的行号兜底一致。
+        songs.sort { $0.id < $1.id }
         try temporary.catalog.apply(upserts: songs)
         try temporary.catalog.setSourceNames(sourceNames.mapValues { Optional($0) })
         try temporary.catalog.setFileNameIndex(sourceID: "src-webdav", index: webdavIndex)
@@ -58,19 +60,49 @@ struct LibraryCatalogSortParityTests {
         return Fixture(temporary: temporary, songs: songs, sortValues: sortValues)
     }
 
+    /// 升序与比较器逐行一致(行号先后 = id 先后)。降序是同一组键倒过来、连行号一起倒:与比较器只在
+    /// 键完全相等的组内不同(比较器组内仍按 id 升序)。所以降序这样验:非可选键 = 升序整体倒序;
+    /// 可选键(缺值总在最后)= 有值的部分倒序 + 缺值的部分倒序;专辑组内不随方向变,与比较器逐行一致。
     static func check(_ fixture: Fixture, seed: UInt64) throws {
         let catalog = fixture.temporary.catalog
         let scope = LibrarySongScope.everything
         var idByRowid: [Int32: String] = [:]
         let rowids = try catalog.rowids(forIDs: fixture.songs.map(\.id))
         for (song, rowid) in zip(fixture.songs, rowids) { idByRowid[rowid!] = song.id }
+        let songByID = Dictionary(uniqueKeysWithValues: fixture.songs.map { ($0.id, $0) })
+        func firstMismatch(_ actual: [String], _ expected: [String]) -> String {
+            let mismatch = zip(actual, expected).enumerated().first { $0.element.0 != $0.element.1 }
+            return "count \(actual.count)/\(expected.count) first mismatch at \(mismatch?.offset ?? -1): "
+                + "catalog \(mismatch?.element.0 ?? "-") vs expected \(mismatch?.element.1 ?? "-")"
+        }
         for order in LibrarySongSortOrder.allCases {
             let expected = SongListSnapshotBuilder.build(songs: fixture.songs, order: order, sortValues: fixture.sortValues)
             let list = try catalog.songRowList(order: order, scope: scope, includeAggregates: true)
             let actual = list.rowids.map { idByRowid[$0]! }
-            if actual != expected.orderedSongIDs {
-                let mismatch = zip(actual, expected.orderedSongIDs).enumerated().first { $0.element.0 != $0.element.1 }
-                Issue.record("seed \(seed) order \(order.rawValue): first mismatch at \(mismatch?.offset ?? -1): catalog \(mismatch?.element.0 ?? "-") vs builder \(mismatch?.element.1 ?? "-")")
+            let ascendingOrder = order.isAscending ? order : order.reversed
+            let ascending = SongListSnapshotBuilder.build(songs: fixture.songs, order: ascendingOrder, sortValues: fixture.sortValues)
+                .orderedSongIDs
+            let reference: [String]
+            if order.isAscending || order.criterion == .album {
+                reference = expected.orderedSongIDs
+            } else {
+                let missing: (Song) -> Bool
+                switch order.criterion {
+                case .sourceDate: missing = { $0.lastModified == nil }
+                case .serverPlayCount: missing = { $0.serverPlayCount == nil }
+                case .year: missing = { $0.year == nil }
+                case .bitRate: missing = { $0.bitRate == nil }
+                case .bitDepth: missing = { $0.bitDepth == nil }
+                default: missing = { _ in false }
+                }
+                let present = ascending.filter { !missing(songByID[$0]!) }
+                let absent = ascending.filter { missing(songByID[$0]!) }
+                reference = Array(present.reversed()) + Array(absent.reversed())
+                // 与比较器的差别只能在键完全相等的组内:同一组的歌在两边占同一段位置。
+                #expect(Set(actual) == Set(expected.orderedSongIDs), "seed \(seed) order \(order.rawValue)")
+            }
+            if actual != reference {
+                Issue.record("seed \(seed) order \(order.rawValue): \(firstMismatch(actual, reference))")
             }
             #expect(list.sections == expected.sectionIndexEntries, "seed \(seed) order \(order.rawValue)")
             #expect(list.aggregates?.count == fixture.songs.count, "seed \(seed)")
@@ -78,6 +110,33 @@ struct LibraryCatalogSortParityTests {
             let duration = list.aggregates?.totalDuration ?? -1
             #expect(abs(duration - expected.totalDuration) <= max(1e-6, expected.totalDuration * 1e-12), "seed \(seed)")
         }
+    }
+
+    @Test("Rows with fully equal keys keep rowid order: ascending forward, descending reversed, stable across edits")
+    func rowidTieBreak() throws {
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        // 同名、同艺人、同专辑、同加入时间、同时长;id 故意与写入顺序相反。
+        let songs = (0..<6).map { index in
+            Song(id: "z\(9 - index)", title: "Same", albumID: "album", albumTitle: "Album", artistName: "Artist",
+                 trackNumber: 1, duration: 200, fileFormat: .flac, filePath: "d\(index)/same.flac", sourceID: "s",
+                 dateAdded: Date(timeIntervalSinceReferenceDate: 100))
+        }
+        let summary = try catalog.apply(upserts: songs)
+        let inserted = Array(summary.insertedRowids)
+        #expect(inserted == inserted.sorted())
+        for order in [LibrarySongSortOrder.title, .artist, .dateAddedOldest, .duration, .fileName, .format, .playCount] {
+            let ascending = try catalog.songRowList(order: order, scope: .everything)
+            #expect(Array(ascending.rowids) == inserted, "\(order.rawValue)")
+            let descending = try catalog.songRowList(order: order.reversed, scope: .everything)
+            #expect(Array(descending.rowids) == inserted.reversed(), "\(order.reversed.rawValue)")
+        }
+        // 改一个与排序无关的字段:行号不变,顺序不变。
+        var edited = songs[2]
+        edited.lyricsFileName = "x.lrc"
+        try catalog.apply(upserts: [edited])
+        #expect(Array(try catalog.songRowList(order: .title, scope: .everything).rowids) == inserted)
+        #expect(Array(try catalog.songRowList(order: .titleDescending, scope: .everything).rowids) == inserted.reversed())
     }
 
     @Test("All 30 orders match the snapshot builder", arguments: [UInt64(11), 23, 57, 101, 404, 777, 1_234, 9_001])
@@ -157,14 +216,12 @@ struct LibraryCatalogSortParityTests {
         let temporary = try TemporaryCatalog()
         let catalog = temporary.catalog
         let expectations: [(LibrarySongSortOrder, String)] = [
-            (.title, "song_sort_title"), (.titleDescending, "song_sort_title_desc"),
-            (.artist, "song_sort_artist"), (.album, "song_sort_album"),
-            (.fileName, "song_sort_fileName"), (.fileNameDescending, "song_sort_fileName_desc"),
-            (.dateAdded, "song_sort_dateAdded"),
-            (.duration, "song_sort_duration"), (.year, "song_sort_year"),
+            (.title, "song_sort_title"), (.titleDescending, "song_sort_title"),
+            (.artist, "song_sort_artist"), (.artistDescending, "song_sort_artist"), (.album, "song_sort_album"),
+            (.dateAdded, "song_sort_dateAdded"), (.dateAddedOldest, "song_sort_dateAdded"),
         ]
         for (order, index) in expectations {
-            let plan = LibraryCatalogSongSort.plan(for: order, idTerm: "s.id", sourceRank: "0")
+            let plan = LibraryCatalogSongSort.plan(for: order, sourceRank: "0")
             let detail = try catalog.pool.read { db in
                 try Row.fetchAll(db, sql: """
                     EXPLAIN QUERY PLAN SELECT s.rowid FROM song AS s \(plan.joins)
@@ -173,9 +230,8 @@ struct LibraryCatalogSortParityTests {
                     """).map { $0["detail"] as String }.joined(separator: " | ")
             }
             #expect(detail.contains(index), "\(order.rawValue): \(detail)")
-            if order.isAscending {
-                #expect(!detail.contains("TEMP B-TREE FOR ORDER BY"), "\(order.rawValue): \(detail)")
-            }
+            // 升降都直接扫索引(降序倒着扫),不要临时排序。
+            #expect(!detail.contains("TEMP B-TREE"), "\(order.rawValue): \(detail)")
         }
     }
 }

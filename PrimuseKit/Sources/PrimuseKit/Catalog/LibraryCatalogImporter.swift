@@ -1,5 +1,29 @@
 import Foundation
 import GRDB
+import os
+
+/// 迁移各阶段累计耗时(按批计时,不按行),规模测试与诊断日志用。
+public enum LibraryCatalogImportProfile {
+    private static let state = OSAllocatedUnfairLock(initialState: [String: Double]())
+
+    public static func reset() { state.withLock { $0.removeAll() } }
+
+    @discardableResult
+    static func measure<T>(_ stage: String, _ body: () throws -> T) rethrows -> T {
+        let start = ProcessInfo.processInfo.systemUptime
+        defer {
+            let elapsed = ProcessInfo.processInfo.systemUptime - start
+            state.withLock { $0[stage, default: 0] += elapsed }
+        }
+        return try body()
+    }
+
+    /// "阶段=毫秒" 按耗时从大到小。
+    public static func summary() -> String {
+        state.withLock { $0 }.sorted { $0.value > $1.value }
+            .map { "\($0.key)=\(Int($0.value * 1_000))ms" }.joined(separator: " ")
+    }
+}
 
 public struct LibraryCatalogImportProgress: Sendable, Equatable {
     public let imported: Int
@@ -24,13 +48,14 @@ public enum LibraryCatalogImporter {
         progress: ((LibraryCatalogImportProgress) -> Void)? = nil,
         isCancelled: () -> Bool = { false }
     ) throws -> LibraryCatalogImportProgress {
-        var configuration = Configuration()
-        configuration.readonly = true
-        configuration.label = "Primuse catalog import source"
-        configuration.prepareDatabase { db in
+        let configuration = catalog.groupingConfiguration
+        var storeConfiguration = Configuration()
+        storeConfiguration.readonly = true
+        storeConfiguration.label = "Primuse catalog import source"
+        storeConfiguration.prepareDatabase { db in
             try db.execute(sql: "PRAGMA cache_size = -\(LibraryScale.connectionCacheKiB)")
         }
-        let store = try DatabaseQueue(path: storePath, configuration: configuration)
+        let store = try DatabaseQueue(path: storePath, configuration: storeConfiguration)
         let storeState = try IncrementalSongPageReader.startupState(at: storePath)
         let total = try store.read { db in
             try Int.fetchOne(db, sql: "SELECT count(*) FROM librarySongRecords") ?? 0
@@ -73,7 +98,7 @@ public enum LibraryCatalogImporter {
             if let maximumBatches, batches >= maximumBatches {
                 return LibraryCatalogImportProgress(imported: imported, total: total, isComplete: false)
             }
-            let rows: [(orderKey: Int64, id: String, payload: Data)] = try store.read { db in
+            let rows: [(orderKey: Int64, id: String, payload: Data)] = try LibraryCatalogImportProfile.measure("read") { try store.read { db in
                 let sql: String
                 let arguments: StatementArguments
                 if let cursor {
@@ -87,15 +112,29 @@ public enum LibraryCatalogImporter {
                     arguments = [batchSize]
                 }
                 return try Row.fetchAll(db, sql: sql, arguments: arguments).map { ($0[0], $0[1], $0[2]) }
-            }
+            } }
             guard let last = rows.last else { break }
-            let songs = try IncrementalSongStore.decodeSongs(rows.map(\.payload))
+            let songs = try LibraryCatalogImportProfile.measure("decodeJSON") { try IncrementalSongStore.decodeSongs(rows.map(\.payload)) }
             let nextCount = imported + rows.count
             try catalog.pool.write { db in
                 var context = try SongWriteContext(db: db)
                 context.recordsChanges = false
-                for (index, prepared) in try context.prepareNew(songs).enumerated() {
-                    _ = try context.insertPrepared(prepared, orderKey: rows[index].orderKey)
+                let prepared = try LibraryCatalogImportProfile.measure("prepareRows") { try context.prepareNew(songs) }
+                let groupingValues = LibraryCatalogImportProfile.measure("prepareGrouping") {
+                    GroupingMaintenance.rowValues(for: prepared.map(\.song), configuration: configuration)
+                }
+                var grouping = GroupingMaintenance(db: db, configuration: configuration)
+                grouping.collectsDirty = false
+                try LibraryCatalogImportProfile.measure("insertRows") {
+                    for (index, row) in prepared.enumerated() {
+                        let rowid = try context.insertPrepared(row, orderKey: rows[index].orderKey, grouping: groupingValues[index])
+                        try LibraryCatalogImportProfile.measure("insertGroupingRows") {
+                            try grouping.writeRow(
+                                rowid: rowid, sourceKey: try context.sourceKey(for: row.song.sourceID),
+                                values: groupingValues[index], fresh: true, current: (groupingValues[index].kind, nil)
+                            )
+                        }
+                    }
                 }
                 try LibraryCatalog.setMeta(Key.importCursorOrderKey, String(last.orderKey), in: db)
                 try LibraryCatalog.setMeta(Key.importCursorID, last.id, in: db)
@@ -109,9 +148,14 @@ public enum LibraryCatalogImporter {
         }
 
         try catalog.pool.write { db in
-            try LibraryCatalogSchema.createDeferredIndexes(db)
+            try LibraryCatalogImportProfile.measure("createIndexes") { try LibraryCatalogSchema.createDeferredIndexes(db) }
             try LibraryCatalog.setMeta(Key.sortIndexesDeferred, "0", in: db)
             try LibraryCatalog.setMeta(Key.importState, "complete", in: db)
+            // 逐行派生已随导入写好;跨行的分组(推断、专辑、艺人、书)由调用方随后
+            // `rebuildGrouping()` 从「目录权威」阶段接着做。
+            try LibraryCatalog.removeMeta(Key.groupingFingerprint, in: db)
+            try LibraryCatalog.setMeta(Key.groupingRebuildPhase, "authority\u{1}\(configuration.fingerprint)", in: db)
+            try LibraryCatalog.setMeta(Key.groupingRebuildCursor, "", in: db)
             try LibraryCatalog.bumpRevision(in: db)
             try db.execute(sql: "PRAGMA cache_size = -\(LibraryScale.connectionCacheKiB)")
         }
@@ -148,6 +192,7 @@ extension LibraryCatalog {
         try pool.write { db in
             try LibraryCatalogSchema.createDeferredIndexes(db)
             try Self.setMeta(MetaKey.sortIndexesDeferred, "0", in: db)
+            try Self.removeMeta(MetaKey.groupingFingerprint, in: db)
             try Self.bumpRevision(in: db)
             try db.execute(sql: "PRAGMA cache_size = -\(LibraryScale.connectionCacheKiB)")
         }
@@ -160,6 +205,9 @@ extension LibraryCatalog {
             DELETE FROM songOffline;
             DELETE FROM songMaintenance;
             DELETE FROM catalogChange;
+            DELETE FROM songArtist; DELETE FROM songArtistLookup; DELETE FROM songGenre; DELETE FROM songBook;
+            DELETE FROM folder; DELETE FROM album; DELETE FROM albumSourceStat; DELETE FROM albumArtistCredit;
+            DELETE FROM artist; DELETE FROM artistSourceStat; DELETE FROM book;
             UPDATE playlistEntry SET songRowid = NULL;
             UPDATE likedSong SET songRowid = NULL;
             UPDATE dislikedSong SET songRowid = NULL;

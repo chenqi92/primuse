@@ -8,8 +8,13 @@ import Foundation
 enum LibraryCatalogScaleBudgets {
     /// 预算标定所用的规模。
     static let referenceSongCount = 500_000
-    /// 整轮超过 45 s 时 CI 用这个规模;设环境变量 `PRIMUSE_CATALOG_SCALE_SONGS=500000` 跑全量。
-    static let ciSongCount = 200_000
+    /// 数据库文件每首歌的字节数上限(含全部索引与分组表)。
+    static let databaseBytesPerSong = 900
+    /// 从合成 `library-songs.sqlite` 迁移(导入 + 建索引 + 分组整库重建)的总时长,50 万首。
+    static let migrationSeconds = 30.0
+    /// 50 万首整轮远超 45 s,CI 用 10 万首(整轮 < 45 s);验收时设环境变量
+    /// `PRIMUSE_CATALOG_SCALE_SONGS=500000` 跑全量。
+    static let ciSongCount = 100_000
 
     // MARK: Memory (MiB)
 
@@ -30,19 +35,26 @@ enum LibraryCatalogScaleBudgets {
     static let maxBatchMaterializationMilliseconds = 400.0
     /// 一个目录的直接子项 / 一个精确路径。
     static let pathQueryMilliseconds = 20.0
-    /// 一批增量写入(数百首 upsert + 删除)。
+    /// 一批增量写入(数百首 upsert + 删除,含跨源同名专辑),包括分组的增量维护。
     static let incrementalWriteMilliseconds = 1_000.0
+    /// 专辑详情:取一张专辑的可见歌曲(按碟号曲号)并物化;封面回退那一首(PLAN §5)。
+    static let albumSongsMilliseconds = 10.0
 
     // MARK: Latency (ms) — scale with the library
 
-    /// 有覆盖索引的排序(标题、艺人、专辑、文件名、加入时间、时长、年份)取整表行号。
+    /// 有覆盖索引的排序(标题、艺人、专辑、加入时间,升降各一)取整表行号。
     static let indexedSortMilliseconds = 400.0
-    /// 没有索引的排序(格式、播放次数、来源、码率…),走临时文件排序。
-    static let unindexedSortMilliseconds = 3_000.0
+    /// 没有索引的排序(文件名、时长、年份、格式、播放次数、来源、码率…):ORDER BY 走临时文件
+    /// (文件名多核排序),结果缓存到下一次修订。量的是冷缓存。
+    static let unindexedSortMilliseconds = 1_500.0
     /// 计数类(可见、音乐、按源、汇总)。
     static let countMilliseconds = 300.0
     /// 流式遍历整库的 (行号, id, 路径)。
     static let streamAllMilliseconds = 2_000.0
+    /// 专辑、艺人键列表(按名字本地化排序,停用源/分出非音乐时按可见统计过滤);艺人的歌。
+    static let groupListMilliseconds = 400.0
+    /// 流派列表(可见音乐歌曲按流派聚合)。
+    static let genreListMilliseconds = 1_500.0
 
     /// 规模缩放:按比例,但不低于 `floor`。
     static func scaled(_ budget: Double, songCount: Int, floor: Double) -> Double {

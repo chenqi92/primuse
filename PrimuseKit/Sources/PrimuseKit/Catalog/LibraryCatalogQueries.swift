@@ -242,7 +242,7 @@ extension LibraryCatalog {
             }
         }
         return try rowList(orderBy: "+s.orderKey, s.id") { db in
-            ("\(try Self.sourceKeyTerm(sourceID, in: db)) AND s.directoryKey = ?", [directory])
+            ("\(try Self.sourceKeyTerm(sourceID, in: db)) AND s.folderKey = ?", [try Self.folderKey(sourceID: sourceID, path: directory, in: db) ?? -1])
         }
     }
 
@@ -261,8 +261,8 @@ extension LibraryCatalog {
         fileName: String
     ) throws -> LibraryRowList {
         try rowList(orderBy: "+s.orderKey, s.id") { db in
-            ("\(try Self.sourceKeyTerm(sourceID, in: db)) AND s.directoryKey = ? AND s.\(column.rawValue) = ?",
-             [directory, fileName])
+            ("\(try Self.sourceKeyTerm(sourceID, in: db)) AND s.folderKey = ? AND s.\(column.rawValue) = ?",
+             [try Self.folderKey(sourceID: sourceID, path: directory, in: db) ?? -1, fileName])
         }
     }
 
@@ -275,9 +275,9 @@ extension LibraryCatalog {
                 db,
                 sql: """
                     SELECT DISTINCT s.filePath FROM song s
-                    WHERE \(try Self.sourceKeyTerm(sourceID, in: db)) AND s.directoryKey = ? LIMIT ?
+                    WHERE \(try Self.sourceKeyTerm(sourceID, in: db)) AND s.folderKey = ? LIMIT ?
                     """,
-                arguments: [directory, cap + 1]
+                arguments: [try Self.folderKey(sourceID: sourceID, path: directory, in: db) ?? -1, cap + 1]
             )
             while let path = try paths.next() {
                 stems.insert(((path as NSString).lastPathComponent as NSString).deletingPathExtension)
@@ -389,6 +389,21 @@ extension LibraryCatalog {
             let aggregates = try aggregatesScope.map { try Self.fetchAggregates($0, in: db) }
             return LibraryRowList(rowids: rowids, revision: revision, aggregates: aggregates)
         }
+    }
+
+    /// 源内某个目录(与 `AlbumArtistInferencePolicy.directory(ofPath:)` 同一口径)的文件夹键。
+    static func folderKey(sourceID: String, path: String, in db: Database) throws -> Int64? {
+        guard let sourceKey = try Int64.fetchOne(db, sql: "SELECT key FROM source WHERE id = ?", arguments: [sourceID]) else {
+            return nil
+        }
+        var parent: Int64 = 0
+        for component in GroupingMaintenance.folderChain(of: path) {
+            guard let key = try Int64.fetchOne(db, sql: """
+                SELECT key FROM folder WHERE sourceKey = ? AND parentKey = ? AND name = ? AND oddPath = ?
+                """, arguments: [sourceKey, parent, component.name, component.oddPath]) else { return nil }
+            parent = key
+        }
+        return parent == 0 ? nil : parent
     }
 
     /// `s.sourceKey = <键>`;目录里没有这个源时是恒假。

@@ -69,15 +69,11 @@ enum LibraryCatalogSchema {
                 revision TEXT,
                 lyricsText TEXT,
                 extra BLOB,
-                directoryKey TEXT NOT NULL,
                 fileNameKey TEXT NOT NULL,
                 fileNameOverride TEXT,
                 titleKey BLOB NOT NULL,
-                artistSortKey TEXT NOT NULL,
                 albumSortKey TEXT NOT NULL,
                 albumIDSortKey TEXT NOT NULL,
-                artistKey BLOB NOT NULL,
-                albumKey BLOB NOT NULL,
                 sectionBucket INTEGER NOT NULL,
                 durationKey REAL NOT NULL,
                 discKey INTEGER NOT NULL,
@@ -153,17 +149,14 @@ enum LibraryCatalogSchema {
                 songRowid INTEGER NOT NULL,
                 ordinal INTEGER NOT NULL,
                 artistID TEXT NOT NULL,
-                name TEXT NOT NULL,
                 PRIMARY KEY (songRowid, ordinal)
             ) WITHOUT ROWID;
-            CREATE INDEX songArtist_artist ON songArtist(artistID, songRowid);
 
             CREATE TABLE songArtistLookup (
                 songRowid INTEGER NOT NULL,
                 artistID TEXT NOT NULL,
                 PRIMARY KEY (songRowid, artistID)
             ) WITHOUT ROWID;
-            CREATE INDEX songArtistLookup_artist ON songArtistLookup(artistID, songRowid);
 
             CREATE TABLE artistSourceStat (
                 artistID TEXT NOT NULL,
@@ -180,35 +173,31 @@ enum LibraryCatalogSchema {
                 name TEXT NOT NULL,
                 PRIMARY KEY (songRowid, ordinal)
             ) WITHOUT ROWID;
-            CREATE INDEX songGenre_genre ON songGenre(genreID, songRowid);
 
             CREATE TABLE folder (
                 key INTEGER PRIMARY KEY AUTOINCREMENT,
                 sourceKey INTEGER NOT NULL,
-                parentKey INTEGER,
-                path TEXT NOT NULL,
+                parentKey INTEGER NOT NULL,
                 name TEXT NOT NULL,
+                oddPath TEXT NOT NULL DEFAULT '',
                 songCount INTEGER NOT NULL DEFAULT 0,
-                UNIQUE (sourceKey, path)
+                UNIQUE (sourceKey, parentKey, name, oddPath)
             );
-            CREATE INDEX folder_parent ON folder(parentKey);
 
             CREATE TABLE songBook (
                 songRowid INTEGER PRIMARY KEY,
                 kind INTEGER NOT NULL,
-                bookID TEXT NOT NULL,
+                folderLink TEXT,
+                albumLink TEXT,
+                bookID TEXT,
                 displayTitle TEXT
             );
-            CREATE INDEX songBook_book ON songBook(bookID);
             CREATE TABLE book (
                 id TEXT NOT NULL,
                 kind INTEGER NOT NULL,
                 title TEXT,
                 PRIMARY KEY (id, kind)
             ) WITHOUT ROWID;
-            CREATE INDEX song_effectiveAlbum ON song(effectiveAlbumID, discKey, trackKey) WHERE effectiveAlbumID IS NOT NULL;
-            CREATE INDEX song_albumTitle ON song(albumTitleKey) WHERE albumTitleKey IS NOT NULL;
-            CREATE INDEX song_folder ON song(folderKey) WHERE folderKey IS NOT NULL;
 
             CREATE TABLE playlistEntry (
                 playlistID TEXT NOT NULL,
@@ -267,48 +256,45 @@ enum LibraryCatalogSchema {
         ("song_order", "CREATE INDEX IF NOT EXISTS song_order ON song(orderKey)"),
         ("song_sourceOrder", "CREATE INDEX IF NOT EXISTS song_sourceOrder ON song(sourceKey, orderKey)"),
         ("song_sourcePath", "CREATE INDEX IF NOT EXISTS song_sourcePath ON song(sourceKey, filePath)"),
-        ("song_sourceDirectory", "CREATE INDEX IF NOT EXISTS song_sourceDirectory ON song(sourceKey, directoryKey)"),
         ("song_match", "CREATE INDEX IF NOT EXISTS song_match ON song(matchKey)"),
     ]
 
-    /// 歌曲列表排序用的覆盖索引。
+    /// 分组派生表的索引:导入时逐行写分组表,这些也延后到导完一次建。
+    static let groupingIndexes: [(name: String, sql: String)] = [
+        ("songArtist_artist", "CREATE INDEX IF NOT EXISTS songArtist_artist ON songArtist(artistID, songRowid)"),
+        ("songArtistLookup_artist", "CREATE INDEX IF NOT EXISTS songArtistLookup_artist ON songArtistLookup(artistID, songRowid)"),
+        ("songGenre_genre", "CREATE INDEX IF NOT EXISTS songGenre_genre ON songGenre(genreID, songRowid)"),
+        ("songBook_book", "CREATE INDEX IF NOT EXISTS songBook_book ON songBook(bookID) WHERE bookID IS NOT NULL"),
+        ("songBook_folder", "CREATE INDEX IF NOT EXISTS songBook_folder ON songBook(kind, folderLink) WHERE folderLink IS NOT NULL"),
+        ("songBook_album", "CREATE INDEX IF NOT EXISTS songBook_album ON songBook(kind, albumLink) WHERE albumLink IS NOT NULL"),
+        ("song_effectiveAlbum", "CREATE INDEX IF NOT EXISTS song_effectiveAlbum ON song(effectiveAlbumID, orderKey) WHERE effectiveAlbumID IS NOT NULL"),
+        ("song_albumTitle", "CREATE INDEX IF NOT EXISTS song_albumTitle ON song(albumTitleKey, orderKey) WHERE albumTitleKey IS NOT NULL"),
+        ("song_folder", "CREATE INDEX IF NOT EXISTS song_folder ON song(folderKey) WHERE folderKey IS NOT NULL"),
+    ]
+
+    /// 歌曲列表排序用的覆盖索引,只给最常用的四种:标题、艺人、专辑、加入时间。键全相等的行按行号排
+    /// (行号显式写进索引,排在覆盖列之前),降序就是倒着扫同一条索引。其余排序走 ORDER BY 加结果缓存。
     static let sortIndexes: [(name: String, sql: String)] = [
         ("song_sort_title", """
             CREATE INDEX IF NOT EXISTS song_sort_title ON song(
-                kind, titleKey, title COLLATE \(localizedCollation), id, sourceKey, sectionBucket)
-            """),
-        // 标题降序(组内仍按 id 升序)单建一条:读音键在前,建索引几乎不调本地化比较,很便宜。
-        ("song_sort_title_desc", """
-            CREATE INDEX IF NOT EXISTS song_sort_title_desc ON song(
-                kind, titleKey DESC, title COLLATE \(localizedCollation) DESC, id, sourceKey, sectionBucket)
+                kind, titleKey, title COLLATE \(localizedCollation), rowid, sourceKey, sectionBucket)
             """),
         ("song_sort_artist", """
             CREATE INDEX IF NOT EXISTS song_sort_artist ON song(
-                kind, artistSortKey COLLATE \(localizedCollation), id, sourceKey, sectionBucket)
+                kind, coalesce(artistName, '') COLLATE \(localizedCollation), rowid, sourceKey, sectionBucket)
             """),
         ("song_sort_album", """
             CREATE INDEX IF NOT EXISTS song_sort_album ON song(
                 kind, albumSortKey COLLATE \(localizedCollation),
                 albumIDSortKey COLLATE \(DatabaseCollation.unicodeCompare.name), discKey, trackKey,
-                title COLLATE \(localizedStandardCollation), id, sourceKey, sectionBucket)
+                title COLLATE \(localizedStandardCollation), rowid, sourceKey, sectionBucket)
             """),
-        ("song_sort_fileName", """
-            CREATE INDEX IF NOT EXISTS song_sort_fileName ON song(
-                kind, fileNameKey COLLATE \(localizedStandardCollation), id, sourceKey)
-            """),
-        // 文件名几乎各不相同:降序时按组反转要逐行做本地化比较,单建一条降序索引。
-        ("song_sort_fileName_desc", """
-            CREATE INDEX IF NOT EXISTS song_sort_fileName_desc ON song(
-                kind, fileNameKey COLLATE \(localizedStandardCollation) DESC, id, sourceKey)
-            """),
-        ("song_sort_dateAdded", "CREATE INDEX IF NOT EXISTS song_sort_dateAdded ON song(kind, dateAdded, id, sourceKey)"),
-        ("song_sort_duration", "CREATE INDEX IF NOT EXISTS song_sort_duration ON song(kind, durationKey, id, sourceKey)"),
-        ("song_sort_year", "CREATE INDEX IF NOT EXISTS song_sort_year ON song(kind, year IS NULL, year, id, sourceKey)"),
+        ("song_sort_dateAdded", "CREATE INDEX IF NOT EXISTS song_sort_dateAdded ON song(kind, dateAdded, rowid, sourceKey)"),
     ]
 
     /// 批量导入时先拆掉、导完一次建好(建索引走排序器,比逐行维护快得多)。都用
     /// IF NOT EXISTS,幂等。
-    static var deferredIndexes: [(name: String, sql: String)] { secondaryIndexes + sortIndexes }
+    static var deferredIndexes: [(name: String, sql: String)] { secondaryIndexes + groupingIndexes + sortIndexes }
 
     static func createDeferredIndexes(_ db: Database) throws {
         for index in deferredIndexes {

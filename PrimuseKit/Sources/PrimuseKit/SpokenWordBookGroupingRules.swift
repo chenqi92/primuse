@@ -415,6 +415,15 @@ enum SpokenWordBookGroupingRules {
 
     // MARK: - Album
 
+    /// 一条目把它与别的条目连到同一本书的两样东西:文件夹键与专辑键(规则 1、3 里的同一套)。
+    /// 曲库目录据此划出增量重新归书的闭包。
+    static func linkKeys(
+        of item: SpokenWordBookItem,
+        catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs
+    ) -> (folder: String?, album: String?) {
+        (folder(of: item, catalogSourceIDs: catalogSourceIDs)?.key, album(of: item)?.key)
+    }
+
     private static func album(of item: SpokenWordBookItem) -> Album? {
         let tagged = (item.albumTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tagged.isEmpty else { return nil }
