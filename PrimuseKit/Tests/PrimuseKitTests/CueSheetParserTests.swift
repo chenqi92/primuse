@@ -188,3 +188,146 @@ import Testing
     let track = try #require(CueSheetParser.parse(text: cue)).files[0].tracks[0]
     #expect(track.replayGainTrackGain == nil && track.replayGainAlbumGain == nil)
 }
+
+@Test func cueSheetReplayGainRemarksAcceptCommonSpellingsAndRejectBadValues() throws {
+    let cue = #"""
+    rem replaygain_album_gain -7.89 db
+    REM REPLAYGAIN_ALBUM_PEAK "0.988312"
+    FILE "album.wav" WAVE
+      TRACK 01 AUDIO
+        REM REPLAYGAIN_TRACK_GAIN -6.5
+        REM REPLAYGAIN_TRACK_PEAK 0.95
+        INDEX 01 00:00:00
+      TRACK 02 AUDIO
+        rem Replaygain_Track_Gain "+1.50 DB"
+        INDEX 01 03:00:00
+      TRACK 03 AUDIO
+        REM REPLAYGAIN_TRACK_GAIN -3.2dB
+        INDEX 01 06:00:00
+      TRACK 04 AUDIO
+        REM REPLAYGAIN_TRACK_GAIN -99 dB
+        REM REPLAYGAIN_TRACK_PEAK abc
+        INDEX 01 09:00:00
+      TRACK 05 AUDIO
+        REM REPLAYGAIN_TRACK_GAIN nan dB
+        REM REPLAYGAIN_TRACK_GAIN
+        INDEX 01 12:00:00
+    """#
+    let tracks = try #require(CueSheetParser.parse(text: cue)).files[0].tracks
+    #expect(tracks.count == 5)
+    #expect(tracks[0].replayGainTrackGain == -6.5)
+    #expect(tracks[0].replayGainTrackPeak == 0.95)
+    #expect(tracks[1].replayGainTrackGain == 1.5)
+    #expect(tracks[2].replayGainTrackGain == -3.2)
+    #expect(tracks[3].replayGainTrackGain == nil)
+    #expect(tracks[3].replayGainTrackPeak == nil)
+    #expect(tracks[4].replayGainTrackGain == nil)
+    for track in tracks {
+        #expect(track.replayGainAlbumGain == -7.89)
+        #expect(track.replayGainAlbumPeak == 0.988312)
+    }
+
+    // 写在 FILE 之后、第一条 TRACK 之前的也是整张的。
+    let afterFile = try #require(CueSheetParser.parse(text: #"""
+    FILE "album.wav" WAVE
+    REM REPLAYGAIN_ALBUM_GAIN -5.00 dB
+      TRACK 01 AUDIO
+        INDEX 01 00:00:00
+    """#)).files[0].tracks[0]
+    #expect(afterFile.replayGainAlbumGain == -5)
+    #expect(afterFile.replayGainTrackGain == nil)
+}
+
+@Test func cueSheetFillsReplayGainOfALibraryRowScannedWithoutIt() throws {
+    let sheet = try #require(CueSheetParser.parse(text: #"""
+    REM REPLAYGAIN_ALBUM_GAIN -7.89 dB
+    REM REPLAYGAIN_ALBUM_PEAK 0.98
+    FILE "Album.wav" WAVE
+      TRACK 01 AUDIO
+        REM REPLAYGAIN_TRACK_GAIN -6.00 dB
+        INDEX 01 00:00:00
+      TRACK 02 AUDIO
+        REM REPLAYGAIN_TRACK_GAIN -8.25 dB
+        REM REPLAYGAIN_TRACK_PEAK 0.9
+        INDEX 01 03:00:00
+    """#))
+    // 曲库里的轨号被刮削改过,按起点认出是第二轨;整轨文件名不分大小写。
+    let row = Song(id: "row", title: "Two", trackNumber: 9, fileFormat: .wav, filePath: "/Music/album.WAV",
+                   sourceID: "src", cueSheetPath: "/Music/Album.cue", cueStartTime: 180, cueEndTime: 360)
+    #expect(sheet.track(for: row)?.number == 2)
+
+    let filled = try #require(row.applyingCueSheetReplayGain(from: sheet))
+    #expect(filled.replayGainTrackGain == -8.25)
+    #expect(filled.replayGainTrackPeak == 0.9)
+    #expect(filled.replayGainAlbumGain == -7.89)
+    #expect(filled.replayGainAlbumPeak == 0.98)
+    #expect(filled.applyingCueSheetReplayGain(from: sheet) == nil)
+
+    let track = try #require(ReplayGainPolicy.cueSheetSnapshot(for: row, sheet: sheet, mode: .track))
+    #expect(track.mode == .track)
+    #expect(track.values == ReplayGainAdjustment(gain: -8.25, peak: 0.9))
+    #expect(track.origin == .tags)
+    let album = try #require(ReplayGainPolicy.cueSheetSnapshot(for: row, sheet: sheet, mode: .album))
+    #expect(album.mode == .album)
+    #expect(album.values == ReplayGainAdjustment(gain: -7.89, peak: 0.98))
+
+    // 不是 CUE 分轨、光盘镜像分轨、表里没写增益的,都不补。
+    let plain = Song(id: "plain", title: "Two", fileFormat: .wav, filePath: "/Music/album.WAV", sourceID: "src")
+    #expect(sheet.track(for: plain) == nil)
+    #expect(plain.applyingCueSheetReplayGain(from: sheet) == nil)
+    var disc = row
+    disc.fileFormat = .sacdISO
+    disc.sacdTrackNumber = 2
+    #expect(disc.applyingCueSheetReplayGain(from: sheet) == nil)
+    let bare = try #require(CueSheetParser.parse(text: #"""
+    FILE "Album.wav" WAVE
+      TRACK 01 AUDIO
+        INDEX 01 00:00:00
+      TRACK 02 AUDIO
+        INDEX 01 03:00:00
+    """#))
+    #expect(ReplayGainPolicy.cueSheetSnapshot(for: row, sheet: bare, mode: .track) == nil)
+}
+
+@Test func rescannedCueTrackKeepsItsRowButTakesTheSheetsReplayGain() {
+    var existing = Song(id: "row", title: "Two", fileFormat: .wav, filePath: "/Music/album.wav",
+                        sourceID: "src", cueSheetPath: "/Music/album.cue", cueStartTime: 180)
+    existing.replayGainTrackPeak = 0.5
+    var rebuilt = existing
+    rebuilt.replayGainTrackPeak = nil
+    rebuilt.replayGainTrackGain = -8.25
+    rebuilt.replayGainAlbumGain = -7.89
+
+    existing.adoptCueSheetReplayGain(from: rebuilt)
+    #expect(existing.replayGainTrackGain == -8.25)
+    #expect(existing.replayGainTrackPeak == 0.5)
+    #expect(existing.replayGainAlbumGain == -7.89)
+    #expect(existing.replayGainAlbumPeak == nil)
+
+    var plain = Song(id: "plain", title: "One", fileFormat: .flac, filePath: "/Music/one.flac", sourceID: "src")
+    let source = plain
+    var other = plain
+    other.replayGainTrackGain = -3
+    plain.adoptCueSheetReplayGain(from: other)
+    #expect(plain == source)
+}
+
+@Test func localCueSheetIsReadFromDiskWithinTheScanLimit() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("CueSheetParserTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let sheetURL = directory.appendingPathComponent("album.cue")
+    try Data(#"""
+    REM REPLAYGAIN_ALBUM_GAIN -7.89 dB
+    FILE "album.wav" WAVE
+      TRACK 01 AUDIO
+        INDEX 01 00:00:00
+    """#.utf8).write(to: sheetURL)
+    #expect(CueSheetParser.parse(contentsOf: sheetURL)?.files.first?.tracks.first?.replayGainAlbumGain == -7.89)
+
+    let empty = directory.appendingPathComponent("empty.cue")
+    try Data().write(to: empty)
+    #expect(CueSheetParser.parse(contentsOf: empty) == nil)
+    #expect(CueSheetParser.parse(contentsOf: directory.appendingPathComponent("missing.cue")) == nil)
+}

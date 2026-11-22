@@ -165,6 +165,14 @@ public enum CueSheetParser {
         parse(text: text, requiresPlayableTrack: true)
     }
 
+    /// 读一份本机上的 .cue。和扫描一样只认 1MB 以内的;读不到、太大或解析不出是 nil。
+    public static func parse(contentsOf url: URL) -> CueSheet? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= CueSheetScanCache.maximumSheetBytes,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        return parse(data: data)
+    }
+
     private static func parse(text: String, requiresPlayableTrack: Bool) -> CueSheet? {
         var sheet = CueSheet()
         var currentFileIndex: Int?
@@ -369,5 +377,41 @@ public extension Song {
         if let value = track.replayGainTrackPeak, value > 0 { replayGainTrackPeak = value }
         if let value = track.replayGainAlbumGain { replayGainAlbumGain = value }
         if let value = track.replayGainAlbumPeak, value > 0 { replayGainAlbumPeak = value }
+    }
+
+    /// 重扫时整轨没变、沿用曲库里旧行的 CUE 分轨,把这次照 CUE 重建的那一轨带的回放增益
+    /// 放过去:旧行可能是能读 CUE 增益之前扫进来的,也可能是 .cue 后来才写进增益。扫描重建
+    /// 分轨时增益只从 CUE 拿,有值就是 CUE 写的;没值的项不动(可能是读整轨标签补的)。
+    mutating func adoptCueSheetReplayGain(from rebuilt: Song) {
+        guard rebuilt.isCueTrack else { return }
+        if let value = rebuilt.replayGainTrackGain { replayGainTrackGain = value }
+        if let value = rebuilt.replayGainTrackPeak, value > 0 { replayGainTrackPeak = value }
+        if let value = rebuilt.replayGainAlbumGain { replayGainAlbumGain = value }
+        if let value = rebuilt.replayGainAlbumPeak, value > 0 { replayGainAlbumPeak = value }
+    }
+
+    /// 这一轨在它的 CUE 表里记的回放增益放上去以后的样子。表里找不到这一轨、没写增益,
+    /// 或放上去也没有变化时是 nil。
+    func applyingCueSheetReplayGain(from sheet: CueSheet) -> Song? {
+        guard let track = sheet.track(for: self) else { return nil }
+        var updated = self
+        updated.applyReplayGain(from: track)
+        let unchanged = updated.replayGainTrackGain == replayGainTrackGain
+            && updated.replayGainTrackPeak == replayGainTrackPeak
+            && updated.replayGainAlbumGain == replayGainAlbumGain
+            && updated.replayGainAlbumPeak == replayGainAlbumPeak
+        return unchanged ? nil : updated
+    }
+}
+
+public extension CueSheet {
+    /// 曲库里一首 CUE 分轨在这张表里的那一轨。光盘镜像的分轨不是照外部 .cue 切的,不在这里找。
+    func track(for song: Song) -> CueTrack? {
+        guard song.isCueTrack, !song.isDiscImageTrack else { return nil }
+        return track(
+            audioFileName: (song.filePath as NSString).lastPathComponent,
+            startTime: song.cueStartTime,
+            number: song.trackNumber
+        )
     }
 }

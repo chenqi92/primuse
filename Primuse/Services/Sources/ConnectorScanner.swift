@@ -1772,6 +1772,8 @@ actor ConnectorScanner {
         refreshed.cueEndTime = cueSong.cueEndTime
         refreshed.sacdTrackNumber = cueSong.sacdTrackNumber
         refreshed.isoAudioTrack = cueSong.isoAudioTrack
+        // 行的版本只跟整轨文件走,.cue 后来写进的增益、能读 CUE 增益之前扫进来的行都靠这里补上。
+        refreshed.adoptCueSheetReplayGain(from: cueSong)
         return refreshed
     }
 

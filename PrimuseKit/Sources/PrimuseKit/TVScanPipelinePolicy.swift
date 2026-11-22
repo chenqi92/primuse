@@ -211,6 +211,8 @@ public enum TVScanPipelinePolicy {
             }
             result.sacdTrackNumber = candidate.sacdTrackNumber
             result.isoAudioTrack = candidate.isoAudioTrack
+            // 能读 CUE 增益之前扫进来、或 .cue 后来才写进增益的分轨,沿用旧行时也带上。
+            result.adoptCueSheetReplayGain(from: candidate)
             if let video = candidate.mvPath { result.mvPath = video }
         }
         result.dateAdded = existing.dateAdded

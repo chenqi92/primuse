@@ -210,6 +210,47 @@ final class ReplayGainPlaybackTests: XCTestCase {
         XCTAssertFalse(player.replayGainPlaybackInfo.showsBadge)
     }
 
+    @MainActor func testCueTrackWithoutLibraryGainUsesItsCueSheet() async throws {
+        let suite = "replaygain-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = PlaybackSettingsStore(defaults: defaults, cloudSync: CloudKVSSync(store: nil, defaults: defaults, observing: nil))
+        settings.replayGainEnabled = true
+        settings.replayGainMode = .track
+        let sessionURL = FileManager.default.temporaryDirectory.appendingPathComponent("replaygain-session-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: sessionURL) }
+        let player = AudioPlayerService(playbackSettings: settings, playbackSessionStore: PlaybackSessionStore(url: sessionURL))
+        // 远端源扫描时留下的 .cue 原文;曲库行是能读 CUE 增益之前扫进来的,没带增益。
+        let sourceID = "cue-\(UUID().uuidString)"
+        let cacheDirectory = CueSheetScanCache.directory(sourceID: sourceID)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory.deletingLastPathComponent()) }
+        let sheet = Data(#"""
+        REM REPLAYGAIN_ALBUM_GAIN -7.89 dB
+        FILE "album.wav" WAVE
+          TRACK 01 AUDIO
+            REM REPLAYGAIN_TRACK_GAIN -6.00 dB
+            INDEX 01 00:00:00
+          TRACK 02 AUDIO
+            REM REPLAYGAIN_TRACK_GAIN -8.00 dB
+            INDEX 01 00:01:00
+        """#.utf8)
+        await CueSheetScanCache(directory: cacheDirectory).storeSheet(
+            sheet,
+            path: "/Album/album.cue",
+            version: CueSheetScanCache.FileVersion(size: Int64(sheet.count), modifiedDate: Date(), revision: nil),
+            requestedLength: 64 * 1024
+        )
+        let song = Song(id: UUID().uuidString, title: "Second", trackNumber: 2, duration: 2, fileFormat: .wav,
+                        filePath: "/Album/album.wav", sourceID: sourceID, cueSheetPath: "/Album/album.cue",
+                        cueStartTime: 1, cueEndTime: 3)
+        player.currentSong = song
+        player.playID = UUID()
+        let volume = await player.targetProgramVolume(for: song, url: URL(fileURLWithPath: "/unused.wav"), allowFileRead: false)
+        XCTAssertEqual(volume, ReplayGainPolicy.linearGain(gainDB: -8, peak: nil), accuracy: 0.0001)
+        XCTAssertEqual(player.replayGainPlaybackInfo.snapshot?.origin, .tags)
+        XCTAssertEqual(player.replayGainPlaybackInfo.snapshot?.mode, .track)
+    }
+
     @MainActor func testPreparationCachesUpcomingTracksAndDoesNotReadThemAgain() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("replaygain-\(UUID()).wav")
         defer { try? FileManager.default.removeItem(at: url) }

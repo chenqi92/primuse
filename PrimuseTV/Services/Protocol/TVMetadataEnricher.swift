@@ -714,14 +714,22 @@ enum TVMetadataEnricher {
             metadata.audioCodec, container: output.fileFormat
         ) ?? output.audioCodec
             ?? ContainerAudioCodecPolicy.inspectedCodec(nil, container: output.fileFormat)
-        output.replayGainTrackGain = metadata.replayGainTrackGain
-            ?? output.replayGainTrackGain
-        output.replayGainTrackPeak = metadata.replayGainTrackPeak
-            ?? output.replayGainTrackPeak
-        output.replayGainAlbumGain = metadata.replayGainAlbumGain
-            ?? output.replayGainAlbumGain
-        output.replayGainAlbumPeak = metadata.replayGainAlbumPeak
-            ?? output.replayGainAlbumPeak
+        if song.isCueTrack {
+            // CUE 分轨:整轨文件的标签说的是整张,扫描时从 CUE 里读到的数值优先(与手机端回填一致)。
+            output.replayGainTrackGain = output.replayGainTrackGain ?? metadata.replayGainTrackGain
+            output.replayGainTrackPeak = output.replayGainTrackPeak ?? metadata.replayGainTrackPeak
+            output.replayGainAlbumGain = output.replayGainAlbumGain ?? metadata.replayGainAlbumGain
+            output.replayGainAlbumPeak = output.replayGainAlbumPeak ?? metadata.replayGainAlbumPeak
+        } else {
+            output.replayGainTrackGain = metadata.replayGainTrackGain
+                ?? output.replayGainTrackGain
+            output.replayGainTrackPeak = metadata.replayGainTrackPeak
+                ?? output.replayGainTrackPeak
+            output.replayGainAlbumGain = metadata.replayGainAlbumGain
+                ?? output.replayGainAlbumGain
+            output.replayGainAlbumPeak = metadata.replayGainAlbumPeak
+                ?? output.replayGainAlbumPeak
+        }
 
         if song.isCueTrack {
             if song.cueEndTime == nil, let start = song.cueStartTime,

@@ -129,6 +129,16 @@ public enum ReplayGainPolicy {
         return .init(gain: song.replayGainTrackGain, peak: song.replayGainTrackPeak)
     }
 
+    /// CUE 分轨的增益记在 .cue 里,整轨文件(WAV 尤其)里多半没有。曲库行在 `mode` 下没有
+    /// 可用的增益时照它的 .cue 表补:表里这一轨记的增益放上去以后该用的值。补不到是 nil。
+    public static func cueSheetSnapshot(for song: Song, sheet: CueSheet, mode: ReplayGainMode) -> ReplayGainPlaybackSnapshot? {
+        guard let updated = song.applyingCueSheetReplayGain(from: sheet) else { return nil }
+        let values = adjustment(for: updated, mode: mode)
+        guard values.hasValue else { return nil }
+        let valueMode: ReplayGainMode = mode == .album && updated.replayGainAlbumGain?.isFinite == true ? .album : .track
+        return .init(mode: valueMode, values: values, origin: .tags)
+    }
+
     /// Prepare the imminent songs first; album completion must not hold up
     /// the next track. Keep CUE tracks distinct even when they share a file.
     public static func analysisPlan(

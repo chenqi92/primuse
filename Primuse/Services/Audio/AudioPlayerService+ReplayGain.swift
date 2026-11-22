@@ -98,11 +98,13 @@ extension AudioPlayerService {
         audioEngine.applyProgramVolume(ReplayGainAnalysisService.supports(song) ? programVolume(for: values) : 1)
     }
 
-    /// The library row answers first. A local file is opened only when the
-    /// row carries no ReplayGain tags at all (older scans, or tags written
-    /// after the scan); streams never read the file. File reads are cached per
-    /// file version, including the answer "no tags", so seeking an untagged
-    /// song does not re-read it.
+    /// The library row answers first. A CUE track without values next asks
+    /// its cue sheet, where its gain is written (the image file, a WAV above
+    /// all, rarely carries any). A local file is opened only when the row
+    /// carries no ReplayGain tags at all (older scans, or tags written after
+    /// the scan); streams never read the file. File reads are cached per file
+    /// version, including the answer "no tags", so seeking an untagged song
+    /// does not re-read it.
     func resolveReplayGainValues(
         for song: Song,
         url: URL,
@@ -122,6 +124,10 @@ extension AudioPlayerService {
             values = storedValues
             origin = "library"
             if mode == .album, song.replayGainAlbumGain?.isFinite == true { valueMode = .album }
+        } else if let sheetSnapshot = await cueSheetReplayGainSnapshot(for: song, mode: mode) {
+            values = sheetSnapshot.values
+            origin = "cue"
+            valueMode = sheetSnapshot.mode
         } else if !allowFileRead {
             values = storedValues
             origin = "none (streamed; file not read)"
@@ -261,6 +267,46 @@ extension AudioPlayerService {
             if let gain = tags.albumGain, gain.isFinite { return .init(gain: gain, peak: tags.albumPeak ?? tags.trackPeak) }
             return .init(gain: tags.trackGain, peak: tags.trackPeak)
         }
+    }
+
+    /// CUE 分轨的回放增益记在 .cue 里(REM REPLAYGAIN_*)。曲库行没带(能读 CUE 增益之前扫进来、
+    /// 重扫又沿用了旧行)时照 .cue 补:本地源直接读那份 .cue,远端源只用扫描留下的原文,起播前
+    /// 不联网。补到了就写回这张整轨各分轨的曲库行。
+    private func cueSheetReplayGainSnapshot(for song: Song, mode: ReplayGainMode) async -> ReplayGainPlaybackSnapshot? {
+        // 按 ID 寻址的网盘上 .cue 的路径是文件 ID,不看扩展名;光盘镜像的分轨不照外部 .cue 切。
+        guard song.isCueTrack, !song.isDiscImageTrack, let cuePath = song.cueSheetPath,
+              (cuePath as NSString).pathExtension.lowercased() != "iso" else { return nil }
+        let reference = Song(id: "", title: "", fileFormat: song.fileFormat, filePath: cuePath, sourceID: song.sourceID)
+        let localURL = await sourceManager?.directLocalFileURL(for: reference)
+        let sourceID = song.sourceID
+        let sheet = await Task.detached(priority: .utility) { () async -> CueSheet? in
+            if let localURL { return CueSheetParser.parse(contentsOf: localURL) }
+            let cache = CueSheetScanCache(directory: CueSheetScanCache.directory(sourceID: sourceID))
+            guard let data = await cache.latestSheet(path: cuePath) else { return nil }
+            return CueSheetParser.parse(data: data)
+        }.value
+        guard let sheet, let snapshot = ReplayGainPolicy.cueSheetSnapshot(for: song, sheet: sheet, mode: mode) else {
+            return nil
+        }
+        storeCueSheetReplayGain(sheet, alongside: song)
+        return snapshot
+    }
+
+    /// 同一张整轨的各分轨一起补,之后起播、分析排队都直接从曲库行拿。已经一样的行不写。
+    private func storeCueSheetReplayGain(_ sheet: CueSheet, alongside song: Song) {
+        guard let library else { return }
+        var ids = [song.id]
+        if let albumID = song.albumID { ids += library.songs(forAlbum: albumID).map(\.id) }
+        var seen = Set<String>()
+        let updated = ids.compactMap { id -> Song? in
+            guard seen.insert(id).inserted, let stored = library.storedSong(id: id),
+                  stored.sourceID == song.sourceID, stored.filePath == song.filePath,
+                  stored.cueSheetPath == song.cueSheetPath else { return nil }
+            return stored.applyingCueSheetReplayGain(from: sheet)
+        }
+        guard !updated.isEmpty else { return }
+        library.replaceSongs(updated)
+        plog("ReplayGain: filled \(updated.count) CUE track row(s) from the cue sheet")
     }
 
     func replayGainAlbumSongs(for song: Song) -> [Song] {

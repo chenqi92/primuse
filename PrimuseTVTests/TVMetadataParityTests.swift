@@ -379,6 +379,22 @@ final class TVMetadataParityTests: XCTestCase {
         XCTAssertEqual(TVScanPipelinePolicy.reconciledSkeleton(existing: cached, candidate: track).year, 1975)
     }
 
+    func testCueTrackKeepsSheetReplayGainOverWholeImageTags() {
+        var metadata = FileMetadataReader.Metadata()
+        metadata.replayGainTrackGain = -2
+        metadata.replayGainTrackPeak = 0.99
+        metadata.replayGainAlbumGain = -3
+        var track = song()
+        track.cueSheetPath = "/Album.cue"
+        track.cueStartTime = 180
+        track.replayGainTrackGain = -8.25
+        let cue = TVMetadataEnricher.applying(metadata, to: track, duration: 600)
+        XCTAssertEqual(cue.replayGainTrackGain, -8.25)
+        XCTAssertEqual(cue.replayGainTrackPeak, 0.99)
+        XCTAssertEqual(cue.replayGainAlbumGain, -3)
+        XCTAssertEqual(TVMetadataEnricher.applying(metadata, to: song(), duration: 180).replayGainTrackGain, -2)
+    }
+
     func testDSFPrefixProvidesFullDurationForBothBitOrders() async {
         let rate: UInt32 = 5_644_800
         let samples = UInt64(rate) * 1000 + UInt64(rate) / 2

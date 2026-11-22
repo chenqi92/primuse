@@ -52,6 +52,22 @@ struct CueSheetScanCacheTests {
         #expect(await cache.sheet(path: "/Album/a.cue", version: nil) == nil)
     }
 
+    @Test("Playback reads the last stored sheet whatever its version")
+    func latestSheetIgnoresVersion() async {
+        let directory = Self.makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = CueSheetScanCache(directory: directory)
+        let data = Data("FILE \"a.wav\" WAVE".utf8)
+
+        #expect(await cache.latestSheet(path: "/Album/a.cue") == nil)
+        await cache.storeSheet(data, path: "/Album/a.cue", version: Self.version(size: Int64(data.count)),
+                               requestedLength: 64 * 1024)
+
+        #expect(await cache.latestSheet(path: "/Album/a.cue") == data)
+        #expect(await CueSheetScanCache(directory: directory).latestSheet(path: "/Album/a.cue") == data)
+        #expect(await cache.latestSheet(path: "/Album/b.cue") == nil)
+    }
+
     @Test("Entries survive a new cache instance on the same directory")
     func persistsAcrossInstances() async {
         let directory = Self.makeDirectory()

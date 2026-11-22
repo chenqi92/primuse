@@ -81,6 +81,13 @@ public actor CueSheetScanCache {
         return entry.data
     }
 
+    /// 不论版本,上一轮扫描留下的这张 .cue 原文。播放时给曲库里没带回放增益的 CUE 分轨补增益用:
+    /// 起播前不为它联网,曲库那一行本来就是照这份原文建的。
+    public func latestSheet(path: String) -> Data? {
+        guard let entry: SheetEntry = read(sheetURL(for: path)), entry.path == path else { return nil }
+        return entry.data
+    }
+
     public func storeSheet(_ data: Data, path: String, version: FileVersion?, requestedLength: Int64) {
         guard let version, data.count <= Self.maximumSheetBytes,
               Self.isCompleteRead(byteCount: data.count, listedSize: version.size, requestedLength: requestedLength)

@@ -1365,6 +1365,17 @@ final class TVPlaybackCoordinator {
         var values = ReplayGainPolicy.adjustment(for: song, mode: mode)
         var valueMode: ReplayGainMode = mode == .album && song.replayGainAlbumGain?.isFinite == true ? .album : .track
         var origin = ReplayGainPlaybackSnapshot.Origin.tags
+        // CUE 分轨的增益记在 .cue 里,整轨文件里多半没有。曲库行没带(能读 CUE 增益之前扫进来的)
+        // 时用扫描留下的 .cue 原文补,不联网。
+        if !values.hasValue, song.isCueTrack, !song.isDiscImageTrack, let cuePath = song.cueSheetPath {
+            let cache = CueSheetScanCache(directory: CueSheetScanCache.directory(sourceID: song.sourceID))
+            if let data = await cache.latestSheet(path: cuePath),
+               let sheet = CueSheetParser.parse(data: data),
+               let snapshot = ReplayGainPolicy.cueSheetSnapshot(for: song, sheet: sheet, mode: mode) {
+                values = snapshot.values
+                valueMode = snapshot.mode
+            }
+        }
         if !values.hasValue, let url, url.isFileURL {
             let metadata = await FileMetadataReader.read(from: url)
             if mode == .album, let gain = metadata.replayGainAlbumGain {

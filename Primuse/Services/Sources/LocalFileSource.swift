@@ -925,7 +925,15 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                                Set(existingTracks.map(\.id)) == Set(descriptors.map {
                                    $0.songID(sourceID: self.sourceID, audioPath: item.path)
                                }) {
-                                for track in existingTracks {
+                                // 能读 CUE 增益之前扫进来的分轨,重扫时也把 CUE 里记的回放增益补上。
+                                let descriptorsByID = Dictionary(
+                                    descriptors.map { ($0.songID(sourceID: self.sourceID, audioPath: item.path), $0) },
+                                    uniquingKeysWith: { first, _ in first }
+                                )
+                                for var track in existingTracks {
+                                    if let descriptor = descriptorsByID[track.id] {
+                                        track.applyReplayGain(from: descriptor.track)
+                                    }
                                     continuation.yield(ConnectorScannedSong(
                                         song: track,
                                         displayName: track.title,

@@ -235,6 +235,31 @@ struct TVScanPipelineTests {
         #expect(merged.lyricsFileName == "cached-lyrics.json")
     }
 
+    @Test func unchangedCueTrackTakesReplayGainFromTheSheet() {
+        // 能读 CUE 增益之前扫进来的分轨:整轨没变、沿用旧行,增益照这次读到的 CUE 补上。
+        var existing = song(id: "cue-2", path: "/Music/Album.wav", duration: 180, revision: "r1")
+        existing.cueSheetPath = "/Music/Album.cue"
+        existing.cueStartTime = 180
+        existing.cueEndTime = 360
+        existing.bitRate = 1_411
+        existing.replayGainTrackPeak = 0.5
+        var candidate = song(id: "cue-2", path: "/Music/Album.wav", revision: "r1")
+        candidate.cueSheetPath = "/Music/Album.cue"
+        candidate.cueStartTime = 180
+        candidate.cueEndTime = 360
+        candidate.replayGainTrackGain = -8.25
+        candidate.replayGainAlbumGain = -7.89
+        candidate.replayGainAlbumPeak = 0.98
+
+        let merged = TVScanPipelinePolicy.reconciledSkeleton(existing: existing, candidate: candidate)
+
+        #expect(merged.bitRate == 1_411)
+        #expect(merged.replayGainTrackGain == -8.25)
+        #expect(merged.replayGainTrackPeak == 0.5)
+        #expect(merged.replayGainAlbumGain == -7.89)
+        #expect(merged.replayGainAlbumPeak == 0.98)
+    }
+
     @Test func replacementPreservesExplicitUserMetadataButRefreshesBytes() {
         var existing = song(
             id: "old",
