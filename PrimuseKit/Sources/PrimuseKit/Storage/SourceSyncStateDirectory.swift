@@ -4,8 +4,11 @@ import Foundation
 /// 各个源的已提交同步状态,每个源各存各的文件,放在 `source-sync-states/` 目录里:
 /// - `<stem>.state.json`:除索引以外的全部字段(仍由 `SourceSyncState` 的 Codable 决定,
 ///   以后加的字段照常进去),外加它引用的索引文件名、行数与 SHA-256;
-/// - `<stem>.<UUID>.index`:紧凑索引的二进制(`SourceSyncIndex.writeBinary`),
-///   索引为空时没有这个文件。
+/// - `<stem>.<UUID>.index`:紧凑索引能直接映射的二进制(`SourceSyncIndex.writeBinary(mappable:)`,
+///   第 2 版),索引为空时没有这个文件。读的时候映射进来(`SourceSyncIndex.mapFile`),
+///   常驻的已提交索引不占堆;旧版本写的第 1 版文件读进堆里,之后在后台改写成第 2 版
+///   (`SourceSyncStateFileStore.upgradeIndexFormats`,失败了按 `FormatUpgradeBackoff` 退避)。
+/// 索引文件读不回来时这个源的其余字段照旧读出来,索引为空、`indexBaselineLost` 为真。
 /// `<stem>` 是源 ID 的 SHA-256 前 32 位十六进制:源 ID 不一定能直接当文件名。
 ///
 /// 原来所有源的状态是一整份 `source-sync-states.json`:每次扫描提交整份重新编码,
@@ -71,6 +74,8 @@ public enum SourceSyncStateDirectory {
         public var migratedSourceCount: Int?
         /// 读不了、跳过的文件与原因,给日志用。
         public var problems: [String]
+        /// 索引是旧格式(或哈希表要重算)、这次读进了堆里的源:之后在后台改写成能映射的格式。
+        public var pendingFormatUpgrades: Set<String>
 
         public init(
             states: [String: SourceSyncState] = [:],
@@ -78,7 +83,8 @@ public enum SourceSyncStateDirectory {
             legacySnapshotURL: URL? = nil,
             legacySnapshotIsPersisted: Bool = false,
             migratedSourceCount: Int? = nil,
-            problems: [String] = []
+            problems: [String] = [],
+            pendingFormatUpgrades: Set<String> = []
         ) {
             self.states = states
             self.records = records
@@ -86,6 +92,7 @@ public enum SourceSyncStateDirectory {
             self.legacySnapshotIsPersisted = legacySnapshotIsPersisted
             self.migratedSourceCount = migratedSourceCount
             self.problems = problems
+            self.pendingFormatUpgrades = pendingFormatUpgrades
         }
     }
 
@@ -206,7 +213,9 @@ public enum SourceSyncStateDirectory {
                 guard readBack.state == state, readBack.record == record else {
                     throw MigrationError.verificationFailed(sourceID)
                 }
-                expected[sourceID] = state
+                // 留读回来的那份:它的索引映射着刚写的文件,不占堆;解码出来的那份随即放掉。
+                // 临时目录整个改名换上去不影响已经映射的文件。
+                expected[sourceID] = readBack.state
                 records[sourceID] = record
             }
             let written = try fileManager.contentsOfDirectory(atPath: staging.path)
@@ -277,7 +286,16 @@ public enum SourceSyncStateDirectory {
         for name in names.sorted() where name.hasSuffix(stateSuffix) && !name.hasPrefix(".") {
             do {
                 let source = try readSource(stateFileNamed: name, in: directory, decoder: decoder)
-                if let file = source.record.index?.file { referenced.insert(file) }
+                switch source.outcome {
+                case .mapped, .heap:
+                    break
+                case .heapNeedsFormatUpgrade:
+                    result.pendingFormatUpgrades.insert(source.record.sourceID)
+                case .baselineLost(let reason):
+                    result.problems.append("\(name): index unreadable, kept the rest for a full rescan: \(reason)")
+                }
+                // 读不回来的索引文件也留到下次提交这个源时再换掉。
+                if let file = source.referencedIndexFile { referenced.insert(file) }
                 result.states[source.record.sourceID] = source.state
                 result.records[source.record.sourceID] = source.record
             } catch {
@@ -302,12 +320,27 @@ public enum SourceSyncStateDirectory {
         return result
     }
 
+    /// 一个源的索引读成了什么样。
+    enum IndexLoadOutcome: Equatable {
+        /// 映射的(或者本来就没有索引)。
+        case mapped
+        /// 旧格式或哈希表要重算:读进了堆里,之后在后台改写成能映射的格式。
+        case heapNeedsFormatUpgrade
+        /// 映射不了、或开放寻址表探测太长:读进了堆里,文件本身没问题,不改写。
+        case heap
+        /// 读不回来:索引为空,其余字段照旧,`indexBaselineLost` 为真。
+        case baselineLost(String)
+    }
+
     /// 读一个源:state.json,再按它引用的文件名、行数、SHA-256 读回索引并校验。
+    /// state.json 本身读不了(格式、身份不对)时报错,这个源跳过;只是索引读不回来时
+    /// 其余字段照旧返回,索引为空并记下 `indexBaselineLost`:删歌证词、确认中的大批消失
+    /// 都还在,下一次完整走查照常走删除确认,不会因为没有上一份状态就一次删掉。
     static func readSource(
         stateFileNamed name: String,
         in directory: URL,
         decoder: JSONDecoder
-    ) throws -> (state: SourceSyncState, record: Record) {
+    ) throws -> (state: SourceSyncState, record: Record, outcome: IndexLoadOutcome, referencedIndexFile: String?) {
         let stem = String(name.dropLast(stateSuffix.count))
         let envelope = try decoder.decode(Envelope.self, from: Data(contentsOf: directory.appendingPathComponent(name)))
         guard envelope.format == formatVersion else { throw ReadError.unsupportedFormat(envelope.format) }
@@ -316,15 +349,123 @@ public enum SourceSyncStateDirectory {
         }
         var state = envelope.state
         state.index = SourceSyncIndex()
-        if let reference = envelope.index {
-            guard reference.file.hasPrefix(stem + "."), reference.file.hasSuffix(indexSuffix),
-                  !reference.file.contains("/") else { throw ReadError.invalidIndexReference }
-            let data = try Data(contentsOf: directory.appendingPathComponent(reference.file), options: .alwaysMapped)
-            let index = try SourceSyncIndex.decodeBinary(data, expectedSHA256: reference.sha256)
-            guard index.count == reference.rows else { throw SourceSyncIndexFileError.rowCountMismatch }
-            state.index = index
+        guard let reference = envelope.index else {
+            return (state, Record(sourceID: envelope.sourceID, index: nil), .mapped, nil)
         }
-        return (state, Record(sourceID: envelope.sourceID, index: envelope.index))
+        guard reference.file.hasPrefix(stem + "."), reference.file.hasSuffix(indexSuffix),
+              !reference.file.contains("/") else {
+            state.indexBaselineLost = true
+            return (state, Record(sourceID: envelope.sourceID, index: nil),
+                    .baselineLost("\(ReadError.invalidIndexReference)"), nil)
+        }
+        do {
+            let read = try readIndex(reference, in: directory)
+            state.index = read.index
+            return (state, Record(sourceID: envelope.sourceID, index: reference), read.outcome, reference.file)
+        } catch {
+            // 磁盘上没有可用的索引:记录里也不带它,下次提交这个源时写新的、换掉这个文件。
+            state.indexBaselineLost = true
+            return (state, Record(sourceID: envelope.sourceID, index: nil), .baselineLost("\(error)"), reference.file)
+        }
+    }
+
+    private static func readIndex(
+        _ reference: IndexReference,
+        in directory: URL
+    ) throws -> (index: SourceSyncIndex, outcome: IndexLoadOutcome) {
+        let url = directory.appendingPathComponent(reference.file)
+        func decodeIntoHeap() throws -> SourceSyncIndex {
+            try SourceSyncIndex.decodeBinary(Data(contentsOf: url, options: .alwaysMapped), expectedSHA256: reference.sha256)
+        }
+        let index: SourceSyncIndex
+        let outcome: IndexLoadOutcome
+        do {
+            index = try SourceSyncIndex.mapFile(at: url, expectedSHA256: reference.sha256)
+            outcome = .mapped
+        } catch SourceSyncIndexFileError.unsupportedVersion(let version)
+                    where version < SourceSyncIndex.mappableFormatVersion {
+            index = try decodeIntoHeap()
+            outcome = .heapNeedsFormatUpgrade
+        } catch SourceSyncIndexFileError.hashTableMismatch {
+            // 哈希算法改过(或系统的 NFC 规则变了):内容仍然可信,读进堆里重算,之后再写一份。
+            index = try decodeIntoHeap()
+            outcome = .heapNeedsFormatUpgrade
+        } catch SourceSyncIndexFileError.excessiveProbing {
+            // 开放寻址表里有过长的探测链(大量键的哈希挤在一起):映射着查会很慢,读进堆里用。
+            // 重写也还是同样的键,不改写。
+            index = try decodeIntoHeap()
+            outcome = .heap
+        } catch SourceSyncIndexFileError.mappingFailed {
+            // 映射不了(例如地址空间不够):照旧整份读进堆里,文件本身没问题,不改写。
+            index = try decodeIntoHeap()
+            outcome = .heap
+        }
+        guard index.count == reference.rows else { throw SourceSyncIndexFileError.rowCountMismatch }
+        return (index, outcome)
+    }
+
+    /// 映射一个源刚写下(或沿用)的索引文件。提交之后用它换掉堆上那份:常驻的已提交索引
+    /// 从此不占堆。没有索引文件(空索引)时返回 nil。
+    public static func mapIndex(for record: Record, in directory: URL) throws -> SourceSyncIndex? {
+        guard let reference = record.index else { return nil }
+        let index = try SourceSyncIndex.mapFile(
+            at: directory.appendingPathComponent(reference.file), expectedSHA256: reference.sha256
+        )
+        guard index.count == reference.rows else { throw SourceSyncIndexFileError.rowCountMismatch }
+        return index
+    }
+
+    /// 旧格式索引改写失败后的退避记录(按文件名前缀记),存在目录里的 `format-upgrade-backoff.json`。
+    /// 失败一次等一天再试,之后每次翻倍,最多等 30 天:不在每次启动都整份重写几百 MB。
+    public struct FormatUpgradeBackoff: Codable, Sendable, Equatable {
+        public struct Attempt: Codable, Sendable, Equatable {
+            public var failures: Int
+            public var lastFailureAt: Date
+        }
+
+        public static let fileName = "format-upgrade-backoff.json"
+        public static let initialDelay: TimeInterval = 24 * 60 * 60
+        public static let maximumDelay: TimeInterval = 30 * 24 * 60 * 60
+
+        public var attempts: [String: Attempt] = [:]
+
+        public init() {}
+
+        public func allowsAttempt(stem: String, now: Date) -> Bool {
+            guard let attempt = attempts[stem] else { return true }
+            let exponent = Double(Swift.min(Swift.max(attempt.failures - 1, 0), 16))
+            let delay = Swift.min(Self.maximumDelay, Self.initialDelay * pow(2, exponent))
+            return now.timeIntervalSince(attempt.lastFailureAt) >= delay
+        }
+
+        public mutating func recordFailure(stem: String, at date: Date) {
+            let failures = (attempts[stem]?.failures ?? 0) + 1
+            attempts[stem] = Attempt(failures: failures, lastFailureAt: date)
+        }
+
+        public mutating func recordSuccess(stem: String) {
+            attempts[stem] = nil
+        }
+
+        public static func load(from directory: URL) -> FormatUpgradeBackoff {
+            guard let data = try? Data(contentsOf: directory.appendingPathComponent(fileName)),
+                  let decoded = try? makeDecoder().decode(FormatUpgradeBackoff.self, from: data) else {
+                return FormatUpgradeBackoff()
+            }
+            return decoded
+        }
+
+        public func save(to directory: URL) throws {
+            let url = directory.appendingPathComponent(Self.fileName)
+            guard !attempts.isEmpty else {
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.sortedKeys]
+            try encoder.encode(self).write(to: url, options: .atomic)
+        }
     }
 
     static func makeDecoder() -> JSONDecoder {
@@ -416,12 +557,12 @@ public enum SourceSyncStateDirectory {
         let name = "\(stem).\(UUID().uuidString)\(indexSuffix)"
         let url = directory.appendingPathComponent(name)
         if let writer {
-            let encoded = try index.binaryData()
+            let encoded = try index.binaryData(mappable: true)
             try writer(encoded.data, url)
             return IndexReference(file: name, rows: encoded.summary.rowCount, sha256: encoded.summary.sha256)
         }
         let summary = try writeFile(at: url, fileManager: fileManager) { handle in
-            try index.writeBinary { try handle.write(contentsOf: $0) }
+            try index.writeBinary(mappable: true) { try handle.write(contentsOf: $0) }
         }
         return IndexReference(file: name, rows: summary.rowCount, sha256: summary.sha256)
     }

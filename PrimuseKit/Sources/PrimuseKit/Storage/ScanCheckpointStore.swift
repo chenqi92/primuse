@@ -602,11 +602,20 @@ public struct SourceSyncStateWriteReceipt: Sendable, Equatable {
     public let sourceID: String
     public let mutationEpoch: UInt64
     public let sourceRevision: UInt64
+    /// 与写进去的那份状态的索引内容相同、存储换成落盘之后映射文件的那份(不占堆)。
+    /// 调用方用它换掉自己手里堆上的那份;nil 时(这次调用之后状态又被换过、或映射不了)照旧用自己的。
+    public let committedIndex: SourceSyncIndex?
 
-    public init(sourceID: String, mutationEpoch: UInt64, sourceRevision: UInt64) {
+    public init(
+        sourceID: String,
+        mutationEpoch: UInt64,
+        sourceRevision: UInt64,
+        committedIndex: SourceSyncIndex? = nil
+    ) {
         self.sourceID = sourceID
         self.mutationEpoch = mutationEpoch
         self.sourceRevision = sourceRevision
+        self.committedIndex = committedIndex
     }
 }
 
@@ -620,6 +629,9 @@ public struct SourceSyncStateWriteReceipt: Sendable, Equatable {
 /// 落盘有两种去处:平常是每个源各自的文件(`SourceSyncStateDirectory`),一次
 /// 提交只重写变了的那几个源;旧的整份 JSON 只在迁移没能完成的那次启动里继续写
 /// (旧文件那时仍是权威,见 `SourceSyncStateDirectory.load`)。
+///
+/// 每源文件写完之后,手里那份索引换成映射新文件的那份(内容相同):扫描提交的整份
+/// 索引不再常驻堆里。回执里带着换好的那份(`committedIndex`),调用方一起换掉。
 public actor SourceSyncStateFileStore {
     public typealias AtomicWriter = @Sendable (Data, URL) throws -> Void
 
@@ -631,6 +643,8 @@ public actor SourceSyncStateFileStore {
     private struct SourceWrite: Sendable {
         let sourceID: String
         let state: SourceSyncState?
+        /// 写的是哪一次换进来的状态(`stateRevisions`)。
+        let stateRevision: UInt64?
         let previous: SourceSyncStateDirectory.Record?
         let previousIndex: SourceSyncIndex?
     }
@@ -640,6 +654,9 @@ public actor SourceSyncStateFileStore {
     private var states: [String: SourceSyncState]
     private var mutationEpochs: [String: UInt64] = [:]
     private var sourceRevisions: [String: UInt64] = [:]
+    /// 每个源 `states` 里那份最后一次换进来时的修订号。之后只会被换成内容相同、
+    /// 存储不同的一份(落盘后映射的索引),所以修订号没变就说明内容没变。
+    private var stateRevisions: [String: UInt64] = [:]
     private var persistenceRevision: UInt64 = 0
     private var persistedRevision: UInt64 = 0
     /// 旧格式:磁盘上已有一份解得开的整份快照。
@@ -649,6 +666,8 @@ public actor SourceSyncStateFileStore {
     private var persistedIndexes: [String: SourceSyncIndex] = [:]
     /// 每源文件:还没落盘的源(状态变了,或者要删掉)。
     private var dirtySourceIDs: Set<String> = []
+    /// 下一次落盘时不论索引变没变都整份重写索引文件的源(旧格式改写成能映射的格式)。
+    private var forcedIndexRewrites: Set<String> = []
     private var persistenceTask: Task<Void, Error>?
 
     /// 旧格式:所有源写进 `url` 这一整份 JSON。
@@ -695,21 +714,26 @@ public actor SourceSyncStateFileStore {
         let currentEpoch = mutationEpochs[sourceID, default: 0]
         guard expectedMutationEpoch >= currentEpoch else { return nil }
 
+        let revision = sourceRevisions[sourceID, default: 0] &+ 1
         let contentChanged = states[sourceID] != state
         if contentChanged {
             states[sourceID] = state
+            stateRevisions[sourceID] = revision
             markDirty(sourceID)
         } else if needsRepairWrite(sourceID) {
             markDirty(sourceID)
         }
-        let revision = sourceRevisions[sourceID, default: 0] &+ 1
+        let stateRevision = stateRevisions[sourceID]
         mutationEpochs[sourceID] = expectedMutationEpoch
         sourceRevisions[sourceID] = revision
         try await persistLatestStateIfNeeded()
+        // 这次调用之后没有别的状态换进来:手里那份与 `state` 内容相同,可能已经换成映射的了。
+        let committedIndex = stateRevisions[sourceID] == stateRevision ? states[sourceID]?.index : nil
         return SourceSyncStateWriteReceipt(
             sourceID: sourceID,
             mutationEpoch: expectedMutationEpoch,
-            sourceRevision: revision
+            sourceRevision: revision,
+            committedIndex: committedIndex
         )
     }
 
@@ -764,6 +788,52 @@ public actor SourceSyncStateFileStore {
 
     public func snapshot() -> [String: SourceSyncState] {
         states
+    }
+
+    /// 把旧格式(读进了堆里)的索引按能映射的格式重写,写完换成映射的那份。走正常的落盘
+    /// 流程(与提交排队、互不覆盖),写盘在优先级较低的后台任务里做,不挡启动、不挡主线程。
+    /// 失败的源记进目录里的退避记录(`SourceSyncStateDirectory.FormatUpgradeBackoff`),
+    /// 退避期内不再重试。返回改写完、并且这期间没有换进别的状态的源与映射的索引。
+    public func upgradeIndexFormats(
+        _ sourceIDs: Set<String>,
+        now: Date = Date()
+    ) async -> [String: SourceSyncIndex] {
+        guard case .directory(let directory) = destination else { return [:] }
+        var backoff = SourceSyncStateDirectory.FormatUpgradeBackoff.load(from: directory)
+        let candidates = sourceIDs.sorted().filter { sourceID in
+            guard let index = states[sourceID]?.index, !index.isEmpty, !index.isMemoryMapped,
+                  records[sourceID]?.index != nil else { return false }
+            return backoff.allowsAttempt(stem: SourceSyncStateDirectory.fileStem(for: sourceID), now: now)
+        }
+        guard !candidates.isEmpty else { return [:] }
+        let revisions = Dictionary(uniqueKeysWithValues: candidates.map { ($0, stateRevisions[$0]) })
+        for sourceID in candidates {
+            forcedIndexRewrites.insert(sourceID)
+            markDirty(sourceID)
+        }
+        do {
+            try await persistLatestStateIfNeeded()
+        } catch {
+            // 没写成的源下面按失败记下;它们仍留在待落盘里,下次落盘照常(不再强制重写)。
+        }
+        var upgraded: [String: SourceSyncIndex] = [:]
+        for sourceID in candidates {
+            forcedIndexRewrites.remove(sourceID)
+            let stem = SourceSyncStateDirectory.fileStem(for: sourceID)
+            guard let state = states[sourceID], stateRevisions[sourceID] == revisions[sourceID] else {
+                // 期间换进了新的状态(提交、作废):新状态写的就是新格式,不必再改写。
+                backoff.recordSuccess(stem: stem)
+                continue
+            }
+            if state.index.isMemoryMapped {
+                upgraded[sourceID] = state.index
+                backoff.recordSuccess(stem: stem)
+            } else {
+                backoff.recordFailure(stem: stem, at: now)
+            }
+        }
+        try? backoff.save(to: directory)
+        return upgraded
     }
 
     private func markDirty(_ sourceID: String) {
@@ -827,17 +897,21 @@ public actor SourceSyncStateFileStore {
         let pending = dirtySourceIDs
         dirtySourceIDs.removeAll()
         let work = pending.sorted().map { sourceID in
-            SourceWrite(
+            // 强制重写的源不给上一份记录:索引内容没变也写一个新的(能映射的)索引文件。
+            let forced = forcedIndexRewrites.contains(sourceID)
+            return SourceWrite(
                 sourceID: sourceID,
                 state: states[sourceID],
-                previous: records[sourceID],
-                previousIndex: persistedIndexes[sourceID]
+                stateRevision: stateRevisions[sourceID],
+                previous: forced ? nil : records[sourceID],
+                previousIndex: forced ? nil : persistedIndexes[sourceID]
             )
         }
         let atomicWriter = atomicWriter
+        typealias Completed = (sourceID: String, record: SourceSyncStateDirectory.Record?, mapped: SourceSyncIndex?)
         let writeTask = Task.detached(priority: .utility) {
-            () -> (completed: [(String, SourceSyncStateDirectory.Record?)], failure: (any Error)?) in
-            var completed: [(String, SourceSyncStateDirectory.Record?)] = []
+            () -> (completed: [Completed], failure: (any Error)?) in
+            var completed: [Completed] = []
             for item in work {
                 do {
                     if let state = item.state {
@@ -848,10 +922,19 @@ public actor SourceSyncStateFileStore {
                             in: directory,
                             writer: atomicWriter
                         )
-                        completed.append((item.sourceID, record))
+                        // 落盘的那份映射回来,换掉堆上那份。沿用了原来的文件、手里那份又已经是
+                        // 映射的,就不必再映射一次。映射失败只是继续用堆上的那份。
+                        let mapped: SourceSyncIndex?
+                        if let previousIndex = item.previousIndex, previousIndex.isMemoryMapped,
+                           record.index != nil, record.index == item.previous?.index {
+                            mapped = previousIndex
+                        } else {
+                            mapped = try? SourceSyncStateDirectory.mapIndex(for: record, in: directory)
+                        }
+                        completed.append((item.sourceID, record, mapped))
                     } else {
                         try SourceSyncStateDirectory.removeSource(item.sourceID, in: directory)
-                        completed.append((item.sourceID, nil))
+                        completed.append((item.sourceID, nil, nil))
                     }
                 } catch {
                     return (completed, error)
@@ -861,13 +944,17 @@ public actor SourceSyncStateFileStore {
         }
         let outcome = await writeTask.value
         var finished = Set<String>()
-        let statesByID = Dictionary(work.map { ($0.sourceID, $0.state) }, uniquingKeysWith: { first, _ in first })
-        for (sourceID, record) in outcome.completed {
+        let writesByID = Dictionary(work.map { ($0.sourceID, $0) }, uniquingKeysWith: { first, _ in first })
+        for (sourceID, record, mapped) in outcome.completed {
             finished.insert(sourceID)
             if let record {
                 records[sourceID] = record
-                if record.index != nil, let index = statesByID[sourceID]??.index {
-                    persistedIndexes[sourceID] = index
+                if record.index != nil, let write = writesByID[sourceID], let index = write.state?.index {
+                    persistedIndexes[sourceID] = mapped ?? index
+                    // 写的这份还在 `states` 里(之后没有换进别的状态):换成映射的那份,内容相同。
+                    if let mapped, stateRevisions[sourceID] == write.stateRevision, states[sourceID] != nil {
+                        states[sourceID]?.index = mapped
+                    }
                 } else {
                     persistedIndexes[sourceID] = nil
                 }

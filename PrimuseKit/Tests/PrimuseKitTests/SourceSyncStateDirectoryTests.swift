@@ -217,7 +217,7 @@ struct SourceSyncStateDirectoryTests {
         #expect(FileManager.default.fileExists(atPath: workspace.legacy.path + ".corrupt"))
     }
 
-    @Test("A damaged or newer-format source is skipped alone and its files are kept")
+    @Test("A damaged index keeps its source's other fields; a newer-format state file is skipped; files are kept")
     func damagedSourceIsSkippedAlone() throws {
         let workspace = try makeWorkspace()
         defer { try? FileManager.default.removeItem(at: workspace.root) }
@@ -239,11 +239,16 @@ struct SourceSyncStateDirectoryTests {
         let result = SourceSyncStateDirectory.loadDirectory(
             workspace.directory, now: Date().addingTimeInterval(3_600)
         )
-        #expect(result.states["navidrome-1"] == nil)
+        // 索引读不回来:其余字段(删歌证词、确认中的大批消失……)照旧,索引为空、记下基线丢了。
+        var lostBaseline = try #require(legacy["navidrome-1"]?.current)
+        lostBaseline.index = SourceSyncIndex()
+        lostBaseline.indexBaselineLost = true
+        #expect(result.states["navidrome-1"] == lostBaseline)
+        // state.json 本身是更新的版本写的:整个源跳过。
         #expect(result.states["books"] == nil)
         #expect(result.problems.count == 2)
         var expected = legacy.mapValues(\.current)
-        expected.removeValue(forKey: "navidrome-1")
+        expected["navidrome-1"] = lostBaseline
         expected.removeValue(forKey: "books")
         #expect(result.states == expected)
         // Even past the orphan grace period, a skipped source's files are not cleaned up.

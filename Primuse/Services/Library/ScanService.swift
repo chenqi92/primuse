@@ -844,6 +844,21 @@ final class ScanService {
         if let migrated = loaded.migratedSourceCount {
             plog("🗂️ Source sync state migrated to per-source files sources=\(migrated)")
         }
+        var indexRows = 0
+        var mappedIndexes = 0
+        var populatedIndexes = 0
+        var mappedBytes = 0
+        var heapBytes = 0
+        for index in loaded.states.values.map(\.index) where !index.isEmpty {
+            populatedIndexes += 1
+            indexRows += index.count
+            if index.isMemoryMapped { mappedIndexes += 1 }
+            mappedBytes += index.mappedByteCount
+            heapBytes += index.heapByteCount
+        }
+        let indexSummary = "rows=\(indexRows) mapped=\(mappedIndexes)/\(populatedIndexes) "
+            + "fileMB=\(mappedBytes / 1_048_576) heapMB=\(heapBytes / 1_048_576)"
+        plog("🗂️ Source sync indexes \(indexSummary) pendingFormatUpgrades=\(loaded.pendingFormatUpgrades.count)")
         applySyncStates(loaded.states)
         if let legacyURL = loaded.legacySnapshotURL {
             // 迁移没能完成:这次启动照旧写整份旧文件,下次启动再迁。
@@ -857,8 +872,34 @@ final class ScanService {
                 initialStates: syncStates,
                 persistedRecords: loaded.records
             )
+            scheduleIndexFormatUpgrade(loaded.pendingFormatUpgrades)
         }
         isStartupStateReady = true
+    }
+
+    /// 旧版本写的索引这次读进了堆里:启动忙完之后在后台改写成能映射的格式,写完换成映射的那份。
+    /// 不在启动读盘的路上做(那时主线程可能正等着读完),写失败的按退避记录隔一段时间再试。
+    private func scheduleIndexFormatUpgrade(_ sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty, let store = syncStateStore else { return }
+        // 这期间提交过的源不换:那时手里已经是提交后的那份了。
+        let appliedRevisions = sourceIDs.reduce(into: [String: UInt64]()) {
+            $0[$1] = syncStateAppliedRevisions[$1, default: 0]
+        }
+        Task(priority: .background) { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(60))
+            guard !Task.isCancelled else { return }
+            let upgraded = await store.upgradeIndexFormats(sourceIDs)
+            guard let self else { return }
+            var swapped = 0
+            for (sourceID, index) in upgraded {
+                guard self.syncStateAppliedRevisions[sourceID, default: 0] == appliedRevisions[sourceID],
+                      let current = self.syncStates[sourceID]?.index,
+                      !current.isMemoryMapped, current.count == index.count else { continue }
+                self.syncStates[sourceID]?.index = index
+                swapped += 1
+            }
+            plog("🗂️ Source sync index format upgrade mapped=\(swapped) rewritten=\(upgraded.count)/\(sourceIDs.count)")
+        }
     }
 
     private nonisolated static let checkpointFileName = "scan-checkpoints.json"
@@ -1100,14 +1141,36 @@ final class ScanService {
         )
         try await library.persistIncrementalNowAndWait().get()
         try await waitForCheckpointPersistence()
+        guard original.filePath != updated.filePath, let committed = syncStates[sourceID] else { return }
+        // 已提交的索引是映射的文件:改一行要整份拷进堆里(几十万行时上百 MB),不在主线程上做。
+        let baseline = (revision: syncStateAppliedRevisions[sourceID, default: 0],
+                        epoch: syncStateMutationEpochs[sourceID, default: 0])
+        let edited = await Task.detached(priority: .userInitiated) {
+            Self.relocatingIndexedFile(in: committed, original: original, updated: updated, providerKeys: providerKeys)
+        }.value
+        // 改写期间这个源又提交过、或作废了:不拿旧的底子盖回去,下次扫描自己对得上。
+        guard let edited,
+              syncStateAppliedRevisions[sourceID, default: 0] == baseline.revision,
+              syncStateMutationEpochs[sourceID, default: 0] == baseline.epoch,
+              syncStates[sourceID] != nil else { return }
+        try await persistSyncState(edited)
+    }
+
+    /// 一首歌的文件换了位置以后,扫描索引里它那一行搬到新键下(歌曲 ID 不变)。找不到那一行、
+    /// 或新键已被别的歌占着时返回 nil。
+    private nonisolated static func relocatingIndexedFile(
+        in committed: SourceSyncState,
+        original: Song,
+        updated: Song,
+        providerKeys: (old: String, new: String)?
+    ) -> SourceSyncState? {
+        var state = committed
         let candidates = [providerKeys?.old, original.filePath, "path:\(original.filePath.lowercased())"].compactMap { $0 }
-        guard original.filePath != updated.filePath,
-              var state = syncStates[sourceID],
-              let oldKey = candidates.first(where: { state.index[$0]?.songIDs == [original.id] }),
+        guard let oldKey = candidates.first(where: { state.index[$0]?.songIDs == [original.id] }),
               var entry = state.index[oldKey],
-              !entry.isDirectory else { return }
+              !entry.isDirectory else { return nil }
         let newKey = providerKeys?.new ?? (oldKey.hasPrefix("path:") ? "path:\(updated.filePath.lowercased())" : updated.filePath)
-        guard state.index[newKey] == nil || state.index[newKey]?.songIDs == [original.id] else { return }
+        guard state.index[newKey] == nil || state.index[newKey]?.songIDs == [original.id] else { return nil }
         state.index.removeValue(forKey: oldKey)
         entry.stableKey = newKey
         entry.path = updated.filePath
@@ -1127,7 +1190,7 @@ final class ScanService {
         if oldKey != newKey { state.identityAliases[oldKey] = newKey }
         state.missingStableKeys.removeValue(forKey: oldKey)
         state.missingStableKeys.removeValue(forKey: newKey)
-        try await persistSyncState(state)
+        return state
     }
 
     /// 文件页给一个目录改了名:里面的歌换成新路径(歌曲 ID 不变,播放记录、歌单都还在),
@@ -1169,9 +1232,20 @@ final class ScanService {
             try await library.persistIncrementalNowAndWait().get()
         }
         try await waitForCheckpointPersistence()
-        if var state = syncStates[sourceID],
-           SourceFolderRelocationPolicy.relocate(&state, from: oldPath, to: newPath) > 0 {
-            try await persistSyncState(state)
+        if let committed = syncStates[sourceID] {
+            // 同上:整份拷索引不在主线程上做;期间这个源又提交过、作废了就不写。
+            let baseline = (revision: syncStateAppliedRevisions[sourceID, default: 0],
+                            epoch: syncStateMutationEpochs[sourceID, default: 0])
+            let relocatedState = await Task.detached(priority: .userInitiated) { () -> SourceSyncState? in
+                var state = committed
+                return SourceFolderRelocationPolicy.relocate(&state, from: oldPath, to: newPath) > 0 ? state : nil
+            }.value
+            if let relocatedState,
+               syncStateAppliedRevisions[sourceID, default: 0] == baseline.revision,
+               syncStateMutationEpochs[sourceID, default: 0] == baseline.epoch,
+               syncStates[sourceID] != nil {
+                try await persistSyncState(relocatedState)
+            }
         }
         plog("📁 Folder relocated source=\(sourceID.prefix(8))… songs=\(moved.count)")
         return moved
@@ -3175,7 +3249,8 @@ final class ScanService {
 
         if let folderRoots {
             if !(connector is any ResumableSnapshotMusicSourceConnector), !source.type.usesOpaqueDirectoryIdentifiers,
-               scopedState == nil || scopedState?.requiresDeepScan == true {
+               scopedState == nil || scopedState?.requiresDeepScan == true
+                || scopedState?.indexBaselineLost == true {
                 let scopedSongs = existingForScan.filter { song in
                     folderRoots.contains { SourceDirectorySelectionPolicy.covers($0, song.filePath, for: source.type) }
                 }
@@ -6141,12 +6216,18 @@ final class ScanService {
               receipt.sourceRevision > syncStateAppliedRevisions[sourceID, default: 0] else {
             throw CancellationError()
         }
+        // 落盘后存储换成映射文件的那份(内容相同):常驻的已提交索引不占堆,
+        // 扫描手里那份随扫描结束放掉。
+        var state = state
+        if let committedIndex = receipt.committedIndex {
+            state.index = committedIndex
+        }
 
         let previousState = syncStates[sourceID]
         let changesFolderHierarchy = previousState == nil
             || previousState?.scopeFingerprint != state.scopeFingerprint
             || previousState?.identityScopeFingerprint != state.identityScopeFingerprint
-            || previousState?.index != state.index
+            || previousState.map { Self.committedIndexChanged(from: $0.index, to: state.index) } == true
             || previousState?.identityAliases != state.identityAliases
             || previousState?.rootIdentities != state.rootIdentities
             || previousState?.reconciliation != state.reconciliation
@@ -6155,6 +6236,17 @@ final class ScanService {
         if changesFolderHierarchy {
             advanceFolderHierarchyRevision()
         }
+    }
+
+    /// 提交前后的索引是不是变了,不在主线程上逐行比两份映射的文件(冷页会读盘)。
+    /// 映射的索引只来自启动时读的文件和提交后换上的新文件:存储层只有在索引内容变了的时候
+    /// 才写新文件、换新映射,内容没变时回执给的就是原来那一份(同一块存储)。所以两边都是映射的
+    /// 时候,是不是同一块存储就说明了变没变;有一边在堆上(映射失败、旧格式、旧整份 JSON)时
+    /// 才逐行比,那时数据本来就在内存里。
+    private nonisolated static func committedIndexChanged(from previous: SourceSyncIndex, to next: SourceSyncIndex) -> Bool {
+        if previous.isIdentical(to: next) { return false }
+        if previous.isMemoryMapped, next.isMemoryMapped { return true }
+        return previous != next
     }
 
     private func advanceFolderHierarchyRevision() {

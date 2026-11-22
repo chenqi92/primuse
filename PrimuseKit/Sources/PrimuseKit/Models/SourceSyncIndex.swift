@@ -52,6 +52,10 @@ extension Dictionary: SourceSyncIndexContents where Key == String, Value == Sour
 ///
 /// 条目是读的时候现建的。成批读请顺序遍历(`values`、`for (key, item) in index`):
 /// 遍历时同一目录的路径会复用同一个字符串。
+///
+/// 已提交的索引可以直接映射磁盘上的文件(`mapFile(at:)`):行、字节、哈希表都读映射里的,
+/// 不占堆,映射的干净页系统随时能收回,不计进 footprint。映射的那份只读,第一次改动时
+/// 才整份拷进堆里(写时复制,与普通的共享存储相同)。
 public struct SourceSyncIndex: Sendable {
     @usableFromInline var storage: Storage
 
@@ -139,6 +143,15 @@ public struct SourceSyncIndex: Sendable {
         storage === other.storage
     }
 
+    /// 读的是映射的文件(不占堆)。
+    public var isMemoryMapped: Bool { storage.isMapped }
+
+    /// 这份索引在堆上占的字节(数组容量之和);映射的为 0。只给诊断日志和测试用。
+    public var heapByteCount: Int { storage.heapByteCount }
+
+    /// 映射的文件有多大;不是映射的为 0。
+    public var mappedByteCount: Int { storage.mapped?.length ?? 0 }
+
     public func item(forKey key: String) -> SourceSyncIndexedItem? {
         self[key]
     }
@@ -151,8 +164,8 @@ public struct SourceSyncIndex: Sendable {
     /// 有没有目录条目。只看行标志,不建条目。
     public var hasDirectoryEntries: Bool {
         let storage = storage
-        for row in 0..<storage.rows.count
-        where storage.rows[row].flags & (RowFlag.dead | RowFlag.isDirectory) == RowFlag.isDirectory {
+        for row in 0..<storage.rowCount
+        where storage.rowFlags(row) & (RowFlag.dead | RowFlag.isDirectory) == RowFlag.isDirectory {
             return true
         }
         return false
@@ -166,8 +179,8 @@ public struct SourceSyncIndex: Sendable {
     public func forEachDirectoryEntry(_ body: (String, SourceSyncIndexedItem) throws -> Void) rethrows {
         let storage = storage
         var cache = SharedStringCache()
-        for row in 0..<storage.rows.count
-        where storage.rows[row].flags & (RowFlag.dead | RowFlag.isDirectory) == RowFlag.isDirectory {
+        for row in 0..<storage.rowCount
+        where storage.rowFlags(row) & (RowFlag.dead | RowFlag.isDirectory) == RowFlag.isDirectory {
             try body(storage.key(at: row), storage.item(at: row, cache: &cache))
         }
     }
@@ -184,10 +197,10 @@ public struct SourceSyncIndex: Sendable {
             var cache = SharedStringCache()
 
             public mutating func next() -> SourceSyncIndexedItem? {
-                while row < storage.rows.count {
+                while row < storage.rowCount {
                     let current = row
                     row += 1
-                    guard storage.rows[current].flags & (RowFlag.dead | RowFlag.isDirectory)
+                    guard storage.rowFlags(current) & (RowFlag.dead | RowFlag.isDirectory)
                         == RowFlag.isDirectory else { continue }
                     return storage.item(at: current, cache: &cache)
                 }
@@ -208,8 +221,8 @@ public struct SourceSyncIndex: Sendable {
         var memoTags = [UInt64](repeating: .max, count: 64)
         var memoHits = [Bool](repeating: false, count: 64)
         var cache = SharedStringCache()
-        for row in 0..<storage.rows.count {
-            let value = storage.rows[row]
+        for row in 0..<storage.rowCount {
+            let value = storage.row(row)
             guard value.flags & (RowFlag.dead | RowFlag.hasParent) == RowFlag.hasParent else { continue }
             let tag = UInt64(value.parentOffset) << 32 | UInt64(value.parentLength)
             let slot = Int((value.parentOffset ^ (value.parentOffset >> 6) ^ value.parentLength) & 63)
@@ -228,9 +241,10 @@ public struct SourceSyncIndex: Sendable {
         return result
     }
 
+    /// 要改之前调用:共享的、或映射的(只读)存储先拷一份堆上的。
     @usableFromInline
     mutating func makeUnique() {
-        if !isKnownUniquelyReferenced(&storage) {
+        if storage.isMapped || !isKnownUniquelyReferenced(&storage) {
             storage = storage.copy()
         }
     }
@@ -247,7 +261,7 @@ extension SourceSyncIndex: Sequence {
         var cache = SharedStringCache()
 
         public mutating func next() -> (key: String, value: SourceSyncIndexedItem)? {
-            while row < storage.rows.count {
+            while row < storage.rowCount {
                 let current = row
                 row += 1
                 guard storage.isLive(current) else { continue }
@@ -273,7 +287,7 @@ extension SourceSyncIndex: Sequence {
         public typealias Index = Int
 
         public var startIndex: Int { storage.nextLiveRow(from: 0) }
-        public var endIndex: Int { storage.rows.count }
+        public var endIndex: Int { storage.rowCount }
         public var count: Int { storage.liveCount }
         public var isEmpty: Bool { storage.liveCount == 0 }
 
@@ -291,7 +305,7 @@ extension SourceSyncIndex: Sequence {
             var cache = SharedStringCache()
 
             public mutating func next() -> SourceSyncIndexedItem? {
-                while row < storage.rows.count {
+                while row < storage.rowCount {
                     let current = row
                     row += 1
                     guard storage.isLive(current) else { continue }
@@ -314,7 +328,7 @@ extension SourceSyncIndex: Sequence {
         public typealias Index = Int
 
         public var startIndex: Int { storage.nextLiveRow(from: 0) }
-        public var endIndex: Int { storage.rows.count }
+        public var endIndex: Int { storage.rowCount }
         public var count: Int { storage.liveCount }
         public var isEmpty: Bool { storage.liveCount == 0 }
 
@@ -352,7 +366,7 @@ extension SourceSyncIndex: Equatable {
         guard lhs.count == rhs.count else { return false }
         let left = lhs.storage
         let right = rhs.storage
-        for row in 0..<left.rows.count where left.isLive(row) {
+        for row in 0..<left.rowCount where left.isLive(row) {
             guard let match = right.find(matchingKeyOf: row, in: left),
                   Storage.rowsEqual(row, in: left, match, in: right) else { return false }
         }
@@ -443,7 +457,7 @@ extension SourceSyncIndex {
         hash: UInt32,
         interner: inout Interner?
     ) -> SourceSyncIndexedItem? {
-        if !isKnownUniquelyReferenced(&storage) {
+        if storage.isMapped || !isKnownUniquelyReferenced(&storage) {
             storage = storage.copy()
             if interner != nil { interner = Interner() }
         }
@@ -465,7 +479,7 @@ extension SourceSyncIndex {
     /// 存活行的行号,按存放顺序。
     var liveRows: LazyFilterSequence<Range<Int>> {
         let storage = storage
-        return (0..<storage.rows.count).lazy.filter { storage.isLive($0) }
+        return (0..<storage.rowCount).lazy.filter { storage.isLive($0) }
     }
 
     func key(atRow row: Int) -> String { storage.key(at: row) }
@@ -488,14 +502,14 @@ extension SourceSyncIndex {
         for (partIndex, part) in parts.enumerated() {
             let source = part.storage
             let skipped = skipping.map { shouldSkip in
-                source.rows.indices.map { source.isLive($0) && shouldSkip(partIndex, $0) }
+                (0..<source.rowCount).map { source.isLive($0) && shouldSkip(partIndex, $0) }
             }
             let skippedCount = skipped?.reduce(0) { $0 + ($1 ? 1 : 0) } ?? 0
             skippedRows.append(skippedCount > 0 ? skipped : nil)
             needsCompaction = needsCompaction || source.deadCount > 0 || skippedCount > 0
             rowCapacity += source.liveCount - skippedCount
-            arenaCapacity += part.storage.arena.count
-            spanCapacity += part.storage.songIDSpans.count
+            arenaCapacity += source.arenaCount
+            spanCapacity += source.songIDSpanCount
         }
         result.rows.reserveCapacity(rowCapacity)
         result.hashes.reserveCapacity(rowCapacity)
@@ -511,16 +525,17 @@ extension SourceSyncIndex {
                 source.appendCompactedRows(to: result) { skippedRows[partIndex]?[$0] ?? false }
                 continue
             }
-            precondition(result.arena.count + source.arena.count < Int(UInt32.max),
+            precondition(result.arena.count + source.arenaCount < Int(UInt32.max),
                          "Source sync index arena exceeds 4 GB")
             let base = UInt32(result.arena.count)
             let spanBase = UInt32(result.songIDSpans.count)
-            result.arena.append(contentsOf: source.arena)
-            for span in source.songIDSpans {
+            source.withArena { result.arena.append(contentsOf: $0) }
+            for spanIndex in 0..<source.songIDSpanCount {
+                let span = source.songIDSpan(spanIndex)
                 result.songIDSpans.append(Span(offset: span.offset + base, length: span.length))
             }
-            for index in source.rows.indices where source.isLive(index) {
-                var row = source.rows[index]
+            for index in 0..<source.rowCount where source.isLive(index) {
+                var row = source.row(index)
                 let flags = row.flags
                 row.keyOffset += base
                 row.pathOffset += base
@@ -535,7 +550,7 @@ extension SourceSyncIndex {
                     row.songIDsFirst += spanBase
                 }
                 result.rows.append(row)
-                result.hashes.append(source.hashes[index])
+                result.hashes.append(source.hash(atRow: index))
             }
         }
         precondition(result.rows.count < Int(Int32.max), "Source sync index exceeds Int32 rows")
@@ -631,24 +646,62 @@ extension SourceSyncIndex {
         }
     }
 
+    /// 映射进来的一份已提交索引文件(`mappableFormatVersion`)的各段。只读,随最后一个持有者释放时解除映射。
+    /// 文件按 UUID 命名、写完就不再改,后来被删掉(提交了新的一份)也不影响已经映射的这份。
+    final class MappedSections: @unchecked Sendable {
+        let base: UnsafeRawPointer
+        let length: Int
+        let rows: UnsafeBufferPointer<Row>
+        let spans: UnsafeBufferPointer<Span>
+        let hashes: UnsafeBufferPointer<UInt32>
+        let slots: UnsafeBufferPointer<Int32>
+        let arena: UnsafeBufferPointer<UInt8>
+
+        init(
+            base: UnsafeRawPointer,
+            length: Int,
+            rows: UnsafeBufferPointer<Row>,
+            spans: UnsafeBufferPointer<Span>,
+            hashes: UnsafeBufferPointer<UInt32>,
+            slots: UnsafeBufferPointer<Int32>,
+            arena: UnsafeBufferPointer<UInt8>
+        ) {
+            self.base = base
+            self.length = length
+            self.rows = rows
+            self.spans = spans
+            self.hashes = hashes
+            self.slots = slots
+            self.arena = arena
+        }
+
+        deinit {
+            munmap(UnsafeMutableRawPointer(mutating: base), length)
+        }
+    }
+
     @usableFromInline
     final class Storage: @unchecked Sendable {
+        // 堆上的存法。`mapped` 不为 nil 时这些数组都是空的。
         var rows: [Row] = []
         var arena: [UInt8] = []
         var songIDSpans: [Span] = []
-        /// 每行键的 `String.hashValue`(规范等价的键哈希相同)。哈希种子每个进程不同,
-        /// 只在内存里用,读文件时重算。
+        /// 每行键的稳定哈希(`SourceSyncKeyHash`):跨进程、跨版本相同,规范等价的键哈希相同。
+        /// 能映射的文件里原样存着这一列和下面的开放寻址表。
         var hashes: [UInt32] = []
         /// 开放寻址表:行号,`emptySlot` 为空,`tombstone` 为删除留下的墓碑。
         var slots: [Int32] = []
         var liveCount = 0
         var deadCount = 0
         var tombstoneCount = 0
+        /// 映射的只读文件。不为 nil 时所有读都走它,这份存储不能改(改之前先 `copy()`)。
+        let mapped: MappedSections?
 
         static let emptySlot: Int32 = -1
         static let tombstone: Int32 = -2
 
         init(minimumCapacity: Int) {
+            mapped = nil
             if minimumCapacity > 0 {
                 rows.reserveCapacity(minimumCapacity)
                 hashes.reserveCapacity(minimumCapacity)
@@ -656,7 +709,13 @@ extension SourceSyncIndex {
             }
         }
 
+        init(mapped: MappedSections) {
+            self.mapped = mapped
+            liveCount = mapped.rows.count
+        }
+
         private init(copying other: Storage) {
+            mapped = nil
             rows = other.rows
             arena = other.arena
             songIDSpans = other.songIDSpans
@@ -667,11 +726,24 @@ extension SourceSyncIndex {
             tombstoneCount = other.tombstoneCount
         }
 
+        /// 映射的那份整份拷进堆里。文件里的哈希与开放寻址表就是堆上用的那种,直接拷。
+        private init(heapCopyOf mapped: MappedSections) {
+            self.mapped = nil
+            rows = Array(mapped.rows)
+            songIDSpans = Array(mapped.spans)
+            arena = Array(mapped.arena)
+            hashes = Array(mapped.hashes)
+            slots = Array(mapped.slots)
+            liveCount = rows.count
+        }
+
         /// 写时复制。没有作废行时数组本身也是写时复制的,改到哪个才真的拷哪个;
         /// 有作废行就顺便压掉,反正要整份拷。作废行的字节不能留在共用的字节块里
         /// 跟着拷下去:作废行数随即清零,那些字节以后再也看不出来,会一轮轮攒着。
+        /// 映射的只读存储拷成堆上的一份。
         func copy() -> Storage {
-            deadCount == 0 ? Storage(copying: self) : compacted()
+            if let mapped { return Storage(heapCopyOf: mapped) }
+            return deadCount == 0 ? Storage(copying: self) : compacted()
         }
 
         static func slotCount(for count: Int) -> Int {
@@ -679,30 +751,96 @@ extension SourceSyncIndex {
         }
 
         static func hash(of key: String) -> UInt32 {
-            UInt32(truncatingIfNeeded: key.hashValue)
+            SourceSyncKeyHash.hash(of: key)
+        }
+
+        // MARK: Reading either representation
+
+        @inline(__always) var isMapped: Bool { mapped != nil }
+
+        @inline(__always) var rowCount: Int {
+            if let mapped { return mapped.rows.count }
+            return rows.count
+        }
+
+        @inline(__always) func row(_ index: Int) -> Row {
+            if let mapped { return mapped.rows[index] }
+            return rows[index]
+        }
+
+        @inline(__always) func rowFlags(_ index: Int) -> UInt32 {
+            if let mapped { return mapped.rows[index].flags }
+            return rows[index].flags
+        }
+
+        @inline(__always) func hash(atRow index: Int) -> UInt32 {
+            if let mapped { return mapped.hashes[index] }
+            return hashes[index]
+        }
+
+        @inline(__always) var slotCount: Int {
+            if let mapped { return mapped.slots.count }
+            return slots.count
+        }
+
+        @inline(__always) func slot(_ index: Int) -> Int32 {
+            if let mapped { return mapped.slots[index] }
+            return slots[index]
+        }
+
+        @inline(__always) var songIDSpanCount: Int {
+            if let mapped { return mapped.spans.count }
+            return songIDSpans.count
+        }
+
+        @inline(__always) func songIDSpan(_ index: Int) -> Span {
+            if let mapped { return mapped.spans[index] }
+            return songIDSpans[index]
+        }
+
+        @inline(__always) var arenaCount: Int {
+            if let mapped { return mapped.arena.count }
+            return arena.count
+        }
+
+        @inline(__always)
+        func withArena<Result>(_ body: (UnsafeBufferPointer<UInt8>) throws -> Result) rethrows -> Result {
+            if let mapped { return try body(mapped.arena) }
+            return try arena.withUnsafeBufferPointer(body)
+        }
+
+        /// 堆上数组的容量之和;映射的为 0。
+        var heapByteCount: Int {
+            guard mapped == nil else { return 0 }
+            return rows.capacity * MemoryLayout<Row>.stride
+                + arena.capacity
+                + songIDSpans.capacity * MemoryLayout<Span>.stride
+                + hashes.capacity * MemoryLayout<UInt32>.stride
+                + slots.capacity * MemoryLayout<Int32>.stride
         }
 
         @inline(__always)
         func isLive(_ row: Int) -> Bool {
-            rows[row].flags & RowFlag.dead == 0
+            rowFlags(row) & RowFlag.dead == 0
         }
 
         func nextLiveRow(from start: Int) -> Int {
             var row = start
-            while row < rows.count, !isLive(row) { row += 1 }
+            let count = rowCount
+            while row < count, !isLive(row) { row += 1 }
             return row
         }
 
         @inline(__always)
         private func slotIndex(for hash: UInt32) -> Int {
-            Int((UInt64(hash) &* UInt64(slots.count)) >> 32)
+            Int((UInt64(hash) &* UInt64(slotCount)) >> 32)
         }
 
         // MARK: Strings
 
         func string(_ offset: UInt32, _ length: UInt32) -> String {
             guard length > 0 else { return "" }
-            return arena.withUnsafeBufferPointer { buffer in
+            return withArena { buffer in
                 String(
                     decoding: UnsafeBufferPointer(
                         rebasing: buffer[Int(offset)..<Int(offset) + Int(length)]
@@ -713,11 +851,11 @@ extension SourceSyncIndex {
         }
 
         func key(at row: Int) -> String {
-            let value = rows[row]
+            let value = self.row(row)
             let prefix = SourceSyncIndex.keyPrefixes[Int((value.flags & RowFlag.keyPrefixMask) >> RowFlag.keyPrefixShift)]
             guard !prefix.isEmpty else { return string(value.keyOffset, value.keyLength) }
             let total = prefix.count + Int(value.keyLength)
-            return arena.withUnsafeBufferPointer { buffer in
+            return withArena { buffer in
                 String(unsafeUninitializedCapacity: total) { output in
                     _ = output.initialize(from: prefix)
                     if value.keyLength > 0 {
@@ -728,6 +866,18 @@ extension SourceSyncIndex {
                     }
                     return total
                 }
+            }
+        }
+
+        /// 第 `row` 行的键的稳定哈希,直接从字节算(不建字符串)。
+        func keyHash(atRow row: Int) -> UInt32 {
+            let value = self.row(row)
+            let prefix = SourceSyncIndex.keyPrefixes[Int((value.flags & RowFlag.keyPrefixMask) >> RowFlag.keyPrefixShift)]
+            return withArena { buffer in
+                let suffix: UnsafeBufferPointer<UInt8> = value.keyLength > 0
+                    ? UnsafeBufferPointer(rebasing: buffer[Int(value.keyOffset)..<Int(value.keyOffset) + Int(value.keyLength)])
+                    : UnsafeBufferPointer(start: nil, count: 0)
+                return SourceSyncKeyHash.hash(prefix: prefix, suffix: suffix)
             }
         }
 
@@ -743,7 +893,7 @@ extension SourceSyncIndex {
             at row: Int,
             shared: (UInt32, UInt32) -> String
         ) -> SourceSyncIndexedItem {
-            let value = rows[row]
+            let value = self.row(row)
             let flags = value.flags
             let key = key(at: row)
             let isDirectory = flags & RowFlag.isDirectory != 0
@@ -753,7 +903,7 @@ extension SourceSyncIndex {
             } else if value.songIDsSecond > 0 {
                 songIDs.reserveCapacity(Int(value.songIDsSecond))
                 for index in Int(value.songIDsFirst)..<Int(value.songIDsFirst) + Int(value.songIDsSecond) {
-                    let span = songIDSpans[index]
+                    let span = songIDSpan(index)
                     songIDs.append(string(span.offset, span.length))
                 }
             }
@@ -792,41 +942,44 @@ extension SourceSyncIndex {
         }
 
         func find(_ key: String, hash: UInt32) -> (slot: Int, row: Int)? {
-            guard !slots.isEmpty else { return nil }
+            let slotCount = slotCount
+            guard slotCount > 0 else { return nil }
             var query = key
             return query.withUTF8 { queryBytes in
                 var queryIsASCII: Bool?
                 var slot = slotIndex(for: hash)
                 while true {
-                    let row = slots[slot]
+                    let row = self.slot(slot)
                     if row == Self.emptySlot { return nil }
-                    if row >= 0, hashes[Int(row)] == hash {
+                    if row >= 0, self.hash(atRow: Int(row)) == hash {
                         if keyBytesEqual(row: Int(row), queryBytes) { return (slot, Int(row)) }
                         // 字节不同、却仍可能是同一个 String(规范等价):只有不全是 ASCII 时才会。
                         if queryIsASCII == nil { queryIsASCII = !queryBytes.contains { $0 >= 0x80 } }
-                        if !(queryIsASCII! && rows[Int(row)].flags & RowFlag.keyIsASCII != 0),
+                        if !(queryIsASCII! && rowFlags(Int(row)) & RowFlag.keyIsASCII != 0),
                            self.key(at: Int(row)) == key {
                             return (slot, Int(row))
                         }
                     }
                     slot += 1
-                    if slot == slots.count { slot = 0 }
+                    if slot == slotCount { slot = 0 }
                 }
             }
         }
 
-        /// 在这份索引里找另一份索引第 `row` 行的那个键。
+        /// 在这份索引里找另一份索引第 `row` 行的那个键。两边的哈希是同一种(稳定哈希),
+        /// 堆上的与映射的可以混着比。
         func find(matchingKeyOf row: Int, in other: Storage) -> Int? {
-            guard !slots.isEmpty else { return nil }
-            let hash = other.hashes[row]
-            let otherRow = other.rows[row]
+            let slotCount = slotCount
+            guard slotCount > 0 else { return nil }
+            let hash = other.hash(atRow: row)
+            let otherRow = other.row(row)
             let otherPrefix = otherRow.flags & RowFlag.keyPrefixMask
             var slot = slotIndex(for: hash)
             while true {
-                let candidate = slots[slot]
+                let candidate = self.slot(slot)
                 if candidate == Self.emptySlot { return nil }
-                if candidate >= 0, hashes[Int(candidate)] == hash {
-                    let mine = rows[Int(candidate)]
+                if candidate >= 0, self.hash(atRow: Int(candidate)) == hash {
+                    let mine = self.row(Int(candidate))
                     if mine.flags & RowFlag.keyPrefixMask == otherPrefix,
                        Self.bytesEqual(self, mine.keyOffset, mine.keyLength, other, otherRow.keyOffset, otherRow.keyLength) {
                         return Int(candidate)
@@ -838,12 +991,12 @@ extension SourceSyncIndex {
                     }
                 }
                 slot += 1
-                if slot == slots.count { slot = 0 }
+                if slot == slotCount { slot = 0 }
             }
         }
 
         private func keyBytesEqual(row: Int, _ query: UnsafeBufferPointer<UInt8>) -> Bool {
-            let value = rows[row]
+            let value = self.row(row)
             let prefix = SourceSyncIndex.keyPrefixes[Int((value.flags & RowFlag.keyPrefixMask) >> RowFlag.keyPrefixShift)]
             guard query.count == prefix.count + Int(value.keyLength) else { return false }
             if !prefix.isEmpty {
@@ -853,7 +1006,7 @@ extension SourceSyncIndex {
                 guard prefixMatches else { return false }
             }
             guard value.keyLength > 0 else { return true }
-            return arena.withUnsafeBufferPointer { buffer in
+            return withArena { buffer in
                 memcmp(query.baseAddress! + prefix.count, buffer.baseAddress! + Int(value.keyOffset), Int(value.keyLength)) == 0
             }
         }
@@ -864,8 +1017,8 @@ extension SourceSyncIndex {
         ) -> Bool {
             guard lhsLength == rhsLength else { return false }
             guard lhsLength > 0 else { return true }
-            return lhs.arena.withUnsafeBufferPointer { left in
-                rhs.arena.withUnsafeBufferPointer { right in
+            return lhs.withArena { left in
+                rhs.withArena { right in
                     memcmp(left.baseAddress! + Int(lhsOffset), right.baseAddress! + Int(rhsOffset), Int(lhsLength)) == 0
                 }
             }
@@ -875,8 +1028,8 @@ extension SourceSyncIndex {
             guard Int(length) == bytes.count else { return false }
             guard length > 0 else { return true }
             // 构建器记下的位置在就地压缩之后可能已经不在这块字节里了:按不相等处理,另存一份。
-            guard Int(offset) + Int(length) <= arena.count else { return false }
-            return arena.withUnsafeBufferPointer { buffer in
+            guard Int(offset) + Int(length) <= arenaCount else { return false }
+            return withArena { buffer in
                 memcmp(buffer.baseAddress! + Int(offset), bytes.baseAddress!, bytes.count) == 0
             }
         }
@@ -894,15 +1047,15 @@ extension SourceSyncIndex {
 
         private func isASCII(_ offset: UInt32, _ length: UInt32) -> Bool {
             guard length > 0 else { return true }
-            return arena.withUnsafeBufferPointer { buffer in
+            return withArena { buffer in
                 !UnsafeBufferPointer(rebasing: buffer[Int(offset)..<Int(offset) + Int(length)]).contains { $0 >= 0x80 }
             }
         }
 
         /// 两行除键以外的字段逐个比较(键已经由调用方按 String 相等对上了)。
         static func rowsEqual(_ lhsRow: Int, in lhs: Storage, _ rhsRow: Int, in rhs: Storage) -> Bool {
-            let left = lhs.rows[lhsRow]
-            let right = rhs.rows[rhsRow]
+            let left = lhs.row(lhsRow)
+            let right = rhs.row(rhsRow)
             let relevant = RowFlag.isDirectory | RowFlag.hasModifiedDate | RowFlag.hasDisplayName
                 | RowFlag.hasParent | RowFlag.hasRevision | RowFlag.hasSidecar
             guard left.flags & relevant == right.flags & relevant,
@@ -962,10 +1115,10 @@ extension SourceSyncIndex {
                 return [Span(offset: row.songIDsFirst, length: row.songIDsSecond)]
             }
             guard row.songIDsSecond > 0 else { return [] }
-            return Array(songIDSpans[Int(row.songIDsFirst)..<Int(row.songIDsFirst) + Int(row.songIDsSecond)])
+            return (Int(row.songIDsFirst)..<Int(row.songIDsFirst) + Int(row.songIDsSecond)).map { songIDSpan($0) }
         }
 
-        // MARK: Mutation
+        // MARK: Mutation (heap only)
 
         private func append(_ value: String) -> Span {
             var value = value
@@ -973,6 +1126,7 @@ extension SourceSyncIndex {
         }
 
         private func append(_ bytes: UnsafeBufferPointer<UInt8>) -> Span {
+            precondition(mapped == nil, "Mapped source sync index is read-only")
             let offset = arena.count
             precondition(offset + bytes.count < Int(UInt32.max), "Source sync index arena exceeds 4 GB")
             arena.append(contentsOf: bytes)
@@ -1094,6 +1248,7 @@ extension SourceSyncIndex {
             hash: UInt32,
             interner: inout Interner?
         ) -> SourceSyncIndexedItem? {
+            precondition(mapped == nil, "Mapped source sync index is read-only")
             if let existing = find(key, hash: hash) {
                 let previous = self.item(at: existing.row)
                 let originalKey = self.key(at: existing.row)
@@ -1117,6 +1272,7 @@ extension SourceSyncIndex {
         }
 
         func remove(slot: Int, row: Int) {
+            precondition(mapped == nil, "Mapped source sync index is read-only")
             slots[slot] = Self.tombstone
             rows[row].flags |= RowFlag.dead
             liveCount -= 1
@@ -1144,6 +1300,7 @@ extension SourceSyncIndex {
         }
 
         func rebuildSlots(slotCount: Int) {
+            precondition(mapped == nil, "Mapped source sync index is read-only")
             slots = [Int32](repeating: Self.emptySlot, count: slotCount)
             tombstoneCount = 0
             for row in rows.indices where isLive(row) {
@@ -1152,8 +1309,9 @@ extension SourceSyncIndex {
         }
 
         /// 数组按倍数长,建完可能空着近一半容量(45 万行时行表空出几十 MB)。
-        /// 明显多出来时拷进刚好大小的数组,旧的随即释放。
+        /// 明显多出来时拷进刚好大小的数组,旧的随即释放。映射的不动。
         func shrinkToFit() {
+            guard mapped == nil else { return }
             func trimmed<Element>(_ array: [Element]) -> [Element]? {
                 guard array.capacity > array.count + array.count / 8 + 64 else { return nil }
                 guard !array.isEmpty else { return [] }
@@ -1170,7 +1328,7 @@ extension SourceSyncIndex {
 
         /// 改得多了作废行占一半以上时就地压一次;只改几行的不动。
         func compactIfWasteful() {
-            guard deadCount > 4_096, deadCount > liveCount else { return }
+            guard mapped == nil, deadCount > 4_096, deadCount > liveCount else { return }
             let compacted = compacted()
             rows = compacted.rows
             arena = compacted.arena
@@ -1188,7 +1346,8 @@ extension SourceSyncIndex {
             guard arenaByteCount > 64 * 1024 else { return false }
             let threshold = arenaByteCount / 2
             var referenced = 0
-            for row in rows {
+            for index in 0..<rowCount {
+                let row = self.row(index)
                 let flags = row.flags
                 referenced += Int(row.pathLength) + Int(row.keyLength)
                 if flags & RowFlag.stableKeyIsKey == 0 { referenced += Int(row.stableKeyLength) }
@@ -1201,7 +1360,7 @@ extension SourceSyncIndex {
                     referenced += Int(row.songIDsSecond)
                 } else {
                     for index in Int(row.songIDsFirst)..<Int(row.songIDsFirst) + Int(row.songIDsSecond) {
-                        referenced += Int(songIDSpans[index].length)
+                        referenced += Int(songIDSpan(index).length)
                         if referenced >= threshold { return false }
                     }
                 }
@@ -1210,7 +1369,7 @@ extension SourceSyncIndex {
             return true
         }
 
-        /// 只留存活行的一份拷贝。同一段字节(共用的目录路径、键与歌曲 ID 共用的字节)
+        /// 只留存活行的一份拷贝(堆上的)。同一段字节(共用的目录路径、键与歌曲 ID 共用的字节)
         /// 拷过去仍是同一段。
         ///
         /// 跨行共用的只有构建时去重的目录路径(目录行的 `path` 与子项的 `parentPath`),
@@ -1241,7 +1400,7 @@ extension SourceSyncIndex {
                     return result.append(UnsafeBufferPointer(rebasing:
                         arenaBytes[Int(offset)..<Int(offset) + Int(length)]))
                 }
-                return arena.withUnsafeBufferPointer { buffer in
+                return withArena { buffer in
                     result.append(UnsafeBufferPointer(rebasing: buffer[Int(offset)..<Int(offset) + Int(length)]))
                 }
             }
@@ -1267,9 +1426,9 @@ extension SourceSyncIndex {
                 local.append((tag, span))
                 return span
             }
-            for index in rows.indices where isLive(index) {
+            for index in 0..<rowCount where isLive(index) {
                 if skipping(index) { continue }
-                var row = rows[index]
+                var row = self.row(index)
                 let flags = row.flags
                 local.removeAll(keepingCapacity: true)
                 var span = flags & RowFlag.isDirectory != 0
@@ -1286,7 +1445,7 @@ extension SourceSyncIndex {
                 } else if row.songIDsSecond > 0 {
                     let start = result.songIDSpans.count
                     for songIndex in Int(row.songIDsFirst)..<Int(row.songIDsFirst) + Int(row.songIDsSecond) {
-                        let old = songIDSpans[songIndex]
+                        let old = songIDSpan(songIndex)
                         result.songIDSpans.append(move(old.offset, old.length))
                     }
                     row.songIDsFirst = UInt32(start)
@@ -1312,9 +1471,128 @@ extension SourceSyncIndex {
                     (row.sidecarOffset, row.sidecarLength) = (span.offset, span.length)
                 }
                 result.rows.append(row)
-                if copyingHashes { result.hashes.append(hashes[index]) }
+                if copyingHashes { result.hashes.append(self.hash(atRow: index)) }
             }
         }
+    }
+}
+
+// MARK: - Stable key hash
+
+/// 同步索引键的哈希:每个进程、每个版本算出来都一样(能映射的文件里存着它和开放寻址表),
+/// 又与 `String ==` 一致(规范等价的写法哈希相同,查找语义与字典相同)。
+///
+/// 规范等价的两种写法要落到同一个哈希上,所以哈希的是 NFC 形式的 UTF-8 字节。
+/// 全是「一定已经是 NFC」的字符(ASCII、常用拉丁字母、西里尔基本区、常用标点、
+/// 中日韩表意文字、假名、谚文音节、全角半角形式;这些字符都没有正规分解以外的组合、
+/// 组合类为 0、NFC_QC=Yes)时字节本身就是 NFC 形式,直接哈希,不建字符串;
+/// 其余的(组合附加符号、别的文字、增补平面)先用 Foundation 转成 NFC 再哈希。
+/// 算法(包括哪些字符走快路)改了就要加 `algorithm`:文件里记着,对不上的文件当作旧格式重写。
+enum SourceSyncKeyHash {
+    static let algorithm: UInt32 = 1
+
+    static func hash(of key: String) -> UInt32 {
+        var key = key
+        return key.withUTF8 { hash(utf8: $0) }
+    }
+
+    /// 「前缀 + 后缀」两段拼成的键(行里存的是前缀编号和后缀字节)。
+    static func hash(prefix: [UInt8], suffix: UnsafeBufferPointer<UInt8>) -> UInt32 {
+        guard !prefix.isEmpty else { return hash(utf8: suffix) }
+        let total = prefix.count + suffix.count
+        return withUnsafeTemporaryAllocation(of: UInt8.self, capacity: total) { buffer in
+            _ = buffer.initialize(from: prefix)
+            if suffix.count > 0 {
+                _ = UnsafeMutableBufferPointer(rebasing: buffer[prefix.count..<total]).initialize(from: suffix)
+            }
+            return hash(utf8: UnsafeBufferPointer(buffer))
+        }
+    }
+
+    static func hash(utf8 bytes: UnsafeBufferPointer<UInt8>) -> UInt32 {
+        if isKnownNFC(bytes) { return mix(UnsafeRawBufferPointer(bytes)) }
+        var normalized = String(decoding: bytes, as: UTF8.self).precomposedStringWithCanonicalMapping
+        return normalized.withUTF8 { mix(UnsafeRawBufferPointer($0)) }
+    }
+
+    /// 每个字符都在已知一定是 NFC、组合类为 0 的范围里。只是快路的判断:判成「不知道」
+    /// 也对,只是慢一点。
+    static func isKnownNFC(_ bytes: UnsafeBufferPointer<UInt8>) -> Bool {
+        var index = 0
+        let count = bytes.count
+        while index < count {
+            let lead = bytes[index]
+            if lead < 0x80 {
+                index += 1
+                continue
+            }
+            let scalar: UInt32
+            if lead & 0xE0 == 0xC0, index + 1 < count {
+                scalar = UInt32(lead & 0x1F) << 6 | UInt32(bytes[index + 1] & 0x3F)
+                index += 2
+            } else if lead & 0xF0 == 0xE0, index + 2 < count {
+                scalar = UInt32(lead & 0x0F) << 12 | UInt32(bytes[index + 1] & 0x3F) << 6
+                    | UInt32(bytes[index + 2] & 0x3F)
+                index += 3
+            } else {
+                return false
+            }
+            guard isKnownNFCScalar(scalar) else { return false }
+        }
+        return true
+    }
+
+    @inline(__always)
+    private static func isKnownNFCScalar(_ scalar: UInt32) -> Bool {
+        switch scalar {
+        case 0x00A0...0x017F, // Latin-1 补充、拉丁扩展 A(预组合字母)
+             0x0400...0x045F, // 西里尔基本区
+             0x1E00...0x1EFF, // 拉丁扩展附加(越南文等预组合字母)
+             0x2010...0x2027, 0x2030...0x205E, // 常用标点(不含 U+2000/2001 这类单字分解)
+             0x3000...0x3029, 0x3030...0x303F, // 中日韩符号(不含 U+302A–302F 组合声调)
+             0x3041...0x3096, 0x309B...0x30FF, // 假名(不含 U+3099/309A 组合浊点)
+             0x3400...0x4DBF, 0x4E00...0x9FFF, // 中日韩表意文字
+             0xAC00...0xD7A3, // 谚文音节
+             0xFF01...0xFFBE, 0xFFE0...0xFFE6: // 全角半角形式
+            return true
+        default:
+            return false
+        }
+    }
+
+    @inline(__always)
+    private static func scramble(_ value: UInt64) -> UInt64 {
+        var value = value &* 0x87C3_7B91_1142_53D5
+        value = (value << 31) | (value >> 33)
+        return value &* 0x4CF5_AD43_2745_937F
+    }
+
+    /// 64 位逐 8 字节混合,最后做 fmix64,取低 32 位。
+    static func mix(_ bytes: UnsafeRawBufferPointer) -> UInt32 {
+        let count = bytes.count
+        var hash: UInt64 = 0x9E37_79B9_7F4A_7C15 ^ (UInt64(truncatingIfNeeded: count) &* 0xFF51_AFD7_ED55_8CCD)
+        var offset = 0
+        while offset + 8 <= count {
+            hash ^= scramble(UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt64.self)))
+            hash = ((hash << 27) | (hash >> 37)) &* 5 &+ 0x52DC_E729
+            offset += 8
+        }
+        if offset < count {
+            var tail: UInt64 = 0
+            var shift: UInt64 = 0
+            while offset < count {
+                tail |= UInt64(bytes.load(fromByteOffset: offset, as: UInt8.self)) << shift
+                shift += 8
+                offset += 1
+            }
+            hash ^= scramble(tail)
+        }
+        hash ^= hash >> 33
+        hash &*= 0xFF51_AFD7_ED55_8CCD
+        hash ^= hash >> 33
+        hash &*= 0xC4CE_B9FE_1A85_EC53
+        hash ^= hash >> 33
+        return UInt32(truncatingIfNeeded: hash)
     }
 }
 
@@ -1329,12 +1607,23 @@ public enum SourceSyncIndexFileError: Error, Equatable, Sendable {
     case rowCountMismatch
     case corruptRow(Int)
     case duplicateKey
+    /// 能映射的文件里的哈希表对不上:哈希算法版本不同,或者表本身不完整。
+    case hashTableMismatch
+    /// 打不开或映射不了文件(值是 errno)。
+    case mappingFailed(Int32)
+    /// 能映射的文件里开放寻址表有过长的连续占用段(大量键的哈希挤在一起)。
+    case excessiveProbing
 }
 
 extension SourceSyncIndex {
-    /// 文件格式版本。`Row` 的布局、`keyPrefixes` 的编号、行标志的含义任何一样变了都要加一;
+    /// 紧凑格式版本。`Row` 的布局、`keyPrefixes` 的编号、行标志的含义任何一样变了都要加一;
     /// 读到不认识的版本时这个源当作没有已提交状态(下次完整扫描),文件不删。
+    /// 扫描断点的段文件写这一版。
     public static let binaryFormatVersion: UInt32 = 1
+    /// 能直接映射的格式:在第 1 版的行、歌曲 ID 区之后多存每行键的稳定哈希
+    /// (`SourceSyncKeyHash`)和开放寻址表,读的时候不必在堆上建任何东西。
+    /// 已提交索引的文件(`SourceSyncStateDirectory`)写这一版;第 1 版的文件读进来后改写一次。
+    public static let mappableFormatVersion: UInt32 = 2
     static let fileMagic: [UInt8] = Array("PMSYNCIX".utf8)
     static let headerSize = 64
     static let digestSize = 32
@@ -1347,10 +1636,84 @@ extension SourceSyncIndex {
         public let sha256: String
     }
 
+    /// 文件头(64 字节,小端):魔数 8、版本 4、行宽 4、行数 8、歌曲 ID 区个数 8、字节区大小 8;
+    /// 第 2 版另有开放寻址表的槽数 8(偏移 40)与哈希算法版本 4(偏移 48)。
+    /// 之后依次是行、歌曲 ID 区、(第 2 版:每行哈希、开放寻址表)、字节区,最后 32 字节 SHA-256。
+    struct FileHeader {
+        var version: UInt32
+        var rowCount: Int
+        var spanCount: Int
+        var arenaCount: Int
+        var slotCount: Int
+        var hashAlgorithm: UInt32
+
+        var isMappable: Bool { version == SourceSyncIndex.mappableFormatVersion }
+        var rowsOffset: Int { SourceSyncIndex.headerSize }
+        var spansOffset: Int { rowsOffset + rowCount * SourceSyncIndex.rowStride }
+        var hashesOffset: Int { spansOffset + spanCount * MemoryLayout<Span>.stride }
+        var slotsOffset: Int { hashesOffset + (isMappable ? rowCount * MemoryLayout<UInt32>.stride : 0) }
+        var arenaOffset: Int { slotsOffset + (isMappable ? slotCount * MemoryLayout<Int32>.stride : 0) }
+        var payloadCount: Int { arenaOffset + arenaCount }
+    }
+
+    static func readHeader(_ raw: UnsafeRawBufferPointer) throws -> FileHeader {
+        guard raw.count >= headerSize + digestSize else { throw SourceSyncIndexFileError.truncated }
+        guard raw[0..<8].elementsEqual(fileMagic) else { throw SourceSyncIndexFileError.badMagic }
+        func read<T: FixedWidthInteger>(_: T.Type, at offset: Int) -> T {
+            T(littleEndian: raw.loadUnaligned(fromByteOffset: offset, as: T.self))
+        }
+        let version = read(UInt32.self, at: 8)
+        guard version == binaryFormatVersion || version == mappableFormatVersion else {
+            throw SourceSyncIndexFileError.unsupportedVersion(version)
+        }
+        guard read(UInt32.self, at: 12) == UInt32(rowStride) else { throw SourceSyncIndexFileError.layoutMismatch }
+        let rowCount = read(UInt64.self, at: 16)
+        let spanCount = read(UInt64.self, at: 24)
+        let arenaCount = read(UInt64.self, at: 32)
+        guard rowCount < UInt64(Int32.max), spanCount < UInt64(Int32.max), arenaCount < UInt64(UInt32.max) else {
+            throw SourceSyncIndexFileError.truncated
+        }
+        var slotCount: UInt64 = 0
+        var hashAlgorithm: UInt32 = 0
+        if version == mappableFormatVersion {
+            slotCount = read(UInt64.self, at: 40)
+            hashAlgorithm = read(UInt32.self, at: 48)
+            // 至少留一个空槽,线性探测才停得下来。
+            guard slotCount < UInt64(Int32.max), slotCount > rowCount else {
+                throw SourceSyncIndexFileError.truncated
+            }
+        }
+        let header = FileHeader(
+            version: version, rowCount: Int(rowCount), spanCount: Int(spanCount),
+            arenaCount: Int(arenaCount), slotCount: Int(slotCount), hashAlgorithm: hashAlgorithm
+        )
+        guard raw.count == header.payloadCount + digestSize else { throw SourceSyncIndexFileError.truncated }
+        return header
+    }
+
+    static func verifyDigest(
+        _ raw: UnsafeRawBufferPointer,
+        payloadCount: Int,
+        expectedSHA256: String?
+    ) throws {
+        let digest = Data(SHA256.hash(data: UnsafeRawBufferPointer(rebasing: raw[0..<payloadCount])))
+        guard digest.elementsEqual(raw[payloadCount..<payloadCount + digestSize]) else {
+            throw SourceSyncIndexFileError.digestMismatch
+        }
+        if let expectedSHA256,
+           digest.map({ String(format: "%02x", $0) }).joined() != expectedSHA256.lowercased() {
+            throw SourceSyncIndexFileError.digestMismatch
+        }
+    }
+
     /// 按块写出二进制形式,一边写一边算校验。`write` 收到的缓冲只在调用期间有效。
     /// 定长行直接从内存整块写出,不在内存里另拼一份文件。
+    /// `mappable` 时写第 2 版(多出每行哈希与开放寻址表,`mapFile(at:)` 能直接映射)。
     @discardableResult
-    public func writeBinary(_ write: (UnsafeRawBufferPointer) throws -> Void) throws -> BinarySummary {
+    public func writeBinary(
+        mappable: Bool = false,
+        _ write: (UnsafeRawBufferPointer) throws -> Void
+    ) throws -> BinarySummary {
         precondition(MemoryLayout<Row>.stride == Self.rowStride && MemoryLayout<Row>.size == Self.rowStride)
         // 有作废行时先压一份再写:作废行的字节没有行指向,写进文件读回来以后作废行数是零,
         // 那些字节就再也看不出来,增量对账一轮轮改下去会越攒越多。
@@ -1368,6 +1731,11 @@ extension SourceSyncIndex {
                 byteCount += chunk.count
             }
         }
+        // 堆上的那份按文件的槽数重排一张开放寻址表(堆上的表按倍数长,还可能带墓碑);
+        // 映射来的那份原样写回。
+        let fileSlots: [Int32] = mappable && !storage.isMapped ? Self.fileSlotTable(for: storage) : []
+        let slotCount = mappable ? (storage.mapped?.slots.count ?? fileSlots.count) : 0
+
         var header = [UInt8](repeating: 0, count: Self.headerSize)
         header.replaceSubrange(0..<8, with: Self.fileMagic)
         func put<T: FixedWidthInteger>(_ value: T, at offset: Int) {
@@ -1375,16 +1743,34 @@ extension SourceSyncIndex {
                 header.replaceSubrange(offset..<offset + bytes.count, with: bytes)
             }
         }
-        put(Self.binaryFormatVersion, at: 8)
+        put(mappable ? Self.mappableFormatVersion : Self.binaryFormatVersion, at: 8)
         put(UInt32(Self.rowStride), at: 12)
         put(UInt64(storage.liveCount), at: 16)
-        put(UInt64(storage.songIDSpans.count), at: 24)
-        put(UInt64(storage.arena.count), at: 32)
+        put(UInt64(storage.songIDSpanCount), at: 24)
+        put(UInt64(storage.arenaCount), at: 32)
+        if mappable {
+            put(UInt64(slotCount), at: 40)
+            put(SourceSyncKeyHash.algorithm, at: 48)
+        }
         try header.withUnsafeBytes { try emit($0) }
 
-        try storage.rows.withUnsafeBytes { try emit($0) }
-        try storage.songIDSpans.withUnsafeBytes { try emit($0) }
-        try storage.arena.withUnsafeBytes { try emit($0) }
+        if let mapped = storage.mapped {
+            try emit(UnsafeRawBufferPointer(mapped.rows))
+            try emit(UnsafeRawBufferPointer(mapped.spans))
+            if mappable {
+                try emit(UnsafeRawBufferPointer(mapped.hashes))
+                try emit(UnsafeRawBufferPointer(mapped.slots))
+            }
+            try emit(UnsafeRawBufferPointer(mapped.arena))
+        } else {
+            try storage.rows.withUnsafeBytes { try emit($0) }
+            try storage.songIDSpans.withUnsafeBytes { try emit($0) }
+            if mappable {
+                try storage.hashes.withUnsafeBytes { try emit($0) }
+                try fileSlots.withUnsafeBytes { try emit($0) }
+            }
+            try storage.arena.withUnsafeBytes { try emit($0) }
+        }
         let digest = Data(hasher.finalize())
         try digest.withUnsafeBytes { try write($0) }
         return BinarySummary(
@@ -1394,66 +1780,61 @@ extension SourceSyncIndex {
         )
     }
 
-    public func binaryData() throws -> (data: Data, summary: BinarySummary) {
+    public func binaryData(mappable: Bool = false) throws -> (data: Data, summary: BinarySummary) {
         var data = Data()
-        let summary = try writeBinary { data.append(contentsOf: $0) }
+        let summary = try writeBinary(mappable: mappable) { data.append(contentsOf: $0) }
         return (data, summary)
     }
 
-    /// 读回 `writeBinary` 写的内容。整份先校验(长度、版本、SHA-256、每行引用的范围、
-    /// 键不重复),任何一处不对都报错,不会读出半份索引。
+    /// 没有作废行的堆上存储:按 `slotCount(for:)` 的槽数、各行的稳定哈希重排一张表。
+    private static func fileSlotTable(for storage: Storage) -> [Int32] {
+        let rowCount = storage.rows.count
+        let slotCount = Storage.slotCount(for: rowCount)
+        var slots = [Int32](repeating: Storage.emptySlot, count: slotCount)
+        for row in 0..<rowCount {
+            var slot = Int((UInt64(storage.hashes[row]) &* UInt64(slotCount)) >> 32)
+            while slots[slot] >= 0 {
+                slot += 1
+                if slot == slotCount { slot = 0 }
+            }
+            slots[slot] = Int32(row)
+        }
+        return slots
+    }
+
+    /// 读回 `writeBinary` 写的内容(两个版本都认),整份放进堆里。整份先校验(长度、版本、
+    /// SHA-256、每行引用的范围、键不重复),任何一处不对都报错,不会读出半份索引。
     public static func decodeBinary(_ data: Data, expectedSHA256: String? = nil) throws -> SourceSyncIndex {
         precondition(MemoryLayout<Row>.stride == rowStride && MemoryLayout<Row>.size == rowStride)
         guard data.count >= headerSize + digestSize else { throw SourceSyncIndexFileError.truncated }
         return try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> SourceSyncIndex in
-            guard Array(raw[0..<8]) == fileMagic else { throw SourceSyncIndexFileError.badMagic }
-            func read<T: FixedWidthInteger>(_: T.Type, at offset: Int) -> T {
-                T(littleEndian: raw.loadUnaligned(fromByteOffset: offset, as: T.self))
-            }
-            let version = read(UInt32.self, at: 8)
-            guard version == binaryFormatVersion else { throw SourceSyncIndexFileError.unsupportedVersion(version) }
-            guard read(UInt32.self, at: 12) == UInt32(rowStride) else { throw SourceSyncIndexFileError.layoutMismatch }
-            let rowCount = read(UInt64.self, at: 16)
-            let spanCount = read(UInt64.self, at: 24)
-            let arenaCount = read(UInt64.self, at: 32)
-            guard rowCount < UInt64(Int32.max), spanCount < UInt64(Int32.max), arenaCount < UInt64(UInt32.max) else {
-                throw SourceSyncIndexFileError.truncated
-            }
-            let rowsBytes = Int(rowCount) * rowStride
-            let spansBytes = Int(spanCount) * MemoryLayout<Span>.stride
-            let payloadCount = headerSize + rowsBytes + spansBytes + Int(arenaCount)
-            guard data.count == payloadCount + digestSize else { throw SourceSyncIndexFileError.truncated }
-
-            let digest = Data(SHA256.hash(data: UnsafeRawBufferPointer(rebasing: raw[0..<payloadCount])))
-            guard digest.elementsEqual(raw[payloadCount..<payloadCount + digestSize]) else {
-                throw SourceSyncIndexFileError.digestMismatch
-            }
-            if let expectedSHA256,
-               digest.map({ String(format: "%02x", $0) }).joined() != expectedSHA256.lowercased() {
-                throw SourceSyncIndexFileError.digestMismatch
-            }
+            let header = try readHeader(raw)
+            try verifyDigest(raw, payloadCount: header.payloadCount, expectedSHA256: expectedSHA256)
 
             var storage = Storage(minimumCapacity: 0)
-            var offset = headerSize
+            let rowCount = header.rowCount
+            let spanCount = header.spanCount
+            let rowsBytes = rowCount * rowStride
+            let spansBytes = spanCount * MemoryLayout<Span>.stride
             // 零长度沿用默认空数组，避免 unsafe 初始化器写共享空数组的计数。
             if rowCount > 0 {
-                storage.rows = [Row](unsafeUninitializedCapacity: Int(rowCount)) { buffer, initialized in
+                let offset = header.rowsOffset
+                storage.rows = [Row](unsafeUninitializedCapacity: rowCount) { buffer, initialized in
                     let bytes = UnsafeMutableRawBufferPointer(buffer)
                     bytes.copyMemory(from: UnsafeRawBufferPointer(rebasing: raw[offset..<offset + rowsBytes]))
-                    initialized = Int(rowCount)
+                    initialized = rowCount
                 }
             }
-            offset += rowsBytes
             if spanCount > 0 {
-                storage.songIDSpans = [Span](unsafeUninitializedCapacity: Int(spanCount)) { buffer, initialized in
+                let offset = header.spansOffset
+                storage.songIDSpans = [Span](unsafeUninitializedCapacity: spanCount) { buffer, initialized in
                     let bytes = UnsafeMutableRawBufferPointer(buffer)
                     bytes.copyMemory(from: UnsafeRawBufferPointer(rebasing: raw[offset..<offset + spansBytes]))
-                    initialized = Int(spanCount)
+                    initialized = spanCount
                 }
             }
-            offset += spansBytes
             let arenaBytes = UnsafeBufferPointer(rebasing:
-                raw.bindMemory(to: UInt8.self)[offset..<offset + Int(arenaCount)])
+                raw.bindMemory(to: UInt8.self)[header.arenaOffset..<header.arenaOffset + header.arenaCount])
             try storage.validateLoadedRows(arenaByteCount: arenaBytes.count)
             if storage.hasExcessUnreferencedBytes(arenaByteCount: arenaBytes.count) {
                 let compacted = Storage(minimumCapacity: 0)
@@ -1466,9 +1847,10 @@ extension SourceSyncIndex {
                 storage.arena = Array(arenaBytes)
             }
             storage.liveCount = storage.rows.count
+            // 第 2 版文件里也存着哈希,这里仍按字节重算一遍:读进堆里的这份不依赖文件里的表。
             storage.hashes.reserveCapacity(storage.rows.count)
             for row in storage.rows.indices {
-                storage.hashes.append(Storage.hash(of: storage.key(at: row)))
+                storage.hashes.append(storage.keyHash(atRow: row))
             }
             storage.slots = [Int32](repeating: Storage.emptySlot, count: Storage.slotCount(for: storage.rows.count))
             for row in storage.rows.indices {
@@ -1479,6 +1861,88 @@ extension SourceSyncIndex {
             }
             return SourceSyncIndex(storage: storage)
         }
+    }
+
+    /// 映射一份第 2 版的文件,读的时候不在堆上建任何东西(只有校验时的一张位图,用完就放)。
+    ///
+    /// 映射之前整份校验:长度、版本、SHA-256、每行引用的范围、开放寻址表(见
+    /// `validateMappedHashTable`:完整、探测段不过长、键不重复、哈希与键的字节对得上)。任何一处
+    /// 不对都报错并解除映射。第 1 版的文件报 `unsupportedVersion(1)`,哈希算法版本不同或
+    /// 哈希对不上报 `hashTableMismatch`(调用方读进堆里,之后再写一份第 2 版),探测段过长报
+    /// `excessiveProbing`(调用方读进堆里,不改写)。
+    ///
+    /// 文件写完以后不能再被改写或截短(SIGBUS);目录里的索引文件都是新名字写的,只会被删除。
+    /// 映射的开放寻址表里连续占用的一段最长多少。45 万行随机哈希时最长一段一百多,
+    /// 这里留了好几倍的余量;超过了说明哈希挤在一起,改成读进堆里。
+    public static let maximumMappedProbeRun = 1_024
+
+    public static func mapFile(
+        at url: URL,
+        expectedSHA256: String? = nil,
+        maximumProbeRun: Int = maximumMappedProbeRun
+    ) throws -> SourceSyncIndex {
+        precondition(MemoryLayout<Row>.stride == rowStride && MemoryLayout<Row>.size == rowStride)
+        let (base, length) = try mapReadOnly(url)
+        var sections: MappedSections?
+        defer {
+            if sections == nil { munmap(UnsafeMutableRawPointer(mutating: base), length) }
+        }
+        let raw = UnsafeRawBufferPointer(start: base, count: length)
+        let header = try readHeader(raw)
+        guard header.isMappable else { throw SourceSyncIndexFileError.unsupportedVersion(header.version) }
+        guard header.hashAlgorithm == SourceSyncKeyHash.algorithm else {
+            throw SourceSyncIndexFileError.hashTableMismatch
+        }
+        try verifyDigest(raw, payloadCount: header.payloadCount, expectedSHA256: expectedSHA256)
+        // 页对齐的映射加上 8 的倍数的偏移:行(8 字节对齐)与其余各段都对齐。
+        let mapped = MappedSections(
+            base: base,
+            length: length,
+            rows: UnsafeBufferPointer(
+                start: (base + header.rowsOffset).bindMemory(to: Row.self, capacity: header.rowCount),
+                count: header.rowCount
+            ),
+            spans: UnsafeBufferPointer(
+                start: (base + header.spansOffset).bindMemory(to: Span.self, capacity: header.spanCount),
+                count: header.spanCount
+            ),
+            hashes: UnsafeBufferPointer(
+                start: (base + header.hashesOffset).bindMemory(to: UInt32.self, capacity: header.rowCount),
+                count: header.rowCount
+            ),
+            slots: UnsafeBufferPointer(
+                start: (base + header.slotsOffset).bindMemory(to: Int32.self, capacity: header.slotCount),
+                count: header.slotCount
+            ),
+            arena: UnsafeBufferPointer(
+                start: (base + header.arenaOffset).bindMemory(to: UInt8.self, capacity: header.arenaCount),
+                count: header.arenaCount
+            )
+        )
+        sections = mapped
+        let storage = Storage(mapped: mapped)
+        try storage.validateLoadedRows(arenaByteCount: header.arenaCount)
+        try storage.validateMappedHashTable(maximumProbeRun: maximumProbeRun)
+        return SourceSyncIndex(storage: storage)
+    }
+
+    /// 只读映射整个文件。文件描述符映射完就关(映射自己持有文件)。
+    static func mapReadOnly(_ url: URL) throws -> (base: UnsafeRawPointer, length: Int) {
+        let descriptor = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_RDONLY | O_CLOEXEC)
+        }
+        guard descriptor >= 0 else { throw SourceSyncIndexFileError.mappingFailed(errno) }
+        defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else { throw SourceSyncIndexFileError.mappingFailed(errno) }
+        let length = Int(info.st_size)
+        guard length >= headerSize + digestSize else { throw SourceSyncIndexFileError.truncated }
+        guard let pointer = mmap(nil, length, PROT_READ, MAP_SHARED, descriptor, 0),
+              pointer != UnsafeMutableRawPointer(bitPattern: -1) else {
+            throw SourceSyncIndexFileError.mappingFailed(errno)
+        }
+        return (UnsafeRawPointer(pointer), length)
     }
 }
 
@@ -1491,10 +1955,13 @@ extension SourceSyncIndex.Storage {
             UInt64(offset) + UInt64(length) <= arenaCount
         }
         let prefixCount = UInt32(SourceSyncIndex.keyPrefixes.count)
-        for span in songIDSpans where !valid(span.offset, span.length) {
-            throw SourceSyncIndexFileError.corruptRow(-1)
+        let spanCount = songIDSpanCount
+        for index in 0..<spanCount {
+            let span = songIDSpan(index)
+            guard valid(span.offset, span.length) else { throw SourceSyncIndexFileError.corruptRow(-1) }
         }
-        for (index, row) in rows.enumerated() {
+        for index in 0..<rowCount {
+            let row = self.row(index)
             let flags = row.flags
             guard flags & ~SourceSyncIndex.RowFlag.knownMask == 0,
                   (flags & SourceSyncIndex.RowFlag.keyPrefixMask) >> SourceSyncIndex.RowFlag.keyPrefixShift < prefixCount,
@@ -1509,11 +1976,102 @@ extension SourceSyncIndex.Storage {
             if flags & SourceSyncIndex.RowFlag.singleSongID != 0 {
                 guard valid(row.songIDsFirst, row.songIDsSecond) else { throw SourceSyncIndexFileError.corruptRow(index) }
             } else {
-                guard UInt64(row.songIDsFirst) + UInt64(row.songIDsSecond) <= UInt64(songIDSpans.count) else {
+                guard UInt64(row.songIDsFirst) + UInt64(row.songIDsSecond) <= UInt64(spanCount) else {
                     throw SourceSyncIndexFileError.corruptRow(index)
                 }
             }
         }
+    }
+
+    /// 映射来的开放寻址表,一遍走完(从一个空槽开始,按连续占用的一段一段走):
+    /// - 每行恰好占一个槽,槽里的行号都在范围内,空槽至少一个;
+    /// - 每行的起始位置(按它的哈希算)落在它所在的那一段里、在它之前:查找一路探测得到它;
+    /// - 连续占用的一段不超过 `maximumProbeRun`:超过了报 `excessiveProbing`(大量键的哈希挤在
+    ///   一起,映射着查会很慢);每行只往回比到自己的起始位置,校验本身不会变成平方级;
+    /// - 哈希相同的两行(只会出现在同一段里、起始位置相同)比一下键,相同(按 String 相等)
+    ///   报 `duplicateKey`,与读进堆里时的判断一致;
+    /// - 存着的哈希就是按键的字节现算的那个:键不全是「一定是 NFC」的字符时(哈希要经过
+    ///   系统的 NFC 规范化)每行都核对,其余抽查约 512 行。对不上报 `hashTableMismatch`。
+    func validateMappedHashTable(maximumProbeRun: Int) throws {
+        guard let mapped else { return }
+        let rowCount = mapped.rows.count
+        let slotCount = mapped.slots.count
+        guard slotCount > rowCount, mapped.hashes.count == rowCount else {
+            throw SourceSyncIndexFileError.hashTableMismatch
+        }
+        guard let start = (0..<slotCount).first(where: { mapped.slots[$0] == Self.emptySlot }) else {
+            throw SourceSyncIndexFileError.hashTableMismatch
+        }
+        var seen = [UInt64](repeating: 0, count: (rowCount + 63) / 64)
+        var occupied = 0
+        var run = 0
+        var slot = start
+        for _ in 0..<slotCount {
+            slot += 1
+            if slot == slotCount { slot = 0 }
+            let row = mapped.slots[slot]
+            if row == Self.emptySlot {
+                run = 0
+                continue
+            }
+            guard row >= 0, Int(row) < rowCount else { throw SourceSyncIndexFileError.hashTableMismatch }
+            let word = Int(row) >> 6
+            let bit = UInt64(1) << UInt64(Int(row) & 63)
+            guard seen[word] & bit == 0 else { throw SourceSyncIndexFileError.hashTableMismatch }
+            seen[word] |= bit
+            occupied += 1
+            run += 1
+            guard run <= maximumProbeRun else { throw SourceSyncIndexFileError.excessiveProbing }
+            let hash = mapped.hashes[Int(row)]
+            let home = Int((UInt64(hash) &* UInt64(slotCount)) >> 32)
+            let displacement = slot >= home ? slot - home : slot + slotCount - home
+            // 起始位置不在这一段里:中间隔着空槽,查找到不了它。
+            guard displacement < run else { throw SourceSyncIndexFileError.hashTableMismatch }
+            var probe = home
+            while probe != slot {
+                let other = Int(mapped.slots[probe])
+                if mapped.hashes[other] == hash, keysEqual(other, Int(row)) {
+                    throw SourceSyncIndexFileError.duplicateKey
+                }
+                probe += 1
+                if probe == slotCount { probe = 0 }
+            }
+        }
+        guard occupied == rowCount else { throw SourceSyncIndexFileError.hashTableMismatch }
+        guard rowCount > 0 else { return }
+        let sampleStride = Swift.max(1, rowCount / 512)
+        for row in 0..<rowCount {
+            let sampled = row % sampleStride == 0 || row == rowCount - 1
+            guard sampled || !keyIsKnownNFC(atRow: row) else { continue }
+            guard keyHash(atRow: row) == mapped.hashes[row] else {
+                throw SourceSyncIndexFileError.hashTableMismatch
+            }
+        }
+    }
+
+    /// 第 `row` 行的键全是「一定是 NFC」的字符(哈希不经过系统的规范化)。前缀都是 ASCII。
+    func keyIsKnownNFC(atRow row: Int) -> Bool {
+        let value = self.row(row)
+        guard value.flags & SourceSyncIndex.RowFlag.keyIsASCII == 0, value.keyLength > 0 else { return true }
+        return withArena { buffer in
+            SourceSyncKeyHash.isKnownNFC(UnsafeBufferPointer(
+                rebasing: buffer[Int(value.keyOffset)..<Int(value.keyOffset) + Int(value.keyLength)]
+            ))
+        }
+    }
+
+    /// 两行的键按 String 相等(与查找的判断相同):字节相同一定相等,都是 ASCII 而字节不同
+    /// 一定不等,其余取出来比。
+    func keysEqual(_ lhs: Int, _ rhs: Int) -> Bool {
+        let left = row(lhs)
+        let right = row(rhs)
+        let samePrefix = left.flags & SourceSyncIndex.RowFlag.keyPrefixMask
+            == right.flags & SourceSyncIndex.RowFlag.keyPrefixMask
+        if samePrefix, Self.bytesEqual(self, left.keyOffset, left.keyLength, self, right.keyOffset, right.keyLength) {
+            return true
+        }
+        if samePrefix, left.flags & right.flags & SourceSyncIndex.RowFlag.keyIsASCII != 0 { return false }
+        return key(at: lhs) == key(at: rhs)
     }
 
     fileprivate func insertLoadedSlot(row: Int) {

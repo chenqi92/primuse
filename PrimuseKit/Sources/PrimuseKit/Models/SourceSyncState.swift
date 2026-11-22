@@ -60,6 +60,11 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
     /// known-good baseline. Nil for every other kind of source.
     public var catalogSyncMarker: ServerCatalogSyncMarker?
     public var lastTelemetry: SourceSyncTelemetry?
+    /// 已提交的索引文件读不回来(损坏、截断、更新的版本写的):其余字段照旧留着
+    /// (删歌证词、确认中的大批消失、要求完整走查……),索引是空的。这时状态不能拿来做
+    /// 增量对账(`isUsable` 为假),下一次完整走查重建索引;走查少了的歌照常走删除确认,
+    /// 不会因为没有上一份状态就一次删掉。走查提交的新状态不带这个标记。
+    public var indexBaselineLost: Bool
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -80,7 +85,8 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         missingCatalogSongIDs: [String: Int] = [:],
         deletionEvidenceRevision: String? = nil,
         catalogSyncMarker: ServerCatalogSyncMarker? = nil,
-        lastTelemetry: SourceSyncTelemetry? = nil
+        lastTelemetry: SourceSyncTelemetry? = nil,
+        indexBaselineLost: Bool = false
     ) {
         self.schemaVersion = schemaVersion
         self.sourceID = sourceID
@@ -101,6 +107,7 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         self.deletionEvidenceRevision = deletionEvidenceRevision
         self.catalogSyncMarker = catalogSyncMarker
         self.lastTelemetry = lastTelemetry
+        self.indexBaselineLost = indexBaselineLost
     }
 
     public func isUsable(sourceID: String, scopeFingerprint: String) -> Bool {
@@ -108,6 +115,7 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
             && self.sourceID == sourceID
             && self.scopeFingerprint == scopeFingerprint
             && !requiresDeepScan
+            && !indexBaselineLost
     }
 
     public func matchesScope(sourceID: String, scopeFingerprint: String) -> Bool {
@@ -142,6 +150,7 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         case deletionEvidenceRevision
         case catalogSyncMarker
         case lastTelemetry
+        case indexBaselineLost
     }
 
     public init(from decoder: Decoder) throws {
@@ -210,6 +219,7 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
             SourceSyncTelemetry.self,
             forKey: .lastTelemetry
         )
+        indexBaselineLost = try container.decodeIfPresent(Bool.self, forKey: .indexBaselineLost) ?? false
     }
 }
 

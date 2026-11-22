@@ -265,7 +265,7 @@ extension SourceScanWalkLog: SourceSyncIndexReading {
         public mutating func next() -> (key: String, value: SourceSyncIndexedItem)? {
             while layer < layers.count {
                 let storage = layers[layer].storage
-                while row < storage.rows.count {
+                while row < storage.rowCount {
                     let current = row
                     row += 1
                     guard storage.isLive(current) else { continue }
