@@ -196,8 +196,8 @@ struct TVKaraokeStageContent: View {
             VStack(spacing: 22) {
                 adjustment("karaoke_vocals", id: "vocals", value: session.vocalLevel.formatted(.percent.precision(.fractionLength(0))),
                            downLabel: "karaoke_vocals", upLabel: "karaoke_vocals",
-                           canDown: session.isVocalReductionAvailable && !session.isPlayingInstrumental && session.vocalLevel > 0,
-                           canUp: session.isVocalReductionAvailable && !session.isPlayingInstrumental && session.vocalLevel < 1,
+                           canDown: session.isVocalReductionAvailable && !session.bypassesVocalReduction && session.vocalLevel > 0,
+                           canUp: session.isVocalReductionAvailable && !session.bypassesVocalReduction && session.vocalLevel < 1,
                            down: { session.vocalLevel -= 0.1 }, up: { session.vocalLevel += 0.1 })
                 adjustment("karaoke_key", id: "key", value: session.keyShift == 0 ? String(localized: "karaoke_key_original") : String(format: "%+d", session.keyShift),
                            downLabel: "karaoke_key_down", upLabel: "karaoke_key_up",
@@ -220,12 +220,14 @@ struct TVKaraokeStageContent: View {
                     .tvFont(.caption).foregroundStyle(.white.opacity(0.6))
                 actionButton("karaoke_loop_extend", symbol: "plus", enabled: session.canExtendLoop, action: session.extendLoop)
             }
-            if session.canToggleBackingTrack || session.isSwitchingTrack && session.instrumentalCompanion != nil {
+            EmbeddedKaraokeTrackMenu(playback: session.embeddedAudio, select: session.selectEmbeddedAudio,
+                                     companion: session.alternateCompanion, switchCompanion: session.toggleCompanionFile)
+            if session.canToggleBackingTrack || (session.isSwitchingTrack && (session.instrumentalCompanion != nil || session.embeddedAudio.backingOrdinals != nil)) {
                 actionButton("karaoke_backing_track", symbol: "music.note", selected: session.isPlayingInstrumental,
                              enabled: session.canToggleBackingTrack, action: session.toggleBackingTrack)
             }
             actionButton("karaoke_vocal_assist", symbol: "person.wave.2", selected: session.vocalAssistEnabled,
-                         enabled: session.isMicConnected && session.isVocalReductionAvailable && !session.isPlayingInstrumental) {
+                         enabled: session.isMicConnected && session.isVocalReductionAvailable && !session.bypassesVocalReduction) {
                 session.vocalAssistEnabled.toggle()
             }
             if session.hasDuetParts {
@@ -297,7 +299,7 @@ struct TVKaraokeStageContent: View {
         if session.separation.modelState != .unsupportedSystem {
             VStack(alignment: .leading, spacing: 16) {
                 actionButton("karaoke_tv_ai_local", symbol: "waveform", selected: session.localAIEnabled,
-                             enabled: session.isVocalReductionAvailable && session.currentSong != nil && !session.isPlayingInstrumental) {
+                             enabled: session.isVocalReductionAvailable && session.currentSong != nil && !session.bypassesVocalReduction) {
                     session.localAIEnabled.toggle()
                 }
                 if session.localAIEnabled {

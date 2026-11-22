@@ -667,9 +667,51 @@ final class TVStore {
     @ObservationIgnored private var medleyCheckedIDs: Set<String> = []
     @ObservationIgnored private var medleyHighlightTask: Task<Void, Never>?
 
+    @ObservationIgnored private(set) var embeddedKaraokeFile: EmbeddedKaraokeFile?
+    @ObservationIgnored private var loadingPlaybackIntent: (requestID: UUID, autoPlay: Bool)?
+
+    func endEmbeddedKaraokeAudio() {
+        guard let file = embeddedKaraokeFile else { return }
+        if let song = library.song(id: file.songID), switchEmbeddedKaraokeAudio(nil, for: song) { return }
+        embeddedKaraokeFile = nil
+    }
+
+    func embeddedTrackInventory(for song: Song) async -> EmbeddedMediaTrackInventory? {
+        guard let source = sourcesStore.source(id: song.sourceID), source.isEnabled, !source.isDeleted else { return nil }
+        let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        return await TVMetadataEnricher.embeddedTrackInventory(for: song, source: source, credential: credential)
+    }
+
+    func switchEmbeddedKaraokeAudio(_ file: EmbeddedKaraokeFile?, for song: Song) -> Bool {
+        guard currentSongID == song.id, let current = library.song(id: song.id),
+              EmbeddedMediaTrackInventory.sameMediaFile(current, song), !isMedleyActive,
+              !isLiveRadio, !engine.isExternallyDriven, let source = sourcesStore.source(id: song.sourceID), source.isEnabled, !source.isDeleted else { return false }
+        let position = interpolatedTime()
+        let resuming = engine.status == .loading && loadingPlaybackIntent?.requestID == activePlaybackRequestID
+            && loadingPlaybackIntent?.autoPlay == true
+        let shouldPlay = isPlaying || resuming
+        let requestID = UUID()
+        loadingPlaybackIntent = (requestID, shouldPlay)
+        playbackTask?.cancel()
+        activePlaybackRequestID = requestID
+        playbackIssue = nil
+        embeddedKaraokeFile = file
+        engine.prepareForSelection(startAt: position, seekFloor: currentPlaybackRange?.start ?? 0)
+        playbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await coordinator.play(songID: song.id, requestID: requestID, preferMusicVideo: isMusicVideoModeEnabled,
+                                   startAt: position, autoPlay: shouldPlay,
+                                   playbackSongOverride: playbackRangeSong(forSongID: song.id))
+            guard isCurrentPlaybackRequest(requestID, isCancelled: Task.isCancelled) else { return }
+            playbackTask = nil
+            handleDownloadQuotaFailure(requestID: requestID)
+        }
+        return true
+    }
+
     func karaokeAudioFile(for song: Song) async throws -> KaraokeAudioFile {
-        guard currentSongID == song.id, let requestID = activePlaybackRequestID else { throw CancellationError() }
-        return try await coordinator.karaokeAudioFile(for: song, requestID: requestID)
+        guard currentSongID == song.id else { throw CancellationError() }
+        return try await coordinator.karaokeAudioFile(for: song, requestID: activePlaybackRequestID)
     }
     @ObservationIgnored private var radioReconnectTask: Task<Void, Never>?
     @ObservationIgnored private var radioReconnectAttempt = 0
@@ -1059,6 +1101,7 @@ final class TVStore {
     /// 这次运行里读不出的歌。见文件末尾的扩展。
     @ObservationIgnored private var containerCodecPass: (token: UUID, task: Task<Void, Never>)?
     @ObservationIgnored private var containerCodecPlaybackReads: Set<String> = []
+    @ObservationIgnored private var playbackMediaInspection: (song: Song, task: Task<Void, Never>)?
     @ObservationIgnored private var containerCodecUnreadableSongIDs: Set<String> = []
     private struct ScanCheckpoint: Codable {
         let connectionIdentity: String
@@ -1461,6 +1504,7 @@ final class TVStore {
             : (nowPlaying.tint, nowPlaying.tint2)
     }
     var canPlayMusicVideo: Bool {
+        _ = libraryContentRevision
         guard !isMedleyActive, !isLiveRadio else { return false }
         guard let id = currentSongID,
               let song = library.song(id: id),
@@ -8392,6 +8436,7 @@ final class TVStore {
     /// 设置展示元数据 + 触发真实解析播放。
     private func startPlaying(_ song: TVSong, resumeTime: Double = 0, autoPlay: Bool = true,
                               isRecovery: Bool = false, prepareWhenPaused: Bool = true) {
+        if embeddedKaraokeFile?.songID != song.id { embeddedKaraokeFile = nil }
         appleMusicSelection = nil
         if isMedleyActive, let slice = medleySlices[song.id] {
             startMedleySelection(slice, at: resumeTime, autoPlay: autoPlay)
@@ -8428,6 +8473,7 @@ final class TVStore {
         endSourceQuotaSkip(showingReason: false)
         let requestID = UUID()
         activePlaybackRequestID = requestID
+        loadingPlaybackIntent = (requestID, autoPlay)
         playbackIssue = nil
         engine.prepareForSelection(startAt: startTime, seekFloor: playbackRange?.start ?? 0)
 
@@ -10236,6 +10282,7 @@ extension TVStore {
     /// 开播的这首是还没读过编码的 M4A 一类容器:顺手读一次文件头,列表、播放页和
     /// 沉浸页的格式与音质跟着换成 ALAC / AAC。读不出下次播放再试。
     func readContainerCodecForPlayback(song: Song, source: MusicSource, credential: SourceCredential?) {
+        readMediaTracksForPlayback(song: song, source: source, credential: credential)
         guard Self.needsContainerCodecRead(song, sourceType: source.type),
               containerCodecPlaybackReads.insert(song.id).inserted else { return }
         Task(priority: .utility) { @MainActor [weak self] in
@@ -10248,6 +10295,26 @@ extension TVStore {
             self.recordInspectedContainerCodecs([song.id: codec], sourceID: source.id)
             plog("🎵 TV container codec for '\(song.title)' read at playback: \(codec.rawValue)")
         }
+    }
+
+    private func readMediaTracksForPlayback(song: Song, source: MusicSource, credential: SourceCredential?) {
+        if let inspection = playbackMediaInspection {
+            if EmbeddedMediaTrackInventory.sameMediaFile(song, inspection.song) { return }
+            inspection.task.cancel()
+            playbackMediaInspection = nil
+        }
+        guard song.embeddedMediaTracks == nil, !song.isStreamDescriptor, EmbeddedMediaTrackInventory.supports(song) else { return }
+        let task = Task(priority: .utility) { @MainActor [weak self] in
+            guard let self, canMutateLibrary, let existing = library.song(id: song.id),
+                  existing.embeddedMediaTracks == nil, EmbeddedMediaTrackInventory.sameMediaFile(song, existing) else { return }
+            let tracks = await TVMetadataEnricher.embeddedTrackInventory(for: song, source: source, credential: credential)
+            guard !Task.isCancelled, let tracks, canMutateLibrary, sourcesStore.source(id: source.id) == source,
+                  var live = library.song(id: song.id), EmbeddedMediaTrackInventory.sameMediaFile(song, live),
+                  live.embeddedMediaTracks == nil else { return }
+            live.embeddedMediaTracks = tracks
+            library.replaceSongs([live])
+        }
+        playbackMediaInspection = (song, task)
     }
 
     /// 读出的编码记到库里那一行上。这期间那一行已经有编码了(扫描、同步带来的)就不动;

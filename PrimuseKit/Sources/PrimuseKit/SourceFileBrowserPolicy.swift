@@ -61,7 +61,7 @@ public enum SourceFileBrowserPolicy {
     }
 
     public static func isAudioFileName(_ name: String) -> Bool {
-        PrimuseConstants.supportedAudioExtensions.contains(fileExtension(of: name))
+        PrimuseConstants.supportedAudioExtensions.contains(fileExtension(of: name)) || EmbeddedMediaTrackInventory.isStemFileName(name)
     }
 
     /// 把一层目录分成文件夹、歌、其他文件。文件夹与歌都按名字自然排序(「2」在「10」前面)。
@@ -335,7 +335,7 @@ public enum SourceFileMovePlan {
             song.filePath = path
             song.lyricsFileName = repair(song.lyricsFileName)
             song.coverArtFileName = repair(song.coverArtFileName)
-            song.mvPath = repair(song.mvPath)
+            song.mvPath = repair(song.referencedMusicVideoPath)
             result[index] = song
             onRepair(song)
         }

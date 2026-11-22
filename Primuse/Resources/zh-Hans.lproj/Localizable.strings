@@ -5423,6 +5423,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "哔哩哔哩";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "音轨";
+"embedded_audio_default" = "默认混音";
+"embedded_audio_track_number" = "音轨 %d";
 "karaoke_backing_track" = "伴奏音轨";
 "karaoke_backing_track_playing" = "正在播放伴奏音轨，没有人声可调。";
 "karaoke_export_menu" = "导出 AI 分离的音轨";

@@ -5331,6 +5331,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "オーディオトラック";
+"embedded_audio_default" = "デフォルトミックス";
+"embedded_audio_track_number" = "オーディオトラック %d";
 "karaoke_backing_track" = "伴奏トラック";
 "karaoke_backing_track_playing" = "伴奏トラックを再生中のため、ボーカルは調整できません。";
 "karaoke_export_menu" = "分離したトラックを書き出す";

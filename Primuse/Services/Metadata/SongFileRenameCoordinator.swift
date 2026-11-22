@@ -181,7 +181,7 @@ enum SongFileRenameCoordinator {
         updated.filePath = paths[song.filePath] ?? song.filePath
         updated.lyricsFileName = song.lyricsFileName.map { paths[$0] ?? $0 }
         updated.coverArtFileName = song.coverArtFileName.map { paths[$0] ?? $0 }
-        updated.mvPath = song.mvPath.map { paths[$0] ?? $0 }
+        updated.mvPath = song.referencedMusicVideoPath.map { paths[$0] ?? $0 }
         updated.revision = nil
         return SongFileRenameResult(song: updated)
     }
@@ -258,7 +258,7 @@ extension AudioPlayerService {
                 self.queueEntries[index].song.filePath = updated.filePath
                 self.queueEntries[index].song.lyricsFileName = updated.lyricsFileName
                 self.queueEntries[index].song.coverArtFileName = updated.coverArtFileName
-                self.queueEntries[index].song.mvPath = updated.mvPath
+                self.queueEntries[index].song.mvPath = updated.referencedMusicVideoPath
                 self.queueEntries[index].song.revision = updated.revision
                 self.queueEntries[index].song.fileSize = updated.fileSize
                 self.queueEntries[index].song.lastModified = updated.lastModified

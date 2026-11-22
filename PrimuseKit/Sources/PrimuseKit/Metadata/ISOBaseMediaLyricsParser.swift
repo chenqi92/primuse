@@ -55,6 +55,7 @@ public enum ISOBaseMediaLyricsParser {
             .filter { $0.type == AtomType.moov }
         guard !movies.isEmpty else { return nil }
         var result = SongContentMetadata(isFileInspectionComplete: true)
+        result.embeddedMediaTracks = EmbeddedMediaTrackInventory.isoBaseMedia(in: data)
         // 同一份 moov 顺手数章节:资料库按它算有声书的章数,不必为这个数字另开文件。
         result.embeddedChapterCount = ISOBaseMediaChapterParser.chapterCount(in: data) ?? 0
         for moov in movies {

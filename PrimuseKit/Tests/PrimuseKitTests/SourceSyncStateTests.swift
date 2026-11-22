@@ -1441,6 +1441,15 @@ struct BaiduSnapshotReconciliationTests {
 
 @Suite("Directory sidecar indexing")
 struct SidecarDirectoryIndexTests {
+    @Test func nativeInstrumentsFilesAreSongsAndIndependentVideoSidecarsStillWin() {
+        let stem = sidecarItem("Tide.STEM.MP4")
+        let alone = SidecarDirectoryIndex([stem])
+        #expect(alone.containsAudioOrStream(basename: "tide.stem"))
+        #expect(alone.sameNameMusicVideo(basename: "tide.stem") == nil)
+        let paired = SidecarDirectoryIndex([stem, sidecarItem("Tide.stem.MOV")])
+        #expect(paired.sameNameMusicVideo(basename: "tide.stem")?.sidecarName == "Tide.stem.MOV")
+    }
+
     @Test("Lookup priority and listing order match the legacy resolver")
     func lookupPriority() {
         let items = [

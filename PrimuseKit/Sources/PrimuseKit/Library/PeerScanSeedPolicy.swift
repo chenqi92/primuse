@@ -150,7 +150,7 @@ public enum PeerScanSeedPolicy {
         result.coverArtFileName = base.coverArtFileName
         result.lyricsFileName = base.lyricsFileName
             ?? (hasCachedLyrics(seed) ? seed.lyricsFileName : nil)
-        result.mvPath = base.mvPath
+        result.mvPath = base.referencedMusicVideoPath
         result.artistArtworkFileName = base.artistArtworkFileName
         result.userMetadataEditedAt = nil
         return result

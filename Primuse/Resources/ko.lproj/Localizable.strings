@@ -5330,6 +5330,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "오디오 트랙";
+"embedded_audio_default" = "기본 믹스";
+"embedded_audio_track_number" = "오디오 트랙 %d";
 "karaoke_backing_track" = "반주 트랙";
 "karaoke_backing_track_playing" = "반주 트랙을 재생 중이라 조절할 보컬이 없습니다.";
 "karaoke_export_menu" = "분리된 트랙 내보내기";

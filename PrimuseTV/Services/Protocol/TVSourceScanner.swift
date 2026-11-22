@@ -1699,7 +1699,7 @@ final class TVSourceScanner {
                 song.artistArtworkFileName = song.artistArtworkFileName ?? existing.artistArtworkFileName
                 song.lyricsFileName = song.lyricsFileName ?? existing.lyricsFileName
                 song.lyricsText = song.lyricsText ?? existing.lyricsText
-                song.mvPath = song.mvPath ?? existing.mvPath
+                song.mvPath = song.referencedMusicVideoPath ?? existing.referencedMusicVideoPath
                 song.bitRate = song.bitRate ?? existing.bitRate
                 song.sampleRate = song.sampleRate ?? existing.sampleRate
                 song.bitDepth = song.bitDepth ?? existing.bitDepth
@@ -1905,6 +1905,7 @@ final class TVSourceScanner {
                             readFailed: cueLoad.failedISOPaths.contains(entry.path)
                         )
                     } else if PrimuseConstants.supportedAudioExtensions.contains(ext)
+                        || EmbeddedMediaTrackInventory.isStemFileName(entry.name)
                         || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
                         if let descriptors = cueLoad.tracksByAudioPath[entry.path],
                            !descriptors.isEmpty {

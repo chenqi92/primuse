@@ -5236,6 +5236,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "المسارات الصوتية";
+"embedded_audio_default" = "المزيج الافتراضي";
+"embedded_audio_track_number" = "المسار الصوتي %d";
 "karaoke_backing_track" = "المسار المرافق";
 "karaoke_backing_track_playing" = "يتم تشغيل المسار المرافق، لذا لا يوجد غناء لضبطه.";
 "karaoke_export_menu" = "تصدير المسارات المفصولة";

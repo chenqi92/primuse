@@ -929,6 +929,7 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
             let fileName = item.sidecarName as NSString
             let fileExtension = fileName.pathExtension.lowercased()
             if PrimuseConstants.supportedAudioExtensions.contains(fileExtension)
+                || EmbeddedMediaTrackInventory.isStemFileName(lowercasedName)
                 || PrimuseConstants.supportedStreamDescriptorExtensions.contains(fileExtension) {
                 audioBasenames.insert(fileName.deletingPathExtension.lowercased())
             }
@@ -1134,7 +1135,8 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
     public func sameNameMusicVideo(basename: String) -> Item? {
         let base = basename.lowercased()
         for fileExtension in PrimuseConstants.supportedMusicVideoExtensions {
-            if let match = firstItemByLowercasedName["\(base).\(fileExtension)"] {
+            let name = "\(base).\(fileExtension)"
+            if let match = firstItemByLowercasedName[name], !EmbeddedMediaTrackInventory.isStemFileName(name) {
                 return match.item
             }
         }

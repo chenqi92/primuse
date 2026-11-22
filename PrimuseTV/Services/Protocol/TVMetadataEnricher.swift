@@ -173,6 +173,17 @@ actor TVMetadataReaderPool {
         return try? TVLocalTransferSource.url(for: path)
     }
 
+    func originalMediaReader(for song: Song) async throws -> any ByteRangeReader {
+        if Self.canRead(source) { return try await reader(path: song.filePath, size: song.fileSize) }
+        // Use the actual catalogue ID and format for Subsonic raw, Jellyfin/Emby Static, Plex Part, and cloud object URLs.
+        let stream = try await StreamResolverRegistry.shared.resolve(for: song, source: source, credential: credential)
+        try Task.checkCancellation()
+        guard !isClosed, ["http", "https"].contains(stream.url.scheme?.lowercased() ?? "") else {
+            throw TVMetadataError.readerUnavailable
+        }
+        return TVResolvedStreamMetadataReader(resolved: stream, contentLength: song.fileSize, session: session)
+    }
+
     func reader(path: String, size: Int64) async throws -> any ByteRangeReader {
         try Task.checkCancellation()
         guard !isClosed else { throw CancellationError() }
@@ -294,6 +305,23 @@ enum TVMetadataEnricher {
     ]
     private static let apeTailTagFormats: Set<String> = ["mp1", "mp2", "mp3", "ape", "wv", "mpc", "mpp", "mp+", "tta", "tak"]
     private static let id3ContainerTailFormats: Set<String> = ["dff", "aiff", "aif", "wav"]
+
+    static func embeddedTrackInventory(for song: Song, source: MusicSource,
+                                       credential: SourceCredential?, refreshing: Bool = false) async -> EmbeddedMediaTrackInventory? {
+        if !refreshing, let tracks = song.embeddedMediaTracks { return tracks }
+        guard !Task.isCancelled, !song.isStreamDescriptor, EmbeddedMediaTrackInventory.supports(song) else { return nil }
+        let pool = TVMetadataReaderPool(source: source, credential: credential)
+        let tracks: EmbeddedMediaTrackInventory?
+        do {
+            let reader = try await pool.originalMediaReader(for: song)
+            let size = try await reader.contentLength()
+            tracks = try await EmbeddedMediaTrackInventory.inspect(fileSize: size, fileExtension: song.fileFormat.rawValue) {
+                try await reader.read(offset: $0, length: $1)
+            }
+        } catch { tracks = nil }
+        await pool.closeAll()
+        return tracks
+    }
 
     static func enrich(
         song: Song,
@@ -601,6 +629,10 @@ enum TVMetadataEnricher {
         let fileSize = song.fileSize > 0 ? song.fileSize : ((try? await reader.contentLength()) ?? 0)
         if fileSize > 0 {
             let fetch: (Int64, Int64) async throws -> Data = { try await reader.read(offset: $0, length: $1) }
+            if metadata.contentMetadata?.embeddedMediaTracks == nil, EmbeddedMediaTrackInventory.supports(fileExtension: ext) {
+                metadata.includeMediaTracks(try? await EmbeddedMediaTrackInventory.inspect(head: head, fileSize: fileSize,
+                    fileExtension: ext, fetch: fetch))
+            }
             let extraTags: Data?
             switch ext {
             case "mp1", "mp2", "mp3":
@@ -762,7 +794,7 @@ enum TVMetadataEnricher {
         var output = song
         let basename = ((song.filePath as NSString).lastPathComponent as NSString)
             .deletingPathExtension
-        if output.mvPath == nil,
+        if output.externalMusicVideoPath == nil, !output.isStandaloneMusicVideo,
            let video = sidecars.sameNameMusicVideo(basename: basename) {
             output.mvPath = video.path
         }

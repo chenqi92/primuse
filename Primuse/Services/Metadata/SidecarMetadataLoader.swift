@@ -121,7 +121,8 @@ enum SidecarMetadataLoader {
 
         for ext in PrimuseConstants.supportedMusicVideoExtensions {
             let videoURL = directory.appendingPathComponent("\(baseName).\(ext)")
-            if FileManager.default.fileExists(atPath: videoURL.path) {
+            if videoURL != audioURL, !EmbeddedMediaTrackInventory.isStemFileName(videoURL.lastPathComponent),
+               FileManager.default.fileExists(atPath: videoURL.path) {
                 return videoURL
             }
         }

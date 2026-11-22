@@ -4,6 +4,7 @@ import Testing
 
 @Suite("Song content metadata")
 struct SongContentMetadataTests {
+    private let audioOnly = EmbeddedMediaTrackInventory(audioTracks: [.init(ordinal: 0)], hasVideo: false)
     private func song() -> Song {
         Song(id: "song", title: "Track", fileFormat: .m4a, filePath: "track.m4a", sourceID: "source")
     }
@@ -19,7 +20,7 @@ struct SongContentMetadataTests {
         #expect(legacy.contentMetadata == nil)
         #expect(SongContentMetadata.needsInspection(legacy))
         var inspected = legacy
-        inspected.contentMetadata = SongContentMetadata(isFileInspectionComplete: true)
+        inspected.contentMetadata = SongContentMetadata(isFileInspectionComplete: true, embeddedMediaTracks: audioOnly)
         let restored = try JSONDecoder().decode(Song.self, from: JSONEncoder().encode(inspected))
         #expect(restored == inspected)
         #expect(!SongContentMetadata.needsInspection(restored))
@@ -31,7 +32,7 @@ struct SongContentMetadataTests {
         var value = song()
         value.contentMetadata = SongContentMetadata(copyright: "℗ 2026 Label")
         #expect(SongContentMetadata.needsInspection(value))
-        value.contentMetadata = SongContentMetadata(iTunesAdvisory: 4, isFileInspectionComplete: true)
+        value.contentMetadata = SongContentMetadata(iTunesAdvisory: 4, isFileInspectionComplete: true, embeddedMediaTracks: audioOnly)
             .fillingMissing(from: value.contentMetadata)
         #expect(value.contentMetadata?.copyright == "℗ 2026 Label")
         #expect(!SongContentMetadata.needsInspection(value))
@@ -115,12 +116,12 @@ struct SongContentMetadataTests {
 
     @Test("Books read before chapters were counted are read once more; short music is not")
     func chapterCountReinspection() {
-        let readBeforeCounting = SongContentMetadata(isFileInspectionComplete: true)
+        let readBeforeCounting = SongContentMetadata(isFileInspectionComplete: true, embeddedMediaTracks: audioOnly)
         var book = Song(id: "book", title: "Book", duration: 3 * 3600, fileFormat: .m4a,
                         filePath: "books/Book.m4a", sourceID: "source")
         book.contentMetadata = readBeforeCounting
         #expect(SongContentMetadata.needsInspection(book))
-        book.contentMetadata = SongContentMetadata(isFileInspectionComplete: true, embeddedChapterCount: 0)
+        book.contentMetadata = SongContentMetadata(isFileInspectionComplete: true, embeddedChapterCount: 0, embeddedMediaTracks: audioOnly)
         #expect(!SongContentMetadata.needsInspection(book))
 
         var shortPart = Song(id: "part", title: "Part", duration: 600, fileFormat: .m4a,

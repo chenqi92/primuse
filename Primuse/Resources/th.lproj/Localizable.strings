@@ -5236,6 +5236,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "แทร็กเสียง";
+"embedded_audio_default" = "มิกซ์เริ่มต้น";
+"embedded_audio_track_number" = "แทร็กเสียง %d";
 "karaoke_backing_track" = "แทร็กดนตรี";
 "karaoke_backing_track_playing" = "กำลังเล่นแทร็กดนตรี จึงไม่มีเสียงร้องให้ปรับ";
 "karaoke_export_menu" = "ส่งออกแทร็กที่แยกแล้ว";

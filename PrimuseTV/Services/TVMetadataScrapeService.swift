@@ -386,6 +386,15 @@ final class TVMetadataScrapeService {
                     state.skipped += 1
                     continue
                 }
+                if source.type.isServerLibrary {
+                    guard let tracks = await TVMetadataEnricher.embeddedTrackInventory(for: live, source: source, credential: credential, refreshing: true),
+                          var current = store.library.song(id: live.id), EmbeddedMediaTrackInventory.sameMediaFile(live, current),
+                          current.userMetadataEditedAt == nil else { state.failed += 1; continue }
+                    current.embeddedMediaTracks = tracks
+                    restored.append(current)
+                    state.completed += 1
+                    continue
+                }
                 // 同目录的封面图、歌词(以及 CUE 表)也算文件标签的一部分:列一次目录,同一目录的歌共用。
                 var entries: [TVDirEntry] = []
                 if let lister,
@@ -431,7 +440,15 @@ final class TVMetadataScrapeService {
             await pool.closeAll()
         }
         // 读的这段时间里又被改过(重新打了标记)的不动它。
-        let writable = restored.filter { store.library.song(id: $0.id)?.userMetadataEditedAt == nil }
+        let writable = restored.compactMap { song -> Song? in
+            guard var live = store.library.song(id: song.id), live.userMetadataEditedAt == nil else { return nil }
+            if store.sourcesStore.source(id: song.sourceID)?.type.isServerLibrary == true {
+                guard EmbeddedMediaTrackInventory.sameMediaFile(live, song) else { return nil }
+                live.embeddedMediaTracks = song.embeddedMediaTracks
+                return live
+            }
+            return song
+        }
         state.completed -= restored.count - writable.count
         state.skipped += restored.count - writable.count
         if !writable.isEmpty {
@@ -454,8 +471,12 @@ final class TVMetadataScrapeService {
     /// 来自 CUE 表,按它记下的 CUE 路径读回来。
     private func canRereadFileTags(_ song: Song, store: TVStore) -> Bool {
         guard let source = store.sourcesStore.source(id: song.sourceID),
-              source.isEnabled, !source.isDeleted, !source.type.isServerLibrary,
+              source.isEnabled, !source.isDeleted,
               store.activeScanSourceID != source.id else { return false }
+        if source.type.isServerLibrary {
+            return !song.isStreamDescriptor && !song.isCueTrack && EmbeddedMediaTrackInventory.supports(song)
+                && EmbeddedMediaTrackInventory.supportsCatalogOriginal(source.type)
+        }
         return TVMetadataReaderPool.canRead(source)
     }
 

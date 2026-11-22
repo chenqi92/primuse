@@ -2770,7 +2770,7 @@ final class MusicScraperService {
         if let bitDepth = metadata.bitDepth, bitDepth > 0 {
             merged.bitDepth = bitDepth
         }
-        merged.mvPath = metadata.mvPath ?? song.mvPath
+        merged.mvPath = metadata.mvPath ?? song.referencedMusicVideoPath
         return merged
     }
 

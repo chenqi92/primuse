@@ -19,7 +19,11 @@ final class MatroskaLyricReader {
 
     private struct Track {
         var number: UInt64 = 0
+        var uid: UInt64?
         var type: UInt64 = 0
+        var enabled = true
+        var isDefault = true
+        var trick = false
         var name = ""
         var codecID = ""
         var language: String?
@@ -78,6 +82,115 @@ final class MatroskaLyricReader {
             }
         } catch Limit.reached { /* Valid attachments obtained before hitting a traversal budget remain available. */ }
         return output
+    }
+
+    func inventory() async throws -> EmbeddedMediaTrackInventory? {
+        remainingReads = min(remainingReads, 256)
+        remainingBytes = min(remainingBytes, 2 * 1024 * 1024)
+        guard head.starts(with: [0x1A, 0x45, 0xDF, 0xA3]), let header = try await element(at: 0, limit: fileSize) else { return nil }
+        var offset = header.body.upperBound
+        while let segment = try await element(at: offset, limit: fileSize) {
+            offset = segment.body.upperBound
+            guard segment.id == 0x18538067 else { continue }
+            let index = try await metadataIndex(segment)
+            var tracks = index?.first { $0.id == 0x1654AE6B }
+            var tagGroups: [Element] = (index ?? []).filter { $0.id == 0x1254C367 }
+            if tracks == nil {
+                var pos = segment.body.lowerBound
+                var laterClusters = 0
+                while let e = try await element(at: pos, limit: segment.body.upperBound) {
+                    if e.id == 0x1654AE6B { tracks = e }
+                    if e.id == 0x1254C367 { tagGroups.append(e) }
+                    if e.id == 0x1F43B675, tracks != nil {
+                        laterClusters += 1
+                        if laterClusters > 8 { break }
+                    }
+                    guard !e.unknown else { break }
+                    pos = e.body.upperBound
+                }
+            }
+            guard let tracks else { return nil }
+            let tags = try await inventoryTags(tagGroups)
+            var audio: [EmbeddedMediaTrackInventory.AudioTrack] = []
+            var hasVideo = false
+            var imageTracks = Set<UInt64>()
+            let entries = try await children(tracks).filter { $0.id == 0xAE }
+            guard !entries.isEmpty else { return nil }
+            for entry in entries {
+                let track = try await track(entry)
+                guard track.number > 0, track.type > 0 else { return nil }
+                let tag = track.uid.flatMap { tags[$0] }
+                let name = EmbeddedMediaTrackInventory.cleanName(track.name) ?? tag?.name
+                if track.type == 2 {
+                    audio.append(.init(ordinal: audio.count, name: name, isDefault: track.enabled && track.isDefault))
+                } else if track.type == 1, track.enabled, !track.trick, track.codecID.hasPrefix("V_"),
+                          !EmbeddedMediaTrackInventory.isArtworkName(name), tag?.frames != 1 {
+                    if ["V_MJPEG", "V_PNG"].contains(track.codecID), tag?.frames == nil {
+                        imageTracks.insert(track.number)
+                    } else { hasVideo = true }
+                }
+            }
+            if !hasVideo, !imageTracks.isEmpty {
+                hasVideo = (try? await hasMovingImage(in: segment, tracks: imageTracks)) == true
+            }
+            return EmbeddedMediaTrackInventory(audioTracks: audio, hasVideo: hasVideo)
+        }
+        return nil
+    }
+
+    private struct InventoryTags {
+        var name: String?
+        var frames: Int?
+    }
+
+    private func inventoryTags(_ groups: [Element]) async throws -> [UInt64: InventoryTags] {
+        var result: [UInt64: InventoryTags] = [:]
+        for group in groups {
+            for tag in try await children(group) where tag.id == 0x7373 {
+                let items = try await children(tag)
+                guard let targets = items.first(where: { $0.id == 0x63C0 }) else { continue }
+                let ids = try await children(targets).filter { $0.id == 0x63C5 }
+                guard !ids.isEmpty else { continue }
+                for item in items where item.id == 0x67C8 {
+                    let fields = try await children(item)
+                    guard let name = fields.first(where: { $0.id == 0x45A3 }), let key = try await string(name)?.uppercased(),
+                          key == "TITLE" || key == "NUMBER_OF_FRAMES",
+                          let value = fields.first(where: { $0.id == 0x4487 }), let title = try await string(value) else { continue }
+                    for element in ids {
+                        guard let id = try await number(element), id > 0 else { continue }
+                        if key == "TITLE" { result[id, default: InventoryTags()].name = EmbeddedMediaTrackInventory.cleanName(title) }
+                        else { result[id, default: InventoryTags()].frames = Int(title) }
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    /// JPEG/PNG can be a movie or a single cover frame. Inspect block headers only until two frames are proven.
+    private func hasMovingImage(in segment: Element, tracks: Set<UInt64>) async throws -> Bool {
+        var seen = Set<UInt64>()
+        var pos = segment.body.lowerBound
+        while let child = try await element(at: pos, limit: segment.body.upperBound) {
+            pos = child.body.upperBound
+            guard child.id == 0x1F43B675 else { continue }
+            var offset = child.body.lowerBound
+            while let item = try await element(at: offset, limit: child.body.upperBound) {
+                if child.unknown, Self.segmentChildren.contains(item.id) { pos = offset; break }
+                offset = item.body.upperBound
+                let block: Element?
+                switch item.id {
+                case 0xA3: block = item
+                case 0xA0: block = try await children(item).first { $0.id == 0xA1 }
+                default: continue
+                }
+                guard let block, block.body.count > 4 else { continue }
+                let raw = try await read(block.body.lowerBound, count: min(12, block.body.count))
+                guard let (id, width) = vint(raw, at: 0, id: false), tracks.contains(id), width + 3 < raw.count else { continue }
+                if !seen.insert(id).inserted || (raw[width + 2] & 6 != 0 && raw[width + 3] > 0) { return true }
+            }
+        }
+        return false
     }
 
     private func readSegment(_ segment: Element, output: inout [EmbeddedLyricField]) async throws {
@@ -193,7 +306,11 @@ final class MatroskaLyricReader {
         for child in try await children(element) {
             switch child.id {
             case 0xD7: result.number = try await number(child) ?? 0
+            case 0x73C5: result.uid = try await number(child)
             case 0x83: result.type = try await number(child) ?? 0
+            case 0xB9: result.enabled = try await number(child) != 0
+            case 0x88: result.isDefault = try await number(child) != 0
+            case 0xC6: result.trick = try await number(child) != 0
             case 0x86: result.codecID = try await string(child) ?? ""
             case 0x536E: result.name = try await string(child) ?? ""
             case 0x22B59C: result.language = try await string(child)

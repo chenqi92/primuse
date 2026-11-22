@@ -31,6 +31,7 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
     private let scopeIsCurrent: @Sendable () async -> Bool
     private let path: String
     private let contentLength: Int64
+    private let videoExtension: String
     private let contentType: String?
     private let cacheTarget: URL
     private let cachePartial: URL
@@ -47,6 +48,7 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
         scopeIsCurrent: @escaping @Sendable () async -> Bool,
         path: String,
         contentLength: Int64,
+        videoExtension: String? = nil,
         cacheTarget: URL,
         chunkBytes: Int64
     ) {
@@ -59,7 +61,8 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
         self.cacheTarget = cacheTarget
         self.cachePartial = URL(fileURLWithPath: cacheTarget.path + ".partial")
         self.chunkBytes = max(512 * 1024, chunkBytes)
-        let ext = (path as NSString).pathExtension.lowercased()
+        let ext = videoExtension ?? (path as NSString).pathExtension.lowercased()
+        self.videoExtension = ext
         self.contentType = UTType(filenameExtension: ext)?.identifier
         super.init()
     }
@@ -70,7 +73,7 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
         var components = URLComponents()
         components.scheme = Self.scheme
         components.host = "video"
-        let ext = (path as NSString).pathExtension
+        let ext = videoExtension
         components.path = "/" + UUID().uuidString + (ext.isEmpty ? "" : ".\(ext)")
         guard let url = components.url else { return nil }
         let asset = AVURLAsset(url: url)

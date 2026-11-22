@@ -5236,6 +5236,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "Аудіодоріжки";
+"embedded_audio_default" = "Типовий мікс";
+"embedded_audio_track_number" = "Аудіодоріжка %d";
 "karaoke_backing_track" = "Мінусовка";
 "karaoke_backing_track_playing" = "Грає мінусовка, регулювати нічого.";
 "karaoke_export_menu" = "Експорт розділених доріжок";

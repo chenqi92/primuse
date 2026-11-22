@@ -1933,7 +1933,7 @@ actor ConnectorScanner {
             authoritative: hints.isAuthoritative
         )
         song.mvPath = SourceSidecarReferencePolicy.reconciledReference(
-            existing: song.mvPath,
+            existing: song.referencedMusicVideoPath,
             incoming: hints.mvPath,
             currentParentPath: parent,
             authoritative: hints.isAuthoritative

@@ -48,6 +48,13 @@ enum FileMetadataReader {
             FileMetadataReader.apply(EmbeddedTagMetadataParser.metadata(fromLyricFields: fields), to: &self)
         }
 
+        mutating func includeMediaTracks(_ inventory: EmbeddedMediaTrackInventory?) {
+            guard let inventory else { return }
+            var content = contentMetadata ?? SongContentMetadata()
+            content.embeddedMediaTracks = inventory
+            contentMetadata = content
+        }
+
         /// 原文不止一份时的全貌，存下来以后改了设置不用重读文件（见 `EmbeddedLyricsAlternatives`）。
         var embeddedLyricsAlternatives: EmbeddedLyricsAlternatives? {
             let record = EmbeddedLyricsAlternatives(
@@ -449,6 +456,9 @@ enum FileMetadataReader {
             fileExtension: fileExtension
         )
         metadata.includeLyricTracks(await EmbeddedMediaLyricReader.local(at: url, fileExtension: fileExtension, metadataFile: metadataFile))
+        if metadata.contentMetadata?.embeddedMediaTracks == nil, EmbeddedMediaTrackInventory.supports(fileExtension: fileExtension) {
+            metadata.includeMediaTracks(await EmbeddedMediaTrackInventory.inspect(at: url, fileExtension: fileExtension))
+        }
         if metadataFile != nil || additionalTagExtensions.contains(fileExtension), let handle = try? FileHandle(forReadingFrom: url) {
             defer { try? handle.close() }
             if let size = try? handle.seekToEnd(), let fields = try? await additionalTagFields(

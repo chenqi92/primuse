@@ -208,6 +208,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case "aifc": return .aiff
         case "bwf": return .wav
         case "weba": return .webm
+        case "mkv": return .mka
         case "mpa", "mp1", "m2a": return .mp2
         case "bw64": return .rf64
         case "oga": return .ogg
@@ -1020,6 +1021,31 @@ public enum MusicVideoCompatibilityPolicy {
                 return false
             }
         }
+    }
+
+    public static func format(for song: Song, path: String) -> VideoFormat? {
+        let ext: String
+        if let url = URL(string: path), url.scheme != nil {
+            ext = url.pathExtension
+        } else {
+            ext = (path as NSString).pathExtension
+        }
+        guard song.usesEmbeddedMusicVideo else { return VideoFormat.from(fileExtension: ext) }
+        for candidate in [ext.lowercased(), song.fileFormat.rawValue.lowercased()] {
+            if let video = VideoFormat.from(fileExtension: candidate) { return video }
+            switch candidate {
+            case "m4a", "m4b", "alac", "m4r", "3g2": return .mp4
+            case "mka": return .mkv
+            case "weba": return .webm
+            default: continue
+            }
+        }
+        return nil
+    }
+
+    public static func needsConversion(path: String, for song: Song) -> Bool {
+        if song.usesEmbeddedMusicVideo { return format(for: song, path: path)?.isNativelyPlayable == false }
+        return needsConversion(path: path)
     }
 
     /// Whether a music video at this path has to be rewritten before

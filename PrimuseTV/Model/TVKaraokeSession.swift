@@ -89,7 +89,10 @@ final class TVKaraokeSession {
     private(set) var localStemLoadFailed = false
 
     private(set) var instrumentalCompanion: Song?
-    private(set) var isPlayingInstrumental = false
+    private var isInstrumentalFile = false
+    let embeddedAudio = EmbeddedKaraokePlayback()
+    var isPlayingInstrumental: Bool { isInstrumentalFile || embeddedAudio.isBacking }
+    var bypassesVocalReduction: Bool { isPlayingInstrumental || embeddedAudio.isStemMix }
     private(set) var lyricsBorrowedFromTitle: String?
     var usesInferredWordTiming: Bool { stageLyrics.usesInferredWordTiming }
     private(set) var isVocalAssisting = false
@@ -110,9 +113,10 @@ final class TVKaraokeSession {
     private(set) var loop: KaraokePracticePolicy.Loop?
     var isPracticing: Bool { loop != nil || practiceRate < 1 }
     var canPractice: Bool { currentSong != nil && store.engine.supportsKaraokePractice }
-    var isSwitchingTrack: Bool { store.engine.status == .loading && store.playbackIssue == nil }
+    var isSwitchingTrack: Bool { embeddedAudio.isPreparing || (store.engine.status == .loading && store.playbackIssue == nil) }
     var canToggleBackingTrack: Bool {
-        !isSwitchingTrack && (instrumentalCompanion != nil || (isPlayingInstrumental && pairedOriginal != nil))
+        !isSwitchingTrack && (embeddedAudio.backingOrdinals != nil || instrumentalCompanion != nil
+            || (isInstrumentalFile && pairedOriginal != nil))
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -165,6 +169,7 @@ final class TVKaraokeSession {
     func start() {
         guard !isActive else { return }
         isActive = true
+        loadEmbeddedTracks(for: store.currentSongID.flatMap { store.library.song(id: $0) })
         store.engine.setKaraokeTapEnabled(true)
         store.engine.setKaraokePracticeRate(practiceRate)
         store.engine.karaokeLoopStartAtEnd = { [weak self] in
@@ -208,6 +213,8 @@ final class TVKaraokeSession {
         vocalAssist.reset()
         isVocalAssisting = false
         micServer.stop()
+        store.endEmbeddedKaraokeAudio()
+        embeddedAudio.reset()
         removeStem()
         store.engine.karaokeProcessor.update(.init())
         store.engine.setKaraokeTapEnabled(false)
@@ -240,7 +247,7 @@ final class TVKaraokeSession {
             isEffectivelyMono = nextMono
         }
         tickCount &+= 1
-        if isMicConnected, store.isPlaying, !isPlayingInstrumental {
+        if isMicConnected, store.isPlaying, !bypassesVocalReduction {
             analyzeReferenceIfIdle()
             if tickCount % 40 == 0 {
                 lagEstimator.update(reference: referenceTrack)
@@ -267,9 +274,9 @@ final class TVKaraokeSession {
         if isVocalAssistSuppressed != vocalAssist.isSuppressed { isVocalAssistSuppressed = vocalAssist.isSuppressed }
         store.engine.karaokeProcessor.update(.init(
             isActive: isActive && isVocalReductionAvailable,
-            reduction: isPlayingInstrumental ? 0 : Float((1 - vocalLevel) * assistFactor) * duetFactor,
-            capturesVocal: isActive && isMicConnected && !isPlayingInstrumental,
-            bypassesVocalReduction: isPlayingInstrumental,
+            reduction: bypassesVocalReduction ? 0 : Float((1 - vocalLevel) * assistFactor) * duetFactor,
+            capturesVocal: isActive && isMicConnected && !bypassesVocalReduction,
+            bypassesVocalReduction: bypassesVocalReduction,
             stemAddress: stem.map { UInt(bitPattern: $0.samples) } ?? 0,
             stemFrames: stem?.frames ?? 0,
             stemTimeOffset: store.engine.playbackPhysicalStart,
@@ -297,10 +304,11 @@ final class TVKaraokeSession {
             }
             songID = store.currentSongID
             currentSong = songID.flatMap { store.library.song(id: $0) }
+            loadEmbeddedTracks(for: currentSong)
             removeStem()
             phoneSeparationProgress = nil
             carriedSongID = nil
-            isPlayingInstrumental = currentSong.map {
+            isInstrumentalFile = currentSong.map {
                 KaraokeCompanionPolicy.isInstrumental(Self.companionCandidate($0))
             } ?? false
             micServer.sendNowPlaying(songID: isPlayingInstrumental ? nil : songID)
@@ -359,11 +367,46 @@ final class TVKaraokeSession {
         }
     }
 
+    private func loadEmbeddedTracks(for song: Song?) {
+        guard !store.isLiveRadio, !store.isMedleyActive, !store.engine.isExternallyDriven else {
+            embeddedAudio.reset()
+            return
+        }
+        embeddedAudio.load(for: song) { [weak self] song in await self?.store.embeddedTrackInventory(for: song) }
+    }
+
+    func selectEmbeddedAudio(_ ordinals: [Int]?) {
+        guard isActive, let song = currentSong else { return }
+        embeddedAudio.select(ordinals, for: song) { [store] in try await store.karaokeAudioFile(for: song) } apply: { [weak self] file in
+            guard let self, isActive, store.switchEmbeddedKaraokeAudio(file, for: song) else { return false }
+            cancelLocalSeparation()
+            removeStem()
+            resetPitchTracking()
+            micServer.sendNowPlaying(songID: file == nil ? song.id : nil)
+            return true
+        }
+    }
+
     func toggleBackingTrack() {
-        guard canToggleBackingTrack, let currentSong else { return }
-        let target = isPlayingInstrumental ? pairedOriginal : instrumentalCompanion
+        guard canToggleBackingTrack else { return }
+        if embeddedAudio.isBacking, embeddedAudio.backingOrdinals != nil {
+            selectEmbeddedAudio(embeddedAudio.originalOrdinals)
+            return
+        }
+        if !isInstrumentalFile, let ordinals = embeddedAudio.backingOrdinals {
+            selectEmbeddedAudio(ordinals)
+            return
+        }
+        toggleCompanionFile()
+    }
+
+    var alternateCompanion: Song? { isInstrumentalFile ? pairedOriginal : instrumentalCompanion }
+
+    func toggleCompanionFile() {
+        guard let currentSong else { return }
+        let target = isInstrumentalFile ? pairedOriginal : instrumentalCompanion
         guard let target else { return }
-        if !isPlayingInstrumental { pairedOriginal = currentSong }
+        if !isInstrumentalFile { pairedOriginal = currentSong }
         carriedSongID = target.id
         guard store.switchKaraokeTrack(to: target.id) else { carriedSongID = nil; return }
         songOrLyricsChanged()
@@ -379,7 +422,7 @@ final class TVKaraokeSession {
     /// Consumes the unified `WordLyricsAlignmentService` overlay on Apple TV
     /// (shared with TV Now Playing and TV Immersive views).
     private func updateUnifiedWordTiming() {
-        let source = isPlayingInstrumental ? pairedOriginal : currentSong
+        let source = isInstrumentalFile ? pairedOriginal : currentSong
         guard let source,
               !lyrics.isEmpty,
               lyrics.contains(where: { $0.isSynchronized && !$0.isWordLevel }) else { return }
@@ -422,7 +465,7 @@ final class TVKaraokeSession {
 
     private var vocalAssistApplies: Bool {
         vocalAssistEnabled && isMicConnected && isVocalReductionAvailable
-            && !isPlayingInstrumental && store.isPlaying
+            && !bypassesVocalReduction && store.isPlaying
             && lastMicReading.map { Date().timeIntervalSince($0) < 0.75 } == true
     }
 
@@ -463,7 +506,7 @@ final class TVKaraokeSession {
     // MARK: AI stem from the phone
 
     private func receiveStem(songID stemSongID: String, data: Data) {
-        guard isActive, !isPlayingInstrumental, stemSongID == songID else { return }
+        guard isActive, embeddedAudio.selected == nil, !bypassesVocalReduction, stemSongID == songID else { return }
         let targetRate = store.engine.karaokeProcessor.sampleRate
         let generation = stemGeneration
         Task { @MainActor [weak self] in
@@ -525,7 +568,7 @@ final class TVKaraokeSession {
     }
 
     private func updateLocalSeparation() {
-        guard isActive, localAIEnabled, !isPlayingInstrumental, isVocalReductionAvailable, !usesPhoneStem,
+        guard isActive, embeddedAudio.selected == nil, localAIEnabled, !bypassesVocalReduction, isVocalReductionAvailable, !usesPhoneStem,
               let song = currentSong, separation.modelState == .ready else { return }
         if let track = stemTrack,
            abs(track.sampleRate - store.engine.karaokeProcessor.sampleRate) >= 0.5 {
@@ -646,7 +689,7 @@ final class TVKaraokeSession {
         lagEstimator.record(time: now, sung: note)
         let sungTime = now - lagEstimator.lag
         let reference = referenceTrack.note(at: sungTime)
-        if !isPracticing && !isPlayingInstrumental {
+        if !isPracticing && !bypassesVocalReduction {
             scorer.record(time: sungTime, reference: reference, sung: note)
         }
         if vocalAssistApplies {

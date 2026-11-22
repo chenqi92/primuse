@@ -229,9 +229,33 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         get { rare.values.contentMetadata }
         set { updateRare { $0.contentMetadata = newValue } }
     }
+    public var embeddedMediaTracks: EmbeddedMediaTrackInventory? {
+        get { contentMetadata?.embeddedMediaTracks }
+        set {
+            guard newValue != contentMetadata?.embeddedMediaTracks else { return }
+            var content = contentMetadata ?? SongContentMetadata()
+            content.embeddedMediaTracks = newValue
+            contentMetadata = content
+        }
+    }
     public var mvPath: String? {
-        get { rare.values.mvPath }
+        get {
+            if let externalMusicVideoPath { return externalMusicVideoPath }
+            if let inventory = embeddedMediaTracks { return inventory.hasVideo && !filePath.isEmpty ? filePath : nil }
+            guard let path = rare.values.mvPath, !EmbeddedMediaTrackInventory.isStemFileName(path) else { return nil }
+            return path
+        }
         set { updateRare { $0.mvPath = newValue } }
+    }
+    /// Original catalogue or directory reference. An embedded video follows the media file across renames.
+    public var referencedMusicVideoPath: String? { rare.values.mvPath }
+    public var externalMusicVideoPath: String? {
+        guard let path = rare.values.mvPath, !path.isEmpty, path != filePath,
+              !EmbeddedMediaTrackInventory.isStemFileName(path) else { return nil }
+        return path
+    }
+    public var usesEmbeddedMusicVideo: Bool {
+        embeddedMediaTracks?.hasVideo == true && externalMusicVideoPath == nil && !isStandaloneMusicVideo
     }
     /// Source-relative path of the CUE sheet or SACD ISO that defines this virtual track.
     /// Nil for ordinary one-file-per-track songs.
@@ -521,7 +545,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encodeIfPresent(artistArtworkFileName, forKey: .artistArtworkFileName)
         try container.encodeIfPresent(lyricsFileName, forKey: .lyricsFileName)
         try container.encodeIfPresent(contentMetadata, forKey: .contentMetadata)
-        try container.encodeIfPresent(mvPath, forKey: .mvPath)
+        try container.encodeIfPresent(rare.values.mvPath, forKey: .mvPath)
         try container.encodeIfPresent(replayGainTrackGain, forKey: .replayGainTrackGain)
         try container.encodeIfPresent(replayGainTrackPeak, forKey: .replayGainTrackPeak)
         try container.encodeIfPresent(replayGainAlbumGain, forKey: .replayGainAlbumGain)
@@ -1579,14 +1603,18 @@ public extension Song {
 
     /// 独立 MV 曲目 —— 媒体本体就是视频文件, 扫描时把 `mvPath` 指向自身
     /// (`mvPath == filePath`)。这类歌曲不受全局 MV 模式开关影响, 始终走
-    /// AVPlayer 视频管线; 普通歌曲的 MV 仍是"同名 sidecar"(mvPath 指向
-    /// 另一个文件)。
+    /// AVPlayer 视频管线。普通音频容器附带的视频轨仍由 MV 开关控制。
     var isStandaloneMusicVideo: Bool {
-        guard let mvPath, !mvPath.isEmpty else { return false }
-        return mvPath == filePath
+        guard let path = rare.values.mvPath, !path.isEmpty, path == filePath,
+              !EmbeddedMediaTrackInventory.isStemFileName(path), embeddedMediaTracks?.hasVideo != false else { return false }
+        if let inventory = embeddedMediaTracks {
+            if fileFormat == .m4a || fileFormat == .alac || !inventory.stemTracks.isEmpty { return false }
+            if fileFormat == .mka, path.lowercased().hasSuffix(".mka") { return false }
+        }
+        return true
     }
 
-    /// 有 MV 可放:独立 MV,或带同名 MV 的歌曲。资料库的「MV」分类收的就是这些。
+    /// 资料库 MV 分类收录独立视频、同名视频及带可播放画面轨的音频。
     var hasMusicVideo: Bool {
         guard let mvPath else { return false }
         return !mvPath.isEmpty
@@ -1610,11 +1638,13 @@ public struct SongContentMetadata: Codable, Hashable, Sendable {
     /// nil 是还没数过;读完整个 moov 没找到章节记 0。资料库「有声书」那一行的章数按它算,
     /// 见 `SpokenWordChapterTally`。
     public var embeddedChapterCount: Int?
+    public var embeddedMediaTracks: EmbeddedMediaTrackInventory?
 
     private enum CodingKeys: String, CodingKey {
         case releaseType, iTunesAdvisory, copyright, isFileInspectionComplete
         // 每首 m4a 都带这一项,存短一点。
         case embeddedChapterCount = "chapters"
+        case embeddedMediaTracks = "mediaTracks"
     }
 
     public init(
@@ -1622,7 +1652,8 @@ public struct SongContentMetadata: Codable, Hashable, Sendable {
         copyright: String? = nil,
         isFileInspectionComplete: Bool = false,
         releaseType: String? = nil,
-        embeddedChapterCount: Int? = nil
+        embeddedChapterCount: Int? = nil,
+        embeddedMediaTracks: EmbeddedMediaTrackInventory? = nil
     ) {
         self.releaseType = releaseType
         self.isFileInspectionComplete = isFileInspectionComplete
@@ -1630,6 +1661,7 @@ public struct SongContentMetadata: Codable, Hashable, Sendable {
         let text = copyright?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.copyright = text?.isEmpty == false ? text : nil
         self.embeddedChapterCount = embeddedChapterCount.map { max(0, $0) }
+        self.embeddedMediaTracks = embeddedMediaTracks
     }
 
     public var isExplicit: Bool { iTunesAdvisory == 1 || iTunesAdvisory == 4 }
@@ -1640,18 +1672,25 @@ public struct SongContentMetadata: Codable, Hashable, Sendable {
              copyright: copyright ?? fallback?.copyright,
              isFileInspectionComplete: isFileInspectionComplete || fallback?.isFileInspectionComplete == true,
              releaseType: releaseType ?? fallback?.releaseType,
-             embeddedChapterCount: embeddedChapterCount ?? fallback?.embeddedChapterCount)
+             embeddedChapterCount: embeddedChapterCount ?? fallback?.embeddedChapterCount,
+             embeddedMediaTracks: embeddedMediaTracks ?? fallback?.embeddedMediaTracks)
     }
 
     public static func merging(previous: Self?, incoming: Self?) -> Self? {
         guard let incoming else { return previous }
-        return incoming.isFileInspectionComplete ? incoming : incoming.fillingMissing(from: previous)
+        if incoming.isFileInspectionComplete {
+            var complete = incoming
+            complete.embeddedMediaTracks = incoming.embeddedMediaTracks ?? previous?.embeddedMediaTracks
+            return complete
+        }
+        return incoming.fillingMissing(from: previous)
     }
 
     /// 播放器只在这么长的条目里找章节(有声内容不限长短);长 MP3 读标签时也只在这个长度以上数 CHAP 帧。
     public static let chapterLookupMinimumDuration: TimeInterval = 20 * 60
 
     public static func needsInspection(_ song: Song) -> Bool {
+        if !song.isStreamDescriptor, song.embeddedMediaTracks == nil, EmbeddedMediaTrackInventory.supports(song) { return true }
         guard [.m4a, .alac].contains(song.fileFormat),
               !song.isStreamDescriptor, !song.isStandaloneMusicVideo else { return false }
         guard let content = song.contentMetadata, content.isFileInspectionComplete else { return true }

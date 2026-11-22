@@ -1285,6 +1285,7 @@ enum LocalImportService {
     private static func isImportableMediaDescriptor(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
         return PrimuseConstants.supportedAudioExtensions.contains(ext)
+            || EmbeddedMediaTrackInventory.isStemFileName(url.lastPathComponent)
             || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext)
     }
 

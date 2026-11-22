@@ -1478,6 +1478,10 @@ final class AppServices {
                 player.isLoading && player.currentSong?.sourceID == sourceID
             }
         )
+        metadataBackfill.catalogProvidesOriginalMedia = { [weak store] sourceID in
+            guard let source = store?.source(id: sourceID), source.isEnabled, !source.isDeleted else { return false }
+            return EmbeddedMediaTrackInventory.supportsCatalogOriginal(source.type)
+        }
         player.configurePlaybackMetadataBackfill(metadataBackfill) { sourceID in
             store.source(id: sourceID)?.type
         }
@@ -1576,8 +1580,12 @@ final class AppServices {
         scraper.awaitsTagRead = { [weak metadataBackfill] song in
             metadataBackfill?.willReadTags(of: song) ?? false
         }
-        metadataBackfill.tagReadsConcludedHandler = { [weak scraper, weak library] songIDs in
+        metadataBackfill.tagReadsConcludedHandler = { [weak player, weak scraper, weak library] songIDs in
             guard let scraper, let library else { return }
+            if let current = player?.currentSong, songIDs.contains(current.id), let live = library.storedSong(id: current.id),
+               EmbeddedMediaTrackInventory.sameMediaFile(current, live), live.embeddedMediaTracks != current.embeddedMediaTracks {
+                player?.syncSongMetadata(live)
+            }
             scraper.tagReadsConcluded(songIDs: songIDs, in: library)
         }
         let automaticEnrichmentAllowed: () -> Bool = { [weak scanService] in

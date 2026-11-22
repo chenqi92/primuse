@@ -459,6 +459,7 @@ final class MetadataBackfillService {
     /// 会漏掉整整一类本地源。
     private let directFileSourceIDs: () -> Set<String>
     private let manuallyReadableSourceIDs: () -> Set<String>
+    var catalogProvidesOriginalMedia: (String) -> Bool = { _ in false }
     /// 标签读取走 URLSession 每主机连接池的源。只有一轮里的源全在这个集合里,
     /// 读取位才放宽 —— 见 `MusicSourceType.supportsParallelMetadataRangeReads`。
     private let pooledHTTPRangeSourceIDs: () -> Set<String>
@@ -3733,7 +3734,8 @@ final class MetadataBackfillService {
     func canRereadTags(for song: Song) -> Bool {
         !song.isCueTrack
             && !song.isStreamDescriptor
-            && manuallyReadableSourceIDs().contains(song.sourceID)
+            && (manuallyReadableSourceIDs().contains(song.sourceID)
+                || (EmbeddedMediaTrackInventory.supports(song) && catalogProvidesOriginalMedia(song.sourceID)))
             && !library.disabledSourceIDs.contains(song.sourceID)
     }
 
@@ -4181,7 +4183,7 @@ final class MetadataBackfillService {
                 continue
             }
             guard !library.disabledSourceIDs.contains(song.sourceID) else { continue }
-            guard canRereadTags(for: song) else {
+            guard manuallyReadableSourceIDs().contains(song.sourceID), canRereadTags(for: song) else {
                 settled.insert(id)
                 continue
             }
@@ -4647,6 +4649,19 @@ final class MetadataBackfillService {
             return .alreadyReading
         }
         defer { manuallyReadingSongIDs.remove(songID) }
+
+        if catalogProvidesOriginalMedia(song.sourceID), EmbeddedMediaTrackInventory.supports(song) {
+            guard let tracks = await sourceManager.embeddedTrackInventory(for: song, refreshing: true), !Task.isCancelled else {
+                return .failed(reason: String(localized: "reread_song_tags_failure_unrecognized_audio"))
+            }
+            guard var live = library.storedSong(id: songID), EmbeddedMediaTrackInventory.sameMediaFile(song, live) else {
+                return .failed(reason: String(localized: "reread_song_tags_failure_song_changed"))
+            }
+            live.embeddedMediaTracks = tracks
+            library.replaceSongs([live])
+            tagReadsConcludedHandler?([songID])
+            return .completed(.technicalProperties)
+        }
 
         if backfillableSourceIDs().contains(song.sourceID) {
             guard reopenInspection(for: songID) else {
@@ -6845,6 +6860,13 @@ final class MetadataBackfillService {
 
         try Task.checkCancellation()
         if !metadata.hasCompleteFileAccess {
+            if metadata.contentMetadata?.embeddedMediaTracks == nil, EmbeddedMediaTrackInventory.supports(fileExtension: parserExtension),
+               let tracks = try? await EmbeddedMediaTrackInventory.inspect(head: headData, fileSize: song.fileSize,
+                    fileExtension: parserExtension, fetch: fetchRange) {
+                var content = metadata.contentMetadata ?? SongContentMetadata()
+                content.embeddedMediaTracks = tracks
+                metadata.contentMetadata = content
+            }
             let extraTags: Data?
             switch parserExtension {
             case "mp3", "mp2", "mp1": extraTags = try? await FileMetadataReader.id3LyricsBeyondHead(
@@ -7434,7 +7456,7 @@ final class MetadataBackfillService {
         let lyricsRef = bare.isCueTrack || isBareOnlySource
             ? (bare.lyricsFileName ?? metadata.lyricsFileName)
             : (metadata.lyricsFileName ?? bare.lyricsFileName)
-        let mvRef = bare.mvPath ?? metadata.mvPath
+        let mvRef = bare.externalMusicVideoPath ?? metadata.mvPath ?? bare.referencedMusicVideoPath
         let mergedFormat: AudioFormat = if bare.fileFormat == .wav,
                                              metadata.detectedFileSignature == .dts
                                                 || metadata.detectedFileSignature == .dtsInWave {

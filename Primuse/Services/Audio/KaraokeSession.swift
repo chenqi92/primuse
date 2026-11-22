@@ -175,10 +175,14 @@ final class KaraokeSession {
     private(set) var instrumentalCompanion: Song?
     /// What is playing is an instrumental (a paired companion or a backing
     /// track played directly): nothing to reduce, lyrics come from the original.
-    private(set) var isPlayingInstrumental = false
+    private var isInstrumentalFile = false
+    let embeddedAudio = EmbeddedKaraokePlayback()
+    var isPlayingInstrumental: Bool { isInstrumentalFile || embeddedAudio.isBacking }
+    var bypassesVocalReduction: Bool { isPlayingInstrumental || embeddedAudio.isStemMix }
     /// Title of the sung original the lyrics were borrowed from.
     private(set) var lyricsBorrowedFromTitle: String?
-    private(set) var isSwitchingTrack = false
+    private var isSwitchingFile = false
+    var isSwitchingTrack: Bool { isSwitchingFile || embeddedAudio.isPreparing }
 
     /// Use the AI-separated vocal. Off until the user asks for it; turning
     /// it on is what fetches the model, so the 80 MB download is never a surprise.
@@ -332,6 +336,7 @@ final class KaraokeSession {
         guard !isActive else { return }
         isActive = true
         stemHandedToSingAlong = false
+        loadEmbeddedTracks(for: player.currentSong)
         // 伴唱开着时先把它挂的人声轨撤下,舞台这一拍再装自己的(两边共用一个消除单元)。
         KaraokeSingAlong.shared.karaokeWillStart()
         engine.karaokeControl.stemFadeDuration = 0
@@ -362,6 +367,10 @@ final class KaraokeSession {
         transportHintTask = nil
         if isRecording { finishRecording() }
         stopMicrophone()
+        if let song = player.currentSong, player.embeddedKaraokeFile?.songID == song.id {
+            _ = player.switchEmbeddedKaraokeAudio(nil, for: song)
+        }
+        embeddedAudio.reset()
         removeStem()
         loop = nil
         player.karaokePracticeRate = nil
@@ -457,7 +466,7 @@ final class KaraokeSession {
     private func applyRenderSettings() {
         let control = engine.karaokeControl
         let processes = isActive && availability == .available && engine.supportsKaraokeVocalReduction
-        let reduces = processes && !isPlayingInstrumental
+        let reduces = processes && !bypassesVocalReduction
         // With an AI stem loaded the graph subtracts it instead.
         control.isActive = reduces && !isStemActive
         control.bridgesStem = reduces && isStemActive
@@ -478,15 +487,16 @@ final class KaraokeSession {
 
     private var vocalAssistApplies: Bool {
         vocalAssistEnabled && microphoneState == .on && assistRouteAllows
-            && !isPlayingInstrumental && player.isPlaying
+            && !bypassesVocalReduction && player.isPlaying
     }
 
     private func songDidChange(to song: Song?) {
+        loadEmbeddedTracks(for: song)
         if let song, song.id == carriedSongID {
             // Same performance, other recording of it: keep lyrics and score.
             carriedSongID = nil
             songID = song.id
-            isPlayingInstrumental = song.id != pairedOriginal?.id
+            isInstrumentalFile = song.id != pairedOriginal?.id
             referenceTrack.removeAll()
             return
         }
@@ -496,7 +506,7 @@ final class KaraokeSession {
         loop = nil
         instrumentalCompanion = nil
         appliedWordOverlay = nil
-        isPlayingInstrumental = false
+        isInstrumentalFile = false
         lyricsBorrowedFromTitle = nil
         companionTask?.cancel()
         concludePerformance()
@@ -516,7 +526,7 @@ final class KaraokeSession {
         }
         let target = Self.companionCandidate(song)
         let playsBackingTrack = KaraokeCompanionPolicy.isInstrumental(target)
-        isPlayingInstrumental = playsBackingTrack
+        isInstrumentalFile = playsBackingTrack
         if playsBackingTrack {
             // Its own file rarely has lyrics; wait for the original's.
             isLoadingLyrics = true
@@ -577,10 +587,11 @@ final class KaraokeSession {
     private func updateStem() {
         let song = player.currentSong
         let wanted = aiSeparationEnabled
+            && embeddedAudio.selected == nil
             && separation.modelState == .ready
             && availability == .available
             && engine.supportsKaraokeVocalReduction
-            && !isPlayingInstrumental
+            && !bypassesVocalReduction
             ? song : nil
         guard let wanted else {
             if stemSongID != nil { removeStem() }
@@ -718,6 +729,12 @@ final class KaraokeSession {
 
     // MARK: - Backing track
 
+    var alternateCompanion: Song? { isInstrumentalFile ? pairedOriginal : instrumentalCompanion }
+
+    func toggleCompanionFile() {
+        if isInstrumentalFile { switchToOriginal() } else { switchToInstrumental() }
+    }
+
     /// Plays the library's backing track from the same position; lyrics and
     /// the running score carry over.
     func switchToInstrumental() {
@@ -734,14 +751,44 @@ final class KaraokeSession {
 
     /// Whether the switch button applies, and which way it points.
     var canToggleBackingTrack: Bool {
-        !isSwitchingTrack && (instrumentalCompanion != nil || (isPlayingInstrumental && pairedOriginal != nil))
+        !isSwitchingTrack && (embeddedAudio.backingOrdinals != nil || instrumentalCompanion != nil
+            || (isInstrumentalFile && pairedOriginal != nil))
     }
 
     func toggleBackingTrack() {
-        if isPlayingInstrumental {
+        if embeddedAudio.isBacking, embeddedAudio.backingOrdinals != nil {
+            selectEmbeddedAudio(embeddedAudio.originalOrdinals)
+        } else if !isInstrumentalFile, let ordinals = embeddedAudio.backingOrdinals {
+            selectEmbeddedAudio(ordinals)
+        } else if isInstrumentalFile {
             switchToOriginal()
         } else {
             switchToInstrumental()
+        }
+    }
+
+    private func loadEmbeddedTracks(for song: Song?) {
+        guard !player.isAppleMusicMode, !player.isCastingMode, !player.isLiveRadio else {
+            embeddedAudio.reset()
+            return
+        }
+        embeddedAudio.load(for: song) { [weak self] song in
+            await self?.player.sourceManager?.embeddedTrackInventory(for: song)
+        }
+    }
+
+    func selectEmbeddedAudio(_ ordinals: [Int]?) {
+        guard isActive, !player.isCastingMode, !player.isAppleMusicMode, let song = player.currentSong,
+              let manager = player.sourceManager else { return }
+        embeddedAudio.select(ordinals, for: song) {
+            try await KaraokeSeparationService.sourceAudioFile(for: song, sourceManager: manager)
+        } apply: { [weak self] file in
+            guard let self, isActive, player.currentSong?.id == song.id else { return false }
+            if isRecording { finishRecording() }
+            guard player.switchEmbeddedKaraokeAudio(file, for: song) else { return false }
+            removeStem()
+            referenceTrack.removeAll()
+            return true
         }
     }
 
@@ -752,7 +799,7 @@ final class KaraokeSession {
         let wasPlaying = player.isPlaying
         let companionForReturn = instrumentalCompanion ?? player.currentSong
         carriedSongID = song.id
-        isSwitchingTrack = true
+        isSwitchingFile = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.player.play(song: song)
@@ -765,7 +812,7 @@ final class KaraokeSession {
             } else {
                 self.carriedSongID = nil
             }
-            self.isSwitchingTrack = false
+            self.isSwitchingFile = false
         }
     }
 
@@ -808,7 +855,7 @@ final class KaraokeSession {
               !lyrics.isEmpty,
               lyrics.contains(where: { $0.isSynchronized && !$0.isWordLevel }) else { return }
         // A backing track borrows the original's lyrics and its audio/stem.
-        let source = isPlayingInstrumental ? pairedOriginal : song
+        let source = isInstrumentalFile ? pairedOriginal : song
         guard let source else { return }
 
         let service = WordLyricsAlignmentService.shared

@@ -7787,7 +7787,8 @@ final class MusicLibrary {
                         merged.artistArtworkFileName = artistArtwork
                     }
                     if let lyrics = newSong.lyricsFileName { merged.lyricsFileName = lyrics }
-                    if let mvPath = newSong.mvPath { merged.mvPath = mvPath }
+                    if let mvPath = newSong.referencedMusicVideoPath { merged.mvPath = mvPath }
+                    if let tracks = newSong.embeddedMediaTracks { merged.embeddedMediaTracks = tracks }
                     if merged != existing {
                         mergedSongs[idx] = merged
                         recordPersistence(merged)
@@ -14694,7 +14695,7 @@ final class MusicLibrary {
                     if current.lyricsFileName != original.lyricsFileName {
                         rebased.lyricsFileName = current.lyricsFileName
                     }
-                    if current.mvPath != original.mvPath { rebased.mvPath = current.mvPath }
+                    if current.referencedMusicVideoPath != original.referencedMusicVideoPath { rebased.mvPath = current.referencedMusicVideoPath }
                     return rebased
                 }
                 updatedSongs = flushPendingAssetReferencePatches(overlaying: updatedSongs)
@@ -14741,7 +14742,7 @@ final class MusicLibrary {
                     if current.lyricsFileName != original.lyricsFileName {
                         rebased.lyricsFileName = current.lyricsFileName
                     }
-                    if current.mvPath != original.mvPath { rebased.mvPath = current.mvPath }
+                    if current.referencedMusicVideoPath != original.referencedMusicVideoPath { rebased.mvPath = current.referencedMusicVideoPath }
                     return rebased
                 }
                 continue

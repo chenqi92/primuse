@@ -607,6 +607,7 @@ enum SidecarHintResolver {
         guard item.isDirectory == false else { return nil }
         let ext = (item.name as NSString).pathExtension.lowercased()
         if PrimuseConstants.supportedAudioExtensions.contains(ext)
+            || EmbeddedMediaTrackInventory.isStemFileName(item.name)
             || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
             return decoratedAudioItem(item, index: index)
         }

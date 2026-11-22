@@ -556,6 +556,17 @@ final class TVPlaybackCoordinator {
             return
         }
         let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
+        if let mix = store.embeddedKaraokeFile, mix.songID == song.id {
+            engine.load(url: mix.url, fileExtension: "caf", title: song.title,
+                        artist: store.library.artistDisplayName(for: song) ?? "", album: song.albumTitle ?? "",
+                        duration: song.duration, isVideo: false,
+                        cueStartTime: song.cueStartTime, cueEndTime: song.cueEndTime)
+            await configureReplayGain(song: song, requestID: requestID, initial: nil)
+            guard isCurrent(requestID, store: store) else { return }
+            engine.startPlayback(at: startAt, autoPlay: autoPlay)
+            if store.lyrics.isEmpty { loadLyrics(song: song, source: source, credential: credential, requestID: requestID) }
+            return
+        }
         var asset = playbackAsset(for: song, preferMusicVideo: preferMusicVideo)
         if asset.song.isStreamDescriptor {
             do {
@@ -802,9 +813,9 @@ final class TVPlaybackCoordinator {
                 directStream: nil
             )
         }
-        let ext = (path as NSString).pathExtension.lowercased()
-        let needsConversion = MusicVideoCompatibilityPolicy.needsConversion(path: path)
-        guard let videoFormat = VideoFormat.from(fileExtension: ext),
+        let format = MusicVideoCompatibilityPolicy.format(for: song, path: path)
+        let needsConversion = MusicVideoCompatibilityPolicy.needsConversion(path: path, for: song)
+        guard let videoFormat = format,
               videoFormat.isNativelyPlayable || needsConversion else {
             return PlaybackAsset(
                 song: song,
@@ -813,15 +824,17 @@ final class TVPlaybackCoordinator {
                 directStream: nil
             )
         }
+        let ext = videoFormat.rawValue
         var videoSong = song
         videoSong.filePath = path
         videoSong.fileFormat = AudioFormat.from(fileExtension: ext) ?? song.fileFormat
         videoSong.isoAudioTrack = nil
         // sidecar MV 的 size 未知(目录列举给的是音频的), 置 0 让下游自己探;
         // 独立 MV 的 fileSize 就是视频本身, 保留供 range 读取用。
-        videoSong.fileSize = song.isStandaloneMusicVideo ? song.fileSize : 0
-        let directStream = URL(string: path).flatMap { url in
-            url.scheme == nil ? nil : ResolvedStream(url: url)
+        videoSong.fileSize = song.isStandaloneMusicVideo || song.usesEmbeddedMusicVideo ? song.fileSize : 0
+        let directStream: ResolvedStream? = URL(string: path).flatMap { url in
+            guard let scheme = url.scheme, !song.usesEmbeddedMusicVideo || ["http", "https"].contains(scheme.lowercased()) else { return nil }
+            return ResolvedStream(url: url)
         }
         return PlaybackAsset(
             song: videoSong,
@@ -1392,7 +1405,10 @@ final class TVPlaybackCoordinator {
         }
         let values: ReplayGainAdjustment
         if let initial { values = initial }
-        else { values = await initialReplayGain(for: song, requestID: requestID, url: engine.replayGainFileURL) }
+        else {
+            let originalURL = store.embeddedKaraokeFile?.songID == song.id ? nil : engine.replayGainFileURL
+            values = await initialReplayGain(for: song, requestID: requestID, url: originalURL)
+        }
         guard replayGainToken == token, isCurrent(requestID, store: store) else { return }
         engine.setReplayGain(enabled: true, volume: ReplayGainPolicy.linearGain(gainDB: values.gain, peak: values.peak, preampDB: settings.preampDB))
         engine.replayGainPlaybackInfo = .init(enabled: true, snapshot: replayGainSnapshot?.value, preampDB: settings.preampDB)
@@ -1415,7 +1431,7 @@ final class TVPlaybackCoordinator {
         guard replayGainAnalysisIdentity != identity else { return }
         replayGainTask?.cancel()
         replayGainAnalysisIdentity = identity
-        let localURL = engine.replayGainFileURL
+        let localURL = store.embeddedKaraokeFile?.songID == song.id ? nil : engine.replayGainFileURL
         let knownFiles = localURL.map { [ReplayGainAnalysisCache.key(for: song): $0] } ?? [:]
         replayGainTask = Task(priority: .utility) { [weak self] in
             do {
@@ -1694,11 +1710,14 @@ final class TVPlaybackCoordinator {
         autoPlay: Bool
     ) async {
         guard let store else { return }
-        let identity = MusicVideoCompatibilityConverter.identity(
-            sourceID: source.id,
-            path: asset.song.filePath,
-            fileSize: asset.song.fileSize
-        )
+        let identity: String
+        if song.usesEmbeddedMusicVideo {
+            let namespace = TVSourceAssetReader.cacheIdentity(source: source, credential: credential)
+            identity = MusicVideoCompatibilityConverter.embeddedIdentity(song: song, namespace: namespace)
+        } else {
+            identity = MusicVideoCompatibilityConverter.identity(sourceID: source.id, path: asset.song.filePath,
+                                                                 fileSize: asset.song.fileSize)
+        }
         var downloadedURL: URL?
         let status = MusicVideoPreparationStatus.shared
         let songID = song.id
@@ -1767,22 +1786,30 @@ final class TVPlaybackCoordinator {
         }
     }
 
-    func karaokeAudioFile(for song: Song, requestID: UUID) async throws -> KaraokeAudioFile {
-        guard let store else { throw CancellationError() }
-        try ensureCurrent(requestID, store: store)
+    func karaokeAudioFile(for song: Song, requestID: UUID?) async throws -> KaraokeAudioFile {
+        guard let store, store.currentSongID == song.id else { throw CancellationError() }
+        if let requestID { try ensureCurrent(requestID, store: store) }
         guard let source = store.sourcesStore.source(id: song.sourceID), source.isEnabled, !source.isDeleted,
               !AppleMusicTVPlaybackPolicy.usesSystemPlayer(sourceType: source.type, sourceID: song.sourceID) else {
             throw KaraokeSeparationError.unreadableAudio
         }
         let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
+        if TVLocalTransferSource.isOwned(source), let local = try? TVLocalTransferSource.url(for: song.filePath) {
+            return KaraokeAudioFile(url: local)
+        }
         var asset = playbackAsset(for: song, preferMusicVideo: false)
         if song.isStreamDescriptor {
+            guard let requestID else { throw CancellationError() }
             asset = try await resolveSTRMPlaybackAsset(asset, source: source, credential: credential, requestID: requestID)
         }
         let url = try await downloadToTemp(
             song: asset.song, source: source, credential: credential,
             ext: asset.fileExtension, directStream: asset.directStream, requestID: requestID
         )
+        guard !Task.isCancelled, store.currentSongID == song.id else {
+            _ = try? TVDecodedTemporaryFilePolicy.removeIfManaged(url, in: FileManager.default.temporaryDirectory)
+            throw CancellationError()
+        }
         return KaraokeAudioFile(url: url, removeAfterDecoding: true)
     }
 

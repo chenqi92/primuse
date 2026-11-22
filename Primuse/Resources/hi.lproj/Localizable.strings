@@ -5236,6 +5236,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "ऑडियो ट्रैक";
+"embedded_audio_default" = "डिफ़ॉल्ट मिक्स";
+"embedded_audio_track_number" = "ऑडियो ट्रैक %d";
 "karaoke_backing_track" = "बैकिंग ट्रैक";
 "karaoke_backing_track_playing" = "बैकिंग ट्रैक चल रहा है, इसलिए समायोजित करने को कोई वोकल नहीं है।";
 "karaoke_export_menu" = "अलग किए गए ट्रैक निर्यात करें";

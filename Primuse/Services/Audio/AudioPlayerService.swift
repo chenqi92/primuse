@@ -709,6 +709,7 @@ final class AudioPlayerService {
     /// 系统音乐库里没订阅放不了的歌(只在云端、带版权保护)。由 AppServices 接上 Apple Music 资料库。
     @ObservationIgnored var appleMusicPlaybackRestrictionProvider: ((Song) -> AppleMusicPlaybackRestriction?)?
     @ObservationIgnored private var playbackMetadataTask: Task<Void, Never>?
+    @ObservationIgnored private var embeddedMediaInspection: (song: Song, task: Task<Void, Never>)?
     @ObservationIgnored private var playbackMetadataTaskIdentity: PlaybackMetadataIdentity?
     @ObservationIgnored private var playbackMetadataTaskToken: UUID?
     @ObservationIgnored private var playbackMetadataFailureCounts: [PlaybackMetadataIdentity: Int] = [:]
@@ -739,6 +740,7 @@ final class AudioPlayerService {
             playbackMetadataSongDidChange(from: oldValue, to: currentSong)
             if currentSong.map(ReplayGainAnalysisService.supports) != true { cancelReplayGainAnalysis() }
             if oldValue?.id != currentSong?.id {
+                embeddedKaraokeFile = nil
                 // A-B 是这一首里的一段,换了歌就不再算数。
                 if abRepeat != .off { abRepeat = .off }
                 retainReplayGainSnapshot(for: currentSong)
@@ -883,6 +885,7 @@ final class AudioPlayerService {
     )?
     var isSystemAudioPlaybackActive = false
     /// 卡拉OK舞台开着。人声消除要拿到 PCM, 系统多声道播放器给不了。
+    @ObservationIgnored private(set) var embeddedKaraokeFile: EmbeddedKaraokeFile?
     @ObservationIgnored private(set) var isKaraokeSessionActive = false
     /// 卡拉OK练习放慢(不变调)。只在舞台开着时由会话设置, 不写进播放设置。
     @ObservationIgnored var karaokePracticeRate: Float?
@@ -1285,6 +1288,7 @@ final class AudioPlayerService {
 
     /// 这一条开播时走视频管线(AVPlayer 放画面)还是音频管线。音乐 MV 照旧,有声内容的视频听播放页上的选择。
     func usesVideoPipeline(for song: Song) -> Bool {
+        if embeddedKaraokeFile?.songID == song.id { return false }
         guard let mvPath = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
               !mvPath.isEmpty else { return false }
         return SpokenWordVideoPolicy.usesVideoPipeline(
@@ -2026,6 +2030,10 @@ final class AudioPlayerService {
     }
 
     private func playbackMetadataSongDidChange(from oldSong: Song?, to newSong: Song?) {
+        if let inspection = embeddedMediaInspection, newSong.map({ EmbeddedMediaTrackInventory.sameMediaFile($0, inspection.song) }) != true {
+            inspection.task.cancel()
+            embeddedMediaInspection = nil
+        }
         if let newSong, oldSong?.id != newSong.id {
             playbackMetadataBackfill?.verifyVisibleLocalFile?(newSong)
         }
@@ -2060,6 +2068,7 @@ final class AudioPlayerService {
     }
 
     private func schedulePlaybackMetadataReadIfNeeded() {
+        defer { inspectPlaybackMediaTracksIfNeeded() }
         guard let song = currentSong,
               let service = playbackMetadataBackfill,
               let sourceType = playbackMetadataSourceType?(song.sourceID) else {
@@ -2095,6 +2104,41 @@ final class AudioPlayerService {
                 service: service
             )
         }
+    }
+
+    private func inspectPlaybackMediaTracksIfNeeded() {
+        guard isPlaying, !isLoading, let song = currentSong, song.embeddedMediaTracks == nil,
+              !song.isStreamDescriptor, EmbeddedMediaTrackInventory.supports(song), let sourceManager,
+              embeddedMediaInspection == nil else { return }
+        let tagRead = playbackMetadataTask
+        let task = Task(priority: .utility) { @MainActor [weak self] in
+            await tagRead?.value
+            guard let self, !Task.isCancelled,
+                  let currentSong, EmbeddedMediaTrackInventory.sameMediaFile(song, currentSong) else { return }
+            let stored = library?.storedSong(id: song.id)
+            let known = stored.flatMap { EmbeddedMediaTrackInventory.sameMediaFile(song, $0) ? $0.embeddedMediaTracks : nil }
+            let tracks: EmbeddedMediaTrackInventory?
+            if let known { tracks = known }
+            else { tracks = await sourceManager.embeddedTrackInventory(for: song) }
+            guard var tracks, !Task.isCancelled, var playing = self.currentSong,
+                  EmbeddedMediaTrackInventory.sameMediaFile(song, playing) else { return }
+            if let library, var live = library.storedSong(id: song.id), EmbeddedMediaTrackInventory.sameMediaFile(song, live) {
+                if let latest = live.embeddedMediaTracks { tracks = latest }
+                else {
+                    live.embeddedMediaTracks = tracks
+                    library.replaceSong(live)
+                }
+            }
+            if playing.embeddedMediaTracks != tracks {
+                playing.embeddedMediaTracks = tracks
+                self.currentSong = playing
+                for index in queueEntries.indices where EmbeddedMediaTrackInventory.sameMediaFile(song, queueEntries[index].song) {
+                    queueEntries[index].song.embeddedMediaTracks = tracks
+                }
+                updatePlaybackState()
+            }
+        }
+        embeddedMediaInspection = (song, task)
     }
 
     private func runPlaybackMetadataRead(
@@ -2237,9 +2281,45 @@ final class AudioPlayerService {
         }
     }
 
+    func switchEmbeddedKaraokeAudio(_ file: EmbeddedKaraokeFile?, for song: Song) -> Bool {
+        guard let currentSong, EmbeddedMediaTrackInventory.sameMediaFile(currentSong, song),
+              !isCastingMode, !isAppleMusicMode, !isLiveRadio,
+              activeStreamingDownloadPreparation == nil, file == nil || isKaraokeSessionActive else { return false }
+        let position = interpolatedTime()
+        let shouldPlay = isPlaying || (isLoading && interruptionResumePolicy.playbackIsIntended)
+        pendingMusicVideoPlayID = nil
+        stopMusicVideoPlayback(clearPlayer: true)
+        embeddedKaraokeFile = file
+        if file == nil, shouldPlay, usesVideoPipeline(for: song) {
+            let id = UUID()
+            playID = id
+            beginAutomaticAdvanceTransport(itemID: song.id, reason: "karaoke-video-resume")
+            stopTimeUpdater()
+            audioEngine.stopPlayback()
+            hasPreparedLocalPlayback = false
+            decodingTask?.cancel()
+            seekTask?.cancel()
+            cancelGaplessTasks()
+            cancelCrossfadeAttempt()
+            isLoading = true
+            currentTime = position
+            Task { @MainActor [weak self] in
+                guard let self, playID == id else { return }
+                let result = await startMusicVideoPlaybackIfAvailable(for: song, playID: id, resumeTime: position)
+                guard playID == id, result == .needsAudioFallback || result == .skipped else { return }
+                seek(to: position, startPlaying: interruptionResumePolicy.playbackIsIntended, isRecovery: true)
+            }
+        } else {
+            if file != nil { activeDecoderKind = .native }
+            seek(to: position, startPlaying: shouldPlay, isRecovery: true)
+        }
+        return true
+    }
+
     /// 卡拉OK舞台打开/关闭。打开时正在走系统播放器的歌切回 PCM 引擎。
     func setKaraokeSessionActive(_ active: Bool) {
         isKaraokeSessionActive = active
+        if !active { embeddedKaraokeFile = nil }
         // 舞台上有自己的逐句循环,两套来回跳会打架。
         if active { clearABRepeat() }
         guard active, isSystemAudioPlaybackActive, let id = playID else { return }
@@ -4141,7 +4221,7 @@ final class AudioPlayerService {
         case cancelled
     }
 
-    private func startMusicVideoPlaybackIfAvailable(for song: Song, playID id: UUID) async -> MusicVideoStartResult {
+    private func startMusicVideoPlaybackIfAvailable(for song: Song, playID id: UUID, resumeTime: TimeInterval? = nil) async -> MusicVideoStartResult {
         // 独立 MV(媒体本体是视频)不受全局 MV 模式 / 车机强制音频约束 ——
         // 它没有独立音频可回落; AVPlayer 播它的音轨在车机路由下同样出声,
         // 强行走音频管线反而要 SFB 硬解视频容器(不可靠)。
@@ -4224,7 +4304,7 @@ final class AudioPlayerService {
             player.currentItem?.audioTimePitchAlgorithm = isSpokenWordVideo ? .timeDomain : .spectral
             player.defaultRate = requestedPlaybackRate(for: song)
             // 有声内容开在续播位置。这一下要是没落地,第一拍的 `applyPendingSpokenWordResumeIfNeeded` 再跳一次。
-            let openingPosition = isSpokenWordVideo ? spokenWordOpeningPosition(for: song) : nil
+            let openingPosition = resumeTime ?? (isSpokenWordVideo ? spokenWordOpeningPosition(for: song) : nil)
             if let openingPosition {
                 Self.seekBeforeStart(player, to: openingPosition)
             }
@@ -4239,9 +4319,11 @@ final class AudioPlayerService {
             configureMusicVideoObservers(for: player, playID: id)
 
             player.play()
-            library?.recordPlayback(of: song.id)
-            ScrobbleService.shared.handlePlaybackStarted(song: song)
-            PlayHistoryStore.shared.beginSession(song: song)
+            if resumeTime == nil {
+                library?.recordPlayback(of: song.id)
+                ScrobbleService.shared.handlePlaybackStarted(song: song)
+                PlayHistoryStore.shared.beginSession(song: song)
+            }
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
@@ -4949,6 +5031,12 @@ final class AudioPlayerService {
         updateNowPlayingInfo()
         updateNowPlayingArtworkIfNeeded()
         updatePlaybackState()
+
+        if isKaraokeSessionActive, embeddedKaraokeFile?.songID == song.id, !isCastingMode {
+            activeDecoderKind = .native
+            seek(to: song.appliedPlaybackRange?.start ?? 0, startPlaying: true, isRecovery: true)
+            return
+        }
 
         do {
             // 播客单集起播前现探音频文件的真实大小与最终地址,见 AudioPlayerService+Podcast。
@@ -7746,6 +7834,7 @@ final class AudioPlayerService {
     }
 
     func decoderKind(for song: Song, url: URL) async -> DecoderKind {
+        if embeddedKaraokeFile?.url == url { return .native }
         if url.scheme == SourceManager.cloudStreamingScheme { return .cloudStream }
         if url.scheme == "http" || url.scheme == "https" {
             // 按网络转码的流走「整曲下载后解码」, 这里必须报同一种 ——
@@ -8819,7 +8908,7 @@ final class AudioPlayerService {
         }
         guard !isLoading, let song = currentSong else { return }
         // 有声内容的视频不看 MV 开关,走下面那一支。
-        if isMusicVideoModeEnabled,
+        if isMusicVideoModeEnabled, embeddedKaraokeFile == nil,
            canPlayMusicVideo,
            !(currentItemIsSpokenWord && (song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song))),
            !isSystemMediaPlaybackActive {

@@ -5094,6 +5094,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "Audio Tracks";
+"embedded_audio_default" = "Default mix";
+"embedded_audio_track_number" = "Audio track %d";
 "karaoke_backing_track" = "Backing Track";
 "karaoke_backing_track_playing" = "Playing the backing track, so there are no vocals to adjust.";
 "karaoke_export_menu" = "Export Separated Tracks";

@@ -198,6 +198,67 @@ public enum ISOBaseMediaChapterParser {
         return readUInt32BE(data, at: base + offset)
     }
 
+    static func trackInventory(in data: Data) -> EmbeddedMediaTrackInventory? {
+        func child(_ atom: Atom, _ type: String) -> Atom? { atoms(in: data, range: atom.payload).first { $0.type == type } }
+        func text(_ bounds: Range<Int>) -> String? {
+            guard !bounds.isEmpty, bounds.count <= 16_384 else { return nil }
+            let bytes = data[bounds]
+            // QuickTime also writes Pascal strings in handler and user-data names.
+            let value = bytes.first.map(Int.init) == bounds.count - 1 ? bytes.dropFirst() : bytes
+            return EmbeddedMediaTrackInventory.cleanName(String(data: value, encoding: .utf8))
+        }
+        guard let movie = atoms(in: data, range: data.startIndex..<data.endIndex).first(where: { $0.type == "moov" }) else { return nil }
+        let tracks = atoms(in: data, range: movie.payload).filter { $0.type == "trak" }
+        guard !tracks.isEmpty else { return nil }
+        let chapters = Set(chapterTracks(in: data, moov: movie).map(\.full.lowerBound))
+        let fragmented = child(movie, "mvex") != nil || ISOBaseMediaLyricFragments.movieExtensions(in: data) != nil
+        var audio: [EmbeddedMediaTrackInventory.AudioTrack] = []
+        var hasVideo = false
+        for track in tracks {
+            guard let mdia = child(track, "mdia"), let handler = child(mdia, "hdlr"), handler.payload.count >= 12,
+                  let type = fourCC(in: data, at: handler.payload.lowerBound + 8) else { return nil }
+            guard type == "soun" || type == "vide" else { continue }
+            let udta = child(track, "udta")
+            let name = udta.flatMap { child($0, "name") }.flatMap { text($0.payload) }
+                ?? (handler.payload.count > 24 ? text((handler.payload.lowerBound + 24)..<handler.payload.upperBound) : nil)
+            if type == "soun" {
+                let enabled = child(track, "tkhd").map { $0.payload.count >= 4 && data[$0.payload.lowerBound + 3] & 1 != 0 } ?? false
+                audio.append(.init(ordinal: audio.count, name: name, isDefault: enabled && !audio.contains(where: \.isDefault)))
+                continue
+            }
+            let references = child(track, "tref").map { atoms(in: data, range: $0.payload) } ?? []
+            guard !chapters.contains(track.full.lowerBound), !references.contains(where: { ["thmb", "auxl"].contains($0.type) }),
+                  !EmbeddedMediaTrackInventory.isArtworkName(name),
+                  let minf = child(mdia, "minf"), let table = child(minf, "stbl"), let descriptions = child(table, "stsd"),
+                  descriptions.payload.count >= 16, let entry = atom(in: data, startingAt: descriptions.payload.lowerBound + 8, limit: descriptions.payload.upperBound) else { continue }
+            let count = (child(table, "stsz") ?? child(table, "stz2")).flatMap { box in
+                box.payload.count >= 12 ? readUInt32BE(data, at: box.payload.lowerBound + 8) : nil
+            }
+            if let count, count == 1 || (count == 0 && !fragmented) { continue }
+            if ["jpeg", "png ", "mjpg", "mjpa", "mjpb", "tiff", "heic", "avif"].contains(entry.type), (count ?? 0) < 2 { continue }
+            hasVideo = true
+        }
+
+        // An NI file stores the full stereo mix first, followed by the four names
+        // in its movie-level manifest. Ordinary multitrack MP4s have no such contract.
+        struct Manifest: Decodable {
+            struct Stem: Decodable { let name: String }
+            let stems: [Stem]
+        }
+        if audio.count == 5, let udta = child(movie, "udta"), let stem = child(udta, "stem"),
+           stem.payload.count <= 1_048_576 {
+            let json = Data(data[stem.payload].drop(while: { $0 == 0 }).prefix(while: { $0 != 0 }))
+            if let manifest = try? JSONDecoder().decode(Manifest.self, from: json), manifest.stems.count == 4,
+               manifest.stems.allSatisfy({ EmbeddedMediaTrackInventory.cleanName($0.name) != nil }) {
+                for index in manifest.stems.indices {
+                    let track = audio[index + 1]
+                    audio[index + 1] = .init(ordinal: track.ordinal, name: track.name, stemName: manifest.stems[index].name, isDefault: track.isDefault)
+                }
+            }
+        }
+        return EmbeddedMediaTrackInventory(audioTracks: audio, hasVideo: hasVideo)
+    }
+
     private static func textTrackChapters(track: Atom, in data: Data) -> [MediaChapter] {
         guard let mdia = atoms(in: data, range: track.payload)
                 .first(where: { $0.type == "mdia" }),

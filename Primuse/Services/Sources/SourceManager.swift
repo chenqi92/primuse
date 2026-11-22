@@ -6196,7 +6196,7 @@ final class SourceManager {
 
     func resolveVideoAsset(for song: Song) async throws -> MusicVideoPlaybackAsset? {
         guard let mvPath = normalizedMusicVideoPath(for: song) else { return nil }
-        guard MusicVideoCompatibilityPolicy.needsConversion(path: mvPath) else {
+        guard MusicVideoCompatibilityPolicy.needsConversion(path: mvPath, for: song) else {
             return try await resolveOriginalVideoAsset(
                 for: song,
                 mvPath: mvPath,
@@ -6206,11 +6206,18 @@ final class SourceManager {
         // MKV、AVI、FLV 等 AVPlayer 打不开的容器第一次播放时改写成 MP4 并留在
         // 缓存里；再播放时既不用连源也不用重新下载原文件。改写需要完整的本地
         // 原文件，所以这里不走边下边播。
-        let identity = MusicVideoCompatibilityConverter.identity(
-            sourceID: song.sourceID,
-            path: mvPath,
-            fileSize: song.isStandaloneMusicVideo ? song.fileSize : 0
-        )
+        let identity: String
+        if song.usesEmbeddedMusicVideo {
+            let sources = try await sourcesProvider()
+            guard let source = sources.first(where: { $0.id == song.sourceID && $0.isEnabled && !$0.isDeleted }) else {
+                throw SourceError.fileNotFound(mvPath)
+            }
+            let scope = MusicSourceSecurityRevision.cacheNamespace(scopedFingerprint: Self.audioCacheScopeSignature(for: source))
+            identity = MusicVideoCompatibilityConverter.embeddedIdentity(song: song, namespace: scope)
+        } else {
+            identity = MusicVideoCompatibilityConverter.identity(sourceID: song.sourceID, path: mvPath,
+                                                                 fileSize: song.isStandaloneMusicVideo ? song.fileSize : 0)
+        }
         if let converted = await MusicVideoCompatibilityConverter.shared.cachedURL(identity: identity) {
             return .url(converted)
         }
@@ -6241,6 +6248,10 @@ final class SourceManager {
     ) async throws -> MusicVideoPlaybackAsset? {
         // 独立 MV(mvPath == filePath): 文件本体已离线下载时直接本地播,
         // 不再经视频缓存重复下载同一份字节。
+        if song.usesEmbeddedMusicVideo {
+            if let cached = await cachedURLForBackgroundRead(for: song) { return .url(cached) }
+            if let local = await directLocalFileURL(for: song) { return .url(local) }
+        }
         if song.isStandaloneMusicVideo,
            let cached = await cachedURLWithPlaybackLease(for: song) {
             return .url(cached)
@@ -6264,7 +6275,7 @@ final class SourceManager {
             streamEpoch: streamEpoch
         )
 
-        if let url = URL(string: mvPath), let scheme = url.scheme, !scheme.isEmpty {
+        if !song.usesEmbeddedMusicVideo, let url = URL(string: mvPath), let scheme = url.scheme, !scheme.isEmpty {
             return .url(url)
         }
 
@@ -6295,7 +6306,7 @@ final class SourceManager {
         // 已缓存 MV 已在上方优先命中，不会被这个回落误伤。
         if OfflinePlaybackPolicy.shouldSkipRemoteMusicVideo(
             hasUsableCachedAudio: cachedPlaybackURL(for: song) != nil,
-            isStandaloneMusicVideo: song.isStandaloneMusicVideo,
+            isStandaloneMusicVideo: song.isStandaloneMusicVideo || song.usesEmbeddedMusicVideo,
             hasDeterminedNetworkPath: NetworkMonitor.shared.hasDeterminedPath,
             isNetworkReachable: NetworkMonitor.shared.isReachable
         ) {
@@ -6310,7 +6321,7 @@ final class SourceManager {
             streamEpoch: streamEpoch
         )
 
-        if !requiresCompleteLocalFile, !requiresConnectorBackedHTTPTransport(for: source) {
+        if !song.usesEmbeddedMusicVideo, !requiresCompleteLocalFile, !requiresConnectorBackedHTTPTransport(for: source) {
             let streamURL = try await conn.streamingURL(for: mvPath)
             try await ensureCurrentMusicVideoScope(
                 sourceID: source.id,
@@ -6337,7 +6348,12 @@ final class SourceManager {
         // 边下边播: 知道远端大小的 range 源用 resource loader 即点即播,
         // 后台顺序下载并行把完整文件落进缓存(loader 读已覆盖的前缀省流量)。
         if !requiresCompleteLocalFile, source.supportsRangeStreaming {
-            let expectedSize = try? await Self.musicVideoFileSize(path: mvPath, connector: conn)
+            let expectedSize: Int64?
+            if song.usesEmbeddedMusicVideo, song.fileSize > 0 {
+                expectedSize = song.fileSize
+            } else {
+                expectedSize = try? await Self.musicVideoFileSize(path: mvPath, connector: conn)
+            }
             try await ensureCurrentMusicVideoScope(
                 sourceID: source.id,
                 expectedScope: expectedScope,
@@ -6357,6 +6373,7 @@ final class SourceManager {
                 },
                 path: mvPath,
                 contentLength: expectedSize,
+                videoExtension: MusicVideoCompatibilityPolicy.format(for: song, path: mvPath)?.rawValue,
                 cacheTarget: target,
                 chunkBytes: Self.videoCacheChunkBytes
             )
@@ -8216,6 +8233,33 @@ final class SourceManager {
         // 书签权限已失效时返回一个读不了的 URL。
         guard (try? await connector.connect()) != nil else { return nil }
         return try? await connector.localURL(for: song.filePath)
+    }
+
+    func embeddedTrackInventory(for song: Song, refreshing: Bool = false) async -> EmbeddedMediaTrackInventory? {
+        if !refreshing, let tracks = song.embeddedMediaTracks { return tracks }
+        guard !Task.isCancelled, !song.isStreamDescriptor, EmbeddedMediaTrackInventory.supports(song) else { return nil }
+        let ext = song.fileFormat.rawValue
+        if let file = await directLocalFileURL(for: song) {
+            guard !(await UbiquitousPlaybackFile.needsDownload(file)) else { return nil }
+            return await EmbeddedMediaTrackInventory.inspect(at: file, fileExtension: ext)
+        }
+        if !refreshing, let file = await cachedURLForBackgroundRead(for: song) {
+            return await EmbeddedMediaTrackInventory.inspect(at: file, fileExtension: ext)
+        }
+        do {
+            let reader = try await metadataRangeReader(for: song)
+            var size = song.fileSize
+            if size <= 0, case let .connector(connector, path) = reader.target,
+               let sizer = connector as? any RemoteFileSizeProvidingConnector {
+                size = try await sizer.remoteFileSize(forPath: path) ?? 0
+            }
+            let fetch: @Sendable (Int64, Int64) async throws -> Data = { offset, count in
+                try await SpeculativeRangeRead.withBoundedResponses(requestedLength: count) {
+                    try await reader.fetch(offset: offset, length: count, intent: .bulkBounded)
+                }
+            }
+            return try await EmbeddedMediaTrackInventory.inspect(fileSize: size, fileExtension: ext, fetch: fetch)
+        } catch { return nil }
     }
 
     func offlineAudioSnapshot(for song: Song) -> OfflineAudioCacheSnapshot {

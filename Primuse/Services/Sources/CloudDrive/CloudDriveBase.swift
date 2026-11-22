@@ -734,6 +734,7 @@ struct CloudDriveHelper: Sendable {
             guard !$0.isDirectory else { return false }
             let ext = ($0.name as NSString).pathExtension.lowercased()
             return !PrimuseConstants.supportedAudioExtensions.contains(ext)
+                && !EmbeddedMediaTrackInventory.isStemFileName($0.name)
                 && !PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext)
         }
         // 文件夹名按路径推,和别处的目录索引(`SidecarDirectoryIndex`)同一个算法:按 ID 寻址的
@@ -753,6 +754,7 @@ struct CloudDriveHelper: Sendable {
             try Task.checkCancellation()
             let ext = (item.name as NSString).pathExtension.lowercased()
             if PrimuseConstants.supportedAudioExtensions.contains(ext)
+                || EmbeddedMediaTrackInventory.isStemFileName(item.name)
                 || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
                 let basename = (item.name as NSString).deletingPathExtension
                 audioBasenames.insert(basename.lowercased())

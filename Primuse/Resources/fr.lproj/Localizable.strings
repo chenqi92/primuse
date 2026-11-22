@@ -5330,6 +5330,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "Pistes audio";
+"embedded_audio_default" = "Mixage par défaut";
+"embedded_audio_track_number" = "Piste audio %d";
 "karaoke_backing_track" = "Version instrumentale";
 "karaoke_backing_track_playing" = "La version instrumentale est en lecture : aucune voix à régler.";
 "karaoke_export_menu" = "Exporter les pistes séparées";

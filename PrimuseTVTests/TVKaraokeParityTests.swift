@@ -75,6 +75,39 @@ final class TVKaraokeParityTests: XCTestCase {
         }
     }
 
+    func testEmbeddedAudioSwitchKeepsPausedSelectionLyricsAndPosition() async throws {
+        let f = try await Fixture()
+        try await f.begin()
+        f.store.engine.pause()
+        let file = f.directory.appendingPathComponent("embedded.caf")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
+        do {
+            let audio = try AVAudioFile(forWriting: file, settings: format.settings)
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 240_000))
+            buffer.frameLength = buffer.frameCapacity
+            for channel in 0..<2 {
+                buffer.floatChannelData?[channel].initialize(repeating: 0, count: Int(buffer.frameLength))
+            }
+            try audio.write(from: buffer)
+        }
+        let before = f.store.currentTime
+        let words = f.store.lyrics.map(\.text)
+        let queue = f.store.queueSongIDs
+        XCTAssertTrue(f.store.switchEmbeddedKaraokeAudio(EmbeddedKaraokeFile(songID: f.original.id, url: file), for: f.original))
+        for _ in 0..<100 where f.store.engine.status == .loading {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertNil(f.store.playbackIssue)
+        XCTAssertNotNil(f.store.engine.displayPlayer.currentItem)
+        XCTAssertFalse(f.store.isPlaying)
+        XCTAssertEqual(f.store.currentTime, before, accuracy: 0.05)
+        XCTAssertEqual(f.store.currentSongID, f.original.id)
+        XCTAssertEqual(f.store.queueSongIDs, queue)
+        XCTAssertEqual(f.store.lyrics.map(\.text), words)
+        await f.cleanup()
+        XCTAssertNil(f.store.embeddedKaraokeFile)
+    }
+
     func testCompanionSwitchPreservesPositionLyricsAndQueue() async throws {
         let f = try await Fixture()
         try await f.begin()

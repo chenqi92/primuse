@@ -1348,10 +1348,12 @@ extension AudioPlayerService {
                 )
                 // 重新解析这首歌的地址时沿用开播时那份取流计划: 中途切换
                 // Wi-Fi 与蜂窝不能让同一首歌改走另一条链路。
-                let url = try await resolvedURL(
-                    for: song,
-                    transcodePlanOverride: activeTranscodePlan
-                )
+                let url: URL
+                if let mix = embeddedKaraokeFile, mix.songID == song.id, isKaraokeSessionActive {
+                    url = mix.url
+                } else {
+                    url = try await resolvedURL(for: song, transcodePlanOverride: activeTranscodePlan)
+                }
                 guard !Task.isCancelled, playID == id else { return }
                 let resolvedDecoderKind = await decoderKind(for: song, url: url)
                 guard !Task.isCancelled, playID == id else { return }
@@ -1392,7 +1394,7 @@ extension AudioPlayerService {
                         for: song,
                         url: url,
                         mode: settings.replayGainMode,
-                        allowFileRead: activeDecoderKind != .cloudStream && activeDecoderKind != .httpStream,
+                        allowFileRead: embeddedKaraokeFile?.url != url && activeDecoderKind != .cloudStream && activeDecoderKind != .httpStream,
                         expectedPlayID: id,
                         expectedSongID: song.id
                     )

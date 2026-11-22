@@ -1090,7 +1090,7 @@ final class ScanService {
         relocated.revision = updated.revision
         relocated.lyricsFileName = updated.lyricsFileName
         relocated.coverArtFileName = updated.coverArtFileName
-        relocated.mvPath = updated.mvPath
+        relocated.mvPath = updated.referencedMusicVideoPath
         // A single-row replacement refreshes the visible lookup immediately;
         // scan batch merging leaves that lookup on its previous async snapshot.
         library.replaceSong(relocated)
@@ -1156,7 +1156,7 @@ final class ScanService {
             copy.filePath = relocated(song.filePath) ?? song.filePath
             copy.lyricsFileName = song.lyricsFileName.map { relocated($0) ?? $0 }
             copy.coverArtFileName = song.coverArtFileName.map { relocated($0) ?? $0 }
-            copy.mvPath = song.mvPath.map { relocated($0) ?? $0 }
+            copy.mvPath = song.referencedMusicVideoPath.map { relocated($0) ?? $0 }
             copy.cueSheetPath = song.cueSheetPath.map { relocated($0) ?? $0 }
             return copy
         }

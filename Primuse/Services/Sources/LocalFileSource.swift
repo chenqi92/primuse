@@ -350,7 +350,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         let sidecars = SidecarHints(
             coverPath: song.coverArtFileName.flatMap { $0.hasPrefix("/") ? $0 : nil },
             lyricsPath: song.lyricsFileName.flatMap { $0.hasPrefix("/") ? $0 : nil },
-            mvPath: song.mvPath
+            mvPath: song.referencedMusicVideoPath
         )
         let revision: String
         if sameSizeAndDate, let existingBase, existingBase.hasPrefix("local:") {
@@ -892,7 +892,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                                 refreshed.lastModified = item.modifiedDate ?? existing.lastModified
                                 refreshed.coverArtFileName = item.sidecarHints?.coverPath ?? existing.coverArtFileName
                                 refreshed.lyricsFileName = item.sidecarHints?.lyricsPath ?? existing.lyricsFileName
-                                refreshed.mvPath = item.sidecarHints?.mvPath ?? existing.mvPath
+                                refreshed.mvPath = item.sidecarHints?.mvPath ?? existing.referencedMusicVideoPath
                                 continuation.yield(ConnectorScannedSong(
                                     song: refreshed,
                                     displayName: item.name,
@@ -1176,6 +1176,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         let title = MediaMetadataTextRepair.fileNameTitle(from: baseName) ?? baseName
         let format = AudioFormat.from(fileExtension: ext) ?? .mp3
         let isStandaloneVideo = PrimuseConstants.supportedMusicVideoExtensions.contains(ext)
+            && !EmbeddedMediaTrackInventory.isStemFileName(item.name)
         let song = Song(
             id: songID,
             title: title,
@@ -1214,6 +1215,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             discoverSidecars: false
         )
         var refreshed = existing
+        refreshed.contentMetadata = SongContentMetadata.merging(previous: existing.contentMetadata, incoming: metadata.contentMetadata)
         if refreshed.revision == nil { refreshed.revision = item.revision }
         if refreshed.lastModified == nil { refreshed.lastModified = item.modifiedDate }
         if let embeddedTitle = metadata.embeddedTitle,

@@ -296,7 +296,8 @@ actor SynologyScanner {
                 if SourceArtistArtworkCatalog.isSupportedCandidateFileName(item.name) {
                     recordSyncItem(item, parentPath: path, songIDs: [], in: &syncIndex)
                 }
-                if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
+                let isStem = EmbeddedMediaTrackInventory.isStemFileName(item.name)
+                if PrimuseConstants.supportedMusicVideoExtensions.contains(ext), !isStem {
                     let baseName = (item.name as NSString).deletingPathExtension
                     guard !Self.hasSameNameAudio(
                         baseName: baseName,
@@ -318,7 +319,7 @@ actor SynologyScanner {
                     continue
                 }
                 let isSTRM = PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext)
-                guard PrimuseConstants.supportedAudioExtensions.contains(ext) || isSTRM else { continue }
+                guard PrimuseConstants.supportedAudioExtensions.contains(ext) || isStem || isSTRM else { continue }
                 if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
                     let cueSongs = await buildCueSongs(
                         from: item,
@@ -447,7 +448,7 @@ actor SynologyScanner {
                         }
                         if let mvRef {
                             allSongs[idx].mvPath = mvRef
-                        } else if Self.isSameNameMusicVideoSidecar(existing.mvPath, baseName: baseName, in: parentDir) {
+                        } else if Self.isSameNameMusicVideoSidecar(existing.referencedMusicVideoPath, baseName: baseName, in: parentDir) {
                             allSongs[idx].mvPath = nil
                         }
                         // Structured NAS filenames are authoritative even for
@@ -498,8 +499,8 @@ actor SynologyScanner {
                 if let mvRef {
                     song.mvPath = mvRef
                 } else if let idx = existingByPath[item.path],
-                          !Self.isSameNameMusicVideoSidecar(allSongs[idx].mvPath, baseName: baseName, in: parentDir) {
-                    song.mvPath = allSongs[idx].mvPath
+                          !Self.isSameNameMusicVideoSidecar(allSongs[idx].referencedMusicVideoPath, baseName: baseName, in: parentDir) {
+                    song.mvPath = allSongs[idx].referencedMusicVideoPath
                 }
                 // 记录 mtime 供下次重扫指纹比对; 保留原 dateAdded 不因重扫刷新排序。
                 song.lastModified = item.modifiedTime
@@ -929,7 +930,9 @@ actor SynologyScanner {
         baseName: String,
         nameByLowercase: [String: String]
     ) -> Bool {
-        (PrimuseConstants.supportedAudioExtensions
+        let stemName = (baseName + ".mp4").lowercased()
+        if EmbeddedMediaTrackInventory.isStemFileName(stemName), nameByLowercase[stemName] != nil { return true }
+        return (PrimuseConstants.supportedAudioExtensions
             .union(PrimuseConstants.supportedStreamDescriptorExtensions)).contains {
             nameByLowercase["\(baseName).\($0)".lowercased()] != nil
         }
@@ -994,7 +997,7 @@ actor SynologyScanner {
     ) -> String? {
         for ext in extensions {
             let key = "\(baseName).\(ext)".lowercased()
-            if let actualName = nameByLowercase[key] {
+            if let actualName = nameByLowercase[key], !EmbeddedMediaTrackInventory.isStemFileName(actualName) {
                 return (parentDir as NSString).appendingPathComponent(actualName)
             }
         }
@@ -1051,6 +1054,7 @@ actor SynologyScanner {
         var lyricsFileName: String?
         var embeddedCoverData: Data?
         var embeddedLyricsText: String?
+        var contentMetadata: SongContentMetadata?
         var replayGainTrackGain: Double?
         var replayGainTrackPeak: Double?
         var replayGainAlbumGain: Double?
@@ -1120,6 +1124,17 @@ actor SynologyScanner {
                 }
             }
 
+            if embedded.contentMetadata?.embeddedMediaTracks == nil, EmbeddedMediaTrackInventory.supports(fileExtension: ext) {
+                let api = self.api
+                let path = item.path
+                let fetch: @Sendable (Int64, Int64) async throws -> Data = { offset, count in
+                    try await SpeculativeRangeRead.withBoundedResponses(requestedLength: count) {
+                        try await api.downloadFileRange(path: path, offset: offset, length: Int(count))
+                    }
+                }
+                embedded.includeMediaTracks(try? await EmbeddedMediaTrackInventory.inspect(head: data, fileSize: item.size, fileExtension: ext, fetch: fetch))
+            }
+            contentMetadata = embedded.contentMetadata
             if let value = embedded.artist?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
                 artist = embedded.artist
                 sourceArtistNames = embedded.sourceArtistNames
@@ -1236,7 +1251,7 @@ actor SynologyScanner {
                         replayGainAlbumGain: replayGainAlbumGain,
                         replayGainAlbumPeak: replayGainAlbumPeak,
                         audioCodec: audioCodec,
-                        effectiveBitDepth: effectiveBitDepth)
+                        effectiveBitDepth: effectiveBitDepth, contentMetadata: contentMetadata)
     }
 
     private func makeSong(
@@ -1251,7 +1266,7 @@ actor SynologyScanner {
         replayGainAlbumGain: Double? = nil,
         replayGainAlbumPeak: Double? = nil,
         audioCodec: AudioFormat? = nil,
-        effectiveBitDepth: Int? = nil
+        effectiveBitDepth: Int? = nil, contentMetadata: SongContentMetadata? = nil
     ) -> Song {
         let artistID = artist.map { generateID(sourceID: "", path: $0.lowercased()) }
         let resolvedAlbumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
@@ -1279,7 +1294,7 @@ actor SynologyScanner {
             replayGainAlbumGain: replayGainAlbumGain,
             replayGainAlbumPeak: replayGainAlbumPeak,
             audioCodec: ContainerAudioCodecPolicy.storedCodec(audioCodec, container: format),
-            effectiveBitDepth: effectiveBitDepth
+            effectiveBitDepth: effectiveBitDepth, contentMetadata: contentMetadata
         )
     }
 

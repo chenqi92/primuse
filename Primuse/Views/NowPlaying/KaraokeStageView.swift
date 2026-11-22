@@ -317,6 +317,14 @@ struct KaraokeLyricsStage: View {
     private static let maxWidth: CGFloat = 900
 
     var body: some View {
+        if snapshot.windows.isEmpty {
+            Color.clear
+        } else {
+            lyricRows
+        }
+    }
+
+    private var lyricRows: some View {
         let windows = snapshot.windows
         let activeIndex = KaraokeLineWindowPolicy.activeWindowIndex(in: windows, at: time)
         let focusIndex = snapshot.focusedWindowIndex(at: time)
@@ -330,7 +338,7 @@ struct KaraokeLyricsStage: View {
         let leadIn = KaraokeLeadInPolicy.leadIn(windows: windows, at: time)
 
         // 行宽决定一句会折成几行；太长的句子缩一两档字号，尽量不超过两行。
-        GeometryReader { proxy in
+        return GeometryReader { proxy in
             let rowWidth = min(proxy.size.width, Self.maxWidth)
             VStack(spacing: heightClass.value(18, compact: 10)) {
                 if let previous {
@@ -614,7 +622,7 @@ private struct KaraokeMixerCard: View {
         VStack(spacing: 0) {
             vocalRow
                 .padding(.vertical, 10)
-                .disabled(session.availability != .available || session.isPlayingInstrumental)
+                .disabled(session.availability != .available || session.bypassesVocalReduction)
 
             divider
             summaryRow
@@ -823,12 +831,17 @@ private struct KaraokeMixerCard: View {
 
     private var hasOptionRow: Bool {
         session.canToggleBackingTrack || session.isSwitchingTrack || session.microphoneState == .on
+            || (session.embeddedAudio.inventory?.audioTracks.count ?? 0) > 1
     }
 
     /// 伴奏音轨与耳返：两颗可选中的胶囊，左对齐排开。
     private var optionRow: some View {
         HStack(spacing: 8) {
-            if session.canToggleBackingTrack || session.isSwitchingTrack {
+            EmbeddedKaraokeTrackMenu(playback: session.embeddedAudio, select: session.selectEmbeddedAudio,
+                                     companion: session.alternateCompanion, switchCompanion: session.toggleCompanionFile)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+            if session.canToggleBackingTrack || (session.isSwitchingTrack && session.embeddedAudio.backingOrdinals != nil) {
                 KaraokeOptionPill(
                     titleKey: "karaoke_backing_track",
                     systemImage: session.isPlayingInstrumental ? "checkmark" : "music.quarternote.3",

@@ -6406,7 +6406,7 @@ public enum ScrapeApplyPolicy {
             result.sampleRate = original.sampleRate
             result.bitDepth = original.bitDepth
             result.effectiveBitDepth = original.effectiveBitDepth
-            result.mvPath = original.mvPath
+            result.mvPath = original.referencedMusicVideoPath
         }
         if !parts.contains(.cover) {
             result.coverArtFileName = original.coverArtFileName

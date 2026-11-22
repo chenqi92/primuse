@@ -5236,6 +5236,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "Ses izleri";
+"embedded_audio_default" = "Varsayılan miks";
+"embedded_audio_track_number" = "Ses izi %d";
 "karaoke_backing_track" = "Altyapı";
 "karaoke_backing_track_playing" = "Altyapı çalıyor, ayarlanacak vokal yok.";
 "karaoke_export_menu" = "Ayrılmış parçaları dışa aktar";

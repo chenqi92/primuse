@@ -1,7 +1,9 @@
 #import "FFmpegDecoderBridge.h"
+#import <AudioToolbox/AudioToolbox.h>
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/avstring.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/error.h>
 #include <libavutil/mathematics.h>
@@ -1046,4 +1048,329 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     avformat_close_input(&_formatContext);
 }
 
+@end
+
+#pragma mark - Embedded karaoke tracks
+
+enum { KaraokeSampleRate = 48000, KaraokeChannels = 2, KaraokeBytesPerFrame = sizeof(float) * KaraokeChannels };
+
+typedef struct {
+    AVCodecContext *codec;
+    SwrContext *swr;
+    AVChannelLayout layout;
+    int inputRate;
+    enum AVSampleFormat inputFormat;
+    AVRational timeBase;
+    int64_t nextFrame;
+    BOOL positioned;
+    BOOL decoded;
+} KaraokeTrack;
+
+typedef struct {
+    AudioFileID file;
+    int64_t origin;
+    int64_t declaredLength;
+    int64_t written;
+    BOOL silent;
+    float *pcm;
+    unsigned int capacity;
+    OSStatus fileError;
+} KaraokeMix;
+
+static int64_t KaraokeRescale(int64_t value, AVRational timeBase) {
+    return av_rescale_q(value, timeBase, (AVRational){1, KaraokeSampleRate});
+}
+
+static int KaraokeWrite(KaraokeMix *mix, KaraokeTrack *track, int count) {
+    if (count <= 0) return 0;
+    // A decoded timestamp cannot exceed the signed byte offsets understood by AudioFile.
+    const int64_t limit = INT64_MAX / KaraokeBytesPerFrame;
+    if (track->nextFrame < -limit || track->nextFrame > limit - count) return AVERROR_INVALIDDATA;
+    int64_t position = track->nextFrame;
+    track->nextFrame += count;
+    if (mix->silent) return 0;
+    float *pcm = mix->pcm;
+    if (position < 0) {
+        int trim = (int)MIN(-position, count);
+        count -= trim;
+        position += trim;
+        pcm += trim * KaraokeChannels;
+    }
+    if (mix->declaredLength > 0) count = (int)MIN((int64_t)count, MAX(0, mix->declaredLength - position));
+    float existing[4096 * KaraokeChannels];
+    while (count > 0) {
+        int frames = MIN(count, 4096);
+        int overlap = (int)MIN((int64_t)frames, MAX(0, mix->written - position));
+        if (overlap > 0) {
+            UInt32 bytes = (UInt32)(overlap * KaraokeBytesPerFrame);
+            mix->fileError = AudioFileReadBytes(mix->file, false, position * KaraokeBytesPerFrame, &bytes, existing);
+            if (mix->fileError || bytes != overlap * KaraokeBytesPerFrame) return AVERROR(EIO);
+            for (int i = 0; i < overlap * KaraokeChannels; ++i) pcm[i] += existing[i];
+        }
+        UInt32 bytes = (UInt32)(frames * KaraokeBytesPerFrame);
+        mix->fileError = AudioFileWriteBytes(mix->file, false, position * KaraokeBytesPerFrame, &bytes, pcm);
+        if (mix->fileError || bytes != frames * KaraokeBytesPerFrame) return AVERROR(EIO);
+        pcm += frames * KaraokeChannels;
+        position += frames;
+        mix->written = MAX(mix->written, position);
+        count -= frames;
+    }
+    return 0;
+}
+
+static int KaraokeConvert(KaraokeTrack *track, KaraokeMix *mix, const uint8_t **input, int samples) {
+    // A codec frame is converted in one call so its PTS remains associated with precisely these samples.
+    int bound = swr_get_out_samples(track->swr, samples);
+    if (bound < 0) return bound;
+    if (bound > 2 * 1024 * 1024) return AVERROR_INVALIDDATA;
+    bound = MAX(bound, 32);
+    av_fast_malloc(&mix->pcm, &mix->capacity, (size_t)bound * KaraokeBytesPerFrame);
+    if (!mix->pcm) return AVERROR(ENOMEM);
+    uint8_t *output = (uint8_t *)mix->pcm;
+    int converted = swr_convert(track->swr, &output, bound, input, samples);
+    if (converted <= 0) return converted;
+    int rc = KaraokeWrite(mix, track, converted);
+    return rc < 0 ? rc : converted;
+}
+
+static int KaraokeDrainResampler(KaraokeTrack *track, KaraokeMix *mix) {
+    if (!track->swr) return 0;
+    int rc;
+    do { rc = KaraokeConvert(track, mix, NULL, 0); } while (rc > 0);
+    return rc;
+}
+
+static int KaraokeFrame(KaraokeTrack *track, KaraokeMix *mix, AVFrame *frame) {
+    int rate = frame->sample_rate > 0 ? frame->sample_rate : track->codec->sample_rate;
+    if (rate <= 0 || frame->nb_samples <= 0) return AVERROR_INVALIDDATA;
+    track->decoded = YES;
+    AVChannelLayout layout = frame->ch_layout;
+    if (layout.nb_channels <= 0 || layout.order == AV_CHANNEL_ORDER_UNSPEC) {
+        int channels = layout.nb_channels > 0 ? layout.nb_channels : track->codec->ch_layout.nb_channels;
+        if (channels <= 0) return AVERROR_INVALIDDATA;
+        av_channel_layout_default(&layout, channels);
+    }
+    int64_t timestamp = frame->best_effort_timestamp;
+    if (timestamp == AV_NOPTS_VALUE) timestamp = frame->pts;
+    BOOL hasTime = timestamp != AV_NOPTS_VALUE;
+    int64_t start = hasTime ? KaraokeRescale(timestamp, track->timeBase) : 0;
+    const int64_t limit = INT64_MAX / KaraokeBytesPerFrame;
+    if (hasTime && (start < -limit || start > limit)) return AVERROR_INVALIDDATA;
+    start -= mix->origin;
+    int64_t delay = track->swr ? swr_get_delay(track->swr, KaraokeSampleRate) : 0;
+    // Matroska commonly rounds packet timestamps to milliseconds. Preserve continuous PCM at that precision.
+    int64_t timeResolution = MAX(2, av_rescale_q_rnd(1, track->timeBase, (AVRational){1, KaraokeSampleRate}, AV_ROUND_UP) + 1);
+    BOOL gap = hasTime && track->positioned && llabs(start - delay - track->nextFrame) > timeResolution;
+    BOOL changed = !track->swr || track->inputRate != rate || track->inputFormat != frame->format ||
+        av_channel_layout_compare(&track->layout, &layout) != 0;
+    if (changed || gap) {
+        int rc = KaraokeDrainResampler(track, mix);
+        if (rc < 0) return rc;
+        swr_free(&track->swr);
+        av_channel_layout_uninit(&track->layout);
+        AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+        rc = swr_alloc_set_opts2(&track->swr, &stereo, AV_SAMPLE_FMT_FLT, KaraokeSampleRate,
+                                 &layout, (enum AVSampleFormat)frame->format, rate, 0, NULL);
+        if (rc < 0 || (rc = swr_init(track->swr)) < 0 || (rc = av_channel_layout_copy(&track->layout, &layout)) < 0) return rc;
+        track->inputRate = rate;
+        track->inputFormat = (enum AVSampleFormat)frame->format;
+    }
+    if ((!track->positioned || gap) && hasTime) track->nextFrame = start;
+    track->positioned = YES;
+    return KaraokeConvert(track, mix, (const uint8_t **)frame->extended_data, frame->nb_samples);
+}
+
+static int KaraokeReceive(KaraokeTrack *track, KaraokeMix *mix, AVFrame *frame, FFmpegInterruptState *interrupt) {
+    int rc;
+    while ((rc = avcodec_receive_frame(track->codec, frame)) == 0) {
+        if (FFmpegInterruptCallback(interrupt)) { av_frame_unref(frame); return AVERROR_EXIT; }
+        rc = KaraokeFrame(track, mix, frame);
+        av_frame_unref(frame);
+        if (rc < 0) return rc;
+    }
+    return rc == AVERROR(EAGAIN) || rc == AVERROR_EOF ? 0 : rc;
+}
+
+static int KaraokePacket(KaraokeTrack *track, KaraokeMix *mix, AVFrame *frame, AVPacket *packet, FFmpegInterruptState *interrupt) {
+    int rc = avcodec_send_packet(track->codec, packet);
+    if (rc == AVERROR(EAGAIN)) {
+        rc = KaraokeReceive(track, mix, frame, interrupt);
+        if (rc < 0) return rc;
+        rc = avcodec_send_packet(track->codec, packet);
+    }
+    if (rc < 0 && rc != AVERROR_EOF) return rc;
+    return KaraokeReceive(track, mix, frame, interrupt);
+}
+
+@implementation FFmpegKaraokeRenderJob {
+    FFmpegInterruptState _interrupt;
+}
+
+- (instancetype)init {
+    if ((self = [super init])) {
+        atomic_init(&_interrupt.cancelled, false);
+        atomic_init(&_interrupt.timedOut, false);
+        atomic_init(&_interrupt.deadlineNanos, 0);
+    }
+    return self;
+}
+
+- (void)cancel { atomic_store_explicit(&_interrupt.cancelled, true, memory_order_release); }
+
+- (BOOL)renderSource:(NSURL *)source audioOrdinals:(NSArray<NSNumber *> *)ordinals to:(NSURL *)destination error:(NSError **)error {
+    AVFormatContext *context = avformat_alloc_context();
+    AVDictionary *options = NULL;
+    AVPacket *packet = NULL;
+    AVFrame *frame = NULL;
+    KaraokeTrack *tracks = NULL;
+    KaraokeMix mix = { .silent = ordinals.count == 0 };
+    int rc = AVERROR(ENOMEM);
+    unsigned int streamCount = 0;
+    if (!context) goto finish;
+    context->interrupt_callback = (AVIOInterruptCB){ FFmpegInterruptCallback, &_interrupt };
+    if (!source.isFileURL || !destination.isFileURL) { rc = AVERROR(EINVAL); goto finish; }
+    rc = av_dict_set(&options, "protocol_whitelist", "file", 0);
+    if (rc < 0) goto finish;
+    rc = avformat_open_input(&context, source.fileSystemRepresentation, NULL, &options);
+    if (rc < 0) goto finish;
+    rc = avformat_find_stream_info(context, NULL);
+    if (rc < 0) goto finish;
+    streamCount = context->nb_streams;
+    tracks = av_calloc(streamCount, sizeof(*tracks));
+    if (!tracks) { rc = AVERROR(ENOMEM); goto finish; }
+    // Movie edit lists and Matroska blocks use the container's zero. The first packet can follow real silence.
+    BOOL movie = av_match_name("mov", context->iformat->name);
+    BOOL matroska = av_match_name("matroska", context->iformat->name);
+    if (!movie && !matroska && context->start_time != AV_NOPTS_VALUE) {
+        mix.origin = KaraokeRescale(context->start_time, AV_TIME_BASE_Q);
+    }
+    if (mix.origin < -INT64_MAX / (KaraokeBytesPerFrame * 2) || mix.origin > INT64_MAX / (KaraokeBytesPerFrame * 2)) {
+        rc = AVERROR_INVALIDDATA; goto finish;
+    }
+    if (context->duration > 0) mix.declaredLength = KaraokeRescale(context->duration, AV_TIME_BASE_Q);
+    if (mix.declaredLength < 0 || mix.declaredLength > INT64_MAX / KaraokeBytesPerFrame) { rc = AVERROR_INVALIDDATA; goto finish; }
+
+    {
+        NSSet<NSNumber *> *selected = [NSSet setWithArray:ordinals];
+        const AVCodec *bestDecoder = NULL;
+        int best = mix.silent ? av_find_best_stream(context, AVMEDIA_TYPE_AUDIO, -1, -1, &bestDecoder, 0) : -1;
+        if (mix.silent && best < 0) { rc = best; goto finish; }
+        NSInteger ordinal = 0;
+        NSUInteger opened = 0;
+        for (unsigned int i = 0; i < streamCount; ++i) {
+            AVStream *stream = context->streams[i];
+            // With a leading empty edit on every track, libavformat reports the movie's end minus its start.
+            if (movie && context->duration > 0 && stream->start_time > 0 && stream->duration > 0 &&
+                stream->start_time <= INT64_MAX - stream->duration) {
+                int64_t end = KaraokeRescale(stream->start_time + stream->duration, stream->time_base);
+                if (end < 0 || end > INT64_MAX / KaraokeBytesPerFrame) { rc = AVERROR_INVALIDDATA; goto finish; }
+                mix.declaredLength = MAX(mix.declaredLength, end);
+            }
+            if (stream->codecpar->codec_type != AVMEDIA_TYPE_AUDIO) { stream->discard = AVDISCARD_ALL; continue; }
+            BOOL wanted = mix.silent ? (int)i == best : [selected containsObject:@(ordinal)];
+            ++ordinal;
+            if (!wanted) {
+                // With no declared duration the last audio packet on any track gives us the song end.
+                if (mix.declaredLength > 0) stream->discard = AVDISCARD_ALL;
+                continue;
+            }
+            const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
+            if (!decoder) { rc = AVERROR_DECODER_NOT_FOUND; goto finish; }
+            KaraokeTrack *track = &tracks[i];
+            track->codec = avcodec_alloc_context3(decoder);
+            if (!track->codec) { rc = AVERROR(ENOMEM); goto finish; }
+            rc = avcodec_parameters_to_context(track->codec, stream->codecpar);
+            if (rc < 0) goto finish;
+            track->timeBase = stream->time_base;
+            track->codec->pkt_timebase = stream->time_base;
+            rc = avcodec_open2(track->codec, decoder, NULL);
+            if (rc < 0) goto finish;
+            if (stream->start_time != AV_NOPTS_VALUE) {
+                int64_t start = KaraokeRescale(stream->start_time, stream->time_base);
+                if (start < -INT64_MAX / KaraokeBytesPerFrame || start > INT64_MAX / KaraokeBytesPerFrame) { rc = AVERROR_INVALIDDATA; goto finish; }
+                track->nextFrame = start - mix.origin;
+            }
+            ++opened;
+        }
+        if (opened == 0 || (!mix.silent && opened != selected.count)) { rc = AVERROR_STREAM_NOT_FOUND; goto finish; }
+    }
+
+    {
+        AudioStreamBasicDescription description = { .mSampleRate = KaraokeSampleRate, .mFormatID = kAudioFormatLinearPCM,
+            .mFormatFlags = kAudioFormatFlagsNativeFloatPacked, .mBytesPerPacket = KaraokeBytesPerFrame,
+            .mFramesPerPacket = 1, .mBytesPerFrame = KaraokeBytesPerFrame, .mChannelsPerFrame = KaraokeChannels, .mBitsPerChannel = 32 };
+        mix.fileError = AudioFileCreateWithURL((__bridge CFURLRef)destination, kAudioFileCAFType, &description, 0, &mix.file);
+        if (mix.fileError) { rc = AVERROR(EIO); goto finish; }
+    }
+    packet = av_packet_alloc();
+    frame = av_frame_alloc();
+    if (!packet || !frame) { rc = AVERROR(ENOMEM); goto finish; }
+    {
+        int64_t packetEnd = 0;
+        BOOL verifiedSilence = NO;
+        while ((rc = av_read_frame(context, packet)) >= 0) {
+            if (FFmpegInterruptCallback(&_interrupt)) { rc = AVERROR_EXIT; break; }
+            int i = packet->stream_index;
+            if (i >= 0 && (unsigned int)i < streamCount && context->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+                if (mix.declaredLength == 0 && packet->pts != AV_NOPTS_VALUE && packet->duration >= 0 &&
+                    packet->pts <= INT64_MAX - packet->duration) {
+                    int64_t end = KaraokeRescale(packet->pts + packet->duration, context->streams[i]->time_base);
+                    if (end >= 0 && end <= INT64_MAX / KaraokeBytesPerFrame) packetEnd = MAX(packetEnd, end - mix.origin);
+                }
+                if (tracks[i].codec) {
+                    rc = KaraokePacket(&tracks[i], &mix, frame, packet, &_interrupt);
+                    if (rc < 0) break;
+                    verifiedSilence = mix.silent && mix.declaredLength > 0 && tracks[i].decoded;
+                }
+            }
+            av_packet_unref(packet);
+            if (verifiedSilence) break;
+        }
+        if (rc < 0 && rc != AVERROR_EOF) goto finish;
+        for (unsigned int i = 0; i < streamCount; ++i) {
+            if (!tracks[i].codec) continue;
+            if (!verifiedSilence) {
+                rc = KaraokePacket(&tracks[i], &mix, frame, NULL, &_interrupt);
+                if (rc < 0) goto finish;
+                rc = KaraokeDrainResampler(&tracks[i], &mix);
+                if (rc < 0) goto finish;
+            }
+            if (!tracks[i].decoded) { rc = AVERROR_INVALIDDATA; goto finish; }
+            packetEnd = MAX(packetEnd, tracks[i].nextFrame);
+        }
+        int64_t end = mix.declaredLength > 0 ? mix.declaredLength : MAX(mix.written, packetEnd);
+        if (end <= 0 || end > INT64_MAX / KaraokeBytesPerFrame) { rc = AVERROR_INVALIDDATA; goto finish; }
+        if (end > mix.written) {
+            // A distant write creates a sparse zero-filled gap, including the entirely muted case.
+            float silence[KaraokeChannels] = { 0 };
+            UInt32 bytes = sizeof(silence);
+            mix.fileError = AudioFileWriteBytes(mix.file, false, (end - 1) * KaraokeBytesPerFrame, &bytes, silence);
+            if (mix.fileError || bytes != sizeof(silence)) { rc = AVERROR(EIO); goto finish; }
+        }
+        rc = FFmpegInterruptCallback(&_interrupt) ? AVERROR_EXIT : 0;
+    }
+
+finish:
+    av_dict_free(&options);
+    av_packet_free(&packet);
+    av_frame_free(&frame);
+    if (tracks) for (unsigned int i = 0; i < streamCount; ++i) {
+        avcodec_free_context(&tracks[i].codec);
+        swr_free(&tracks[i].swr);
+        av_channel_layout_uninit(&tracks[i].layout);
+    }
+    av_free(tracks);
+    av_free(mix.pcm);
+    avformat_close_input(&context);
+    if (mix.file) {
+        OSStatus close = AudioFileClose(mix.file);
+        if (close && !mix.fileError) mix.fileError = close;
+    }
+    if (rc < 0 || mix.fileError) {
+        if (error) *error = mix.fileError ? [NSError errorWithDomain:NSOSStatusErrorDomain code:mix.fileError userInfo:nil]
+                                          : FFmpegOperationError(rc, @"Rendering embedded audio tracks", &_interrupt);
+        return NO;
+    }
+    return YES;
+}
 @end

@@ -120,6 +120,13 @@ actor MusicVideoCompatibilityConverter {
         "\(sourceID)\u{1F}\(path)\u{1F}\(max(0, fileSize))"
     }
 
+    nonisolated static func embeddedIdentity(song: Song, namespace: String) -> String {
+        let revision = song.revision ?? ""
+        let modified = song.lastModified.map { String($0.timeIntervalSinceReferenceDate) } ?? ""
+        return identity(sourceID: song.sourceID, path: song.filePath, fileSize: song.fileSize)
+            + "\u{1f}" + namespace + "\u{1f}" + revision + "\u{1f}" + modified
+    }
+
     private func outputURL(identity: String) -> URL {
         let digest = SHA256.hash(data: Data(identity.utf8))
             .map { String(format: "%02x", $0) }.joined()

@@ -887,6 +887,8 @@ targets:
       # 启动 AVAudioPlayerNode 的保护层:与 iOS / macOS 同一份
       - path: Primuse/Services/Audio/AudioPlayerNodeClockReader.m
       - path: Primuse/Services/Audio/MusicVideoCompatibilityConverter.swift
+      - path: Primuse/Services/Audio/EmbeddedKaraokeAudio.swift
+      - path: Primuse/Services/Audio/EmbeddedKaraokePlayback.swift
       - path: Primuse/Services/Audio/KaraokeSeparationService.swift
       # 串烧找高潮:结果缓存与读整首做分析,手机、Mac、电视同一份。
       - path: Primuse/Services/Audio/MedleyHighlightStore.swift
@@ -917,6 +919,7 @@ targets:
       - path: Primuse/Services/PlayerBackdropImaging.swift
       - path: Primuse/Views/NowPlaying/LiquidArtworkBackdrop.swift
       - path: Primuse/Views/Components/AnimatedArtworkDataView.swift
+      - path: Primuse/Views/NowPlaying/EmbeddedKaraokeTrackMenu.swift
       - path: Primuse/Views/NowPlaying/LyricsCompanionTrackButtons.swift
       - path: Primuse/Views/NowPlaying/KaraokeLineView.swift
       # 歌词前奏与间奏的提示点,与 iPhone / Mac 播放页同一份

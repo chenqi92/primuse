@@ -5307,6 +5307,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "嗶哩嗶哩";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "音軌";
+"embedded_audio_default" = "預設混音";
+"embedded_audio_track_number" = "音軌 %d";
 "karaoke_backing_track" = "伴奏音軌";
 "karaoke_backing_track_playing" = "正在播放伴奏音軌，沒有人聲可調。";
 "karaoke_export_menu" = "匯出 AI 分離的音軌";

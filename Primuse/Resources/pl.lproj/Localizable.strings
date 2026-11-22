@@ -5236,6 +5236,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "Ścieżki audio";
+"embedded_audio_default" = "Domyślny miks";
+"embedded_audio_track_number" = "Ścieżka audio %d";
 "karaoke_backing_track" = "Podkład";
 "karaoke_backing_track_playing" = "Odtwarzany jest podkład, więc nie ma wokalu do regulacji.";
 "karaoke_export_menu" = "Eksportuj rozdzielone ścieżki";

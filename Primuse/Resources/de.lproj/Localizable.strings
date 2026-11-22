@@ -5330,6 +5330,9 @@
 "playlist_import_platform_deezer" = "Deezer";
 "playlist_import_platform_bilibili" = "bilibili";
 "playlist_import_platform_youtube" = "YouTube";
+"embedded_audio_tracks" = "Audiospuren";
+"embedded_audio_default" = "Standardmischung";
+"embedded_audio_track_number" = "Audiospur %d";
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "Das Playback läuft, es gibt keinen Gesang zum Anpassen.";
 "karaoke_export_menu" = "Getrennte Spuren exportieren";

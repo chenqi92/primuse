@@ -54,4 +54,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) FFmpegAudioFileInfo *fileInfo;
 @end
 
+/// One offline mix of explicitly selected audio streams. Cancellation is safe from another thread.
+@interface FFmpegKaraokeRenderJob : NSObject
+- (BOOL)renderSource:(NSURL *)source
+       audioOrdinals:(NSArray<NSNumber *> *)ordinals
+                  to:(NSURL *)destination
+               error:(NSError **)error NS_SWIFT_NAME(render(source:audioOrdinals:to:));
+- (void)cancel;
+@end
+
 NS_ASSUME_NONNULL_END
