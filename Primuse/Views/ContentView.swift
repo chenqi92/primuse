@@ -3147,6 +3147,9 @@ struct PlayerOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.scenePhase) private var scenePhase
+    /// 系统竖栏的设备(iPhone Duo):状态栏竖排到侧边时顶上光秃秃的,见 `PlayerBareTopEdgeReader`。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @State private var topEdgeIsBare = false
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
     private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
@@ -3255,7 +3258,18 @@ struct PlayerOverlay: View {
                 isActive: usesDarkPlayer && systemColorScheme == .light && presentationPhase == .visible
             )
             .frame(width: 0, height: 0)
+            if verticalBarEdge != nil {
+                PlayerBareTopEdgeReader { isBare in
+                    if topEdgeIsBare != isBare { topEdgeIsBare = isBare }
+                }
+                .frame(width: 0, height: 0)
+            }
         }
+        // iPhone Duo 状态栏竖排到侧边时,播放页的把手与下拉收起那一截贴着屏幕顶边:展开着的时候让系统把顶边
+        // 先让给播放页,第一下是收起播放页,再拉一下才是通知中心。普通 iPhone 顶上有状态栏隔着,不变。
+        .defersSystemGestures(
+            on: verticalBarEdge != nil && topEdgeIsBare && presentationPhase == .visible ? .top : []
+        )
         .allowsHitTesting(presentationPhase == .visible && !dismissalState.isDismissing)
         // 休眠时整层透明、读屏跳过;收着的那一刻卡片已经缩进胶囊、内容早已淡掉,看不出切换。
         .opacity(presentationPhase == .dormant ? 0 : 1)

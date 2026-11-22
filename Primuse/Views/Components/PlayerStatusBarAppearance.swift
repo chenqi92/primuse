@@ -50,6 +50,7 @@ final class PlayerStatusBarOverlay {
             let hostRoot = controller.host?.rootViewController
             hostRoot?.setNeedsStatusBarAppearanceUpdate()
             hostRoot?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+            hostRoot?.setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
             controller.host = nil
         }
     }
@@ -59,6 +60,7 @@ final class PlayerStatusBarOverlay {
             self.controller.setNeedsStatusBarAppearanceUpdate()
         }
         controller.setNeedsUpdateOfHomeIndicatorAutoHidden()
+        controller.setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
     }
 
     private func startWatchingHost() {
@@ -88,6 +90,7 @@ private final class StatusBarStyleController: UIViewController {
         var statusBarHidden: Bool
         var presentedStyle: UIStatusBarStyle?
         var homeIndicatorHidden: Bool
+        var deferredEdges: UIRectEdge
     }
 
     private var lastAppearance: HostAppearance?
@@ -107,6 +110,9 @@ private final class StatusBarStyleController: UIViewController {
 
     override var prefersHomeIndicatorAutoHidden: Bool { hostAppearance.homeIndicatorHidden }
 
+    /// 屏幕边缘的系统手势让不让给 App 也照主窗口的(iPhone Duo 上播放页让开顶边,见 `PlayerBareTopEdgeReader`)。
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { hostAppearance.deferredEdges }
+
     /// 主窗口这一刻跟上次比有没有变(藏不藏状态栏、全屏弹出页要的字色、主屏指示条)。
     func appearanceChanged() -> Bool {
         let current = hostAppearance
@@ -120,10 +126,12 @@ private final class StatusBarStyleController: UIViewController {
         let source = presentation ?? host?.rootViewController
         let hiddenSource = Self.resolved(source) { $0.childForStatusBarHidden }
         let homeIndicatorSource = Self.resolved(source) { $0.childForHomeIndicatorAutoHidden }
+        let deferringSource = Self.resolved(source) { $0.childForScreenEdgesDeferringSystemGestures }
         return HostAppearance(
             statusBarHidden: hiddenSource?.prefersStatusBarHidden ?? false,
             presentedStyle: Self.resolved(presentation) { $0.childForStatusBarStyle }?.preferredStatusBarStyle,
-            homeIndicatorHidden: homeIndicatorSource?.prefersHomeIndicatorAutoHidden ?? false
+            homeIndicatorHidden: homeIndicatorSource?.prefersHomeIndicatorAutoHidden ?? false,
+            deferredEdges: deferringSource?.preferredScreenEdgesDeferringSystemGestures ?? []
         )
     }
 
@@ -193,6 +201,55 @@ struct PlayerLightStatusBar: UIViewRepresentable {
 
         private func apply() {
             PlayerStatusBarOverlay.shared.setLightContent(isActive && window != nil, over: window)
+        }
+    }
+}
+
+/// 窗口顶上有没有状态栏。iPhone Duo 把状态栏竖排进侧边竖栏后顶部安全区是 0,播放页的把手和下拉收起
+/// 那一截就贴着屏幕顶边,和系统从顶边拉通知中心的手势抢同一下。播放页据此让系统先把顶边让给自己
+/// (`defersSystemGestures`):第一下拉播放页,要拉通知中心再拉一下。
+struct PlayerBareTopEdgeReader: UIViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeUIView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.isUserInteractionEnabled = false
+        view.onChange = onChange
+        return view
+    }
+
+    func updateUIView(_ uiView: ReaderView, context: Context) {
+        uiView.onChange = onChange
+        uiView.publishIfNeeded()
+    }
+
+    final class ReaderView: UIView {
+        var onChange: ((Bool) -> Void)?
+        private var lastValue: Bool?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            publishIfNeeded()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            publishIfNeeded()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            publishIfNeeded()
+        }
+
+        func publishIfNeeded() {
+            guard let window else { return }
+            let isBare = window.safeAreaInsets.top < 1
+            guard isBare != lastValue else { return }
+            lastValue = isBare
+            DispatchQueue.main.async { [weak self] in
+                self?.onChange?(isBare)
+            }
         }
     }
 }
