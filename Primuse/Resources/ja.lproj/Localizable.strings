@@ -8131,3 +8131,6 @@
 "scrobble_lb_server_placeholder" = "サーバー URL（空欄で listenbrainz.org）";
 "scrobble_lb_server_invalid" = "サーバー URL が無効です";
 "scrobble_lb_server_footer" = "Maloja、Koito、multi-scrobbler など ListenBrainz 互換のセルフホストサーバーを使う場合は、その API URL を入力し、そのサーバーで取得したトークンを使ってください。";
+"toolbar_quick_locate_short" = "表示";
+"toolbar_quick_find_short" = "検索";
+"toolbar_quick_manage_short" = "管理";

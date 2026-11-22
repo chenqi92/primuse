@@ -8223,3 +8223,6 @@
 "scrobble_lb_server_placeholder" = "服务器地址（留空使用 listenbrainz.org）";
 "scrobble_lb_server_invalid" = "服务器地址无效";
 "scrobble_lb_server_footer" = "使用 Maloja、Koito、multi-scrobbler 等兼容 ListenBrainz 的自建服务时，填写它的接口地址，令牌也在那台服务器上获取。";
+"toolbar_quick_locate_short" = "定位";
+"toolbar_quick_find_short" = "查找";
+"toolbar_quick_manage_short" = "管理";

@@ -8036,3 +8036,6 @@
 "scrobble_lb_server_placeholder" = "Adres serwera (puste = listenbrainz.org)";
 "scrobble_lb_server_invalid" = "Nieprawidłowy adres serwera";
 "scrobble_lb_server_footer" = "W przypadku własnego serwera zgodnego z ListenBrainz, np. Maloja, Koito lub multi-scrobbler, wpisz adres jego API i użyj tokenu z tego serwera.";
+"toolbar_quick_locate_short" = "Znajdź";
+"toolbar_quick_find_short" = "Szukaj";
+"toolbar_quick_manage_short" = "Zarządzaj";

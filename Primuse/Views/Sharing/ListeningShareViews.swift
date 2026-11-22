@@ -578,7 +578,7 @@ struct ListeningShareReceiveView: View {
     }
 }
 
-struct ListeningShareMenu: View {
+struct ListeningShareMenu<Leading: View, Trailing: View>: View {
     enum Scope: String { case settings, stations, podcasts, audiobooks }
     let scope: Scope
     var selection: ListeningShareSelection?
@@ -587,6 +587,27 @@ struct ListeningShareMenu: View {
     /// 调用处再配 `.macControlMenuStyle()`; 不给时是系统的菜单按钮(设置页)。
     var macHeaderLabel = false
     #endif
+    /// 由这颗菜单当外层的「⋯」(见下面带 `leading`、`trailing` 的那个 init)。
+    private let hostsMoreMenu: Bool
+    private let moreMenuTitled: Bool
+    private let leading: () -> Leading
+    private let trailing: () -> Trailing
+
+    private init(
+        scope: Scope, selection: ListeningShareSelection?, macHeaderLabel: Bool, hostsMoreMenu: Bool,
+        moreMenuTitled: Bool, leading: @escaping () -> Leading, trailing: @escaping () -> Trailing
+    ) {
+        self.scope = scope
+        self.selection = selection
+        #if os(macOS)
+        self.macHeaderLabel = macHeaderLabel
+        #endif
+        self.hostsMoreMenu = hostsMoreMenu
+        self.moreMenuTitled = moreMenuTitled
+        self.leading = leading
+        self.trailing = trailing
+    }
+
     @State private var outgoing: ListeningShareSelection?
     @State private var importFile = false
     @State private var importsCode = false
@@ -603,7 +624,7 @@ struct ListeningShareMenu: View {
             || !selection.bookSongs.isEmpty || selection.bookURL != nil
     }
 
-    var body: some View {
+    private var shareMenu: some View {
         Menu {
             if scope == .settings {
                 Button("settings_backup_export", systemImage: "square.and.arrow.up") { backupAction = .export }
@@ -641,6 +662,25 @@ struct ListeningShareMenu: View {
             #endif
         }
         .accessibilityIdentifier("sharing.menu." + scope.rawValue)
+    }
+
+    var body: some View {
+        Group {
+            if hostsMoreMenu {
+                Menu {
+                    leading()
+                    Section { shareMenu }
+                    trailing()
+                } label: {
+                    PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: moreMenuTitled)
+                }
+                .menuOrder(.fixed)
+                .accessibilityLabel(Text("a11y_more_actions"))
+                .accessibilityIdentifier("toolbar.actions.more")
+            } else {
+                shareMenu
+            }
+        }
         .sheet(item: $outgoing) { ListeningShareExportView(selection: $0) }
         .sheet(isPresented: $receive) { ListeningShareReceiveView() }
         .sheet(isPresented: $importsCode) { ListeningShareCodeImportView() }
@@ -663,6 +703,34 @@ struct ListeningShareMenu: View {
         )) { Button("ok", role: .cancel) {} } message: { Text(error ?? "") }
     }
 }
+
+extension ListeningShareMenu where Leading == EmptyView, Trailing == EmptyView {
+    /// 「分享与导入」菜单键。
+    init(scope: Scope, selection: ListeningShareSelection? = nil, macHeaderLabel: Bool = false) {
+        self.init(
+            scope: scope, selection: selection, macHeaderLabel: macHeaderLabel, hostsMoreMenu: false,
+            moreMenuTitled: false, leading: { EmptyView() }, trailing: { EmptyView() }
+        )
+    }
+}
+
+#if os(iOS)
+extension ListeningShareMenu {
+    /// 顶栏、页头四颗键收成一颗「⋯」系统菜单、分享也收进去时，由分享菜单来当这颗外层菜单:
+    /// `leading` 排在最上面(快捷操作那一排)，分享收成下面一组里的子菜单，再往下是 `trailing`。
+    /// 分享的 sheet、导入文件、出错提示都挂在这颗菜单外面 —— 把分享菜单放进别的系统菜单里，
+    /// 挂在它身上的这些都不会弹。identifier 与 `PMToolbarMoreMenu` 收起时一样是 `toolbar.actions.more`。
+    init(
+        scope: Scope, selection: ListeningShareSelection?, moreMenuTitled: Bool = false,
+        @ViewBuilder leading: @escaping () -> Leading, @ViewBuilder trailing: @escaping () -> Trailing
+    ) {
+        self.init(
+            scope: scope, selection: selection, macHeaderLabel: false, hostsMoreMenu: true,
+            moreMenuTitled: moreMenuTitled, leading: leading, trailing: trailing
+        )
+    }
+}
+#endif
 
 struct ListeningShareCodeImportView: View {
     @Environment(\.dismiss) private var dismiss

@@ -8036,3 +8036,6 @@
 "scrobble_lb_server_placeholder" = "Sunucu URL'si (boş bırakılırsa listenbrainz.org)";
 "scrobble_lb_server_invalid" = "Geçersiz sunucu URL'si";
 "scrobble_lb_server_footer" = "Maloja, Koito veya multi-scrobbler gibi ListenBrainz uyumlu kendi sunucunuzu kullanıyorsanız API URL'sini girin ve o sunucudan aldığınız jetonu kullanın.";
+"toolbar_quick_locate_short" = "Bul";
+"toolbar_quick_find_short" = "Ara";
+"toolbar_quick_manage_short" = "Yönet";

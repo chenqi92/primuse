@@ -1051,19 +1051,22 @@ struct MinimalHeaderActions<Content: View>: View {
     }
 }
 
-/// 查找按钮由页面注册，按当前实际可见的按钮数决定是否显示折叠箭头。
-struct MinimalExpandableFindActions<Content: View, Primary: View>: View {
+/// 页头右边那一组键，规则同顶栏的 `PMCollapsibleToolbar`：查找由页面注册，加上它实际可见的键恰好四颗时，
+/// `content` 里的键都收进最后那颗系统菜单「⋯」（`primary` 拿到 true，给出 `PMToolbarMoreMenu`），
+/// 其它时候照旧都摆在页头。`otherActionCount` 是查找以外的键数，连最后那颗一起算。
+struct MinimalCollapsibleHeaderActions<Content: View, Primary: View>: View {
     let otherActionCount: Int
-    let menu: PMToolbarMenuState
     @ViewBuilder let content: () -> Content
-    @ViewBuilder let primary: (_ usesMoreButton: Bool) -> Primary
+    @ViewBuilder let primary: (_ collapsesActions: Bool) -> Primary
     @Environment(MinimalPageFindState.self) private var findState: MinimalPageFindState?
 
     var body: some View {
-        let actionCount = otherActionCount + (findState?.isAvailable == true ? 1 : 0)
+        let collapses = otherActionCount + (findState?.isAvailable == true ? 1 : 0) == 4
         MinimalHeaderActions {
-            PMToolbarShortcuts(actionCount: actionCount, menu: menu, content: content)
-            primary(actionCount == 4)
+            if !collapses {
+                content()
+            }
+            primary(collapses)
         }
     }
 }
@@ -1100,6 +1103,24 @@ struct MinimalPageFindButton: View {
                 Label(findState.prompt, systemImage: "text.magnifyingglass")
                     .foregroundStyle(findState.isActive ? Color.accentColor : Color.primary)
             }
+            .accessibilityIdentifier("minimal.pageFind")
+        }
+    }
+}
+
+/// 页头收成一颗「⋯」时菜单里的「在本页里找」（见 `MinimalCollapsibleHeaderActions`）。菜单里画不出
+/// 页头那颗键的主题色，文字用短的那条，完整说法给旁白。页面没挂 `libraryPageFind` 时不出现。
+struct MinimalPageFindMenuButton: View {
+    @Environment(MinimalPageFindState.self) private var findState: MinimalPageFindState?
+
+    var body: some View {
+        if let findState, findState.isAvailable {
+            Button {
+                pmWithAnimation(.control) { findState.isActive.toggle() }
+            } label: {
+                Label("toolbar_quick_find_short", systemImage: "text.magnifyingglass")
+            }
+            .accessibilityLabel(Text(findState.prompt))
             .accessibilityIdentifier("minimal.pageFind")
         }
     }

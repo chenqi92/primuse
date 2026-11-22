@@ -261,173 +261,55 @@ struct PMToolbarItemLabel: View {
 }
 
 #if os(iOS)
-@MainActor
-@Observable
-final class PMToolbarMenuState {
-    enum Presentation {
-        case closed, shortcuts, menu
-    }
-
-    var presentation = Presentation.closed
-    /// 点开菜单的那颗「⋯」的下沿（全局坐标），菜单从它下面弹出。nil：「⋯」在系统导航栏里，不量位置，
-    /// 菜单贴着页面顶上的安全区弹出（见 `PMNavigationBarMoreButton`）。
-    var anchorBottom: CGFloat?
-    var alignment: Alignment = .trailing
-
-    func dismiss() {
-        pmWithAnimation(.control) { presentation = .closed }
-    }
-}
-
-struct PMToolbarMoreButton: View {
-    let menu: PMToolbarMenuState
-    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
-    @State private var bottom: CGFloat = 0
-
-    var body: some View {
-        Button {
-            menu.anchorBottom = bottom
-            menu.alignment = verticalBarEdge == .leading ? .leading : .trailing
-            pmWithAnimation(.control) {
-                menu.presentation = menu.presentation == .menu ? .closed : .menu
-            }
-        } label: {
-            Label("a11y_more_actions", systemImage: "ellipsis")
-        }
-        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { edge in
-            bottom = edge
-            if menu.presentation != .closed { menu.anchorBottom = edge }
-        }
-        .accessibilityIdentifier("toolbar.actions.more")
-        .accessibilityAction(.escape, menu.dismiss)
-        .onDisappear { menu.dismiss() }
-    }
-}
-
-/// 系统导航栏里的「⋯」。写法和右上角的齿轮、流派页的菜单键一样：一颗只带图标的普通按钮，只收值，
-/// 不读环境、不量位置、不挂出现消失的回调。`PMToolbarMoreButton` 那样量自己位置的写法，在 iOS 18 上
-/// 推入页面时先按一个偏窄的空位排进导航栏，推入动画走完才画出来、改回本来的宽度，旁边的键跟着挪一下。
-/// 量不到下沿，菜单贴着页面顶上的安全区弹出；页面消失时收起菜单的事由 `pmToolbarMenu` 管。
-/// 系统竖栏（iPhone Duo）里按钮不在顶上，菜单要跟着按钮的位置，仍用会量位置的那颗。
-struct PMNavigationBarMoreButton: View {
-    let menu: PMToolbarMenuState
-    /// 页面读到的 `pmVerticalBarEdge`。
-    let verticalBarEdge: HorizontalEdge?
-
-    var body: some View {
-        if verticalBarEdge != nil {
-            PMToolbarMoreButton(menu: menu)
-        } else {
-            Button("a11y_more_actions", systemImage: "ellipsis") {
-                menu.anchorBottom = nil
-                menu.alignment = .trailing
-                pmWithAnimation(.control) {
-                    menu.presentation = menu.presentation == .menu ? .closed : .menu
-                }
-            }
-            .labelStyle(.iconOnly)
-            .accessibilityIdentifier("toolbar.actions.more")
-        }
-    }
-}
-
-struct PMToolbarShortcuts<Content: View>: View {
+/// 顶栏右侧的一组键。连同最后那颗一共恰好四颗时（`actionCount == 4`），前面几颗收进最后那颗系统菜单「⋯」，
+/// 排在菜单顶上一行（见 `PMToolbarMoreMenu`）；三颗时照旧直接摆在顶栏上。
+/// `primary` 拿到的是「这次收不收」：收的时候给出那颗「⋯」，不收时给出原来最后那颗。
+struct PMCollapsibleToolbar<Actions: View, Primary: View>: ToolbarContent {
     let actionCount: Int
-    let menu: PMToolbarMenuState
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        if actionCount != 4 {
-            content()
-        } else if menu.presentation != .closed {
-            content()
-                .transition(.offset(x: 10).combined(with: .opacity))
-                .simultaneousGesture(TapGesture().onEnded {
-                    menu.presentation = .shortcuts
-                })
-        }
-    }
-}
-
-struct PMExpandableToolbar<Actions: View, Primary: View>: ToolbarContent {
-    let actionCount: Int
-    let menu: PMToolbarMenuState
     @ViewBuilder let actions: () -> Actions
-    @ViewBuilder let primary: (_ usesMoreButton: Bool) -> Primary
+    @ViewBuilder let primary: (_ collapsesActions: Bool) -> Primary
 
     var body: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
-            PMToolbarShortcuts(actionCount: actionCount, menu: menu, content: actions)
+            if actionCount != 4 {
+                actions()
+            }
             primary(actionCount == 4)
         }
         .pmHighVisibilityPriority()
     }
 }
 
-extension View {
-    /// 菜单挂在页面上，让上方的原生工具栏保持可点。页面消失（推入下一页、返回、换页签）时收起。
-    func pmToolbarMenu<Items: View>(_ menu: PMToolbarMenuState, @ViewBuilder items: @escaping () -> Items) -> some View {
-        overlay {
-            if menu.presentation == .menu {
-                GeometryReader { proxy in
-                    let frame = proxy.frame(in: .global)
-                    let width = min(310, max(0, frame.width - 16))
-                    // 量到了「⋯」的下沿（页头里、系统竖栏里）就从它下面 8pt 弹出；导航栏里的「⋯」不量位置，
-                    // 贴着页面顶上的安全区（导航栏和抽屉式查找框下面）。
-                    let anchoredTop: CGFloat = menu.anchorBottom.map { $0 - frame.minY + 8 } ?? proxy.safeAreaInsets.top
-                    let top = min(max(0, anchoredTop), max(0, frame.height - 120))
-                    let menuRows = VStack(alignment: .leading, spacing: 2) { items() }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                        .buttonStyle(PMToolbarMenuRowStyle(menu: menu))
-                        .toggleStyle(.switch)
-                        .labelStyle(.titleAndIcon)
-                        .foregroundStyle(.primary)
-                    ZStack(alignment: .topLeading) {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { menu.dismiss() }
-                            .accessibilityHidden(true)
-                        ViewThatFits(in: .vertical) {
-                            menuRows
-                            ScrollView { menuRows }.scrollBounceBehavior(.basedOnSize)
-                        }
-                        .frame(width: width)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
-                        .accessibilityAction(.escape, menu.dismiss)
-                        .transition(.scale(scale: 0.94, anchor: .topTrailing).combined(with: .opacity))
-                        .frame(maxWidth: .infinity, alignment: menu.alignment)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 8)
-                    }
-                    .padding(.top, top)
-                }
-                .transition(.opacity)
+/// 顶栏、页头的「⋯」，系统菜单。`collapsesShortcuts` 时顶栏只剩这一颗：收进来的快捷操作排在菜单顶上一行
+/// （`PMMenuQuickActions`，图标在上、短文字在下，最多三个），下面接原来的菜单内容；其它时候就是原来那份菜单。
+/// 前后是同一颗菜单，收起、展开时它不换位置。
+///
+/// 标签只是一张图（系统竖栏里带上标题，收进系统溢出菜单时用），不量位置、不挂状态和出现消失的回调：
+/// 那样的写法在 iOS 18 上推入页面时会先按偏窄的空位排进导航栏，推入动画走完才改回本来的宽度，旁边的键跟着挪。
+/// 菜单项会被转成系统的菜单项，挂在它们身上的 alert、确认框、sheet 都不会弹：页面把这些挂在菜单外面，
+/// 菜单项只改页面的状态。
+struct PMToolbarMoreMenu<QuickActions: View, Items: View>: View {
+    let collapsesShortcuts: Bool
+    /// 没有收进快捷操作时这颗菜单原来的 identifier。收进来时各页统一用 `toolbar.actions.more`。
+    var identifier = "toolbar.actions.more"
+    /// 系统竖栏（iPhone Duo）里带上标题。
+    var titled = false
+    @ViewBuilder let quickActions: () -> QuickActions
+    @ViewBuilder let items: () -> Items
+
+    var body: some View {
+        Menu {
+            if collapsesShortcuts {
+                PMMenuQuickActions(content: quickActions)
             }
-        }
-        .onDisappear {
-            if menu.presentation != .closed { menu.dismiss() }
-        }
-    }
-}
-
-private struct PMToolbarMenuRowStyle: PrimitiveButtonStyle {
-    let menu: PMToolbarMenuState
-
-    func makeBody(configuration: Configuration) -> some View {
-        Button(role: configuration.role) {
-            menu.dismiss()
-            configuration.trigger()
+            items()
         } label: {
-            configuration.label
-                .foregroundStyle(configuration.role == .destructive ? Color.red : Color.primary)
-                .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-                .padding(.horizontal, 8)
-                .contentShape(Rectangle())
+            PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: titled)
         }
-        .buttonStyle(.plain)
+        // 菜单往上弹时（竖栏里靠下的位置）快捷操作那一排也留在最上面。
+        .menuOrder(.fixed)
+        .accessibilityLabel(Text("a11y_more_actions"))
+        .accessibilityIdentifier(collapsesShortcuts ? "toolbar.actions.more" : identifier)
     }
 }
 #endif

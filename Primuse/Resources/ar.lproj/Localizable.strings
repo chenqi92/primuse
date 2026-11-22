@@ -8036,3 +8036,6 @@
 "scrobble_lb_server_placeholder" = "عنوان الخادم (اتركه فارغًا لاستخدام listenbrainz.org)";
 "scrobble_lb_server_invalid" = "عنوان الخادم غير صالح";
 "scrobble_lb_server_footer" = "عند استخدام خادم مستضاف ذاتيًا متوافق مع ListenBrainz مثل Maloja أو Koito أو multi-scrobbler، أدخل عنوان واجهته البرمجية واستخدم رمزًا من ذلك الخادم.";
+"toolbar_quick_locate_short" = "تحديد الموقع";
+"toolbar_quick_find_short" = "بحث";
+"toolbar_quick_manage_short" = "إدارة";

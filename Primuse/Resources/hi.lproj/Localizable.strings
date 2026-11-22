@@ -8036,3 +8036,6 @@
 "scrobble_lb_server_placeholder" = "सर्वर URL (listenbrainz.org के लिए खाली छोड़ें)";
 "scrobble_lb_server_invalid" = "सर्वर URL अमान्य है";
 "scrobble_lb_server_footer" = "Maloja, Koito या multi-scrobbler जैसे ListenBrainz-संगत सेल्फ़-होस्टेड सर्वर के लिए उसका API URL दर्ज करें और उसी सर्वर का टोकन इस्तेमाल करें।";
+"toolbar_quick_locate_short" = "ढूँढें";
+"toolbar_quick_find_short" = "खोजें";
+"toolbar_quick_manage_short" = "प्रबंधित करें";

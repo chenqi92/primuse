@@ -22,9 +22,6 @@ struct RadioStationsView: View {
     @State private var pendingInsecureStation: RadioStation?
     /// 管理态 —— 设计上用「先选后做」的多选替代每行一个 ⋯ 菜单。
     /// 进入即编辑态，没有中间的"看着像可选但没勾选圈"的过渡。
-    #if os(iOS)
-    @State private var toolbarMenu = PMToolbarMenuState()
-    #endif
     @State private var isManaging = false
     @State private var selection: Set<String> = []
     @State private var showDeleteConfirm = false
@@ -136,7 +133,6 @@ struct RadioStationsView: View {
         .toolbar { toolbarContent }
         #if os(iOS)
         .minimalPageHeader { minimalHeader }
-        .pmToolbarMenu(toolbarMenu) { radioAddItems }
         #endif
         // 进列表时给还没有台标的电台排一次自动发现。重复进入是安全的 ——
         // 已有台标的、正在找的、还在退避期的都会被服务自己挡掉。
@@ -489,24 +485,30 @@ struct RadioStationsView: View {
             HStack(spacing: 4) {
                 MinimalPageTitle("radio_title")
                 Spacer(minLength: 8)
-                MinimalExpandableFindActions(otherActionCount: store.stations.isEmpty ? 3 : 4, menu: toolbarMenu) {
+                MinimalCollapsibleHeaderActions(otherActionCount: store.stations.isEmpty ? 3 : 4) {
                     MinimalPageFindButton()
                     shareMenu
                     radioManageButton
                     radioLayoutToggle(titled: false)
-                } primary: { usesMoreButton in
-                    radioToolbarPrimary(usesMoreButton)
+                } primary: { collapsesActions in
+                    if collapsesActions {
+                        radioCollapsedMenu(titled: false) { MinimalPageFindMenuButton() }
+                    } else {
+                        radioAddMenu
+                    }
                 }
             }
         }
     }
     #endif
 
+    private var shareMenuSelection: ListeningShareSelection {
+        .init(title: navigationTitleText, stations: isManaging ? selectedStations : visibleStations)
+    }
+
     private var shareMenu: some View {
-        ListeningShareMenu(scope: .stations, selection: .init(
-            title: navigationTitleText, stations: isManaging ? selectedStations : visibleStations
-        ))
-        .tint(RadioSpacePalette.accent)
+        ListeningShareMenu(scope: .stations, selection: shareMenuSelection)
+            .tint(RadioSpacePalette.accent)
     }
 
     /// 导航栏按钮默认跟 App 的主题色(可能跟着封面变),这一页的按钮跟电台自己的颜色。
@@ -543,12 +545,16 @@ struct RadioStationsView: View {
             #endif
         } else {
             #if os(iOS)
-            PMExpandableToolbar(actionCount: store.stations.isEmpty ? 3 : 4, menu: toolbarMenu) {
+            PMCollapsibleToolbar(actionCount: store.stations.isEmpty ? 3 : 4) {
                 shareMenu
                 radioManageButton.tint(RadioSpacePalette.accent)
                 radioLayoutToggle(titled: verticalBarEdge != nil).tint(RadioSpacePalette.accent)
-            } primary: { usesMoreButton in
-                radioNavigationBarPrimary(usesMoreButton).tint(RadioSpacePalette.accent)
+            } primary: { collapsesActions in
+                if collapsesActions {
+                    radioCollapsedMenu(titled: verticalBarEdge != nil) { EmptyView() }
+                } else {
+                    radioAddMenu.tint(RadioSpacePalette.accent)
+                }
             }
             #else
             ToolbarItem(placement: .primaryAction) { shareMenu }
@@ -727,24 +733,37 @@ struct RadioStationsView: View {
     }
 
     #if os(iOS)
-    /// 极简页头里的那一颗：「⋯」在页面里，量得到位置，菜单从它下面弹出。
-    @ViewBuilder
-    private func radioToolbarPrimary(_ usesMoreButton: Bool) -> some View {
-        if usesMoreButton {
-            PMToolbarMoreButton(menu: toolbarMenu)
-        } else {
-            radioAddMenu
+    /// 顶栏、页头四颗键收成的那颗「⋯」系统菜单。分享的弹出页要挂在菜单外面，由分享菜单来当这颗外层菜单
+    /// （见 `ListeningShareMenu`）：顶上一排是查找（极简页头才有）、整理与版式，分享收成下一组里的子菜单，
+    /// 再往下是「+」里的各项。
+    private func radioCollapsedMenu<Find: View>(titled: Bool, @ViewBuilder find: () -> Find) -> some View {
+        let findButton = find()
+        return ListeningShareMenu(scope: .stations, selection: shareMenuSelection, moreMenuTitled: titled) {
+            PMMenuQuickActions {
+                findButton
+                if !store.stations.isEmpty {
+                    PMMenuQuickActionButton(
+                        shortKey: "toolbar_quick_manage_short",
+                        fullKey: "radio_manage",
+                        systemImage: "checklist"
+                    ) {
+                        pmWithAnimation(.list) { isManaging = true }
+                    }
+                }
+                PMMenuQuickActionButton(
+                    short: String(localized: alternateLayoutMode.titleKey),
+                    full: String(localized: alternateLayoutMode.titleKey),
+                    systemImage: alternateLayoutMode.icon
+                ) {
+                    layoutModeRaw = alternateLayoutMode.rawValue
+                }
+                .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
+                .accessibilityIdentifier("radioLayoutMode.toggle")
+            }
+        } trailing: {
+            radioAddItems
         }
-    }
-
-    /// 导航栏里的那一颗：推入的第一帧就画好、不改宽度（见 `PMNavigationBarMoreButton`）。
-    @ViewBuilder
-    private func radioNavigationBarPrimary(_ usesMoreButton: Bool) -> some View {
-        if usesMoreButton {
-            PMNavigationBarMoreButton(menu: toolbarMenu, verticalBarEdge: verticalBarEdge)
-        } else {
-            radioAddMenu
-        }
+        .tint(RadioSpacePalette.accent)
     }
     #endif
 

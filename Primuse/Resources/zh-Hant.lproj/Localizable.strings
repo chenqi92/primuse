@@ -8107,3 +8107,6 @@
 "scrobble_lb_server_placeholder" = "伺服器位址（留空使用 listenbrainz.org）";
 "scrobble_lb_server_invalid" = "伺服器位址無效";
 "scrobble_lb_server_footer" = "使用 Maloja、Koito、multi-scrobbler 等相容 ListenBrainz 的自架服務時，填寫它的 API 位址，權杖也在那台伺服器上取得。";
+"toolbar_quick_locate_short" = "定位";
+"toolbar_quick_find_short" = "尋找";
+"toolbar_quick_manage_short" = "管理";

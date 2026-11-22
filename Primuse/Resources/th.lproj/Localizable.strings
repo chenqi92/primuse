@@ -8036,3 +8036,6 @@
 "scrobble_lb_server_placeholder" = "URL เซิร์ฟเวอร์ (เว้นว่างเพื่อใช้ listenbrainz.org)";
 "scrobble_lb_server_invalid" = "URL เซิร์ฟเวอร์ไม่ถูกต้อง";
 "scrobble_lb_server_footer" = "หากใช้เซิร์ฟเวอร์ที่โฮสต์เองซึ่งรองรับ ListenBrainz เช่น Maloja, Koito หรือ multi-scrobbler ให้ป้อน URL ของ API และใช้โทเค็นจากเซิร์ฟเวอร์นั้น";
+"toolbar_quick_locate_short" = "ระบุตำแหน่ง";
+"toolbar_quick_find_short" = "ค้นหา";
+"toolbar_quick_manage_short" = "จัดการ";

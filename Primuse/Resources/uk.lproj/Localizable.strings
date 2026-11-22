@@ -8036,3 +8036,6 @@
 "scrobble_lb_server_placeholder" = "Адреса сервера (порожньо — listenbrainz.org)";
 "scrobble_lb_server_invalid" = "Недійсна адреса сервера";
 "scrobble_lb_server_footer" = "Для власного сервера, сумісного з ListenBrainz (Maloja, Koito, multi-scrobbler тощо), вкажіть адресу його API та використовуйте токен із цього сервера.";
+"toolbar_quick_locate_short" = "Знайти";
+"toolbar_quick_find_short" = "Пошук";
+"toolbar_quick_manage_short" = "Керувати";

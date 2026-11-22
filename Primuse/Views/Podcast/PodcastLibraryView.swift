@@ -14,7 +14,6 @@ struct PodcastLibraryView: View {
     }
     #else
     @State private var navigation = PodcastNavigationModel()
-    @State private var toolbarMenu = PMToolbarMenuState()
     /// 「在本页里找」: 按节目名、作者、文件夹与标签筛已订阅的节目。
     @State private var findText = ""
 
@@ -56,13 +55,13 @@ struct PodcastLibraryView: View {
                     HStack(spacing: 4) {
                         MinimalPageTitle("listening_space_podcast")
                         Spacer(minLength: 8)
-                        MinimalExpandableFindActions(otherActionCount: 3, menu: toolbarMenu) {
+                        MinimalCollapsibleHeaderActions(otherActionCount: 3) {
                             MinimalPageFindButton()
                             PodcastShareMenu(navigation: navigation)
                             PodcastAddMenu(navigation: navigation)
-                        } primary: { usesMoreButton in
-                            if usesMoreButton {
-                                PMToolbarMoreButton(menu: toolbarMenu)
+                        } primary: { collapsesActions in
+                            if collapsesActions {
+                                collapsedMoreMenu
                             } else {
                                 PodcastMoreMenu(navigation: navigation, systemImage: "ellipsis")
                             }
@@ -74,9 +73,22 @@ struct PodcastLibraryView: View {
                 }
             }
         }
-        .pmToolbarMenu(toolbarMenu) { PodcastMoreMenu(navigation: navigation).items }
         .refreshable { await PodcastStore.shared.refreshAll() }
         .podcastNavigationDestinations(navigation)
+    }
+
+    /// 页头四颗键收成的那颗「⋯」。分享的弹出页要挂在菜单外面，由分享菜单来当这颗外层菜单
+    /// （见 `ListeningShareMenu`）。查找、「+」与分享都不是能排进顶上一排的动作（一个是唯一的普通动作，
+    /// 两个是子菜单），就排成最上面两组，下面是原来「⋯」里的各项。
+    private var collapsedMoreMenu: some View {
+        ListeningShareMenu(scope: .podcasts, selection: navigation.libraryShareSelection) {
+            Section {
+                MinimalPageFindMenuButton()
+                PodcastAddMenu(navigation: navigation)
+            }
+        } trailing: {
+            PodcastMoreMenu(navigation: navigation).items
+        }
     }
 
     /// 多选时的标题:还没选就仍叫「播客」。
@@ -272,16 +284,19 @@ struct PodcastShareMenu: View {
     #endif
     var body: some View {
         #if os(macOS)
-        ListeningShareMenu(scope: .podcasts, selection: selection, macHeaderLabel: macHeaderLabel)
+        ListeningShareMenu(scope: .podcasts, selection: navigation.libraryShareSelection, macHeaderLabel: macHeaderLabel)
         #else
-        ListeningShareMenu(scope: .podcasts, selection: selection)
+        ListeningShareMenu(scope: .podcasts, selection: navigation.libraryShareSelection)
         #endif
     }
+}
 
-    private var selection: ListeningShareSelection {
+extension PodcastNavigationModel {
+    /// 「分享与导入」里分享出去的节目：多选时是选中的几档，平时是全部订阅。
+    var libraryShareSelection: ListeningShareSelection {
         .init(
             title: ListeningShareText.string("podcasts"),
-            podcasts: navigation.organizer.isSelecting ? navigation.organizer.selectedShows : PodcastStore.shared.shows
+            podcasts: organizer.isSelecting ? organizer.selectedShows : PodcastStore.shared.shows
         )
     }
 }

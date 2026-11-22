@@ -649,14 +649,19 @@ final class SongLocationUITests: XCTestCase {
     func testFolderModeOpensContainingDirectoryAndLocatesAgain() {
         let app = launch("songs", folders: true)
         defer { app.terminate() }
-        expandToolbar(app)
-        let browse = app.navigationBars.buttons["libraryBrowseMode.toggle"]
-        XCTAssertTrue(app.navigationBars.buttons["songList.shuffleAll"].isHittable)
+        // 四颗键收在系统菜单「⋯」里：随机与目录 / 平铺在菜单顶上那一排，点一项菜单就收起。
+        XCTAssertFalse(app.navigationBars.buttons["libraryBrowseMode.toggle"].exists)
+        openMoreMenu(app)
+        XCTAssertTrue(app.buttons["songList.shuffleAll"].firstMatch.waitForExistence(timeout: 5))
+        let browse = app.buttons["libraryBrowseMode.toggle"].firstMatch
+        XCTAssertTrue(browse.exists)
         browse.tap()
         XCTAssertTrue(app.buttons["songRow.location-0"].firstMatch.waitForExistence(timeout: 10))
+        openMoreMenu(app)
+        XCTAssertTrue(browse.waitForExistence(timeout: 5))
         browse.tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "libraryFolderNode.source.")).firstMatch.waitForExistence(timeout: 10))
-        locateAndVerify(app)
+        locateAndVerify(app, viaMoreMenu: true)
         XCTAssertTrue(app.navigationBars["Album"].exists)
         app.scrollViews.firstMatch.swipeDown(velocity: .fast)
         locateAndVerify(app)
@@ -708,11 +713,10 @@ final class SongLocationUITests: XCTestCase {
         let app = launch("songs")
         defer { app.terminate() }
         dismissStoredSourceAuthenticationAlerts(in: app)
-        expandToolbar(app)
-        locateAndVerify(app)
+        locateAndVerify(app, viaMoreMenu: true)
         app.scrollViews.firstMatch.swipeDown(velocity: .fast)
         app.scrollViews.firstMatch.swipeDown(velocity: .fast)
-        locateAndVerify(app)
+        locateAndVerify(app, viaMoreMenu: true)
         attach(app, "song-location-large-library")
     }
 
@@ -729,16 +733,13 @@ final class SongLocationUITests: XCTestCase {
                                           ("timeline", "dark"), ("timeline", "light")] {
             let app = launch("songs", appearance: appearance, colorScheme: colorScheme)
             defer { app.terminate() }
-            expandToolbar(app)
-            let locate = app.buttons["songList.locateCurrent"].firstMatch
-            XCTAssertTrue(locate.waitForExistence(timeout: 30))
-            locate.tap()
+            tapLocate(app, viaMoreMenu: true)
             let row = app.buttons["songRow.location-3990"].firstMatch
             XCTAssertTrue(row.waitForExistence(timeout: 15))
             let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
             wait(for: [visible], timeout: 15)
             let originalFrame = row.frame
-            locate.tap()
+            tapLocate(app, viaMoreMenu: true)
             attach(app, "location-emphasis-\(appearance)-\(colorScheme)")
             XCTAssertEqual(row.frame.midY, originalFrame.midY, accuracy: 1,
                 "Repeating location should emphasize the visible song without scrolling it")
@@ -752,10 +753,7 @@ final class SongLocationUITests: XCTestCase {
                                           ("timeline", "light"), ("timeline", "dark")] {
             let app = launch("songs", appearance: appearance, colorScheme: colorScheme)
             defer { app.terminate() }
-            expandToolbar(app)
-            let locate = app.buttons["songList.locateCurrent"].firstMatch
-            XCTAssertTrue(locate.waitForExistence(timeout: 30))
-            locate.tap()
+            tapLocate(app, viaMoreMenu: true)
             let row = app.buttons["songRow.location-3990"].firstMatch
             XCTAssertTrue(row.waitForExistence(timeout: 15))
             let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
@@ -786,18 +784,15 @@ final class SongLocationUITests: XCTestCase {
             chooseAppearance("列表", in: app)
             app.terminate()
         }
-        expandToolbar(app)
-        let locate = app.buttons["songList.locateCurrent"].firstMatch
-        XCTAssertTrue(locate.waitForExistence(timeout: 30))
         chooseAppearance("列表", in: app)
-        locate.tap()
+        tapLocate(app, viaMoreMenu: true)
         let row = app.buttons["songRow.location-3990"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["song.actions.location-3990"].waitForExistence(timeout: 5))
 
         for title in ["封面", "时间线"] {
             chooseAppearance(title, in: app)
-            locate.tap()
+            tapLocate(app, viaMoreMenu: true)
             XCTAssertTrue(row.waitForExistence(timeout: 15))
             let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
             wait(for: [visible], timeout: 15)
@@ -821,11 +816,8 @@ final class SongLocationUITests: XCTestCase {
     }
 
     private func chooseAppearance(_ title: String, in app: XCUIApplication) {
+        openMoreMenu(app)
         let picker = app.buttons["列表样式"].firstMatch
-        if !picker.exists {
-            let more = app.buttons["toolbar.actions.more"].firstMatch
-            more.tap()
-        }
         XCTAssertTrue(picker.waitForExistence(timeout: 5), "The appearance picker lives in the more menu")
         picker.tap()
         let option = app.buttons[title].firstMatch
@@ -836,10 +828,7 @@ final class SongLocationUITests: XCTestCase {
     private func assertDecorativeAppearance(_ appearance: String) {
         let app = launch("songs", appearance: appearance)
         defer { app.terminate() }
-        expandToolbar(app)
-        let locate = app.buttons["songList.locateCurrent"].firstMatch
-        XCTAssertTrue(locate.waitForExistence(timeout: 30))
-        locate.tap()
+        tapLocate(app, viaMoreMenu: true)
         let row = app.buttons["songRow.location-3990"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
@@ -887,22 +876,23 @@ final class SongLocationUITests: XCTestCase {
         let app = launch(page, coverWall: coverWall)
         defer { app.terminate() }
         dismissStoredSourceAuthenticationAlerts(in: app)
-        expandToolbar(app)
-        locateAndVerify(app)
+        locateAndVerify(app, viaMoreMenu: true)
         let originalFrame = targetRow(app).frame
-        locateAndVerify(app)
+        locateAndVerify(app, viaMoreMenu: true)
         XCTAssertEqual(targetRow(app).frame.midY, originalFrame.midY, accuracy: 1,
                        "Locating a visible song must not move the list")
         app.scrollViews.firstMatch.swipeDown(velocity: .fast)
         app.scrollViews.firstMatch.swipeDown(velocity: .fast)
-        locateAndVerify(app)
+        locateAndVerify(app, viaMoreMenu: true)
         attach(app, "song-location-\(page)")
     }
 
-    private func expandToolbar(_ app: XCUIApplication) {
-        let expand = app.buttons["toolbar.actions.more"].firstMatch
-        XCTAssertTrue(expand.waitForExistence(timeout: 20))
-        expand.tap()
+    /// 顶栏恰好四颗键时只剩一颗系统菜单「⋯」（`toolbar.actions.more`），别的键在菜单顶上那一排。
+    /// 它只在定位可用时出现，所以等它出来也就等到了能定位。点一项菜单就收起，下一项要再打开。
+    private func openMoreMenu(_ app: XCUIApplication) {
+        let more = app.buttons["toolbar.actions.more"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 30))
+        more.tap()
     }
 
     func testPlaylistWithThreeButtonsShowsActionsDirectly() {
@@ -917,40 +907,40 @@ final class SongLocationUITests: XCTestCase {
         XCTAssertFalse(bar.buttons["toolbar.actions.more"].exists)
     }
 
-    func testPlaylistToolbarExpandsFourButtonsInlineAndCollapsesAgain() {
+    func testPlaylistToolbarCollapsesFourButtonsIntoSystemMenu() {
         let app = launch("playlist", coverWall: true)
         defer { app.terminate() }
         dismissStoredSourceAuthenticationAlerts(in: app)
         let bar = app.navigationBars.firstMatch
-        let ids = ["songList.locateCurrent", "playlistDetail.find", "playlistDetail.sort"]
         let more = bar.buttons["toolbar.actions.more"]
         XCTAssertTrue(more.waitForExistence(timeout: 15))
-        for id in ids { XCTAssertFalse(bar.buttons[id].exists) }
-
-        more.tap()
-        let export = app.buttons["导出"].firstMatch
-        XCTAssertTrue(export.waitForExistence(timeout: 5))
-        var previousX: CGFloat = 0
-        for id in ids {
-            let button = bar.buttons[id]
-            XCTAssertTrue(button.isHittable, id)
-            XCTAssertEqual(button.frame.midY, more.frame.midY, accuracy: 2)
-            XCTAssertGreaterThan(button.frame.midX, previousX)
-            XCTAssertLessThan(button.frame.midX, more.frame.midX)
-            previousX = button.frame.midX
+        for id in ["songList.locateCurrent", "playlistDetail.find", "playlistDetail.sort", "playlistDetail.more"] {
+            XCTAssertFalse(bar.buttons[id].exists, id)
         }
-        XCTAssertGreaterThan(export.frame.midY, more.frame.maxY)
-        XCTAssertGreaterThan(export.frame.maxX, more.frame.midX - 10)
-        attach(app, "playlist-more-expanded")
-        more.tap()
-        XCTAssertTrue(export.waitForNonExistence(timeout: 5))
-        for id in ids { XCTAssertFalse(bar.buttons[id].exists) }
 
+        // 定位、找歌排在菜单顶上那一排，排序是下面一组里的子菜单，再往下是原来的菜单内容。
         more.tap()
-        bar.buttons["playlistDetail.sort"].tap()
+        let locate = app.buttons["songList.locateCurrent"].firstMatch
+        let find = app.buttons["playlistDetail.find"].firstMatch
+        let sort = app.buttons["排序方式"].firstMatch
+        let export = app.buttons["导出"].firstMatch
+        XCTAssertTrue(locate.waitForExistence(timeout: 5))
+        XCTAssertTrue(find.exists)
+        XCTAssertTrue(sort.exists)
+        XCTAssertTrue(export.exists)
+        XCTAssertEqual(locate.frame.midY, find.frame.midY, accuracy: 2, "Shortcuts share the top row")
+        XCTAssertLessThan(locate.frame.midX, find.frame.midX)
+        XCTAssertLessThan(locate.frame.maxY, sort.frame.midY)
+        XCTAssertLessThan(sort.frame.midY, export.frame.midY)
+        attach(app, "playlist-more-menu")
+
+        sort.tap()
         XCTAssertTrue(app.buttons["歌单顺序"].waitForExistence(timeout: 5))
         app.buttons["歌单顺序"].tap()
-        if !export.exists { more.tap() }
+        XCTAssertTrue(export.waitForNonExistence(timeout: 5))
+        // 导出的确认框挂在「⋯」上，菜单收起后照样弹出来。
+        more.tap()
+        XCTAssertTrue(export.waitForExistence(timeout: 5))
         export.tap()
         XCTAssertTrue(app.buttons["M3U8"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Primuse JSON"].exists)
@@ -960,19 +950,20 @@ final class SongLocationUITests: XCTestCase {
         let app = launch("playlist", coverWall: true)
         defer { app.terminate() }
         dismissStoredSourceAuthenticationAlerts(in: app)
-        expandToolbar(app)
-        let find = app.buttons["playlistDetail.find"]
-        XCTAssertTrue(find.waitForExistence(timeout: 30))
+        openMoreMenu(app)
+        let find = app.buttons["playlistDetail.find"].firstMatch
+        XCTAssertTrue(find.waitForExistence(timeout: 5))
         find.tap()
         let field = app.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.typeText("Track 0001\n")
-        let locate = app.buttons["songList.locateCurrent"]
-        locate.tap()
+        // 定位在系统菜单里点，「清除筛选并定位」由歌单页弹出。
+        tapLocate(app, viaMoreMenu: true)
         XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 5))
         app.alerts.buttons["取消"].tap()
         XCTAssertEqual(field.value as? String, "Track 0001")
-        locate.tap()
+        tapLocate(app, viaMoreMenu: true)
+        XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 5))
         app.alerts.buttons["清除筛选并定位"].tap()
         XCTAssertTrue(targetRow(app).waitForExistence(timeout: 12))
         assertTargetVisible(app)
@@ -991,14 +982,17 @@ final class SongLocationUITests: XCTestCase {
         let app = launch("smart")
         defer { app.terminate() }
         dismissStoredSourceAuthenticationAlerts(in: app)
-        expandToolbar(app)
         let bar = app.navigationBars.firstMatch
-        XCTAssertTrue(bar.buttons["smartPlaylist.pinIntent"].isHittable)
-        bar.buttons["smartPlaylist.find"].tap()
+        openMoreMenu(app)
+        XCTAssertFalse(bar.buttons["smartPlaylist.find"].exists)
+        XCTAssertTrue(app.buttons["smartPlaylist.pinIntent"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["编辑智能歌单"].firstMatch.exists)
+        app.buttons["smartPlaylist.find"].firstMatch.tap()
         let field = app.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.typeText("Track 0001\n")
-        bar.buttons["songList.locateCurrent"].tap()
+        tapLocate(app, viaMoreMenu: true)
+        XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 5))
         app.alerts.buttons["清除筛选并定位"].tap()
         XCTAssertTrue(targetRow(app).waitForExistence(timeout: 15))
         assertTargetVisible(app)
@@ -1190,10 +1184,16 @@ final class SongLocationUITests: XCTestCase {
         return app.scrollViews.staticTexts["Track \(index)"].firstMatch
     }
 
-    private func locateAndVerify(_ app: XCUIApplication) {
+    /// `viaMoreMenu`：顶栏四颗键收成了一颗「⋯」，定位在菜单顶上那一排，先打开菜单再点。
+    private func tapLocate(_ app: XCUIApplication, viaMoreMenu: Bool = false) {
+        if viaMoreMenu { openMoreMenu(app) }
         let locate = app.buttons["songList.locateCurrent"].firstMatch
-        XCTAssertTrue(locate.waitForExistence(timeout: 30))
+        XCTAssertTrue(locate.waitForExistence(timeout: viaMoreMenu ? 5 : 30))
         locate.tap()
+    }
+
+    private func locateAndVerify(_ app: XCUIApplication, viaMoreMenu: Bool = false) {
+        tapLocate(app, viaMoreMenu: viaMoreMenu)
         XCTAssertTrue(targetRow(app).waitForExistence(timeout: 15))
         assertTargetVisible(app)
     }

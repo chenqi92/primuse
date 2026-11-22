@@ -349,20 +349,29 @@ final class SettingsInfoButtonUITests: XCTestCase {
         for (page, scope) in [("radio", "stations"), ("podcasts", "podcasts"), ("spokenWord", "audiobooks")] {
             app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "section:" + page
             app.launch()
+            // 电台有台时顶栏恰好四颗键，只剩一颗系统菜单「⋯」：分享收成菜单里的「分享与导入」子菜单。
+            var more: XCUIElement?
             if scope != "audiobooks" {
                 let bar = app.navigationBars[scope == "stations" ? "电台" : "播客"]
                 let expand = bar.buttons["toolbar.actions.more"]
                 XCTAssertTrue(bar.waitForExistence(timeout: 80))
-                if scope == "stations", expand.exists {
+                if scope == "stations", expand.waitForExistence(timeout: 5) {
                     XCTAssertFalse(bar.buttons["sharing.menu." + scope].exists)
-                    expand.tap()
+                    more = expand
                 } else {
                     XCTAssertFalse(expand.exists)
                 }
             }
             let menu = app.buttons["sharing.menu." + scope]
-            XCTAssertTrue(menu.waitForExistence(timeout: 80), app.debugDescription)
-            menu.tap()
+            if let more {
+                more.tap()
+                let hub = app.buttons["分享与导入"].firstMatch
+                XCTAssertTrue(hub.waitForExistence(timeout: 5), app.debugDescription)
+                hub.tap()
+            } else {
+                XCTAssertTrue(menu.waitForExistence(timeout: 80), app.debugDescription)
+                menu.tap()
+            }
             XCTAssertTrue(app.buttons["导入分享文件"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.buttons["接收附近分享"].exists)
             XCTAssertTrue(app.buttons["sharing.importCode"].exists)
@@ -372,7 +381,7 @@ final class SettingsInfoButtonUITests: XCTestCase {
             let cancel = app.buttons["取消"].firstMatch
             XCTAssertTrue(cancel.waitForExistence(timeout: 10), app.debugDescription)
             cancel.tap()
-            XCTAssertTrue(menu.waitForExistence(timeout: 5))
+            XCTAssertTrue((more ?? menu).waitForExistence(timeout: 5))
             if scope == "audiobooks" {
                 menu.tap()
                 app.buttons["分享有声书链接"].tap()

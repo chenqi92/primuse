@@ -8130,3 +8130,6 @@
 "scrobble_lb_server_placeholder" = "서버 URL (비워 두면 listenbrainz.org)";
 "scrobble_lb_server_invalid" = "서버 URL이 올바르지 않습니다";
 "scrobble_lb_server_footer" = "Maloja, Koito, multi-scrobbler 등 ListenBrainz 호환 자체 호스팅 서버를 사용할 때는 해당 API URL을 입력하고 그 서버에서 받은 토큰을 사용하세요.";
+"toolbar_quick_locate_short" = "현재 곡";
+"toolbar_quick_find_short" = "찾기";
+"toolbar_quick_manage_short" = "관리";

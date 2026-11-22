@@ -324,15 +324,45 @@ struct LocateCurrentSongButton: View {
                 .help(Text("locate_current_song"))
             }
         }
-        .alert("locate_current_song", isPresented: Binding(
-            get: { filteredTarget != nil },
-            set: { if !$0 { filteredTarget = nil } }
-        )) {
-            Button("clear_filters_and_locate") {
-                if let target = filteredTarget, contains(target) { locate(target, true) }
-                filteredTarget = nil
+        .filteredSongLocationAlert($filteredTarget, locate: locateClearingFilters)
+    }
+
+    /// 「清除筛选并定位」：确认时这首还在页面里才定位。
+    func locateClearingFilters(_ songID: String) {
+        if contains(songID) { locate(songID, true) }
+    }
+
+    #if os(iOS)
+    /// 顶栏四颗键收进「⋯」系统菜单时，菜单顶上那一排里的定位（`target` 是页面用 `targetID` 算好的那首，
+    /// 没有就不出现）。菜单项上挂不住 alert：要先清掉筛选时只把歌记进 `filteredTarget`，
+    /// 由页面在菜单外面挂 `filteredSongLocationAlert` 来问。
+    @ViewBuilder
+    func menuItem(target songID: String?, filteredTarget pageTarget: Binding<String?>) -> some View {
+        if let songID {
+            PMMenuQuickActionButton(
+                shortKey: "toolbar_quick_locate_short",
+                fullKey: "locate_current_song",
+                systemImage: "scope"
+            ) {
+                if isVisible(songID) { locate(songID, false) }
+                else { pageTarget.wrappedValue = songID }
             }
-            Button("cancel", role: .cancel) { filteredTarget = nil }
+            .accessibilityIdentifier("songList.locateCurrent")
+        }
+    }
+    #endif
+}
+
+extension View {
+    /// 要定位的歌被筛选挡住时问一句「清除筛选并定位」。在菜单里点的定位把歌记进 `target`，
+    /// 这个 alert 挂在菜单外面的页面上（菜单项上挂不住）。
+    func filteredSongLocationAlert(_ target: Binding<String?>, locate: @escaping (String) -> Void) -> some View {
+        alert("locate_current_song", isPresented: Binding(
+            get: { target.wrappedValue != nil },
+            set: { if !$0 { target.wrappedValue = nil } }
+        ), presenting: target.wrappedValue) { songID in
+            Button("clear_filters_and_locate") { locate(songID) }
+            Button("cancel", role: .cancel) {}
         }
     }
 }
@@ -1149,7 +1179,8 @@ struct SongListView: View {
     /// 页内搜索真正拿去过滤的词: 停手一小会儿才跟上输入, 整库几十万首时不必每敲一个字
     /// 就在主线程过一遍全表。
     @State private var appliedSearchText: String = ""
-    @State private var toolbarMenu = PMToolbarMenuState()
+    /// 「⋯」菜单里点了定位、那首歌却被筛选挡住：菜单项上挂不住 alert，「清除筛选并定位」挂在页面上。
+    @State private var filteredLocationTarget: String?
     #endif
     @State private var sortGeneration: Int = 0
     @State private var sortTask: Task<Void, Never>?
@@ -1188,6 +1219,9 @@ struct SongListView: View {
     #endif
     @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
     private var folderFollowsListSort = false
+    /// 目录被挡住时点「目录」的说明。iOS 上点的键可能在「⋯」系统菜单里，说明框挂在页面上。
+    @State private var explainsFolderBlocker = false
+    @State private var explainedFolderBlocker = LibraryFolderBrowseBlocker.downloadedFilter
     @State private var showsHomeFolders = false
     @State private var folderIndexStore = LibraryFolderIndexStore()
     @State private var folderIndexTask: Task<Void, Never>?
@@ -1203,8 +1237,6 @@ struct SongListView: View {
     /// 当前选中的数据源过滤 (nil = 全部)。设计稿 SourceFilterChips 是可点切换的。
     @State private var selectedSourceID: String? = nil
     @State private var showViewOptions = false
-    @State private var explainsFolderBlocker = false
-    @State private var explainedFolderBlocker = LibraryFolderBrowseBlocker.downloadedFilter
     @State private var showAddVisibleToPlaylist = false
     // Bind context-menu sheets to the selected value itself.  A separate
     // `songID` + `isPresented` pair can publish in either order when a menu
@@ -1468,7 +1500,10 @@ struct SongListView: View {
     var body: some View {
         observedContent
             #if os(iOS)
-            .pmToolbarMenu(toolbarMenu) { normalToolbarMenu.items }
+            // 定位、目录键可能收在「⋯」系统菜单里，要问的这两句都挂在页面上。
+            .filteredSongLocationAlert($filteredLocationTarget) { locateCurrentButton.locateClearingFilters($0) }
+            .folderBrowseBlockerAlert(isPresented: $explainsFolderBlocker, blocker: explainedFolderBlocker,
+                                      resolve: resolveFolderBrowseBlocker)
             #endif
             .environment(\.songListLocation, songLocation)
             .onChange(of: folderFollowsListSort, initial: true) { _, follows in
@@ -1857,6 +1892,12 @@ struct SongListView: View {
         browseMode = .folder
     }
 
+    /// 目录被挡住时点了「目录」：弹说明（挂在页面上）。
+    private func explainFolderBrowseBlocker(_ blocker: LibraryFolderBrowseBlocker) {
+        explainedFolderBlocker = blocker
+        explainsFolderBlocker = true
+    }
+
     private var folderRootSourceID: String? {
         guard case .source(let sourceID) = scope else { return nil }
         return sourceID
@@ -1936,14 +1977,14 @@ struct SongListView: View {
             ? "\(songs.count.formatted()) \(String(localized: "songs_count"))"
             : " "
         return SongListMinimalHeader(
-            toolbarMenu: toolbarMenu, selection: selection,
+            selection: selection,
             progress: sortProgress,
             countText: isPreparing ? preparingCount : songCountText,
             canPlay: !isPreparing && !showsFolderBrowser && filteredProjection.playableCount > 0,
             canShuffle: !isPreparing && !showsFolderBrowser && filteredProjection.playableCount > 1,
             browseMode: $browseMode,
             folderBlocker: folderBrowseBlocker,
-            resolveFolderBlocker: resolveFolderBrowseBlocker,
+            explainFolderBlocker: explainFolderBrowseBlocker,
             sortOrder: $sortOrder,
             filter: $songFilter,
             manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
@@ -3253,8 +3294,8 @@ struct SongListView: View {
     }
 
     #if os(iOS)
-    private var normalToolbarMenu: SongListNormalToolbarMenu {
-        SongListNormalToolbarMenu(
+    private var moreMenuItems: SongListMoreMenuItems {
+        SongListMoreMenuItems(
             selection: selection, sortOrder: $sortOrder, filter: $songFilter,
             manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
             folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil
@@ -3270,29 +3311,46 @@ struct SongListView: View {
             SongSelectionToolbarItems(selection: selection, orderedIDs: { batchOrderedSongIDs }, titled: verticalBarEdge != nil)
         } else {
             let locate = locateCurrentButton
-            PMExpandableToolbar(
-                actionCount: sectionRailActive || locate.targetID(player: player, library: library) != nil ? 4 : 3,
-                menu: toolbarMenu
-            ) {
+            let locateTarget = locate.targetID(player: player, library: library)
+            let canShuffle = !showsFolderBrowser && filteredProjection.playableCount > 1
+            PMCollapsibleToolbar(actionCount: sectionRailActive || locateTarget != nil ? 4 : 3) {
                 locate
                 SongListShuffleToolbarButton(
                     selection: selection,
-                    isEnabled: !showsFolderBrowser && filteredProjection.playableCount > 1,
+                    isEnabled: canShuffle,
                     titled: verticalBarEdge != nil,
                     action: shuffleVisibleSongs
                 )
                 SongListBrowseModeToolbarButton(
                     selection: selection, browseMode: $browseMode, folderBlocker: folderBrowseBlocker,
-                    resolveFolderBlocker: resolveFolderBrowseBlocker, titled: verticalBarEdge != nil
+                    explainBlocker: explainFolderBrowseBlocker, titled: verticalBarEdge != nil
                 )
-            } primary: { usesMoreButton in
-                if usesMoreButton {
-                    // 推入的第一帧就画好、不改宽度：齿轮和它从一开始就在最后的位置上。
-                    PMNavigationBarMoreButton(menu: toolbarMenu, verticalBarEdge: verticalBarEdge)
-                } else {
-                    normalToolbarMenu
-                }
+            } primary: { collapsesActions in
+                moreMenu(collapsesActions: collapsesActions, locate: locate, locateTarget: locateTarget, canShuffle: canShuffle)
             }
+        }
+    }
+
+    /// 工具栏里那颗「⋯」。收起与否都是这一颗系统菜单，推入的第一帧就画好、不改宽度：从一开始就在最后的位置上。
+    /// 四颗键时顶栏只剩它，定位、随机、目录 / 平铺排在菜单顶上一行。
+    private func moreMenu(
+        collapsesActions: Bool, locate: LocateCurrentSongButton, locateTarget: String?, canShuffle: Bool
+    ) -> some View {
+        PMToolbarMoreMenu(
+            collapsesShortcuts: collapsesActions,
+            identifier: "songList.more",
+            titled: verticalBarEdge != nil
+        ) {
+            locate.menuItem(target: locateTarget, filteredTarget: $filteredLocationTarget)
+            SongListMenuQuickActions(
+                canShuffle: canShuffle,
+                shuffle: shuffleVisibleSongs,
+                browseMode: $browseMode,
+                folderBlocker: folderBrowseBlocker,
+                explainBlocker: explainFolderBrowseBlocker
+            )
+        } items: {
+            moreMenuItems
         }
     }
     #endif
@@ -5972,11 +6030,10 @@ private struct SongListBrowseModeToolbarButton: View {
     @Binding var browseMode: LibrarySongBrowseMode
     /// 目录被挡住时眼前其实是平铺：键换成画灰的「目录」，仍可点，点了说明原因。
     var folderBlocker: LibraryFolderBrowseBlocker? = nil
-    var resolveFolderBlocker: () -> Void = {}
+    /// 说明框挂在页面上（`folderBrowseBlockerAlert`）：同一件事也可能从「⋯」系统菜单里点，菜单项上挂不住。
+    var explainBlocker: (LibraryFolderBrowseBlocker) -> Void = { _ in }
     /// 系统竖栏里带上标题,其它时候仍是原来的纯图标。
     var titled = false
-    @State private var explainsBlocker = false
-    @State private var explainedBlocker = LibraryFolderBrowseBlocker.downloadedFilter
 
     /// 点下去去目录：正在平铺，或目录被挡住。
     private var offersFolder: Bool {
@@ -5995,8 +6052,7 @@ private struct SongListBrowseModeToolbarButton: View {
         if !selection.isActive {
             Button {
                 if let folderBlocker {
-                    explainedBlocker = folderBlocker
-                    explainsBlocker = true
+                    explainBlocker(folderBlocker)
                 } else {
                     browseMode = browseMode == .folder ? .flat : .folder
                 }
@@ -6016,12 +6072,42 @@ private struct SongListBrowseModeToolbarButton: View {
             )))
             .accessibilityHint(folderBlocker.map { Text($0.titleKey) } ?? Text(verbatim: ""))
             .accessibilityIdentifier("libraryBrowseMode.toggle")
-            .folderBrowseBlockerAlert(
-                isPresented: $explainsBlocker,
-                blocker: explainedBlocker,
-                resolve: resolveFolderBlocker
-            )
         }
+    }
+}
+
+/// 歌曲页顶栏、页头四颗键收进「⋯」系统菜单时，菜单顶上那一排里的随机播放与目录 / 平铺（顶栏还会在前面
+/// 加上定位）。文字用短的那条。目录被挡住时仍可点，说明框由页面挂在菜单外面。
+private struct SongListMenuQuickActions: View {
+    let canShuffle: Bool
+    let shuffle: () -> Void
+    @Binding var browseMode: LibrarySongBrowseMode
+    let folderBlocker: LibraryFolderBrowseBlocker?
+    let explainBlocker: (LibraryFolderBrowseBlocker) -> Void
+
+    /// 点下去去目录：正在平铺，或目录被挡住。
+    private var offersFolder: Bool {
+        browseMode != .folder || folderBlocker != nil
+    }
+
+    var body: some View {
+        PMMenuQuickActionButton(shortKey: "shuffle", fullKey: "shuffle_all", systemImage: "shuffle", action: shuffle)
+            .disabled(!canShuffle)
+            .accessibilityIdentifier("songList.shuffleAll")
+        PMMenuQuickActionButton(
+            shortKey: offersFolder ? "library_browse_folder" : "library_browse_flat",
+            fullKey: offersFolder ? "library_browse_folder" : "library_browse_flat",
+            systemImage: offersFolder ? "folder" : "list.bullet"
+        ) {
+            if let folderBlocker {
+                explainBlocker(folderBlocker)
+            } else {
+                browseMode = browseMode == .folder ? .flat : .folder
+            }
+        }
+        .accessibilityValue(Text(LocalizedStringKey(offersFolder ? "library_browse_flat" : "library_browse_folder")))
+        .accessibilityHint(folderBlocker.map { Text($0.titleKey) } ?? Text(verbatim: ""))
+        .accessibilityIdentifier("libraryBrowseMode.toggle")
     }
 }
 
@@ -6068,7 +6154,9 @@ private extension View {
     }
 }
 
-private struct SongListNormalToolbarMenu: View {
+/// 歌曲页「⋯」系统菜单里原来的内容：排序、列表样式、只看已下载，多选与添加首页目录。
+/// 顶栏、页头四颗键收起时 `PMToolbarMoreMenu` 在它上面加一排快捷操作。
+private struct SongListMoreMenuItems: View {
     let selection: SongSelectionModel
     let sortOrder: Binding<SongListView.SongSortOrder>
     @Binding var filter: SongListView.SongFilter
@@ -6076,21 +6164,8 @@ private struct SongListNormalToolbarMenu: View {
     /// 文件夹根目录传入: 文件夹里的歌默认按曲目顺序, 排序菜单要能看出这一点,
     /// 选别的维度时也要让文件夹跟随, 否则在根目录选排序没有任何效果。
     var folderFollowsListSort: Binding<Bool>? = nil
-    @ViewBuilder
-    var body: some View {
-        if !selection.isActive {
-            Menu {
-                items
-            } label: {
-                Image(systemName: "ellipsis")
-            }
-            .accessibilityLabel(Text("a11y_more_actions"))
-            .accessibilityIdentifier("songList.more")
-        }
-    }
 
-    @ViewBuilder
-    var items: some View {
+    var body: some View {
         Section {
             SongSortSubmenu(sortOrder: sortOrder, followsListSort: folderFollowsListSort)
 
@@ -6130,7 +6205,6 @@ private struct SongListNormalToolbarMenu: View {
 /// 多选时换成「已选择几首」与全选、取消。选择态读在这个子视图里，
 /// 进出多选不会让整张列表重算（同工具栏条目的做法）。
 private struct SongListMinimalHeader: View {
-    let toolbarMenu: PMToolbarMenuState
     let selection: SongSelectionModel
     let progress: SongListSortProgressModel
     let countText: String
@@ -6138,7 +6212,7 @@ private struct SongListMinimalHeader: View {
     let canShuffle: Bool
     @Binding var browseMode: LibrarySongBrowseMode
     let folderBlocker: LibraryFolderBrowseBlocker?
-    let resolveFolderBlocker: () -> Void
+    let explainFolderBlocker: (LibraryFolderBrowseBlocker) -> Void
     let sortOrder: Binding<SongListView.SongSortOrder>
     @Binding var filter: SongListView.SongFilter
     var manageHomeFolders: (() -> Void)?
@@ -6156,21 +6230,28 @@ private struct SongListMinimalHeader: View {
                     .disabled(!canPlay)
                 Spacer(minLength: 4)
                 SongListSortProgressIndicator(progress: progress)
-                MinimalExpandableFindActions(otherActionCount: 4, menu: toolbarMenu) {
+                MinimalCollapsibleHeaderActions(otherActionCount: 4) {
                     SongListShuffleToolbarButton(selection: selection, isEnabled: canShuffle, action: onShuffle)
                     SongListBrowseModeToolbarButton(
                         selection: selection,
                         browseMode: $browseMode,
                         folderBlocker: folderBlocker,
-                        resolveFolderBlocker: resolveFolderBlocker
+                        explainBlocker: explainFolderBlocker
                     )
                     MinimalPageFindButton()
                     SongSortSubmenu(sortOrder: sortOrder, followsListSort: folderFollowsListSort)
-                } primary: { usesMoreButton in
-                    if usesMoreButton {
-                        PMToolbarMoreButton(menu: toolbarMenu)
-                    } else {
-                        SongListNormalToolbarMenu(
+                } primary: { collapsesActions in
+                    // 收起时排序本来就在菜单里，顶上一排只放随机与目录。
+                    PMToolbarMoreMenu(collapsesShortcuts: collapsesActions, identifier: "songList.more") {
+                        SongListMenuQuickActions(
+                            canShuffle: canShuffle,
+                            shuffle: onShuffle,
+                            browseMode: $browseMode,
+                            folderBlocker: folderBlocker,
+                            explainBlocker: explainFolderBlocker
+                        )
+                    } items: {
+                        SongListMoreMenuItems(
                             selection: selection,
                             sortOrder: sortOrder,
                             filter: $filter,

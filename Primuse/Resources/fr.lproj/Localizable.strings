@@ -8130,3 +8130,6 @@
 "scrobble_lb_server_placeholder" = "URL du serveur (vide pour listenbrainz.org)";
 "scrobble_lb_server_invalid" = "URL du serveur non valide";
 "scrobble_lb_server_footer" = "Pour un serveur auto-hébergé compatible ListenBrainz comme Maloja, Koito ou multi-scrobbler, saisissez son URL d’API et utilisez un jeton fourni par ce serveur.";
+"toolbar_quick_locate_short" = "Localiser";
+"toolbar_quick_find_short" = "Rechercher";
+"toolbar_quick_manage_short" = "Gérer";

@@ -44,7 +44,8 @@ struct SmartPlaylistDetailView: View {
     @State private var findText = ""
     #if os(iOS)
     @State private var isFindPresented = false
-    @State private var toolbarMenu = PMToolbarMenuState()
+    /// 「⋯」菜单里点了定位、那首歌却被找歌的输入筛掉了：菜单项上挂不住 alert，「清除筛选并定位」挂在页面上。
+    @State private var filteredLocationTarget: String?
     #elseif os(macOS)
     /// 歌曲右键菜单里的刮削数据、编辑标签、编辑歌词、重新读取文件标签，交给 `macSongActionHost`。
     @State private var macSongAction: SongRowActionRequest?
@@ -206,7 +207,8 @@ struct SmartPlaylistDetailView: View {
                 #if os(iOS)
                 .toolbar {
                     let locate = locateCurrentButton(matched)
-                    PMExpandableToolbar(actionCount: locate.targetID(player: player, library: library) == nil ? 3 : 4, menu: toolbarMenu) {
+                    let locateTarget = locate.targetID(player: player, library: library)
+                    PMCollapsibleToolbar(actionCount: locateTarget == nil ? 3 : 4) {
                         locate
                         Button {
                             pmWithAnimation(.control) { isFindPresented = true }
@@ -227,15 +229,17 @@ struct SmartPlaylistDetailView: View {
                             )
                         }
                         .accessibilityIdentifier("smartPlaylist.pinIntent")
-                    } primary: { usesMoreButton in
-                        if usesMoreButton {
-                            PMNavigationBarMoreButton(menu: toolbarMenu, verticalBarEdge: verticalBarEdge)
+                    } primary: { collapsesActions in
+                        if collapsesActions {
+                            collapsedMoreMenu(smart, matched: matched, locate: locate, locateTarget: locateTarget)
                         } else {
                             editButton(smart)
                         }
                     }
                 }
-                .pmToolbarMenu(toolbarMenu) { editButton(smart, titled: true) }
+                .filteredSongLocationAlert($filteredLocationTarget) { songID in
+                    locateCurrentButton(matched).locateClearingFilters(songID)
+                }
                 #endif
                 .sheet(isPresented: $showEditor) {
                     editor(for: smart)
@@ -250,6 +254,35 @@ struct SmartPlaylistDetailView: View {
     }
 
     #if os(iOS)
+    /// 四颗键时顶栏只剩这颗「⋯」系统菜单：定位、找歌、钉选排在菜单顶上一行，下面是编辑。
+    private func collapsedMoreMenu(
+        _ smart: SmartPlaylist, matched: [Song], locate: LocateCurrentSongButton, locateTarget: String?
+    ) -> some View {
+        let pinned = ListeningIntentService.shared.isSmartPlaylistPinned(smart.id)
+        return PMToolbarMoreMenu(collapsesShortcuts: true, titled: verticalBarEdge != nil) {
+            locate.menuItem(target: locateTarget, filteredTarget: $filteredLocationTarget)
+            PMMenuQuickActionButton(
+                shortKey: "toolbar_quick_find_short",
+                fullKey: "playlist_find_prompt",
+                systemImage: "magnifyingglass"
+            ) {
+                pmWithAnimation(.control) { isFindPresented = true }
+            }
+            .disabled(matched.isEmpty)
+            .accessibilityIdentifier("smartPlaylist.find")
+            PMMenuQuickActionButton(
+                shortKey: pinned ? "listening_intent_unpin" : "listening_intent_pin",
+                fullKey: pinned ? "listening_intent_unpin_smart_playlist" : "listening_intent_pin_smart_playlist",
+                systemImage: pinned ? "pin.fill" : "pin"
+            ) {
+                ListeningIntentService.shared.setSmartPlaylistPinned(!pinned, playlistID: smart.id)
+            }
+            .accessibilityIdentifier("smartPlaylist.pinIntent")
+        } items: {
+            editButton(smart, titled: true)
+        }
+    }
+
     private func editButton(_ smart: SmartPlaylist, titled: Bool = false) -> some View {
         Button {
             showEditor = true
