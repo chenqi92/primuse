@@ -8042,3 +8042,32 @@
 "scrape_tally_copied_to_source_format" = "Mevcutlar kaynağa yazıldı %d";
 "scrape_tally_only_in_app_format" = "Yalnızca Primuse'ta %d";
 "scrape_tally_only_in_app_hint" = "Yalnızca Primuse'ta olan kapaklar ve şarkı sözleri müzik kaynağına yazılmadı. Bulma ayarlarında \"Kapak Geri Yazma\" ve \"Şarkı sözlerini kaynağa geri yazma\" seçeneklerini açıp eksik üst verileri yeniden tamamlayın.";
+
+/* Apple TV 设置主页右栏：焦点所在这一项的说明 */
+"tv_settings_context_default" = "Bir ayar seçmek için yukarı veya aşağı gidin. Burada ne işe yaradığı ve şu anki değeri görünür.";
+"tv_settings_context_sync_now" = "En güncel arşivi, çalma listelerini ve kaynakları şimdi iCloud’dan çeker.";
+"tv_settings_context_auto_sync" = "Primuse her açıldığında önce iCloud’dan veri çeker. Kapalıyken bu Apple TV’deki arşiv olduğu gibi kullanılır; güncellemek istediğinizde buradan elle eşzamanlayın.";
+"tv_settings_context_appearance" = "Apple TV’nin sistem görünümünü izler ya da her zaman açık veya koyu görünümü kullanır.";
+"tv_settings_context_app_icon" = "Apple TV ana ekranındaki Primuse simgesini değiştirir.";
+"tv_settings_context_theme_color" = "Düğmeler, ilerleme çubukları ve seçili öğeler için kullanılan renk. Kapak resmini izlerken çalan şarkıyla birlikte değişir.";
+"tv_settings_context_cover_ambient" = "Ana sayfa ve Çalıyor ekranı arka plan rengini kapak resminden alır. Kapalıyken tema rengi kullanılır.";
+"tv_settings_context_ambient_strength" = "Arka plandaki rengin ne kadar yoğun görüneceği.";
+"tv_settings_context_rg_badge" = "Çalıyor ekranında ses bilgisinin yanında şarkının sesinin ne kadar ayarlandığını gösterir.";
+"tv_settings_context_rg_mode" = "Her şarkıyı yaklaşık aynı ses düzeyine getirebilir ya da tüm albümü tek bir değerle ayarlayıp parçalar arasındaki farkları koruyabilirsiniz. Otomatik modda bir albümü baştan sona sırayla dinlerken albüm değeri, diğer durumlarda şarkı değeri kullanılır.";
+"tv_settings_context_rg_preamp" = "ReplayGain’e ek olarak her şeyi biraz yükseltir veya alçaltır; her basışta 0,5 dB.";
+"tv_settings_context_night_timer" = "Ana sayfadaki “Gece geç” ile çalmaya başladığınızda süre dolunca kendiliğinden durur. Uyumadan önce dinlemek için uygundur.";
+"tv_settings_context_default_artwork" = "Bir şarkının kapak resmi olmadığında ne gösterileceği.";
+"tv_settings_context_apple_music" = "İzin verdikten sonra Arama’da Apple Music şarkılarını bulabilir, abonelikle doğrudan çalabilirsiniz.";
+"tv_settings_context_siri" = "İzin verdikten sonra Siri radyo istasyonlarınızın, sesli kitaplarınızın ve podcast’lerinizin adlarını öğrenir; “Çal” deyip adını söylemeniz yeter.";
+"tv_settings_context_activity_status" = "Çalıyor ekranında arka planda yapılan işi gösterir; örneğin kelime eşzamanlı şarkı sözlerinin aranması.";
+"tv_settings_context_simulated_word" = "Şarkı sözlerinde yalnızca satır zamanlaması varsa her kelimenin zamanını tahmin eder; böylece sözler kelime eşzamanlı sözler gibi kelime kelime yanar.";
+"tv_settings_context_alignment_model" = "İndirildiğinde, simüle edilen kelime zamanlaması gerçek vokale göre hizalanır ve daha doğru olur.";
+"tv_settings_context_row_numbers" = "Arşiv listelerinde her satırın başında bir numara gösterir.";
+"tv_settings_context_merge_collab" = "Aynı adlı albümler yalnızca eklenen bir konuk sanatçıyla ayrılıyorsa onları tek albüm olarak gösterir.";
+"tv_settings_context_merge_same_name" = "Yalnızca albüm adına bakar: adı aynı olan albümler, sanatçı kim olursa olsun tek albüm olur.";
+"tv_settings_context_sources" = "Kaynaklar sayfasında kaynakları açıp kapatabilir, tarayabilir ve doğrudan TV’de oturum açabilirsiniz.";
+"tv_settings_context_intelligence" = "Anlamsal arama, öneriler ve akıllı çeviri için kullanılan akıllı hizmeti ayarlayın.";
+"tv_settings_context_backdrop_cache" = "Çalıyor ekranı arka plan görsellerinin bu Apple TV’de tutulan kopyaları. Bunları albüm albüm yenileyebilir veya silebilirsiniz.";
+"tv_settings_context_rate" = "Primuse’u App Store’da puanlayın.";
+"tv_settings_context_more_format" = "%lld tane daha";
+"tv_settings_context_not_connected" = "Bağlı değil";

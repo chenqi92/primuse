@@ -8042,3 +8042,32 @@
 "scrape_tally_copied_to_source_format" = "Existentes guardadas en el origen %d";
 "scrape_tally_only_in_app_format" = "Solo en Primuse %d";
 "scrape_tally_only_in_app_hint" = "Las portadas y letras que solo están en Primuse no se guardaron en la fuente. Activa «Guardar portada en el origen» y «Guardar letras en el origen» en los ajustes de búsqueda y vuelve a completar los metadatos faltantes.";
+
+/* Apple TV 设置主页右栏：焦点所在这一项的说明 */
+"tv_settings_context_default" = "Muévete hacia arriba o abajo para elegir un ajuste. Aquí verás para qué sirve y cómo está configurado ahora.";
+"tv_settings_context_sync_now" = "Trae ahora desde iCloud la biblioteca, las listas de reproducción y los orígenes más recientes.";
+"tv_settings_context_auto_sync" = "Trae los datos de iCloud cada vez que abres Primuse. Si lo desactivas, se usa la biblioteca que ya está en este Apple TV; sincroniza aquí a mano cuando quieras actualizarla.";
+"tv_settings_context_appearance" = "Sigue la apariencia del sistema del Apple TV o usa siempre el modo claro u oscuro.";
+"tv_settings_context_app_icon" = "Cambia el ícono de Primuse en la pantalla de inicio del Apple TV.";
+"tv_settings_context_theme_color" = "El color de los botones, las barras de progreso y lo seleccionado. Si sigue la portada, cambia con la canción que suena.";
+"tv_settings_context_cover_ambient" = "El inicio y la pantalla de reproducción toman el color de fondo de la portada. Si lo desactivas, se usa el color del tema.";
+"tv_settings_context_ambient_strength" = "Qué tan intenso se ve el color del fondo.";
+"tv_settings_context_rg_badge" = "Muestra junto a la información de audio de la pantalla de reproducción cuánto se ajustó el volumen de la canción.";
+"tv_settings_context_rg_mode" = "Puedes llevar cada canción a un volumen parecido o ajustar todo el álbum con un mismo valor para conservar las diferencias entre pistas. En automático se usa el valor del álbum al escuchar un álbum completo en orden y, en los demás casos, el de cada canción.";
+"tv_settings_context_rg_preamp" = "Sube o baja un poco todo además de ReplayGain, 0.5 dB por cada pulsación.";
+"tv_settings_context_night_timer" = "Cuando empiezas a reproducir desde “De noche” en el inicio, se detiene sola al terminar el tiempo. Ideal para dormir.";
+"tv_settings_context_default_artwork" = "Qué mostrar cuando una canción no tiene portada.";
+"tv_settings_context_apple_music" = "Al permitirlo, puedes buscar canciones de Apple Music y, con una suscripción, reproducirlas directamente.";
+"tv_settings_context_siri" = "Al permitirlo, Siri conoce los nombres de tus estaciones de radio, audiolibros y podcasts, así que basta con decir “Reproduce” y el nombre.";
+"tv_settings_context_activity_status" = "Muestra en la pantalla de reproducción lo que se está haciendo en segundo plano, como buscar letras sincronizadas por palabra.";
+"tv_settings_context_simulated_word" = "Cuando la letra solo tiene tiempos por línea, estima el tiempo de cada palabra para que se ilumine palabra por palabra, como una letra sincronizada por palabra.";
+"tv_settings_context_alignment_model" = "Al descargarlo, el tiempo simulado de cada palabra se alinea con la voz real y queda más preciso.";
+"tv_settings_context_row_numbers" = "Muestra un número al inicio de cada fila en las listas de la biblioteca.";
+"tv_settings_context_merge_collab" = "Muestra como uno solo los álbumes con el mismo título que solo se diferencian por un artista colaborador añadido.";
+"tv_settings_context_merge_same_name" = "Solo mira el título: los álbumes con el mismo título se unen en uno, sin importar el artista.";
+"tv_settings_context_sources" = "En la página Orígenes puedes activar o desactivar orígenes, escanearlos e iniciar sesión directamente en la TV.";
+"tv_settings_context_intelligence" = "Configura el servicio inteligente que se usa para la búsqueda semántica, las recomendaciones y la traducción inteligente.";
+"tv_settings_context_backdrop_cache" = "Copias de las imágenes de fondo de la pantalla de reproducción guardadas en este Apple TV. Puedes actualizarlas o borrarlas por álbum.";
+"tv_settings_context_rate" = "Califica Primuse en la App Store.";
+"tv_settings_context_more_format" = "%lld más";
+"tv_settings_context_not_connected" = "Sin conectar";

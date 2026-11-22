@@ -8136,3 +8136,32 @@
 "scrape_tally_copied_to_source_format" = "기존 항목 기록 %d";
 "scrape_tally_only_in_app_format" = "Primuse에만 있음 %d";
 "scrape_tally_only_in_app_hint" = "Primuse에만 있는 커버와 가사는 음악 소스에 기록되지 않았습니다. 가져오기 설정에서 '커버 기록'과 '가사 기록'을 켠 뒤 누락된 항목을 다시 가져오면 기록됩니다.";
+
+/* Apple TV 设置主页右栏：焦点所在这一项的说明 */
+"tv_settings_context_default" = "위아래로 이동해 항목을 고르면 여기에 그 항목이 하는 일과 현재 설정이 표시됩니다.";
+"tv_settings_context_sync_now" = "지금 iCloud에서 최신 보관함, 재생 목록, 음악 소스를 가져옵니다.";
+"tv_settings_context_auto_sync" = "Primuse를 열 때마다 iCloud에서 먼저 가져옵니다. 끄면 이 Apple TV에 있는 보관함을 그대로 쓰고, 업데이트가 필요할 때 여기서 직접 동기화합니다.";
+"tv_settings_context_appearance" = "Apple TV의 시스템 화면 모드를 따라 자동으로 바꾸거나, 라이트나 다크로 고정할 수 있습니다.";
+"tv_settings_context_app_icon" = "Apple TV 홈 화면에 표시되는 Primuse 아이콘을 바꿉니다.";
+"tv_settings_context_theme_color" = "버튼, 진행 막대, 선택 항목에 쓰이는 색입니다. 커버 아트를 따르면 재생 중인 곡에 따라 바뀝니다.";
+"tv_settings_context_cover_ambient" = "홈과 재생 화면의 배경색을 커버 아트에서 가져옵니다. 끄면 테마 색상을 씁니다.";
+"tv_settings_context_ambient_strength" = "배경에 깔리는 색의 진하기입니다.";
+"tv_settings_context_rg_badge" = "재생 화면의 음질 정보 옆에 이 곡의 음량을 얼마나 조절했는지 표시합니다.";
+"tv_settings_context_rg_mode" = "곡마다 비슷한 음량으로 맞추거나, 앨범 전체를 같은 값으로 조절해 곡 사이의 강약을 그대로 둘 수 있습니다. 자동은 앨범을 순서대로 들을 때 앨범 값을, 그 밖에는 곡별 값을 씁니다.";
+"tv_settings_context_rg_preamp" = "ReplayGain에 더해 전체 음량을 조금 올리거나 내립니다. 한 번 누를 때마다 0.5dB입니다.";
+"tv_settings_context_night_timer" = "홈의 ‘늦은 밤’에서 재생을 시작하면 시간이 되면 자동으로 멈춥니다. 잠들기 전에 듣기 좋습니다.";
+"tv_settings_context_default_artwork" = "커버 아트가 없는 곡에 대신 보여 줄 이미지입니다.";
+"tv_settings_context_apple_music" = "허용하면 검색에서 Apple Music의 곡을 찾을 수 있고, 구독 중이면 바로 재생할 수 있습니다.";
+"tv_settings_context_siri" = "허용하면 라디오 방송국, 오디오북, 팟캐스트 이름을 Siri가 알게 되어 ‘재생’과 이름만 말하면 들을 수 있습니다.";
+"tv_settings_context_activity_status" = "단어별 동기화 가사 찾기처럼 백그라운드에서 진행 중인 작업을 재생 화면에 표시합니다.";
+"tv_settings_context_simulated_word" = "가사에 줄 단위 시간만 있을 때 단어별 시간을 추정해 단어별 동기화 가사처럼 한 단어씩 강조합니다.";
+"tv_settings_context_alignment_model" = "내려받으면 단어별 효과 시뮬레이션이 실제 노랫소리에 맞춰 단어를 정렬해 시간이 더 정확해집니다.";
+"tv_settings_context_row_numbers" = "보관함 목록의 각 행 앞에 번호를 표시합니다.";
+"tv_settings_context_merge_collab" = "이름이 같은 앨범이 협업 아티스트가 더해진 것만 다를 때 하나로 합쳐 표시합니다.";
+"tv_settings_context_merge_same_name" = "앨범 이름만 보고, 이름이 같으면 아티스트와 상관없이 하나로 합칩니다.";
+"tv_settings_context_sources" = "소스 페이지에서 소스를 켜고 끄거나 스캔할 수 있고, TV에서 바로 로그인할 수도 있습니다.";
+"tv_settings_context_intelligence" = "의미 검색, 추천, 스마트 번역에 쓰는 지능형 서비스를 설정합니다.";
+"tv_settings_context_backdrop_cache" = "이 Apple TV에 저장된 재생 화면 배경 이미지입니다. 앨범별로 새로 고치거나 지울 수 있습니다.";
+"tv_settings_context_rate" = "App Store에서 Primuse를 평가합니다.";
+"tv_settings_context_more_format" = "외 %lld개";
+"tv_settings_context_not_connected" = "연결 안 됨";

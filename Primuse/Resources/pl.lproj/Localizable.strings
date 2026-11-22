@@ -8042,3 +8042,32 @@
 "scrape_tally_copied_to_source_format" = "Istniejące zapisane w źródle %d";
 "scrape_tally_only_in_app_format" = "Tylko w Primuse %d";
 "scrape_tally_only_in_app_hint" = "Okładki i teksty, które są tylko w Primuse, nie zostały zapisane w źródle. Włącz „Zapis okładki w źródle” i „Zapis tekstu w źródle” w ustawieniach pobierania, a potem jeszcze raz uzupełnij brakujące metadane.";
+
+/* Apple TV 设置主页右栏：焦点所在这一项的说明 */
+"tv_settings_context_default" = "Przesuwaj w górę lub w dół, aby wybrać ustawienie. Tutaj zobaczysz, do czego służy i jak jest teraz ustawione.";
+"tv_settings_context_sync_now" = "Pobiera teraz z iCloud najnowszą bibliotekę, playlisty i źródła.";
+"tv_settings_context_auto_sync" = "Przy każdym uruchomieniu Primuse najpierw pobiera dane z iCloud. Po wyłączeniu używana jest biblioteka, która już jest na tym Apple TV; aby ją odświeżyć, zsynchronizuj tutaj ręcznie.";
+"tv_settings_context_appearance" = "Podąża za wyglądem systemu Apple TV albo zawsze używa trybu jasnego lub ciemnego.";
+"tv_settings_context_app_icon" = "Zmienia ikonę Primuse na ekranie początkowym Apple TV.";
+"tv_settings_context_theme_color" = "Kolor przycisków, pasków postępu i zaznaczeń. Gdy podąża za okładką, zmienia się razem z odtwarzanym utworem.";
+"tv_settings_context_cover_ambient" = "Ekran główny i ekran odtwarzania biorą kolor tła z okładki. Po wyłączeniu używany jest kolor motywu.";
+"tv_settings_context_ambient_strength" = "Jak intensywny jest kolor w tle.";
+"tv_settings_context_rg_badge" = "Pokazuje obok informacji o dźwięku na ekranie odtwarzania, o ile zmieniono głośność utworu.";
+"tv_settings_context_rg_mode" = "Każdy utwór może mieć mniej więcej tę samą głośność albo cały album jest korygowany o jedną wartość, żeby zachować różnice między utworami. Tryb automatyczny używa wartości albumu, gdy słuchasz całego albumu po kolei, a w pozostałych przypadkach wartości utworu.";
+"tv_settings_context_rg_preamp" = "Podnosi lub obniża nieco całość ponad ReplayGain, o 0,5 dB za każdym naciśnięciem.";
+"tv_settings_context_night_timer" = "Gdy zaczniesz odtwarzanie z „Późny wieczór” na ekranie głównym, zatrzyma się samo po upływie czasu. Dobre do zasypiania.";
+"tv_settings_context_default_artwork" = "Co pokazać, gdy utwór nie ma okładki.";
+"tv_settings_context_apple_music" = "Po zezwoleniu możesz wyszukiwać utwory z Apple Music, a z subskrypcją od razu je odtwarzać.";
+"tv_settings_context_siri" = "Po zezwoleniu Siri zna nazwy Twoich stacji radiowych, audiobooków i podcastów, więc wystarczy powiedzieć „Odtwórz” i nazwę.";
+"tv_settings_context_activity_status" = "Pokazuje na ekranie odtwarzania, co dzieje się w tle, na przykład szukanie tekstów synchronizowanych słowo po słowie.";
+"tv_settings_context_simulated_word" = "Gdy tekst ma tylko czasy wierszy, szacuje czas każdego słowa, żeby podświetlał się słowo po słowie jak tekst synchronizowany słowami.";
+"tv_settings_context_alignment_model" = "Po pobraniu symulowane czasy słów są dopasowywane do rzeczywistego wokalu i stają się dokładniejsze.";
+"tv_settings_context_row_numbers" = "Pokazuje numer na początku każdego wiersza na listach biblioteki.";
+"tv_settings_context_merge_collab" = "Pokazuje jako jeden albumy o tym samym tytule, które różnią się tylko dodanym artystą współpracującym.";
+"tv_settings_context_merge_same_name" = "Patrzy tylko na tytuł: albumy o tym samym tytule stają się jednym, niezależnie od wykonawcy.";
+"tv_settings_context_sources" = "Na stronie Źródła możesz włączać i wyłączać źródła, skanować je i logować się bezpośrednio na telewizorze.";
+"tv_settings_context_intelligence" = "Konfiguruje inteligentną usługę używaną do wyszukiwania semantycznego, rekomendacji i inteligentnego tłumaczenia.";
+"tv_settings_context_backdrop_cache" = "Kopie obrazów tła ekranu odtwarzania przechowywane na tym Apple TV. Możesz je odświeżać lub usuwać album po albumie.";
+"tv_settings_context_rate" = "Oceń Primuse w App Store.";
+"tv_settings_context_more_format" = "Jeszcze %lld";
+"tv_settings_context_not_connected" = "Nie połączono";

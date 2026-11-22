@@ -8113,3 +8113,32 @@
 "scrape_tally_copied_to_source_format" = "用已有的寫回 %d";
 "scrape_tally_only_in_app_format" = "只在 Primuse 裡 %d";
 "scrape_tally_only_in_app_hint" = "只在 Primuse 裡的封面和歌詞沒有寫進音樂來源。打開刮削設定裡的「封面寫回」「歌詞寫回」，再補全一次缺少的資料，就會寫進去。";
+
+/* Apple TV 设置主页右栏：焦点所在这一项的说明 */
+"tv_settings_context_default" = "上下移動選一項，這裡會說明它是做什麼的，以及現在的設定。";
+"tv_settings_context_sync_now" = "現在從 iCloud 拉一次最新的曲庫、播放清單和音樂來源。";
+"tv_settings_context_auto_sync" = "每次打開 Primuse 時先從 iCloud 拉一次。關掉後直接用這台 Apple TV 上已有的曲庫，想更新時在這裡手動同步。";
+"tv_settings_context_appearance" = "可以跟著 Apple TV 的系統外觀自動切換，也可以固定用淺色或深色。";
+"tv_settings_context_app_icon" = "更換 Apple TV 主畫面上 Primuse 的圖示。";
+"tv_settings_context_theme_color" = "按鈕、進度條和選中項目使用的顏色。跟隨封面時會隨正在播放的歌曲改變。";
+"tv_settings_context_cover_ambient" = "首頁和播放頁的背景取用封面的顏色。關掉後改用主題色。";
+"tv_settings_context_ambient_strength" = "背景裡那層顏色的濃淡。";
+"tv_settings_context_rg_badge" = "在播放頁的音質資訊旁顯示這首歌調整了多少音量。";
+"tv_settings_context_rg_mode" = "可以每首歌各自調到差不多響，也可以整張專輯按同一個值調，保留曲目之間的強弱。自動時按順序聽整張專輯用專輯的值，其他時候按單曲。";
+"tv_settings_context_rg_preamp" = "在回放增益的基礎上整體再調高或調低一些，每按一次 0.5 dB。";
+"tv_settings_context_night_timer" = "從首頁的「夜間聆聽」開始播放時，到時間自動停止，適合睡前聽。";
+"tv_settings_context_default_artwork" = "歌曲沒有封面時用什麼圖代替。";
+"tv_settings_context_apple_music" = "允許後可以在搜尋裡找 Apple Music 的歌曲，訂閱後就能直接播放。";
+"tv_settings_context_siri" = "允許後電台、有聲書和播客的名稱會告訴 Siri，直接說「播放」加名稱就能聽。";
+"tv_settings_context_activity_status" = "在播放頁顯示背景正在做的事，例如尋找逐字歌詞。";
+"tv_settings_context_simulated_word" = "歌詞只有整句時間時，估出每個字的時間，像逐字歌詞那樣一個字一個字亮起。";
+"tv_settings_context_alignment_model" = "下載後，模擬逐字會照著實際的歌聲對齊每個字，時間更準。";
+"tv_settings_context_row_numbers" = "在資料庫列表的每一行前面顯示序號。";
+"tv_settings_context_merge_collab" = "同名專輯只是署名多了合作藝人時，合併成一張顯示。";
+"tv_settings_context_merge_same_name" = "只看專輯名稱，名稱一樣就合併成一張，不管是誰的。";
+"tv_settings_context_sources" = "在音樂來源頁可以開關、掃描音樂來源，也能直接在電視上登入。";
+"tv_settings_context_intelligence" = "設定語意搜尋、推薦和智慧翻譯使用的智慧服務。";
+"tv_settings_context_backdrop_cache" = "播放頁背景圖存在這台 Apple TV 上的副本，可以按專輯重新整理或清除。";
+"tv_settings_context_rate" = "到 App Store 給 Primuse 評個分。";
+"tv_settings_context_more_format" = "還有 %lld 個";
+"tv_settings_context_not_connected" = "未連接";

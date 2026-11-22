@@ -7897,3 +7897,32 @@
 "scrape_tally_copied_to_source_format" = "Copied to source %d";
 "scrape_tally_only_in_app_format" = "Only in Primuse %d";
 "scrape_tally_only_in_app_hint" = "Artwork and lyrics that are only in Primuse were not written to your music source. Turn on Cover Write-Back and Lyrics Write-Back in scraping settings, then fill in missing metadata again.";
+
+/* Apple TV 设置主页右栏：焦点所在这一项的说明 */
+"tv_settings_context_default" = "Move up or down to pick a setting. This panel explains what it does and shows its current value.";
+"tv_settings_context_sync_now" = "Pull the latest library, playlists and music sources from iCloud now.";
+"tv_settings_context_auto_sync" = "Pulls from iCloud each time Primuse opens. When off, the library already on this Apple TV is used as is; sync here by hand when you want an update.";
+"tv_settings_context_appearance" = "Follow the Apple TV system appearance, or always use light or dark.";
+"tv_settings_context_app_icon" = "Changes the Primuse icon on the Apple TV Home Screen.";
+"tv_settings_context_theme_color" = "The color used for buttons, progress bars and selections. When following the cover art, it changes with the song that’s playing.";
+"tv_settings_context_cover_ambient" = "Home and Now Playing take their background color from the cover art. When off, the theme color is used instead.";
+"tv_settings_context_ambient_strength" = "How strong the color wash in the background looks.";
+"tv_settings_context_rg_badge" = "Shows how much the volume of the current song was adjusted, next to the audio info on Now Playing.";
+"tv_settings_context_rg_mode" = "Either bring every song to about the same loudness, or adjust a whole album by one value so the differences between its tracks stay. Automatic uses the album value when you play a whole album in order, and the per-song value otherwise.";
+"tv_settings_context_rg_preamp" = "Raises or lowers everything a little on top of ReplayGain, 0.5 dB per press.";
+"tv_settings_context_night_timer" = "When you start playback from “Late Night” on Home, it stops by itself when the time is up. Good for falling asleep.";
+"tv_settings_context_default_artwork" = "What to show when a song has no cover art.";
+"tv_settings_context_apple_music" = "Once allowed, you can find Apple Music songs in Search and play them directly with a subscription.";
+"tv_settings_context_siri" = "Once allowed, Siri learns the names of your radio stations, audiobooks and podcasts, so you can just say “Play” and the name.";
+"tv_settings_context_activity_status" = "Shows what’s running in the background on Now Playing, such as looking up word-synced lyrics.";
+"tv_settings_context_simulated_word" = "When lyrics only have line timing, estimates the timing of each word so they light up word by word like word-synced lyrics.";
+"tv_settings_context_alignment_model" = "Once downloaded, simulated word timing follows the actual vocals to align each word, so the timing is more accurate.";
+"tv_settings_context_row_numbers" = "Shows a number at the start of each row in library lists.";
+"tv_settings_context_merge_collab" = "Shows albums with the same title as one when they differ only by an added collaborating artist.";
+"tv_settings_context_merge_same_name" = "Looks only at the album title: albums with the same title become one, whoever the artist is.";
+"tv_settings_context_sources" = "On the Sources page you can turn sources on or off, scan them, and sign in right on the TV.";
+"tv_settings_context_intelligence" = "Set up the intelligent service used for semantic search, recommendations and smart translation.";
+"tv_settings_context_backdrop_cache" = "Copies of Now Playing background images kept on this Apple TV. You can refresh or clear them album by album.";
+"tv_settings_context_rate" = "Rate Primuse on the App Store.";
+"tv_settings_context_more_format" = "%lld more";
+"tv_settings_context_not_connected" = "Not Connected";
