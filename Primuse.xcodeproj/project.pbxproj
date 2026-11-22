@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C41C3640AAB520B96E6F1776 /* LibraryGroupingReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0210F9DFEF81109E5850D765 /* LibraryGroupingReference.swift */; };
 		9BC4957393F7A97387484FF6 /* LibraryCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE1764239E6A89FC4F1867B /* LibraryCatalog.swift */; };
 		4DFC775877CB7D04E9818B47 /* LibraryCatalogDerivedFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F039187306870A8B720278C /* LibraryCatalogDerivedFields.swift */; };
 		39A8B10B0E7EB86B80A903E6 /* LibraryCatalogImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B86943ACCF14207E1220CA1 /* LibraryCatalogImporter.swift */; };
@@ -2806,6 +2807,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0210F9DFEF81109E5850D765 /* LibraryGroupingReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryGroupingReference.swift; sourceTree = "<group>"; };
 		9CE1764239E6A89FC4F1867B /* LibraryCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalog.swift; sourceTree = "<group>"; };
 		5F039187306870A8B720278C /* LibraryCatalogDerivedFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogDerivedFields.swift; sourceTree = "<group>"; };
 		6B86943ACCF14207E1220CA1 /* LibraryCatalogImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogImporter.swift; sourceTree = "<group>"; };
@@ -4743,6 +4745,7 @@
 		4B4F67F57E8415891D0A0AD5 /* Catalog */ = {
 			isa = PBXGroup;
 			children = (
+				0210F9DFEF81109E5850D765 /* LibraryGroupingReference.swift */,
 				9CE1764239E6A89FC4F1867B /* LibraryCatalog.swift */,
 				5F039187306870A8B720278C /* LibraryCatalogDerivedFields.swift */,
 				6B86943ACCF14207E1220CA1 /* LibraryCatalogImporter.swift */,
@@ -7883,6 +7886,7 @@
 				B62F58665587941DF1792DF3 /* LibraryRowCache.swift in Sources */,
 				B4B2EE9DE0E67D544069628C /* LibraryRowList.swift in Sources */,
 				DE40D3A49F3A2F9F012856F0 /* LibraryScale.swift in Sources */,
+				C41C3640AAB520B96E6F1776 /* LibraryGroupingReference.swift in Sources */,
 				0A12E737FD6DE9550881552D /* AlbumArtistInferencePolicy.swift in Sources */,
 				01B6F2B3999C32DE93DC4189 /* AlbumBackdropCache.swift in Sources */,
 				7B8790E4F535FA4D8A3E3962 /* AlbumFlowLayoutPolicy.swift in Sources */,
