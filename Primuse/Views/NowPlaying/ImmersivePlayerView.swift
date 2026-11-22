@@ -82,12 +82,12 @@ struct ImmersivePlayerView: View {
     @State private var hasEntered = false
     @State private var gallerySongs: [Song] = []
     @State private var flowNeighbors = AlbumFlowNeighbors()
-    /// 封面流(#191)整排挪了几格：横向拖动时跟着手走，松手后归位或挪满一格再换歌。
-    @State private var flowShift: Double = 0
-    /// 这一次拖动是不是在拖封面流（横向起手）；nil 是还没定方向。
-    @State private var isDraggingFlow: Bool?
-    /// 认定是拖封面流那一刻的横向位移：从这里起算，整排不会一上来先跳一截。
-    @State private var flowDragOrigin: CGFloat = 0
+    /// 封面流(#191)的浏览：左右拖只是浏览，停住的那张抽出来，轻点才换歌、上拉排到下一首。
+    @State private var flowBrowser = ImmersiveAlbumFlowBrowser(browseHint: .tapOrSwipeUp)
+    /// 这一次拖动在封面流里做什么（横向起手是浏览、在浏览中的那张上往上拉是排到下一首）；nil 是还没定。
+    @State private var flowDragMode: ImmersiveAlbumFlowDragMode?
+    /// 认定方向那一刻的位移：从这里起算，整排不会一上来先跳一截。
+    @State private var flowDragOrigin: CGSize = .zero
     @State private var showsEffectPicker = false
     @State private var activeLyricIndex: Int?
     /// 对唱两人时间重叠时同时在唱的几行(`activeLyricIndex` 是其中最早开口的那一行);只有一行在唱时为 nil。
@@ -421,6 +421,9 @@ struct ImmersivePlayerView: View {
             synchronizeVisualizer()
             if isSceneActive { refreshFlowNeighbors() }
         }
+        .onChange(of: reduceMotion, initial: true) { _, value in
+            flowBrowser.reduceMotion = value
+        }
         .onChange(of: frameRateRawValue) { _, _ in
             synchronizeVisualizer()
         }
@@ -485,6 +488,7 @@ struct ImmersivePlayerView: View {
         }
         .onDisappear {
             discPosition.endDrag()
+            flowBrowser.reset()
             chromeTask?.cancel()
             ambientTask?.cancel()
             ambientDriftTask?.cancel()
@@ -533,7 +537,7 @@ struct ImmersivePlayerView: View {
             flowBeforeCount: flowNeighbors.before.count,
             flowAfterCount: flowNeighbors.after.count,
             flowArtwork: { offset, side in
-                // 0 是正在播的这张(给倒影用的静态那份)，其余是两侧的专辑。
+                // 0 是正在播的这张(垫在成品卡片底下的静态那份)，其余是唱片架上两侧的歌。
                 guard let song = offset == 0 ? player.currentSong : flowNeighbors.song(at: offset) else {
                     return AnyView(ImmersiveArtworkFallback(palette: artworkPalette))
                 }
@@ -555,7 +559,21 @@ struct ImmersivePlayerView: View {
                 )
             },
             flowItemID: { flowNeighbors.itemID(at: $0) },
-            flowShift: flowShift,
+            flowCardInfo: { offset in
+                guard let song = offset == 0 ? player.currentSong : flowNeighbors.song(at: offset) else { return nil }
+                return ImmersiveAlbumFlowCardInfo(
+                    title: albumFlowTitle(for: song),
+                    tint: coverTintProvider.palette(forSongID: song.id)?.primary
+                )
+            },
+            flowCardSubtitle: { offset in
+                guard let song = flowNeighbors.song(at: offset) else { return "" }
+                return albumFlowSubtitle(for: song)
+            },
+            flowShift: flowBrowser.position,
+            flowSettle: flowBrowser.settle,
+            flowQueueLift: flowBrowser.queueLift,
+            flowHint: flowBrowser.hint,
             isRenderingActive: isSceneActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
@@ -1258,13 +1276,34 @@ struct ImmersivePlayerView: View {
     /// 封面流两侧随播放队列走：换歌、加歌、调序、开关随机都重取一次。别的效果用不上，不取。
     private func refreshFlowNeighbors() {
         let updated = presentationEffect == .albumFlow
-            // 比放得下的多取一张：拖动时最外那张从画布边外滑进来。
-            ? player.albumFlowNeighbors(perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide + 1)
+            ? player.albumFlowNeighbors(perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide)
             : AlbumFlowNeighbors()
         guard updated != flowNeighbors else { return }
         flowNeighbors = updated
-        // 换歌落地：整排已按新位置排好，拖动、点按时挪出去的那几格清零，画面不跳。
-        flowShift = 0
+        // 书脊用每首歌自己的取色：在后台算、有缓存，算好了书脊换色。
+        coverTintProvider.prepare((updated.before + updated.after).map(\.song))
+        // 换歌、调序落地：浏览中的那张按身份接住，正在播的这张换了就回到它，画面不跳。
+        flowBrowser.reconcile(with: updated)
+    }
+
+    /// 书脊与浏览时歌名一块写的歌名：和正在播的这首同一套规则（标签缺歌名才拿文件名顶上）。
+    private func albumFlowTitle(for song: Song) -> String {
+        PlayerDisplayTitlePolicy.title(
+            stored: song.title,
+            filePath: song.filePath,
+            sourceType: sourcesStore.source(id: song.sourceID)?.type
+        )
+    }
+
+    private func albumFlowSubtitle(for song: Song) -> String {
+        let artist = library.artistDisplayName(for: song)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let album = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return [
+            isPlaceholderMetadata(artist, localizedKey: "unknown_artist") ? "" : artist,
+            isPlaceholderMetadata(album, localizedKey: "unknown_album") ? "" : album,
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: " · ")
     }
 
     /// 每次切歌只取一次稳定样本，避免实时频谱刷新时反复扫描整个资料库。
@@ -1611,11 +1650,16 @@ struct ImmersivePlayerView: View {
                     registerInteraction(revealControls: true)
                     return
                 }
-                if isDraggingFlow == true {
+                switch flowDragMode {
+                case .browse?:
                     finishAlbumFlowDrag(value, metrics: metrics)
                     return
+                case .queueNext?:
+                    finishAlbumFlowQueueLift(value, metrics: metrics)
+                    return
+                case .passThrough?, nil:
+                    flowDragMode = nil
                 }
-                isDraggingFlow = nil
                 // 抽屉开着时舞台只负责"点一下收起",不再响应切歌与退出。
                 guard !showsEffectPicker else { return }
                 guard !isControlZone(value.startLocation, in: size) else { return }
@@ -1653,77 +1697,117 @@ struct ImmersivePlayerView: View {
         )
     }
 
-    /// 横向起手就是在拖封面流：整排跟着手走。竖着起手照旧交给上下滑（收起 / 缩小）。
+    /// 封面流里定下这一次拖动做什么：横向起手是浏览，整排跟着手走；停在别的唱片上时、在抽出来的那张上
+    /// 往上拉是排到下一首。其余竖着起手的照旧交给上下滑（往上收起、往下缩小）。
     private func updateAlbumFlowDrag(
         _ value: DragGesture.Value,
         in size: CGSize,
         metrics: ImmersiveStageMetrics
     ) {
-        if isDraggingFlow == nil {
+        if flowDragMode == nil {
             guard presentationEffect == .albumFlow,
                   !showsEffectPicker,
                   !isControlZone(value.startLocation, in: size) else { return }
+            let layout = albumFlowLayout(metrics)
             let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
-            isDraggingFlow = isHorizontal
-            guard isHorizontal else { return }
-            flowDragOrigin = value.translation.width
-            exitAmbientRest()
+            if isHorizontal {
+                flowDragMode = .browse
+                flowBrowser.beginDrag()
+                exitAmbientRest()
+            } else if value.translation.height < 0,
+                      flowBrowser.isBrowsing,
+                      !isAmbientRest,
+                      layout.centerContains(
+                          x: Double(value.startLocation.x),
+                          y: Double(value.startLocation.y),
+                          tolerance: 12
+                      ) {
+                flowDragMode = .queueNext
+            } else {
+                flowDragMode = .passThrough
+                return
+            }
+            flowDragOrigin = value.translation
         }
-        guard isDraggingFlow == true else { return }
-        flowShift = albumFlowLayout(metrics).dragShift(
-            translation: Double(value.translation.width - flowDragOrigin),
-            hasBefore: !flowNeighbors.before.isEmpty,
-            hasAfter: !flowNeighbors.after.isEmpty
-        )
+        switch flowDragMode {
+        case .browse?:
+            let crossed = flowBrowser.updateDrag(
+                translation: Double(value.translation.width - flowDragOrigin.width),
+                layout: albumFlowLayout(metrics),
+                before: flowNeighbors.before.count,
+                after: flowNeighbors.after.count
+            )
+            if crossed { PMHaptics.albumFlowDetent() }
+        case .queueNext?:
+            flowBrowser.updateQueueLift(
+                translation: Double(value.translation.height - flowDragOrigin.height),
+                centerSide: albumFlowLayout(metrics).centerSide
+            )
+        case .passThrough?, nil:
+            break
+        }
     }
 
     /// 舞台上的拖动被系统接走(顶上拉通知中心、底边回主屏)时没有结束回调:唱片停在拖到的位置并记下,
-    /// 封面流弹回当前这首,不停在两张之间。
+    /// 封面流就近停下，上拉到一半的那张落回去。
     private func cancelSurfaceDrag() {
         if discPosition.isDragging {
             discPosition.endDrag()
             return
         }
-        let wasDraggingFlow = isDraggingFlow == true
-        isDraggingFlow = nil
-        if wasDraggingFlow, flowShift != 0 {
-            withAnimation(.smooth(duration: 0.35)) { flowShift = 0 }
+        let mode = flowDragMode
+        flowDragMode = nil
+        switch mode {
+        case .browse?:
+            flowBrowser.cancelDrag(neighbors: flowNeighbors)
+        case .queueNext?:
+            _ = flowBrowser.endQueueLift(translation: 0, predictedTranslation: 0, centerSide: 1)
+        case .passThrough?, nil:
+            break
         }
     }
 
-    /// 松手：拖过三分之一格或甩得够快就换到那一边，否则弹回。
+    /// 松手：按势头吸附到最近的一张，把它抽出来。只是浏览，不换歌。
     private func finishAlbumFlowDrag(_ value: DragGesture.Value, metrics: ImmersiveStageMetrics) {
-        isDraggingFlow = nil
+        flowDragMode = nil
         registerInteraction(revealControls: false)
-        let predicted = albumFlowLayout(metrics).dragShift(
-            translation: Double(value.predictedEndTranslation.width - flowDragOrigin),
-            hasBefore: true,
-            hasAfter: true
+        flowBrowser.endDrag(
+            predictedTranslation: Double(value.predictedEndTranslation.width - flowDragOrigin.width),
+            layout: albumFlowLayout(metrics),
+            neighbors: flowNeighbors
         )
-        let step = AlbumFlowLayoutPolicy.releaseStep(shift: flowShift, predictedShift: predicted)
-        guard step != 0 else {
-            withAnimation(.smooth(duration: 0.35)) { flowShift = 0 }
+    }
+
+    /// 上拉松手：拉够了就把浏览中的那首排到下一首（它本来就在接下来的队列里时挪到紧接着这首的位置），
+    /// 回到正在播的那张；没拉够就落回去。
+    private func finishAlbumFlowQueueLift(_ value: DragGesture.Value, metrics: ImmersiveStageMetrics) {
+        flowDragMode = nil
+        registerInteraction(revealControls: false)
+        let commits = flowBrowser.endQueueLift(
+            translation: Double(value.translation.height - flowDragOrigin.height),
+            predictedTranslation: Double(value.predictedEndTranslation.height - flowDragOrigin.height),
+            centerSide: albumFlowLayout(metrics).centerSide
+        )
+        guard commits, let song = flowNeighbors.song(at: flowBrowser.browseIndex) else { return }
+        guard player.insertNextInQueue([song]) != nil else {
+            flowBrowser.returnToPlaying()
             return
         }
-        moveAlbumFlow(by: step)
+        PMHaptics.queued()
+        refreshFlowNeighbors()
+        flowBrowser.didQueueNext()
     }
 
-    /// 整排挪 `steps` 格并换到那首。那一边有那张就先把它滑到中间，换歌落地时整排正好接上；
-    /// 没有（队首、队尾）就弹回原处，照旧交给上一首 / 下一首决定去哪（例如全部循环时回到队首）。
-    private func moveAlbumFlow(by steps: Int) {
-        guard steps != 0 else { return }
-        let available = steps > 0 ? flowNeighbors.after.count : flowNeighbors.before.count
-        let startCenter = flowNeighbors.centerID
-        withAnimation(.smooth(duration: 0.42)) {
-            flowShift = abs(steps) <= available ? Double(steps) : 0
-        }
+    /// 播放浏览中的那张：沿播放顺序跳过去；换歌落地时浏览中的那张就成了正在播的这张，没换成就回到原来那张。
+    private func playBrowsedAlbumFlowCard() {
+        guard let steps = flowBrowser.commitBrowsedCard() else { return }
+        PMHaptics.transportTapped()
         Task { @MainActor in
             let moved = await player.skipAlongQueue(by: steps)
-            // 换歌那一刻已经把整排接好；没换过去（音乐源连不上、队列到头）就弹回来。
-            guard flowNeighbors.centerID == startCenter else { return }
-            if moved { refreshFlowNeighbors() }
-            if flowShift != 0 {
-                withAnimation(.smooth(duration: 0.35)) { flowShift = 0 }
+            if moved {
+                refreshFlowNeighbors()
+            } else {
+                flowBrowser.returnToPlaying()
             }
         }
     }
@@ -1747,27 +1831,32 @@ struct ImmersivePlayerView: View {
         return value.isEmpty ? nil : value
     }
 
-    /// 封面流以外的效果里长按永远等不到，点按照旧。
+    /// 封面流以外的效果里长按永远等不到，点按照旧；封面流里停在别的唱片上时也不接长按（打开的是正在播的这张专辑）。
     private var albumFlowLongPressDuration: Double {
-        presentationEffect == .albumFlow && onShowAlbum != nil ? 0.5 : 86_400
+        presentationEffect == .albumFlow && onShowAlbum != nil && !flowBrowser.isBrowsing ? 0.5 : 86_400
     }
 
-    /// 封面流(#191)：点中间那张 = 播放 / 暂停，点两侧某一张 = 沿播放顺序跳到那首。点到别处照旧切换控件显隐。
+    /// 封面流(#191)：点抽出来的那张 —— 正在播的这张是播放 / 暂停，浏览中的那张是跳过去播放；点书脊把它抽出来。
+    /// 点到别处照旧切换控件显隐。
     private func handleAlbumFlowTap(at location: CGPoint, metrics: ImmersiveStageMetrics) -> Bool {
         guard presentationEffect == .albumFlow, !showsEffectPicker, !isAmbientRest else { return false }
         let layout = albumFlowLayout(metrics)
         guard let offset = layout.offset(
             atX: Double(location.x),
             y: Double(location.y),
-            before: min(flowNeighbors.before.count, layout.neighborsPerSide),
-            after: min(flowNeighbors.after.count, layout.neighborsPerSide),
+            browsePosition: Double(flowBrowser.browseIndex),
+            before: flowNeighbors.before.count,
+            after: flowNeighbors.after.count,
             tolerance: 8
         ) else { return false }
-        if offset == 0 {
+        if offset != flowBrowser.browseIndex {
+            PMHaptics.albumFlowDetent()
+            flowBrowser.select(offset, neighbors: flowNeighbors)
+        } else if offset == 0 {
             PMHaptics.transportTapped()
             player.togglePlayPause()
         } else {
-            moveAlbumFlow(by: offset)
+            playBrowsedAlbumFlowCard()
         }
         registerInteraction(revealControls: false)
         return true
@@ -1775,7 +1864,8 @@ struct ImmersivePlayerView: View {
 
     /// 封面流(#191)：长按打开这张专辑的全部歌曲。
     private func handleAlbumFlowLongPress() {
-        guard presentationEffect == .albumFlow, !showsEffectPicker, let onShowAlbum else { return }
+        guard presentationEffect == .albumFlow, !showsEffectPicker, !flowBrowser.isBrowsing,
+              let onShowAlbum else { return }
         exitAmbientRest()
         onShowAlbum()
     }
@@ -2079,6 +2169,16 @@ enum ImmersiveChromeControlPlacement {
     case pill
     /// 播放胶囊下面那一排。
     case bottomRow
+}
+
+/// 封面流(#191)里这一次拖动做什么。
+private enum ImmersiveAlbumFlowDragMode {
+    /// 横向起手：浏览，整排跟着手走。
+    case browse
+    /// 停在别的唱片上、在抽出来的那张上往上拉：排到下一首。
+    case queueNext
+    /// 别的竖向拖动：照旧交给上下滑（收起 / 缩小）。
+    case passThrough
 }
 
 #endif

@@ -1042,3 +1042,5 @@
 
 "src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Ative o serviço de biblioteca de mídia nas configurações do ZMusic e use o endereço, o nome de usuário e a senha próprios do serviço.";
+"fullscreen_effect_cover_flow_rack_subtitle" = "A música atual sai da estante de discos virada para você; as que já tocaram e as próximas ficam dos lados mostrando só a lombada, com a letra abaixo da prateleira";
+"fullscreen_effect_cover_flow_rack_motion" = "Folheie a estante para os lados · O disco em que você para desliza para fora e só toca se você escolher";

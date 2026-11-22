@@ -1093,3 +1093,5 @@
 
 "src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Enable Media Library Service in ZMusic settings, then use its address and separate username and password.";
+"fullscreen_effect_cover_flow_rack_subtitle" = "The playing song is pulled out of a record rack to face you, while what just played and what’s up next stand in the rack showing only their spines, with lyrics below the shelf";
+"fullscreen_effect_cover_flow_rack_motion" = "Flip through the rack left and right · The one you stop on slides out, and it plays only when you pick it";

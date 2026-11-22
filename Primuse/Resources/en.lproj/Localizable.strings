@@ -7929,3 +7929,9 @@
 "player_hides_grabber" = "Hide Top Grabber";
 "player_hides_grabber_description" = "The small bar at the top of the player is no longer shown. Swiping down still closes the player.";
 "home_hero_style_wall" = "Cover Wall";
+"immersive_flow_hint_tap_play" = "Tap to play";
+"immersive_flow_hint_swipe_up_next" = "Swipe up to play next";
+"immersive_flow_hint_click_play" = "Click to play";
+"immersive_flow_hint_select_play" = "Press Select to play";
+"fullscreen_effect_cover_flow_rack_subtitle" = "The playing song is pulled out of a record rack to face you, while what just played and what’s up next stand in the rack showing only their spines, with lyrics below the shelf";
+"fullscreen_effect_cover_flow_rack_motion" = "Flip through the rack left and right · The one you stop on slides out, and it plays only when you pick it";

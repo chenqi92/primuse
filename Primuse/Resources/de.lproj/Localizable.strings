@@ -8168,3 +8168,9 @@
 "player_hides_grabber" = "Oberen Griff ausblenden";
 "player_hides_grabber_description" = "Der kleine Balken oben im Player wird nicht mehr angezeigt. Nach unten wischen schließt den Player weiterhin.";
 "home_hero_style_wall" = "Cover-Wand";
+"immersive_flow_hint_tap_play" = "Zum Abspielen tippen";
+"immersive_flow_hint_swipe_up_next" = "Nach oben wischen: als Nächstes";
+"immersive_flow_hint_click_play" = "Zum Abspielen klicken";
+"immersive_flow_hint_select_play" = "Zum Abspielen Auswahltaste drücken";
+"fullscreen_effect_cover_flow_rack_subtitle" = "Der aktuelle Titel ragt aus dem Plattenregal und zeigt dir sein Cover; zuvor gespielte und kommende Titel stehen daneben und zeigen nur ihren Rücken, der Liedtext steht unter dem Regal";
+"fullscreen_effect_cover_flow_rack_motion" = "Nach links und rechts durch das Regal blättern · Der Titel, bei dem du anhältst, gleitet heraus und spielt erst, wenn du ihn auswählst";

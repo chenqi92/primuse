@@ -8168,3 +8168,9 @@
 "player_hides_grabber" = "상단 손잡이 숨기기";
 "player_hides_grabber_description" = "재생 화면 맨 위의 작은 막대를 표시하지 않습니다. 아래로 쓸어내리면 그대로 닫힙니다.";
 "home_hero_style_wall" = "커버 월";
+"immersive_flow_hint_tap_play" = "탭하여 재생";
+"immersive_flow_hint_swipe_up_next" = "위로 쓸어 올려 다음에 재생";
+"immersive_flow_hint_click_play" = "클릭하여 재생";
+"immersive_flow_hint_select_play" = "선택 버튼을 눌러 재생";
+"fullscreen_effect_cover_flow_rack_subtitle" = "재생 중인 곡이 음반 랙에서 꺼내져 정면을 향하고, 이미 재생한 곡과 다음 곡은 양옆에 꽂힌 채 옆면만 보입니다. 가사는 선반 아래에 표시됩니다";
+"fullscreen_effect_cover_flow_rack_motion" = "좌우로 넘기며 랙 둘러보기 · 멈춘 음반이 빠져나오고, 선택해야 재생됩니다";

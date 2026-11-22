@@ -1095,3 +1095,5 @@
 
 "src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Aktiviere den Medienbibliotheksdienst in den ZMusic-Einstellungen und verwende dessen Adresse sowie den separaten Benutzernamen und das Passwort.";
+"fullscreen_effect_cover_flow_rack_subtitle" = "Der aktuelle Titel ragt aus dem Plattenregal und zeigt dir sein Cover; zuvor gespielte und kommende Titel stehen daneben und zeigen nur ihren Rücken, der Liedtext steht unter dem Regal";
+"fullscreen_effect_cover_flow_rack_motion" = "Nach links und rechts durch das Regal blättern · Der Titel, bei dem du anhältst, gleitet heraus und spielt erst, wenn du ihn auswählst";

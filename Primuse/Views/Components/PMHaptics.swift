@@ -51,6 +51,20 @@ enum PMHaptics {
         #endif
     }
 
+    /// 全屏「封面流」里拨过一张唱片、点书脊把它抽出来时那一下:和系统滚轮选择器换一格一样轻。
+    /// 拨得快时一秒十几下,沿用同一个发生器,不每下新建。
+    @MainActor
+    static func albumFlowDetent() {
+        #if os(iOS)
+        albumFlowDetentGenerator.selectionChanged()
+        albumFlowDetentGenerator.prepare()
+        #endif
+    }
+
+    #if os(iOS)
+    @MainActor private static let albumFlowDetentGenerator = UISelectionFeedbackGenerator()
+    #endif
+
     /// 左右滑、菜单里把歌加进播放队列成功时那一下(和原来滑动入队的成功震动同一种)。
     @MainActor
     static func queued() {

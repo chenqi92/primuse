@@ -8169,3 +8169,9 @@
 "player_hides_grabber" = "上部のつまみを隠す";
 "player_hides_grabber_description" = "再生画面の一番上にある小さなバーを表示しません。下にスワイプすれば今まで通り閉じられます。";
 "home_hero_style_wall" = "ジャケットウォール";
+"immersive_flow_hint_tap_play" = "タップで再生";
+"immersive_flow_hint_swipe_up_next" = "上にスワイプで次に再生";
+"immersive_flow_hint_click_play" = "クリックで再生";
+"immersive_flow_hint_select_play" = "選択ボタンで再生";
+"fullscreen_effect_cover_flow_rack_subtitle" = "再生中の曲がラックから引き出されて正面を向き、再生済みとこの先の曲は両側に立てて背だけを見せます。歌詞は棚の下に表示";
+"fullscreen_effect_cover_flow_rack_motion" = "左右にめくってラックを眺める · 止まった1枚が引き出され、選んだときだけ再生";

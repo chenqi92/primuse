@@ -1,9 +1,11 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 import PrimuseKit
 
 /// macOS 沉浸播放：鼠标静置 3 秒淡出，0 返回原生、1–5 切换 A–E，
-/// 方向键定位，Option+方向键切歌，Esc 直接退出窗口全屏（卡拉 OK 开着时先回到沉浸页）。
+/// 方向键定位，Option+方向键切歌（封面流里方向键与触控板横滑浏览唱片架、回车播放），
+/// Esc 直接退出窗口全屏（卡拉 OK 开着时先回到沉浸页）。
 /// 播放时「一直常亮」保留当前画面；其余时候闲置后进入省电档。
 struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
@@ -61,8 +63,10 @@ struct MacImmersivePlayerView: View {
     @State private var discFace: CGImage?
     @State private var gallerySongs: [Song] = []
     @State private var flowNeighbors = AlbumFlowNeighbors()
-    /// 封面流(#191)整排挪了几格：点两侧某张时先滑过去，换歌落地后归零。
-    @State private var flowShift: Double = 0
+    /// 封面流(#191)的浏览：触控板横向滚动、左右方向键只是浏览，点抽出来的那张（或按回车）才换歌。
+    @State private var flowBrowser = ImmersiveAlbumFlowBrowser(browseHint: .click)
+    /// 触控板这一下横向滚动走到哪（不参与画面，改了不重画）。
+    @State private var flowScroll = MacAlbumFlowScrollTracker()
     /// 省电档（`ImmersiveIdlePowerPolicy`）。
     @State private var isLowPower = false
     @State private var idleTask: Task<Void, Never>?
@@ -319,6 +323,12 @@ struct MacImmersivePlayerView: View {
             .onContinuousHover { phase in
                 if case .active = phase { revealChrome() }
             }
+            .background {
+                MacAlbumFlowScrollMonitor(
+                    isEnabled: presentationEffect == .albumFlow && isRenderingActive,
+                    onScroll: { handleAlbumFlowScroll($0, metrics: metrics) }
+                )
+            }
         }
         .ignoresSafeArea(edges: ignoresWindowSafeArea ? .all : [])
         .macPlaybackErrorFeedback()
@@ -348,6 +358,9 @@ struct MacImmersivePlayerView: View {
                 leaveKaraoke()
             } else if showsEffectPicker {
                 closeEffectPicker()
+            } else if presentationEffect == .albumFlow, flowBrowser.isBrowsing {
+                // 封面流里停在别的唱片上：第一下回到正在播的那张。
+                flowBrowser.returnToPlaying()
             } else {
                 beginExitFullScreen()
             }
@@ -482,7 +495,12 @@ struct MacImmersivePlayerView: View {
         }
         .onDisappear {
             discPosition.endDrag()
+            flowBrowser.reset()
+            flowScroll.reset()
             deactivatePresentation()
+        }
+        .onChange(of: reduceMotion, initial: true) { _, value in
+            flowBrowser.reduceMotion = value
         }
     }
 
@@ -523,7 +541,7 @@ struct MacImmersivePlayerView: View {
             flowBeforeCount: flowNeighbors.before.count,
             flowAfterCount: flowNeighbors.after.count,
             flowArtwork: { offset, side in
-                // 0 是正在播的这张(给倒影用的静态那份)，其余是封面流两侧的专辑。
+                // 0 是正在播的这张(垫在成品卡片底下的静态那份)，其余是唱片架上两侧的歌。
                 guard let song = offset == 0 ? player.currentSong : flowNeighbors.song(at: offset) else {
                     return AnyView(ImmersiveArtworkFallback(palette: artworkPalette))
                 }
@@ -546,7 +564,21 @@ struct MacImmersivePlayerView: View {
                 )
             },
             flowItemID: { flowNeighbors.itemID(at: $0) },
-            flowShift: flowShift,
+            flowCardInfo: { offset in
+                guard let song = offset == 0 ? player.currentSong : flowNeighbors.song(at: offset) else { return nil }
+                return ImmersiveAlbumFlowCardInfo(
+                    title: albumFlowTitle(for: song),
+                    tint: coverTintProvider.palette(forSongID: song.id)?.primary
+                )
+            },
+            flowCardSubtitle: { offset in
+                guard let song = flowNeighbors.song(at: offset) else { return "" }
+                return albumFlowSubtitle(for: song)
+            },
+            flowShift: flowBrowser.position,
+            flowSettle: flowBrowser.settle,
+            flowQueueLift: flowBrowser.queueLift,
+            flowHint: flowBrowser.hint,
             isRenderingActive: isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
@@ -1325,13 +1357,34 @@ struct MacImmersivePlayerView: View {
         if usesDemoEvidenceContent { return }
         #endif
         let updated = presentationEffect == .albumFlow
-            // 比放得下的多取一张，换歌滑动时最外那张从画布边外进来。
-            ? player.albumFlowNeighbors(perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide + 1)
+            ? player.albumFlowNeighbors(perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide)
             : AlbumFlowNeighbors()
         guard updated != flowNeighbors else { return }
         flowNeighbors = updated
-        // 换歌落地：整排已按新位置排好，点按时挪出去的那几格清零，画面不跳。
-        flowShift = 0
+        // 书脊用每首歌自己的取色：在后台算、有缓存，算好了书脊换色。
+        coverTintProvider.prepare((updated.before + updated.after).map(\.song))
+        // 换歌、调序落地：浏览中的那张按身份接住，正在播的这张换了就回到它，画面不跳。
+        flowBrowser.reconcile(with: updated)
+    }
+
+    /// 书脊与浏览时歌名一块写的歌名：和正在播的这首同一套规则（标签缺歌名才拿文件名顶上）。
+    private func albumFlowTitle(for song: Song) -> String {
+        PlayerDisplayTitlePolicy.title(
+            stored: song.title,
+            filePath: song.filePath,
+            sourceType: AppServices.shared.sourcesStore.source(id: song.sourceID)?.type
+        )
+    }
+
+    private func albumFlowSubtitle(for song: Song) -> String {
+        let artist = library.artistDisplayName(for: song)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let album = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return [
+            isPlaceholderMetadata(artist, localizedKey: "unknown_artist") ? "" : artist,
+            isPlaceholderMetadata(album, localizedKey: "unknown_album") ? "" : album,
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: " · ")
     }
 
     private func refreshGallerySongs() {
@@ -1642,13 +1695,27 @@ struct MacImmersivePlayerView: View {
             return .handled
         }
 
+        // 封面流里左右方向键是浏览唱片架（停住的那张抽出来，回车播放）；Option+方向键照旧直接换歌，
+        // 左边那张就是上一首，不先回到这首开头。
+        if presentationEffect == .albumFlow && !showsKaraoke && isStageReady,
+           press.key == .leftArrow || press.key == .rightArrow {
+            let delta = press.key == .rightArrow ? 1 : -1
+            if press.modifiers.contains(.option) {
+                Task { await player.skipAlongQueue(by: delta) }
+            } else {
+                flowBrowser.step(by: delta, neighbors: flowNeighbors)
+            }
+            return .handled
+        }
+
+        if press.key == .return, presentationEffect == .albumFlow, !showsKaraoke, flowBrowser.isBrowsing {
+            playBrowsedAlbumFlowCard()
+            return .handled
+        }
+
         if press.key == .leftArrow {
             if press.modifiers.contains(.option) {
-                if presentationEffect == .albumFlow && !showsKaraoke {
-                    moveAlbumFlow(by: -1)
-                } else {
-                    Task { await player.previous() }
-                }
+                Task { await player.previous() }
             } else {
                 seek(by: -10)
             }
@@ -1657,11 +1724,7 @@ struct MacImmersivePlayerView: View {
 
         if press.key == .rightArrow {
             if press.modifiers.contains(.option) {
-                if presentationEffect == .albumFlow && !showsKaraoke {
-                    moveAlbumFlow(by: 1)
-                } else {
-                    Task { await player.next() }
-                }
+                Task { await player.next() }
             } else {
                 seek(by: 10)
             }
@@ -1905,10 +1968,10 @@ struct MacImmersivePlayerView: View {
         return value.isEmpty ? nil : value
     }
 
-    // MARK: - 封面流(#191)的点按
+    // MARK: - 封面流(#191)的点按与触控板
 
-    /// 点中间那张 = 播放 / 暂停，点两侧某张 = 沿播放顺序跳到那首；点别处照旧只把控件叫出来。
-    /// 省电时第一下只是叫醒。
+    /// 点抽出来的那张 —— 正在播的这张是播放 / 暂停，浏览中的那张是换到它；点书脊把它抽出来。
+    /// 点别处照旧只把控件叫出来；省电时第一下只是叫醒。
     private func handleSurfaceClick(at location: CGPoint, metrics: ImmersiveStageMetrics) {
         let wasLowPower = isLowPower
         revealChrome()
@@ -1918,42 +1981,105 @@ struct MacImmersivePlayerView: View {
               presentationEffect == .albumFlow,
               isStageReady,
               !showsEffectPicker else { return }
-        let layout = ImmersiveAlbumFlowGeometry.layout(
+        guard let offset = albumFlowLayout(metrics).offset(
+            atX: Double(location.x),
+            y: Double(location.y),
+            browsePosition: Double(flowBrowser.browseIndex),
+            before: flowNeighbors.before.count,
+            after: flowNeighbors.after.count,
+            tolerance: 4
+        ) else { return }
+        if offset != flowBrowser.browseIndex {
+            flowBrowser.select(offset, neighbors: flowNeighbors)
+        } else if offset == 0 {
+            player.togglePlayPause()
+        } else {
+            playBrowsedAlbumFlowCard()
+        }
+    }
+
+    private func albumFlowLayout(_ metrics: ImmersiveStageMetrics) -> AlbumFlowLayoutPolicy.Layout {
+        ImmersiveAlbumFlowGeometry.layout(
             metrics: metrics,
             platform: .macOS,
             controlsInset: controlsInset(metrics)
         )
-        guard let offset = layout.offset(
-            atX: Double(location.x),
-            y: Double(location.y),
-            before: min(flowNeighbors.before.count, layout.neighborsPerSide),
-            after: min(flowNeighbors.after.count, layout.neighborsPerSide),
-            tolerance: 4
-        ) else { return }
-        if offset == 0 {
-            player.togglePlayPause()
-        } else {
-            moveAlbumFlow(by: offset)
+    }
+
+    /// 播放浏览中的那张：沿播放顺序跳过去；换歌落地时浏览中的那张就成了正在播的这张，没换成就回到原来那张。
+    private func playBrowsedAlbumFlowCard() {
+        guard let steps = flowBrowser.commitBrowsedCard() else { return }
+        Task { @MainActor in
+            let moved = await player.skipAlongQueue(by: steps)
+            if moved {
+                refreshFlowNeighbors()
+            } else {
+                flowBrowser.returnToPlaying()
+            }
         }
     }
 
-    /// 整排挪 `steps` 格并换到那首。那一边有那张就先把它滑到中间，换歌落地时整排正好接上；
-    /// 没有（队首、队尾）就弹回原处，照旧交给上一首 / 下一首决定去哪。
-    private func moveAlbumFlow(by steps: Int) {
-        guard steps != 0 else { return }
-        let available = steps > 0 ? flowNeighbors.after.count : flowNeighbors.before.count
-        let startCenter = flowNeighbors.centerID
-        withAnimation(.smooth(duration: 0.42)) {
-            flowShift = abs(steps) <= available ? Double(steps) : 0
+    /// 触控板横向滚动是拨唱片架：两指横着滑整排跟着走，松手按势头停到最近的一张（后面的惯性滚动吃掉）；
+    /// 鼠标横向滚轮一格挪一张。竖着滑、浏览不了的时候不接，交回系统。
+    /// - Returns: 这一下归封面流（不再往下传）。
+    private func handleAlbumFlowScroll(_ event: MacAlbumFlowScrollEvent, metrics: ImmersiveStageMetrics) -> Bool {
+        let tracker = flowScroll
+        guard presentationEffect == .albumFlow, isStageReady, isRenderingActive,
+              !showsEffectPicker, !showsKaraoke, !isLowPower else {
+            if tracker.axis == .horizontal { flowBrowser.cancelDrag(neighbors: flowNeighbors) }
+            tracker.reset()
+            return false
         }
-        Task { @MainActor in
-            let moved = await player.skipAlongQueue(by: steps)
-            // 换歌那一刻已经把整排接好；没换过去（音乐源连不上、队列到头）就弹回来。
-            guard flowNeighbors.centerID == startCenter else { return }
-            if moved { refreshFlowNeighbors() }
-            if flowShift != 0 {
-                withAnimation(.smooth(duration: 0.35)) { flowShift = 0 }
+        switch event.phase {
+        case .began, .changed:
+            if event.phase == .began {
+                if tracker.axis == .horizontal { flowBrowser.cancelDrag(neighbors: flowNeighbors) }
+                tracker.reset()
             }
+            tracker.translation += event.deltaX
+            tracker.crossAxis += event.deltaY
+            if tracker.axis == .undecided {
+                guard abs(tracker.translation) + abs(tracker.crossAxis) >= 4 else { return false }
+                tracker.axis = abs(tracker.translation) > abs(tracker.crossAxis) ? .horizontal : .vertical
+                guard tracker.axis == .horizontal else { return false }
+                flowBrowser.beginDrag()
+                revealChrome()
+            }
+            guard tracker.axis == .horizontal else { return false }
+            tracker.lastDelta = event.deltaX
+            flowBrowser.updateDrag(
+                translation: tracker.translation,
+                layout: albumFlowLayout(metrics),
+                before: flowNeighbors.before.count,
+                after: flowNeighbors.after.count
+            )
+            return true
+        case .ended:
+            guard tracker.axis == .horizontal else {
+                tracker.reset()
+                return false
+            }
+            // 松手时最后一下的位移当作势头往前推一段，甩一下能多走几张。
+            flowBrowser.endDrag(
+                predictedTranslation: tracker.translation + tracker.lastDelta * MacAlbumFlowScrollTracker.momentumFactor,
+                layout: albumFlowLayout(metrics),
+                neighbors: flowNeighbors
+            )
+            tracker.reset()
+            tracker.swallowsMomentum = true
+            return true
+        case .momentum:
+            return tracker.swallowsMomentum
+        case .wheel:
+            guard abs(event.deltaX) > abs(event.deltaY), abs(event.deltaX) >= 0.5 else { return false }
+            let now = ProcessInfo.processInfo.systemUptime
+            guard now - tracker.lastWheelStep >= MacAlbumFlowScrollTracker.wheelInterval else { return true }
+            tracker.lastWheelStep = now
+            flowBrowser.step(by: event.deltaX < 0 ? 1 : -1, neighbors: flowNeighbors)
+            revealChrome()
+            return true
+        case .other:
+            return false
         }
     }
 
@@ -2066,4 +2192,145 @@ private struct MacImmersiveLibraryCountObserver: View {
             .onChange(of: library.songs.count) { _, _ in onCountChange() }
     }
 }
+
+/// 封面流(#191)在 Mac 上收到的一下滚动：触控板有手势阶段，鼠标滚轮没有。
+private struct MacAlbumFlowScrollEvent: Sendable {
+    enum Phase: Sendable {
+        case began
+        case changed
+        case ended
+        /// 松手后的惯性滚动。
+        case momentum
+        /// 鼠标滚轮（没有手势阶段）。
+        case wheel
+        /// 手指刚放上、还没动之类，不处理。
+        case other
+    }
+
+    let phase: Phase
+    let deltaX: Double
+    let deltaY: Double
+
+    @MainActor
+    init(_ event: NSEvent) {
+        if !event.momentumPhase.isEmpty {
+            phase = .momentum
+        } else if event.phase.contains(.began) {
+            phase = .began
+        } else if event.phase.contains(.changed) {
+            phase = .changed
+        } else if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            phase = .ended
+        } else if event.phase.isEmpty {
+            phase = .wheel
+        } else {
+            phase = .other
+        }
+        deltaX = Double(event.scrollingDeltaX)
+        deltaY = Double(event.scrollingDeltaY)
+    }
+}
+
+/// 触控板这一下横向滚动走到哪。是个普通的引用：每一下滚动都改它，但它不参与画面，改了不重画。
+private final class MacAlbumFlowScrollTracker {
+    enum Axis {
+        case undecided
+        case horizontal
+        case vertical
+    }
+
+    /// 松手时最后一下的位移乘上它，当作还会往前滑多远。
+    static let momentumFactor = 8.0
+    /// 鼠标横向滚轮两格之间至少隔多久才再挪一张。
+    static let wheelInterval = 0.12
+
+    var axis = Axis.undecided
+    var translation = 0.0
+    var crossAxis = 0.0
+    var lastDelta = 0.0
+    var swallowsMomentum = false
+    var lastWheelStep: TimeInterval = 0
+
+    func reset() {
+        axis = .undecided
+        translation = 0
+        crossAxis = 0
+        lastDelta = 0
+        swallowsMomentum = false
+    }
+}
+
+/// 只认这一页所在窗口的滚动事件，交给 `onScroll`；它返回 true 就吃掉这一下，别的照常往下传。
+/// 只在封面流开着时挂监听。
+private struct MacAlbumFlowScrollMonitor: NSViewRepresentable {
+    var isEnabled: Bool
+    var onScroll: (MacAlbumFlowScrollEvent) -> Bool
+
+    func makeNSView(context: Context) -> MacAlbumFlowScrollAnchorView {
+        let view = MacAlbumFlowScrollAnchorView()
+        context.coordinator.view = view
+        return view
+    }
+
+    func updateNSView(_ view: MacAlbumFlowScrollAnchorView, context: Context) {
+        context.coordinator.onScroll = onScroll
+        context.coordinator.setEnabled(isEnabled)
+    }
+
+    static func dismantleNSView(_ view: MacAlbumFlowScrollAnchorView, coordinator: Coordinator) {
+        coordinator.setEnabled(false)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onScroll: onScroll)
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var view: NSView?
+        var onScroll: (MacAlbumFlowScrollEvent) -> Bool
+        private var monitor: Any?
+
+        init(onScroll: @escaping (MacAlbumFlowScrollEvent) -> Bool) {
+            self.onScroll = onScroll
+        }
+
+        func setEnabled(_ enabled: Bool) {
+            if enabled, monitor == nil {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                    // 本地事件监听在主线程同步回调, SDK 没标 @MainActor:事件装箱带进主线程那一段再读。
+                    let box = MacAlbumFlowScrollEventBox(event)
+                    let consumed = MainActor.assumeIsolated {
+                        self?.consume(box.event) ?? false
+                    }
+                    return consumed ? nil : event
+                }
+            } else if !enabled, let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+
+        /// 只认落在这一页上的：同一个窗口里别处（队列面板之类）的滚动照常。
+        private func consume(_ event: NSEvent) -> Bool {
+            guard let view, let window = view.window, event.window === window,
+                  view.bounds.contains(view.convert(event.locationInWindow, from: nil)) else { return false }
+            return onScroll(MacAlbumFlowScrollEvent(event))
+        }
+    }
+}
+
+/// 只用来知道这一页在哪个窗口、占哪一块；不接点按，点击照旧落到上面的舞台。
+private final class MacAlbumFlowScrollAnchorView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private final class MacAlbumFlowScrollEventBox: @unchecked Sendable {
+    let event: NSEvent
+
+    init(_ event: NSEvent) {
+        self.event = event
+    }
+}
+
 #endif

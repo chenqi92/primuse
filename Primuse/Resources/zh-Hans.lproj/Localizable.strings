@@ -8261,3 +8261,9 @@
 "player_hides_grabber" = "隐藏顶部把手";
 "player_hides_grabber_description" = "播放页最上面那根小横条不再显示，往下拉照样能收起播放页。";
 "home_hero_style_wall" = "封面墙";
+"immersive_flow_hint_tap_play" = "轻点播放";
+"immersive_flow_hint_swipe_up_next" = "上拉排到下一首";
+"immersive_flow_hint_click_play" = "点按播放";
+"immersive_flow_hint_select_play" = "按确认键播放";
+"fullscreen_effect_cover_flow_rack_subtitle" = "正在播放的这首从唱片架里抽出来正对着你，刚放过的和接下来的竖插在两侧只露书脊，歌词在架子下方";
+"fullscreen_effect_cover_flow_rack_motion" = "左右拨动浏览唱片架 · 停住的那张抽出来，选它才换歌";

@@ -1137,8 +1137,6 @@ final class TVStore {
     /// 在电视上点了喜欢、已经加进 Apple Music 资料库,还在等 iPhone / Mac 同步进曲库的目录歌(按目录 ID)。
     private(set) var pendingAppleMusicLikes: [String: PendingAppleMusicLike] = [:]
     @ObservationIgnored private var appleMusicIdentityIndexCache: (revision: Int, index: AppleMusicTrackIdentityIndex)?
-    /// 封面流两侧换图用的曲库专辑,见 `albumFlowCoverPool()`。
-    @ObservationIgnored private var albumFlowCoverPoolCache: (albumCount: Int, songs: [Song]) = (-1, [])
     private var sourceAuthenticationFailures: Set<String> = []
 
     // 内网自动发现(Bonjour),与 iOS/macOS 同一实现。
@@ -7845,6 +7843,17 @@ final class TVStore {
         if !autoContinuationSongIDs.isEmpty { autoContinuationSongIDs = [] }
     }
 
+    /// 全屏「封面流」里选中的那张:直接跳到队列里那个位置播放(往前往后都行)。
+    @discardableResult
+    func playQueueEntry(at index: Int) -> Bool {
+        guard !isLiveRadio, index != queueIndex, queue.indices.contains(index), let s = song(queue[index]) else {
+            return false
+        }
+        queueIndex = index
+        startPlaying(s)
+        return true
+    }
+
     /// 点击「下一首」队列里的某首,直接跳到它播放。
     func playQueueItem(at upNextIndex: Int) {
         guard !isLiveRadio else { return }
@@ -8145,72 +8154,23 @@ final class TVStore {
 
     /// 全屏「封面流」(#191)两侧：队列里刚放过的几首在左、接下来的在右，按离当前由近到远。
     /// 身份带上队列位置，同一首歌在队列里出现两次也是两张；换歌时每张沿用自己的身份，整排滑过去。
-    /// 和中间同一张专辑的卡换成曲库里别的专辑封面(`AlbumFlowCoverVarietyPolicy`):整张专辑连着放时
-    /// 两侧不再一排同样的封面。只换画面,遥控器左右键仍是上一首、下一首,不看卡片画的是什么。
+    /// 每张都是那首歌自己的封面：遥控器左右浏览、按确认键播放的就是卡片上的这首。
     func albumFlowNeighbors(perSide: Int) -> AlbumFlowNeighbors {
         guard !isLiveRadio, perSide > 0, queue.indices.contains(queueIndex) else {
             return AlbumFlowNeighbors(centerID: nowPlaying.songID.isEmpty ? nil : nowPlaying.songID)
         }
-        func entries(_ indices: some Sequence<Int>) -> [(index: Int, song: Song)] {
-            indices.compactMap { index in library.song(id: queue[index]).map { (index, $0) } }
-        }
-        let before = entries((max(0, queueIndex - perSide)..<queueIndex).reversed())
-        let after = entries(queueIndex + 1 ..< min(queue.count, queueIndex + 1 + perSide))
-        let center = library.song(id: queue[queueIndex])
-        let pool = center == nil ? [] : albumFlowCoverPool()
-        var picks: (before: [Int?], after: [Int?]) = (before.map { _ in nil }, after.map { _ in nil })
-        if let center, !pool.isEmpty {
-            picks = AlbumFlowCoverVarietyPolicy.substitutes(
-                centerAlbum: Self.albumFlowAlbumKey(center),
-                before: before.map { .init(position: $0.index, album: Self.albumFlowAlbumKey($0.song)) },
-                after: after.map { .init(position: $0.index, album: Self.albumFlowAlbumKey($0.song)) },
-                pool: pool.map(Self.albumFlowAlbumKey)
-            )
-        }
-        func items(_ entries: [(index: Int, song: Song)], _ picks: [Int?]) -> [AlbumFlowNeighbors.Item] {
-            zip(entries, picks).map { entry, pick in
-                AlbumFlowNeighbors.Item(
-                    id: "\(entry.index):\(queue[entry.index])",
-                    song: pick.map { pool[$0] } ?? entry.song
-                )
+        func items(_ indices: some Sequence<Int>) -> [AlbumFlowNeighbors.Item] {
+            indices.compactMap { index in
+                library.song(id: queue[index]).map {
+                    AlbumFlowNeighbors.Item(id: "\(index):\(queue[index])", song: $0, queueIndex: index)
+                }
             }
         }
         return AlbumFlowNeighbors(
             centerID: "\(queueIndex):\(queue[queueIndex])",
-            before: items(before, picks.before),
-            after: items(after, picks.after)
+            before: items((max(0, queueIndex - perSide)..<queueIndex).reversed()),
+            after: items(queueIndex + 1 ..< min(queue.count, queueIndex + 1 + perSide))
         )
-    }
-
-    private static func albumFlowAlbumKey(_ song: Song) -> String {
-        song.albumID ?? song.albumTitle ?? song.id
-    }
-
-    /// 封面流两侧换上的曲库专辑:有封面、不是有声书,隔着取遍整个曲库,顺序固定 ——
-    /// 换上的图按队列位置从这里取,顺序一变卡片就会换图,所以只在专辑数变了时重取。
-    private func albumFlowCoverPool() -> [Song] {
-        let albums = library.visibleAlbums
-        if albumFlowCoverPoolCache.albumCount == albums.count { return albumFlowCoverPoolCache.songs }
-        let limit = 40
-        let step = max(1, albums.count / (limit * 2))
-        var songs: [Song] = []
-        var index = 0
-        while index < albums.count, songs.count < limit {
-            if let song = library.preferredArtworkSong(forAlbumID: albums[index].id),
-               !(song.coverArtFileName ?? "").isEmpty,
-               !isSpokenWord(songID: song.id) {
-                songs.append(song)
-            }
-            index += step
-        }
-        // 按专辑键打散:曲库按名字排,挨着取会是同一位艺人的一串专辑。
-        songs.sort { Self.stableHash(Self.albumFlowAlbumKey($0)) < Self.stableHash(Self.albumFlowAlbumKey($1)) }
-        albumFlowCoverPoolCache = (albums.count, songs)
-        return songs
-    }
-
-    private static func stableHash(_ value: String) -> UInt64 {
-        value.utf8.reduce(14_695_981_039_346_656_037) { ($0 ^ UInt64($1)) &* 1_099_511_628_211 }
     }
 
     private func refreshUpNext() {

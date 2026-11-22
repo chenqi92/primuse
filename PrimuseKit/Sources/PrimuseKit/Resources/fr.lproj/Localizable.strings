@@ -1095,3 +1095,5 @@
 
 "src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Activez le service de bibliothèque multimédia dans les réglages de ZMusic, puis utilisez son adresse et ses identifiants distincts.";
+"fullscreen_effect_cover_flow_rack_subtitle" = "Le titre en cours sort du bac à disques face à vous ; ceux déjà joués et à venir restent rangés de chaque côté, tranche visible, avec les paroles sous l’étagère";
+"fullscreen_effect_cover_flow_rack_motion" = "Feuilletez le bac vers la gauche ou la droite · Le disque où vous vous arrêtez sort, et ne se lance que si vous le choisissez";

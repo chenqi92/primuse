@@ -8074,3 +8074,9 @@
 "player_hides_grabber" = "Ocultar la barra superior";
 "player_hides_grabber_description" = "La pequeña barra en la parte superior del reproductor ya no se muestra. Deslizar hacia abajo sigue cerrando el reproductor.";
 "home_hero_style_wall" = "Muro de portadas";
+"immersive_flow_hint_tap_play" = "Toca para reproducir";
+"immersive_flow_hint_swipe_up_next" = "Desliza hacia arriba para reproducir a continuación";
+"immersive_flow_hint_click_play" = "Haz clic para reproducir";
+"immersive_flow_hint_select_play" = "Presiona Seleccionar para reproducir";
+"fullscreen_effect_cover_flow_rack_subtitle" = "La canción actual sale del estante de discos mirando hacia ti; las que ya sonaron y las que siguen quedan a los lados mostrando solo el lomo, con la letra debajo del estante";
+"fullscreen_effect_cover_flow_rack_motion" = "Hojea el estante a izquierda y derecha · El disco en el que te detienes se asoma y solo suena si lo eliges";

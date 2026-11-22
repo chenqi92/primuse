@@ -1324,8 +1324,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case auroraVeil
     case spectrumHorizon
     case particleBloom
-    /// 封面流(#191): 正在播的这首居中, 播放队列里前后的歌斜着排在两边, 下面是倒影;
-    /// 电视上和中间同一张专辑的那几张换成曲库里别的专辑封面。
+    /// 封面流(#191): 唱片架。正在播的这首从架子里抽出来正对着人, 播放队列里前后的歌竖插在两边只露书脊;
+    /// 左右拨动只是浏览, 选中那张才换歌。
     /// 存储值不用 "coverFlow" —— 那是旧版封面墙留下的别名, 升级用户存的就是它。
     case albumFlow
     /// 克拉尼沙画：振动金属板上的细沙随频谱重心与响度排出不同的节线花纹。
@@ -1490,8 +1490,12 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     }
 
     private var titleLocalizationKey: String { "fullscreen_effect_\(localizationStem)" }
-    private var subtitleLocalizationKey: String { "\(titleLocalizationKey)_subtitle" }
-    private var motionLocalizationKey: String { "\(titleLocalizationKey)_motion" }
+    /// 封面流改成唱片架以后换了一套说法（原来那两句写的是斜立的封面和倒影）。
+    private var descriptionStem: String {
+        self == .albumFlow ? "\(titleLocalizationKey)_rack" : titleLocalizationKey
+    }
+    private var subtitleLocalizationKey: String { "\(descriptionStem)_subtitle" }
+    private var motionLocalizationKey: String { "\(descriptionStem)_motion" }
 
     var localizedTitle: String {
         PMString(titleLocalizationKey)

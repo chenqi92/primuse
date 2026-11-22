@@ -1042,3 +1042,5 @@
 
 "src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Włącz usługę biblioteki multimediów w ustawieniach ZMusic, a następnie użyj jej adresu oraz osobnej nazwy użytkownika i hasła.";
+"fullscreen_effect_cover_flow_rack_subtitle" = "Bieżący utwór wysuwa się z półki z płytami przodem do Ciebie, a odtworzone i nadchodzące stoją po bokach, pokazując tylko grzbiety; tekst jest pod półką";
+"fullscreen_effect_cover_flow_rack_motion" = "Przeglądaj półkę w lewo i w prawo · Płyta, na której się zatrzymasz, wysuwa się i gra dopiero po wybraniu";

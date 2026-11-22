@@ -8074,3 +8074,9 @@
 "player_hides_grabber" = "ऊपर का हैंडल छिपाएँ";
 "player_hides_grabber_description" = "प्लेयर के सबसे ऊपर वाली छोटी पट्टी अब नहीं दिखेगी। नीचे स्वाइप करने से प्लेयर पहले की तरह बंद हो जाता है।";
 "home_hero_style_wall" = "कवर दीवार";
+"immersive_flow_hint_tap_play" = "चलाने के लिए टैप करें";
+"immersive_flow_hint_swipe_up_next" = "अगला चलाने के लिए ऊपर स्वाइप करें";
+"immersive_flow_hint_click_play" = "चलाने के लिए क्लिक करें";
+"immersive_flow_hint_select_play" = "चलाने के लिए चुनें बटन दबाएँ";
+"fullscreen_effect_cover_flow_rack_subtitle" = "चल रहा गाना रिकॉर्ड रैक से निकलकर आपकी ओर मुड़ता है, पहले बजे और आगे आने वाले गाने दोनों ओर खड़े रहते हैं और सिर्फ़ उनका किनारा दिखता है; बोल शेल्फ़ के नीचे दिखते हैं";
+"fullscreen_effect_cover_flow_rack_motion" = "रैक को बाएँ-दाएँ पलटें · जहाँ रुकते हैं वह रिकॉर्ड बाहर निकलता है और चुनने पर ही बजता है";

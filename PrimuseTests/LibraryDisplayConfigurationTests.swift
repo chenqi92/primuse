@@ -1434,6 +1434,11 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         let centered = AlbumFlowNeighbors(centerID: "entry-now", before: [], after: [item("a2")])
         XCTAssertEqual(centered.itemID(at: 0), "entry-now")
         XCTAssertEqual(centered.itemID(at: 1), "entry-a2")
+        // 浏览中的那张在队列变了以后按身份找回位置。
+        XCTAssertEqual(neighbors.offset(ofItemID: "entry-b2"), -2)
+        XCTAssertEqual(neighbors.offset(ofItemID: "entry-a1"), 1)
+        XCTAssertEqual(centered.offset(ofItemID: "entry-now"), 0)
+        XCTAssertNil(centered.offset(ofItemID: "entry-b1"))
         XCTAssertFalse(PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault)
     }
 

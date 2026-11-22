@@ -8074,3 +8074,9 @@
 "player_hides_grabber" = "Сховати верхній повзунок";
 "player_hides_grabber_description" = "Невелика смужка вгорі плеєра більше не показується. Змахування вниз, як і раніше, закриває плеєр.";
 "home_hero_style_wall" = "Стіна обкладинок";
+"immersive_flow_hint_tap_play" = "Торкніться, щоб увімкнути";
+"immersive_flow_hint_swipe_up_next" = "Проведіть угору, щоб увімкнути наступною";
+"immersive_flow_hint_click_play" = "Клацніть, щоб увімкнути";
+"immersive_flow_hint_select_play" = "Натисніть «Вибрати», щоб увімкнути";
+"fullscreen_effect_cover_flow_rack_subtitle" = "Поточна пісня висунута зі стійки з платівками й дивиться на вас, прослухані та наступні стоять обабіч корінцями назовні, а текст — під полицею";
+"fullscreen_effect_cover_flow_rack_motion" = "Гортайте стійку вліво й управо · Платівка, на якій ви зупинилися, висувається й грає, лише якщо її вибрати";

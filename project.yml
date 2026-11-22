@@ -931,6 +931,8 @@ targets:
       - path: Primuse/Views/NowPlaying/ImmersiveStageRenderers.swift
       - path: Primuse/Views/NowPlaying/ImmersiveSimulationRenderers.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageView.swift
+      # 封面流的唱片架:画面零件与浏览状态,与 iOS / macOS 同一份
+      - path: Primuse/Views/NowPlaying/ImmersiveAlbumFlowRack.swift
       - path: Primuse/Views/NowPlaying/ImmersiveKineticLyricsText.swift
       - path: Primuse/Views/NowPlaying/ImmersiveKineticMetalBackdrop.swift
       - path: Primuse/Views/NowPlaying/ImmersiveKineticShaderSource.swift

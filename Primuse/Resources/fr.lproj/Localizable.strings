@@ -8168,3 +8168,9 @@
 "player_hides_grabber" = "Masquer la poignée du haut";
 "player_hides_grabber_description" = "La petite barre en haut du lecteur n’est plus affichée. Balayer vers le bas ferme toujours le lecteur.";
 "home_hero_style_wall" = "Mur de pochettes";
+"immersive_flow_hint_tap_play" = "Touchez pour lire";
+"immersive_flow_hint_swipe_up_next" = "Balayez vers le haut pour lire ensuite";
+"immersive_flow_hint_click_play" = "Cliquez pour lire";
+"immersive_flow_hint_select_play" = "Appuyez sur Sélectionner pour lire";
+"fullscreen_effect_cover_flow_rack_subtitle" = "Le titre en cours sort du bac à disques face à vous ; ceux déjà joués et à venir restent rangés de chaque côté, tranche visible, avec les paroles sous l’étagère";
+"fullscreen_effect_cover_flow_rack_motion" = "Feuilletez le bac vers la gauche ou la droite · Le disque où vous vous arrêtez sort, et ne se lance que si vous le choisissez";

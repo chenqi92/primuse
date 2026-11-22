@@ -1656,6 +1656,28 @@ final class TVImmersiveDirectionalCommandTests: XCTestCase {
         XCTAssertEqual(hiddenAction(&state, input: .down, at: 2), .revealControls)
     }
 
+    /// 封面流里控件收起时左右是浏览唱片架：每按一下挪一张（一划连着来的几下只算一下），不换歌。
+    func testAlbumFlowBrowsesWithEveryPressInsteadOfChangingTrack() {
+        var state = TVImmersiveDirectionalCommandState(quietInterval: 0.45, browseInterval: 0.12)
+
+        XCTAssertEqual(albumFlowAction(&state, input: .right, at: 30), .browseForward)
+        XCTAssertEqual(albumFlowAction(&state, input: .right, at: 30.05), .none)
+        XCTAssertEqual(albumFlowAction(&state, input: .right, at: 30.20), .browseForward)
+        XCTAssertEqual(albumFlowAction(&state, input: .left, at: 30.40), .browseBackward)
+        XCTAssertEqual(albumFlowAction(&state, input: .down, at: 30.60), .revealControls)
+        XCTAssertEqual(
+            state.action(
+                for: .left,
+                at: 31,
+                controlsVisible: true,
+                modePickerVisible: false,
+                assistiveNavigationEnabled: false,
+                browsesAlbumFlow: true
+            ),
+            .standardNavigation
+        )
+    }
+
     func testReduceMotionUsesNearInstantChromeTransition() {
         XCTAssertEqual(
             TVImmersiveChromeMotionPolicy.duration(0.4, reduceMotion: true),
@@ -1680,6 +1702,21 @@ final class TVImmersiveDirectionalCommandTests: XCTestCase {
             controlsVisible: false,
             modePickerVisible: false,
             assistiveNavigationEnabled: false
+        )
+    }
+
+    private func albumFlowAction(
+        _ state: inout TVImmersiveDirectionalCommandState,
+        input: TVImmersiveDirectionalInput,
+        at uptime: TimeInterval
+    ) -> TVImmersiveDirectionalAction {
+        state.action(
+            for: input,
+            at: uptime,
+            controlsVisible: false,
+            modePickerVisible: false,
+            assistiveNavigationEnabled: false,
+            browsesAlbumFlow: true
         )
     }
 }

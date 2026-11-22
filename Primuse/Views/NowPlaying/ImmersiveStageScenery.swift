@@ -909,7 +909,7 @@ enum ImmersiveDemoStage {
                     .frame(width: side, height: side)
                 )
             },
-            // 封面流的预览两边各摆几张示意封面；0 是中间那张的倒影。
+            // 封面流的预览两边各插几张示意唱片；0 是抽出来的那张垫底的静态封面。
             flowBeforeCount: 4,
             flowAfterCount: 4,
             flowArtwork: { offset, side in
@@ -922,6 +922,15 @@ enum ImmersiveDemoStage {
                         palette: palette
                     )
                     .frame(width: side, height: side)
+                )
+            },
+            // 示意书脊借演示歌词当歌名，颜色在专辑两色之间交替。
+            flowCardInfo: { [title = track.title] offset in
+                let lyrics = ImmersiveDemoContent.lyrics
+                guard !lyrics.isEmpty else { return nil }
+                return ImmersiveAlbumFlowCardInfo(
+                    title: offset == 0 ? title : lyrics[(offset + lyrics.count * 2) % lyrics.count],
+                    tint: offset.isMultiple(of: 2) ? palette.primary : palette.secondary
                 )
             },
             reduceMotion: !showsLyricMotion,

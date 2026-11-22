@@ -1042,3 +1042,5 @@
 
 "src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "ZMusic ayarlarında medya kitaplığı hizmetini etkinleştirin, ardından hizmetin adresini ve ayrı kullanıcı adı ile parolasını kullanın.";
+"fullscreen_effect_cover_flow_rack_subtitle" = "Çalan şarkı plak rafından çekilip size döner; çalınmış ve sıradaki şarkılar iki yanda yalnızca sırtları görünecek şekilde durur, şarkı sözleri rafın altında";
+"fullscreen_effect_cover_flow_rack_motion" = "Rafta sağa sola göz atın · Durduğunuz plak dışarı çıkar ve yalnızca seçtiğinizde çalar";

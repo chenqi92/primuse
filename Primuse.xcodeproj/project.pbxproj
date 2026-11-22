@@ -96,6 +96,7 @@
 		08D30CAC5C97F4CE7FA56648 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A168D4C0759AC51316AAB9 /* Constants.swift */; };
 		08E777E2F1647E94EBF91766 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
 		08FBFE2A8180B6A0AEF02D3B /* ImmersiveStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */; };
+		197EC669F21A13DB7567DA0C /* ImmersiveAlbumFlowRack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AF971FFB8C8C0901A3BBC1 /* ImmersiveAlbumFlowRack.swift */; };
 		0929829CC1BD736FC07E2ADB /* OfflineDownloadQualityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF7104496375F2054C8BC9F /* OfflineDownloadQualityPolicy.swift */; };
 		0931D21CB53640BBBCBC0B98 /* ScrapeWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAE593077B230AED26E36FAF /* ScrapeWindowController.swift */; };
 		0942CA3CF25753C75FD0119F /* ServerListeningStatsConnectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E5CB7F4B45F29DC1E8F30D /* ServerListeningStatsConnectorTests.swift */; };
@@ -233,6 +234,7 @@
 		1704FF3236FFF8B84A0B00A9 /* PhoneRelayServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299BA8CA4513E33F5CF2BC7C /* PhoneRelayServer.swift */; };
 		17385B54C3275E7F6DBFC4D0 /* GoogleDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */; };
 		173ECEA29447C32D1D305203 /* ImmersiveStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */; };
+		83C494D7602A8BF91AFE016A /* ImmersiveAlbumFlowRack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AF971FFB8C8C0901A3BBC1 /* ImmersiveAlbumFlowRack.swift */; };
 		175CA91636CD93FF58990750 /* SceneTransitionScanQuiescePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBD6678B75E0ED0C185FD110 /* SceneTransitionScanQuiescePolicy.swift */; };
 		1774ACA052B140A50EA1B486 /* TabletopQueueStripPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D0FA18DA5BB0A37757A83B /* TabletopQueueStripPolicy.swift */; };
 		1780B9AF04358DC1C662DE8E /* KaraokeStemExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC554C076CE977FA4FC7B91E /* KaraokeStemExporter.swift */; };
@@ -1339,6 +1341,7 @@
 		84FE74F58142B67C53943885 /* SourceSyncDirectoryPruningPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 778073B1F88B0DE1E1F6806C /* SourceSyncDirectoryPruningPolicy.swift */; };
 		851E513629910D781748AD47 /* SpokenWordControlLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FC6852A9270A87D3F07BD3 /* SpokenWordControlLayout.swift */; };
 		851E6702527455803F1ACB6B /* ImmersiveStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */; };
+		66BB23B183ED05231F93F712 /* ImmersiveAlbumFlowRack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AF971FFB8C8C0901A3BBC1 /* ImmersiveAlbumFlowRack.swift */; };
 		8520FA42E71C65B9E1BF42FF /* SourceFailureClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B352CFED2A2E7082B6E15745 /* SourceFailureClassifier.swift */; };
 		8523E4EAAA1B5E40190F5D54 /* LyricsSourcesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F6E94239552B76E1BD88FD9 /* LyricsSourcesView.swift */; };
 		8524AB5FB1128555801A5911 /* ArtistHeroBackgroundResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B70DDFFBE693A36434AB1A /* ArtistHeroBackgroundResolver.swift */; };
@@ -3336,6 +3339,7 @@
 		4B800605B17FB72D56E093AB /* GaplessSuccessorDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessSuccessorDiscardPolicy.swift; sourceTree = "<group>"; };
 		4B974CEAA7EE5FAFE52A11AB /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveStageView.swift; sourceTree = "<group>"; };
+		47AF971FFB8C8C0901A3BBC1 /* ImmersiveAlbumFlowRack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveAlbumFlowRack.swift; sourceTree = "<group>"; };
 		4BF1A706ED97024BCCCCD9F8 /* ScraperConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperConfigStore.swift; sourceTree = "<group>"; };
 		4C398182E0EA26C9CA640A99 /* LibNFSSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibNFSSession.swift; sourceTree = "<group>"; };
 		4C46A7CFAEE41704BC45A8CB /* SongIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongIdentity.swift; sourceTree = "<group>"; };
@@ -5634,6 +5638,7 @@
 				183552F57FE08FA9E466F722 /* ImmersiveStageRenderers.swift */,
 				471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */,
 				4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */,
+				47AF971FFB8C8C0901A3BBC1 /* ImmersiveAlbumFlowRack.swift */,
 				45BFBE2A0B4C7D9F44560EF2 /* ImmersiveSyllableCrestText.swift */,
 				EE1FFC0F9568A087E4BD9529 /* ImmersiveWatercolorStoryScene.swift */,
 				8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */,
@@ -8663,6 +8668,7 @@
 				A8157A1377D28EC3FCFF2B4C /* ImmersiveStageRenderers.swift in Sources */,
 				1F557C87A502FBCD8DC01038 /* ImmersiveStageScenery.swift in Sources */,
 				08FBFE2A8180B6A0AEF02D3B /* ImmersiveStageView.swift in Sources */,
+				197EC669F21A13DB7567DA0C /* ImmersiveAlbumFlowRack.swift in Sources */,
 				EFD506E981B502ACB17B3CCA /* ImmersiveSyllableCrestText.swift in Sources */,
 				612F1649D21B0D1309E7FA79 /* InterfaceEditorView.swift in Sources */,
 				0BFD715FBB0EA10E558E404F /* InterfaceOrientationLock.swift in Sources */,
@@ -9162,6 +9168,7 @@
 				DD8A9952CD2D01AC1AF8EE1E /* ImmersiveStageRenderers.swift in Sources */,
 				5013F5DB3AEFE10C17DCC8F1 /* ImmersiveStageScenery.swift in Sources */,
 				851E6702527455803F1ACB6B /* ImmersiveStageView.swift in Sources */,
+				66BB23B183ED05231F93F712 /* ImmersiveAlbumFlowRack.swift in Sources */,
 				7EE5AFCDF092598C577BEE42 /* ImmersiveSyllableCrestText.swift in Sources */,
 				F92AD1060642092C75F73447 /* KaraokeLineView.swift in Sources */,
 				38880CDB964A3E0FE9035019 /* KaraokeSeparationService.swift in Sources */,
@@ -9570,6 +9577,7 @@
 				901EE55431D807D0968CE546 /* ImmersiveStageRenderers.swift in Sources */,
 				5049BF06A280BC7DC440AF62 /* ImmersiveStageScenery.swift in Sources */,
 				173ECEA29447C32D1D305203 /* ImmersiveStageView.swift in Sources */,
+				83C494D7602A8BF91AFE016A /* ImmersiveAlbumFlowRack.swift in Sources */,
 				061BB213919F479A0F3099FF /* ImmersiveSyllableCrestText.swift in Sources */,
 				1E619F4EC986CF897477BEC1 /* InterfaceEditorView.swift in Sources */,
 				A89D684D60AE5D0ED46CD0B5 /* InterfaceOrientationLock.swift in Sources */,

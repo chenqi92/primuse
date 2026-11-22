@@ -13,6 +13,9 @@ enum TVImmersiveDirectionalInput: Equatable, Sendable {
 enum TVImmersiveDirectionalAction: Equatable, Sendable {
     case previousTrack
     case nextTrack
+    /// 封面流(#191)里往左 / 往右浏览一张唱片，不换歌。
+    case browseBackward
+    case browseForward
     case revealControls
     case standardNavigation
     case none
@@ -20,18 +23,26 @@ enum TVImmersiveDirectionalAction: Equatable, Sendable {
 
 struct TVImmersiveDirectionalCommandState: Equatable, Sendable {
     private let quietInterval: TimeInterval
+    private let browseInterval: TimeInterval
     private var lastObservedTrackEventUptime: TimeInterval?
+    private var lastObservedBrowseEventUptime: TimeInterval?
 
-    init(quietInterval: TimeInterval = 0.45) {
+    /// - Parameters:
+    ///   - quietInterval: 换歌两下之间至少隔多久：触控板一划会连着来好几下，只算一次换歌。
+    ///   - browseInterval: 浏览封面流两下之间至少隔多久：一张张拨过去，但一划不至于冲到头。
+    init(quietInterval: TimeInterval = 0.45, browseInterval: TimeInterval = 0.12) {
         self.quietInterval = quietInterval
+        self.browseInterval = browseInterval
     }
 
+    /// - Parameter browsesAlbumFlow: 正在放封面流：控件收起时左右是浏览唱片架，不换歌。
     mutating func action(
         for input: TVImmersiveDirectionalInput,
         at uptime: TimeInterval,
         controlsVisible: Bool,
         modePickerVisible: Bool,
-        assistiveNavigationEnabled: Bool
+        assistiveNavigationEnabled: Bool,
+        browsesAlbumFlow: Bool = false
     ) -> TVImmersiveDirectionalAction {
         if modePickerVisible || controlsVisible {
             return .standardNavigation
@@ -43,10 +54,20 @@ struct TVImmersiveDirectionalCommandState: Equatable, Sendable {
         case .up, .down:
             return .revealControls
         case .left:
+            if browsesAlbumFlow { return acceptsBrowseEvent(at: uptime) ? .browseBackward : .none }
             return acceptsTrackEvent(at: uptime) ? .previousTrack : .none
         case .right:
+            if browsesAlbumFlow { return acceptsBrowseEvent(at: uptime) ? .browseForward : .none }
             return acceptsTrackEvent(at: uptime) ? .nextTrack : .none
         }
+    }
+
+    private mutating func acceptsBrowseEvent(at uptime: TimeInterval) -> Bool {
+        guard uptime.isFinite else { return false }
+        defer { lastObservedBrowseEventUptime = uptime }
+        guard let previous = lastObservedBrowseEventUptime else { return true }
+        guard uptime >= previous else { return false }
+        return uptime - previous >= browseInterval
     }
 
     private mutating func acceptsTrackEvent(at uptime: TimeInterval) -> Bool {
@@ -132,7 +153,7 @@ private struct TVImmersiveScreenWakeLeaseModifier: ViewModifier {
 }
 
 /// tvOS 沉浸播放：56pt 安全区、按需显示的次级控制栏与 8 秒静默淡出；
-/// 长按选择键展开效果选择，控件隐藏时左右单次切歌，Menu 退出。
+/// 长按选择键展开效果选择，控件隐藏时左右单次切歌（封面流里是浏览唱片架、确认键播放），Menu 退出。
 /// 播放常亮未生效时，15 分钟没碰遥控器就进省电档；暂停着就把屏保交还给系统。
 struct TVImmersivePlayerView: View {
     var presentsModePickerOnAppear = false
@@ -186,6 +207,8 @@ struct TVImmersivePlayerView: View {
     @State private var gallerySongs: [TVSong] = []
     /// 封面流(#191)两侧：队列里刚放过的与接下来的几首；画的时候再转成界面值。
     @State private var flowNeighbors = AlbumFlowNeighbors()
+    /// 封面流的浏览：遥控器左右只是浏览，按确认键播放停住的那张，三秒不动回到正在播的这张。
+    @State private var flowBrowser = ImmersiveAlbumFlowBrowser(browseHint: .select)
     /// 省电档（`ImmersiveIdlePowerPolicy`）。
     @State private var isLowPower = false
     @State private var idleTask: Task<Void, Never>?
@@ -351,7 +374,12 @@ struct TVImmersivePlayerView: View {
                 // 常驻的透明唤醒层避免焦点树在淡出时被重建；显示控件时禁用，
                 // 隐藏控件时承接选择键且关闭系统焦点特效。
                 Button {
-                    revealChrome()
+                    // 封面流里停在别的唱片上：确认键播放它。
+                    if presentationEffect == .albumFlow, flowBrowser.isBrowsing, !isLowPower {
+                        playBrowsedAlbumFlowCard()
+                    } else {
+                        revealChrome()
+                    }
                 } label: {
                     Color.clear
                         .contentShape(Rectangle())
@@ -466,6 +494,9 @@ struct TVImmersivePlayerView: View {
             } else if isLowPower {
                 exitLowPower()
                 scheduleLowPower()
+            } else if presentationEffect == .albumFlow, flowBrowser.isBrowsing, !showsModePicker {
+                // 封面流里停在别的唱片上：第一下回到正在播的那张。
+                flowBrowser.returnToPlaying()
             } else if showsModePicker {
                 guard !modePickerYieldsFocus else { return }
                 if effect == .native {
@@ -645,6 +676,9 @@ struct TVImmersivePlayerView: View {
         .onChange(of: switchControlEnabled) { _, _ in
             assistiveNavigationDidChange()
         }
+        .onChange(of: reduceMotion, initial: true) { _, value in
+            flowBrowser.reduceMotion = value
+        }
         .background {
             TVImmersiveLibraryCountObserver {
                 refreshGallerySongs()
@@ -707,7 +741,7 @@ struct TVImmersivePlayerView: View {
             flowBeforeCount: flowNeighbors.before.count,
             flowAfterCount: flowNeighbors.after.count,
             flowArtwork: { offset, side in
-                // 0 是正在播的这张(给倒影用的静态那份)，其余是封面流两侧的专辑。
+                // 0 是正在播的这张(垫在成品卡片底下的静态那份)，其余是唱片架上两侧的歌。
                 let source = offset == 0
                     ? store.library.song(id: np.songID)
                     : flowNeighbors.song(at: offset)
@@ -731,13 +765,30 @@ struct TVImmersivePlayerView: View {
                         radius: 0
                     )
                     .frame(width: side, height: side)
-                    // 卡片滑进滑出中间时会在曲库封面和这首的封面之间换图:旧图淡出、新图淡入,
-                    // 不让新图读出来之前先闪一下占位。
-                    .id(song.id)
-                    .transition(.opacity)
                 )
             },
             flowItemID: { flowNeighbors.itemID(at: $0) },
+            flowCardInfo: { offset in
+                let source = offset == 0 ? store.library.song(id: np.songID) : flowNeighbors.song(at: offset)
+                guard let source else { return nil }
+                // 书脊用这首封面的取色（封面读出来时记下的）；还没读出来就先用专辑的颜色。
+                let tint: Color? = if let colors = store.artworkColors(forSongID: source.id) {
+                    colors.primary
+                } else {
+                    source.albumID.flatMap { store.album($0)?.tint }
+                }
+                return ImmersiveAlbumFlowCardInfo(title: source.title, tint: tint)
+            },
+            flowCardSubtitle: { offset in
+                guard let source = flowNeighbors.song(at: offset) else { return "" }
+                return [source.artistName ?? "", source.albumTitle ?? ""]
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " · ")
+            },
+            flowShift: flowBrowser.position,
+            flowSettle: flowBrowser.settle,
+            flowHint: flowBrowser.hint,
             // 选择器几乎整屏盖住舞台:停下背后的整套动画,选择器里的预览和焦点动画才不掉帧。
             isRenderingActive: presentationActivity.isRenderingActive && !showsModePicker,
             reduceMotion: reduceMotion,
@@ -1182,10 +1233,22 @@ struct TVImmersivePlayerView: View {
     /// 封面流两侧随播放队列走。别的效果用不上，不取。
     private func refreshFlowNeighbors() {
         let updated = presentationEffect == .albumFlow
-            // 比放得下的多取一张，换歌滑动时最外那张从画布边外进来。
-            ? store.albumFlowNeighbors(perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide + 1)
+            ? store.albumFlowNeighbors(perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide)
             : AlbumFlowNeighbors()
-        if updated != flowNeighbors { flowNeighbors = updated }
+        guard updated != flowNeighbors else { return }
+        flowNeighbors = updated
+        // 换歌、调序落地：浏览中的那张按身份接住，正在播的这张换了就回到它，画面不跳。
+        flowBrowser.reconcile(with: updated)
+    }
+
+    /// 按确认键播放浏览中的那张：直接跳到它在队列里的位置；换歌落地时它就成了正在播的这张。
+    private func playBrowsedAlbumFlowCard() {
+        guard let offset = flowBrowser.commitBrowsedCard() else { return }
+        guard let index = flowNeighbors.queueIndex(at: offset), store.playQueueEntry(at: index) else {
+            flowBrowser.returnToPlaying()
+            return
+        }
+        refreshFlowNeighbors()
     }
 
     private func refreshGallerySongs() {
@@ -1490,8 +1553,11 @@ struct TVImmersivePlayerView: View {
 
     private func suspendPresentation(for event: TVImmersivePresentationActivity.Event) {
         presentationActivity.handle(event)
-        // 退出全屏页时卡拉OK 跟着停(层留着,页面随即拿掉)。
-        if event == .dismissalRequested || event == .disappeared { karaokeSession?.stop() }
+        // 退出全屏页时卡拉OK 跟着停(层留着,页面随即拿掉);封面流回到正在播的这张。
+        if event == .dismissalRequested || event == .disappeared {
+            karaokeSession?.stop()
+            flowBrowser.reset()
+        }
         lyricObservationTask?.cancel()
         lyricObservationTask = nil
         chromeTask?.cancel()
@@ -1587,14 +1653,18 @@ struct TVImmersivePlayerView: View {
             at: ProcessInfo.processInfo.systemUptime,
             controlsVisible: showsChrome,
             modePickerVisible: showsModePicker,
-            assistiveNavigationEnabled: assistiveNavigationEnabled
+            assistiveNavigationEnabled: assistiveNavigationEnabled,
+            browsesAlbumFlow: presentationEffect == .albumFlow
         )
         switch action {
         case .previousTrack:
-            // 封面流里左边那张就是上一首：直接回到它，不先回到这首开头。
-            store.transportBackward(restartCurrentIfNeeded: presentationEffect != .albumFlow)
+            store.transportBackward()
         case .nextTrack:
             store.transportForward()
+        case .browseBackward:
+            flowBrowser.step(by: -1, neighbors: flowNeighbors)
+        case .browseForward:
+            flowBrowser.step(by: 1, neighbors: flowNeighbors)
         case .revealControls:
             revealChrome()
         case .standardNavigation:

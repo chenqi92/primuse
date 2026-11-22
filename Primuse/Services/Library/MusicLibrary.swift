@@ -2530,14 +2530,16 @@ struct MusicDiscoveryResult: Identifiable, Equatable, Sendable {
 }
 
 /// 「封面流」(#191)两侧：播放队列里刚放过的几首在左、接下来要放的在右，都按离当前由近到远排。
-/// 和连按「上一首」「下一首」走过的路一样（随机时按本轮的实际顺序），点第几张、滑几格都落在同一首上。
+/// 和连按「上一首」「下一首」走过的路一样（随机时按本轮的实际顺序），浏览到第几张、选中它都落在同一首上。
 /// 手机与 Mac 由 `AudioPlayerService.albumFlowNeighbors(perSide:)` 给，电视由 `TVStore` 给。
 struct AlbumFlowNeighbors: Equatable {
     struct Item: Equatable {
         /// 队列条目的身份：同一首歌在队列里出现两次也是两张。换歌时每张沿用自己的身份，
-        /// 舞台据此把整排滑过去，而不是原地换图。
+        /// 舞台据此把整排滑过去，而不是原地换图；浏览中的那张也靠它在队列变了之后找回来。
         let id: String
         let song: Song
+        /// 在播放队列里的位置。电视选中一张时按它直接跳过去；手机与 Mac 沿播放顺序数格子，不用它。
+        var queueIndex: Int? = nil
 
         static func == (lhs: Self, rhs: Self) -> Bool {
             lhs.id == rhs.id
@@ -2559,6 +2561,19 @@ struct AlbumFlowNeighbors: Equatable {
     /// 偏移量上那一张的身份；0 是中间这张。
     func itemID(at offset: Int) -> String? {
         offset == 0 ? centerID : item(at: offset)?.id
+    }
+
+    /// 偏移量上那一张在播放队列里的位置（只有电视给）。
+    func queueIndex(at offset: Int) -> Int? {
+        item(at: offset)?.queueIndex
+    }
+
+    /// 身份为 `id` 的那一张现在在哪（0 是中间这张）；已经不在两侧了为 nil。
+    func offset(ofItemID id: String) -> Int? {
+        if id == centerID { return 0 }
+        if let index = before.firstIndex(where: { $0.id == id }) { return -(index + 1) }
+        if let index = after.firstIndex(where: { $0.id == id }) { return index + 1 }
+        return nil
     }
 
     private func item(at offset: Int) -> Item? {

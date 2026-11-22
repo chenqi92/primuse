@@ -1042,3 +1042,5 @@
 
 "src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Activa el servicio de biblioteca multimedia en los ajustes de ZMusic y usa su dirección, nombre de usuario y contraseña independientes.";
+"fullscreen_effect_cover_flow_rack_subtitle" = "La canción actual sale del estante de discos mirando hacia ti; las que ya sonaron y las que siguen quedan a los lados mostrando solo el lomo, con la letra debajo del estante";
+"fullscreen_effect_cover_flow_rack_motion" = "Hojea el estante a izquierda y derecha · El disco en el que te detienes se asoma y solo suena si lo eliges";
