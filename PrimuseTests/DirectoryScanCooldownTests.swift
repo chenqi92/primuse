@@ -513,6 +513,8 @@ final class DirectoryScanCooldownTests: XCTestCase {
         let backfill = MetadataBackfillService(library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
             backfillableSourceIDs: { ["baidu"] }, storageDirectory: state)
         defer { backfill.stop() }
+        // 启动时挑出只差封面的行在后台执行器上做,等它落定再对账;重启那一次靠落盘状态,不用等。
+        await backfill.deferInspectedArtworkOnlyRows()?.value
         backfill.refreshStatusSnapshot()
         XCTAssertEqual(backfill.remainingCount(forSource: "baidu"), 1)
         XCTAssertTrue(backfill.needsPlaybackTagRead(songID: ids[0], expectedSourceID: "baidu"))

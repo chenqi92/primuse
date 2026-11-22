@@ -1730,8 +1730,9 @@ public struct SongContentMetadata: Codable, Hashable, Sendable {
     /// 播放器只在这么长的条目里找章节(有声内容不限长短);长 MP3 读标签时也只在这个长度以上数 CHAP 帧。
     public static let chapterLookupMinimumDuration: TimeInterval = 20 * 60
 
+    /// 没有内嵌音轨清单不算没读完:新文件第一次读标签时顺带记下,老行等播放、K 歌或手动重读时
+    /// 再读。拿它当补读理由会把整库的 m4a、ALAC 和视频容器重读一遍,读不出清单的行还会每轮重读。
     public static func needsInspection(_ song: Song) -> Bool {
-        if !song.isStreamDescriptor, song.embeddedMediaTracks == nil, EmbeddedMediaTrackInventory.supports(song) { return true }
         guard [.m4a, .alac].contains(song.fileFormat),
               !song.isStreamDescriptor, !song.isStandaloneMusicVideo else { return false }
         guard let content = song.contentMetadata, content.isFileInspectionComplete else { return true }

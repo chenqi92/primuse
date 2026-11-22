@@ -140,6 +140,20 @@ struct SongContentMetadataTests {
         #expect(!SongContentMetadata.needsInspection(longMP3))
     }
 
+    @Test("Rows read before track inventories existed stay complete; unread rows still need a read",
+          arguments: [AudioFormat.m4a, .alac, .mp4, .m4v, .mov, .mka, .webm])
+    func missingTrackInventoryDoesNotReopenCompletedRows(_ format: AudioFormat) {
+        var row = Song(id: "row", title: "Track", duration: 240, fileFormat: format,
+                       filePath: "/Music/Track.\(format.rawValue)", sourceID: "source")
+        row.contentMetadata = SongContentMetadata(isFileInspectionComplete: true)
+        #expect(row.embeddedMediaTracks == nil)
+        #expect(!SongContentMetadata.needsInspection(row))
+
+        var unread = row
+        unread.contentMetadata = nil
+        #expect(SongContentMetadata.needsInspection(unread) == [.m4a, .alac].contains(format))
+    }
+
     @Test("The shelf counts a file's embedded chapters, and one chapter for a file without them")
     func chapterTally() {
         func item(_ id: String, chapters: Int?) -> Song {

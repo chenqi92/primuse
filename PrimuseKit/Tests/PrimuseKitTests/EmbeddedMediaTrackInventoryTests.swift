@@ -136,7 +136,7 @@ struct EmbeddedMediaTrackInventoryTests {
         let video = EmbeddedMediaTrackInventory(audioTracks: audio.audioTracks, hasVideo: true)
         var song = Song(id: "track", title: "Tide", fileFormat: .m4a, filePath: "/Tide.m4a", sourceID: "source")
         song.contentMetadata = .init(isFileInspectionComplete: true)
-        #expect(SongContentMetadata.needsInspection(song))
+        #expect(!SongContentMetadata.needsInspection(song))
         song.embeddedMediaTracks = video
         #expect(!SongContentMetadata.needsInspection(song))
         #expect(song.usesEmbeddedMusicVideo && !song.isStandaloneMusicVideo && song.mvPath == song.filePath)
