@@ -2123,6 +2123,8 @@ final class TVLibraryStateTests: XCTestCase {
                 $0.cueSheetPath == "/\(folderName)/Album.cue" && $0.trackNumber == 1
             }
         }
+        // 重扫的读标签放在扫描之后的后台维护里,要像在前台时一样跑起来。
+        store.setSceneActiveForTesting(true)
 
         let first = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
         XCTAssertTrue(first)
@@ -2133,6 +2135,12 @@ final class TVLibraryStateTests: XCTestCase {
             .write(to: folder.appendingPathComponent("01 First.lrc"))
         let second = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
         XCTAssertTrue(second)
+        // 扫完这一轨先记上新歌词文件,随后由后台补读读进来。
+        XCTAssertEqual(firstTrack()?.lyricsFileName, "/\(folderName)/01 First.lrc")
+        let deadline = Date().addingTimeInterval(30)
+        while firstTrack()?.lyricsText == nil, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(200))
+        }
         XCTAssertEqual(firstTrack()?.lyricsText, "first track lyric line")
     }
 

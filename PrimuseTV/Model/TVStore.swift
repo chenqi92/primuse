@@ -9266,6 +9266,13 @@ final class TVStore {
         }
     }
 
+    #if DEBUG
+    /// 单测里没有场景生命周期:让扫描之后的后台维护(补读标签)像在前台时一样跑。
+    func setSceneActiveForTesting(_ active: Bool) {
+        serverCatalogSceneIsActive = active
+    }
+    #endif
+
     func applicationDidBecomeActive() {
         scraperSettings.refreshSubscriptionsAfterLaunch()
         resumePendingSourceUpload()

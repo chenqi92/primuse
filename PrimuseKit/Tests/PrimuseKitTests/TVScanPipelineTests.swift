@@ -255,6 +255,31 @@ struct TVScanPipelineTests {
         #expect(!TVScanPipelinePolicy.cueSheetTextChanged(existing: edited, candidate: renamed))
     }
 
+    @Test func unchangedRowRecordsLyricsFileAddedLater() {
+        var existing = song(id: "same", path: "/Music/Track.flac", duration: 200, revision: "r1")
+        existing.bitRate = 900
+        var candidate = song(id: "same", path: "/Music/Track.flac", revision: "r1")
+        candidate.lyricsFileName = "/Music/Track.lrc"
+
+        // 原来没有歌词:记上文件夹里新放的歌词,别的读过的内容照旧。
+        let merged = TVScanPipelinePolicy.reconciledSkeleton(existing: existing, candidate: candidate)
+        #expect(merged.lyricsFileName == "/Music/Track.lrc")
+        #expect(merged.bitRate == 900)
+
+        // 原来记的是文件夹里的另一个歌词文件:跟着这次列到的。
+        existing.lyricsFileName = "/Music/Old.lrc"
+        #expect(TVScanPipelinePolicy.reconciledSkeleton(existing: existing, candidate: candidate)
+            .lyricsFileName == "/Music/Track.lrc")
+
+        // 本机缓存的歌词(手动挑的、内嵌读出的)不换;这次没列到歌词也不清。
+        existing.lyricsFileName = "0f9e8d7c6b5a49382716051423324150"
+        #expect(TVScanPipelinePolicy.reconciledSkeleton(existing: existing, candidate: candidate)
+            .lyricsFileName == "0f9e8d7c6b5a49382716051423324150")
+        candidate.lyricsFileName = nil
+        #expect(TVScanPipelinePolicy.reconciledSkeleton(existing: existing, candidate: candidate)
+            .lyricsFileName == "0f9e8d7c6b5a49382716051423324150")
+    }
+
     @Test func unreadM4ACodecIsInspectedOnce() {
         var existing = song(id: "same", path: "/Music/Track.m4a", duration: 120, revision: "r1")
         existing.fileFormat = .m4a

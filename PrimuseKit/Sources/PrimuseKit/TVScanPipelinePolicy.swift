@@ -211,6 +211,8 @@ public enum TVScanPipelinePolicy {
             }
             result.sacdTrackNumber = candidate.sacdTrackNumber
             result.isoAudioTrack = candidate.isoAudioTrack
+            result.lyricsFileName = adoptedSidecarLyrics(existing: existing.lyricsFileName,
+                                                         listed: candidate.lyricsFileName)
             // 能读 CUE 增益之前扫进来、或 .cue 后来才写进增益的分轨,沿用旧行时也带上。
             result.adoptCueSheetReplayGain(from: candidate)
             if let video = candidate.mvPath { result.mvPath = video }
@@ -270,6 +272,16 @@ public enum TVScanPipelinePolicy {
             existing: existing,
             incoming: candidate
         ) || cueSheetTextChanged(existing: existing, candidate: candidate)
+    }
+
+    /// 后来才放进文件夹的歌词(同名 .lrc、CUE 分轨歌词)记到沿用的旧行上:重扫的读标签放在扫描之后,
+    /// 只按库里这一行记的引用去读,不记就永远读不到。原来没有歌词、或者记的本来就是文件夹里的歌词
+    /// 文件时才换;本机缓存的歌词(手动挑的、从内嵌标签读出的)不动。
+    static func adoptedSidecarLyrics(existing: String?, listed: String?) -> String? {
+        guard let listed, !listed.isEmpty else { return existing }
+        guard let existing, !existing.isEmpty else { return listed }
+        let isFolderFile = existing.hasPrefix("/") && !existing.contains("://")
+        return isFolderFile ? listed : existing
     }
 
     /// 只改了 .cue 里这一轨的曲名、艺术家、专辑名、专辑艺术家或轨号,整轨音频没动:文件的大小和
