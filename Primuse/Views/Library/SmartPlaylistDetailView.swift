@@ -229,7 +229,7 @@ struct SmartPlaylistDetailView: View {
                         .accessibilityIdentifier("smartPlaylist.pinIntent")
                     } primary: { usesMoreButton in
                         if usesMoreButton {
-                            PMToolbarMoreButton(menu: toolbarMenu)
+                            PMNavigationBarMoreButton(menu: toolbarMenu, verticalBarEdge: verticalBarEdge)
                         } else {
                             editButton(smart)
                         }

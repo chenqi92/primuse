@@ -548,7 +548,7 @@ struct RadioStationsView: View {
                 radioManageButton.tint(RadioSpacePalette.accent)
                 radioLayoutToggle(titled: verticalBarEdge != nil).tint(RadioSpacePalette.accent)
             } primary: { usesMoreButton in
-                radioToolbarPrimary(usesMoreButton).tint(RadioSpacePalette.accent)
+                radioNavigationBarPrimary(usesMoreButton).tint(RadioSpacePalette.accent)
             }
             #else
             ToolbarItem(placement: .primaryAction) { shareMenu }
@@ -727,10 +727,21 @@ struct RadioStationsView: View {
     }
 
     #if os(iOS)
+    /// 极简页头里的那一颗：「⋯」在页面里，量得到位置，菜单从它下面弹出。
     @ViewBuilder
     private func radioToolbarPrimary(_ usesMoreButton: Bool) -> some View {
         if usesMoreButton {
             PMToolbarMoreButton(menu: toolbarMenu)
+        } else {
+            radioAddMenu
+        }
+    }
+
+    /// 导航栏里的那一颗：推入的第一帧就画好、不改宽度（见 `PMNavigationBarMoreButton`）。
+    @ViewBuilder
+    private func radioNavigationBarPrimary(_ usesMoreButton: Bool) -> some View {
+        if usesMoreButton {
+            PMNavigationBarMoreButton(menu: toolbarMenu, verticalBarEdge: verticalBarEdge)
         } else {
             radioAddMenu
         }

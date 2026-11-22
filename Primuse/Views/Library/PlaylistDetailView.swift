@@ -790,7 +790,7 @@ struct PlaylistDetailView: View {
     private func playlistMoreMenuButton(usesMoreButton: Bool) -> some View {
         Group {
             if usesMoreButton {
-                PMToolbarMoreButton(menu: toolbarMenu)
+                PMNavigationBarMoreButton(menu: toolbarMenu, verticalBarEdge: verticalBarEdge)
             } else {
                 Menu {
                     playlistMoreMenuContent

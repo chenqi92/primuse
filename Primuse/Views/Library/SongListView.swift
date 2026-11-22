@@ -3287,7 +3287,8 @@ struct SongListView: View {
                 )
             } primary: { usesMoreButton in
                 if usesMoreButton {
-                    PMToolbarMoreButton(menu: toolbarMenu)
+                    // 推入的第一帧就画好、不改宽度：齿轮和它从一开始就在最后的位置上。
+                    PMNavigationBarMoreButton(menu: toolbarMenu, verticalBarEdge: verticalBarEdge)
                 } else {
                     normalToolbarMenu
                 }

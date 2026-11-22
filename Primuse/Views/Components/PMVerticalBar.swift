@@ -269,7 +269,9 @@ final class PMToolbarMenuState {
     }
 
     var presentation = Presentation.closed
-    var anchorBottom: CGFloat = 0
+    /// 点开菜单的那颗「⋯」的下沿（全局坐标），菜单从它下面弹出。nil：「⋯」在系统导航栏里，不量位置，
+    /// 菜单贴着页面顶上的安全区弹出（见 `PMNavigationBarMoreButton`）。
+    var anchorBottom: CGFloat?
     var alignment: Alignment = .trailing
 
     func dismiss() {
@@ -299,6 +301,33 @@ struct PMToolbarMoreButton: View {
         .accessibilityIdentifier("toolbar.actions.more")
         .accessibilityAction(.escape, menu.dismiss)
         .onDisappear { menu.dismiss() }
+    }
+}
+
+/// 系统导航栏里的「⋯」。写法和右上角的齿轮、流派页的菜单键一样：一颗只带图标的普通按钮，只收值，
+/// 不读环境、不量位置、不挂出现消失的回调。`PMToolbarMoreButton` 那样量自己位置的写法，在 iOS 18 上
+/// 推入页面时先按一个偏窄的空位排进导航栏，推入动画走完才画出来、改回本来的宽度，旁边的键跟着挪一下。
+/// 量不到下沿，菜单贴着页面顶上的安全区弹出；页面消失时收起菜单的事由 `pmToolbarMenu` 管。
+/// 系统竖栏（iPhone Duo）里按钮不在顶上，菜单要跟着按钮的位置，仍用会量位置的那颗。
+struct PMNavigationBarMoreButton: View {
+    let menu: PMToolbarMenuState
+    /// 页面读到的 `pmVerticalBarEdge`。
+    let verticalBarEdge: HorizontalEdge?
+
+    var body: some View {
+        if verticalBarEdge != nil {
+            PMToolbarMoreButton(menu: menu)
+        } else {
+            Button("a11y_more_actions", systemImage: "ellipsis") {
+                menu.anchorBottom = nil
+                menu.alignment = .trailing
+                pmWithAnimation(.control) {
+                    menu.presentation = menu.presentation == .menu ? .closed : .menu
+                }
+            }
+            .labelStyle(.iconOnly)
+            .accessibilityIdentifier("toolbar.actions.more")
+        }
     }
 }
 
@@ -336,14 +365,17 @@ struct PMExpandableToolbar<Actions: View, Primary: View>: ToolbarContent {
 }
 
 extension View {
-    /// 菜单挂在页面上，让上方的原生工具栏保持可点。
+    /// 菜单挂在页面上，让上方的原生工具栏保持可点。页面消失（推入下一页、返回、换页签）时收起。
     func pmToolbarMenu<Items: View>(_ menu: PMToolbarMenuState, @ViewBuilder items: @escaping () -> Items) -> some View {
         overlay {
             if menu.presentation == .menu {
                 GeometryReader { proxy in
                     let frame = proxy.frame(in: .global)
                     let width = min(310, max(0, frame.width - 16))
-                    let top = min(max(0, menu.anchorBottom - frame.minY + 8), max(0, frame.height - 120))
+                    // 量到了「⋯」的下沿（页头里、系统竖栏里）就从它下面 8pt 弹出；导航栏里的「⋯」不量位置，
+                    // 贴着页面顶上的安全区（导航栏和抽屉式查找框下面）。
+                    let anchoredTop: CGFloat = menu.anchorBottom.map { $0 - frame.minY + 8 } ?? proxy.safeAreaInsets.top
+                    let top = min(max(0, anchoredTop), max(0, frame.height - 120))
                     let menuRows = VStack(alignment: .leading, spacing: 2) { items() }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(8)
@@ -374,6 +406,9 @@ extension View {
                 }
                 .transition(.opacity)
             }
+        }
+        .onDisappear {
+            if menu.presentation != .closed { menu.dismiss() }
         }
     }
 }
