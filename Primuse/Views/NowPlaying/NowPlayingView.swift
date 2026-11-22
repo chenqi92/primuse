@@ -2199,7 +2199,13 @@ struct NowPlayingView: View {
     @State private var presentedLyrics: [LyricLine] = []
     @State private var commentAnchors: [String: LyricLineCommentAnchor] = [:]
     /// 原文档里有没有能隐藏的自带译文;没有时「更多 › 歌词翻译」里不给那个开关。
-    @State private var lyricsHaveBundledTranslations = false
+    @State private var sourceCompanionTracks: LyricBundledTranslationPolicy.Tracks = []
+    @State private var sourceReadingIDs: Set<String> = []
+    private var lyricsHaveBundledTranslations: Bool { sourceCompanionTracks.contains(.translation) }
+    private var availableCompanionTracks: LyricBundledTranslationPolicy.Tracks {
+        guard !player.currentItemIsSpokenWord, !lyrics.isEmpty else { return [] }
+        return lyricRomanizationOverlay.generatedTextByLineID.isEmpty ? sourceCompanionTracks : sourceCompanionTracks.union(.romanization)
+    }
     /// `lyrics` 是哪一首的读取结果。播放页刚挂载、还没读过时是 nil。
     @State private var lyricsSongID: String?
     /// 收进休眠时看着的那一首,见 `lyricTaskSubject`。
@@ -4800,6 +4806,7 @@ struct NowPlayingView: View {
                             songContext: .init(title: lyricTaskSubject.title, artist: lyricTaskSubject.artist),
                             lyricsRevision: lyricsRevision,
                             lyrics: presentedLyrics,
+                            readingTranslationIDs: sourceReadingIDs,
                             overlay: $lyricRomanizationOverlay
                         )
                 }
@@ -4956,6 +4963,7 @@ struct NowPlayingView: View {
                         effect: immersiveEffectBinding,
                         lyrics: romanizedLyricsDocument.lines,
                         showsSimulatedWordTiming: usesSimulatedWordTiming,
+                        companionTracks: availableCompanionTracks,
                         lyricCompanions: {
                             LyricsScrollView.companionTexts(
                                 for: $0,
@@ -10696,6 +10704,7 @@ struct NowPlayingView: View {
         LyricsScrollView(
             document: romanizedLyricsDocument,
             showsSimulatedWordTiming: usesSimulatedWordTiming,
+            companionTracks: availableCompanionTracks,
             lyricsWritingDirection: romanizedLyricsWritingDirection,
             lyricsRevision: lyricsRevision,
             isResolvingLyrics: isResolvingLyrics,
@@ -13061,6 +13070,7 @@ struct NowPlayingView: View {
         }
         clearLyricsResolution()
         lyricsWritingDirection = LyricWritingDirectionPolicy.resolve(in: value)
+        lyricRomanizationOverlay = .empty
         lyrics = value
         presentBundledTranslationVisibility()
         lyricsSongID = player.currentSong?.id
@@ -13096,7 +13106,8 @@ struct NowPlayingView: View {
             presentation.lines,
             for: player.currentSong
         )
-        lyricsHaveBundledTranslations = presentation.hasBundledTranslations
+        sourceCompanionTracks = presentation.tracks
+        sourceReadingIDs = presentation.readingTranslationIDs
         refreshRomanizedLyrics()
     }
 
@@ -13106,7 +13117,8 @@ struct NowPlayingView: View {
         let mode = LyricsRomanizationSettingsStore.shared.displayMode
         let display = LyricRomanizationDisplayPolicy.displayLines(
             presentedLyrics,
-            overlay: lyricRomanizationOverlay,
+            overlay: LyricRomanizationOverlay(generatedTextByLineID: lyricRomanizationOverlay.generatedTextByLineID,
+                                              readingTranslationIDs: sourceReadingIDs),
             mode: mode
         )
         let shouldSimulate = simulatesWordLyrics
@@ -18409,6 +18421,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
             && lhs.isResolvingLyrics == rhs.isResolvingLyrics
             && lhs.offersLyricsRecoveryActions == rhs.offersLyricsRecoveryActions
             && lhs.showsSimulatedWordTiming == rhs.showsSimulatedWordTiming
+            && lhs.companionTracks == rhs.companionTracks
             && lhs.lyricsWritingDirection == rhs.lyricsWritingDirection
             && lhs.commentSongID == rhs.commentSongID
             && lhs.isScrapingCurrentSong == rhs.isScrapingCurrentSong
@@ -18426,6 +18439,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
     let document: PlayerLyricsDocument
     private var lyrics: [LyricLine] { document.lines }
     var showsSimulatedWordTiming = false
+    var companionTracks: LyricBundledTranslationPolicy.Tracks = []
     let lyricsWritingDirection: LyricWritingDirection
     let lyricsRevision: UInt
     /// 歌词结果还没回来。空歌词此时是"还不知道", 不是"没有"。
@@ -18773,13 +18787,15 @@ struct LyricsScrollView: View, @MainActor Equatable {
         )
         .overlay(alignment: .top) {
             HStack(alignment: .top, spacing: 8) {
-                if showsSimulatedWordTiming {
+                if showsSimulatedWordTiming || !companionTracks.isEmpty {
                     LyricsInfoBadges(
-                        showsWordLevel: false,
-                        showsSimulatedWordTiming: true,
-                        source: nil,
+                        showsWordLevel: hasWordLevelLyrics,
+                        showsSimulatedWordTiming: showsSimulatedWordTiming,
+                        source: !companionTracks.isEmpty && showsLyricsSource ? LyricsSourceBadge.resolve(lyrics) : nil,
                         foreground: appearance.secondary,
-                        fill: appearance.primary.opacity(0.10)
+                        fill: appearance.primary.opacity(0.10),
+                        companionTracks: companionTracks,
+                        onInteraction: { lastLyricRowTapAt = Date() }
                     )
                 }
                 Spacer(minLength: 8)
@@ -18893,7 +18909,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
                         // reach the same visual anchor as every middle row.
                         Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
-                        lyricsInfoBadges(showsWordLevel: false)
+                        if companionTracks.isEmpty { lyricsInfoBadges(showsWordLevel: false) }
 
                         lyricRowCells(isDuet: isDuet, textWidth: textWidth) { index in
                             lineLevelRowVisualActivity(index: index)
@@ -19032,7 +19048,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
                     LyricsRowStack(isLazy: usesLazyRows, spacing: Self.lyricsRowSpacing) {
                         Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
-                        lyricsInfoBadges(showsWordLevel: true)
+                        if companionTracks.isEmpty { lyricsInfoBadges(showsWordLevel: true) }
 
                         lyricRowCells(isDuet: isDuet, textWidth: textWidth) { index in
                             rowVisualActivity(index: index)
@@ -21753,8 +21769,34 @@ struct LyricsInfoBadges: View {
     let source: LyricsSourceBadge?
     let foreground: Color
     let fill: Color
+    var companionTracks: LyricBundledTranslationPolicy.Tracks = []
+    var onInteraction: (() -> Void)? = nil
 
     var body: some View {
+        if companionTracks.isEmpty {
+            badges
+        } else if !showsWordLevel && !showsSimulatedWordTiming && source == nil {
+            buttons
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    badges
+                    buttons
+                }
+                .fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading, spacing: 4) {
+                    badges
+                    buttons
+                }
+            }
+        }
+    }
+
+    private var buttons: some View {
+        LyricsCompanionTrackButtons(tracks: companionTracks, foreground: foreground, fill: fill, onInteraction: onInteraction)
+    }
+
+    private var badges: some View {
         HStack(spacing: 6) {
             if showsSimulatedWordTiming {
                 capsule(symbol: "waveform", text: Text("lyrics_simulated_word_badge"))

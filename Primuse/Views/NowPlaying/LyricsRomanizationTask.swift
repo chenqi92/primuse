@@ -9,6 +9,7 @@ extension View {
         songContext: LyricTranslationSongContext,
         lyricsRevision: UInt,
         lyrics: [LyricLine],
+        readingTranslationIDs: Set<String>? = nil,
         overlay: Binding<LyricRomanizationOverlay>
     ) -> some View {
         modifier(LyricsRomanizationTaskModifier(
@@ -16,6 +17,7 @@ extension View {
             songContext: songContext,
             lyricsRevision: lyricsRevision,
             lyrics: lyrics,
+            readingTranslationIDs: readingTranslationIDs,
             overlay: overlay
         ))
     }
@@ -28,6 +30,7 @@ struct LyricsRomanizationTaskModifier: ViewModifier {
     let songContext: LyricTranslationSongContext
     let lyricsRevision: UInt
     let lyrics: [LyricLine]
+    let readingTranslationIDs: Set<String>?
     @Binding var overlay: LyricRomanizationOverlay
     /// 当前结果属于哪一首、哪一份歌词。
     @State private var overlayLyricsKey: String?
@@ -90,6 +93,10 @@ struct LyricsRomanizationTaskModifier: ViewModifier {
         }
         guard !lyrics.isEmpty else {
             overlay = .empty
+            return
+        }
+        if !identity.generates, let readingTranslationIDs {
+            overlay = LyricRomanizationOverlay(readingTranslationIDs: readingTranslationIDs)
             return
         }
         let request = LyricsRomanizationService.Request(

@@ -104,6 +104,99 @@ final class LyricsCascadeScrollTests: XCTestCase {
 
 final class PlayerLyricsColorPreferencesTests: XCTestCase {
     @MainActor
+    func testQuickTrackButtonsStayReachableMidSongAndChangeOnlySourceVisibility() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalKeyWindow = scene.keyWindow
+        let suite = "lyrics-quick-header." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let settings = LyricsTranslationSettingsStore.shared
+        let wasShown = settings.showsBundledTranslations
+        let engineEnabled = settings.isEnabled
+        let preparationRevision = settings.systemPreparationRequestRevision
+        let readingMode = LyricsRomanizationSettingsStore.shared.displayMode
+        let player = AudioPlayerService(playbackSettings: PlaybackSettingsStore(defaults: defaults), activateAudioSession: { _ in })
+        player.currentTime = 43
+        let lines = (0..<24).map { index in
+            LyricLine(id: "lantern-" + String(index), timestamp: Double(index * 3), text: "纸灯映小桥",
+                      manualTranslation: .init(text: "Paper lamps reflect on a bridge", source: .embeddedField),
+                      romanization: "zhi deng ying xiao qiao")
+        }
+        let document = LyricBundledTranslationPolicy.presentation(of: lines, showsBundledTranslations: wasShown)
+        let view = LyricsScrollView(document: PlayerLyricsDocument(document.lines), companionTracks: document.tracks,
+                                    lyricsWritingDirection: .leftToRight, lyricsRevision: 1, isResolvingLyrics: false,
+                                    player: player, songID: "fixture", isSceneActive: true, isScrapingCurrentSong: false,
+                                    canTranscribeAudio: false, isScrapeActionUnavailable: true, onAutomaticScrape: {},
+                                    onTranscribeAudio: {}, onBackgroundTap: {}, onShareLyricLine: { _ in },
+                                    translatedTextByLineID: [:], translationActivity: .idle)
+            .defaultAppStorage(defaults)
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: view)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            originalKeyWindow?.makeKey()
+            if settings.showsBundledTranslations != wasShown { settings.showsBundledTranslations = wasShown }
+            defaults.removePersistentDomain(forName: suite)
+        }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(650))
+        var seen = Set<ObjectIdentifier>()
+        var buttons: [String: NSObject] = [:]
+        func visit(_ node: NSObject) {
+            guard seen.insert(ObjectIdentifier(node)).inserted else { return }
+            if node.responds(to: NSSelectorFromString("accessibilityIdentifier")),
+               let identifier = node.value(forKey: "accessibilityIdentifier") as? String,
+               ["lyricsBundledTranslationToggle", "lyricsRomanizationToggle"].contains(identifier) {
+                buttons[identifier] = node
+            }
+            let count = node.accessibilityElementCount()
+            if count > 0, count < 500 {
+                for index in 0..<count {
+                    if let child = node.accessibilityElement(at: index) as? NSObject { visit(child) }
+                }
+            }
+            if let view = node as? UIView { view.subviews.filter { !$0.isHidden && $0.alpha > 0 }.forEach(visit) }
+        }
+        visit(window)
+        let translation = try XCTUnwrap(buttons["lyricsBundledTranslationToggle"])
+        let reading = try XCTUnwrap(buttons["lyricsRomanizationToggle"])
+        let bounds = window.convert(window.bounds, to: nil)
+        for button in [translation, reading] {
+            XCTAssertTrue(bounds.contains(button.accessibilityFrame))
+            XCTAssertLessThan(button.accessibilityFrame.midY, bounds.midY)
+        }
+        XCTAssertEqual(translation.accessibilityTraits.contains(.selected), wasShown)
+        XCTAssertEqual(reading.accessibilityTraits.contains(.selected), readingMode != .hidden)
+        XCTAssertTrue(translation.accessibilityActivate())
+        XCTAssertEqual(settings.showsBundledTranslations, !wasShown)
+        XCTAssertEqual(settings.isEnabled, engineEnabled)
+        XCTAssertEqual(settings.systemPreparationRequestRevision, preparationRevision)
+        XCTAssertEqual(LyricsRomanizationSettingsStore.shared.displayMode, readingMode)
+    }
+
+    @MainActor
+    func testQuickReadingToggleRestoresOnlyModeAcrossRestartsWithoutEnablingGeneration() throws {
+        let suite = "lyrics-reading-toggle." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = LyricsRomanizationSettingsStore(defaults: defaults)
+        settings.isAutoGenerationEnabled = false
+        settings.displayMode = .romanizationOnly
+        settings.toggleVisibility()
+        XCTAssertEqual(settings.displayMode, .hidden)
+        let reloaded = LyricsRomanizationSettingsStore(defaults: defaults)
+        reloaded.toggleVisibility()
+        XCTAssertEqual(reloaded.displayMode, .romanizationOnly)
+        XCTAssertFalse(reloaded.isAutoGenerationEnabled)
+        reloaded.displayMode = .belowOriginal
+        reloaded.toggleVisibility()
+        reloaded.toggleVisibility()
+        XCTAssertEqual(reloaded.displayMode, .belowOriginal)
+    }
+
+    @MainActor
     func testLineLyricsYieldFocusToInterludeAndResume() async throws {
         try await checkInterludeFocus(wordTimed: false)
     }

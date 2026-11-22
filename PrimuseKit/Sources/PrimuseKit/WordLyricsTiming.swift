@@ -534,7 +534,7 @@ public enum WordLyricsLiveMergePolicy {
             }
             // Only freeze the single line currently mid-flight; upcoming lines upgrade immediately.
             if playbackTime >= oldStart + 0.12 && playbackTime < oldEnd - 0.05 {
-                merged[index] = oldLine
+                merged[index].syllables = oldSyllables
             }
         }
         return merged

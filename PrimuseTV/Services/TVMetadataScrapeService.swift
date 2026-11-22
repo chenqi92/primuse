@@ -1001,14 +1001,15 @@ extension TVStore {
             duration: nowPlaying.duration
         )
         if let lyrics, !lyrics.isEmpty {
+            let presentation = TVLyricsTranslationController.presentation(lyrics)
             applyLyrics(
                 TVPlaybackCoordinator.toTVLyrics(
-                    TVLyricsTranslationController.presentedLines(lyrics),
+                    presentation.lines,
                     duration: song.duration
                 ),
                 forSongID: song.id
             )
-            TVLyricsTranslationController.shared.lyricsDidLoad(lyrics, forSongID: song.id, store: self)
+            TVLyricsTranslationController.shared.lyricsDidLoad(lyrics, forSongID: song.id, store: self, presentation: presentation)
             TVLyricsRomanizationController.shared.lyricsDidLoad(lyrics, forSongID: song.id)
         }
     }

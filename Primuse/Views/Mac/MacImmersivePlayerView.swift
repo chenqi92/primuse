@@ -9,6 +9,7 @@ struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
     let lyrics: [LyricLine]
     var showsSimulatedWordTiming = false
+    var companionTracks: LyricBundledTranslationPolicy.Tracks = []
     /// 翻译任务给出的译文（按行 id），和常规播放页同一份。
     var translatedTextByLineID: [String: String] = [:]
     /// 是否由这层自己忽略窗口安全区。
@@ -237,15 +238,18 @@ struct MacImmersivePlayerView: View {
 
                 // 顶栏那排按钮下面:没有实时频谱、临时降档时写明原因。
                 VStack(spacing: 8) {
-                    if showsSimulatedWordTiming && !isLowPower && !showsEffectPicker && !showsKaraoke {
+                    let tracks = showsChrome && isRenderingActive ? companionTracks : []
+                    if (showsSimulatedWordTiming || !tracks.isEmpty) && !isLowPower && !showsEffectPicker && !showsKaraoke {
                         LyricsInfoBadges(
                             showsWordLevel: false,
-                            showsSimulatedWordTiming: true,
+                            showsSimulatedWordTiming: showsSimulatedWordTiming,
                             source: nil,
                             foreground: .white.opacity(0.8),
-                            fill: .black.opacity(0.25)
+                            fill: .black.opacity(0.25),
+                            companionTracks: tracks,
+                            onInteraction: revealChrome
                         )
-                        .allowsHitTesting(false)
+                        .allowsHitTesting(!tracks.isEmpty)
                     }
                     ImmersiveStageNotice(
                         items: stageNoticeItems,

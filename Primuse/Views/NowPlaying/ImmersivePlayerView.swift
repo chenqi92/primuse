@@ -11,6 +11,7 @@ struct ImmersivePlayerView: View {
     @Binding var effect: FullscreenPlayerEffect
     let lyrics: [LyricLine]
     var showsSimulatedWordTiming = false
+    var companionTracks: LyricBundledTranslationPolicy.Tracks = []
     /// Resolved by the player, which is the only place that knows whether a
     /// translation exists for the current target language.
     let lyricCompanions: (LyricLine) -> [String]
@@ -265,15 +266,18 @@ struct ImmersivePlayerView: View {
 
                 // 顶上那排圆钮下面:没有实时频谱、临时降档时写明原因。
                 VStack(spacing: 8) {
-                    if showsSimulatedWordTiming && !isAmbientRest && !showsEffectPicker {
+                    let tracks = showsChrome && !presentsOnExternalDisplay ? companionTracks : []
+                    if (showsSimulatedWordTiming || !tracks.isEmpty) && !isAmbientRest && !showsEffectPicker {
                         LyricsInfoBadges(
                             showsWordLevel: false,
-                            showsSimulatedWordTiming: true,
+                            showsSimulatedWordTiming: showsSimulatedWordTiming,
                             source: nil,
                             foreground: .white.opacity(0.8),
-                            fill: .black.opacity(0.25)
+                            fill: .black.opacity(0.25),
+                            companionTracks: tracks,
+                            onInteraction: { registerInteraction(revealControls: true) }
                         )
-                        .allowsHitTesting(false)
+                        .allowsHitTesting(!tracks.isEmpty)
                     }
                     ImmersiveStageNotice(
                         items: stageNoticeItems,

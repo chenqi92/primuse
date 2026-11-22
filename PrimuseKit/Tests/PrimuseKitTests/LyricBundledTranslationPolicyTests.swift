@@ -3,6 +3,25 @@ import Testing
 @testable import PrimuseKit
 
 struct LyricBundledTranslationPolicyTests {
+    @Test func availableTracksIncludeBackingVoicesAndStayAvailableAfterHiding() {
+        let sung = LyricLine(id: "lead", timestamp: 1, text: "纸灯浮在屋檐")
+        let reading = LyricLine(id: "echo", timestamp: 2, text: "星河", romanization: "xing he")
+        var duet = sung
+        duet.background = [reading]
+        let translated = LyricLine(id: "reply", timestamp: 4, text: "砂砾染上晚霞",
+                                   manualTranslation: .init(text: "A pebble turns the color of dusk", source: .embeddedField))
+        let empty = LyricLine(timestamp: 6, text: "夜潮去远", romanization: " \n")
+        for shows in [false, true] {
+            func tracks(_ lines: [LyricLine]) -> LyricBundledTranslationPolicy.Tracks {
+                LyricBundledTranslationPolicy.presentation(of: lines, showsBundledTranslations: shows).tracks
+            }
+            #expect(tracks([sung, empty]).isEmpty)
+            #expect(tracks([duet]) == [.romanization])
+            #expect(tracks([translated]) == [.translation])
+            #expect(tracks([duet, translated]) == [.romanization, .translation])
+        }
+    }
+
     private static let japaneseSources = [
         "君の声が聞こえる", "夜の果てで", "遠くに消える", "ずっと一緒にいて",
         "心の中の光", "夢を見ていた", "信じて歩いていこう", "ありがとう さようなら",

@@ -3536,11 +3536,12 @@ final class TVPlaybackCoordinator {
         forSongID songID: String,
         store: TVStore
     ) {
+        let presentation = TVLyricsTranslationController.presentation(lines)
         store.applyLyrics(
-            Self.toTVLyrics(TVLyricsTranslationController.presentedLines(lines), duration: duration),
+            Self.toTVLyrics(presentation.lines, duration: duration),
             forSongID: songID
         )
-        TVLyricsTranslationController.shared.lyricsDidLoad(lines, forSongID: songID, store: store)
+        TVLyricsTranslationController.shared.lyricsDidLoad(lines, forSongID: songID, store: store, presentation: presentation)
         TVLyricsRomanizationController.shared.lyricsDidLoad(lines, forSongID: songID)
     }
 

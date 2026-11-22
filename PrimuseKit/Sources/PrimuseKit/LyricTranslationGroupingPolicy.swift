@@ -1522,10 +1522,18 @@ public enum LyricCompanionTextPolicy {
 /// 读音照旧保留。只给显示和机翻用 —— 存盘、编辑、缓存比对仍然拿原文档。机翻拿到这份歌词时
 /// 每一行都没有自带译文，开着歌词翻译就整首交给机翻。
 public enum LyricBundledTranslationPolicy {
+    public struct Tracks: OptionSet, Sendable, Hashable {
+        public let rawValue: UInt8
+        public init(rawValue: UInt8) { self.rawValue = rawValue }
+        public static let translation = Self(rawValue: 1)
+        public static let romanization = Self(rawValue: 2)
+    }
+
     public struct Presentation: Sendable {
         public var lines: [LyricLine]
-        /// 原文档里有没有能隐藏的自带译文（读音行不算）；没有时界面不必给这个开关。
-        public var hasBundledTranslations: Bool
+        public var tracks: Tracks
+        public var readingTranslationIDs: Set<String>
+        public var hasBundledTranslations: Bool { tracks.contains(.translation) }
     }
 
     public static func presentation(
@@ -1533,20 +1541,23 @@ public enum LyricBundledTranslationPolicy {
         showsBundledTranslations: Bool
     ) -> Presentation {
         let flattened = LyricVoiceTimelinePolicy.flattenedLines(lines)
-        guard flattened.contains(where: { !$0.allManualTranslations.isEmpty }) else {
-            return Presentation(lines: lines, hasBundledTranslations: false)
-        }
         // 和机翻准备用同一份展平后的整篇投票，读音行的判定两边一致。
-        let readingIDs = LyricRomanizedReadingPolicy.readingIDs(in: flattened)
-        let hasTranslations = flattened.contains { line in
-            line.allManualTranslations.contains { !readingIDs.contains($0.id) }
+        let hasManual = flattened.contains { $0.manualTranslation != nil || !$0.alternateManualTranslations.isEmpty }
+        let readingIDs = hasManual ? LyricRomanizedReadingPolicy.readingIDs(in: flattened) : []
+        var tracks: Tracks = []
+        if !readingIDs.isEmpty || flattened.contains(where: { $0.romanization?.contains(where: { !$0.isWhitespace }) == true }) {
+            tracks.insert(.romanization)
         }
-        guard hasTranslations, !showsBundledTranslations else {
-            return Presentation(lines: lines, hasBundledTranslations: hasTranslations)
+        if hasManual && flattened.contains(where: { line in
+            line.allManualTranslations.contains { !readingIDs.contains($0.id) && $0.text.contains(where: { !$0.isWhitespace }) }
+        }) {
+            tracks.insert(.translation)
         }
         return Presentation(
-            lines: lines.map { keepingReadings(of: $0, readingIDs: readingIDs) },
-            hasBundledTranslations: true
+            lines: !showsBundledTranslations && tracks.contains(.translation)
+                ? lines.map { keepingReadings(of: $0, readingIDs: readingIDs) } : lines,
+            tracks: tracks,
+            readingTranslationIDs: readingIDs
         )
     }
 

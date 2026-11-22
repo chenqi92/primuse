@@ -1849,6 +1849,30 @@ final class TVTrackNavigationAvailabilityTests: XCTestCase {
 }
 
 final class TVLyricSyllableTimingTests: XCTestCase {
+    @MainActor
+    func testCompanionControlsHandleBilingualReadingsIndependentlyFromTranslations() throws {
+        let words = [
+            ("纸舟", "zhi zhou"), ("薄雾", "bo wu"), ("石桥", "shi qiao"),
+            ("星灯", "xing deng"), ("竹帘", "zhu lian"), ("白帆", "bai fan"),
+        ]
+        let source = words.enumerated().map { index, row in
+            LyricLine(id: "verse-" + String(index), timestamp: Double(index), text: row.0,
+                      manualTranslation: .init(text: row.1, source: .bilingualLRC),
+                      alternateManualTranslations: [.init(text: "Folded light " + String(index), languageCode: "en", source: .embeddedField)])
+        }
+        for shows in [true, false] {
+            let document = TVLyricsTranslationController.presentation(source, showsBundledTranslations: shows, targetLanguageCode: "en")
+            XCTAssertEqual(document.tracks, [.translation, .romanization])
+            let row = try XCTUnwrap(TVPlaybackCoordinator.toTVLyrics(document.lines, duration: 8).first)
+            XCTAssertEqual(row.romanization, "zhi zhou")
+            XCTAssertEqual(row.translation, shows ? "Folded light 0" : "")
+            let hiddenReading = row.romanizedForDisplay(generated: [:], mode: .hidden)
+            XCTAssertEqual(hiddenReading.text, "纸舟")
+            XCTAssertEqual(hiddenReading.romanization, "")
+            XCTAssertEqual(hiddenReading.translation, row.translation)
+        }
+    }
+
     func testPronunciationOnlyUsesAuthoredCuesAndKeepsBackingTiming() throws {
         let source = LyricsContentParser.parseText("""
         <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>

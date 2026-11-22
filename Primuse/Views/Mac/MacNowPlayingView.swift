@@ -50,6 +50,12 @@ struct MacNowPlayingView: View {
     private var lyrics: [LyricLine] { lyricsDocument.lines }
     /// 读到的原文档，开关变化时从它重新得出 `lyrics`。
     @State private var loadedLyrics: [LyricLine] = []
+    @State private var sourceCompanionTracks: LyricBundledTranslationPolicy.Tracks = []
+    @State private var sourceReadingIDs: Set<String> = []
+    private var availableCompanionTracks: LyricBundledTranslationPolicy.Tracks {
+        guard !isSpokenWord, !loadedLyrics.isEmpty else { return [] }
+        return lyricRomanizationOverlay.generatedTextByLineID.isEmpty ? sourceCompanionTracks : sourceCompanionTracks.union(.romanization)
+    }
     @State private var commentSongID: String?
     @State private var commentAnchors: [String: LyricLineCommentAnchor] = [:]
     @State private var commentPresentation: LyricCommentPresentation?
@@ -289,6 +295,7 @@ struct MacNowPlayingView: View {
             songContext: .init(title: player.currentSong?.title, artist: player.currentSong?.artistName),
             lyricsRevision: lyricsTranslationRevision,
             lyrics: lyrics,
+            readingTranslationIDs: sourceReadingIDs,
             overlay: $lyricRomanizationOverlay
         )
         .nowPlayingLibraryActionAlert(libraryActions)
@@ -320,6 +327,7 @@ struct MacNowPlayingView: View {
                 MacImmersivePlayerView(
                     lyrics: romanizedLyrics,
                     showsSimulatedWordTiming: usesSimulatedWordTiming,
+                    companionTracks: availableCompanionTracks,
                     translatedTextByLineID: lyricTranslationsByLineID,
                     // 安全区由这棵树的宿主决定,沉浸层不能自己再忽略一次。
                     ignoresWindowSafeArea: false,
@@ -1281,7 +1289,7 @@ struct MacNowPlayingView: View {
                             .padding(.top, lyricsRowSpacing)
                         }
                     } else {
-                        lyricsInfoBadges
+                        if availableCompanionTracks.isEmpty { lyricsInfoBadges }
                         let isDuet = lyricsDocument.isDuet
                         // 提示点各占一行、和歌词行同在一个 ForEach 里:惰性堆栈里还没建出来的行
                         // 也能按这个身份滚过去。没轮到的提示点收起,不显示也不占位置。
@@ -1362,14 +1370,15 @@ struct MacNowPlayingView: View {
             }
         }
         .overlay(alignment: .top) {
-            if usesSimulatedWordTiming {
+            if usesSimulatedWordTiming || !availableCompanionTracks.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
                     LyricsInfoBadges(
-                        showsWordLevel: false,
-                        showsSimulatedWordTiming: true,
-                        source: nil,
+                        showsWordLevel: lyricsDocument.summary.isWordLevel,
+                        showsSimulatedWordTiming: usesSimulatedWordTiming,
+                        source: !availableCompanionTracks.isEmpty && showsLyricsSource ? LyricsSourceBadge.resolve(loadedLyrics) : nil,
                         foreground: playerSecondaryColor,
-                        fill: playerGlassFill
+                        fill: playerGlassFill,
+                        companionTracks: availableCompanionTracks
                     )
                     Spacer(minLength: 8)
                     lyricsTranslationStatus
@@ -2301,13 +2310,19 @@ struct MacNowPlayingView: View {
     }
 
     private func installLyrics(_ loaded: [LyricLine]) {
+        if commentSongID != player.currentSong?.id || loadedLyrics.first?.id != loaded.first?.id {
+            lyricRomanizationOverlay = .empty
+        }
         loadedLyrics = loaded
+        let presentation = LyricBundledTranslationPolicy.presentation(
+            of: loaded,
+            showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
+        )
+        sourceCompanionTracks = presentation.tracks
+        sourceReadingIDs = presentation.readingTranslationIDs
         // 文稿按这一集 / 这本书的偏移平移时间轴(#320);音乐原样。
         let newLyrics = SpokenWordTranscriptOffsetStore.shared.presenting(
-            LyricBundledTranslationPolicy.presentation(
-                of: loaded,
-                showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
-            ).lines,
+            presentation.lines,
             for: player.currentSong
         )
         if lyrics != newLyrics {
@@ -2331,7 +2346,8 @@ struct MacNowPlayingView: View {
         let mode = LyricsRomanizationSettingsStore.shared.displayMode
         let display = LyricRomanizationDisplayPolicy.displayLines(
             lyrics,
-            overlay: lyricRomanizationOverlay,
+            overlay: LyricRomanizationOverlay(generatedTextByLineID: lyricRomanizationOverlay.generatedTextByLineID,
+                                              readingTranslationIDs: sourceReadingIDs),
             mode: mode
         )
         let shouldSimulate = simulatesWordLyrics

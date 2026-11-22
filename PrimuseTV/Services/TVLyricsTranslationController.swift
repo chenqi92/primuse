@@ -48,6 +48,14 @@ final class TVLyricsTranslationController {
     private(set) var intelligentIssue: IntelligentIssue?
     /// The song the activity belongs to.
     private(set) var activitySongID: String?
+    private(set) var sourceCompanionTracks: LyricBundledTranslationPolicy.Tracks = []
+
+    func availableCompanionTracks(for songID: String?) -> LyricBundledTranslationPolicy.Tracks {
+        guard let songID, activitySongID == songID else { return [] }
+        let readings = TVLyricsRomanizationController.shared
+        if readings.songID == songID && !readings.generated.isEmpty { return sourceCompanionTracks.union(.romanization) }
+        return sourceCompanionTracks
+    }
 
     /// Set by the app at launch; smart translation needs it.
     @ObservationIgnored weak var intelligence: MusicIntelligenceService?
@@ -82,44 +90,61 @@ final class TVLyricsTranslationController {
     /// off, the translations written in the file are left out (readings stay)
     /// and machine translation then covers every line. `lyricsDidLoad` keeps the
     /// file's own document so the switch can bring them back.
-    static func presentedLines(_ lines: [LyricLine]) -> [LyricLine] {
+    static func presentation(_ lines: [LyricLine]) -> LyricBundledTranslationPolicy.Presentation {
         let settings = LyricsTranslationSettingsStore.shared
-        let presented = LyricBundledTranslationPolicy.presentation(
+        return presentation(lines, showsBundledTranslations: settings.showsBundledTranslations,
+                            targetLanguageCode: settings.targetLanguageCode)
+    }
+
+    static func presentation(_ lines: [LyricLine], showsBundledTranslations: Bool,
+                             targetLanguageCode: String) -> LyricBundledTranslationPolicy.Presentation {
+        var presented = LyricBundledTranslationPolicy.presentation(
             of: lines,
-            showsBundledTranslations: settings.showsBundledTranslations
-        ).lines
-        let target = LyricsTranslationSettingsStore.normalizedLanguageCode(settings.targetLanguageCode)
+            showsBundledTranslations: showsBundledTranslations
+        )
+        let readingIDs = presented.readingTranslationIDs
+        let target = LyricsTranslationSettingsStore.normalizedLanguageCode(targetLanguageCode)
         func selectLanguage(_ line: LyricLine) -> LyricLine {
             var result = line
-            if !line.alternateManualTranslations.isEmpty,
-               let preferred = line.allManualTranslations.first(where: { translation in
-                   translation.languageCode.map { LyricTranslationGroupingPolicy.representsSameTranslationLanguage($0, target) } == true
-               }), preferred.id != line.manualTranslation?.id {
-                result.alternateManualTranslations = line.allManualTranslations.filter { $0.id != preferred.id }
+            if result.manualTranslation != nil || !line.alternateManualTranslations.isEmpty {
+                let manual = line.allManualTranslations
+                if let reading = manual.first(where: { readingIDs.contains($0.id) }),
+                   result.romanization?.contains(where: { !$0.isWhitespace }) != true {
+                    result.romanization = reading.text
+                    result.romanizationSyllables = reading.syllables
+                }
+                let translations = readingIDs.isEmpty ? manual : manual.filter { !readingIDs.contains($0.id) }
+                let preferred = translations.first { translation in
+                    translation.languageCode.map { LyricTranslationGroupingPolicy.representsSameTranslationLanguage($0, target) } == true
+                } ?? translations.first
                 result.manualTranslation = preferred
+                result.alternateManualTranslations = translations.filter { $0.id != preferred?.id }
             }
             result.background = line.background?.map(selectLanguage)
             return result
         }
-        return presented.map(selectLanguage)
+        presented.lines = presented.lines.map(selectLanguage)
+        return presented
     }
 
     /// Called whenever lyrics were put on screen for `songID`.
-    func lyricsDidLoad(_ lines: [LyricLine], forSongID songID: String, store: TVStore) {
+    func lyricsDidLoad(_ lines: [LyricLine], forSongID songID: String, store: TVStore,
+                       presentation: LyricBundledTranslationPolicy.Presentation? = nil) {
         self.store = store
         lastLoaded = (songID, lines)
-        start()
+        start(presentation ?? Self.presentation(lines))
     }
 
     /// Re-runs for the lyrics on screen, after a setting changed, the model
     /// was downloaded or removed, or smart translation became usable.
     func retranslateCurrentLyrics() {
         guard let store, let lastLoaded, store.currentSongID == lastLoaded.songID else { return }
+        let document = Self.presentation(lastLoaded.lines)
         store.applyLyrics(
-            TVPlaybackCoordinator.toTVLyrics(Self.presentedLines(lastLoaded.lines), duration: 0),
+            TVPlaybackCoordinator.toTVLyrics(document.lines, duration: 0),
             forSongID: lastLoaded.songID
         )
-        start()
+        start(document)
     }
 
     /// 这首歌的翻译要人动手:缺离线翻译包,或者选了智能翻译却没用上。播放控制里的
@@ -137,17 +162,18 @@ final class TVLyricsTranslationController {
         return lastLoaded.songID == songID && !lastLoaded.lines.isEmpty
     }
 
-    private func start() {
+    private func start(_ document: LyricBundledTranslationPolicy.Presentation) {
         task?.cancel()
         generation &+= 1
         let generation = generation
         activity = .idle
         intelligentIssue = nil
         activitySongID = lastLoaded?.songID
+        sourceCompanionTracks = document.tracks
         let settings = LyricsTranslationSettingsStore.shared
         guard settings.isEnabled, let store, let loaded = lastLoaded, !loaded.lines.isEmpty else { return }
         let songID = loaded.songID
-        let lines = Self.presentedLines(loaded.lines)
+        let lines = document.lines
         let song = store.song(songID)
         // 有声内容的文稿按句并好再翻译(#336),和 iPhone、Mac 一样。
         let songContext = LyricTranslationSongContext(

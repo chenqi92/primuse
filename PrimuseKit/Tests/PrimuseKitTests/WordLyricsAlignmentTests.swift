@@ -306,6 +306,20 @@ struct WordLyricsAlignmentTests {
         #expect(merged[1] == newLines[1])
     }
 
+    @Test func hidingCompanionsDuringAWordKeepsOnlyThePreviousWordTiming() {
+        let old = LyricLine(id: "paper", timestamp: 2, text: "纸帆", syllables: [
+            .init(text: "纸", start: 2, end: 2.8), .init(text: "帆", start: 2.8, end: 3),
+        ], manualTranslation: .init(text: "Paper sail", source: .embeddedField), romanization: "zhi fan")
+        var updated = old
+        updated.syllables = [.init(text: "纸帆", start: 2, end: 3.1)]
+        updated.manualTranslation = nil
+        updated.romanization = nil
+        let result = WordLyricsLiveMergePolicy.merge(displayed: [old], updated: [updated], playbackTime: 2.4, isPlaying: true)
+        #expect(result.first?.syllables == old.syllables)
+        #expect(result.first?.manualTranslation == nil)
+        #expect(result.first?.romanization == nil)
+    }
+
     @Test("Unified overlay integrates consistently with SimulatedWordLyricsPolicy and KaraokeLyricsSnapshot")
     func overlayConsistencyAcrossPolicies() throws {
         let raw = [

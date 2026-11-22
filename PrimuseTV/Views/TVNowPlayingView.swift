@@ -1490,13 +1490,22 @@ struct TVNowPlayingView: View {
             lyricsList
                 .overlay(alignment: .top) {
                     VStack(spacing: 8) {
-                        if showsSimulatedWordTiming {
-                            Text("lyrics_simulated_word_badge")
-                                .tvFont(.meta)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(.white.opacity(0.1), in: Capsule())
-                                .accessibilityIdentifier("simulatedWordLyricsBadge")
+                        HStack(spacing: 12) {
+                            if showsSimulatedWordTiming {
+                                Text("lyrics_simulated_word_badge")
+                                    .tvFont(.meta)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(.white.opacity(0.1), in: Capsule())
+                                    .accessibilityIdentifier("simulatedWordLyricsBadge")
+                            }
+                            if !store.currentItemIsSpokenWord {
+                                LyricsCompanionTrackButtons(
+                                    tracks: TVLyricsTranslationController.shared.availableCompanionTracks(for: store.currentSongID),
+                                    foreground: .white, fill: .white.opacity(0.1),
+                                    onInteraction: registerInteraction
+                                )
+                            }
                         }
                         TVLyricsTranslationStatusLine(songID: store.currentSongID)
                     }

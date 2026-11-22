@@ -375,13 +375,27 @@ struct TVImmersivePlayerView: View {
 
                 // 顶部正中:没有实时频谱、临时降档时写明原因。右上角是「返回」提示。
                 VStack(spacing: 8) {
-                    if showsSimulatedWordTiming && !isLowPower && !showsModePicker && !isKaraokeActive {
-                        Text("lyrics_simulated_word_badge")
-                            .tvFont(.meta)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(.black.opacity(0.25), in: Capsule())
-                            .allowsHitTesting(false)
+                    if !isLowPower && !showsModePicker && !isKaraokeActive {
+                        HStack(spacing: 12) {
+                            if showsSimulatedWordTiming {
+                                Text("lyrics_simulated_word_badge")
+                                    .tvFont(.meta)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(.black.opacity(0.25), in: Capsule())
+                                    .allowsHitTesting(false)
+                            }
+                            if showsChrome && !chromeYieldsFocus && !showsDiscPosition && !showsQueue && !store.currentItemIsSpokenWord {
+                                LyricsCompanionTrackButtons(
+                                    tracks: TVLyricsTranslationController.shared.availableCompanionTracks(for: store.currentSongID),
+                                    foreground: .white, fill: .black.opacity(0.25),
+                                    onInteraction: {
+                                        scheduleChromeHide()
+                                        scheduleLowPower()
+                                    }
+                                )
+                            }
+                        }
                     }
                     ImmersiveStageNotice(
                         items: stageNoticeItems,

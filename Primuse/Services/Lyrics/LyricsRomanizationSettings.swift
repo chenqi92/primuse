@@ -9,14 +9,21 @@ import PrimuseKit
 final class LyricsRomanizationSettingsStore {
     static let shared = LyricsRomanizationSettingsStore()
     @ObservationIgnored private var suppressPersist = false
+    @ObservationIgnored private let defaults: UserDefaults
 
     static let storageKey = "primuse.lyrics.romanization.settings.v1"
 
+    @ObservationIgnored private var lastVisibleMode: LyricRomanizationDisplayMode = .belowOriginal
     var displayMode: LyricRomanizationDisplayMode {
         didSet {
             guard displayMode != oldValue else { return }
-            persistAndNotify()
+            if displayMode != .hidden { lastVisibleMode = displayMode }
+            persistAndNotify(generationChanged: false)
         }
+    }
+
+    func toggleVisibility() {
+        displayMode = displayMode == .hidden ? lastVisibleMode : .hidden
     }
 
     var isAutoGenerationEnabled: Bool {
@@ -71,14 +78,17 @@ final class LyricsRomanizationSettingsStore {
         return names.formatted(.list(type: .and, width: .narrow))
     }
 
-    private init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         var displayMode = LyricRomanizationDisplayMode.defaultValue
         var isAutoGenerationEnabled = false
         var method = LyricRomanizationMethod.defaultValue
         var languageOverrides: [String: Bool] = [:]
-        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+        if let data = defaults.data(forKey: Self.storageKey),
            let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
             displayMode = decoded.displayMode.flatMap(LyricRomanizationDisplayMode.init(rawValue:)) ?? displayMode
+            let previous = decoded.lastVisibleMode.flatMap(LyricRomanizationDisplayMode.init(rawValue:))
+            if let previous, previous != .hidden { lastVisibleMode = previous }
             isAutoGenerationEnabled = decoded.isAutoGenerationEnabled ?? false
             method = decoded.method.flatMap(LyricRomanizationMethod.init(rawValue:)) ?? method
             languageOverrides = decoded.languageOverrides ?? [:]
@@ -92,15 +102,17 @@ final class LyricsRomanizationSettingsStore {
         }
         #endif
         self.displayMode = displayMode
+        if displayMode != .hidden { lastVisibleMode = displayMode }
         self.isAutoGenerationEnabled = isAutoGenerationEnabled
         self.method = method
         self.languageOverrides = languageOverrides
     }
 
     func reloadAfterOfflineImport() {
-        let loaded = LyricsRomanizationSettingsStore()
+        let loaded = LyricsRomanizationSettingsStore(defaults: defaults)
         suppressPersist = true
         displayMode = loaded.displayMode
+        lastVisibleMode = loaded.lastVisibleMode
         isAutoGenerationEnabled = loaded.isAutoGenerationEnabled
         method = loaded.method
         languageOverrides = loaded.languageOverrides
@@ -108,23 +120,27 @@ final class LyricsRomanizationSettingsStore {
         NotificationCenter.default.post(name: .lyricsRomanizationSettingsChanged, object: nil)
     }
 
-    private func persistAndNotify() {
+    private func persistAndNotify(generationChanged: Bool = true) {
         guard !suppressPersist else { return }
         let persisted = Persisted(
             displayMode: displayMode.rawValue,
+            lastVisibleMode: lastVisibleMode.rawValue,
             isAutoGenerationEnabled: isAutoGenerationEnabled,
             method: method.rawValue,
             languageOverrides: languageOverrides
         )
         if let data = try? JSONEncoder().encode(persisted) {
-            UserDefaults.standard.set(data, forKey: Self.storageKey)
+            defaults.set(data, forKey: Self.storageKey)
         }
-        NotificationCenter.default.post(name: .lyricsRomanizationSettingsChanged, object: nil)
+        if generationChanged {
+            NotificationCenter.default.post(name: .lyricsRomanizationSettingsChanged, object: nil)
+        }
     }
 
     /// 取值都存成字符串：以后加了新的显示方式或生成方式，老版本读到认不出的值退回默认，不会整份丢掉。
     private struct Persisted: Codable {
         let displayMode: String?
+        let lastVisibleMode: String?
         let isAutoGenerationEnabled: Bool?
         let method: String?
         let languageOverrides: [String: Bool]?

@@ -66,8 +66,7 @@ final class TVLyricsRomanizationController {
             )
             : .local
         let request = LyricsRomanizationService.Request(
-            // 和屏幕上那份同一套行 id（「显示歌词自带的译文」关掉时去掉了译文，读音行留着）。
-            lines: TVLyricsTranslationController.presentedLines(loaded.lines),
+            lines: loaded.lines,
             generates: generates,
             enabledLanguages: generates ? settings.enabledLanguages : [],
             method: method,
