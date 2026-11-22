@@ -343,7 +343,7 @@ public enum EmbeddedLyricsArchive {
                 )
             case .attachment(let encoding):
                 guard case .update(let text) = changes[first.range] else { return nil }
-                let updated = data.prefix(first.range.lowerBound) + encoding.data(for: text)
+                let updated = data.prefix(upTo: first.range.lowerBound) + encoding.data(for: text)
                 guard !ID3EmbeddedLyrics.fields(frame: item.key, body: updated).isEmpty else {
                     throw CocoaError(.fileWriteInapplicableStringEncoding)
                 }
