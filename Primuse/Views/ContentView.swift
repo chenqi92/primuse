@@ -3616,7 +3616,24 @@ final class PlayerRenderHostController<Content: View>: UIHostingController<Conte
         didSet {
             guard isShowing != oldValue else { return }
             setNeedsStatusBarAppearanceUpdate()
+            PlayerUnderlyingLayoutProbe.record(
+                isShowing ? "show" : "dormant",
+                in: parent?.viewIfLoaded?.window,
+                player: self,
+                followUps: true
+            )
         }
+    }
+
+    // 诊断模式里记下宿主在系统看来什么时候出现、消失(休眠时整层透明)，和下层导航栏挪动的时刻对照。
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        PlayerUnderlyingLayoutProbe.record("appear", in: parent?.viewIfLoaded?.window, player: self)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        PlayerUnderlyingLayoutProbe.record("disappear", in: parent?.viewIfLoaded?.window, player: self)
     }
 
     /// 和播放页并排挂在根控制器下的页面（标签页、极简外壳、平板分栏）。
