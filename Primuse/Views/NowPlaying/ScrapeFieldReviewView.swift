@@ -273,8 +273,8 @@ private struct ScrapeReviewFieldRow<OriginalCover: View>: View {
     @ScaledMetric(relativeTo: .body) private var lyricsHeight: CGFloat = 182
     private var height: CGFloat {
         #if os(tvOS)
-        // 文字页多一行副标题（专辑、年份、时长），留出一行的高度。
-        switch field { case .cover: 300; case .lyrics: 350; default: 118 }
+        // 文字页多一行副标题（专辑、年份、时长），留出一行的高度；都含上下各 16 的内边距。
+        switch field { case .cover: 316; case .lyrics: 366; default: 138 }
         #else
         switch field { case .cover: 184; case .lyrics: lyricsHeight; default: textHeight }
         #endif
@@ -341,9 +341,10 @@ private struct ScrapeReviewFieldRow<OriginalCover: View>: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 if let source = option?.source {
-                    Text(verbatim: source).font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: source).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 } else {
                     Text(page == .current ? "scrape_review_keep" : "cat_local").font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 Spacer()
                 if field == .lyrics, let lyrics = lyricChoice(option) {
@@ -375,9 +376,9 @@ private struct ScrapeReviewFieldRow<OriginalCover: View>: View {
                 }
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 8)
+        .padding(.horizontal, 24).padding(.vertical, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.quaternary.opacity(0.65), in: RoundedRectangle(cornerRadius: 12))
+        .background(.quaternary.opacity(0.65), in: RoundedRectangle(cornerRadius: TVRadius.card, style: .continuous))
         .frame(height: height)
     }
 
@@ -442,8 +443,11 @@ private struct ScrapeReviewLyricLines: View {
     let expanded: Bool
     /// 收起时露出几行。
     var previewLineCount = 4
+    /// 收起时歌词不到 previewLineCount 行也占满这么高：横排的几张卡片一样高，换一张时下面的内容不跳。
+    var reservesPreviewSpace = false
 
     var body: some View {
+        let shown = expanded ? lyrics.lines.count : min(previewLineCount, lyrics.lines.count)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(verbatim: summary)
@@ -451,7 +455,8 @@ private struct ScrapeReviewLyricLines: View {
                 if lyrics.lines.contains(where: { $0.manualTranslation != nil }) { Text("lyrics_translation_section") }
             }
             .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            ForEach(Array(lyrics.lines.prefix(expanded ? lyrics.lines.count : previewLineCount).enumerated()), id: \.offset) { _, line in
+            .lineLimit(expanded ? nil : 1)
+            ForEach(Array(lyrics.lines.prefix(shown).enumerated()), id: \.offset) { _, line in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     if line.isSynchronized {
                         let seconds = Int(min(864_000, max(0, line.timestamp.isFinite ? line.timestamp : 0)))
@@ -461,6 +466,11 @@ private struct ScrapeReviewLyricLines: View {
                         Text(verbatim: line.text).lineLimit(expanded ? nil : 1)
                         if expanded, let translation = line.manualTranslation { Text(verbatim: translation.text).font(.caption).foregroundStyle(.secondary) }
                     }
+                }
+            }
+            if reservesPreviewSpace && !expanded && shown < previewLineCount {
+                ForEach(shown..<previewLineCount, id: \.self) { _ in
+                    Text(verbatim: " ").hidden()
                 }
             }
         }
@@ -477,8 +487,8 @@ private struct ScrapeReviewLyricLines: View {
 
 // MARK: - 来源角标
 
-/// 每个刮削源一个颜色的小角标，贴在封面、选项和歌词卡片的角上，正文区域留给内容本身。
-/// 「当前」是库里现在的值，「本地」是从文件里读出来的结果。
+/// 每个刮削源一个颜色的小角标，放在封面、选项和歌词卡片里面的左上角，正文区域留给内容本身。
+/// 「当前」是库里现在的值，「本地」是从文件里读出来的结果。源名太长时在卡片里面用省略号收住，不撑出卡片。
 struct ScrapeSourceBadge: View {
     enum Kind: Equatable {
         case current
@@ -500,13 +510,13 @@ struct ScrapeSourceBadge: View {
         Text(verbatim: title)
             .font(.caption2.weight(.bold))
             .lineLimit(1)
+            .truncationMode(.tail)
             .foregroundStyle(.white)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(Capsule().fill(color.gradient))
             .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
             .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
-            .fixedSize()
     }
 
     private var title: String {
@@ -681,6 +691,40 @@ private struct ScrapeReviewFieldPicker<OriginalCover: View>: View {
 /// 页面左右各 16pt 的边距，横滑的一排要铺到屏幕边上，滑出去的不在边距处被切断。
 private let scrapeReviewPageInset: CGFloat = 16
 
+/// 封面、文字选项、歌词三种卡片共用的圆角。
+private let scrapeReviewCardRadius: CGFloat = 16
+
+/// 文字选项和歌词卡片共用的底：没选中是浅灰底加一圈细线，选中换成淡主题色底加主题色描边。
+private struct ScrapeReviewCardStyle: ViewModifier {
+    let isSelected: Bool
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: scrapeReviewCardRadius, style: .continuous)
+        content
+            .background(shape.fill(isSelected ? AnyShapeStyle(.tint.opacity(0.1)) : AnyShapeStyle(.fill.tertiary)))
+            .overlay {
+                shape.strokeBorder(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.primary.opacity(0.08)),
+                                   lineWidth: isSelected ? 1.5 : 0.5)
+            }
+    }
+}
+
+private extension View {
+    /// 横滑的一排在页面左右边距那一段淡出：停稳时卡片都在边距以内、不受影响；滑到一半的、
+    /// 屏幕边上露出来的那张淡进边缘，不在边上硬切出半截字。要加在负边距之前，遮罩才盖得到边距那一段。
+    func scrapeReviewEdgeFade() -> some View {
+        mask {
+            HStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: scrapeReviewPageInset)
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: scrapeReviewPageInset)
+            }
+        }
+    }
+}
+
 /// 封面流：居中那张正对、就是选中的；两侧的缩小、朝中间转开、压暗，叠在居中那张后面，
 /// 滑过去或点一下就转到正中。和首页顶部的封面轮播同一种观感。
 private struct ScrapeReviewCoverFlow<OriginalCover: View>: View {
@@ -758,7 +802,7 @@ private struct ScrapeReviewCoverFlow<OriginalCover: View>: View {
     /// 右侧的卡片靠中间那一边压在居中封面下面，角标和尺寸放到外侧那一边。
     private func card(_ item: ReviewPage, side: CGFloat, isCentered: Bool, isTrailingSide: Bool) -> some View {
         let option = options.first { .option($0.id) == item }
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: scrapeReviewCardRadius, style: .continuous)
         let resolution = coverMeta[item].map { meta in
             Text(verbatim: meta.label)
                 .font(.caption2.weight(.semibold).monospacedDigit())
@@ -855,6 +899,7 @@ private func scrapeCoverFlowEffect(
 }
 
 /// 标题、艺术家、专辑这类文字字段：一排横铺的选项，点哪个选哪个，选中的描边打勾。
+/// 每张卡一样宽、一样高：来源角标在卡片里面的第一行，值最多两行、副标题一行，放不下的在卡片里面用省略号收住。
 private struct ScrapeReviewTextStrip: View {
     let field: ScrapeField
     let pages: [ReviewPage]
@@ -863,37 +908,46 @@ private struct ScrapeReviewTextStrip: View {
     let originalText: String?
     let currentContext: ScrapeReviewContext
 
+    @State private var width: CGFloat = 0
+    /// 卡片的常规宽度，跟着文字大小放大；再大也给下一张留出一截露边。
+    @ScaledMetric(relativeTo: .body) private var preferredCardWidth: CGFloat = 228
+
+    private static let spacing: CGFloat = 10
+
     var body: some View {
+        let available: CGFloat = width > 0 ? width : 320
+        let cardWidth = min(preferredCardWidth, (available * 0.86).rounded())
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: 10) {
+                LazyHStack(alignment: .top, spacing: Self.spacing) {
                     ForEach(pages, id: \.self) { item in
-                        chip(item).id(item)
+                        chip(item, width: cardWidth).id(item)
                     }
                 }
-                // 角标探出卡片上沿一点，留出位置不被滚动视图裁掉。
-                .padding(.top, 9)
-                .padding(.bottom, 4)
                 .scrollTargetLayout()
             }
             .scrollIndicators(.hidden)
             .contentMargins(.horizontal, scrapeReviewPageInset, for: .scrollContent)
             .scrollTargetBehavior(.viewAligned)
+            .scrapeReviewEdgeFade()
             .padding(.horizontal, -scrapeReviewPageInset)
-            .task {
+            // 量到宽度、卡片定了宽以后再把选中的那张滚到中间。
+            .task(id: width > 0) {
+                guard width > 0 else { return }
                 await Task.yield()
                 proxy.scrollTo(page, anchor: .center)
             }
             #if os(macOS)
             // 上一个 / 下一个和方向键换了选中项，把它滚到看得见的地方。
             .onChange(of: page) { _, new in
-                withAnimation(.snappy(duration: 0.25)) { proxy.scrollTo(new, anchor: .center) }
+                withAnimation(PMMotion.list.animation) { proxy.scrollTo(new, anchor: .center) }
             }
             #endif
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 
-    private func chip(_ item: ReviewPage) -> some View {
+    private func chip(_ item: ReviewPage, width: CGFloat) -> some View {
         let option = options.first { .option($0.id) == item }
         let isSelected = item == page
         let text: String = {
@@ -901,49 +955,50 @@ private struct ScrapeReviewTextStrip: View {
             let original = originalText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return original.isEmpty ? "—" : original
         }()
-        // 第二行：这个值属于哪一首（歌手 · 专辑 · 年份 · 时长）。
+        // 第二行：这个值属于哪一首（歌手 · 专辑 · 年份 · 时长）。放不下时省略中间，时长留在末尾对着看。
         let subtitle = scrapeReviewSubtitle(option, field: field, current: currentContext)
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         return Button {
-            withAnimation(.snappy(duration: 0.22)) { page = item }
+            withAnimation(PMMotion.list.animation) { page = item }
         } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: text)
-                    .font(.body.weight(isSelected ? .semibold : .regular))
-                    .foregroundStyle(item == .current && originalText == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let subtitle {
-                    Text(verbatim: subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .padding(.leading, 14)
-            .padding(.trailing, isSelected ? 36 : 14)
-            .padding(.top, 15)
-            .padding(.bottom, 12)
-            .frame(minWidth: 92, maxWidth: 236, minHeight: 56, alignment: .topLeading)
-            .background(shape.fill(isSelected ? AnyShapeStyle(.tint.opacity(0.14)) : AnyShapeStyle(.fill.tertiary)))
-            .overlay {
-                shape.strokeBorder(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear), lineWidth: 1.5)
-            }
-            .overlay(alignment: .topTrailing) {
-                if isSelected {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    ScrapeSourceBadge(option: option)
+                    Spacer(minLength: 0)
+                    // 没选中时对勾也占着位置：选中前后卡片一样高，长源名的角标不会伸到对勾底下。
                     Image(systemName: "checkmark.circle.fill")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.tint)
-                        .padding(.top, 15)
-                        .padding(.trailing, 12)
-                        .transition(.scale(scale: 0.5).combined(with: .opacity))
+                        .scaleEffect(isSelected ? 1 : 0.5)
+                        .opacity(isSelected ? 1 : 0)
+                        .accessibilityHidden(true)
+                }
+                ZStack(alignment: .topLeading) {
+                    // 占位：两行值加一行副标题的高度。每张卡一样高，值短的空白落在卡片底部。
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(verbatim: " ").font(.body.weight(.semibold)).lineLimit(2, reservesSpace: true)
+                        Text(verbatim: " ").font(.caption)
+                    }
+                    .hidden()
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(verbatim: text)
+                            .font(.body.weight(isSelected ? .semibold : .regular))
+                            .foregroundStyle(item == .current && originalText == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        if let subtitle {
+                            Text(verbatim: subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
                 }
             }
-            .overlay(alignment: .topLeading) {
-                ScrapeSourceBadge(option: option).offset(x: 10, y: -9)
-            }
-            .contentShape(shape)
+            .padding(12)
+            .frame(width: width, alignment: .topLeading)
+            .modifier(ScrapeReviewCardStyle(isSelected: isSelected))
+            .contentShape(RoundedRectangle(cornerRadius: scrapeReviewCardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(verbatim: text))
@@ -954,7 +1009,8 @@ private struct ScrapeReviewTextStrip: View {
     }
 }
 
-/// 歌词：一张张大卡片轮转，居中的那张就是选中的；两侧只露出一点点，告诉人还能往两边滑。
+/// 歌词：一张张大卡片轮转，居中的那张就是选中的。卡片和页面上别的内容左右对齐、一次一张，
+/// 相邻的那张停在屏幕外、滑动时才进来，不在两边露出被切开的窄条；还有几张看标题右边的「第几个 / 共几个」。
 private struct ScrapeReviewLyricsCarousel: View {
     let pages: [ReviewPage]
     @Binding var page: ReviewPage
@@ -965,24 +1021,21 @@ private struct ScrapeReviewLyricsCarousel: View {
 
     @State private var scrolled: ReviewPage?
     @State private var width: CGFloat = 0
-    @ScaledMetric(relativeTo: .body) private var height: CGFloat = 206
-
-    /// 两侧露出的宽度与卡片间距。
-    private static let peek: CGFloat = 18
-    private static let spacing: CGFloat = 10
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        let scrollWidth = width + scrapeReviewPageInset * 2
-        let margin = Self.peek + Self.spacing
-        let cardWidth = max(160, scrollWidth - margin * 2)
-        let step = cardWidth + Self.spacing
+        // 卡片和页面正文一样宽；卡片间距等于页面边距，停稳时相邻的那张刚好在屏幕外。
+        let cardWidth = max(160, width)
+        let step = cardWidth + scrapeReviewPageInset
+        // 卡片高度跟着内容走（每张都按这么多行占位），字放大到辅助字号时少露几行。
+        let previewLines = dynamicTypeSize.isAccessibilitySize ? 3 : 5
         let centered = scrolled ?? page
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
-                LazyHStack(spacing: Self.spacing) {
+                LazyHStack(alignment: .top, spacing: scrapeReviewPageInset) {
                     ForEach(pages, id: \.self) { item in
-                        card(item, isCentered: item == centered)
-                            .frame(width: cardWidth, height: height)
+                        card(item, isCentered: item == centered, previewLines: previewLines)
+                            .frame(width: cardWidth)
                             .visualEffect { content, geometry in
                                 scrapeLyricsCarouselEffect(
                                     content,
@@ -996,11 +1049,11 @@ private struct ScrapeReviewLyricsCarousel: View {
                 .scrollTargetLayout()
             }
             .scrollIndicators(.hidden)
-            .contentMargins(.horizontal, margin, for: .scrollContent)
+            .contentMargins(.horizontal, scrapeReviewPageInset, for: .scrollContent)
             .scrollTargetBehavior(.viewAligned)
             .scrollPosition(id: $scrolled, anchor: .center)
+            .scrapeReviewEdgeFade()
             .padding(.horizontal, -scrapeReviewPageInset)
-            .frame(height: height)
             .onChange(of: scrolled) { _, new in
                 if let new, new != page { page = new }
             }
@@ -1022,48 +1075,53 @@ private struct ScrapeReviewLyricsCarousel: View {
         }
     }
 
-    private func card(_ item: ReviewPage, isCentered: Bool) -> some View {
+    private func card(_ item: ReviewPage, isCentered: Bool, previewLines: Int) -> some View {
         let option = options.first { .option($0.id) == item }
         let lyrics: ScrapeReviewLyrics? = {
             if case .lyrics(let value) = option?.value { return value }
             return option == nil ? originalLyrics : nil
         }()
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-        return VStack(alignment: .leading, spacing: 10) {
+        // 这份歌词是按哪一首找到的，时长和「当前」那张卡上这首歌的时长对着看。
+        let subtitle = scrapeReviewSubtitle(option, field: .lyrics, current: currentContext)
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 ScrapeSourceBadge(option: option)
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
                 if let lyrics {
                     Button { showLyrics(lyrics) } label: {
                         Label("scrape_lyrics_preview", systemImage: "arrow.up.left.and.arrow.down.right")
                             .font(.caption.weight(.semibold))
                     }
                     .buttonStyle(.borderless)
+                    .fixedSize()
                     .accessibilityIdentifier(isCentered ? "scrape.review.lyrics.preview" : "scrape.review.lyrics.preview.side")
                 }
             }
-            // 这份歌词是按哪一首找到的，时长和「当前」那张卡上这首歌的时长对着看。
-            if let subtitle = scrapeReviewSubtitle(option, field: .lyrics, current: currentContext) {
-                Text(verbatim: subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            // 没有出处时也占住这一行，几张卡一样高。放不下时省略中间，时长留在末尾。
+            Text(verbatim: subtitle ?? " ")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityHidden(subtitle == nil)
             if let lyrics {
-                ScrapeReviewLyricLines(lyrics: lyrics, expanded: false, previewLineCount: 5)
+                ScrapeReviewLyricLines(lyrics: lyrics, expanded: false, previewLineCount: previewLines,
+                                       reservesPreviewSpace: true)
             } else {
-                Text(verbatim: "—").foregroundStyle(.secondary)
+                // 「当前」没有歌词：占住和别的卡一样的高度，中间写一句暂无歌词。
+                ScrapeReviewLyricLines(lyrics: ScrapeReviewLyrics([]), expanded: false, previewLineCount: previewLines,
+                                       reservesPreviewSpace: true)
+                    .hidden()
+                    .overlay {
+                        Text("no_lyrics").font(.subheadline).foregroundStyle(.secondary)
+                    }
             }
-            Spacer(minLength: 0)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(shape.fill(isCentered ? AnyShapeStyle(.tint.opacity(0.08)) : AnyShapeStyle(.fill.tertiary)))
-        .overlay {
-            shape.strokeBorder(isCentered ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear), lineWidth: 1.5)
-        }
-        .animation(.snappy(duration: 0.24), value: isCentered)
-        .contentShape(shape)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .modifier(ScrapeReviewCardStyle(isSelected: isCentered))
+        .animation(PMMotion.list.animation, value: isCentered)
+        .contentShape(RoundedRectangle(cornerRadius: scrapeReviewCardRadius, style: .continuous))
         .onTapGesture {
             guard item != page else { return }
             page = item
