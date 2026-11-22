@@ -53,6 +53,9 @@ struct NowPlayingProvider: TimelineProvider {
         let now = Date()
         let loadedState = PlaybackState.load()
         let lyrics = lyricsSnapshot(for: loadedState, family: context.family)
+        if lyricFamilies.contains(context.family) {
+            LyricsProvider.requestLyricsIfMissing(playback: loadedState, snapshot: lyrics)
+        }
         let state = WidgetLyricsPresentationPolicy.playbackStateAlignedWithLyrics(
             loadedState,
             lyrics: lyrics

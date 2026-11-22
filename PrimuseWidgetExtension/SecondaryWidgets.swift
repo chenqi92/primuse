@@ -58,10 +58,12 @@ struct LyricsProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<LyricsEntry>) -> Void) {
         let now = Date()
+        let playback = PlaybackState.load()
         let loaded = Self.snapshotAlignedWithPlayback(
             LyricsSnapshot.load(),
-            playback: PlaybackState.load()
+            playback: playback
         )
+        Self.requestLyricsIfMissing(playback: playback, snapshot: loaded)
         WidgetRenderReceipt.record(
             kind: "Lyrics.\(context.family)",
             songID: loaded?.songID,
@@ -82,6 +84,21 @@ struct LyricsProvider: TimelineProvider {
         ))
     }
 
+    /// 设置里允许把歌词交给小组件。
+    static var sharesLyrics: Bool {
+        WidgetSettings.syncEnabled()
+            && WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey)
+            && WidgetSettings.sharedDataScope().includesLyrics
+    }
+
+    /// 刚放到桌面上、App 正在后台播放时,App 还不知道有这个小组件、不发布歌词:叫它一声
+    /// (`WidgetLyricsDemandSignal`),不用等到下一首。
+    static func requestLyricsIfMissing(playback: PlaybackState?, snapshot: LyricsSnapshot?) {
+        guard sharesLyrics,
+              WidgetLyricsDemandSignal.shouldRequest(playback: playback, snapshot: snapshot) else { return }
+        WidgetLyricsDemandSignal.post()
+    }
+
     /// Playback state is refreshed on every discrete play/pause/seek event,
     /// while macOS may keep the same lyric payload for the whole song. Project
     /// that newer sample into the lyric snapshot so both standalone and large
@@ -90,11 +107,7 @@ struct LyricsProvider: TimelineProvider {
         _ snapshot: LyricsSnapshot?,
         playback: PlaybackState?
     ) -> LyricsSnapshot? {
-        guard WidgetSettings.syncEnabled(),
-              WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey),
-              WidgetSettings.sharedDataScope().includesLyrics else {
-            return nil
-        }
+        guard sharesLyrics else { return nil }
         return WidgetLyricsPresentationPolicy.snapshotAlignedWithPlayback(
             snapshot,
             playback: playback

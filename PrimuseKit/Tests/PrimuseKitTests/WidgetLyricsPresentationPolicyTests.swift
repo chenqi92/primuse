@@ -282,6 +282,27 @@ struct WidgetLyricsPresentationPolicyTests {
         #expect(decoded.playbackPosition == nil)
         #expect(decoded.writingDirection == nil)
     }
+
+    @Test func widgetAsksForLyricsOnlyWhenThePlayingSongHasNoSnapshot() {
+        let playing = PlaybackState(currentSongID: "song-b", isPlaying: true)
+        let previousSong = LyricsSnapshot(songID: "song-a", title: "A", artist: "", coverImageName: nil,
+                                          lines: lines, anchorIndex: 0, isPlaying: true)
+        let thisSong = LyricsSnapshot(songID: "song-b", title: "B", artist: "", coverImageName: nil,
+                                      lines: lines, anchorIndex: 0, isPlaying: true)
+        let emptySnapshot = LyricsSnapshot(songID: "song-b", title: "B", artist: "", coverImageName: nil,
+                                           lines: [], anchorIndex: 0, isPlaying: true)
+        #expect(WidgetLyricsDemandSignal.shouldRequest(playback: playing, snapshot: nil))
+        #expect(WidgetLyricsDemandSignal.shouldRequest(playback: playing, snapshot: previousSong))
+        #expect(WidgetLyricsDemandSignal.shouldRequest(playback: playing, snapshot: emptySnapshot))
+        #expect(!WidgetLyricsDemandSignal.shouldRequest(playback: playing, snapshot: thisSong))
+        // Nothing playing, or a live radio station: there are no lyrics to ask for.
+        #expect(!WidgetLyricsDemandSignal.shouldRequest(playback: nil, snapshot: nil))
+        #expect(!WidgetLyricsDemandSignal.shouldRequest(playback: PlaybackState(), snapshot: nil))
+        #expect(!WidgetLyricsDemandSignal.shouldRequest(
+            playback: PlaybackState(currentSongID: "radio", playbackKind: .liveRadio), snapshot: nil
+        ))
+        #expect(WidgetLyricsDemandSignal.name.hasPrefix(PrimuseConstants.appGroupIdentifier))
+    }
 }
 
 private struct LegacyLyricsSnapshot: Codable {

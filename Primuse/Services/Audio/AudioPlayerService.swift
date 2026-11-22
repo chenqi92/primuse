@@ -20,6 +20,8 @@ import WidgetKit
 extension Notification.Name {
     static let primuseCarPlaySceneDidConnect = Notification.Name("primuse.carPlaySceneDidConnect")
     static let primuseCarPlaySceneDidDisconnect = Notification.Name("primuse.carPlaySceneDidDisconnect")
+    /// 小组件叫了一声要歌词(达尔文通知转到主线程,见 `observeWidgetLyricsDemand`)。
+    static let primuseWidgetLyricsDemand = Notification.Name("primuse.widgetLyricsDemand")
 }
 #endif
 
@@ -1951,6 +1953,7 @@ final class AudioPlayerService {
         observeLockScreenLyricsSetting()
         observeLockScreenLyricsChanges()
         observeLikedSongChanges()
+        observeWidgetLyricsDemand()
         #endif
 
         // 服务端曲库源(Subsonic/Navidrome、Jellyfin/Emby/Plex 等)回报回调 —— 把
@@ -9142,6 +9145,7 @@ final class AudioPlayerService {
     @ObservationIgnored private var lyricsWidgetConfigurationRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var lastLyricsWidgetConfigurationRefreshAt = Date.distantPast
     @ObservationIgnored private var hasInstalledLyricsWidgetSurface = false
+    @ObservationIgnored private var lastWidgetLyricsDemandAt = Date.distantPast
 
     private var widgetLyricsSharingEnabled: Bool {
         WidgetSettings.syncEnabled()
@@ -9233,19 +9237,13 @@ final class AudioPlayerService {
                         && (configuration.family == .systemMedium || configuration.family == .systemLarge))
             }
             guard isInstalled != self.hasInstalledLyricsWidgetSurface else {
-                if isInstalled,
-                   self.systemLyricsLoadTask == nil,
-                   self.systemLyricsSongID != self.currentSong?.id {
-                    self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
-                }
+                if isInstalled { self.publishOrLoadWidgetLyrics() }
                 return
             }
 
             self.hasInstalledLyricsWidgetSurface = isInstalled
             if isInstalled {
-                if self.systemLyricsLoadTask == nil {
-                    self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
-                }
+                self.publishOrLoadWidgetLyrics()
             } else {
                 self.clearWidgetLyricsSnapshotIfNeeded()
                 if !self.shouldLoadLyricsForSystemSurfaces {
@@ -9253,6 +9251,49 @@ final class AudioPlayerService {
                 }
             }
         }
+    }
+
+    /// 锁屏歌词开着时这首的歌词往往已经读好:直接交给小组件,不再读一遍;还没读才去读。
+    private func publishOrLoadWidgetLyrics() {
+        if systemLyricsSongID == currentSong?.id, !systemLyrics.isEmpty {
+            publishWidgetLyricsIfNeeded()
+        } else if systemLyricsLoadTask == nil, systemLyricsSongID != currentSong?.id {
+            loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
+        }
+    }
+
+    /// 小组件拿不到这首的歌词时会叫一声(`WidgetLyricsDemandSignal`):后台播放时刚放到桌面上的
+    /// 歌词小组件,App 不必等到切歌或回到前台才去查桌面上的小组件、发布歌词。
+    private func observeWidgetLyricsDemand() {
+        NotificationCenter.default.addObserver(
+            forName: .primuseWidgetLyricsDemand,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.widgetRequestedLyrics()
+            }
+        }
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            nil,
+            { _, _, _, _, _ in
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .primuseWidgetLyricsDemand, object: nil)
+                }
+            },
+            WidgetLyricsDemandSignal.name as CFString,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    private func widgetRequestedLyrics() {
+        // 歌本来就没有歌词时小组件每次刷新都会叫:几秒内只查一次。
+        let now = Date()
+        guard now.timeIntervalSince(lastWidgetLyricsDemandAt) >= 3 else { return }
+        lastWidgetLyricsDemandAt = now
+        refreshInstalledLyricsWidgetDemand(force: true)
     }
 
     private func resetSystemLyricsState() {

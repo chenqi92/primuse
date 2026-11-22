@@ -159,3 +159,30 @@ public enum WidgetLyricsPresentationPolicy {
         return LyricWritingDirectionPolicy.resolve(in: lyricLines)
     }
 }
+
+/// 小组件拿不到正在放的这首的歌词时叫一声 App(达尔文通知,跨进程,不带数据)。
+/// App 只在切歌、回到前台时才查桌面上放没放带歌词的小组件;后台播放时新放上去的,
+/// 不叫这一声就要等到下一首才有歌词。
+public enum WidgetLyricsDemandSignal {
+    public static let name = PrimuseConstants.appGroupIdentifier + ".widget.lyricsDemand"
+
+    /// 正在放一首歌(不是电台),却没有这首的歌词快照。
+    public static func shouldRequest(playback: PlaybackState?, snapshot: LyricsSnapshot?) -> Bool {
+        guard let playback, let songID = playback.currentSongID,
+              playback.playbackKind != .liveRadio else { return false }
+        guard let snapshot, snapshot.songID == songID, !snapshot.lines.isEmpty else { return true }
+        return false
+    }
+
+    public static func post() {
+        #if canImport(Darwin)
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(name as CFString),
+            nil,
+            nil,
+            true
+        )
+        #endif
+    }
+}
