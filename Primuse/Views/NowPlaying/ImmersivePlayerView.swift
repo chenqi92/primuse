@@ -27,6 +27,11 @@ struct ImmersivePlayerView: View {
     /// 全屏播放是沉浸式、不滚动的界面,按整屏居中,只让开这一块:顶部控件排在遮挡那一侧让开,
     /// 舞台内容只有上沿落进遮挡区那段高度时才在那一侧让。没有竖栏的设备为空,排版不变。
     var occlusions: [OcclusionAvoidancePolicy.Region] = []
+    /// 窗口的左右安全区(横屏时灵动岛、刘海那一侧)。播放页的宿主控制器关掉了安全区(`PlayerRenderHost`),
+    /// 这一页量到的 `safeAreaInsets` 恒为 0:横屏时各效果只按 36pt 的保底边距排,前缘的歌名、歌词
+    /// 正好压在灵动岛底下。由播放页按窗口量好交进来;nil(外接屏、Duo 竖栏按遮挡区让位时)照旧用量到的值。
+    /// 只取左右两侧:上下沿的保底值本来就是照状态栏和主屏指示条留的,版面不变。
+    var windowSafeArea: EdgeInsets? = nil
     /// 封面流(#191)里长按：打开正在播的这张专辑的全部歌曲。播放页给，nil 时长按不做事。
     var onShowAlbum: (() -> Void)? = nil
     /// 右上角、底部播放胶囊两侧与胶囊下面那一排放什么(设置 › 播放器 › 播放页按钮 › 全屏效果)。
@@ -194,7 +199,8 @@ struct ImmersivePlayerView: View {
 
     private var stageSurface: some View {
         GeometryReader { geometry in
-            let safeArea = stageSafeArea(geometry.safeAreaInsets, size: geometry.size)
+            let measuredSafeArea = measuredSafeArea(geometry.safeAreaInsets)
+            let safeArea = stageSafeArea(measuredSafeArea, size: geometry.size)
             let metrics = ImmersiveStageMetrics(
                 size: geometry.size,
                 safeArea: safeArea,
@@ -203,7 +209,7 @@ struct ImmersivePlayerView: View {
             // 控件按真实安全区排(顶上那排另外在遮挡那一侧让开),舞台内容可能被推到遮挡区下面。
             let chromeMetrics = ImmersiveStageMetrics(
                 size: geometry.size,
-                safeArea: geometry.safeAreaInsets,
+                safeArea: measuredSafeArea,
                 isHandheld: isPhoneIdiom
             )
 
@@ -686,6 +692,15 @@ struct ImmersivePlayerView: View {
             .padding(.vertical, 8)
             .background(.red.opacity(0.82), in: Capsule())
             .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// 量到的安全区换上窗口的左右两侧(见 `windowSafeArea`)。
+    private func measuredSafeArea(_ geometryInsets: EdgeInsets) -> EdgeInsets {
+        guard let windowSafeArea else { return geometryInsets }
+        var insets = geometryInsets
+        insets.leading = max(insets.leading, windowSafeArea.leading)
+        insets.trailing = max(insets.trailing, windowSafeArea.trailing)
+        return insets
     }
 
     /// 舞台的安全区。整屏居中:舞台内容上沿落进遮挡区那段高度时,把上沿推到遮挡区下面,

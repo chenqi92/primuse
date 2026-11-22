@@ -4978,6 +4978,8 @@ struct NowPlayingView: View {
                         onShowQueue: { showQueue = true },
                         onToggleOrientation: immersiveOrientationAction,
                         occlusions: occlusions,
+                        // Duo 竖栏的设备按整屏居中、只让开遮挡区(上面那个参数),不再套窗口的左右安全区。
+                        windowSafeArea: centersOnFullScreen ? nil : safeInsets,
                         onShowAlbum: {
                             guard let album = currentAlbum else { return }
                             presentAlbum(album, prefersMatchedArtworkSource: false)
