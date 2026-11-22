@@ -1630,21 +1630,62 @@ public extension Sequence where Element == Song {
 
 /// A completed file inspection can carry no tags; partial reads remain eligible for backfill.
 public struct SongContentMetadata: Codable, Hashable, Sendable {
+    // 存储字段的先后按内存布局排:整段内联在 Song 的少用字段盒子里,多出一截就会把盒子撑出
+    // 512 字节那一档(见 SongCompactStorageTests)。内嵌音轨清单只占一个指针,排在两个字符串
+    // 后面;布尔值落在 `iTunesAdvisory` 标记位后面的空隙里。
     public var releaseType: String?
-    public var iTunesAdvisory: Int?
     public var copyright: String?
+    private var mediaTracksStorage: MediaTracksStorage?
+    public var iTunesAdvisory: Int?
     public var isFileInspectionComplete: Bool
     /// 文件里内嵌的章节数(m4b/m4a 的章节轨或 Nero 章节表、长 MP3 的 CHAP 帧),读标签时顺手数的。
     /// nil 是还没数过;读完整个 moov 没找到章节记 0。资料库「有声书」那一行的章数按它算,
     /// 见 `SpokenWordChapterTally`。
     public var embeddedChapterCount: Int?
-    public var embeddedMediaTracks: EmbeddedMediaTrackInventory?
+
+    public var embeddedMediaTracks: EmbeddedMediaTrackInventory? {
+        get { mediaTracksStorage?.inventory }
+        set { mediaTracksStorage = newValue.map(MediaTracksStorage.init) }
+    }
+
+    /// 大多数歌没有内嵌音轨清单;有的才多分配一块。
+    private indirect enum MediaTracksStorage: Hashable, Sendable {
+        case value(EmbeddedMediaTrackInventory)
+
+        init(_ inventory: EmbeddedMediaTrackInventory) { self = .value(inventory) }
+
+        var inventory: EmbeddedMediaTrackInventory {
+            switch self {
+            case .value(let inventory): inventory
+            }
+        }
+    }
 
     private enum CodingKeys: String, CodingKey {
         case releaseType, iTunesAdvisory, copyright, isFileInspectionComplete
         // 每首 m4a 都带这一项,存短一点。
         case embeddedChapterCount = "chapters"
         case embeddedMediaTracks = "mediaTracks"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        releaseType = try container.decodeIfPresent(String.self, forKey: .releaseType)
+        copyright = try container.decodeIfPresent(String.self, forKey: .copyright)
+        iTunesAdvisory = try container.decodeIfPresent(Int.self, forKey: .iTunesAdvisory)
+        isFileInspectionComplete = try container.decode(Bool.self, forKey: .isFileInspectionComplete)
+        embeddedChapterCount = try container.decodeIfPresent(Int.self, forKey: .embeddedChapterCount)
+        embeddedMediaTracks = try container.decodeIfPresent(EmbeddedMediaTrackInventory.self, forKey: .embeddedMediaTracks)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(releaseType, forKey: .releaseType)
+        try container.encodeIfPresent(iTunesAdvisory, forKey: .iTunesAdvisory)
+        try container.encodeIfPresent(copyright, forKey: .copyright)
+        try container.encode(isFileInspectionComplete, forKey: .isFileInspectionComplete)
+        try container.encodeIfPresent(embeddedChapterCount, forKey: .embeddedChapterCount)
+        try container.encodeIfPresent(embeddedMediaTracks, forKey: .embeddedMediaTracks)
     }
 
     public init(
