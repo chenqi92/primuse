@@ -6362,8 +6362,16 @@ struct NowPlayingView: View {
                 ? EdgeInsets(top: windowInsets.top, leading: columnSide, bottom: windowInsets.bottom, trailing: columnSide)
                 : windowInsets)
             : compactLandscapeSafeInsets(geo: geo, windowInsets: windowInsets, occlusions: occlusions)
+        // 全屏歌词：歌词栏从内容区上沿画起，圆钮排浮在它上面、跟着沉浸控件显隐；左栏仍排在圆钮排下面。
+        let lyricsSpansChrome = !usesToolColumn && showLyrics && isLyricsImmersive
         let metrics = compactLandscapeMetrics(geo: geo, safeInsets: safeInsets)
-        let lyricsMetrics = compactLandscapeLyricsMetrics(geo: geo, safeInsets: safeInsets)
+        let chromeBand = CGFloat(metrics.chromeRowHeight + metrics.chromeBottomSpacing)
+        let lyricsMetrics = compactLandscapeLyricsMetrics(
+            geo: geo,
+            safeInsets: safeInsets,
+            usesToolColumn: usesToolColumn,
+            spansChrome: lyricsSpansChrome
+        )
         let chromeClearance = OcclusionAvoidancePolicy.sideClearance(
             regions: occlusions,
             bandMinY: metrics.topInset,
@@ -6376,10 +6384,29 @@ struct NowPlayingView: View {
         let chromeTrailing = chromeClearance.trailing > 0
             ? max(0, CGFloat(chromeClearance.trailing + metrics.chromeBottomSpacing - metrics.trailingInset))
             : 0
-        let lyricsPaneTop = compactLandscapeLyricsPaneTopClearance(
+        let paneInsets = compactLandscapeLyricsPaneInsets(
             occlusions: occlusions,
             metrics: metrics,
             lyricsMetrics: lyricsMetrics
+        )
+        let chromeVisible = compactLandscapeChromeIsVisible
+        let lyricsPane = CompactLandscapeLyricsPaneStyle(
+            insets: EdgeInsets(
+                top: CGFloat(paneInsets.top),
+                leading: CGFloat(paneInsets.leading),
+                bottom: 0,
+                trailing: CGFloat(paneInsets.trailing)
+            ),
+            // 圆钮在时歌词在它下面淡出，藏起来后顶上只留一小段渐隐。
+            fade: lyricsSpansChrome
+                ? NowPlayingCompactLandscapeLayoutPolicy.immersiveLyricsFade(
+                    chromeOverlap: chromeVisible ? max(0, Double(chromeBand) - paneInsets.top) : 0
+                )
+                : nil,
+            fontScale: NowPlayingCompactLandscapeLayoutPolicy.lyricsCanvasFontScale(
+                paneHeight: lyricsMetrics.lyricsPaneHeight - paneInsets.top,
+                isExpandedCanvas: usesExpandedLandscapeCanvas
+            )
         )
         // 两端的随机 / 循环摆不摆得下，两种模式的右栏宽度不同，各算各的。
         let showsEdgeToggles = showLyrics
@@ -6391,14 +6418,15 @@ struct NowPlayingView: View {
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
                 // 顶部圆钮排占位：圆钮本身画在上层，锁上之后换成解锁胶囊，
-                // 下面的内容不跟着挪。圆钮排进了竖栏那一列时不占这一行。
+                // 下面的内容不跟着挪。圆钮排进了竖栏那一列时不占这一行；全屏歌词时只有左栏让出这一行。
                 Color.clear
-                    .frame(height: usesToolColumn ? 0 : CGFloat(metrics.chromeRowHeight + metrics.chromeBottomSpacing))
+                    .frame(height: usesToolColumn || lyricsSpansChrome ? 0 : chromeBand)
 
                 compactLandscapeColumns(
                     metrics: metrics,
                     lyricsMetrics: lyricsMetrics,
-                    lyricsPaneTopClearance: lyricsPaneTop,
+                    lyricsPane: lyricsPane,
+                    leadingColumnTopInset: lyricsSpansChrome ? chromeBand : 0,
                     usesToolColumn: usesToolColumn,
                     fullBleedArtwork: fullBleedArtwork
                 )
@@ -6419,6 +6447,7 @@ struct NowPlayingView: View {
                     .pmLayoutSwitchFade()
                     .padding(.leading, chromeLeading)
                     .padding(.trailing, chromeTrailing)
+                    .modifier(LandscapeChromeVisibility(isVisible: chromeVisible))
                 }
             }
         }
@@ -6451,6 +6480,9 @@ struct NowPlayingView: View {
             if immersiveControlsState.isLocked {
                 isCompactLandscapeLocked = true
                 immersiveControlsState = immersiveControlsState.applying(.unlock)
+            } else if showLyrics, isLyricsImmersive, immersiveControlsState.isVisible {
+                // 全屏歌词里转到横屏：圆钮排照旧 4 秒不动自己收起。
+                scheduleImmersiveControlsAutoHide()
             }
         }
         .onDisappear {
@@ -6518,6 +6550,7 @@ struct NowPlayingView: View {
                     .position(x: rect.midX, y: rect.midY)
             }
             .pmLayoutSwitchFade()
+            .modifier(LandscapeChromeVisibility(isVisible: compactLandscapeChromeIsVisible))
         }
     }
 
@@ -6547,19 +6580,26 @@ struct NowPlayingView: View {
         )
     }
 
-    /// 歌词栏在遮挡区下面才开始:只在它横向碰到从栏顶以上伸下来的遮挡区时把栏顶往下挪到遮挡区下沿
-    /// (贴着屏幕下沿的遮挡区不算,那样栏顶会被推出屏幕)。
-    private func compactLandscapeLyricsPaneTopClearance(
+    /// 歌词栏让开从栏顶以上伸下来的遮挡区:窄的(iPhone Duo 竖排的状态栏与摄像头)在那一侧收窄,
+    /// 宽的才把栏顶往下挪到遮挡区下沿(贴着屏幕下沿的遮挡区不算,那样栏顶会被推出屏幕)。
+    private func compactLandscapeLyricsPaneInsets(
         occlusions: [OcclusionAvoidancePolicy.Region],
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
         lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
-    ) -> CGFloat {
-        CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricsPaneTopClearance(
+    ) -> NowPlayingCompactLandscapeLayoutPolicy.LyricsPaneInsets {
+        NowPlayingCompactLandscapeLayoutPolicy.lyricsPaneInsets(
             metrics: metrics,
             lyricsMetrics: lyricsMetrics,
             occlusions: occlusions,
             isRightToLeft: layoutDirection == .rightToLeft
-        ))
+        )
+    }
+
+    /// 顶上那排圆钮此刻露不露出来。全屏歌词时跟着沉浸控件走(和竖屏全屏歌词一样:点歌词空白叫出 / 收起,
+    /// 4 秒不动自己收起);锁着时解锁胶囊一直在,否则点不到;VoiceOver 下也不收,收了就摸不到。其它时候一直在。
+    private var compactLandscapeChromeIsVisible: Bool {
+        !(showLyrics && isLyricsImmersive) || isCompactLandscapeLocked || voiceOverEnabled
+            || immersiveControlsState.isVisible
     }
 
     private func compactLandscapeMetrics(
@@ -6582,7 +6622,9 @@ struct NowPlayingView: View {
 
     private func compactLandscapeLyricsMetrics(
         geo: GeometryProxy,
-        safeInsets: EdgeInsets
+        safeInsets: EdgeInsets,
+        usesToolColumn: Bool = false,
+        spansChrome: Bool = false
     ) -> NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics {
         NowPlayingCompactLandscapeLayoutPolicy.lyricsMetrics(
             viewportWidth: Double(geo.size.width),
@@ -6592,7 +6634,10 @@ struct NowPlayingView: View {
             safeAreaLeading: Double(safeInsets.leading),
             safeAreaTrailing: Double(safeInsets.trailing),
             prefersVolumeBar: showsPlayerVolumeBar,
-            textScale: compactLandscapeTextScale
+            textScale: compactLandscapeTextScale,
+            isExpandedCanvas: usesExpandedLandscapeCanvas,
+            reservesChromeRow: !usesToolColumn,
+            spansChromeRow: spansChrome
         )
     }
 
@@ -6610,10 +6655,12 @@ struct NowPlayingView: View {
         isCompactLandscapeLocked || showsImmersiveEffectPicker
     }
 
+    /// `leadingColumnTopInset`:全屏歌词时歌词栏从上沿画起,左栏自己让出圆钮排那一行,位置和普通歌词时一样。
     private func compactLandscapeColumns(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
         lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics,
-        lyricsPaneTopClearance: CGFloat = 0,
+        lyricsPane: CompactLandscapeLyricsPaneStyle = CompactLandscapeLyricsPaneStyle(),
+        leadingColumnTopInset: CGFloat = 0,
         usesToolColumn: Bool = false,
         fullBleedArtwork: Bool = false
     ) -> some View {
@@ -6641,11 +6688,11 @@ struct NowPlayingView: View {
             }
             .frame(width: leftColumnWidth)
             .frame(maxHeight: .infinity)
+            .padding(.top, leadingColumnTopInset)
 
             ZStack {
                 if showLyrics {
-                    compactLandscapeLyricsPane(metrics: lyricsMetrics)
-                        .padding(.top, lyricsPaneTopClearance)
+                    compactLandscapeLyricsPane(metrics: lyricsMetrics, style: lyricsPane)
                         .pmLayoutSwitchFade()
                         .transition(usesPersistentPhoneLyrics ? .identity : lyricsPanelTransition)
                 } else {
@@ -6684,19 +6731,28 @@ struct NowPlayingView: View {
     }
 
     /// 歌词栏。滚动、淡出遮罩、点空白处回封面都是 `LyricsScrollView` 自己的，
-    /// 这里只给它一块不会被任何控件压住的地方。
+    /// 这里只给它一块不会被任何控件压住的地方。全屏歌词时圆钮排浮在栏顶上，靠渐隐让开它
+    /// (`style.fade`)；栏让开遮挡区的内边距与内屏放大的字号也由 `style` 给出。
     private func compactLandscapeLyricsPane(
-        metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics,
+        style: CompactLandscapeLyricsPaneStyle
     ) -> some View {
         Group {
             if usesPersistentPhoneLyrics {
                 PlayerLyricsViewportSlot(allowsInteraction: !isCompactLandscapeLocked)
             } else {
-                lyricsFullView
+                lyricsScrollView(
+                    collapsesChromeOnScroll: false,
+                    readerButtonTopInset: CGFloat(style.fade?.accessoryTop
+                        ?? NowPlayingCompactLandscapeLayoutPolicy.lyricsAccessoryTopPadding),
+                    canvasFontScale: style.fontScale
+                )
+                .environment(\.lyricsViewportFade, style.fade)
             }
         }
-            .frame(width: CGFloat(metrics.lyricsPaneWidth))
+            .frame(width: max(0, CGFloat(metrics.lyricsPaneWidth) - style.insets.leading - style.insets.trailing))
             .frame(maxHeight: .infinity)
+            .padding(style.insets)
     }
 
     /// `alignsToArtwork`：卡片封面时这一栏撑到和封面一样高，歌名的上沿对着封面上沿、传输键（或音量条）的下沿
@@ -6810,24 +6866,35 @@ struct NowPlayingView: View {
     }
 
     /// 歌词模式左栏的上半截：小封面 + 歌名 / 艺人，整块点一下回封面模式。
-    /// 音乐缩略图只提供位置，常驻封面层负责缩放和位移。
+    /// 音乐缩略图只提供位置，常驻封面层负责缩放和位移。iPhone Duo 内屏横握高度富余时
+    /// 换成控件栏那么宽的大封面，歌名、艺人排到封面下面（同一个封面位，换场照旧从这里飞）。
     private func compactLandscapeLyricsHeader(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics,
         receivesFullBleedArtwork: Bool = false
     ) -> some View {
         let thumbnail = CGFloat(metrics.thumbnailSize)
-        return Button { returnToArtworkFromLyricsHeader() } label: {
-            HStack(
+        let isLarge = metrics.usesLargeArtwork
+        let shadow: LyricsArtworkShadow = isLarge
+            ? .init(opacity: 0.28, radius: 20, y: 10)
+            : .init(opacity: 0.22, radius: 10, y: 5)
+        let layout = isLarge
+            ? AnyLayout(VStackLayout(
+                alignment: .leading,
+                spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricsLargeArtworkSpacing)
+            ))
+            : AnyLayout(HStackLayout(
                 alignment: .center,
                 spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricsHeaderSpacing)
-            ) {
+            ))
+        return Button { returnToArtworkFromLyricsHeader() } label: {
+            layout {
                 lyricsThumbnailArtwork(
                     size: thumbnail,
-                    cornerRadius: 12,
-                    shadow: .init(opacity: 0.22, radius: 10, y: 5),
+                    cornerRadius: isLarge ? 18 : 12,
+                    shadow: shadow,
                     receivesFullBleedArtwork: receivesFullBleedArtwork
                 )
-                .shadow(color: .black.opacity(0.22), radius: 10, y: 5)
+                .shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, y: shadow.y)
                 .lyricsHeaderReveal(isArtwork: true)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -7456,7 +7523,7 @@ struct NowPlayingView: View {
         return HStack(spacing: 0) {
             Button {
                 isCompactLandscapeLocked = false
-                // 同步竖屏全屏歌词的解锁状态；横屏控件不跟随它的自动隐藏计时。
+                // 同步竖屏全屏歌词的解锁状态；全屏歌词时圆钮排解锁后重新露出，照旧 4 秒后自己收起。
                 if showLyrics && isLyricsImmersive {
                     immersiveControlsState = immersiveControlsState.applying(.unlock)
                     scheduleImmersiveControlsAutoHide()
@@ -10695,12 +10762,17 @@ struct NowPlayingView: View {
         }
     }
 
+    /// - Parameters:
+    ///   - readerButtonTopInset: 文稿全屏键离栏顶多远;手机横屏全屏歌词时圆钮排压在栏顶上,躲到它下面。
+    ///   - canvasFontScale: 内屏横握按栏高放大歌词字号的倍数(见 `LyricsScrollView.canvasFontScale`)。
     private func lyricsScrollView(
         collapsesChromeOnScroll: Bool,
         showsReaderButton: Bool = true,
         isVisible: Bool = true,
         prewarmsPosition: Bool = false,
         presentation: NowPlayingLyricsPresentation? = nil,
+        readerButtonTopInset: CGFloat = 8,
+        canvasFontScale: Double = 1,
         onBackgroundTap backgroundTapOverride: (() -> Void)? = nil
     ) -> some View {
         LyricsScrollView(
@@ -10750,7 +10822,8 @@ struct NowPlayingView: View {
             // 全屏键 34 宽、右边距 12,标签再空 8。
             translationStatusTrailingInset: showsReaderButton && usesSpokenWordTransport && !lyrics.isEmpty
                 ? 12 + 34 + 8 : 12,
-            hidesMissingLyricsNotice: isLyricsImmersive && !usesSpokenWordTransport
+            hidesMissingLyricsNotice: isLyricsImmersive && !usesSpokenWordTransport,
+            canvasFontScale: canvasFontScale
         )
         // 歌词列表的输入没变就不重算(切封面 ⇄ 歌词时外层每次都会构造新的回调闭包)：
         // 否则每次切换都要把整份歌词的每一行重新求值一遍，压在转场第一帧上。
@@ -10758,7 +10831,7 @@ struct NowPlayingView: View {
         .overlay(alignment: .topTrailing) {
             if showsReaderButton {
                 transcriptReaderButton
-                    .padding(.top, 8)
+                    .padding(.top, readerButtonTopInset)
                     .padding(.trailing, 12)
             }
         }
@@ -18407,6 +18480,80 @@ private final class LyricsVisualPlaybackSnapshot {
     var time: TimeInterval = 0
 }
 
+private struct LyricsViewportFadeKey: EnvironmentKey {
+    static let defaultValue: NowPlayingCompactLandscapeLayoutPolicy.LyricsViewportFade? = nil
+}
+
+private extension EnvironmentValues {
+    /// 手机横屏全屏歌词给歌词列表的定高渐隐(见 `LyricsViewportFadeMask`);没给时按栏高比例渐隐。
+    var lyricsViewportFade: NowPlayingCompactLandscapeLayoutPolicy.LyricsViewportFade? {
+        get { self[LyricsViewportFadeKey.self] }
+        set { self[LyricsViewportFadeKey.self] = newValue }
+    }
+}
+
+/// 歌词列表上下的渐隐。默认按栏高的 12% 渐隐;手机横屏全屏歌词给了定高渐隐时按它画:圆钮排在时
+/// 顶上躲开它,藏起来后只留一小段。渐隐经环境值传进来、只有这一层读,圆钮显隐不会让整份歌词重算。
+private struct LyricsViewportFadeMask: View {
+    @Environment(\.lyricsViewportFade) private var fade
+
+    var body: some View {
+        if let fade {
+            VStack(spacing: 0) {
+                Color.clear
+                    .frame(height: CGFloat(fade.topClear))
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: CGFloat(fade.top))
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: CGFloat(fade.bottom))
+            }
+        } else {
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: .black, location: 0.12),
+                    .init(color: .black, location: 0.88),
+                    .init(color: .clear, location: 1.0),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+    }
+}
+
+/// 歌词栏顶上那排小标签(评论、翻译进度)离栏顶的距离,圆钮排压在栏顶上时躲到它下面。同样只有这一层读环境值。
+private struct LyricsAccessoryTopInset: ViewModifier {
+    @Environment(\.lyricsViewportFade) private var fade
+
+    func body(content: Content) -> some View {
+        content.padding(
+            .top,
+            CGFloat(fade?.accessoryTop ?? NowPlayingCompactLandscapeLayoutPolicy.lyricsAccessoryTopPadding)
+        )
+    }
+}
+
+/// 手机横屏歌词栏这一次怎么摆:让开遮挡区的内边距、全屏歌词的定高渐隐(其它时候为 nil)与内屏放大的字号。
+private struct CompactLandscapeLyricsPaneStyle {
+    var insets = EdgeInsets()
+    var fade: NowPlayingCompactLandscapeLayoutPolicy.LyricsViewportFade?
+    var fontScale: Double = 1
+}
+
+/// 手机横屏全屏歌词时顶上那排圆钮的显隐:藏起来时不挡点按(点歌词空白才叫得出来),读屏也跳过。
+private struct LandscapeChromeVisibility: ViewModifier {
+    let isVisible: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isVisible ? 1 : 0)
+            .allowsHitTesting(isVisible)
+            .accessibilityHidden(!isVisible)
+    }
+}
+
 struct LyricsScrollView: View, @MainActor Equatable {
     /// 只比较会影响画面的数据。回调闭包每次都是新造的，比较不出「没变」；它们调用的是播放页的方法、
     /// 读的是调用时的状态，唯一按构造时取值的「收起底部控件」由 `onUserScroll` 有无表示，一并比较。
@@ -18433,6 +18580,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
             && lhs.isSpokenWordTranscript == rhs.isSpokenWordTranscript
             && lhs.translationStatusTrailingInset == rhs.translationStatusTrailingInset
             && lhs.hidesMissingLyricsNotice == rhs.hidesMissingLyricsNotice
+            && lhs.canvasFontScale == rhs.canvasFontScale
             && lhs.commentAnchors == rhs.commentAnchors
             && lhs.translatedTextByLineID == rhs.translatedTextByLineID
             && lhs.lyrics == rhs.lyrics
@@ -18483,6 +18631,9 @@ struct LyricsScrollView: View, @MainActor Equatable {
     /// 全屏里放的:确定没有歌词时不写「暂无歌词」、不摆刮削与听写两颗键,整片留给背景(#423)。
     /// 这两件事在「更多」里和不全屏的歌词页上照旧有。
     var hidesMissingLyricsNotice = false
+    /// 手机横屏骨架在 iPhone Duo 内屏上的歌词栏高出一大截，字号按栏高放大的倍数。
+    /// 和设置里的歌词字号相乘，照样受上下限约束；设置里存的字号不变。其它地方都是 1。
+    var canvasFontScale: Double = 1
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -18585,7 +18736,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
     }
 
     private var lyricsTypography: LyricsTypography {
-        LyricsTypography(fontScale: lyricsFontScale, typeface: lyricsTypeface)
+        LyricsTypography(fontScale: lyricsFontScale * canvasFontScale, typeface: lyricsTypeface)
     }
     /// Keep every row on one stable layout size. Current-line emphasis is a
     /// render-layer scale, so a takeover does not reflow the surrounding rows.
@@ -18602,14 +18753,14 @@ struct LyricsScrollView: View, @MainActor Equatable {
     }
 
     private var effectiveLyricsScale: Double {
-        let combined = lyricsFontScale * Double(lyricsPinchScale)
+        let combined = lyricsFontScale * canvasFontScale * Double(lyricsPinchScale)
         return min(max(combined, Self.lyricsMinScale), Self.lyricsMaxScale)
     }
 
     /// 译文与注音行的缩放:单独设过就用自己的,捏合照样一起放大缩小;没设过跟原文。
     private var effectiveCompanionScale: Double {
         guard lyricsTranslationFontScale > 0 else { return effectiveLyricsScale }
-        let combined = lyricsTranslationFontScale * Double(lyricsPinchScale)
+        let combined = lyricsTranslationFontScale * canvasFontScale * Double(lyricsPinchScale)
         return min(max(combined, Self.lyricsMinScale), Self.lyricsMaxScale)
     }
 
@@ -18805,7 +18956,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
                     .foregroundStyle(appearance.secondary)
                 translationStatusBadge
             }
-            .padding(.top, 8)
+            .modifier(LyricsAccessoryTopInset())
             .padding(.leading, 12)
             .padding(.trailing, translationStatusTrailingInset)
         }
@@ -19037,7 +19188,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
             }
         }
         .clipped()
-        .mask(lyricsViewportFadeMask)
+        .mask(LyricsViewportFadeMask())
     }
 
     private var smoothWordLyricsView: some View {
@@ -19147,7 +19298,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
             }
         }
         .clipped()
-        .mask(lyricsViewportFadeMask)
+        .mask(LyricsViewportFadeMask())
         .simultaneousGesture(
             MagnifyGesture()
                 .onChanged { value in
@@ -19547,19 +19698,6 @@ struct LyricsScrollView: View, @MainActor Equatable {
             guard let target = playbackScrollTarget else { return }
             scroll(to: target, proxy: proxy, animated: true)
         }
-    }
-
-    private var lyricsViewportFadeMask: some View {
-        LinearGradient(
-            stops: [
-                .init(color: .clear, location: 0.0),
-                .init(color: .black, location: 0.12),
-                .init(color: .black, location: 0.88),
-                .init(color: .clear, location: 1.0),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
     }
 
     /// - Parameter previous: 自动跟随换句时上一次的目标。给了且选的是「层叠弹性」时先试层叠,

@@ -344,17 +344,29 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
     /// 小封面旁的歌名按两行 `.title3` 粗体留白；限成一行时按一半算。
     public static let lyricsTitleBlockHeight: Double = 52
     public static let lyricsArtistRowHeight: Double = 20
+    /// 内屏横握时控件栏高度富余，小封面换成大封面（宽到控件栏那么宽），歌名排到封面下面。
+    /// 大封面与歌名之间的间距；算出来不到下限就仍用小封面。
+    public static let lyricsLargeArtworkSpacing: Double = 16
+    public static let lyricsLargeArtworkMinimumSize: Double = 160
 
     public struct LyricsMetrics: Equatable, Sendable {
         public let contentWidth: Double
+        /// 控件栏可用的高度：去掉上下内边距，圆钮排在这副骨架里时再去掉圆钮排。
         public let availableContentHeight: Double
         /// 右侧歌词栏宽度。
         public let lyricsPaneWidth: Double
+        /// 歌词栏顶端在内容区上沿往下多少：圆钮排占一行时让出它，全屏歌词（圆钮排浮在歌词上）与
+        /// 圆钮排进了竖栏那一列时为 0。
+        public let lyricsPaneTopOffset: Double
+        /// 歌词栏高度（还没让遮挡区）。
+        public let lyricsPaneHeight: Double
         public let columnSpacing: Double
         /// 控件栏宽度。
         public let detailColumnWidth: Double
+        /// 控件栏顶上那张封面的边长：通常是小封面，`usesLargeArtwork` 时是大封面。
         public let thumbnailSize: Double
-        /// 小封面 + 歌名 / 艺人这一行的保守高度。
+        public let usesLargeArtwork: Bool
+        /// 封面 + 歌名 / 艺人这一块的保守高度。
         public let headerHeight: Double
         /// 控件栏按当前显示组合实际需要的高度。
         public let detailStackHeight: Double
@@ -364,6 +376,10 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
     }
 
     /// 参数含义与 `metrics` 相同，两边算出来的内边距也相同。
+    /// - Parameters:
+    ///   - isExpandedCanvas: iPhone Duo 内屏横握。控件栏高度富余时小封面换成大封面。
+    ///   - reservesChromeRow: 顶部圆钮排在这副骨架里占一行。排进 iPhone Duo 竖栏那一列时为 false，两栏都从上沿排起。
+    ///   - spansChromeRow: 全屏歌词：歌词栏从内容区上沿画起，圆钮排浮在它上面（显隐时只换渐隐）；控件栏仍排在圆钮排下面。
     public static func lyricsMetrics(
         viewportWidth: Double,
         viewportHeight: Double,
@@ -372,7 +388,10 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
         safeAreaLeading: Double,
         safeAreaTrailing: Double,
         prefersVolumeBar: Bool,
-        textScale: Double = 1
+        textScale: Double = 1,
+        isExpandedCanvas: Bool = false,
+        reservesChromeRow: Bool = true,
+        spansChromeRow: Bool = false
     ) -> LyricsMetrics {
         let scale = normalizedTextScale(textScale)
 
@@ -382,11 +401,11 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
         let bottomInset = sanitized(safeAreaBottom) + bottomPadding
 
         let contentWidth = max(0, sanitized(viewportWidth) - leadingInset - trailingInset)
-        let availableContentHeight = max(
-            0,
-            sanitized(viewportHeight) - topInset - bottomInset
-                - chromeButtonDiameter - chromeBottomSpacing
-        )
+        let contentHeight = max(0, sanitized(viewportHeight) - topInset - bottomInset)
+        let chromeBand = reservesChromeRow ? chromeButtonDiameter + chromeBottomSpacing : 0
+        let availableContentHeight = max(0, contentHeight - chromeBand)
+        let lyricsPaneTopOffset = spansChromeRow ? 0 : chromeBand
+        let lyricsPaneHeight = max(0, contentHeight - lyricsPaneTopOffset)
 
         let splittable = max(0, contentWidth - columnSpacing)
         let detailFloor = minimumTransportWidth(includesEdgeToggles: false)
@@ -435,14 +454,37 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
             break
         }
 
+        // 内屏横握：小封面这一行排下以后控件栏上下还空着一大截，封面放大到控件栏那么宽（高度不够时
+        // 以高度为准），歌名、艺人排到封面下面，进度条、传输键与音量条照旧都放得下。
+        var thumbnailSize = lyricsThumbnailSize
+        var headerHeight = chosen.header
+        var usesLargeArtwork = false
+        if isExpandedCanvas {
+            let twoLineTitle = lyricsTitleBlockHeight * titleScale
+            let titleBlock = chosen.lineLimit == 1 ? twoLineTitle / 2 : twoLineTitle
+            let textBlock = titleBlock + lyricsArtistRowHeight * scale
+            let below = fixedHeight + (chosen.volume ? volumeBlockHeight : 0)
+            let room = availableContentHeight - below - lyricsLargeArtworkSpacing - textBlock
+            let size = min(detailColumnWidth, room).rounded(.down)
+            if size >= lyricsLargeArtworkMinimumSize {
+                thumbnailSize = size
+                headerHeight = size + lyricsLargeArtworkSpacing + textBlock
+                chosenHeight = headerHeight + below
+                usesLargeArtwork = true
+            }
+        }
+
         return LyricsMetrics(
             contentWidth: contentWidth,
             availableContentHeight: availableContentHeight,
             lyricsPaneWidth: lyricsPaneWidth,
+            lyricsPaneTopOffset: lyricsPaneTopOffset,
+            lyricsPaneHeight: lyricsPaneHeight,
             columnSpacing: columnSpacing,
             detailColumnWidth: detailColumnWidth,
-            thumbnailSize: lyricsThumbnailSize,
-            headerHeight: chosen.header,
+            thumbnailSize: thumbnailSize,
+            usesLargeArtwork: usesLargeArtwork,
+            headerHeight: headerHeight,
             detailStackHeight: chosenHeight,
             titleLineLimit: chosen.lineLimit,
             showsEdgeToggles: showsEdgeToggles,
@@ -450,24 +492,118 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
         )
     }
 
-    /// 歌词在尾侧，封面和控件在首侧；只避让真正伸进歌词栏顶部的遮挡。
-    public static func lyricsPaneTopClearance(
+    // MARK: - 歌词栏让开遮挡区
+
+    /// 伸进歌词栏顶部的遮挡区窄（让开它要的宽度不超过栏宽的这个比例）时，歌词栏在那一侧收窄让开；
+    /// 更宽的才把整栏推到它下面。iPhone Duo 竖排的状态栏与摄像头只有 84 宽，整栏往下推会白丢一百来点高度。
+    public static let lyricsPaneSideInsetMaximumFraction: Double = 0.3
+
+    /// 歌词栏为了让开遮挡区，四边各收多少。`leading` / `trailing` 按布局方向，视图层直接当内边距用。
+    public struct LyricsPaneInsets: Equatable, Sendable {
+        public var top: Double
+        public var leading: Double
+        public var trailing: Double
+
+        public init(top: Double, leading: Double, trailing: Double) {
+            self.top = top
+            self.leading = leading
+            self.trailing = trailing
+        }
+
+        public static let zero = LyricsPaneInsets(top: 0, leading: 0, trailing: 0)
+    }
+
+    /// 歌词在尾侧，封面和控件在首侧；只避让真正伸进歌词栏顶部的遮挡（贴着屏幕下沿的不算）。
+    /// 遮挡区的 x 按屏幕从左往右量；RTL 时歌词栏在左边。
+    public static func lyricsPaneInsets(
         metrics: Metrics,
         lyricsMetrics: LyricsMetrics,
         occlusions: [OcclusionAvoidancePolicy.Region],
         isRightToLeft: Bool
-    ) -> Double {
-        let paneTop = metrics.topInset + metrics.chromeRowHeight + metrics.chromeBottomSpacing
+    ) -> LyricsPaneInsets {
+        let paneTop = metrics.topInset + lyricsMetrics.lyricsPaneTopOffset
+        let paneWidth = lyricsMetrics.lyricsPaneWidth
         let paneMinX = isRightToLeft
             ? metrics.trailingInset
             : metrics.leadingInset + lyricsMetrics.detailColumnWidth + metrics.columnSpacing
-        let paneMaxX = paneMinX + lyricsMetrics.lyricsPaneWidth
-        let bottom = occlusions
-            .filter { $0.maxX > paneMinX && $0.minX < paneMaxX && $0.maxY > paneTop && $0.minY < paneTop }
-            .map(\.maxY)
-            .max()
-        guard let bottom else { return 0 }
-        return bottom + metrics.chromeBottomSpacing - paneTop
+        let paneMaxX = paneMinX + paneWidth
+        let gap = chromeBottomSpacing
+        var top = 0.0
+        var left = 0.0
+        var right = 0.0
+        for region in occlusions where region.isUsable
+            && region.maxX > paneMinX && region.minX < paneMaxX
+            && region.maxY > paneTop && region.minY < paneTop {
+            // 遮挡区靠栏的哪一侧，就从那一侧收进来，收到它外面再空 `gap`。
+            let isOnLeft = (region.minX + region.maxX) / 2 < (paneMinX + paneMaxX) / 2
+            let side = isOnLeft ? region.maxX + gap - paneMinX : paneMaxX - (region.minX - gap)
+            if side <= paneWidth * lyricsPaneSideInsetMaximumFraction {
+                if isOnLeft { left = max(left, side) } else { right = max(right, side) }
+            } else {
+                top = max(top, region.maxY + gap - paneTop)
+            }
+        }
+        return LyricsPaneInsets(
+            top: top,
+            leading: isRightToLeft ? right : left,
+            trailing: isRightToLeft ? left : right
+        )
+    }
+
+    // MARK: - 全屏歌词与内屏的歌词栏
+
+    /// 全屏歌词时歌词栏上下的定高渐隐（其它歌词页按栏高的比例渐隐）。`topClear` 是顶上完全透明的一段，
+    /// 接着 `top` 这一段从透明渐变到不透明；`bottom` 是底下渐隐的一段；`accessoryTop` 是歌词栏顶上那排
+    /// 小标签（评论、翻译进度）离栏顶多远。
+    public struct LyricsViewportFade: Equatable, Sendable {
+        public var topClear: Double
+        public var top: Double
+        public var bottom: Double
+        public var accessoryTop: Double
+
+        public init(topClear: Double, top: Double, bottom: Double, accessoryTop: Double) {
+            self.topClear = topClear
+            self.top = top
+            self.bottom = bottom
+            self.accessoryTop = accessoryTop
+        }
+    }
+
+    /// 圆钮排藏起来时顶上只留这么一小段渐隐；底下一直是 `immersiveLyricsBottomFade`。
+    public static let immersiveLyricsTopFade: Double = 22
+    public static let immersiveLyricsBottomFade: Double = 30
+    /// 歌词栏顶上那排小标签平时离栏顶的距离（与歌词视图里的默认值一致）。
+    public static let lyricsAccessoryTopPadding: Double = 8
+
+    /// - Parameter chromeOverlap: 圆钮排（连同下面的间距）压进歌词栏顶上多高；圆钮排藏起来时传 0。
+    ///   圆钮在时：那一行上半截完全透明，往下渐变，过了圆钮排下沿再 8 点才完全不透明，歌词不和圆钮叠在一起。
+    public static func immersiveLyricsFade(chromeOverlap: Double) -> LyricsViewportFade {
+        let overlap = chromeOverlap.isFinite ? max(0, chromeOverlap) : 0
+        guard overlap > 0 else {
+            return LyricsViewportFade(
+                topClear: 0,
+                top: immersiveLyricsTopFade,
+                bottom: immersiveLyricsBottomFade,
+                accessoryTop: lyricsAccessoryTopPadding
+            )
+        }
+        let clear = max(0, overlap - chromeBottomSpacing - chromeButtonDiameter / 2)
+        return LyricsViewportFade(
+            topClear: clear,
+            top: max(immersiveLyricsTopFade, overlap - clear + chromeBottomSpacing),
+            bottom: immersiveLyricsBottomFade,
+            accessoryTop: overlap + lyricsAccessoryTopPadding
+        )
+    }
+
+    /// 内屏横握的歌词栏比手机横屏高出一大截，字号跟着栏高放大：栏高按 `lyricsFontReferenceHeight`
+    /// 折算，最多放大到 `maximumLyricsCanvasFontScale`。和设置里的歌词字号相乘。手机横屏恒为 1。
+    public static let lyricsFontReferenceHeight: Double = 320
+    public static let maximumLyricsCanvasFontScale: Double = 1.3
+
+    public static func lyricsCanvasFontScale(paneHeight: Double, isExpandedCanvas: Bool) -> Double {
+        guard isExpandedCanvas, paneHeight.isFinite, paneHeight > 0 else { return 1 }
+        return min(max(paneHeight / lyricsFontReferenceHeight, 1), maximumLyricsCanvasFontScale)
     }
 
     private static func normalizedTextScale(_ value: Double) -> Double {

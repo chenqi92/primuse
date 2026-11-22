@@ -37,17 +37,116 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
             safeAreaLeading: 0, safeAreaTrailing: 0,
             prefersVolumeBar: true
         )
+        func insets(_ occlusions: [OcclusionAvoidancePolicy.Region], rtl: Bool) -> Policy.LyricsPaneInsets {
+            Policy.lyricsPaneInsets(metrics: metrics, lyricsMetrics: lyrics, occlusions: occlusions, isRightToLeft: rtl)
+        }
         let leading = OcclusionAvoidancePolicy.Region(x: 0, y: 0, width: 84, height: 150)
         let trailing = OcclusionAvoidancePolicy.Region(x: 768, y: 0, width: 84, height: 150)
         let bottom = OcclusionAvoidancePolicy.Region(x: 768, y: 311, width: 84, height: 82)
-        #expect(Policy.lyricsPaneTopClearance(metrics: metrics, lyricsMetrics: lyrics,
-            occlusions: [leading, bottom], isRightToLeft: false) == 0)
-        #expect(Policy.lyricsPaneTopClearance(metrics: metrics, lyricsMetrics: lyrics,
-            occlusions: [trailing], isRightToLeft: false) == 98)
-        #expect(Policy.lyricsPaneTopClearance(metrics: metrics, lyricsMetrics: lyrics,
-            occlusions: [trailing], isRightToLeft: true) == 0)
-        #expect(Policy.lyricsPaneTopClearance(metrics: metrics, lyricsMetrics: lyrics,
-            occlusions: [leading], isRightToLeft: true) == 98)
+        #expect(insets([leading, bottom], rtl: false) == .zero)
+        #expect(insets([trailing], rtl: true) == .zero)
+        // 84 宽的竖栏伸进歌词栏外侧 64：栏在那一侧收进 64 + 8，不再整栏往下推 98。
+        #expect(insets([trailing], rtl: false) == Policy.LyricsPaneInsets(top: 0, leading: 0, trailing: 72))
+        #expect(insets([leading], rtl: true) == Policy.LyricsPaneInsets(top: 0, leading: 0, trailing: 72))
+    }
+
+    @Test("宽的遮挡区仍把歌词栏推到它下面，窄的只在那一侧收窄，RTL 对称")
+    func wideOcclusionsStillPushTheLyricsPaneDown() {
+        let metrics = Policy.metrics(
+            viewportWidth: 852, viewportHeight: 393,
+            safeAreaTop: 0, safeAreaBottom: 21,
+            safeAreaLeading: 0, safeAreaTrailing: 0,
+            prefersVolumeBar: true
+        )
+        let lyrics = Policy.lyricsMetrics(
+            viewportWidth: 852, viewportHeight: 393,
+            safeAreaTop: 0, safeAreaBottom: 21,
+            safeAreaLeading: 0, safeAreaTrailing: 0,
+            prefersVolumeBar: true
+        )
+        let wideTrailing = OcclusionAvoidancePolicy.Region(x: 552, y: 0, width: 300, height: 150)
+        let wideLeading = OcclusionAvoidancePolicy.Region(x: 0, y: 0, width: 300, height: 150)
+        #expect(Policy.lyricsPaneInsets(metrics: metrics, lyricsMetrics: lyrics,
+            occlusions: [wideTrailing], isRightToLeft: false) == Policy.LyricsPaneInsets(top: 98, leading: 0, trailing: 0))
+        #expect(Policy.lyricsPaneInsets(metrics: metrics, lyricsMetrics: lyrics,
+            occlusions: [wideLeading], isRightToLeft: true) == Policy.LyricsPaneInsets(top: 98, leading: 0, trailing: 0))
+        // 要收的宽度刚好在上限以内：仍按收窄处理。
+        let side = lyrics.lyricsPaneWidth * Policy.lyricsPaneSideInsetMaximumFraction - 1
+        let paneMaxX = 852.0 - 20
+        let nearLimit = OcclusionAvoidancePolicy.Region(x: paneMaxX - side + 8, y: 0, width: side, height: 150)
+        let resolved = Policy.lyricsPaneInsets(metrics: metrics, lyricsMetrics: lyrics,
+            occlusions: [nearLimit], isRightToLeft: false)
+        #expect(resolved.top == 0)
+        #expect(abs(resolved.trailing - side) < 0.001)
+    }
+
+    @Test("全屏歌词的歌词栏从内容区上沿画起，让遮挡区时按这个栏顶算")
+    func immersiveLyricsPaneSpansTheChromeRow() {
+        func lyrics(spans: Bool) -> LyricsMetrics {
+            Policy.lyricsMetrics(
+                viewportWidth: 852, viewportHeight: 393,
+                safeAreaTop: 0, safeAreaBottom: 21,
+                safeAreaLeading: 59, safeAreaTrailing: 59,
+                prefersVolumeBar: true,
+                spansChromeRow: spans
+            )
+        }
+        let normal = lyrics(spans: false)
+        let immersive = lyrics(spans: true)
+        let band = Policy.chromeButtonDiameter + Policy.chromeBottomSpacing
+        #expect(normal.lyricsPaneTopOffset == band)
+        #expect(normal.lyricsPaneHeight == 393 - 8 - 29 - band)
+        #expect(immersive.lyricsPaneTopOffset == 0)
+        #expect(immersive.lyricsPaneHeight == 393 - 8 - 29)
+        // 控件栏仍排在圆钮排下面：两栏宽度、控件栏可用高度与让步结果都不变。
+        #expect(immersive.availableContentHeight == normal.availableContentHeight)
+        #expect(immersive.detailColumnWidth == normal.detailColumnWidth)
+        #expect(immersive.lyricsPaneWidth == normal.lyricsPaneWidth)
+        #expect(immersive.detailStackHeight == normal.detailStackHeight)
+
+        let metrics = Policy.metrics(
+            viewportWidth: 852, viewportHeight: 393,
+            safeAreaTop: 0, safeAreaBottom: 21,
+            safeAreaLeading: 0, safeAreaTrailing: 0,
+            prefersVolumeBar: true
+        )
+        let spanning = Policy.lyricsMetrics(
+            viewportWidth: 852, viewportHeight: 393,
+            safeAreaTop: 0, safeAreaBottom: 21,
+            safeAreaLeading: 0, safeAreaTrailing: 0,
+            prefersVolumeBar: true,
+            spansChromeRow: true
+        )
+        let narrow = OcclusionAvoidancePolicy.Region(x: 768, y: 0, width: 84, height: 150)
+        let wide = OcclusionAvoidancePolicy.Region(x: 552, y: 0, width: 300, height: 150)
+        #expect(Policy.lyricsPaneInsets(metrics: metrics, lyricsMetrics: spanning,
+            occlusions: [narrow], isRightToLeft: false) == Policy.LyricsPaneInsets(top: 0, leading: 0, trailing: 72))
+        #expect(Policy.lyricsPaneInsets(metrics: metrics, lyricsMetrics: spanning,
+            occlusions: [wide], isRightToLeft: false) == Policy.LyricsPaneInsets(top: 150, leading: 0, trailing: 0))
+    }
+
+    @Test("全屏歌词的渐隐：圆钮在时顶上躲开整排圆钮，藏起来后只留一小段，底下固定一段")
+    func immersiveLyricsFadeFollowsTheChromeRow() {
+        let band = Policy.chromeButtonDiameter + Policy.chromeBottomSpacing
+        let visible = Policy.immersiveLyricsFade(chromeOverlap: band)
+        #expect(visible.topClear > 0)
+        #expect(visible.topClear < Policy.chromeButtonDiameter)
+        #expect(visible.topClear + visible.top >= band)
+        #expect(visible.accessoryTop >= band)
+        #expect((28.0...32.0).contains(visible.bottom))
+
+        let hidden = Policy.immersiveLyricsFade(chromeOverlap: 0)
+        #expect(hidden.topClear == 0)
+        #expect((20.0...24.0).contains(hidden.top))
+        #expect(hidden.bottom == visible.bottom)
+        #expect(hidden.accessoryTop == Policy.lyricsAccessoryTopPadding)
+
+        // 栏被宽遮挡区推下去一截时，只躲还压在栏里的那一截圆钮排。
+        let partial = Policy.immersiveLyricsFade(chromeOverlap: 10)
+        #expect(partial.topClear == 0)
+        #expect(partial.top >= 10)
+        #expect(Policy.immersiveLyricsFade(chromeOverlap: .nan) == hidden)
+        #expect(Policy.immersiveLyricsFade(chromeOverlap: -5) == hidden)
     }
 
     /// iPhone SE 3 横屏：Home 键机型，四边都没有安全区。
@@ -536,6 +635,84 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
             #expect(inner.showsLyricLine)
             #expect(inner.titleLineLimit == 2)
             #expect(inner.detailStackHeight <= inner.availableContentHeight)
+        }
+    }
+
+    /// Duo 内屏横握的歌词模式。全屏歌词时圆钮排在骨架里、两侧整屏居中（安全区按 0 算）；
+    /// 普通歌词时圆钮排进了竖栏那一列，两侧都让出竖栏那么宽。
+    private func duoInnerLyrics(
+        width: Double, height: Double, immersive: Bool, textScale: Double = 1
+    ) -> LyricsMetrics {
+        Policy.lyricsMetrics(
+            viewportWidth: width,
+            viewportHeight: height,
+            safeAreaTop: 0,
+            safeAreaBottom: 20,
+            safeAreaLeading: immersive ? 0 : 84,
+            safeAreaTrailing: immersive ? 0 : 84,
+            prefersVolumeBar: true,
+            textScale: textScale,
+            isExpandedCanvas: true,
+            reservesChromeRow: immersive,
+            spansChromeRow: immersive
+        )
+    }
+
+    @Test("Duo 内屏横握的歌词模式换成大封面，控件栏照样放得下，歌词栏占满整栏高度")
+    func expandedCanvasLyricsUseALargeCover() {
+        for (width, height) in [(951.0, 669.0), (890.0, 626.0)] {
+            for immersive in [true, false] {
+                let lyrics = duoInnerLyrics(width: width, height: height, immersive: immersive)
+                let label = "\(width)x\(height) immersive=\(immersive)"
+                #expect(lyrics.usesLargeArtwork, "\(label)")
+                #expect(lyrics.thumbnailSize >= Policy.lyricsLargeArtworkMinimumSize, "\(label)")
+                #expect(lyrics.thumbnailSize <= lyrics.detailColumnWidth, "\(label)")
+                #expect(lyrics.headerHeight >= lyrics.thumbnailSize, "\(label)")
+                #expect(lyrics.detailStackHeight <= lyrics.availableContentHeight, "\(label)")
+                #expect(lyrics.showsVolumeBar, "\(label)")
+                #expect(lyrics.titleLineLimit == 2, "\(label)")
+                #expect(lyrics.lyricsPaneTopOffset == 0, "\(label)")
+                #expect(lyrics.lyricsPaneHeight == height - 8 - 28, "\(label)")
+                // 圆钮排在骨架里时控件栏仍让出它；进了竖栏那一列时控件栏也从上沿排起。
+                let band = immersive ? Policy.chromeButtonDiameter + Policy.chromeBottomSpacing : 0
+                #expect(lyrics.availableContentHeight == height - 8 - 28 - band, "\(label)")
+            }
+        }
+        #expect(duoInnerLyrics(width: 951, height: 669, immersive: true).thumbnailSize == 293)
+        #expect(duoInnerLyrics(width: 890, height: 626, immersive: true).thumbnailSize == 250)
+    }
+
+    @Test("大封面放不下时退回小封面；手机横屏一律是小封面")
+    func largeLyricsCoverIsOptInAndFallsBack() {
+        for viewport in lyricsViewports {
+            let metrics = lyricsMetrics(viewport)
+            #expect(!metrics.usesLargeArtwork, "\(viewport.name)")
+            #expect(metrics.thumbnailSize == Policy.lyricsThumbnailSize, "\(viewport.name)")
+        }
+        let cramped = Policy.lyricsMetrics(
+            viewportWidth: 951, viewportHeight: 420,
+            safeAreaTop: 0, safeAreaBottom: 20, safeAreaLeading: 0, safeAreaTrailing: 0,
+            prefersVolumeBar: true,
+            isExpandedCanvas: true
+        )
+        #expect(!cramped.usesLargeArtwork)
+        #expect(cramped.thumbnailSize == Policy.lyricsThumbnailSize)
+        // 最大字号下仍不超高。
+        let largest = duoInnerLyrics(width: 890, height: 626, immersive: true, textScale: 2)
+        #expect(largest.detailStackHeight <= largest.availableContentHeight)
+    }
+
+    @Test("歌词字号随内屏的栏高放大，最多 1.3 倍；手机横屏不变")
+    func lyricsFontScalesWithTheExpandedPane() {
+        #expect(Policy.lyricsCanvasFontScale(paneHeight: 633, isExpandedCanvas: true) == 1.3)
+        #expect(Policy.lyricsCanvasFontScale(paneHeight: 352, isExpandedCanvas: true) == 1.1)
+        #expect(Policy.lyricsCanvasFontScale(paneHeight: 280, isExpandedCanvas: true) == 1)
+        #expect(Policy.lyricsCanvasFontScale(paneHeight: 633, isExpandedCanvas: false) == 1)
+        #expect(Policy.lyricsCanvasFontScale(paneHeight: .nan, isExpandedCanvas: true) == 1)
+        for (width, height) in [(951.0, 669.0), (890.0, 626.0)] {
+            let lyrics = duoInnerLyrics(width: width, height: height, immersive: true)
+            let scale = Policy.lyricsCanvasFontScale(paneHeight: lyrics.lyricsPaneHeight, isExpandedCanvas: true)
+            #expect(scale > 1 && scale <= Policy.maximumLyricsCanvasFontScale)
         }
     }
 
