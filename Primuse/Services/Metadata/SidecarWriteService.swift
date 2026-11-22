@@ -180,6 +180,14 @@ actor SidecarWriteService {
                 uploaded = true
                 try await connector.verifySidecarWrite(data: jpegData, at: coverPath)
                 result.coverWritten = true
+                // 指着这个封面文件的歌按「音乐源 + 路径」存过封面缓存：换成刚写进去的这张，不然缓存还算新，
+                // 界面会接着显示这个文件原来的旧图。
+                if let reference = MusicScraperService.sidecarReferencePath(for: song, suffix: "-cover.jpg") {
+                    await MetadataAssetStore.shared.replaceCachedSourceCover(
+                        jpegData, sourceID: song.sourceID, reference: reference
+                    )
+                    await MainActor.run { CachedArtworkView.invalidateCache(for: reference) }
+                }
                 plog("📁 Sidecar: \(coverFileName) written to \(songDir)")
             } catch {
                 result.coverError = error.localizedDescription

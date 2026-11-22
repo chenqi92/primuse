@@ -806,6 +806,28 @@ final class BatchScrapeAccountingTests: XCTestCase {
         await cleanUp(original.id)
     }
 
+    /// 音乐源上的封面文件被改写后，按「音乐源 + 路径」存的封面缓存换成新的：不然缓存还算新，
+    /// 指着这个文件的歌会把封面显示回旧图。
+    func testRewrittenSourceCoverReplacesThePathCache() async throws {
+        let store = MetadataAssetStore.shared
+        let sourceID = "nas-" + UUID().uuidString
+        let reference = "/Music/Quiet Windows/Window at Dawn-cover.jpg"
+        let old = try pngData()
+        let new = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16)).image { context in
+            UIColor.orange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+        }.pngData())
+        let cachedOld = await store.cacheSourceCover(old, songID: nil, sourceID: sourceID, reference: reference,
+                                                     maximumPixels: 1536)
+        XCTAssertTrue(cachedOld)
+        XCTAssertEqual(store.cachedSourceCover(sourceID: sourceID, reference: reference, maximumPixels: 1536), old)
+
+        await store.replaceCachedSourceCover(new, sourceID: sourceID, reference: reference)
+        XCTAssertEqual(store.cachedSourceCover(sourceID: sourceID, reference: reference, maximumPixels: 1536), new)
+        XCTAssertEqual(store.cachedSourceCover(sourceID: sourceID, reference: reference, maximumPixels: 480), new,
+                       "The thumbnail slot falls back to the replaced full-size cover")
+    }
+
     /// 刮削时用的封面是从这个文件、旁边的图片读出来的：本来就在音乐源里，不记成待写回。
     func testCoverReadFromTheFileIsNotMarkedLocalOnly() async throws {
         let root = try temporaryRoot()

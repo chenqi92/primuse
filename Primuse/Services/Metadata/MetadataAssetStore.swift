@@ -629,6 +629,19 @@ actor MetadataAssetStore {
         return true
     }
 
+    /// 音乐源上 `reference` 那个封面文件刚被改写成 `data`：按它存的封面缓存换成新的，缩略图那一档删掉等下次重取。
+    /// 不然缓存还算新，指着这个文件的歌会接着显示它原来的样子。
+    func replaceCachedSourceCover(_ data: Data, sourceID: String, reference: String) {
+        let fullKey = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: 1536)
+        if let fullKey, cacheCover(data, forSongID: fullKey) {
+            storeArtworkMirror(songID: fullKey, sourceID: sourceID, reference: reference, cacheID: fullKey)
+        }
+        if let thumbnailKey = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: 480),
+           thumbnailKey != fullKey {
+            invalidateCoverCache(forSongID: thumbnailKey)
+        }
+    }
+
     private func storeArtworkMirror(songID: String, sourceID: String?, reference: String, cacheID: String) {
         let url = mirrorURL(songID)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

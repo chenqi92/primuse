@@ -384,14 +384,10 @@ final class ScrapeWritebackCenter {
                 plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten)")
                 if writeResult.coverWritten {
                     // 旁路文件已落盘，直接覆写本地缓存当可信副本；先清再写会留出空窗，期间界面回源
-                    // 可能拿到 HTTP 缓存里的旧封面。
+                    // 可能拿到 HTTP 缓存里的旧封面。封面引用照旧指着用户挑的那张（本机存的同一张图）：
+                    // 换成音乐源上的文件路径会丢掉「用户选的」，路径上的旧缓存还会把封面显示回去。
                     await MetadataAssetStore.shared.cacheCover(coverData, forSongID: songID)
-                    await MainActor.run {
-                        CachedArtworkView.invalidateCache(for: songID)
-                        if let coverPath = MusicScraperService.sidecarReferencePath(for: sidecarSnapshot, suffix: "-cover.jpg") {
-                            lib.updateAssetReferences(songID: sidecarSnapshot.id, coverRef: coverPath)
-                        }
-                    }
+                    await MainActor.run { CachedArtworkView.invalidateCache(for: songID) }
                 }
                 if !writeResult.errors.isEmpty {
                     plog("⚠️ Sidecar write errors: \(writeResult.errors)")
