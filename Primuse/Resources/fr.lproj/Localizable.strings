@@ -8167,3 +8167,4 @@
 "tv_settings_context_not_connected" = "Non connecté";
 "player_hides_grabber" = "Masquer la poignée du haut";
 "player_hides_grabber_description" = "La petite barre en haut du lecteur n’est plus affichée. Balayer vers le bas ferme toujours le lecteur.";
+"home_hero_style_wall" = "Mur de pochettes";

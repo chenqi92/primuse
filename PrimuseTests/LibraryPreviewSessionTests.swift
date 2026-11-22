@@ -353,6 +353,54 @@ final class HomeHeroCarouselLayoutTests: XCTestCase {
         add(attachment)
     }
 
+    func testCoverWallCoversTheTiltedCardAndLoopsSeamlessly() {
+        let angle = HomeHeroCoverWallMetrics.tiltDegrees * Double.pi / 180
+        for size in [CGSize(width: 375, height: 667), CGSize(width: 440, height: 956),
+                     CGSize(width: 844, height: 390), CGSize(width: 1032, height: 1376)] {
+            let metrics = HomeHeroCoverWallMetrics(
+                viewportWidth: size.width, compactCanvasHeight: size.width > size.height ? size.height : nil
+            )
+            let coveredWidth = metrics.cardWidth * CGFloat(cos(angle)) + metrics.cardHeight * CGFloat(sin(angle))
+            let coveredHeight = metrics.cardWidth * CGFloat(sin(angle)) + metrics.cardHeight * CGFloat(cos(angle))
+            XCTAssertGreaterThanOrEqual(metrics.contentWidth, coveredWidth, "\(size)")
+            XCTAssertGreaterThanOrEqual(metrics.contentHeight, coveredHeight, "\(size)")
+            XCTAssertLessThanOrEqual(metrics.rowCount, 4, "\(size)")
+            XCTAssertLessThanOrEqual(metrics.rowCount * metrics.tilesPerRow, HomeHeroCoverWallMetrics.maximumTiles)
+            XCTAssertLessThan(metrics.cardHeight, size.height * 0.5, "\(size)")
+            let strip = CGFloat(metrics.tilesRenderedPerRow) * metrics.step - HomeHeroCoverWallMetrics.spacing
+            XCTAssertGreaterThanOrEqual(strip, metrics.contentWidth + metrics.loopLength, "\(size)")
+            for scale in [CGFloat(2), 3] {
+                XCTAssertLessThanOrEqual(metrics.thumbnailSize(displayScale: scale) * scale, 192, "Tiles come from the thumbnail cache tier")
+            }
+        }
+
+        let period: CGFloat = 300
+        for row in 0..<4 {
+            let speed = HomeHeroCoverWallLayout.speed(row: row)
+            XCTAssertTrue((12...20).contains(abs(speed)))
+            if row > 0 { XCTAssertNotEqual(speed < 0, HomeHeroCoverWallLayout.speed(row: row - 1) < 0) }
+            for step in 0..<400 {
+                let x = HomeHeroCoverWallLayout.offset(time: Double(step) * 0.37, speed: speed, period: period, phase: 20)
+                XCTAssertTrue(x >= -period && x <= 0)
+            }
+            // 走满一圈回到同一个位置(差一整圈也是同一个画面)。
+            let start = HomeHeroCoverWallLayout.offset(time: 3, speed: speed, period: period, phase: 0)
+            let next = HomeHeroCoverWallLayout.offset(time: 3 + Double(period / abs(speed)), speed: speed, period: period, phase: 0)
+            let difference = abs(start - next).truncatingRemainder(dividingBy: period)
+            XCTAssertLessThan(min(difference, period - difference), 0.01)
+        }
+
+        let metrics = HomeHeroCoverWallMetrics(viewportWidth: 393)
+        let songs = (0..<5).map {
+            Song(id: "wall-\($0)", title: "Song \($0)", fileFormat: .mp3, filePath: "", sourceID: "wall")
+        }
+        let items = songs.enumerated().map { HomeHeroCoverWallItem(song: $1, album: nil, queueIndex: $0) }
+        let rows = HomeHeroCoverWallLayout.rows(items, metrics: metrics)
+        XCTAssertEqual(rows.count, metrics.rowCount)
+        XCTAssertTrue(rows.allSatisfy { $0.count == metrics.tilesPerRow })
+        XCTAssertNotEqual(rows[0].map(\.song.id), rows[1].map(\.song.id), "Short collections are repeated with a shifted start")
+    }
+
     func testDistinctArtworkSongsSkipRepeatedCovers() {
         func song(_ id: String, cover: String?, album: String?) -> Song {
             Song(id: id, title: id, albumID: album, fileFormat: .mp3, filePath: "", sourceID: "distinct",

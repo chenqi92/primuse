@@ -8073,3 +8073,4 @@
 "tv_settings_context_not_connected" = "Sin conectar";
 "player_hides_grabber" = "Ocultar la barra superior";
 "player_hides_grabber_description" = "La pequeña barra en la parte superior del reproductor ya no se muestra. Deslizar hacia abajo sigue cerrando el reproductor.";
+"home_hero_style_wall" = "Muro de portadas";

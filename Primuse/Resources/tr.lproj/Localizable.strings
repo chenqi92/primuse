@@ -8073,3 +8073,4 @@
 "tv_settings_context_not_connected" = "Bağlı değil";
 "player_hides_grabber" = "Üstteki tutamacı gizle";
 "player_hides_grabber_description" = "Oynatıcının en üstündeki küçük çubuk artık gösterilmez. Aşağı kaydırmak oynatıcıyı yine kapatır.";
+"home_hero_style_wall" = "Kapak duvarı";

@@ -8260,3 +8260,4 @@
 "tv_settings_context_not_connected" = "未连接";
 "player_hides_grabber" = "隐藏顶部把手";
 "player_hides_grabber_description" = "播放页最上面那根小横条不再显示，往下拉照样能收起播放页。";
+"home_hero_style_wall" = "封面墙";

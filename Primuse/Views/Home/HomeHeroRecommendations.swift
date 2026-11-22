@@ -45,17 +45,17 @@ private struct HomeHeroSettingsSheet: View {
 
     private var canSave: Bool {
         let current = style == .medium ? appearances.medium : appearances.large
-        return prepared && !importing && (style == .carousel || current.cover != .photo || current.photo != nil)
+        return prepared && !importing && (!style.showsRecommendationCards || current.cover != .photo || current.photo != nil)
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("home_hero_style_title") {
-                    ForEach([HomeHeroStyle.featured, .carousel, .medium], id: \.self) { option in
+                    ForEach([HomeHeroStyle.featured, .carousel, .medium, .wall], id: \.self) { option in
                         Button { style = option } label: {
                             HStack(spacing: 14) {
-                                Image(systemName: option == .carousel ? "rectangle.on.rectangle.angled" : "rectangle.portrait.fill")
+                                Image(systemName: option.settingsSymbol)
                                     .font(option == .medium ? .title3 : .title)
                                     .foregroundStyle(.tint)
                                     .frame(width: 38, height: 42)
@@ -97,12 +97,14 @@ private struct HomeHeroSettingsSheet: View {
                             .accessibilityIdentifier("home.hero.albumCount")
                         }
                     }
-                    Section {
-                        HomeHeroCardAppearanceFields(
-                            appearance: style == .medium ? $appearances.medium : $appearances.large,
-                            importing: $importing
-                        )
-                        .id(style)
+                    if style.showsRecommendationCards {
+                        Section {
+                            HomeHeroCardAppearanceFields(
+                                appearance: style == .medium ? $appearances.medium : $appearances.large,
+                                importing: $importing
+                            )
+                            .id(style)
+                        }
                     }
                 }
             }
@@ -155,6 +157,16 @@ private struct HomeHeroSettingsSheet: View {
     }
 }
 
+private extension HomeHeroStyle {
+    var settingsSymbol: String {
+        switch self {
+        case .carousel: "rectangle.on.rectangle.angled"
+        case .featured, .medium: "rectangle.portrait.fill"
+        case .wall: "square.grid.3x3.fill"
+        }
+    }
+}
+
 extension HomeHeroRecommendationTheme {
     var title: String {
         switch self {
@@ -200,22 +212,12 @@ struct HomeHeroRecommendationSection: View {
 
     private func shownSongs(for theme: HomeHeroRecommendationTheme) -> [Song] {
         if isInteractive { return catalog.collection(theme).songs }
-        let pool = theme.candidatePool(from: previewSongs, minimumCount: HomeHeroRecommendationPolicy.songCount(songCount))
-        let ids = HomeHeroRecommendationPolicy.candidates(
-            rankedIDs: pool.map(\.id), day: HomeHeroRecommendationPolicy.dayStamp(Date()) + theme.rotationOffset,
-            round: 0, excluding: [], limit: HomeHeroRecommendationPolicy.songCount(songCount)
-        )
-        let byID = Dictionary(pool.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return ids.compactMap { byID[$0] }
+        return HomeHeroRecommendationPreview.songs(for: theme, from: previewSongs, songCount: songCount)
     }
 
     private var shownAlbums: [Album] {
         if isInteractive { return catalog.albums.albums }
-        var seen = Set<String>()
-        return Array(previewSongs.compactMap { song -> Album? in
-            guard let id = song.albumID, seen.insert(id).inserted else { return nil }
-            return library.visibleAlbum(id: id)
-        }.prefix(HomeHeroRecommendationPolicy.albumCount(albumCount)))
+        return HomeHeroRecommendationPreview.albums(from: previewSongs, albumCount: albumCount, library: library)
     }
 
     var body: some View {
@@ -282,6 +284,29 @@ struct HomeHeroRecommendationSection: View {
         .onScrollVisibilityChange(threshold: 0.1) { visible = $0 }
         .task { await appearanceStore.load() }
         .modifier(HomeHeroRecommendationRefresh(models: models, contentKind: content, isEnabled: isInteractive))
+    }
+}
+
+/// 界面编辑里只看版面、不去算推荐:按首页现有的封面歌排出一个大致的样子。
+private enum HomeHeroRecommendationPreview {
+    static func songs(for theme: HomeHeroRecommendationTheme, from previewSongs: [Song], songCount: Int) -> [Song] {
+        let limit = HomeHeroRecommendationPolicy.songCount(songCount)
+        let pool = theme.candidatePool(from: previewSongs, minimumCount: limit)
+        let ids = HomeHeroRecommendationPolicy.candidates(
+            rankedIDs: pool.map(\.id), day: HomeHeroRecommendationPolicy.dayStamp(Date()) + theme.rotationOffset,
+            round: 0, excluding: [], limit: limit
+        )
+        let byID = Dictionary(pool.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return ids.compactMap { byID[$0] }
+    }
+
+    @MainActor
+    static func albums(from previewSongs: [Song], albumCount: Int, library: MusicLibrary) -> [Album] {
+        var seen = Set<String>()
+        return Array(previewSongs.compactMap { song -> Album? in
+            guard let id = song.albumID, seen.insert(id).inserted else { return nil }
+            return library.visibleAlbum(id: id)
+        }.prefix(HomeHeroRecommendationPolicy.albumCount(albumCount)))
     }
 }
 
@@ -529,6 +554,349 @@ private struct HomeHeroRecommendationArtwork: View {
     }
 
     private static let maximumDecodeSide: CGFloat = 256
+}
+
+/// 首页顶部的封面墙:几排小封面整体斜着,相邻两排朝相反方向慢慢横移、首尾相接,四周压暗,
+/// 下面压着标题和说明。封面来自顶部卡片的推荐内容(推荐专辑或歌曲集合,数量照设置),
+/// 不够一面墙就重复铺满。
+///
+/// - 点一张封面:推荐专辑时打开那张专辑,歌曲集合时从这首开始放这一组。
+/// - 点标题:打开这一组推荐的详情(和大号、中号卡片点进去的是同一页)。
+///
+/// 每排只由 `HomeHeroCoverWallDrift` 按时间挪整排的位置,封面视图不随每一帧重建。
+/// 不在屏幕上、页面在滑、播放页盖着、App 不在前台、开了减弱动态效果时停住;减弱动态效果时静止显示。
+struct HomeHeroCoverWallSection: View {
+    let metrics: HomeHeroCoverWallMetrics
+    let previewSongs: [Song]
+    let isInteractive: Bool
+    let catalog: HomeHeroRecommendationCatalog
+    @Environment(MusicLibrary.self) private var library
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.playerCoversContent) private var playerCoversContent
+    @AppStorage(HomeHeroRecommendationPolicy.contentKey) private var content: HomeHeroRecommendationContent = .albums
+    @AppStorage(HomeHeroRecommendationPolicy.songCountKey) private var songCount = HomeHeroRecommendationPolicy.defaultSongCount
+    @AppStorage(HomeHeroRecommendationPolicy.albumCountKey) private var albumCount = HomeHeroRecommendationPolicy.defaultAlbumCount
+    @State private var visible = false
+    @State private var pageScrolling = false
+    @State private var scrollWatch = HomeHeroCoverWallScrollWatch()
+
+    /// 歌曲集合时用哪一组。
+    private static let theme = HomeHeroRecommendationTheme.daily
+
+    private var model: HomeHeroRecommendationModel {
+        content == .albums ? catalog.albums : catalog.collection(Self.theme)
+    }
+
+    var body: some View {
+        let albums = content == .albums ? shownAlbums : []
+        let songs = content == .songs ? shownSongs : []
+        let items = content == .albums ? albumItems(albums) : songItems(songs)
+        Group {
+            if isInteractive && (library.musicSongs.isEmpty || (model.revision > 0 && !model.isLoading && items.isEmpty)) {
+                ContentUnavailableView("library_recommendations_empty_title", systemImage: "sparkles")
+            } else if items.isEmpty {
+                HomeHeroCoverWallSkeleton(metrics: metrics)
+            } else {
+                wall(items, queue: songs, count: content == .albums ? albums.count : songs.count)
+            }
+        }
+        .padding(.bottom, 12)
+        .onScrollVisibilityChange(threshold: 0.1) { visible = $0 }
+        .modifier(HomeHeroRecommendationRefresh(models: [model], contentKind: content, isEnabled: isInteractive))
+    }
+
+    private var shownSongs: [Song] {
+        if isInteractive { return catalog.collection(Self.theme).songs }
+        return HomeHeroRecommendationPreview.songs(for: Self.theme, from: previewSongs, songCount: songCount)
+    }
+
+    private var shownAlbums: [Album] {
+        if isInteractive { return catalog.albums.albums }
+        return HomeHeroRecommendationPreview.albums(from: previewSongs, albumCount: albumCount, library: library)
+    }
+
+    private func albumItems(_ albums: [Album]) -> [HomeHeroCoverWallItem] {
+        albums.prefix(HomeHeroCoverWallMetrics.maximumTiles).compactMap { album in
+            library.songs(forAlbum: album.id).first.map { HomeHeroCoverWallItem(song: $0, album: album, queueIndex: 0) }
+        }
+    }
+
+    /// 封面各不相同的前几首,同一张专辑只铺一张;记下各自在这一组里的位置,点了从那首开始放。
+    private func songItems(_ songs: [Song]) -> [HomeHeroCoverWallItem] {
+        var seen = Set<String>()
+        var items: [HomeHeroCoverWallItem] = []
+        for (index, song) in songs.enumerated() {
+            let cover = song.coverArtFileName.flatMap { $0.isEmpty ? nil : $0 }
+            guard seen.insert(cover ?? song.albumID ?? song.id).inserted else { continue }
+            items.append(HomeHeroCoverWallItem(song: song, album: nil, queueIndex: index))
+            if items.count == HomeHeroCoverWallMetrics.maximumTiles { break }
+        }
+        return items
+    }
+
+    private func wall(_ items: [HomeHeroCoverWallItem], queue: [Song], count: Int) -> some View {
+        let moving = isInteractive && visible && !pageScrolling && !playerCoversContent
+            && !reduceMotion && scenePhase == .active
+        let rows = HomeHeroCoverWallLayout.rows(items, metrics: metrics)
+        let shape = RoundedRectangle(cornerRadius: HomeHeroCoverWallMetrics.cornerRadius, style: .continuous)
+        return ZStack(alignment: .bottomLeading) {
+            VStack(alignment: .leading, spacing: HomeHeroCoverWallMetrics.spacing) {
+                ForEach(rows.indices, id: \.self) { index in
+                    HomeHeroCoverWallRow(
+                        items: rows[index], metrics: metrics, queue: queue,
+                        queueRevision: model.revision, isInteractive: isInteractive
+                    )
+                    .equatable()
+                    .modifier(HomeHeroCoverWallDrift(
+                        speed: HomeHeroCoverWallLayout.speed(row: index),
+                        period: metrics.loopLength,
+                        phase: CGFloat(index) * metrics.step * 0.5,
+                        moving: moving
+                    ))
+                }
+            }
+            .frame(width: metrics.contentWidth, height: metrics.contentHeight, alignment: .topLeading)
+            .rotationEffect(.degrees(-HomeHeroCoverWallMetrics.tiltDegrees))
+            .frame(width: metrics.cardWidth, height: metrics.cardHeight)
+            .accessibilityHidden(true)
+            HomeHeroCoverWallVignette(metrics: metrics)
+            titleBlock(count: count)
+        }
+        .frame(width: metrics.cardWidth, height: metrics.cardHeight)
+        .background(Color.black)
+        .clipShape(shape)
+        // 斜出卡片外面、被裁掉的那些封面不接点按,点不到下面别的区块。
+        .contentShape(shape)
+        .overlay { shape.stroke(.primary.opacity(0.06), lineWidth: 0.5) }
+        .padding(.horizontal, 20)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.frame(in: .global).minY
+        } action: { _ in
+            notePageMoved()
+        }
+        .task(id: pageScrolling) { await settleWhenPageStops() }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("home.hero.wall")
+    }
+
+    @ViewBuilder
+    private func titleBlock(count: Int) -> some View {
+        let isAlbums = content == .albums
+        let title: String = isAlbums ? String(localized: "home_hero_album_picks") : Self.theme.title
+        let format: String = isAlbums
+            ? String(localized: "home_hero_album_count_format") : String(localized: "home_hero_song_count_format")
+        let subtitle = String(format: format, count)
+        let label = VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(verbatim: title)
+                    .font(.title3.bold())
+                if isInteractive {
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.bold))
+                        .opacity(0.8)
+                        .accessibilityHidden(true)
+                }
+            }
+            Text(verbatim: subtitle)
+                .font(.subheadline)
+                .opacity(0.85)
+        }
+        .lineLimit(1)
+        .foregroundStyle(.white)
+        .padding(16)
+        .contentShape(Rectangle())
+
+        if isInteractive {
+            NavigationLink(value: isAlbums ? HomeHeroRecommendationDestination.albums : .songs(Self.theme)) {
+                label
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(Text("see_all"))
+            .accessibilityIdentifier("home.hero.wall.title")
+        } else {
+            label
+        }
+    }
+
+    /// 页面一动就记下时间、先停住;停稳一小会儿再接着动。只在开始和停下时各改一次状态,
+    /// 滑动途中不重画这一块。
+    private func notePageMoved() {
+        scrollWatch.lastMove = CACurrentMediaTime()
+        if !pageScrolling { pageScrolling = true }
+    }
+
+    private func settleWhenPageStops() async {
+        guard pageScrolling else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            if CACurrentMediaTime() - scrollWatch.lastMove >= 0.14 {
+                pageScrolling = false
+                return
+            }
+        }
+    }
+}
+
+/// 页面最后一次移动的时间。放在引用里改,不触发重画。
+@MainActor
+private final class HomeHeroCoverWallScrollWatch {
+    var lastMove: CFTimeInterval = 0
+}
+
+struct HomeHeroCoverWallItem: Sendable {
+    /// 取封面用的歌。
+    let song: Song
+    /// 推荐专辑时点开这张。
+    let album: Album?
+    /// 歌曲集合时从这一组的第几首开始放。
+    let queueIndex: Int
+}
+
+enum HomeHeroCoverWallLayout {
+    /// 每排一秒挪几点;相邻两排方向相反。
+    static func speed(row: Int) -> CGFloat {
+        let speeds: [CGFloat] = [14, 18, 12, 16]
+        let value = speeds[row % speeds.count]
+        return row.isMultiple(of: 2) ? -value : value
+    }
+
+    /// 整排的横向位置,始终在 [-period, 0] 里:一排比可见的宽度多摆一组,挪满一组正好接上开头。
+    static func offset(time: TimeInterval, speed: CGFloat, period: CGFloat, phase: CGFloat) -> CGFloat {
+        guard period > 0 else { return 0 }
+        let travel = (CGFloat(time) * abs(speed) + phase).truncatingRemainder(dividingBy: period)
+        return speed < 0 ? -travel : travel - period
+    }
+
+    /// 把封面分到各排,每排一组 `tilesPerRow` 张。凑不满整面墙时每排错开一张起头,上下两排不会一模一样。
+    static func rows(_ items: [HomeHeroCoverWallItem], metrics: HomeHeroCoverWallMetrics) -> [[HomeHeroCoverWallItem]] {
+        guard !items.isEmpty else { return [] }
+        let perRow = metrics.tilesPerRow
+        let stagger = items.count < perRow * metrics.rowCount ? 1 : 0
+        return (0..<metrics.rowCount).map { row in
+            let start = row * perRow + row * stagger
+            return (0..<perRow).map { items[(start + $0) % items.count] }
+        }
+    }
+}
+
+/// 封面墙的一排:同一组封面重复摆到够长。整排的位置由外面的 `HomeHeroCoverWallDrift` 挪,
+/// 这里只在封面换了时才重建。
+private struct HomeHeroCoverWallRow: View, Equatable {
+    let items: [HomeHeroCoverWallItem]
+    let metrics: HomeHeroCoverWallMetrics
+    let queue: [Song]
+    let queueRevision: Int
+    let isInteractive: Bool
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.displayScale) private var displayScale
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.isInteractive == rhs.isInteractive,
+              lhs.queueRevision == rhs.queueRevision,
+              lhs.queue.count == rhs.queue.count,
+              lhs.metrics.tileSide == rhs.metrics.tileSide,
+              lhs.metrics.contentWidth == rhs.metrics.contentWidth,
+              lhs.metrics.tilesRenderedPerRow == rhs.metrics.tilesRenderedPerRow
+        else { return false }
+        return lhs.items.elementsEqual(rhs.items, by: sameTile)
+    }
+
+    nonisolated private static func sameTile(_ left: HomeHeroCoverWallItem, _ right: HomeHeroCoverWallItem) -> Bool {
+        left.song.id == right.song.id
+            && left.song.coverArtFileName == right.song.coverArtFileName
+            && left.album?.id == right.album?.id
+            && left.queueIndex == right.queueIndex
+    }
+
+    var body: some View {
+        HStack(spacing: HomeHeroCoverWallMetrics.spacing) {
+            ForEach(0..<metrics.tilesRenderedPerRow, id: \.self) { slot in
+                tile(items[slot % items.count])
+            }
+        }
+        .fixedSize()
+        .frame(width: metrics.contentWidth, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func tile(_ item: HomeHeroCoverWallItem) -> some View {
+        let artwork = CachedArtworkView(
+            coverRef: item.song.coverArtFileName, songID: item.song.id,
+            size: metrics.thumbnailSize(displayScale: displayScale), cornerRadius: 6,
+            sourceID: item.song.sourceID, filePath: item.song.filePath, fileFormat: item.song.fileFormat,
+            fillsProposedSize: true
+        )
+        .frame(width: metrics.tileSide, height: metrics.tileSide)
+
+        if !isInteractive {
+            artwork
+        } else if let album = item.album {
+            NavigationLink(value: album) { artwork }
+                .buttonStyle(.plain)
+        } else {
+            Button { play(from: item.queueIndex) } label: { artwork }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private func play(from index: Int) {
+        guard queue.indices.contains(index) else { return }
+        let songs = queue
+        player.shuffleEnabled = false
+        Task { await player.play(queue: songs, startingAt: index) }
+    }
+}
+
+/// 让一排封面随时间横移。只有这一层的位置随时间变,里面那排封面(`content`)不跟着每一帧重建。
+/// 停住时记下走过的时间,接着动时从原处继续。
+private struct HomeHeroCoverWallDrift: ViewModifier {
+    let speed: CGFloat
+    let period: CGFloat
+    let phase: CGFloat
+    let moving: Bool
+    @State private var elapsed: TimeInterval = 0
+    @State private var started: TimeInterval?
+
+    func body(content: Content) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !moving)) { context in
+            let time = elapsed + (started.map { context.date.timeIntervalSinceReferenceDate - $0 } ?? 0)
+            content.offset(x: HomeHeroCoverWallLayout.offset(time: time, speed: speed, period: period, phase: phase))
+        }
+        .onChange(of: moving, initial: true) { _, active in
+            let now = Date().timeIntervalSinceReferenceDate
+            if active {
+                started = now
+            } else if let started {
+                elapsed += now - started
+                self.started = nil
+            }
+        }
+    }
+}
+
+/// 四周压暗、越往下越深,标题压在下沿看得清。
+private struct HomeHeroCoverWallVignette: View {
+    let metrics: HomeHeroCoverWallMetrics
+
+    var body: some View {
+        let stops: [Gradient.Stop] = [
+            Gradient.Stop(color: .clear, location: 0.3),
+            Gradient.Stop(color: .black.opacity(0.72), location: 1),
+        ]
+        ZStack {
+            RadialGradient(
+                colors: [.clear, .black.opacity(0.5)],
+                center: .center,
+                startRadius: metrics.cardHeight * 0.3,
+                endRadius: metrics.cardWidth * 0.75
+            )
+            LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
 }
 
 struct HomeHeroRecommendationDetail: View {

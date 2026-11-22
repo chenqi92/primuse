@@ -7928,3 +7928,4 @@
 "tv_settings_context_not_connected" = "Not Connected";
 "player_hides_grabber" = "Hide Top Grabber";
 "player_hides_grabber_description" = "The small bar at the top of the player is no longer shown. Swiping down still closes the player.";
+"home_hero_style_wall" = "Cover Wall";

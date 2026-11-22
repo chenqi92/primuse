@@ -613,7 +613,7 @@ final class HomeTopSwitchingUITests: XCTestCase {
         settings.tap()
         let large = app.buttons["home.hero.style.featured"]
         XCTAssertTrue(large.waitForExistence(timeout: 5))
-        let originalStyle = ["featured", "carousel", "medium"].first { app.buttons["home.hero.style.\($0)"].isSelected } ?? "carousel"
+        let originalStyle = ["featured", "carousel", "medium", "wall"].first { app.buttons["home.hero.style.\($0)"].isSelected } ?? "carousel"
         large.tap()
         let originalContent = ["albums", "songs"].first { app.buttons["home.hero.content.\($0)"].isSelected } ?? "albums"
         addTeardownBlock { @MainActor () async throws -> Void in

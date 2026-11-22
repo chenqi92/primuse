@@ -8,14 +8,20 @@ enum HomeHeroStyle: String, CaseIterable {
     case carousel
     case featured
     case medium
+    /// 一整面斜着慢慢横移的小封面,见 `HomeHeroCoverWallSection`。
+    case wall
 
     var title: LocalizedStringKey {
         switch self {
         case .carousel: "home_hero_style_carousel"
         case .featured: "home_hero_style_large"
         case .medium: "home_hero_style_medium"
+        case .wall: "home_hero_style_wall"
         }
     }
+
+    /// 大号、中号卡片:左右滑的推荐卡片,外观可以自己设。
+    var showsRecommendationCards: Bool { self == .featured || self == .medium }
 }
 
 struct HomeHeroFeaturedMetrics {
@@ -67,6 +73,73 @@ struct HomeHeroFeaturedSkeleton: View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(HomeHeroCarouselSkeletonCards.fill)
             .frame(width: width, height: height)
+    }
+}
+
+/// 封面墙的尺寸:一张和下面区块同宽的横幅,里面几排小封面整体斜着摆。首页加载占位也按它画,
+/// 换成真内容时高度不跳。
+struct HomeHeroCoverWallMetrics {
+    /// 整面墙倾斜的角度。
+    static let tiltDegrees: Double = 8
+    static let spacing: CGFloat = 8
+    static let cornerRadius: CGFloat = 18
+    /// 整面墙最多几张不同的封面。
+    static let maximumTiles = 24
+
+    let cardWidth: CGFloat
+    let cardHeight: CGFloat
+    let tileSide: CGFloat
+    let rowCount: Int
+    /// 斜过来以后还要盖满卡片四角:封面那一层比卡片宽、高出这么多。
+    let contentWidth: CGFloat
+    let contentHeight: CGFloat
+
+    /// - Parameter compactCanvasHeight: 紧凑高度(手机横屏)时首页画布的高度;nil 是竖屏、iPad。
+    init(viewportWidth: CGFloat, compactCanvasHeight: CGFloat? = nil) {
+        let width = viewportWidth > 0 ? viewportWidth : HomeHeroCarouselMetrics.fallbackWidth
+        cardWidth = max(width - 40, 200)
+        if let compactCanvasHeight {
+            let canvas = compactCanvasHeight > 0 ? compactCanvasHeight : HomeHeroCarouselMetrics.fallbackWidth
+            cardHeight = min(max((canvas * 0.42).rounded(), 130), 190)
+        } else {
+            cardHeight = min(max((cardWidth * 0.56).rounded(), 180), 260)
+        }
+        let angle = Self.tiltDegrees * Double.pi / 180
+        let sine = CGFloat(sin(angle))
+        let cosine = CGFloat(cos(angle))
+        let coveredHeight: CGFloat = cardWidth * sine + cardHeight * cosine
+        contentWidth = (cardWidth * cosine + cardHeight * sine).rounded(.up) + 2 * Self.spacing
+        // 四排盖满;卡片特别宽、封面到了上限还盖不满时再加排。
+        var rows = 4
+        let side = min(max(((coveredHeight - CGFloat(rows - 1) * Self.spacing) / CGFloat(rows)).rounded(.up), 44), 108)
+        while CGFloat(rows) * (side + Self.spacing) - Self.spacing < coveredHeight { rows += 1 }
+        tileSide = side
+        rowCount = rows
+        contentHeight = CGFloat(rows) * (side + Self.spacing) - Self.spacing
+    }
+
+    var step: CGFloat { tileSide + Self.spacing }
+    /// 每排几张不同的封面;一排挪过这么多张的宽度正好接上开头。
+    var tilesPerRow: Int { max(3, Self.maximumTiles / rowCount) }
+    /// 一排实际摆几张:盖满封面那一层的宽度,再多一组用来首尾衔接(多一张补上最后的间距)。
+    var tilesRenderedPerRow: Int { Int((contentWidth / step).rounded(.up)) + tilesPerRow + 1 }
+    /// 一排挪完一圈的距离。
+    var loopLength: CGFloat { CGFloat(tilesPerRow) * step }
+    /// 封面按这个尺寸取缩略图:换算成像素不超过封面缓存的缩略图一档(192 像素),摆得再大一点也不另取大图。
+    func thumbnailSize(displayScale: CGFloat) -> CGFloat {
+        min(tileSide, 192 / max(displayScale, 1))
+    }
+}
+
+struct HomeHeroCoverWallSkeleton: View {
+    let metrics: HomeHeroCoverWallMetrics
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: HomeHeroCoverWallMetrics.cornerRadius, style: .continuous)
+            .fill(HomeHeroCarouselSkeletonCards.fill)
+            .frame(width: metrics.cardWidth, height: metrics.cardHeight)
+            .padding(.horizontal, 20)
+            .accessibilityHidden(true)
     }
 }
 

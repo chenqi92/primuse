@@ -4175,6 +4175,9 @@ struct HomeView: View {
     /// 顶部封面占位有多高,用来估下面还剩多少屏幕。
     private var heroLoadingPlaceholderHeight: CGFloat {
         #if os(iOS)
+        if heroStyle == .wall {
+            return heroCoverWallMetrics.cardHeight + 12
+        }
         if heroStyle != .carousel {
             return heroFeaturedMetrics.cardHeight(captionHeight: 84) + 52
         }
@@ -4195,7 +4198,12 @@ struct HomeView: View {
     @ViewBuilder
     private var heroLoadingPlaceholder: some View {
         #if os(iOS)
-        if heroStyle != .carousel {
+        if heroStyle == .wall {
+            LoadingSkeletonGroup {
+                HomeHeroCoverWallSkeleton(metrics: heroCoverWallMetrics)
+                    .padding(.bottom, 12)
+            }
+        } else if heroStyle != .carousel {
             LoadingSkeletonGroup {
                 VStack(alignment: .leading, spacing: 12) {
                     RoundedRectangle(cornerRadius: 5)
@@ -4236,6 +4244,10 @@ struct HomeView: View {
 
     private var heroFeaturedMetrics: HomeHeroFeaturedMetrics {
         HomeHeroFeaturedMetrics(viewportWidth: homeCanvas.width, compactCanvasHeight: heroCompactCanvasHeight, medium: heroStyle == .medium)
+    }
+
+    private var heroCoverWallMetrics: HomeHeroCoverWallMetrics {
+        HomeHeroCoverWallMetrics(viewportWidth: homeCanvas.width, compactCanvasHeight: heroCompactCanvasHeight)
     }
     #endif
 
@@ -4740,11 +4752,18 @@ struct HomeView: View {
         return pool[idx]
     }
 
-    /// 立体轮播保留全库播放，大、中卡片进入每日推荐集合。
+    /// 立体轮播保留全库播放，大、中卡片与封面墙进入每日推荐集合。
     @ViewBuilder
     private var libraryHeroSection: some View {
         #if os(iOS)
-        if heroStyle != .carousel {
+        if heroStyle == .wall {
+            HomeHeroCoverWallSection(
+                metrics: heroCoverWallMetrics,
+                previewSongs: model.snapshot.heroCoverSongs,
+                isInteractive: !editorMode,
+                catalog: heroRecommendations
+            )
+        } else if heroStyle != .carousel {
             HomeHeroRecommendationSection(
                 metrics: heroFeaturedMetrics,
                 previewSongs: model.snapshot.heroCoverSongs,

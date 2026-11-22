@@ -8073,3 +8073,4 @@
 "tv_settings_context_not_connected" = "ยังไม่เชื่อมต่อ";
 "player_hides_grabber" = "ซ่อนแถบจับด้านบน";
 "player_hides_grabber_description" = "แถบเล็ก ๆ ด้านบนสุดของเครื่องเล่นจะไม่แสดงอีก ปัดลงยังปิดเครื่องเล่นได้เหมือนเดิม";
+"home_hero_style_wall" = "ผนังภาพปก";
