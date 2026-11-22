@@ -1362,9 +1362,8 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         )
     }
 
-    /// 水彩绘本追加在最后，归在场景动态那一组；有频谱就读、读不到不提示，只有它用浅色画面。
-    func testWatercolorStorybookIsAppendedLast() {
-        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .watercolorStorybook)
+    /// 水彩绘本排在第 13 位，归在场景动态那一组；有频谱就读、读不到不提示，只有它用浅色画面。
+    func testWatercolorStorybookKeepsItsStoredValueAndIndex() {
         XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .watercolorStorybook), 13)
         XCTAssertEqual(FullscreenPlayerEffect.watercolorStorybook.rawValue, "watercolorStorybook")
         XCTAssertEqual(FullscreenPlayerEffect(rawValue: "watercolorStorybook"), .watercolorStorybook)
@@ -1380,6 +1379,27 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
                 hasArtwork: false
             ),
             "watercolorStorybook"
+        )
+    }
+
+    /// 水彩小剧场追加在最后，归在场景动态那一组；有频谱就读、读不到不提示，控件照深色画面配。
+    func testWatercolorTheaterIsAppendedLast() {
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .watercolorTheater)
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .watercolorTheater), 14)
+        XCTAssertEqual(FullscreenPlayerEffect.watercolorTheater.rawValue, "watercolorTheater")
+        XCTAssertEqual(FullscreenPlayerEffect(rawValue: "watercolorTheater"), .watercolorTheater)
+        XCTAssertEqual(FullscreenPlayerEffect.watercolorTheater.collection, .sceneMotion)
+        XCTAssertEqual(FullscreenPlayerEffect.watercolorTheater.scene, .watercolorTheater)
+        XCTAssertFalse(FullscreenPlayerEffect.watercolorTheater.usesRealtimeSpectrum)
+        XCTAssertTrue(FullscreenPlayerEffect.watercolorTheater.readsRealtimeSpectrum)
+        XCTAssertFalse(FullscreenPlayerEffect.watercolorTheater.prefersLightContent)
+        XCTAssertEqual(
+            ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: "watercolorTheater",
+                hasSynchronizedLyrics: false,
+                hasArtwork: false
+            ),
+            "watercolorTheater"
         )
     }
 
@@ -1405,7 +1425,7 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
     }
 
     func testDiscStylesShareOneEffectWithoutChangingExistingShortcuts() {
-        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .watercolorStorybook)
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .watercolorTheater)
         XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .vinylDeck), 4)
         XCTAssertEqual(FullscreenPlayerEffect(rawValue: "compactDisc"), .vinylDeck)
         XCTAssertEqual(FullscreenPlayerEffect.allCases.filter { $0.scene == .vinylDeck }, [.vinylDeck])

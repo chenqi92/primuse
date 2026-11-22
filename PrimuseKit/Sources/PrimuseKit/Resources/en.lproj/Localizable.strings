@@ -1095,3 +1095,6 @@
 "zspace_account_hint" = "Enable Media Library Service in ZMusic settings, then use its address and separate username and password.";
 "fullscreen_effect_cover_flow_rack_subtitle" = "The playing song is pulled out of a record rack to face you, while what just played and what’s up next stand in the rack showing only their spines, with lyrics below the shelf";
 "fullscreen_effect_cover_flow_rack_motion" = "Flip through the rack left and right · The one you stop on slides out, and it plays only when you pick it";
+"fullscreen_effect_watercolor_theater" = "Watercolor Theater";
+"fullscreen_effect_watercolor_theater_subtitle" = "Four little puppets sway, sing along and drum on a hand-painted watercolor stage, with a new shot for every lyric line";
+"fullscreen_effect_watercolor_theater_motion" = "Moves follow the beat, energy and lyrics · Ink lines redrawn 12 times a second";

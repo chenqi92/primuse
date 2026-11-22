@@ -1044,3 +1044,6 @@
 "zspace_account_hint" = "Activa el servicio de biblioteca multimedia en los ajustes de ZMusic y usa su dirección, nombre de usuario y contraseña independientes.";
 "fullscreen_effect_cover_flow_rack_subtitle" = "La canción actual sale del estante de discos mirando hacia ti; las que ya sonaron y las que siguen quedan a los lados mostrando solo el lomo, con la letra debajo del estante";
 "fullscreen_effect_cover_flow_rack_motion" = "Hojea el estante a izquierda y derecha · El disco en el que te detienes se asoma y solo suena si lo eliges";
+"fullscreen_effect_watercolor_theater" = "Teatrito de acuarela";
+"fullscreen_effect_watercolor_theater_subtitle" = "Cuatro titeritos de papel se mecen, cantan y tocan la batería en un escenario pintado en acuarela, con una toma nueva en cada línea de la letra";
+"fullscreen_effect_watercolor_theater_motion" = "Los movimientos siguen el ritmo, la energía y la letra · Trazos de tinta redibujados 12 veces por segundo";

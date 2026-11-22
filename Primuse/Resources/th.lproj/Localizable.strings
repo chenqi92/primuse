@@ -8084,3 +8084,7 @@
 "immersive_flow_hint_select_play" = "กดปุ่มเลือกเพื่อเล่น";
 "fullscreen_effect_cover_flow_rack_subtitle" = "เพลงที่กำลังเล่นถูกดึงออกจากชั้นแผ่นเสียงหันหน้าหาคุณ เพลงที่เล่นไปแล้วและเพลงถัดไปเสียบอยู่สองข้างเห็นแค่สันปก เนื้อเพลงอยู่ใต้ชั้น";
 "fullscreen_effect_cover_flow_rack_motion" = "เลื่อนดูชั้นแผ่นซ้ายขวา · แผ่นที่หยุดจะเลื่อนออกมา และจะเล่นเมื่อเลือกเท่านั้น";
+"fullscreen_effect_watercolor_theater" = "โรงละครสีน้ำ";
+"fullscreen_effect_watercolor_theater_subtitle" = "ตุ๊กตากระดาษสี่ตัวโยกตัว ร้องตาม และตีกลองบนเวทีสีน้ำวาดมือ เปลี่ยนฉากทุกบรรทัดเนื้อเพลง";
+"fullscreen_effect_watercolor_theater_motion" = "ท่าทางเปลี่ยนตามจังหวะ พลังเพลง และเนื้อร้อง · เส้นหมึกวาดใหม่ 12 ครั้งต่อวินาที";
+"immersive_theater_greeting" = "หวัดดี!";

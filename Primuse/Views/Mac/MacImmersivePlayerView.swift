@@ -65,6 +65,8 @@ struct MacImmersivePlayerView: View {
     @State private var flowNeighbors = AlbumFlowNeighbors()
     /// 封面流(#191)的浏览：触控板横向滚动、左右方向键只是浏览，点抽出来的那张（或按回车）才换歌。
     @State private var flowBrowser = ImmersiveAlbumFlowBrowser(browseHint: .click)
+    /// 「水彩小剧场」点角色：舞台每帧写进角色的位置，点击先问它点没点中。
+    @State private var theaterPokes = ImmersiveTheaterPokeChannel()
     /// 触控板这一下横向滚动走到哪（不参与画面，改了不重画）。
     @State private var flowScroll = MacAlbumFlowScrollTracker()
     /// 省电档（`ImmersiveIdlePowerPolicy`）。
@@ -593,7 +595,8 @@ struct MacImmersivePlayerView: View {
             chromeBlurRadius: 52,
             discFace: discFace,
             discPosition: discPosition.value,
-            discStyle: discStyle
+            discStyle: discStyle,
+            theaterPokes: presentationEffect == .watercolorTheater ? theaterPokes : nil
         ) { side in
             ZStack {
                 ImmersiveArtworkFallback(palette: artworkPalette)
@@ -1080,7 +1083,7 @@ struct MacImmersivePlayerView: View {
         case .watercolorStorybook:
             // 封面贴前缘，控件在歌名和歌词带那一侧。
             .trailing
-        case .native, .albumFlow, .kineticLyrics:
+        case .native, .albumFlow, .kineticLyrics, .watercolorTheater:
             .center
         }
     }
@@ -1975,6 +1978,12 @@ struct MacImmersivePlayerView: View {
     private func handleSurfaceClick(at location: CGPoint, metrics: ImmersiveStageMetrics) {
         let wasLowPower = isLowPower
         revealChrome()
+        // 「水彩小剧场」里点到角色：打招呼，4 秒内再点害羞。
+        if !wasLowPower, !showsKaraoke, !showsEffectPicker, isStageReady,
+           presentationEffect == .watercolorTheater,
+           theaterPokes.poke(at: location) {
+            return
+        }
         // 卡拉 OK 舞台空白处的点按会落到这里:不能被当成点封面流去暂停、切歌。
         guard !wasLowPower,
               !showsKaraoke,

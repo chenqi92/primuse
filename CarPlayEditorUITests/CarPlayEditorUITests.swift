@@ -7,7 +7,8 @@ final class FullscreenOrientationUITests: XCTestCase {
         restoreHomeAfterTest(app)
         for effect in ["coverGallery", "flowingLines", "radialPulse", "vinylDeck", "auroraVeil",
                        "spectrumHorizon", "particleBloom", "albumFlow", "chladniPlate",
-                       "fireflySync", "flyBrain", "kineticLyrics", "watercolorStorybook"] {
+                       "fireflySync", "flyBrain", "kineticLyrics", "watercolorStorybook",
+                       "watercolorTheater"] {
             app.launchArguments = orientationArguments(effect: effect)
             app.launch()
             XCTAssertTrue(app.buttons["Exit full-screen effect"].waitForExistence(timeout: 20), effect)

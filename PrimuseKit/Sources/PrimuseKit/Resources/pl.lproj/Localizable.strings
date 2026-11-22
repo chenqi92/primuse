@@ -1044,3 +1044,6 @@
 "zspace_account_hint" = "Włącz usługę biblioteki multimediów w ustawieniach ZMusic, a następnie użyj jej adresu oraz osobnej nazwy użytkownika i hasła.";
 "fullscreen_effect_cover_flow_rack_subtitle" = "Bieżący utwór wysuwa się z półki z płytami przodem do Ciebie, a odtworzone i nadchodzące stoją po bokach, pokazując tylko grzbiety; tekst jest pod półką";
 "fullscreen_effect_cover_flow_rack_motion" = "Przeglądaj półkę w lewo i w prawo · Płyta, na której się zatrzymasz, wysuwa się i gra dopiero po wybraniu";
+"fullscreen_effect_watercolor_theater" = "Akwarelowy teatrzyk";
+"fullscreen_effect_watercolor_theater_subtitle" = "Cztery papierowe kukiełki kołyszą się, śpiewają i grają na bębnach na malowanej akwarelą scenie, a z każdym wersem zmienia się ujęcie";
+"fullscreen_effect_watercolor_theater_motion" = "Ruchy podążają za rytmem, energią i tekstem · Linie tuszu rysowane od nowa 12 razy na sekundę";

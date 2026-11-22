@@ -927,7 +927,7 @@ struct TVImmersivePlayerView: View {
         case .watercolorStorybook:
             // 封面贴前缘，控件在歌名和歌词带那一侧。
             .trailing
-        case .native, .albumFlow, .kineticLyrics:
+        case .native, .albumFlow, .kineticLyrics, .watercolorTheater:
             .center
         }
     }

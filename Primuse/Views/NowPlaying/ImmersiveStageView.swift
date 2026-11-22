@@ -179,6 +179,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     var discFace: CGImage?
     var discPosition = CGPoint(x: 0.5, y: 0.5)
     var discStyle = ImmersiveDiscStyle.vinyl
+    /// 「水彩小剧场」点角色的通道：手机、iPad 和 Mac 的全屏页给，预览和电视不给（只表演）。
+    var theaterPokes: ImmersiveTheaterPokeChannel? = nil
     @ViewBuilder var artwork: (CGFloat) -> Artwork
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
@@ -263,6 +265,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveStageDeferredScene { kineticLyricsScene }
         case .watercolorStorybook:
             ImmersiveStageDeferredScene { watercolorStoryScene }
+        case .watercolorTheater:
+            ImmersiveStageDeferredScene { watercolorTheaterScene }
         }
     }
 
@@ -1467,6 +1471,47 @@ struct ImmersiveStageView<Artwork: View>: View {
             levelsProvider: scheduledSpectrumProvider,
             lyrics: { fonts, width in albumFlowLyrics(fonts: fonts, width: width) },
             artwork: artwork
+        )
+    }
+
+    // MARK: - 14. 水彩小剧场
+
+    /// 布景、纸偶和表演都在 `ImmersiveWatercolorTheaterScene`；歌词带里的字照旧走舞台自己的当前句加下一句
+    /// （`albumFlowLyrics`）。当前句的时间交给判定层：有歌词时按它判断在不在唱、选镜头和意象。
+    private var watercolorTheaterScene: some View {
+        let current = hasStageLyrics ? resolvedCurrentStageLyric : nil
+        let cue: ImmersiveTheaterLyricCue? = current.flatMap { line in
+            guard line.id >= 0, let start = line.startTime else { return nil }
+            return ImmersiveTheaterLyricCue(id: line.id, text: line.text, start: start, end: line.endTime)
+        }
+        // 设置页预览、效果抽屉只有一份不动的示意频谱：当作读不到频谱，角色按固定拍子摇，不会因为没有鼓点飘起来。
+        // 分开赋值:三目里那个空闭包会被推成 @Sendable,连带要求舞台的频谱读取也是 @Sendable。
+        let theaterLevels: @MainActor () -> [CGFloat]
+        if levelsProvider == nil {
+            theaterLevels = { [] }
+        } else {
+            theaterLevels = scheduledSpectrumProvider
+        }
+        return ImmersiveWatercolorTheaterScene(
+            metrics: metrics,
+            platform: platform,
+            palette: palette,
+            title: track.title,
+            subtitle: track.subtitle,
+            songKey: "\(track.title)\u{1F}\(track.artist)\u{1F}\(track.album)",
+            insets: EdgeInsets(top: topInset, leading: leadingInset, bottom: bottomInset, trailing: trailingInset),
+            hasLyrics: hasStageLyrics,
+            lyricCue: cue,
+            firstLyricStart: lyricWindow.first(where: { $0.id == 0 })?.startTime,
+            elapsed: track.elapsed,
+            duration: track.duration,
+            playbackTime: playbackTime,
+            isPlaying: track.isPlaying,
+            motionAllowed: !reduceMotion && isRenderingActive && !isLowPower,
+            isResting: isResting,
+            levelsProvider: theaterLevels,
+            pokes: theaterPokes,
+            lyrics: { fonts, width in albumFlowLyrics(fonts: fonts, width: width) }
         )
     }
 

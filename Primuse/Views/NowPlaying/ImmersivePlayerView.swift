@@ -84,6 +84,8 @@ struct ImmersivePlayerView: View {
     @State private var flowNeighbors = AlbumFlowNeighbors()
     /// 封面流(#191)的浏览：左右拖只是浏览，停住的那张抽出来，轻点才换歌、上拉排到下一首。
     @State private var flowBrowser = ImmersiveAlbumFlowBrowser(browseHint: .tapOrSwipeUp)
+    /// 「水彩小剧场」点角色：舞台每帧写进角色的位置，点按先问它点没点中。
+    @State private var theaterPokes = ImmersiveTheaterPokeChannel()
     /// 这一次拖动在封面流里做什么（横向起手是浏览、在浏览中的那张上往上拉是排到下一首）；nil 是还没定。
     @State private var flowDragMode: ImmersiveAlbumFlowDragMode?
     /// 认定方向那一刻的位移：从这里起算，整排不会一上来先跳一截。
@@ -251,6 +253,7 @@ struct ImmersivePlayerView: View {
                                     .onEnded { value in
                                         guard !isControlZone(value.location, in: geometry.size) else { return }
                                         if handleAlbumFlowTap(at: value.location, metrics: metrics) { return }
+                                        if handleTheaterTap(at: value.location) { return }
                                         handleSurfaceTap()
                                     }
                             )
@@ -588,7 +591,8 @@ struct ImmersivePlayerView: View {
             showsPlaybackProgress: showsChrome && !isAmbientRest && !presentsOnExternalDisplay,
             discFace: discFace,
             discPosition: discPosition.value,
-            discStyle: discStyle
+            discStyle: discStyle,
+            theaterPokes: presentationEffect == .watercolorTheater ? theaterPokes : nil
         ) { side in
             ZStack {
                 ImmersiveArtworkFallback(palette: artworkPalette)
@@ -1027,8 +1031,8 @@ struct ImmersivePlayerView: View {
         case .watercolorStorybook:
             // 封面贴前缘，控件在歌名和歌词带那一侧。
             return .trailing
-        case .native, .albumFlow, .kineticLyrics:
-            // 封面流的画面左右对称、动态歌词压在正中, 控件也居中。
+        case .native, .albumFlow, .kineticLyrics, .watercolorTheater:
+            // 封面流的画面左右对称、动态歌词压在正中、小剧场的角色站在中间, 控件也居中。
             return .center
         }
     }
@@ -1883,6 +1887,14 @@ struct ImmersivePlayerView: View {
             toggleChrome()
             scheduleAmbientRest()
         }
+    }
+
+    /// 「水彩小剧场」里点到角色：角色打招呼（4 秒内再点害羞），这一下不再当成点空白去显隐控件。
+    private func handleTheaterTap(at location: CGPoint) -> Bool {
+        guard presentationEffect == .watercolorTheater, !showsEffectPicker, !isAmbientRest,
+              theaterPokes.poke(at: location) else { return false }
+        registerInteraction(revealControls: false)
+        return true
     }
 
     private func registerInteraction(revealControls: Bool) {

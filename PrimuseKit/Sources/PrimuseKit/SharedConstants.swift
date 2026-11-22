@@ -9350,7 +9350,7 @@ public enum ImmersivePresentationFallbackPolicy {
             "native", "coverGallery", "flowingLines", "radialPulse",
             "vinylDeck", "auroraVeil", "spectrumHorizon", "particleBloom",
             "albumFlow", "chladniPlate", "fireflySync", "flyBrain",
-            "kineticLyrics", "watercolorStorybook",
+            "kineticLyrics", "watercolorStorybook", "watercolorTheater",
         ]
         if supported.contains(selectedRawValue) {
             return selectedRawValue

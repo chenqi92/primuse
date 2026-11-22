@@ -8084,3 +8084,7 @@
 "immersive_flow_hint_select_play" = "اضغط على زر التحديد للتشغيل";
 "fullscreen_effect_cover_flow_rack_subtitle" = "تُسحب الأغنية الحالية من رف الأسطوانات لتواجهك، بينما تقف الأغاني السابقة والتالية على الجانبين ولا يظهر منها إلا كعوبها، وتظهر الكلمات أسفل الرف";
 "fullscreen_effect_cover_flow_rack_motion" = "تصفّح الرف يمينًا ويسارًا · تخرج الأسطوانة التي تتوقف عندها ولا تُشغَّل إلا عند اختيارها";
+"fullscreen_effect_watercolor_theater" = "مسرح الألوان المائية";
+"fullscreen_effect_watercolor_theater_subtitle" = "أربع دمى ورقية صغيرة تتمايل وتغني وتقرع الطبول على مسرح مرسوم بالألوان المائية، مع لقطة جديدة لكل سطر من الكلمات";
+"fullscreen_effect_watercolor_theater_motion" = "تتبدّل الحركات مع الإيقاع والطاقة والكلمات · خطوط الحبر تُعاد رسمًا 12 مرة في الثانية";
+"immersive_theater_greeting" = "مرحبًا!";

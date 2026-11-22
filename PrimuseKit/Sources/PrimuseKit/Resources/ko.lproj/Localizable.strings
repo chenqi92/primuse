@@ -1097,3 +1097,6 @@
 "zspace_account_hint" = "ZMusic 설정에서 미디어 라이브러리 서비스를 활성화한 후 해당 주소와 별도의 사용자 이름 및 비밀번호를 사용하세요.";
 "fullscreen_effect_cover_flow_rack_subtitle" = "재생 중인 곡이 음반 랙에서 꺼내져 정면을 향하고, 이미 재생한 곡과 다음 곡은 양옆에 꽂힌 채 옆면만 보입니다. 가사는 선반 아래에 표시됩니다";
 "fullscreen_effect_cover_flow_rack_motion" = "좌우로 넘기며 랙 둘러보기 · 멈춘 음반이 빠져나오고, 선택해야 재생됩니다";
+"fullscreen_effect_watercolor_theater" = "수채화 소극장";
+"fullscreen_effect_watercolor_theater_subtitle" = "손으로 그린 수채화 무대에서 종이 인형 넷이 노래에 맞춰 흔들고 따라 부르고 드럼을 칩니다. 가사 한 줄마다 장면이 바뀌어요";
+"fullscreen_effect_watercolor_theater_motion" = "비트·에너지·가사에 따라 동작이 바뀜 · 잉크 선은 초당 12번 다시 그림";

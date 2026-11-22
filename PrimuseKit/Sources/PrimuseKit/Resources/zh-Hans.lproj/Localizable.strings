@@ -1094,3 +1094,6 @@
 "zspace_account_hint" = "在极音乐设置中开启「媒体库服务」，使用该服务的地址和独立账号密码。";
 "fullscreen_effect_cover_flow_rack_subtitle" = "正在播放的这首从唱片架里抽出来正对着你，刚放过的和接下来的竖插在两侧只露书脊，歌词在架子下方";
 "fullscreen_effect_cover_flow_rack_motion" = "左右拨动浏览唱片架 · 停住的那张抽出来，选它才换歌";
+"fullscreen_effect_watercolor_theater" = "水彩小剧场";
+"fullscreen_effect_watercolor_theater_subtitle" = "四个纸偶小伙伴在手绘水彩舞台上跟着歌摇摆、跟唱、打鼓，每句歌词换一个镜头";
+"fullscreen_effect_watercolor_theater_motion" = "随拍子、能量和歌词换动作 · 墨线每秒抖动十二次";

@@ -8084,3 +8084,7 @@
 "immersive_flow_hint_select_play" = "Çalmak için Seç düğmesine basın";
 "fullscreen_effect_cover_flow_rack_subtitle" = "Çalan şarkı plak rafından çekilip size döner; çalınmış ve sıradaki şarkılar iki yanda yalnızca sırtları görünecek şekilde durur, şarkı sözleri rafın altında";
 "fullscreen_effect_cover_flow_rack_motion" = "Rafta sağa sola göz atın · Durduğunuz plak dışarı çıkar ve yalnızca seçtiğinizde çalar";
+"fullscreen_effect_watercolor_theater" = "Suluboya Tiyatrosu";
+"fullscreen_effect_watercolor_theater_subtitle" = "Dört küçük kâğıt kukla, elle boyanmış suluboya sahnede şarkıyla sallanıyor, eşlik ediyor ve davul çalıyor; her sözde sahne değişiyor";
+"fullscreen_effect_watercolor_theater_motion" = "Hareketler ritme, enerjiye ve sözlere göre değişir · Mürekkep çizgileri saniyede 12 kez yeniden çizilir";
+"immersive_theater_greeting" = "Selam!";

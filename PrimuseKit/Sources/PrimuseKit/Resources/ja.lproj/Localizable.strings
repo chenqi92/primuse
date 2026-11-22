@@ -1097,3 +1097,6 @@
 "zspace_account_hint" = "ZMusicの設定でメディアライブラリサービスを有効にし、そのアドレスと専用のユーザー名・パスワードを使用してください。";
 "fullscreen_effect_cover_flow_rack_subtitle" = "再生中の曲がラックから引き出されて正面を向き、再生済みとこの先の曲は両側に立てて背だけを見せます。歌詞は棚の下に表示";
 "fullscreen_effect_cover_flow_rack_motion" = "左右にめくってラックを眺める · 止まった1枚が引き出され、選んだときだけ再生";
+"fullscreen_effect_watercolor_theater" = "水彩ミニシアター";
+"fullscreen_effect_watercolor_theater_subtitle" = "手描き水彩の小さな舞台で、4体の紙人形が歌に合わせて揺れたり口ずさんだりドラムを叩いたり。歌詞が変わるたびにカットも変わります";
+"fullscreen_effect_watercolor_theater_motion" = "ビート・盛り上がり・歌詞に合わせて動きが変わる · 線画は毎秒12回描き直し";

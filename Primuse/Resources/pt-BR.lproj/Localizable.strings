@@ -8084,3 +8084,7 @@
 "immersive_flow_hint_select_play" = "Pressione Selecionar para tocar";
 "fullscreen_effect_cover_flow_rack_subtitle" = "A música atual sai da estante de discos virada para você; as que já tocaram e as próximas ficam dos lados mostrando só a lombada, com a letra abaixo da prateleira";
 "fullscreen_effect_cover_flow_rack_motion" = "Folheie a estante para os lados · O disco em que você para desliza para fora e só toca se você escolher";
+"fullscreen_effect_watercolor_theater" = "Teatrinho em aquarela";
+"fullscreen_effect_watercolor_theater_subtitle" = "Quatro bonequinhos de papel balançam, cantam junto e tocam bateria num palco pintado em aquarela, com uma cena nova a cada verso";
+"fullscreen_effect_watercolor_theater_motion" = "Os movimentos seguem a batida, a energia e a letra · Traços de nanquim redesenhados 12 vezes por segundo";
+"immersive_theater_greeting" = "Oi!";
