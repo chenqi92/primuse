@@ -319,6 +319,12 @@ struct ImmersiveStageView<Artwork: View>: View {
         metrics.stageContentTopInset(isTV: platform == .tvOS)
     }
 
+    /// 贴着左上角、右上角放的内容的上沿:iOS 全屏页的圆钮排在那两个角上(`cornerContentTopInset`)。
+    /// Mac 的控件不在那里,电视没有,照 `topInset`。
+    private var cornerTopInset: CGFloat {
+        platform == .iOS ? metrics.cornerContentTopInset : topInset
+    }
+
     private var bottomInset: CGFloat {
         max(metrics.safeArea.bottom, metrics.s(14)) + controlsInset
     }
@@ -845,7 +851,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         let verticalArea = kineticVerticalArea
         let centerY = director.direction.staging == .vertical
             ? (verticalArea.top + verticalArea.bottom) / 2
-            : (topInset + headerSide + metrics.size.height - bottomInset) / 2
+            : (cornerTopInset + headerSide + metrics.size.height - bottomInset) / 2
         let clock = playbackTime
         let elapsed = track.elapsed
         let duration = track.duration
@@ -863,7 +869,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
+                .padding(.top, cornerTopInset)
 
             kineticLyricsBlock(width: width)
                 .frame(width: width)
@@ -878,7 +884,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     /// 竖列能占的那一段（上沿、下沿）：竖屏在页头下面，横屏和大屏页头在左上角、竖列在正中，占整个高度。
     private var kineticVerticalArea: (top: CGFloat, bottom: CGFloat) {
         let top = metrics.isPortrait
-            ? topInset + kineticHeaderSide + metrics.s(24)
+            ? cornerTopInset + kineticHeaderSide + metrics.s(24)
             : topInset + metrics.s(16)
         let bottom = metrics.size.height - bottomInset - metrics.s(16)
         return (top, max(bottom, top + 1))
@@ -1581,7 +1587,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             }
             .padding(.leading, leadingInset)
             .padding(.trailing, trailingInset)
-            .padding(.top, topInset)
+            // 歌词贴右上角,在效果、队列两颗圆钮底下。
+            .padding(.top, cornerTopInset)
             .padding(.bottom, bottomInset + metrics.s(metrics.isPortrait ? 12 : 0))
         }
     }
@@ -1859,7 +1866,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 }
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
+                .padding(.top, cornerTopInset)
                 .padding(.bottom, bottomInset + metrics.s(16))
             } else {
                 VStack(alignment: .leading, spacing: 0) {
@@ -1881,7 +1888,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 }
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
+                .padding(.top, cornerTopInset)
                 .padding(.bottom, bottomInset)
             }
         }

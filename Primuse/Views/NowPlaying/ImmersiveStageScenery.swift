@@ -397,6 +397,13 @@ struct ImmersiveStageMetrics {
         return chromeTopInset + 44 + s(14)
     }
 
+    /// iOS 全屏页顶部那排 44pt 圆钮(左上收起,右上效果与队列)的下沿再留一点。贴着左上角、右上角放的
+    /// 舞台内容(小封面、靠边的歌词)从这里往下排,控件唤出来时不被圆钮压住;舞台其余内容照
+    /// `stageContentTopInset` 排,横屏高度紧,不整体往下挪。
+    var cornerContentTopInset: CGFloat {
+        max(stageContentTopInset(isTV: false), chromeTopInset + 44 + s(8))
+    }
+
     /// 全屏页顶部圆钮排的上沿。手机竖屏按设计稿让开灵动岛 / 状态栏那一截;平板没有那一截,
     /// 按设计稿放大后的 55 会在顶上空出近百点,改成和横屏一样贴着安全区。
     var chromeTopInset: CGFloat {
