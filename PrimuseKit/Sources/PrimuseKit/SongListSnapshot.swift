@@ -938,7 +938,7 @@ public enum SongListSnapshotBuilder {
         LibraryCollationPolicy.indexLetter(for: value)
     }
 
-    private static func sectionIndexEntries(
+    static func sectionIndexEntries(
         from sectionOffsets: [String: Int],
         order: LibrarySongSortOrder
     ) -> [SongListSectionIndexEntry] {

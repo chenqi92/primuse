@@ -840,6 +840,14 @@ extension Song {
         pool.previous = member
     }
 
+    /// Restores a server file path exactly as the library row stored it. The
+    /// public setter re-normalizes, which is not idempotent for every input;
+    /// the catalog row codec must give back the value it was handed.
+    mutating func restoreStoredServerFilePath(_ path: String?) {
+        guard path != core.serverFilePath else { return }
+        core = SongCoreFields.make(core.values, replayGain: core.replayGain, serverFilePath: path)
+    }
+
     /// Storage introspection for the size and sharing tests.
     var hasRareFieldBoxForTesting: Bool { rare !== SongRareFields.empty }
 

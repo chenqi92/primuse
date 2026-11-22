@@ -66,6 +66,12 @@ public enum LibraryCollationPolicy {
         return buckets[bucketIndex(forFirstScalar: first)]
     }
 
+    /// `indexLetter(for:)` 的下标形式(0–25 是 A–Z,26 是 "#")。
+    static func bucketIndex(for name: String) -> Int {
+        guard let first = trimmedScalars(name).first else { return letterBuckets.count }
+        return bucketIndex(forFirstScalar: first)
+    }
+
     /// 只看第一个字符。
     public static func indexLetter(forFirstCharacter first: Character) -> String {
         guard let scalar = first.unicodeScalars.first else { return otherBucket }
