@@ -621,7 +621,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             isAnimating: sceneIsAnimating,
             songKey: "\(track.title)\u{1F}\(track.artist)\u{1F}\(track.album)",
             side: side,
-            labelSize: metrics.s(platform == .tvOS ? 17 : 10)
+            labelSize: metrics.font(platform == .tvOS ? 17 : 10, minimum: 8)
         )
     }
 
@@ -725,7 +725,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 isAnimating: sceneIsAnimating,
                 center: center,
                 halfWidth: halfWidth,
-                labelSize: metrics.s(platform == .tvOS ? 15 : 9)
+                labelSize: metrics.font(platform == .tvOS ? 15 : 9, minimum: 7)
             )
             ImmersiveVignette(color: .black, clearStop: 0.40, strength: 0.40)
 
@@ -761,7 +761,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     /// 数据来源：Male CNS 连接组（CC BY 4.0）。专有名词，不翻译。
     private var flyBrainCredit: some View {
         Text(verbatim: "Male CNS v1.0 · Janelia FlyEM / Google · CC BY 4.0")
-            .font(.system(size: metrics.s(platform == .tvOS ? 13 : 8), weight: .regular, design: .monospaced))
+            .font(.system(size: metrics.font(platform == .tvOS ? 13 : 8, minimum: 8), weight: .regular, design: .monospaced))
             .foregroundStyle(ImmersiveStagePalette.text.opacity(0.36))
             .lineLimit(1)
             .minimumScaleFactor(0.6)
@@ -1421,7 +1421,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     private func lyricsOnlyEyebrow(alignment: TextAlignment) -> some View {
         let artist = track.artist.trimmingCharacters(in: .whitespacesAndNewlines)
         return Text(verbatim: artist.isEmpty ? track.title : "\(track.title) · \(artist)")
-            .font(.system(size: metrics.s(platform == .tvOS ? 22 : (metrics.isWide ? 17 : 13)), weight: .semibold))
+            .font(.system(size: metrics.font(platform == .tvOS ? 22 : (metrics.isWide ? 17 : 13), minimum: 12), weight: .semibold))
             .foregroundStyle(ImmersiveStagePalette.text.opacity(0.62))
             .multilineTextAlignment(alignment)
             .lineLimit(1)
@@ -1432,7 +1432,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     private var galleryTrackBlock: some View {
         VStack(alignment: .leading, spacing: metrics.s(platform == .tvOS ? 18 : 9)) {
             Text(verbatim: "\(PMString("ext.tv.nowPlaying.eyebrow")) · \(track.source.isEmpty ? track.album : track.source)")
-                .font(.system(size: metrics.s(platform == .tvOS ? 18 : 10), weight: .semibold, design: .monospaced))
+                .font(.system(size: metrics.font(platform == .tvOS ? 18 : 10, minimum: 9), weight: .semibold, design: .monospaced))
                 .tracking(metrics.f(1.8))
                 .foregroundStyle(palette.primary.opacity(0.86))
                 .lineLimit(1)
@@ -1515,9 +1515,10 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     private func formatAndLyric(fontSize: CGFloat, availableWidth: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: metrics.s(12)) {
+            // 规格这一行按比例缩到 10 号以下就认不出来了。
             Text(track.format.uppercased())
-                .font(.system(size: fontSize, weight: .semibold, design: .monospaced))
-                .tracking(fontSize * 0.14)
+                .font(.system(size: max(fontSize, 10), weight: .semibold, design: .monospaced))
+                .tracking(max(fontSize, 10) * 0.14)
                 .foregroundStyle(ImmersiveStagePalette.text.opacity(0.78))
                 .lineLimit(1)
             singleLyric(fontSize: fontSize * 1.08, availableWidth: availableWidth)
@@ -1690,9 +1691,9 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     private func discText(width: CGFloat, compact: Bool) -> some View {
         let isTV = platform == .tvOS
-        let titleSize = metrics.s(metrics.isWide ? (isTV ? 74 : 52) : 30) * (compact ? 0.86 : 1)
-        let detailSize = metrics.s(metrics.isWide ? (isTV ? 25 : 19) : 14)
-        let lyricSize = metrics.s(metrics.isWide ? (isTV ? 46 : 34) : 22) * (compact ? 0.86 : 1)
+        let titleSize = metrics.font(metrics.isWide ? (isTV ? 74 : 52) : 30, minimum: 22) * (compact ? 0.86 : 1)
+        let detailSize = metrics.font(metrics.isWide ? (isTV ? 25 : 19) : 14, minimum: 13)
+        let lyricSize = metrics.font(metrics.isWide ? (isTV ? 46 : 34) : 22, minimum: 18) * (compact ? 0.86 : 1)
         let sectionGap = metrics.s(metrics.isWide ? (isTV ? 48 : 36) : 24) * (compact ? 0.6 : 1)
         let lines = resolvedFocusLyrics.filter { !compact || $0.offset >= 0 }
         return VStack(alignment: .leading, spacing: sectionGap) {
@@ -1950,10 +1951,10 @@ struct ImmersiveStageView<Artwork: View>: View {
             artworkPlate(side: artSide, radius: metrics.f(8))
             VStack(alignment: .leading, spacing: metrics.s(5)) {
                 Text(track.artist)
-                    .font(.system(size: metrics.s(platform == .tvOS ? 25 : 14), weight: .semibold))
+                    .font(.system(size: metrics.font(platform == .tvOS ? 25 : 14, minimum: 13), weight: .semibold))
                     .lineLimit(1)
                 Text(track.album.uppercased())
-                    .font(.system(size: metrics.s(platform == .tvOS ? 16 : 9), weight: .medium, design: .monospaced))
+                    .font(.system(size: metrics.font(platform == .tvOS ? 16 : 9, minimum: 9), weight: .medium, design: .monospaced))
                     .tracking(metrics.f(1.7))
                     .foregroundStyle(ImmersiveStagePalette.text.opacity(0.52))
                     .lineLimit(1)
@@ -1979,7 +1980,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.44)
             Text(track.subtitle)
-                .font(.system(size: max(size * 0.27, metrics.s(12)), weight: .regular))
+                .font(.system(size: max(size * 0.27, metrics.font(12, minimum: 13)), weight: .regular))
                 .foregroundStyle(ImmersiveStagePalette.text.opacity(0.62))
                 .multilineTextAlignment(textAlignment)
                 .lineLimit(1)
@@ -2448,8 +2449,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             if showsClock {
                 ImmersiveStageClock(
                     showsDate: metrics.isWide,
-                    timeSize: metrics.s(platform == .tvOS ? 44 : 25),
-                    dateSize: metrics.s(platform == .tvOS ? 16 : 10)
+                    timeSize: metrics.font(platform == .tvOS ? 44 : 25, minimum: 18),
+                    dateSize: metrics.font(platform == .tvOS ? 16 : 10, minimum: 9)
                 )
                 .padding(.top, max(metrics.safeArea.top, metrics.s(platform == .tvOS ? 66 : 24)))
                 .padding(.trailing, max(metrics.safeArea.trailing, metrics.s(platform == .tvOS ? 92 : 28)))
@@ -2592,20 +2593,20 @@ enum ImmersiveAlbumFlowGeometry {
             // Duo 内屏横握比手机横屏高出一大截，放得下两行当前句和下一句。
             metrics.isHandheldLandscape
                 ? LyricFonts(current: metrics.s(17), next: metrics.s(13), currentLineLimit: 2, showsNextLine: true, spacing: metrics.s(6))
-                : LyricFonts(current: metrics.s(15), next: metrics.s(11), currentLineLimit: 1, showsNextLine: false, spacing: 0)
+                : LyricFonts(current: metrics.font(15, minimum: 14), next: metrics.font(11, minimum: 11), currentLineLimit: 1, showsNextLine: false, spacing: 0)
         case .wide:
             platform == .tvOS
                 ? LyricFonts(current: metrics.s(40), next: metrics.s(27), currentLineLimit: 2, showsNextLine: true, spacing: metrics.s(12))
-                : LyricFonts(current: metrics.s(30), next: metrics.s(20), currentLineLimit: 2, showsNextLine: true, spacing: metrics.s(8))
+                : LyricFonts(current: metrics.font(30, minimum: 17), next: metrics.font(20, minimum: 13), currentLineLimit: 2, showsNextLine: true, spacing: metrics.s(8))
         }
     }
 
     static func titleSize(metrics: ImmersiveStageMetrics, platform: ImmersiveStagePlatform) -> CGFloat {
-        metrics.s(platform == .tvOS ? 44 : (metrics.isPortrait ? 26 : 21))
+        metrics.font(platform == .tvOS ? 44 : (metrics.isPortrait ? 26 : 21), minimum: 18)
     }
 
     static func subtitleSize(metrics: ImmersiveStageMetrics, platform: ImmersiveStagePlatform) -> CGFloat {
-        max(titleSize(metrics: metrics, platform: platform) * 0.6, metrics.s(12))
+        max(titleSize(metrics: metrics, platform: platform) * 0.6, metrics.font(12, minimum: 12))
     }
 
     static func layout(

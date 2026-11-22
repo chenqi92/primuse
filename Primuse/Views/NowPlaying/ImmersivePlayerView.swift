@@ -104,6 +104,11 @@ struct ImmersivePlayerView: View {
             && (isPhoneIdiomEnvironment || UIDevice.current.userInterfaceIdiom == .phone)
     }
 
+    /// iPad 上的全屏页(外接屏不算):竖着照手持竖屏的构图放大,横着按平板的基准缩放(`ImmersiveStageMetrics`)。
+    private var isTabletIdiom: Bool {
+        !presentsOnExternalDisplay && !isPhoneIdiom && UIDevice.current.userInterfaceIdiom == .pad
+    }
+
     private var frameRate: ImmersiveFrameRateMode {
         ImmersiveFrameRateMode(storedValue: frameRateRawValue)
     }
@@ -204,13 +209,15 @@ struct ImmersivePlayerView: View {
             let metrics = ImmersiveStageMetrics(
                 size: geometry.size,
                 safeArea: safeArea,
-                isHandheld: isPhoneIdiom
+                isHandheld: isPhoneIdiom,
+                isTablet: isTabletIdiom
             )
             // 控件按真实安全区排(顶上那排另外在遮挡那一侧让开),舞台内容可能被推到遮挡区下面。
             let chromeMetrics = ImmersiveStageMetrics(
                 size: geometry.size,
                 safeArea: measuredSafeArea,
-                isHandheld: isPhoneIdiom
+                isHandheld: isPhoneIdiom,
+                isTablet: isTabletIdiom
             )
 
             ZStack {
@@ -591,21 +598,34 @@ struct ImmersivePlayerView: View {
     /// 画面底部要给控件让出的高度。控件淡出后也保留,避免文字来回跳。
     /// 胶囊下面那一排有按钮时多让出那一排比状态行高出的一截;那一排只随设置出现,不随控件显隐变。
     private func controlsInset(_ metrics: ImmersiveStageMetrics) -> CGFloat {
-        let base: CGFloat = switch metrics.layout {
+        let design: CGFloat = switch metrics.layout {
         case .wide:
-            metrics.s(presentationEffect.chromeFamily == .deck ? 184 : (presentationEffect.usesShowcaseChrome ? 112 : 142))
+            presentationEffect.chromeFamily == .deck ? 184 : (presentationEffect.usesShowcaseChrome ? 112 : 142)
         case .phoneLandscape:
-            metrics.s(presentationEffect.chromeFamily == .deck ? 116 : (presentationEffect.usesShowcaseChrome ? 76 : 82))
+            presentationEffect.chromeFamily == .deck ? 116 : (presentationEffect.usesShowcaseChrome ? 76 : 82)
         case .phonePortrait:
             switch presentationEffect.chromeFamily {
-            case .deck: metrics.s(218)
-            case .standard: metrics.s(178)
-            case .lyrics: metrics.s(124)
-            case .spectrum: metrics.s(146)
-            case .showcase: metrics.s(106)
+            case .deck: 218
+            case .standard: 178
+            case .lyrics: 124
+            case .spectrum: 146
+            case .showcase: 106
             }
         }
+        let base = Self.controlsBand(design: design, metrics: metrics)
         return showsBottomRow ? base + Self.bottomRowExtraHeight : base
+    }
+
+    /// 控件那一带的高度大半是定尺寸的(44 / 48 的圆钮、状态行),不随画布缩放:原来整段按比例放大,
+    /// Duo 内屏、竖着的 iPad 上舞台底下空出四五十点到近百点,小画布上又让得不够、压到控件。
+    /// 定尺寸那一截照原样留,只把余下的空隙按比例缩放;设计稿那个尺寸(比例 1)上取值不变。
+    static func controlsBand(design: CGFloat, metrics: ImmersiveStageMetrics) -> CGFloat {
+        let fixed: CGFloat = switch metrics.layout {
+        case .wide: 86
+        case .phoneLandscape: 60
+        case .phonePortrait: 90
+        }
+        return fixed + metrics.s(max(design - fixed, 0))
     }
 
     // MARK: - 控件
@@ -712,7 +732,12 @@ struct ImmersivePlayerView: View {
         let upper = occlusions.filter { ($0.minY + $0.maxY) / 2 < height / 2 }
         let lower = occlusions.filter { ($0.minY + $0.maxY) / 2 >= height / 2 }
         var result = measured
-        let probe = ImmersiveStageMetrics(size: size, safeArea: measured, isHandheld: isPhoneIdiom)
+        let probe = ImmersiveStageMetrics(
+            size: size,
+            safeArea: measured,
+            isHandheld: isPhoneIdiom,
+            isTablet: isTabletIdiom
+        )
         let contentTop = probe.stageContentTopInset(isTV: false)
         let clearance = OcclusionAvoidancePolicy.sideClearance(
             regions: upper,
@@ -764,10 +789,7 @@ struct ImmersivePlayerView: View {
 
     /// 顶部圆钮排的上沿。取证页（`ImmersiveStageEvidenceHost`）按同一个值画控件占位。
     static func topChromeInset(_ metrics: ImmersiveStageMetrics) -> CGFloat {
-        if metrics.layout == .phonePortrait {
-            return max(metrics.safeArea.top + 10, metrics.s(55))
-        }
-        return max(metrics.safeArea.top + 10, 18)
+        metrics.chromeTopInset
     }
 
     private var dismissChromeButton: some View {

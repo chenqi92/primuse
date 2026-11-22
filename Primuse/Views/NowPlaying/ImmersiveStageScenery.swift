@@ -289,20 +289,37 @@ struct ImmersiveStageMetrics {
     let size: CGSize
     let safeArea: EdgeInsets
     let scale: CGFloat
-    /// 手持的大画布:iPhone 上短边也有五六百点的视口(iPhone Duo 展开的内屏)。
-    /// 它照手机的构图与比例放大,不按电视那套 1920×1080 缩小;顶部内容另外让开全屏页的圆钮排。
+    /// 手持的大画布:iPhone 上短边也有五六百点的视口(iPhone Duo 展开的内屏),以及竖着的 iPad
+    /// (含分屏后竖长的窗口)。它照手机的构图与比例放大,不按电视那套 1920×1080 缩小;
+    /// 顶部内容另外让开全屏页的圆钮排。
     let isHandheldCanvas: Bool
+    /// iPad 上的全屏页。竖着走手持竖屏的构图(`isHandheldCanvas`),横着仍是大画布,但按平板的基准缩放。
+    let isTabletCanvas: Bool
 
-    /// - Parameter isHandheld: 这是不是 iPhone 上的全屏页。iPad、Mac、电视恒为 false。
-    init(size: CGSize, safeArea: EdgeInsets = EdgeInsets(), prefersWide: Bool = false, isHandheld: Bool = false) {
+    /// - Parameters:
+    ///   - isHandheld: 这是不是 iPhone 上的全屏页。iPad、Mac、电视恒为 false。
+    ///   - isTablet: 这是不是 iPad 上的全屏页。iPhone、Mac、电视、外接屏恒为 false。
+    init(
+        size: CGSize,
+        safeArea: EdgeInsets = EdgeInsets(),
+        prefersWide: Bool = false,
+        isHandheld: Bool = false,
+        isTablet: Bool = false
+    ) {
         self.size = size
         self.safeArea = safeArea
 
         let isLandscape = size.width > size.height
         // 大画布判定看短边:iPhone 横屏短边不到 500pt,iPad / Mac / TV 都远超。
         let shortSide = min(size.width, size.height)
-        isHandheldCanvas = isHandheld && !prefersWide && shortSide >= 500
-        if prefersWide || (shortSide >= 500 && !isHandheldCanvas) {
+        let tablet = isTablet && !prefersWide
+        // 竖着的 iPad 原来也按 1920×1080 的横版构图缩放:宽度只有基准的四成多,字号跟着缩到四成
+        // (歌手、专辑只剩四五号字),画面还只占中间一条。它和 Duo 内屏竖握差不多方正,沿用那套构图。
+        let handheldCanvas = !prefersWide && shortSide >= 500
+            && (isHandheld || (tablet && !isLandscape))
+        isTabletCanvas = tablet
+        isHandheldCanvas = handheldCanvas
+        if prefersWide || (shortSide >= 500 && !handheldCanvas) {
             layout = .wide
         } else {
             layout = isLandscape ? .phoneLandscape : .phonePortrait
@@ -310,20 +327,28 @@ struct ImmersiveStageMetrics {
 
         switch layout {
         case .wide:
-            // 1920×1080 基准。宽高同时约束,窗口变矮时字号跟着收,不会顶出画面。
-            scale = min(max(min(size.width / 1920, size.height / 1080), 0.42), 1.35)
+            if tablet {
+                // 平板横着拿在手上看,按 1920×1080 缩下来字太小(11 寸只有 0.62 倍),4:3 的屏上下还空出
+                // 一大截。改按 1366×1024(13 寸 iPad 横屏)取值,宽高同时约束。
+                scale = min(max(min(size.width / 1366, size.height / 1024), 0.6), 1.35)
+            } else {
+                // 1920×1080 基准。宽高同时约束,窗口变矮时字号跟着收,不会顶出画面。
+                scale = min(max(min(size.width / 1920, size.height / 1080), 0.42), 1.35)
+            }
         case .phoneLandscape:
-            // 手机横屏按宽度取值;iPhone Duo 内屏横握(约 890~951 × 626~669)照同一套构图按宽度放大,
-            // 宽高同时约束只是兜底,那块屏比手机横屏高得多,实际仍是宽度说了算。
-            scale = isHandheldCanvas
-                ? min(max(min(size.width / 852, size.height / 393), 0.78), 1.25)
-                : min(max(size.width / 852, 0.78), 1.25)
+            // 手机横屏的设计稿是 852×393。比它方正的画布(iPhone SE、Duo 外屏横握、Duo 内屏)只按宽度取值时,
+            // 字和控件偏小、上下空出一大截:取宽高两个比例的几何平均,但不超过宽度比例的 1.15 倍
+            // (横向的固定间距不至于挤)、也不超过高度比例。一般 iPhone 宽高比例几乎相等,取值不变。
+            let widthRatio = size.width / 852
+            let heightRatio = size.height / 393
+            let balanced = min((widthRatio * heightRatio).squareRoot(), widthRatio * 1.15, heightRatio)
+            scale = min(max(balanced, 0.78), 1.25)
         case .phonePortrait:
             // 竖屏同样受高度约束。699 = 393 × 667 / 375,即 iPhone SE 按宽度缩放时
             // 每个设计单位分到的高度;现有 iPhone 都比它瘦长,照旧按宽度取值。
             // iPhone Duo 外屏(约 466×678)和内屏分屏后的半幅窗口宽而矮,只按宽度
-            // 放大会把控件和歌词顶出底边。
-            scale = min(max(min(size.width / 393, size.height / 699), 0.82), 1.35)
+            // 放大会把控件和歌词顶出底边。竖着的 iPad 放大到 2 倍为止。
+            scale = min(max(min(size.width / 393, size.height / 699), 0.82), tablet ? 2 : 1.35)
         }
     }
 
@@ -339,6 +364,9 @@ struct ImmersiveStageMetrics {
     /// 各效果共用的舞台内容上沿。全屏页也按它判断内容会不会落进遮挡区那段高度。
     /// 手持的大画布上至少让开全屏页的圆钮排(`handheldChromeClearance`),手机上为 0,取值不变。
     func stageContentTopInset(isTV: Bool) -> CGFloat {
+        // 平板竖着没有灵动岛、状态栏那一截(设计稿上的 54 就是给它留的):内容紧接着圆钮排往下排。
+        // iPad 侧拉、分屏 1/3 这类不到 500 宽的窗口不算手持大画布,照手机的上沿排。
+        if isTabletCanvas && isHandheldCanvas && layout == .phonePortrait { return handheldChromeClearance }
         let base: CGFloat = switch layout {
         case .phonePortrait:
             max(safeArea.top, s(54)) + stageContentTopExtra(isTV: isTV)
@@ -363,12 +391,24 @@ struct ImmersiveStageMetrics {
     /// 手持的大画布上舞台内容的上沿至少落在这里,左上角的歌名 / 小封面不会被收起键压住。
     var handheldChromeClearance: CGFloat {
         guard isHandheldCanvas else { return 0 }
-        let chromeTop: CGFloat = isPortrait ? max(safeArea.top + 10, s(55)) : max(safeArea.top + 10, 18)
-        return chromeTop + 44 + s(14)
+        return chromeTopInset + 44 + s(14)
+    }
+
+    /// 全屏页顶部圆钮排的上沿。手机竖屏按设计稿让开灵动岛 / 状态栏那一截;平板没有那一截,
+    /// 按设计稿放大后的 55 会在顶上空出近百点,改成和横屏一样贴着安全区。
+    var chromeTopInset: CGFloat {
+        if layout == .phonePortrait && !isTabletCanvas {
+            return max(safeArea.top + 10, s(55))
+        }
+        return max(safeArea.top + 10, 18)
     }
 
     /// 设计稿像素 → 当前视口点数(取整,用于间距与字号)
     func s(_ value: CGFloat) -> CGFloat { (value * scale).rounded() }
+
+    /// 字号:按画布缩放,但不小于 `minimum`。小画布(Mac 小窗口、iPad 分屏、iPhone SE 横屏)
+    /// 按比例缩下去时,歌手、专辑、规格这些本来就小的字会缩到看不清。
+    func font(_ value: CGFloat, minimum: CGFloat) -> CGFloat { max(s(value), minimum) }
 
     /// 同上但不取整,用于半径、线宽这类需要连续变化的量
     func f(_ value: CGFloat) -> CGFloat { value * scale }
@@ -1031,9 +1071,12 @@ struct ImmersiveStageEvidenceHost: View {
                             prefersWide: frame.prefersWide,
                             isHandheld: frame.isHandheld
                         )
-                        let controlsInset = metrics.s(frame.controlsInsetDesignValue > 0
-                            ? frame.controlsInsetDesignValue
-                            : Self.showcaseControlsInsetDesignValue(metrics.layout))
+                        let controlsInset = ImmersivePlayerView.controlsBand(
+                            design: frame.controlsInsetDesignValue > 0
+                                ? frame.controlsInsetDesignValue
+                                : Self.showcaseControlsInsetDesignValue(metrics.layout),
+                            metrics: metrics
+                        )
                         let scale = geometry.size.width / frame.size.width
                         Text(verbatim: "\(frame.effect.rawValue) · \(frame.layout) · \(Int(frame.size.width))×\(Int(frame.size.height))\(resting.map { " · resting:\($0.rawValue)" } ?? "")")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -1392,9 +1435,10 @@ struct ImmersiveAmbientRestOverlay: View {
 
     var body: some View {
         let hasLyric = lyric != nil
-        let clockSize = metrics.s(metrics.isPortrait ? 62 : 54)
-        let lineSize = metrics.s(metrics.isPortrait ? 24 : 22)
-        let titleSize = hasLyric ? metrics.s(16) : lineSize
+        // 大画布按 1920 宽缩放,Mac 小窗口里歌词会缩到九号字:几样都设下限。
+        let clockSize = metrics.font(metrics.isPortrait ? 62 : 54, minimum: 34)
+        let lineSize = metrics.font(metrics.isPortrait ? 24 : 22, minimum: 17)
+        let titleSize = hasLyric ? metrics.font(16, minimum: 13) : lineSize
 
         TimelineView(.everyMinute) { context in
             VStack(alignment: .leading, spacing: metrics.s(12)) {
@@ -1413,7 +1457,7 @@ struct ImmersiveAmbientRestOverlay: View {
                         .foregroundStyle(ImmersiveStagePalette.text.opacity(hasLyric ? 0.62 : 0.78))
                         .lineLimit(2)
                     Text(subtitle)
-                        .font(.system(size: metrics.s(14)))
+                        .font(.system(size: metrics.font(14, minimum: 12)))
                         .foregroundStyle(ImmersiveStagePalette.text.opacity(0.42))
                         .lineLimit(1)
                 }

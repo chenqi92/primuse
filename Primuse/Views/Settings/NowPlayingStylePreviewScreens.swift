@@ -212,9 +212,10 @@ struct EffectPlayerPreviewScreen: View {
         let pillEdges = showsCell(.pillLeading) || showsCell(.pillTrailing)
         let bottomRow = showsCell(.bottomRowLeading) || showsCell(.bottomRowTrailing)
         // 舞台给控件让出的高度照 `ImmersivePlayerView.controlsInset`:胶囊下面那一排有按钮时多让一截。
+        let band = ImmersivePlayerView.controlsBand(design: 106, metrics: metrics)
         let stageControlsInset: CGFloat = controls.hasBottomRow
-            ? metrics.s(106) + ImmersivePlayerView.bottomRowExtraHeight
-            : metrics.s(106)
+            ? band + ImmersivePlayerView.bottomRowExtraHeight
+            : band
 
         ZStack {
             ImmersiveDemoStage.make(
