@@ -1298,13 +1298,22 @@ final class BackgroundLibraryMaintenanceCoordinator {
 /// 补回来(`MusicLibrary.rewarmReleasedCaches()`),
 /// 其余的用到时按需重建。macOS 在隐藏或长时失焦且空闲时走同一套后台释放与激活预热, 不触发
 /// `.primuseMemoryPressure` 以免拆掉已排序列表和暂停中的播放管线。
+///
+/// 已解码的图片(封面、播放页背景、动态封面帧、刮削候选图)另算: iOS 退到后台时不论还在不在
+/// 放歌、扫描都清空, 在后台期间上限压着(`DecodedImageCacheBudget`), 回到前台恢复; 只留系统
+/// 「正在播放」要的当前这首与预取的下一首, 车机开着时车机自己的封面缓存照原样留着。
+/// 内存告警时同样清掉。曲库派生数据仍只在后台没活儿时放: 放歌、扫描时放掉马上又要重建。
 @MainActor
 final class RebuildableMemoryReliefCoordinator {
     static let shared = RebuildableMemoryReliefCoordinator()
 
     private var memoryPressureObserver: NSObjectProtocol?
+    private var carPlaySceneObservers: [NSObjectProtocol] = []
     private weak var library: MusicLibrary?
     private weak var player: AudioPlayerService?
+    /// 已解码图片缓存的上限现在是后台那一档(`DecodedImageCacheBudget`)。
+    private var isDecodedImageBudgetLowered = false
+    private var decodedImageBudgetGeneration = 0
     #if os(iOS)
     private var trimTask: Task<Void, Never>?
     private var trimAssertion: UIBackgroundTaskIdentifier = .invalid
@@ -1334,6 +1343,18 @@ final class RebuildableMemoryReliefCoordinator {
         #if os(macOS)
         installMacLifecycleObservers()
         #endif
+        #if os(iOS)
+        // App 在后台、图片缓存上限压着的时候车机连上或断开:按车机开没开重新定上限。
+        for (name, connected) in [(Notification.Name.primuseCarPlaySceneDidConnect, true),
+                                  (Notification.Name.primuseCarPlaySceneDidDisconnect, false)] {
+            let observer = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    RebuildableMemoryReliefCoordinator.shared.carPlaySceneDidChange(connected: connected)
+                }
+            }
+            carPlaySceneObservers.append(observer)
+        }
+        #endif
     }
 
     private func relieveMemoryPressure() {
@@ -1341,6 +1362,23 @@ final class RebuildableMemoryReliefCoordinator {
         library?.releaseRebuildableCaches()
         CachedArtworkView.purgeDecodedImageCache()
         PlayerBackdropMemoryCache.shared.removeAll()
+        AnimatedArtworkFrameCache.applyBudget(
+            DecodedImageCacheBudget.limit(
+                for: .animatedArtwork, inBackground: isDecodedImageBudgetLowered, carPlayActive: false
+            ),
+            purge: true
+        )
+        ScrapeReviewImageCache.applyBudgetToAll(
+            DecodedImageCacheBudget.limit(
+                for: .scrapeReview, inBackground: isDecodedImageBudgetLowered, carPlayActive: false
+            ),
+            purge: true
+        )
+        #if os(iOS)
+        if !Self.isCarPlaySceneActive {
+            Self.removeCarPlayArtworkCaches()
+        }
+        #endif
         URLCache.shared.removeAllCachedResponses()
         player?.trimNowPlayingArtworkCacheToCurrentItem()
         Task {
@@ -1350,6 +1388,60 @@ final class RebuildableMemoryReliefCoordinator {
             await MusicLibrary.returnFreedMemoryToSystem()
         }
     }
+
+    /// 已解码图片缓存换上限。`inBackground` 时先清空再压到后台那一档, 系统「正在播放」只留当前
+    /// 这首与预取的下一首, 车机没开时车机的封面缓存也清掉; 回到前台只恢复上限, 不预先解码。
+    /// `purge` 默认跟着 `inBackground`:进后台时清空,回前台只恢复上限。
+    private func applyDecodedImageCacheBudget(inBackground: Bool, carPlayActive: Bool, purge: Bool? = nil) async {
+        let purge = purge ?? inBackground
+        isDecodedImageBudgetLowered = inBackground
+        decodedImageBudgetGeneration &+= 1
+        let generation = decodedImageBudgetGeneration
+        func limit(_ cache: DecodedImageCacheBudget.Cache) -> Int {
+            DecodedImageCacheBudget.limit(for: cache, inBackground: inBackground, carPlayActive: carPlayActive)
+        }
+        CachedArtworkView.applyDecodedImageBudget(limit(.artworkViews), purge: purge)
+        PlayerBackdropMemoryCache.shared.applyBudget(limit(.playerBackdrop), purge: purge)
+        AnimatedArtworkFrameCache.applyBudget(limit(.animatedArtwork), purge: purge)
+        ScrapeReviewImageCache.applyBudgetToAll(limit(.scrapeReview), purge: purge)
+        if inBackground, purge {
+            player?.trimNowPlayingArtworkCacheForBackground()
+        }
+        #if os(iOS)
+        if !DecodedImageCacheBudget.keepsCarPlayCaches(inBackground: inBackground, carPlayActive: carPlayActive) {
+            Self.removeCarPlayArtworkCaches()
+        }
+        #endif
+        await ImageCache.shared.applyMemoryBudget(limit(.imageCache), purge: purge, generation: generation)
+    }
+
+    #if os(iOS)
+    /// 后台期间车机连上:封面视图那层放宽到车机那一档(不清空);断开:清掉车机的封面缓存、
+    /// 封面视图那层压回普通后台那一档。前台时上限本来就是前台那一档,不用动。
+    private func carPlaySceneDidChange(connected: Bool) {
+        guard isDecodedImageBudgetLowered else { return }
+        Task { @MainActor in
+            await self.applyDecodedImageCacheBudget(inBackground: true, carPlayActive: connected, purge: !connected)
+        }
+    }
+    #endif
+
+    #if os(iOS)
+    /// 车机界面正开着(手机这边可能在后台)。
+    static var isCarPlaySceneActive: Bool {
+        UIApplication.shared.connectedScenes.contains { scene in
+            scene.session.role == .carTemplateApplication
+                && (scene.activationState == .foregroundActive || scene.activationState == .foregroundInactive)
+        }
+    }
+
+    /// 车机自己的缩略图、占位图与渲染好的行内封面。车机没开时用不上。
+    static func removeCarPlayArtworkCaches() {
+        CarPlayRenderedArtwork.removeAll()
+        CarPlayTemplateImages.removeAllPlaceholders()
+        Task { await CarPlayArtworkDecoder.shared.removeAllThumbnails() }
+    }
+    #endif
 
     #if os(macOS)
     private func installMacLifecycleObservers() {
@@ -1468,11 +1560,11 @@ final class RebuildableMemoryReliefCoordinator {
 
     #if os(iOS)
     /// `.background` 时调用。`activity` 在排期时和真正动手前各看一次。
+    /// 已解码的图片不论后台在不在干活都收缩; 曲库派生数据只在后台没活儿时放。
     func sceneDidEnterBackground(activity: @escaping @MainActor @Sendable () -> BackgroundMemoryTrimPolicy.Activity) {
         cancelPendingTrim()
         rewarmTask?.cancel()
         rewarmTask = nil
-        guard BackgroundMemoryTrimPolicy.shouldTrim(phase: .background, activity: activity()) else { return }
         trimGeneration &+= 1
         let generation = trimGeneration
         // 一条很短的后台断言: 等场景切换做完再放, 页还给系统之后才让进程挂起。
@@ -1493,16 +1585,24 @@ final class RebuildableMemoryReliefCoordinator {
                 if self.trimGeneration == generation { self.endTrimAssertion() }
             }
             try? await Task.sleep(for: .seconds(BackgroundMemoryTrimPolicy.settleDelay))
-            guard !Task.isCancelled, self.trimGeneration == generation,
-                  BackgroundMemoryTrimPolicy.shouldTrim(
-                      phase: LiveApplicationState.isBackground ? .background : .inactive,
-                      activity: activity()
-                  ),
-                  let library = self.library else { return }
+            guard !Task.isCancelled, self.trimGeneration == generation, LiveApplicationState.isBackground else { return }
+            let current = activity()
+            // 已解码的图片后台用不上(锁屏、控制中心、蓝牙车机读播放器自己留着的系统封面):
+            // 放歌、扫描时也收缩, 后台期间上限一直压着, 回到前台恢复。
+            await self.applyDecodedImageCacheBudget(inBackground: true, carPlayActive: current.isCarPlayActive)
+            guard !Task.isCancelled, self.trimGeneration == generation else { return }
+            // 曲库派生数据只在后台没活儿时放: 放歌、扫描、车机列表马上又要用, 放掉就得在后台重建。
+            guard BackgroundMemoryTrimPolicy.shouldTrim(phase: .background, activity: current),
+                  let library = self.library else {
+                // 放歌时不把空页还给系统:整理大堆时会长时间拿着 malloc 的锁,解码、渲染线程
+                // 等它就会断音。放掉的图片页靠系统自己回收。
+                if !current.isPlaybackActive {
+                    await MusicLibrary.returnFreedMemoryToSystem()
+                }
+                plog("Memory trim: shrank decoded image caches; library caches kept for background work")
+                return
+            }
             library.releaseRebuildableCachesForBackground()
-            CachedArtworkView.purgeDecodedImageCache()
-            PlayerBackdropMemoryCache.shared.removeAll()
-            self.player?.trimNowPlayingArtworkCacheToCurrentItem()
             await MusicLibrary.returnFreedMemoryToSystem()
             // 搜索 actor 可能正忙着同步索引; 先把主线程这边放掉的还了, 它那份放完再还一次。
             await LibrarySearchIndex.shared.releaseReadCaches()
@@ -1524,6 +1624,12 @@ final class RebuildableMemoryReliefCoordinator {
     func sceneDidBecomeActive() {
         cancelPendingTrim()
         rewarmTask?.cancel()
+        // 图片缓存的上限先恢复(不预先解码), 在屏的封面按需重新解码。
+        if isDecodedImageBudgetLowered {
+            Task { @MainActor in
+                await self.applyDecodedImageCacheBudget(inBackground: false, carPlayActive: Self.isCarPlaySceneActive)
+            }
+        }
         rewarmTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled, LiveApplicationState.isActive else { return }

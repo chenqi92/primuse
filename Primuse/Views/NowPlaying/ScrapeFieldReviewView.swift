@@ -2,22 +2,50 @@ import SwiftUI
 import ImageIO
 import PrimuseKit
 
+/// 刮削候选封面的原图缓存。每个刮削页一份;退到后台时所有还开着的那几份一起清空、压低上限
+/// (`DecodedImageCacheBudget`),回到前台恢复。
+final class ScrapeReviewImageCache: @unchecked Sendable {
+    let storage = NSCache<NSString, NSData>()
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static let live = NSHashTable<ScrapeReviewImageCache>.weakObjects()
+    nonisolated(unsafe) private static var currentLimit = DecodedImageCacheBudget.foregroundLimit(for: .scrapeReview)
+
+    init() {
+        // 在锁里登记并设上限:与 `applyBudgetToAll` 互斥,不会拿到旧上限后被它漏掉。
+        Self.lock.withLock {
+            Self.live.add(self)
+            storage.totalCostLimit = Self.currentLimit
+        }
+    }
+
+    static func applyBudgetToAll(_ limit: Int, purge: Bool) {
+        lock.withLock {
+            currentLimit = limit
+            for cache in live.allObjects {
+                if purge { cache.storage.removeAllObjects() }
+                cache.storage.totalCostLimit = limit
+            }
+        }
+    }
+}
+
 actor ScrapeReviewImages {
-    private let cache = NSCache<NSString, NSData>()
+    private let cache = ScrapeReviewImageCache()
     private var inFlight: [String: Task<Data, Error>] = [:]
 
-    init() { cache.totalCostLimit = 32 * 1024 * 1024 }
+    init() {}
 
     func data(for cover: ScrapeReviewCover) async throws -> Data {
         if let data = cover.data { return data }
         guard let key = cover.url else { throw ScraperError.notFound }
-        if let data = cache.object(forKey: key as NSString) { return data as Data }
+        if let data = cache.storage.object(forKey: key as NSString) { return data as Data }
         if let task = inFlight[key] { return try await task.value }
         let task = Task { try await cover.load() }
         inFlight[key] = task
         defer { inFlight[key] = nil }
         let data = try await task.value
-        cache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
+        cache.storage.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         return data
     }
 

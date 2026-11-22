@@ -58,6 +58,8 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
     private var memoryTrimAssertion: UIBackgroundTaskIdentifier = .invalid
     private var memoryTrimGeneration = 0
     private var cacheRewarmTask: Task<Void, Never>?
+    /// 已解码图片缓存的上限现在是后台那一档(`DecodedImageCacheBudget`)。
+    private var isDecodedImageBudgetLowered = false
 
     func application(
         _ application: UIApplication,
@@ -116,6 +118,7 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         store.applicationDidBecomeActive()
         PodcastStore.shared.refreshAllIfDue()
         cancelBackgroundMemoryTrim()
+        if isDecodedImageBudgetLowered { applyDecodedImageBudget(inBackground: false, purge: false) }
         // 后台放掉过的整库数据,等头几帧画完在主线程外补回来(没放过时什么都不做)。
         cacheRewarmTask?.cancel()
         cacheRewarmTask = Task { @MainActor in
@@ -162,7 +165,8 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         plog("TV memory pressure: dropping rebuildable caches")
         store.library.releaseRebuildableCaches()
         store.releaseSearchCache()
-        PlayerBackdropMemoryCache.shared.removeAll()
+        // 上限不变(前台仍是前台那一档),只清空。
+        applyDecodedImageBudget(inBackground: isDecodedImageBudgetLowered, purge: true)
         URLCache.shared.removeAllCachedResponses()
         if !store.isPlaying {
             TVPlaybackPrefetchStore.shared.clearSeeds()
@@ -176,16 +180,25 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 
-    /// 不放歌、后台也没有要接着用曲库的活儿时,场景切换做完就把能重建的派生数据放掉:
-    /// 挂起时占得少,不总是被系统先回收。用一条很短的后台断言撑到页还给系统,到期回调当场放掉它。
+    /// 已解码的图片(播放页背景、动态封面帧、刮削候选图)后台用不上:退到后台时清空、上限压低,
+    /// 回到前台恢复上限(`DecodedImageCacheBudget`)。
+    private func applyDecodedImageBudget(inBackground: Bool, purge: Bool) {
+        isDecodedImageBudgetLowered = inBackground
+        func limit(_ cache: DecodedImageCacheBudget.Cache) -> Int {
+            DecodedImageCacheBudget.limit(for: cache, inBackground: inBackground, carPlayActive: false, isTV: true)
+        }
+        PlayerBackdropMemoryCache.shared.applyBudget(limit(.playerBackdrop), purge: purge)
+        AnimatedArtworkFrameCache.applyBudget(limit(.animatedArtwork), purge: purge)
+        ScrapeReviewImageCache.applyBudgetToAll(limit(.scrapeReview), purge: purge)
+    }
+
+    /// 场景切换做完以后:已解码的图片不论在不在放歌都收缩;不放歌、后台也没有要接着用曲库的活儿时
+    /// 再把能重建的派生数据放掉:挂起时占得少,不总是被系统先回收。用一条很短的后台断言撑到页还给系统,
+    /// 到期回调当场放掉它。
     private func scheduleBackgroundMemoryTrim() {
         cancelBackgroundMemoryTrim()
         cacheRewarmTask?.cancel()
         cacheRewarmTask = nil
-        guard BackgroundMemoryTrimPolicy.shouldTrim(
-            phase: .background,
-            activity: store.backgroundMemoryTrimActivity
-        ) else { return }
         memoryTrimGeneration &+= 1
         let generation = memoryTrimGeneration
         // 应用委托活到进程结束, 这里强引用它: 到期回调无论如何都要放掉断言。
@@ -206,13 +219,21 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
             }
             try? await Task.sleep(for: .seconds(BackgroundMemoryTrimPolicy.settleDelay))
             guard !Task.isCancelled, self.memoryTrimGeneration == generation,
-                  BackgroundMemoryTrimPolicy.shouldTrim(
-                      phase: UIApplication.shared.applicationState == .background ? .background : .inactive,
-                      activity: self.store.backgroundMemoryTrimActivity
-                  ) else { return }
+                  UIApplication.shared.applicationState == .background else { return }
+            self.applyDecodedImageBudget(inBackground: true, purge: true)
+            guard BackgroundMemoryTrimPolicy.shouldTrim(
+                phase: .background,
+                activity: self.store.backgroundMemoryTrimActivity
+            ) else {
+                // 放歌时不把空页还给系统:整理大堆时会长时间拿着 malloc 的锁,可能断音。
+                if !self.store.backgroundMemoryTrimActivity.isPlaybackActive {
+                    await MusicLibrary.returnFreedMemoryToSystem()
+                }
+                plog("TV memory trim: shrank decoded image caches; library caches kept for playback")
+                return
+            }
             self.store.library.releaseRebuildableCachesForBackground()
             self.store.releaseSearchCache()
-            PlayerBackdropMemoryCache.shared.removeAll()
             await MusicLibrary.returnFreedMemoryToSystem()
             // 搜索 actor 可能正忙着同步索引;先把主线程这边放掉的还了,它那份放完再还一次。
             await LibrarySearchIndex.shared.releaseReadCaches()

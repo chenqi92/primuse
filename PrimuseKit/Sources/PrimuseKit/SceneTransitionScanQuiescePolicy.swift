@@ -207,3 +207,59 @@ public enum BackgroundMemoryTrimPolicy {
         phase == .background && !activity.keepsWorkingInBackground
     }
 }
+
+/// 已解码图片缓存的上限,按前后台换。
+///
+/// 前台是各个缓存原来的上限。退到后台时不论还在不在放歌、扫描都清空、上限压低:后台用得到的图
+/// 只有正在播放那首的系统封面(锁屏、控制中心、蓝牙车机读播放器自己留着的那一两张,不在这里)
+/// 和车机开着时车机要的封面。原来后台放歌时这些缓存整份留着(封面 64 + 图片 50 + 播放页背景 96 +
+/// 动态封面 48 + 刮削 32 MB),挂起的进程大一圈,更容易先被系统回收。回到前台恢复上限,
+/// 看得见的封面按需重新解码。
+public enum DecodedImageCacheBudget {
+    public enum Cache: CaseIterable, Sendable {
+        /// 封面视图已解码的位图(车机、系统「正在播放」、小组件解析封面也经过它)。
+        case artworkViews
+        /// `ImageCache` 的内存层。
+        case imageCache
+        /// 播放页背景位图。
+        case playerBackdrop
+        /// 动态封面解出来的帧。
+        case animatedArtwork
+        /// 刮削候选封面的原图数据。
+        case scrapeReview
+    }
+
+    private static let mebibyte = 1_024 * 1_024
+
+    public static func foregroundLimit(for cache: Cache, isTV: Bool = false) -> Int {
+        switch cache {
+        case .artworkViews: 64 * mebibyte
+        case .imageCache: 50 * mebibyte
+        case .playerBackdrop: (isTV ? 32 : 96) * mebibyte
+        case .animatedArtwork: 48 * mebibyte
+        case .scrapeReview: 32 * mebibyte
+        }
+    }
+
+    /// 后台的上限。车机开着时封面视图那一层留大一些:车机列表与车机「正在播放」也从它解析封面。
+    public static func backgroundLimit(for cache: Cache, carPlayActive: Bool) -> Int {
+        switch cache {
+        case .artworkViews: (carPlayActive ? 8 : 2) * mebibyte
+        case .imageCache, .playerBackdrop, .animatedArtwork, .scrapeReview: 1 * mebibyte
+        }
+    }
+
+    public static func limit(for cache: Cache, inBackground: Bool, carPlayActive: Bool, isTV: Bool = false) -> Int {
+        inBackground ? backgroundLimit(for: cache, carPlayActive: carPlayActive) : foregroundLimit(for: cache, isTV: isTV)
+    }
+
+    /// 车机自己的缩略图与占位图缓存:车机开着时照原样留着,没开时后台用不上,清空。
+    public static func keepsCarPlayCaches(inBackground: Bool, carPlayActive: Bool) -> Bool {
+        !inBackground || carPlayActive
+    }
+
+    /// 后台各缓存上限之和。
+    public static func backgroundTotal(carPlayActive: Bool) -> Int {
+        Cache.allCases.reduce(0) { $0 + backgroundLimit(for: $1, carPlayActive: carPlayActive) }
+    }
+}

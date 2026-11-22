@@ -186,7 +186,7 @@ struct CachedArtworkView: View {
     nonisolated(unsafe) private static let memoryCache: NSCache<NSString, PlatformImage> = {
         let cache = NSCache<NSString, PlatformImage>()
         cache.countLimit = 600
-        cache.totalCostLimit = 64 * 1024 * 1024
+        cache.totalCostLimit = DecodedImageCacheBudget.foregroundLimit(for: .artworkViews)
         return cache
     }()
 
@@ -2679,6 +2679,13 @@ struct CachedArtworkView: View {
     static func purgeDecodedImageCache() {
         memoryCache.removeAllObjects()
         animationDescriptorCache.removeAllObjects()
+    }
+
+    /// 换已解码封面的上限(`DecodedImageCacheBudget`):退到后台时先清空再压低,
+    /// 回到前台只恢复上限。NSCache 调低上限时不一定马上淘汰,所以要压低时先清空。
+    static func applyDecodedImageBudget(_ limit: Int, purge: Bool) {
+        if purge { purgeDecodedImageCache() }
+        memoryCache.totalCostLimit = limit
     }
 
     private static func postArtworkInvalidation(token: String?, userInfo: [AnyHashable: Any] = [:]) {

@@ -350,13 +350,17 @@ final class PlayerBackdropMemoryCache: @unchecked Sendable {
 
     private let cache: NSCache<NSString, Box> = {
         let cache = NSCache<NSString, Box>()
-        #if os(tvOS)
-        cache.totalCostLimit = 32 * 1024 * 1024
-        #else
-        cache.totalCostLimit = 96 * 1024 * 1024
-        #endif
+        cache.totalCostLimit = PlayerBackdropMemoryCache.foregroundLimit
         return cache
     }()
+
+    nonisolated static var foregroundLimit: Int {
+        #if os(tvOS)
+        return DecodedImageCacheBudget.foregroundLimit(for: .playerBackdrop, isTV: true)
+        #else
+        return DecodedImageCacheBudget.foregroundLimit(for: .playerBackdrop)
+        #endif
+    }
 
     nonisolated func image(forKey key: String) -> CGImage? {
         cache.object(forKey: key as NSString)?.image
@@ -368,5 +372,11 @@ final class PlayerBackdropMemoryCache: @unchecked Sendable {
 
     nonisolated func removeAll() {
         cache.removeAllObjects()
+    }
+
+    /// 换上限(`DecodedImageCacheBudget`):退到后台时先清空再压低,回到前台恢复。
+    nonisolated func applyBudget(_ limit: Int, purge: Bool) {
+        if purge { cache.removeAllObjects() }
+        cache.totalCostLimit = limit
     }
 }

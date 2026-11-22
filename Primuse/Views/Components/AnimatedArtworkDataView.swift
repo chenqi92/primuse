@@ -428,9 +428,17 @@ private final class MotionArtworkReadinessObservation {
 nonisolated(unsafe) private let animatedArtworkFrameCache: NSCache<NSString, CGImage> = {
     let cache = NSCache<NSString, CGImage>()
     cache.countLimit = 32
-    cache.totalCostLimit = 48 * 1024 * 1024
+    cache.totalCostLimit = DecodedImageCacheBudget.foregroundLimit(for: .animatedArtwork)
     return cache
 }()
+
+/// 动态封面帧缓存的上限(`DecodedImageCacheBudget`):退到后台时先清空再压低,回到前台恢复。
+enum AnimatedArtworkFrameCache {
+    nonisolated static func applyBudget(_ limit: Int, purge: Bool) {
+        if purge { animatedArtworkFrameCache.removeAllObjects() }
+        animatedArtworkFrameCache.totalCostLimit = limit
+    }
+}
 
 /// Plays one validated ImageIO animation without retaining every decoded frame.
 /// The caller remains responsible for the static first-frame fallback, which is

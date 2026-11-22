@@ -135,6 +135,11 @@ actor CarPlayArtworkDecoder {
         return cache
     }()
 
+    /// 车机没开、App 在后台时用不上:放掉(`DecodedImageCacheBudget.keepsCarPlayCaches`)。
+    func removeAllThumbnails() {
+        thumbnails.removeAllObjects()
+    }
+
     func thumbnail(forSongID songID: String, coverRef: String?, maximumPixelSize: Int = 88) async -> UIImage? {
         let content = MetadataAssetStore.shared.displayCoverIdentity(songID: songID, reference: coverRef) ?? ""
         let cacheKey = "\(songID):\(coverRef ?? ""):\(content):\(maximumPixelSize)" as NSString

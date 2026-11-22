@@ -185,6 +185,11 @@ enum CarPlayTemplateImages {
     static let listSide = min(CPListItem.maximumImageSize.width, CPListItem.maximumImageSize.height)
     private static let placeholders = NSCache<NSString, UIImage>()
 
+    /// 车机没开、App 在后台时用不上:放掉(`DecodedImageCacheBudget.keepsCarPlayCaches`)。
+    static func removeAllPlaceholders() {
+        placeholders.removeAllObjects()
+    }
+
     static func placeholder(_ symbol: String, side: CGFloat = listSide, scale: CGFloat = 2, artwork: Bool = true) -> UIImage {
         let key = "\(symbol):\(side):\(scale):\(artwork)" as NSString
         if let cached = placeholders.object(forKey: key) { return cached }

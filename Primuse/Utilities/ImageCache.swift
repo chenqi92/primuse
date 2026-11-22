@@ -13,10 +13,11 @@ actor ImageCache {
 
     private let memoryCache = NSCache<NSString, PlatformImage>()
     private let cacheDirectory: URL
+    private var budgetGeneration = 0
 
     private init() {
         memoryCache.countLimit = 200
-        memoryCache.totalCostLimit = 50 * 1024 * 1024 // 50 MB
+        memoryCache.totalCostLimit = DecodedImageCacheBudget.foregroundLimit(for: .imageCache)
 
         let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         cacheDirectory = cacheDir.appendingPathComponent("cover_art")
@@ -65,6 +66,15 @@ actor ImageCache {
 
     func clearMemoryCache() {
         memoryCache.removeAllObjects()
+    }
+
+    /// 换内存层的上限(`DecodedImageCacheBudget`):退到后台时先清空再压低,回到前台恢复。
+    /// `generation` 递增;前后台切得快时晚到的旧一次不覆盖新的。
+    func applyMemoryBudget(_ limit: Int, purge: Bool, generation: Int) {
+        guard generation >= budgetGeneration else { return }
+        budgetGeneration = generation
+        if purge { memoryCache.removeAllObjects() }
+        memoryCache.totalCostLimit = limit
     }
 
     private nonisolated static func pixelByteCost(of image: PlatformImage) -> Int {

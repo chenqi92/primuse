@@ -647,6 +647,25 @@ extension AudioPlayerService {
         nowPlayingArtworkCache.setObject(current, forKey: key, cost: max(0, Int(size.width * size.height * 4)))
     }
 
+    /// 退到后台时调用(不论在不在放歌): 系统封面缓存里只留当前这首(锁屏、控制中心、车机
+    /// 正在显示)和已经预取好的下一首(蓝牙车机只在切歌那一刻同步取一次封面), 之前几首的位图放掉。
+    func trimNowPlayingArtworkCacheForBackground() {
+        var songs: [Song] = []
+        if let currentSong { songs.append(currentSong) }
+        if !isLiveRadio, !isCastingMode, let next = nextSongInQueue(), next.id != currentSong?.id {
+            songs.append(next)
+        }
+        let kept = songs.compactMap { song -> (key: NSString, artwork: MPMediaItemArtwork)? in
+            let key = Self.systemArtworkCacheKey(for: song) as NSString
+            return nowPlayingArtworkCache.object(forKey: key).map { (key, $0) }
+        }
+        nowPlayingArtworkCache.removeAllObjects()
+        for entry in kept {
+            let size = entry.artwork.bounds.size
+            nowPlayingArtworkCache.setObject(entry.artwork, forKey: entry.key, cost: max(0, Int(size.width * size.height * 4)))
+        }
+    }
+
     func updateNowPlayingArtwork(_ image: PlatformImage) {
         guard let songID = currentSong?.id else { return }
         lastArtworkSongID = songID
