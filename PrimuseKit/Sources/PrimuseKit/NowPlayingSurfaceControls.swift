@@ -7,7 +7,8 @@ import Foundation
 // MARK: - 歌词界面
 
 /// 竖屏看歌词时(歌词顶替封面)的按钮:默认和封面界面同一组,也可以单独摆;歌词页顶上歌名旁多一格
-/// (原来自动出现的卡拉OK键);上滑歌词时要不要收起播放控件。状态行与「更多」的开关仍跟封面那份。
+/// (原来自动出现的卡拉OK键);上滑歌词时要不要收起播放控件;停一会儿要不要自动收起(默认不收)。
+/// 状态行与「更多」的开关仍跟封面那份。
 public struct NowPlayingLyricsPageControls: Equatable, Sendable {
     public static let storageKey = "primuse.player.controls.music.lyrics.v1"
     /// 歌词页顶上多出来那一格默认放卡拉OK,和这个功能出现之前一样。
@@ -17,7 +18,8 @@ public struct NowPlayingLyricsPageControls: Equatable, Sendable {
         usesOwnButtons: false,
         ownStorage: nil,
         headerExtraRaw: nil,
-        collapsesControlsOnScroll: true
+        collapsesControlsOnScroll: true,
+        autoHidesControls: false
     )
 
     public private(set) var usesOwnButtons: Bool
@@ -26,17 +28,21 @@ public struct NowPlayingLyricsPageControls: Equatable, Sendable {
     /// nil 用默认(卡拉OK),空串是故意空着,其余是按钮名(认不出的原样保留)。
     private var headerExtraRaw: String?
     public private(set) var collapsesControlsOnScroll: Bool
+    /// 停在歌词页几秒不操作就收起播放控件。和上滑收起各管各的,只开这一个也收。
+    public private(set) var autoHidesControls: Bool
 
     private init(
         usesOwnButtons: Bool,
         ownStorage: String?,
         headerExtraRaw: String?,
-        collapsesControlsOnScroll: Bool
+        collapsesControlsOnScroll: Bool,
+        autoHidesControls: Bool
     ) {
         self.usesOwnButtons = usesOwnButtons
         self.ownStorage = ownStorage
         self.headerExtraRaw = headerExtraRaw
         self.collapsesControlsOnScroll = collapsesControlsOnScroll
+        self.autoHidesControls = autoHidesControls
     }
 
     private struct Stored: Codable {
@@ -44,6 +50,8 @@ public struct NowPlayingLyricsPageControls: Equatable, Sendable {
         var slots: String?
         var extra: String?
         var collapses: Bool?
+        /// 没有这个字段的旧配置按关着读。
+        var autohide: Bool?
     }
 
     public static func decode(_ rawValue: String) -> NowPlayingLyricsPageControls {
@@ -56,7 +64,8 @@ public struct NowPlayingLyricsPageControls: Equatable, Sendable {
             usesOwnButtons: stored.own ?? false,
             ownStorage: stored.slots,
             headerExtraRaw: stored.extra,
-            collapsesControlsOnScroll: stored.collapses ?? true
+            collapsesControlsOnScroll: stored.collapses ?? true,
+            autoHidesControls: stored.autohide ?? false
         )
     }
 
@@ -66,7 +75,8 @@ public struct NowPlayingLyricsPageControls: Equatable, Sendable {
             own: usesOwnButtons ? true : nil,
             slots: ownStorage,
             extra: headerExtraRaw,
-            collapses: collapsesControlsOnScroll ? nil : false
+            collapses: collapsesControlsOnScroll ? nil : false,
+            autohide: autoHidesControls ? true : nil
         )
         return NowPlayingSurfaceStorage.encode(stored)
     }
@@ -130,6 +140,12 @@ public struct NowPlayingLyricsPageControls: Equatable, Sendable {
     public func settingCollapsesControlsOnScroll(_ collapses: Bool) -> NowPlayingLyricsPageControls {
         var copy = self
         copy.collapsesControlsOnScroll = collapses
+        return copy
+    }
+
+    public func settingAutoHidesControls(_ autoHides: Bool) -> NowPlayingLyricsPageControls {
+        var copy = self
+        copy.autoHidesControls = autoHides
         return copy
     }
 }

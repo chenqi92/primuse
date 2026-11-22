@@ -6436,6 +6436,8 @@
 "player_controls_lyrics_preview_footer_own" = "Tippe auf eine Zeile, um eine Taste zu ändern. Diese Gruppe gilt, solange der Songtext angezeigt wird – auch im Querformat und in der geteilten Ansicht. Statuszeile und „Mehr“-Einträge richten sich nach der Cover-Ansicht.";
 "player_controls_lyrics_collapse" = "Bedienelemente beim Scrollen ausblenden";
 "player_controls_lyrics_collapse_footer" = "Beim Ziehen des Songtexts werden Fortschrittsbalken und Tasten darunter ausgeblendet, damit der Text den Bildschirm füllt. Tippe auf eine leere Stelle im Text, um sie zurückzuholen.";
+"player_controls_lyrics_autohide" = "Bedienelemente nach kurzer Zeit ausblenden";
+"player_controls_lyrics_autohide_footer" = "Wenn du einige Sekunden lang nichts auf der Songtextseite tust, werden Fortschrittsbalken und Tasten darunter ausgeblendet, damit der Text den Bildschirm füllt. Tippe auf eine leere Stelle im Text, um sie zurückzuholen – nach ein paar Sekunden ohne Berührung verschwinden sie wieder. Bei pausierter Wiedergabe bleiben sie sichtbar.";
 "player_controls_slot_lyrics_extra" = "Neben dem Titel (Songtext)";
 "player_controls_lyrics_extra_picker_footer" = "Standardmäßig Karaoke. Der Platz bleibt leer, wenn Karaoke für den Song nicht verfügbar ist, und eine Taste, die schon auf dem Bildschirm liegt, erscheint hier nicht doppelt.";
 "player_controls_immersive_footer" = "Gilt auch für den Songtext auf dem iPad im Querformat. Der erste Platz oben entspricht standardmäßig der Taste neben dem Titel. Sperre, Effekte, „Mehr“ und Beenden bleiben an ihrem Platz.";

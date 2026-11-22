@@ -6436,6 +6436,8 @@
 "player_controls_lyrics_preview_footer_own" = "행을 탭해 버튼을 바꿉니다. 가사를 볼 때(가로 화면이나 폴더블 분할 보기에서 가사를 열었을 때 포함) 이 버튼을 사용합니다. 상태 줄과 '더 보기' 항목은 아트워크 화면을 따릅니다.";
 "player_controls_lyrics_collapse" = "가사를 스크롤하면 컨트롤 숨기기";
 "player_controls_lyrics_collapse_footer" = "가사를 드래그하면 진행 막대와 아래 버튼을 숨겨 가사가 화면을 채웁니다. 가사의 빈 곳을 탭하면 다시 나타납니다.";
+"player_controls_lyrics_autohide" = "잠시 후 컨트롤 자동으로 숨기기";
+"player_controls_lyrics_autohide_footer" = "가사 페이지에서 몇 초 동안 아무것도 하지 않으면 진행 막대와 아래 버튼이 자동으로 숨겨져 가사가 화면을 채웁니다. 가사의 빈 곳을 탭하면 다시 나타나고, 몇 초 동안 건드리지 않으면 다시 숨겨집니다. 일시 정지 중에는 숨기지 않습니다.";
 "player_controls_slot_lyrics_extra" = "가사 화면 제목 옆";
 "player_controls_lyrics_extra_picker_footer" = "기본값은 노래방입니다. 이 곡에서 노래방을 쓸 수 없으면 표시되지 않으며, 이미 화면에 있는 버튼은 여기에 반복되지 않습니다.";
 "player_controls_immersive_footer" = "iPad 가로 화면에서 가사를 볼 때도 이 버튼을 사용합니다. 위쪽 첫 번째 자리는 기본적으로 제목 옆 버튼과 같습니다. 잠금, 효과, 더 보기, 종료 버튼은 위치가 고정됩니다.";

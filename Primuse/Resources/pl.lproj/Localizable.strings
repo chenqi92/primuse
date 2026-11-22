@@ -6342,6 +6342,8 @@
 "player_controls_lyrics_preview_footer_own" = "Stuknij wiersz, aby zmienić przycisk. Ten zestaw obowiązuje, gdy widać tekst, także w poziomie i w widoku dzielonym na składanym urządzeniu. Wiersz stanu i pozycje menu Więcej są takie jak na ekranie Okładka.";
 "player_controls_lyrics_collapse" = "Ukrywaj sterowanie podczas przewijania tekstu";
 "player_controls_lyrics_collapse_footer" = "Przeciągnięcie tekstu ukrywa pasek postępu i przyciski pod nim, aby tekst wypełnił ekran. Stuknij puste miejsce w tekście, aby je przywrócić.";
+"player_controls_lyrics_autohide" = "Ukrywaj sterowanie po chwili";
+"player_controls_lyrics_autohide_footer" = "Gdy przez kilka sekund nic nie robisz na stronie tekstu, pasek postępu i przyciski pod nim same się ukrywają, a tekst wypełnia ekran. Stuknij puste miejsce w tekście, aby je przywrócić – po kilku sekundach bez dotykania znów się schowają. Podczas pauzy pozostają widoczne.";
 "player_controls_slot_lyrics_extra" = "Obok tytułu (tekst)";
 "player_controls_lyrics_extra_picker_footer" = "Domyślnie karaoke. To miejsce jest ukryte, gdy karaoke nie jest dostępne dla utworu, a przycisk, który już jest na ekranie, nie powtarza się tutaj.";
 "player_controls_immersive_footer" = "Używane też dla tekstu na iPadzie w poziomie. Pierwsze miejsce u góry domyślnie odpowiada przyciskowi obok tytułu. Blokada, Efekty, Więcej i Zamknij zostają na miejscu.";

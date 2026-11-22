@@ -6413,6 +6413,8 @@
 "player_controls_lyrics_preview_footer_own" = "點一行換按鈕。看歌詞時（包括手機橫向和摺疊機分欄裡開著歌詞時）用這一組；狀態列和「更多」裡的項目跟封面介面一樣。";
 "player_controls_lyrics_collapse" = "上滑歌詞時收起播放控制項";
 "player_controls_lyrics_collapse_footer" = "往上翻歌詞時把進度列和下面的按鈕收起來，讓歌詞鋪滿；往回拉不會收起。點歌詞空白處叫回來。";
+"player_controls_lyrics_autohide" = "停留一會兒自動收起播放控制項";
+"player_controls_lyrics_autohide_footer" = "停在歌詞頁幾秒不操作時，進度列和下面的按鈕自動收起，讓歌詞鋪滿。點歌詞空白處叫回來，幾秒不碰又會收起。暫停時不收起。";
 "player_controls_slot_lyrics_extra" = "歌詞頁歌名旁";
 "player_controls_lyrics_extra_picker_footer" = "預設是卡拉OK，這首歌用不了卡拉OK時這一格不顯示。已經擺在頁面上的按鈕這裡不再重複。";
 "player_controls_immersive_footer" = "iPad 橫向看歌詞時也用這一組。頂上第一格預設和看歌詞時歌名旁那一格一樣；鎖、全螢幕效果、更多和退出鍵位置固定。";

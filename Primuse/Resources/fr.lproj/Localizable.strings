@@ -6436,6 +6436,8 @@
 "player_controls_lyrics_preview_footer_own" = "Touchez une ligne pour changer un bouton. Ce jeu s’applique quand les paroles sont affichées, y compris en paysage et en vue partagée sur pliable. La ligne d’état et les éléments du menu Plus suivent l’écran Pochette.";
 "player_controls_lyrics_collapse" = "Masquer les commandes en faisant défiler les paroles";
 "player_controls_lyrics_collapse_footer" = "Faire glisser les paroles masque la barre de progression et les boutons en dessous pour que les paroles remplissent l’écran. Touchez une zone vide des paroles pour les faire revenir.";
+"player_controls_lyrics_autohide" = "Masquer les commandes après quelques secondes";
+"player_controls_lyrics_autohide_footer" = "Après quelques secondes sans toucher la page des paroles, la barre de progression et les boutons en dessous se masquent pour que les paroles remplissent l’écran. Touchez une zone vide des paroles pour les faire revenir. Après quelques secondes sans contact, ils se masquent de nouveau. Ils restent affichés pendant la pause.";
 "player_controls_slot_lyrics_extra" = "À côté du titre (paroles)";
 "player_controls_lyrics_extra_picker_footer" = "Karaoké par défaut. Cet emplacement reste masqué quand le karaoké n’est pas disponible pour le morceau, et un bouton déjà à l’écran n’est pas répété ici.";
 "player_controls_immersive_footer" = "Utilisé aussi pour les paroles sur iPad en paysage. Par défaut, le premier emplacement du haut reprend le bouton à côté du titre. Verrou, Effets, Plus et Quitter restent en place.";

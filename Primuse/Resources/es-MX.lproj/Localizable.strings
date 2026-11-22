@@ -6342,6 +6342,8 @@
 "player_controls_lyrics_preview_footer_own" = "Toca una fila para cambiar un botón. Este grupo se usa mientras se muestra la letra, también en horizontal y en la vista dividida de un plegable. La línea de estado y las opciones del menú Más siguen la pantalla Portada.";
 "player_controls_lyrics_collapse" = "Ocultar controles al desplazar la letra";
 "player_controls_lyrics_collapse_footer" = "Al arrastrar la letra se ocultan la barra de progreso y los botones de abajo para que la letra llene la pantalla. Toca un espacio vacío de la letra para que vuelvan.";
+"player_controls_lyrics_autohide" = "Ocultar controles tras unos segundos";
+"player_controls_lyrics_autohide_footer" = "Si te quedas unos segundos en la página de la letra sin tocar nada, la barra de progreso y los botones de abajo se ocultan para que la letra llene la pantalla. Toca un espacio vacío de la letra para que vuelvan; se ocultan otra vez tras unos segundos sin tocarlos. En pausa no se ocultan.";
 "player_controls_slot_lyrics_extra" = "Junto al título (letra)";
 "player_controls_lyrics_extra_picker_footer" = "Karaoke de forma predeterminada. Este lugar no se muestra cuando el karaoke no está disponible para la canción, y un botón que ya está en la pantalla no se repite aquí.";
 "player_controls_immersive_footer" = "También se usa para la letra en el iPad en horizontal. De forma predeterminada, el primer lugar de arriba coincide con el botón junto al título. Bloqueo, Efectos, Más y Salir no se mueven.";

@@ -6342,6 +6342,8 @@
 "player_controls_lyrics_preview_footer_own" = "Bir düğmeyi değiştirmek için bir satıra dokunun. Bu set, sözler açıkken kullanılır (yatay görünüm ve katlanabilir cihazda bölünmüş görünüm dahil). Durum satırı ve Daha Fazla menüsü öğeleri Kapak ekranını izler.";
 "player_controls_lyrics_collapse" = "Sözleri Kaydırırken Denetimleri Gizle";
 "player_controls_lyrics_collapse_footer" = "Sözleri sürüklediğinizde ilerleme çubuğu ve alttaki düğmeler gizlenir, sözler ekranı doldurur. Geri getirmek için sözlerde boş bir yere dokunun.";
+"player_controls_lyrics_autohide" = "Denetimleri Birkaç Saniye Sonra Gizle";
+"player_controls_lyrics_autohide_footer" = "Sözler sayfasında birkaç saniye hiçbir şeye dokunmadığınızda ilerleme çubuğu ve alttaki düğmeler kendiliğinden gizlenir, sözler ekranı doldurur. Geri getirmek için sözlerde boş bir yere dokunun; birkaç saniye dokunulmazsa yeniden gizlenirler. Duraklatıldığında gizlenmezler.";
 "player_controls_slot_lyrics_extra" = "Başlığın Yanında (Sözler)";
 "player_controls_lyrics_extra_picker_footer" = "Varsayılan olarak karaoke. Şarkı için karaoke kullanılamıyorsa bu yer gösterilmez; ekranda zaten olan bir düğme burada tekrarlanmaz.";
 "player_controls_immersive_footer" = "iPad’de yatay görünümde sözler için de kullanılır. Üstteki ilk yer varsayılan olarak başlığın yanındaki düğmeyle aynıdır. Kilit, Efektler, Daha Fazla ve Çıkış yerinde kalır.";

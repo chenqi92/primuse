@@ -3,6 +3,7 @@ import SwiftUI
 import PrimuseKit
 #if os(iOS)
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 import MediaPlayer
 
 enum PlayerNavigationDestination {
@@ -1876,6 +1877,8 @@ struct NowPlayingLazyMenu<Label: View>: View {
 final class NowPlayingLyricsPresentation {
     var isVisible = false
     fileprivate var settledArtworkPlacement: LyricsArtworkPlacement = .cover
+    /// 挂着几份会照收起状态让出播放控件的歌词(竖屏歌词那几处);自动收起只在有的时候计时。
+    fileprivate var collapsibleHostCount = 0
 }
 
 /// 播放页对歌词开关的后续处理(收起沉浸歌词、记下封面落定的位置)。开关只在这层零尺寸视图的
@@ -1895,6 +1898,176 @@ private struct NowPlayingLyricsVisibilityObserver: View {
             .accessibilityHidden(true)
             .onChange(of: isVisible) { _, visible in onVisibilityChange(visible) }
             .onChange(of: placement) { _, placement in onPlacementChange(placement) }
+    }
+}
+
+/// 挂在会照收起状态让出播放控件的那份歌词上:挂着时登记(自动收起只在这几种版面上计时),
+/// 卸下时撤掉,并交给 `onDisappear` 把收起状态清掉。
+private struct NowPlayingCollapsibleLyricsHost: ViewModifier {
+    let presentation: NowPlayingLyricsPresentation
+    let onDisappear: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { presentation.collapsibleHostCount += 1 }
+            .onDisappear {
+                presentation.collapsibleHostCount = max(0, presentation.collapsibleHostCount - 1)
+                onDisappear()
+            }
+    }
+}
+
+/// 歌词页上最后一次操作的时刻、进度条拖没拖着。不可观察:拖动时每一帧都写,不能引起重绘。
+@MainActor
+private final class NowPlayingLyricsChromeIdleClock {
+    private(set) var lastActivityAt = ProcessInfo.processInfo.systemUptime
+    /// 正拖着进度条:手指按着不动时没有新的操作,也不能收。
+    private(set) var isScrubbing = false
+    /// 手指还按在屏幕上(拖音量条、双指缩放歌词、按住不放):按着的这段时间都算在操作。
+    private(set) var isTouching = false
+
+    /// 正在操作:这时不倒计时,松手后再从头数。
+    var isInteracting: Bool { isScrubbing || isTouching }
+    #if os(iOS)
+    private var touchObservers: [NowPlayingLyricsTouchObserver] = []
+    #endif
+
+    var idleSeconds: TimeInterval {
+        ProcessInfo.processInfo.systemUptime - lastActivityAt
+    }
+
+    func noteActivity() {
+        lastActivityAt = ProcessInfo.processInfo.systemUptime
+    }
+
+    func setScrubbing(_ scrubbing: Bool) {
+        isScrubbing = scrubbing
+        noteActivity()
+    }
+
+    func setTouching(_ touching: Bool) {
+        isTouching = touching
+        noteActivity()
+    }
+
+    /// 看着那页歌词时在窗口上挂一个只看不抢的触摸观察:点哪颗键、碰音量条、点歌词都算操作,
+    /// 不用每个控件各报一次。离开那一页就摘掉。
+    func setObservesTouches(_ observes: Bool) {
+        #if os(iOS)
+        if observes {
+            guard touchObservers.isEmpty else { return }
+            for scene in UIApplication.shared.connectedScenes {
+                guard let windowScene = scene as? UIWindowScene,
+                      windowScene.session.role == .windowApplication else { continue }
+                for window in windowScene.windows {
+                    let observer = NowPlayingLyricsTouchObserver(target: nil, action: nil)
+                    observer.cancelsTouchesInView = false
+                    observer.delaysTouchesBegan = false
+                    observer.delaysTouchesEnded = false
+                    observer.requiresExclusiveTouchType = false
+                    observer.onTouchesChanged = { [weak self] touching in self?.setTouching(touching) }
+                    window.addGestureRecognizer(observer)
+                    touchObservers.append(observer)
+                }
+            }
+        } else {
+            for observer in touchObservers {
+                observer.view?.removeGestureRecognizer(observer)
+            }
+            touchObservers = []
+            isTouching = false
+        }
+        #endif
+    }
+}
+
+#if os(iOS)
+/// 只看不抢:不拦、不延后任何触摸,也不和别的手势互斥,不参与点按、滚动、长按的判定。
+/// 和 `ScreenIdleTouchObserver` 不同,它要一直跟到手指全部抬起才判失败:拖音量条、双指缩放、
+/// 按住不放这几秒里没有新的落指,一落下就判失败的话会在手指底下把控件收掉。
+private final class NowPlayingLyricsTouchObserver: UIGestureRecognizer {
+    /// true:有手指按下;false:全部抬起或被取消。
+    var onTouchesChanged: (@MainActor (Bool) -> Void)?
+    private var activeTouches = 0
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        activeTouches += touches.count
+        onTouchesChanged?(true)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesEnded(touches, with: event)
+        finish(touches)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesCancelled(touches, with: event)
+        finish(touches)
+    }
+
+    override func reset() {
+        super.reset()
+        // 被摘掉、或系统中途清掉状态时,别让「按着」卡住。
+        if activeTouches > 0 {
+            activeTouches = 0
+            onTouchesChanged?(false)
+        }
+    }
+
+    private func finish(_ touches: Set<UITouch>) {
+        activeTouches = max(0, activeTouches - touches.count)
+        guard activeTouches == 0 else { return }
+        onTouchesChanged?(false)
+        state = .failed
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+}
+#endif
+
+/// 歌词页停一会儿自动收起播放控件。条件在这层零尺寸视图的 body 里求值:收起、播放这些状态一变
+/// 只重算这一层,不牵动整页。进歌词页、恢复播放、叫回控件、换歌时从头计时,之后按最后一次操作往后推。
+private struct NowPlayingLyricsChromeAutoHider: View {
+    let clock: NowPlayingLyricsChromeIdleClock
+    let player: AudioPlayerService
+    let conditions: () -> NowPlayingLyricsChromeAutoHidePolicy.Conditions
+    let onAutoHide: () -> Void
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+
+    private struct Countdown: Equatable {
+        let mayHide: Bool
+        let songID: String?
+    }
+
+    var body: some View {
+        var current = conditions()
+        current.isVoiceOverRunning = voiceOverEnabled
+        let tracksActivity = NowPlayingLyricsChromeAutoHidePolicy.tracksActivity(current)
+        let mayHide = NowPlayingLyricsChromeAutoHidePolicy.mayAutoHide(current)
+        return Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: tracksActivity, initial: true) { _, tracks in clock.setObservesTouches(tracks) }
+            // 消失再出现时 tracksActivity 可能没变,上面那条不会再走,在这里补挂。
+            .onAppear { clock.setObservesTouches(tracksActivity) }
+            .onDisappear { clock.setObservesTouches(false) }
+            .task(id: Countdown(mayHide: mayHide, songID: player.currentSong?.id)) {
+                guard mayHide else { return }
+                clock.noteActivity()
+                while !Task.isCancelled {
+                    let remaining = NowPlayingLyricsChromeAutoHidePolicy.remainingDelay(
+                        sinceLastActivity: clock.idleSeconds,
+                        isInteracting: clock.isInteracting
+                    )
+                    guard remaining > 0 else { break }
+                    try? await Task.sleep(for: .seconds(remaining))
+                }
+                guard !Task.isCancelled else { return }
+                onAutoHide()
+            }
     }
 }
 
@@ -2148,6 +2321,8 @@ struct NowPlayingView: View {
     /// 竖屏歌词里拖动歌词后收起了底部控件（歌词铺满，顶上的小封面与歌名还在）。
     /// 与全屏歌词互斥：那一套会重建歌词视图，拖到一半切过去会打断滚动。
     @State private var isLyricsChromeCollapsed = false
+    /// 歌词页自动收起控件用的操作记录(见 `NowPlayingLyricsChromeAutoHider`)。普通引用:拖动时每一帧都写。
+    @State private var lyricsChromeIdleClock = NowPlayingLyricsChromeIdleClock()
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     /// 上一轮已经落定的封面位置。换位置的那一次更新里它还是旧值，
     /// 进场的那一张封面据此判断是不是从另一张手里接过来的。
@@ -3041,17 +3216,28 @@ struct NowPlayingView: View {
 
     /// 竖屏歌词里往上翻歌词就收起底部控件、让歌词铺满（参照 Apple Music）。顶上的小封面
     /// 与歌名留着，点它直接回封面；点歌词空白先叫回控件，控件在时再点才回封面。
-    /// VoiceOver 下不收：控件没了就摸不到。
-    private func collapseLyricsChrome() {
-        guard showLyrics,
+    /// 停在歌词页一会儿没操作也收(「自动收起」,两个开关各管各的)。VoiceOver 下不收：控件没了就摸不到。
+    private func collapseLyricsChrome(_ cause: LyricsChromeCollapseCause) {
+        let isAllowed = switch cause {
+        case .scroll: textCollapsesOnScroll
+        case .idle: lyricsChromeAutoHides
+        }
+        guard isAllowed,
+              showLyrics,
               !isLyricsImmersive,
               !isLyricsChromeCollapsed,
-              textCollapsesOnScroll,
               !voiceOverEnabled,
               !lyrics.isEmpty else { return }
         withAnimation(lyricsChromeAnimation) {
             isLyricsChromeCollapsed = true
         }
+    }
+
+    private enum LyricsChromeCollapseCause {
+        /// 亲手往上翻了一段歌词。
+        case scroll
+        /// 停在歌词页几秒没操作。
+        case idle
     }
 
     private func restoreLyricsChrome() {
@@ -5052,6 +5238,14 @@ struct NowPlayingView: View {
                             settledLyricsArtworkPlacement = placement
                         }
                     }
+                )
+
+                // 歌词页停一会儿自动收起控件:条件在这层零尺寸视图里读,整页不跟着重算。
+                NowPlayingLyricsChromeAutoHider(
+                    clock: lyricsChromeIdleClock,
+                    player: player,
+                    conditions: { lyricsChromeAutoHideConditions },
+                    onAutoHide: { collapseLyricsChrome(.idle) }
                 )
             }
         }
@@ -8025,7 +8219,9 @@ struct NowPlayingView: View {
                                 PlayerLyricsViewportSlot(collapsesChromeOnScroll: textCollapsesOnScroll)
                                     .padding(.leading, insets.lyricsLeading)
                                     .padding(.trailing, insets.lyricsTrailing)
-                                    .onDisappear { isLyricsChromeCollapsed = false }
+                                    .modifier(NowPlayingCollapsibleLyricsHost(presentation: lyricsPresentation) {
+                                        isLyricsChromeCollapsed = false
+                                    })
                             }
                             .modifier(NowPlayingMiddlePaneVisibility(
                                 presentation: lyricsPresentation,
@@ -8079,7 +8275,9 @@ struct NowPlayingView: View {
                                 .pmLayoutSwitchFade()
                                 .transition(usesPersistentPhoneLyrics ? .identity : lyricsPanelTransition)
                                 // 转去横屏等别的版面时收起状态不带过去，回来是完整的播放页。
-                                .onDisappear { isLyricsChromeCollapsed = false }
+                                .modifier(NowPlayingCollapsibleLyricsHost(presentation: lyricsPresentation) {
+                                    isLyricsChromeCollapsed = false
+                                })
                         }
                     } else {
                         portraitCoverMiddleContent(
@@ -8103,6 +8301,7 @@ struct NowPlayingView: View {
                     // 自己读 player.currentTime,父 view body 完全不读高频属性。
                     if !hidesBottomChrome {
                         PlaybackProgressBar(fillTint: themedControlAccent, usesArtworkColors: !usesAudiobookPlayerDesign) { progressAudioTags(showsSource: false) }
+                            .onScrubbingChange { lyricsChromeIdleClock.setScrubbing($0) }
                             .matchedLayoutElement(.progress, in: layoutNamespace)
                             .padding(.horizontal, 26).padding(.top, 8)
                             .padding(.horizontal, insets.rows)
@@ -10783,8 +10982,8 @@ struct NowPlayingView: View {
                     // immersive tap through it avoids the scroll recognizer
                     // swallowing the outer ZStack tap after chrome auto-hides.
                     handleImmersiveContentTap()
-                } else if collapsesChromeOnScroll, isLyricsChromeCollapsed {
-                    // 收起的控件先叫回来，控件在时再点才回封面。
+                } else if isLyricsChromeCollapsed, collapsesChromeOnScroll || lyricsChromeAutoHides {
+                    // 收起的控件先叫回来，控件在时再点才回封面。自动收起的也一样。
                     restoreLyricsChrome()
                 } else {
                     setStandardLyricsVisible(false)
@@ -10795,7 +10994,9 @@ struct NowPlayingView: View {
             },
             translatedTextByLineID: lyricTranslationsByLineID,
             translationActivity: lyricsTranslationActivity,
-            onUserScroll: collapsesChromeOnScroll ? { collapseLyricsChrome() } : nil,
+            onUserScroll: collapsesChromeOnScroll ? { collapseLyricsChrome(.scroll) } : nil,
+            // 往哪边滑都算操作,自动收起从这里重新计时。
+            onUserScrollActivity: { lyricsChromeIdleClock.noteActivity() },
             spokenWordEmptyState: spokenTranscriptEmptyState,
             isSpokenWordTranscript: usesSpokenWordTransport,
             // 全屏键 34 宽、右边距 12,标签再空 8。
@@ -11711,6 +11912,40 @@ struct NowPlayingView: View {
     private var textCollapsesOnScroll: Bool {
         guard usesSpokenWordTransport else { return lyricsPageControls.collapsesControlsOnScroll }
         return currentItemIsPodcast ? podcastTextCollapses : audiobookTextCollapses
+    }
+
+    /// 停在歌词页一会儿自动收起播放控件:只管音乐,书和播客的文字稿不收。
+    private var lyricsChromeAutoHides: Bool {
+        !usesSpokenWordTransport && lyricsPageControls.autoHidesControls
+    }
+
+    /// 自动收起此刻的条件。在 `NowPlayingLyricsChromeAutoHider` 的 body 里求值,读到的状态只牵动那一层。
+    private var lyricsChromeAutoHideConditions: NowPlayingLyricsChromeAutoHidePolicy.Conditions {
+        #if os(iOS)
+        // 转轮转到别的一面时播放器不在眼前。
+        let isAwayFromPlayer = carouselState.isAwayFromPlayer
+        #else
+        let isAwayFromPlayer = false
+        #endif
+        #if DEBUG && os(iOS)
+        // 取证页里控件一直留着，和全屏歌词一样。
+        let isDebugCapture = debugPlayerMode != nil
+        #else
+        let isDebugCapture = false
+        #endif
+        return NowPlayingLyricsChromeAutoHidePolicy.Conditions(
+            isEnabled: lyricsChromeAutoHides && !isDebugCapture,
+            showsLyrics: showLyrics,
+            isImmersive: isLyricsImmersive,
+            hostsCollapsibleLyrics: lyricsPresentation.collapsibleHostCount > 0,
+            isSurfaceActive: isVisualSceneActive && isNowPlayingSurfaceExposed && !isAwayFromPlayer
+                && !showKaraoke && !showsImmersiveEffectPicker && !showsLyricsTimingRuler,
+            isPlaying: player.isPlaying,
+            hasLyrics: !lyrics.isEmpty,
+            isVoiceOverRunning: voiceOverEnabled,
+            isScrubbing: transportHoldScrub.previewTime != nil,
+            isCollapsed: isLyricsChromeCollapsed
+        )
     }
 
     private var radioControlLayout: NowPlayingRadioControlLayout {
@@ -18635,6 +18870,9 @@ struct LyricsScrollView: View, @MainActor Equatable {
     let translationActivity: LyricsTranslationActivity
     /// 用户亲手往上翻了一段歌词（往回拉、程序滚动、双指缩放不算）。竖屏播放页用它收起底部控件。
     var onUserScroll: (() -> Void)? = nil
+    /// 用户亲手滑动歌词，往哪边都算，松手后的惯性停下时再报一次。歌词页自动收起控件据此重新计时；
+    /// 滑动时每一帧都可能来，只该记个时刻。
+    var onUserScrollActivity: (() -> Void)? = nil
     /// 有声内容没有文字稿时那一页(写明没有、能生成就给生成、生成中显示进度,#314);为空时是音乐的
     /// 「暂无歌词」与刮削、听歌识词。
     var spokenWordEmptyState: SpokenTranscriptEmptyState.Content? = nil
@@ -19611,6 +19849,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
     }
 
     private func beginLineManualBrowsing() {
+        onUserScrollActivity?()
         scrollRestoreState.invalidate()
         // 拖动可能一路拖到下限以上,整个放开。
         if lazyRowFloor != nil { lowerLazyRowFloor(toCover: 0) }
@@ -19686,6 +19925,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
 
     private func endLineManualBrowsing(proxy: ScrollViewProxy) {
         lastUserScrollTime = Date()
+        onUserScrollActivity?()
         scheduleLineAutoFollowResume(proxy: proxy)
     }
 
@@ -20987,6 +21227,8 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     /// 有声书墨黑 / 暖白版式保留自己的配色,不跟「封面取色」。
     var usesArtworkColors = true
     let centerAccessory: CenterAccessory
+    /// 开始、结束拖动进度条,以及拖动途中每一步(见 `onScrubbingChange`)。
+    private var scrubbingChange: ((Bool) -> Void)?
     @Environment(AudioPlayerService.self) private var player
     @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -21067,7 +21309,10 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
                             motion: PlayerAppearancePreferences.progressMotion(rawValue: progressMotionRawValue)
                         ),
                         isPlaying: player.isPlaying,
-                        onPreview: { previewTime = $0 },
+                        onPreview: {
+                            previewTime = $0
+                            scrubbingChange?($0 != nil)
+                        },
                         onSeek: { player.seek(to: $0) }
                     )
                     .overlay {
@@ -21108,6 +21353,15 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
                 }
             }
         }
+    }
+}
+
+extension PlaybackProgressBar {
+    /// 拖着进度条时报一声(歌词页自动收起控件拖着时不收)。只换这一个回调,不多包一层视图。
+    func onScrubbingChange(_ action: @escaping (Bool) -> Void) -> Self {
+        var copy = self
+        copy.scrubbingChange = action
+        return copy
     }
 }
 

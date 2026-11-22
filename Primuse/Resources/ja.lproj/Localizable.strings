@@ -6437,6 +6437,8 @@
 "player_controls_lyrics_preview_footer_own" = "行をタップしてボタンを変更します。歌詞を表示している間（横向きや折りたたみの分割表示で歌詞を開いているときを含む）はこの組を使います。ステータス行と「その他」の項目はアートワーク画面に従います。";
 "player_controls_lyrics_collapse" = "歌詞をスクロールしたらコントロールを隠す";
 "player_controls_lyrics_collapse_footer" = "歌詞をドラッグすると、進行バーと下のボタンを隠して歌詞を画面いっぱいに表示します。歌詞の空白部分をタップすると戻ります。";
+"player_controls_lyrics_autohide" = "しばらく操作しないとコントロールを隠す";
+"player_controls_lyrics_autohide_footer" = "歌詞ページで数秒間操作しないと、進行バーと下のボタンが自動的に隠れて歌詞が画面いっぱいに表示されます。歌詞の空白部分をタップすると戻り、数秒触れないとまた隠れます。一時停止中は隠れません。";
 "player_controls_slot_lyrics_extra" = "歌詞画面の曲名の横";
 "player_controls_lyrics_extra_picker_footer" = "既定はカラオケです。この曲でカラオケが使えないときは表示されません。すでに画面にあるボタンはここに重ねて表示しません。";
 "player_controls_immersive_footer" = "iPad を横向きにして歌詞を見るときもこの組を使います。上の 1 枠目は既定で曲名の横のボタンと同じです。ロック、エフェクト、「その他」、終了の位置は固定です。";

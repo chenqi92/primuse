@@ -6342,6 +6342,8 @@
 "player_controls_lyrics_preview_footer_own" = "Toque em uma linha para trocar um botão. Este conjunto é usado enquanto a letra aparece, inclusive na horizontal e na tela dividida de dobráveis. A linha de status e os itens do menu Mais seguem a tela Capa.";
 "player_controls_lyrics_collapse" = "Ocultar controles ao rolar a letra";
 "player_controls_lyrics_collapse_footer" = "Arrastar a letra oculta a barra de progresso e os botões abaixo para a letra ocupar a tela. Toque em uma área vazia da letra para trazê-los de volta.";
+"player_controls_lyrics_autohide" = "Ocultar controles após alguns segundos";
+"player_controls_lyrics_autohide_footer" = "Depois de alguns segundos na página da letra sem tocar em nada, a barra de progresso e os botões abaixo se ocultam para a letra ocupar a tela. Toque em uma área vazia da letra para trazê-los de volta; eles se ocultam de novo após alguns segundos sem toque. Em pausa, eles não se ocultam.";
 "player_controls_slot_lyrics_extra" = "Ao lado do título (letra)";
 "player_controls_lyrics_extra_picker_footer" = "Karaokê por padrão. Este lugar fica oculto quando o karaokê não está disponível para a música, e um botão que já está na tela não se repete aqui.";
 "player_controls_immersive_footer" = "Também usado para a letra no iPad na horizontal. Por padrão, o primeiro lugar de cima segue o botão ao lado do título. Bloqueio, Efeitos, Mais e Sair ficam fixos.";

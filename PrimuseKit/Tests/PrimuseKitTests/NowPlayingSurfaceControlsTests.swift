@@ -75,6 +75,47 @@ import Testing
             .contains(.orientation))
     }
 
+    @Test func autoHideIsOffByDefaultAndRoundTrips() {
+        #expect(!Controls.default.autoHidesControls)
+        let on = Controls.default.settingAutoHidesControls(true)
+        #expect(on.autoHidesControls)
+        #expect(!on.isDefault)
+        #expect(on.encoded() == #"{"autohide":true}"#)
+        #expect(Controls.decode(on.encoded()) == on)
+        let off = on.settingAutoHidesControls(false)
+        #expect(off.isDefault)
+        #expect(off.encoded() == "")
+    }
+
+    @Test func autoHideIsIndependentOfCollapseAndKeepsOtherFields() {
+        let base = Controls.default
+            .settingCollapsesControlsOnScroll(false)
+            .settingHeaderExtra(.like)
+        let on = base.settingAutoHidesControls(true)
+        let decoded = Controls.decode(on.encoded())
+        #expect(decoded == on)
+        #expect(decoded.autoHidesControls)
+        #expect(!decoded.collapsesControlsOnScroll)
+        #expect(decoded.headerExtra == .like)
+        #expect(decoded.settingAutoHidesControls(false) == base)
+    }
+
+    @Test func payloadsSavedBeforeAutoHideReadAsOff() {
+        let old = Controls.decode(#"{"collapses":false,"extra":"like","own":true}"#)
+        #expect(!old.autoHidesControls)
+        #expect(!old.collapsesControlsOnScroll)
+        #expect(old.usesOwnButtons)
+        #expect(old.headerExtra == .like)
+        // 打开自动收起不动原来的几项。
+        let reread = Controls.decode(old.settingAutoHidesControls(true).encoded())
+        #expect(reread.autoHidesControls)
+        #expect(!reread.collapsesControlsOnScroll)
+        #expect(reread.usesOwnButtons)
+        #expect(reread.headerExtra == .like)
+        // 新版本以后再加的字段不妨碍读出这一项。
+        #expect(Controls.decode(#"{"autohide":true,"later":1}"#).autoHidesControls)
+    }
+
     @Test func lyricsSurfaceCountsTheHeaderExtraAsOnThePage() {
         let layout = NowPlayingControlLayout.default.placing(nil, at: .slot(.header))
         #expect(layout.menuFallback(on: .portrait).contains(.like))

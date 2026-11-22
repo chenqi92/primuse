@@ -6197,6 +6197,8 @@
 "player_controls_lyrics_preview_footer_own" = "Tap a row to change a button. This set is used while lyrics are showing, including in phone landscape and foldable split view. The status line and More menu items follow the Artwork screen.";
 "player_controls_lyrics_collapse" = "Hide Controls While Scrolling Lyrics";
 "player_controls_lyrics_collapse_footer" = "Scrolling up through the lyrics hides the progress bar and the buttons below so the lyrics fill the screen; pulling back down does not. Tap an empty area of the lyrics to bring them back.";
+"player_controls_lyrics_autohide" = "Hide Controls After a Few Seconds";
+"player_controls_lyrics_autohide_footer" = "After a few seconds on the lyrics page without touching anything, the progress bar and the buttons below hide so the lyrics fill the screen. Tap an empty area of the lyrics to bring them back; they hide again after a few seconds untouched. They stay visible while paused.";
 "player_controls_slot_lyrics_extra" = "Next to Title in Lyrics";
 "player_controls_lyrics_extra_picker_footer" = "Karaoke by default. This spot stays hidden when karaoke isn’t available for the song, and a button that’s already on the screen isn’t repeated here.";
 "player_controls_immersive_footer" = "Also used for lyrics on iPad in landscape. By default the first top spot matches the button next to the title. Lock, Effects, More and Exit stay where they are.";

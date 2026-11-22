@@ -536,6 +536,16 @@ struct NowPlayingControlsEditorView: View {
             Text("player_controls_lyrics_collapse_footer")
         }
 
+        // 和上滑收起各管各的,只开这一个也收。
+        Section {
+            Toggle("player_controls_lyrics_autohide", isOn: Binding(
+                get: { controls.autoHidesControls },
+                set: { lyricsStorage = controls.settingAutoHidesControls($0).encoded() }
+            ))
+        } footer: {
+            Text("player_controls_lyrics_autohide_footer")
+        }
+
         Section {
             Button("player_controls_reset") {
                 lyricsStorage = ""
