@@ -384,7 +384,7 @@ struct AIRecommendationLibraryView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            CoverFlowBackdrop(palettes: palettes, isAnimating: scenePhase == .active)
+            CoverFlowBackdrop(palettes: palettes, songs: songs, isAnimating: scenePhase == .active)
                 .overlay {
                     LinearGradient(
                         colors: [.black.opacity(0.12), .black.opacity(0.42)],

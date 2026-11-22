@@ -63,6 +63,45 @@ enum PlayerBackdropImaging {
         return ciContext.createCGImage(blurred, from: extent)
     }
 
+    /// 卡片流动背景(`CoverFlowBackdrop`)的一层:封面裁成居中方图缩到 96 像素,大半径模糊、
+    /// 提饱和,四周渐隐成透明,几层叠着转起来看不出方形的边。结果是普通位图,显示时没有实时滤镜。
+    nonisolated static func coverFlowLayer(from image: CGImage) -> CGImage? {
+        let width = CGFloat(image.width)
+        let height = CGFloat(image.height)
+        let side = min(width, height)
+        guard side > 0 else { return nil }
+        let target: CGFloat = 96
+        let scale = target / side
+        let placement = CGAffineTransform(translationX: -(width - side) / 2, y: -(height - side) / 2)
+            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+        let square = CIImage(cgImage: image)
+            .cropped(to: CGRect(x: (width - side) / 2, y: (height - side) / 2, width: side, height: side))
+            .transformed(by: placement)
+        let extent = CGRect(x: 0, y: 0, width: target, height: target)
+        let blurred = square
+            .clampedToExtent()
+            .applyingGaussianBlur(sigma: Double(target) * 0.1)
+            .applyingFilter("CIColorControls", parameters: [
+                kCIInputSaturationKey: 1.45,
+                kCIInputBrightnessKey: -0.02,
+            ])
+            .cropped(to: extent)
+        let mask = CIFilter(name: "CIRadialGradient", parameters: [
+            "inputCenter": CIVector(x: target / 2, y: target / 2),
+            "inputRadius0": target * 0.26,
+            "inputRadius1": target * 0.5,
+            "inputColor0": CIColor.white,
+            "inputColor1": CIColor.black,
+        ])?.outputImage?.cropped(to: extent)
+        let faded = mask.map { edge in
+            blurred.applyingFilter("CIBlendWithMask", parameters: [
+                kCIInputBackgroundImageKey: CIImage.empty(),
+                kCIInputMaskImageKey: edge,
+            ])
+        } ?? blurred
+        return ciContext.createCGImage(faded, from: extent)
+    }
+
     /// 专辑页背景用的封底:缩小后轻轻模糊一次。封底上的曲目单、字都化开成色块和线条,
     /// 版式还认得出来,但不会和页面上的字抢。结果是普通位图,显示时没有实时滤镜。
     nonisolated static func softenedBackdrop(from image: CGImage) -> CGImage? {

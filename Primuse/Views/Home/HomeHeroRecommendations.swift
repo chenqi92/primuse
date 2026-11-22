@@ -392,11 +392,13 @@ struct HomeHeroRecommendationCard: View {
         .background {
             Group {
                 if let flowPalettes = coverFlowPalettes {
-                    // 没有封面可看:从里面几首歌的封面取色,拼成一块慢慢流动的底(像 Apple Music 的混音卡)。
+                    // 没有封面可看:拿里面几首歌的封面模糊了慢慢流动(像 Apple Music 的动态背景)。
                     CoverFlowBackdrop(
-                        palettes: flowPalettes,
+                        palettes: flowPalettes, songs: songs,
                         isAnimating: focused && appearance.backdrop.resolved(medium: medium, album: theme == nil) != .gradient
                     )
+                } else if appearance.backdrop.resolved(medium: medium, album: theme == nil) == .flow, followsArtwork {
+                    CoverFlowBackdrop(palettes: [palette], songs: songs, isAnimating: focused)
                 } else {
                     HomeHeroCardBackdrop(style: appearance.backdrop.resolved(medium: medium, album: theme == nil),
                                          palette: palette, focused: focused, reduceMotion: reduceMotion)
@@ -431,6 +433,11 @@ struct HomeHeroRecommendationCard: View {
         guard appearance.cover == .hidden || !firstHasArtwork else { return nil }
         let palettes = songs.compactMap { tintProvider.palette(forSongID: $0.id) }
         return palettes.isEmpty ? nil : palettes
+    }
+
+    /// 流动背景跟着封面走:自选颜色、自选照片时还是按选的颜色画渐变。
+    private var followsArtwork: Bool {
+        !appearance.customColors && !(appearance.cover == .photo && appearance.photo != nil)
     }
 
     private var tintSong: Song? {

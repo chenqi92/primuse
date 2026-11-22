@@ -353,6 +353,22 @@ final class HomeHeroCarouselLayoutTests: XCTestCase {
         add(attachment)
     }
 
+    func testDistinctArtworkSongsSkipRepeatedCovers() {
+        func song(_ id: String, cover: String?, album: String?) -> Song {
+            Song(id: id, title: id, albumID: album, fileFormat: .mp3, filePath: "", sourceID: "distinct",
+                 coverArtFileName: cover)
+        }
+        let songs = [
+            song("a1", cover: "a.jpg", album: "A"), song("a2", cover: "a.jpg", album: "A"),
+            song("b1", cover: nil, album: "B"), song("b2", cover: "", album: "B"),
+            song("c1", cover: "c.jpg", album: "C"), song("d1", cover: nil, album: nil),
+            song("e1", cover: "e.jpg", album: "E"),
+        ]
+        XCTAssertEqual(CoverFlowArtwork.distinctArtworkSongs(songs, limit: 4).map(\.id), ["a1", "b1", "c1", "d1"])
+        XCTAssertEqual(CoverFlowArtwork.distinctArtworkSongs(songs, limit: 3).map(\.id), ["a1", "b1", "c1"])
+        XCTAssertTrue(CoverFlowArtwork.distinctArtworkSongs(songs, limit: 0).isEmpty)
+    }
+
     func testCarouselKeepsFollowingSectionVisibleAfterResizing() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("HomeHeroCarouselLayoutTests-\(UUID().uuidString)", isDirectory: true)
