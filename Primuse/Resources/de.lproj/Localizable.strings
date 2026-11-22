@@ -7239,6 +7239,8 @@
 "player_controls_action_orientation" = "Ausrichtung wechseln";
 "player_follows_device_orientation_title" = "Mit dem iPhone drehen";
 "player_follows_device_orientation_description" = "Wenn aus, bleibt der Player beim Drehen des iPhone in seiner aktuellen Ausrichtung. Gewechselt wird mit „Ausrichtung wechseln“ – als Taste im Player platzierbar, sonst im Menü „Mehr“.";
+"player_airplay_device_icon_title" = "Aktuelles Gerät auf AirPlay-Taste zeigen";
+"player_airplay_device_icon_description" = "Wenn aktiviert, zeigt die AirPlay-Taste das Symbol des Geräts, über das der Ton läuft, etwa AirPods, HomePod oder dein Auto. Wenn deaktiviert, wird immer das AirPlay-Symbol angezeigt.";
 "player_orientation_to_landscape" = "Im Querformat zeigen";
 "player_orientation_to_portrait" = "Im Hochformat zeigen";
 "interface_orientation_title" = "Bildschirmausrichtung";

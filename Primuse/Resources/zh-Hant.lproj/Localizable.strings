@@ -7216,6 +7216,8 @@
 "player_controls_action_orientation" = "橫豎螢幕切換";
 "player_follows_device_orientation_title" = "跟隨手機方向轉向";
 "player_follows_device_orientation_description" = "關閉後播放頁停在目前的方向，轉動手機也不跟著轉。橫豎螢幕用「橫豎螢幕切換」換：可以擺在播放頁上，沒擺時在「更多」裡。";
+"player_airplay_device_icon_title" = "AirPlay 按鈕顯示目前裝置";
+"player_airplay_device_icon_description" = "開啟後，聲音從 AirPods、HomePod、車用音響等裝置輸出時，AirPlay 按鈕會換成該裝置的圖示。關閉時一律顯示 AirPlay 圖示。";
 "player_orientation_to_landscape" = "橫向顯示";
 "player_orientation_to_portrait" = "直向顯示";
 "interface_orientation_title" = "螢幕方向";

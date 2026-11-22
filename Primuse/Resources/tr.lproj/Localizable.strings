@@ -7145,6 +7145,8 @@
 "player_controls_action_orientation" = "Ekranı döndür";
 "player_follows_device_orientation_title" = "Telefonla birlikte döndür";
 "player_follows_device_orientation_description" = "Kapalıyken telefonu çevirdiğinizde oynatıcı mevcut yönünde kalır. Yönü Ekranı döndür ile değiştirin: oynatıcıya yerleştirin ya da Diğer menüsünde bulun.";
+"player_airplay_device_icon_title" = "AirPlay düğmesinde geçerli aygıtı göster";
+"player_airplay_device_icon_description" = "Açıkken AirPlay düğmesi, sesin çaldığı aygıtın simgesini gösterir; örneğin AirPods, HomePod veya araç. Kapalıyken her zaman AirPlay simgesi görünür.";
 "player_orientation_to_landscape" = "Yatay göster";
 "player_orientation_to_portrait" = "Dikey göster";
 "interface_orientation_title" = "Ekran Yönü";

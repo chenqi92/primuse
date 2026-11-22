@@ -97,6 +97,8 @@ struct NowPlayingControlsEditorView: View {
     @AppStorage(InterfaceOrientationPreference.storageKey)
     private var interfaceOrientationRawValue = InterfaceOrientationPreference.automatic.rawValue
     @State private var showsFixedOrientationNote = false
+    @AppStorage(PlayerAppearancePreferences.airPlayShowsOutputDeviceKey)
+    private var airPlayShowsOutputDevice = PlayerAppearancePreferences.airPlayShowsOutputDeviceByDefault
     @State private var page: Page = Self.initialPage
     @State private var surface: MusicSurface = Self.initialSurface
     /// 全局那一页的预览看哪一种播放页。
@@ -165,7 +167,7 @@ struct NowPlayingControlsEditorView: View {
 
     /// 设置搜索跳过来的几项在全局那一页,先切过去再定位。
     private static let globalAnchors: Set<String> = [
-        "appearance.playerFollowsDeviceOrientation",
+        "appearance.playerFollowsDeviceOrientation", "appearance.playerAirPlayDeviceIcon",
         "appearance.playerProgressStyle", "appearance.playerProgressThickness", "appearance.playerProgressGlow",
         "appearance.playerProgressArtworkColors", "appearance.playerProgressMotion",
         "appearance.volumeBar", "appearance.playerVolumeStyle", "appearance.playerVolumeThickness",
@@ -443,6 +445,16 @@ struct NowPlayingControlsEditorView: View {
             } message: {
                 Text("player_follows_device_orientation_fixed_message")
             }
+        }
+
+        // 隔空播放键在各种播放页上都有:要不要换成此刻出声的那台设备的图标。
+        Section {
+            Toggle(isOn: $airPlayShowsOutputDevice) {
+                SettingsInfoLabel("player_airplay_device_icon_title") {
+                    Text("player_airplay_device_icon_description")
+                }
+            }
+            .settingsAnchor("appearance.playerAirPlayDeviceIcon")
         }
 
         PlayerSharedLookSettingsSections()

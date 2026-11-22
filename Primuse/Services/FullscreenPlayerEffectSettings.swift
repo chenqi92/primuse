@@ -331,6 +331,10 @@ enum PlayerAppearancePreferences {
     static let motionArtworkEndpointsKey = "primuse.player.motionArtworkEndpoints.v1"
     static let showsVolumeBarKey = "primuse.player.showsVolumeBar"
     static let showsVolumeBarByDefault = true
+    /// 隔空播放键换成此刻出声的那台设备的图标(AirPods、HomePod、车载……)。默认关,照旧是系统那颗。
+    /// 键名不带点号(见 #344 的教训)。
+    static let airPlayShowsOutputDeviceKey = "playerAirPlayShowsOutputDevice"
+    static let airPlayShowsOutputDeviceByDefault = false
     /// 播放页歌名下面那一行带不带专辑名(#338、#101):专辑名长的时候那一行总被截断、滚动。关掉后只写艺人,
     /// 点开那一行的菜单里照样能去专辑。只管音乐;有声书、播客那一行的书名、节目名照旧。
     static let showsAlbumInSubtitleKey = "primuse.player.showsAlbumInSubtitle"

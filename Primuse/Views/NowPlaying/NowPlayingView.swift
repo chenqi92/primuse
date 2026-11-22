@@ -3952,7 +3952,7 @@ struct NowPlayingView: View {
                     }
 
                     if showsColumnAirPlay {
-                        AirPlayButton()
+                        AirPlayButton(glyphFont: .system(size: itemSize * 0.4, weight: .semibold))
                             .frame(width: itemSize * 0.62, height: itemSize * 0.62)
                             .frame(width: itemSize, height: itemSize)
                     }
@@ -7683,7 +7683,7 @@ struct NowPlayingView: View {
     /// 着色沿用它自己按明暗外观算出来的那套。
     private var compactLandscapeAirPlayButton: some View {
         let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
-        return AirPlayButton()
+        return AirPlayButton(glyphFont: .system(size: diameter * 0.34, weight: .semibold))
             .frame(width: 26, height: 26)
             .frame(width: diameter, height: diameter)
             .nowPlayingAdaptiveGlass(
@@ -8947,7 +8947,7 @@ struct NowPlayingView: View {
             // 竖栏里排着那一列按钮时(iPhone Duo),投放、喜欢与更多在那一列里,这时上面已换成把手。
             HStack(spacing: 0) {
                 if controls.headerShowsAirPlay {
-                    AirPlayButton()
+                    AirPlayButton(glyphFont: .system(size: 18, weight: .semibold))
                         .frame(width: 30, height: 30)
                         .frame(width: 40, height: 44)
                 }
@@ -11095,7 +11095,7 @@ struct NowPlayingView: View {
             HStack(spacing: 4) {
                 if inlineActions {
                     if controls.headerShowsAirPlay {
-                        AirPlayButton()
+                        AirPlayButton(glyphFont: .system(size: 18, weight: .semibold))
                             .frame(width: 30, height: 30)
                             .frame(width: 40, height: 44)
                     }
@@ -12051,19 +12051,20 @@ struct NowPlayingView: View {
         case .glass:
             compactLandscapeAirPlayButton
         case .column(let itemSize):
-            AirPlayButton()
+            AirPlayButton(glyphFont: .system(size: itemSize * 0.4, weight: .semibold))
                 .frame(width: itemSize * 0.62, height: itemSize * 0.62)
                 .frame(width: itemSize, height: itemSize)
         case .header:
-            AirPlayButton()
+            AirPlayButton(glyphFont: .system(size: 18, weight: .semibold))
                 .frame(width: 30, height: 30)
                 .frame(width: 44, height: 44)
         case .bar, .wideBar, .edge:
-            AirPlayButton()
+            // 底排的图标都没单独定字号,跟着那一排的 `.body`;贴边那种自己写了 `.body`。
+            AirPlayButton(glyphFont: style == .edge ? .body : nil)
                 .frame(width: 36, height: 36)
                 .frame(width: 44, height: 44)
         case .effectGlass:
-            AirPlayButton()
+            AirPlayButton(glyphFont: .system(size: 44 * 0.34, weight: .semibold))
                 .frame(width: 26, height: 26)
                 .frame(width: 44, height: 44)
                 .background {
@@ -12072,7 +12073,7 @@ struct NowPlayingView: View {
                         .environment(\.colorScheme, .dark)
                 }
         case .effectPill:
-            AirPlayButton()
+            AirPlayButton(glyphFont: .system(size: 17, weight: .medium))
                 .frame(width: 26, height: 26)
                 .frame(width: 38, height: 38)
         }
@@ -16468,22 +16469,28 @@ struct AddToPlaylistSheet: View {
 }
 
 #if os(iOS)
-/// 隔空播放键。点按和弹出的选择器都是系统的 `AVRoutePickerView`;声音此刻从认得出的设备出来时
-/// (AirPods、HomePod、车载、有线耳机……),把系统那颗图标着成透明(点按范围不变),在原处画这台设备的
-/// 图标,像系统「音乐」那样一眼看出在用哪台。手机扬声器和认不出型号的隔空播放设备照旧是系统那颗。
+/// 隔空播放键。点按和弹出的选择器都是系统的 `AVRoutePickerView`。打开「隔空播放键显示当前设备」后,
+/// 声音此刻从认得出的设备出来时(AirPods、HomePod、车载、有线耳机……)把系统那颗图标着成透明(点按范围
+/// 不变),在原处画这台设备的图标。默认关;手机扬声器和认不出型号的隔空播放设备照旧是系统那颗。
 struct AirPlayButton: View {
     /// 旁边已经写着当前设备(声音面板那张卡)时传 false,键上照旧是系统那颗,不重复画同一个图标。
     var showsDeviceGlyph = true
+    /// 换成设备图标时的字号:和同一排其他按钮的图标一样大。nil 时沿用外面给的字体
+    /// (底排、电台那一排的按钮都是靠外面的 `.font` 定字号)。
+    var glyphFont: Font? = nil
 
     @Environment(AudioPlayerService.self) private var player
+    @AppStorage(PlayerAppearancePreferences.airPlayShowsOutputDeviceKey)
+    private var followsOutputDevice = PlayerAppearancePreferences.airPlayShowsOutputDeviceByDefault
 
     var body: some View {
-        let device = showsDeviceGlyph ? NowPlayingOutputDevice.current(player) : nil
+        // 开关关着时不读输出设备,换耳机、连车载也不重画这颗键。
+        let device = showsDeviceGlyph && followsOutputDevice ? NowPlayingOutputDevice.current(player) : nil
         let symbol = device?.playerSymbolName.flatMap { $0 == "airplayaudio" ? nil : $0 }
         SystemRoutePicker(drawsGlyph: symbol == nil)
             .overlay {
                 if let symbol {
-                    AirPlayDeviceGlyph(symbol: symbol)
+                    AirPlayDeviceGlyph(symbol: symbol, font: glyphFont)
                 }
             }
             .accessibilityValue(Text(verbatim: symbol == nil ? "" : device?.eqDisplayName ?? ""))
@@ -16534,35 +16541,24 @@ private struct AirPlayButtonTint {
     }
 }
 
-/// 盖在透明的系统投放键上的设备图标。字号按 `airplayaudio` 撑满这一框时的字号算:系统那颗图标按框
-/// 等比缩放,同一字号下各个 SF Symbol 视觉上一样大,换成 AirPods、HomePod 也和原来那颗一般大。
+/// 盖在透明的系统投放键上的设备图标。投放键的框给得比图标大(要留点按范围),按框撑满画会比旁边的
+/// 按钮大一圈;所以用同一排按钮的字号画,换成 AirPods、HomePod 也和旁边一般大。
 private struct AirPlayDeviceGlyph: View {
     let symbol: String
+    let font: Font?
+    @Environment(\.font) private var inheritedFont
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
-    /// `airplayaudio` 在 100pt 时的外框。
-    private static let referenceSize: CGSize = UIImage(
-        systemName: "airplayaudio",
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 100)
-    )?.size ?? CGSize(width: 100, height: 100)
-
-    static func pointSize(fitting size: CGSize) -> CGFloat {
-        let reference = referenceSize
-        guard reference.width > 0, reference.height > 0, size.width > 0, size.height > 0 else { return 17 }
-        return 100 * min(size.width / reference.width, size.height / reference.height)
-    }
-
     var body: some View {
-        GeometryReader { proxy in
-            Image(systemName: symbol)
-                .font(.system(size: Self.pointSize(fitting: proxy.size)))
-                .foregroundStyle(Color(uiColor: AirPlayButtonTint(colorScheme: colorScheme, contrast: colorSchemeContrast).active))
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        Image(systemName: symbol)
+            .font(font ?? inheritedFont)
+            .imageScale(.medium)
+            .foregroundStyle(Color(uiColor: AirPlayButtonTint(colorScheme: colorScheme, contrast: colorSchemeContrast).active))
+            .contentTransition(.symbolEffect(.replace))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 #else
@@ -16572,6 +16568,7 @@ private struct AirPlayDeviceGlyph: View {
 /// 链断开。真用到再走 AVRoutePickerView (NSView) 适配。
 struct AirPlayButton: View {
     var showsDeviceGlyph = true
+    var glyphFont: Font? = nil
     var body: some View { Color.clear.frame(width: 44, height: 44) }
 }
 #endif

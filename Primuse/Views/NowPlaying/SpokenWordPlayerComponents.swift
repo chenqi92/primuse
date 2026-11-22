@@ -506,7 +506,7 @@ struct SpokenWordActionTiles: View {
     /// 所以它占满图标那一块,说明文字只是标注。
     private var airPlayTile: some View {
         tile {
-            AirPlayButton()
+            AirPlayButton(glyphFont: iconFont)
                 .frame(width: 44, height: layout == .inline ? 28 : 30)
         } caption: {
             Text("player_controls_action_airplay")

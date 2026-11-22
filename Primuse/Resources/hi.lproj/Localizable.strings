@@ -7145,6 +7145,8 @@
 "player_controls_action_orientation" = "स्क्रीन घुमाएँ";
 "player_follows_device_orientation_title" = "फ़ोन के साथ घुमाएँ";
 "player_follows_device_orientation_description" = "बंद होने पर फ़ोन घुमाने से प्लेयर अपनी मौजूदा दिशा में ही रहता है। दिशा \"स्क्रीन घुमाएँ\" से बदलें: इसे प्लेयर पर रखें या \"और\" मेनू में पाएँ।";
+"player_airplay_device_icon_title" = "AirPlay बटन पर मौजूदा डिवाइस दिखाएँ";
+"player_airplay_device_icon_description" = "चालू होने पर, AirPlay बटन उस डिवाइस का आइकन दिखाता है जिससे आवाज़ आ रही है, जैसे AirPods, HomePod या कार। बंद होने पर हमेशा AirPlay आइकन दिखता है।";
 "player_orientation_to_landscape" = "आड़ा दिखाएँ";
 "player_orientation_to_portrait" = "खड़ा दिखाएँ";
 "interface_orientation_title" = "स्क्रीन ओरिएंटेशन";

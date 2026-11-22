@@ -7000,6 +7000,8 @@
 "player_controls_action_orientation" = "Rotate Screen";
 "player_follows_device_orientation_title" = "Rotate with Phone";
 "player_follows_device_orientation_description" = "When off, the player stays in its current orientation when you turn your phone. Switch with Rotate Screen: place it on the player, or find it in the More menu.";
+"player_airplay_device_icon_title" = "Show Current Device on AirPlay Button";
+"player_airplay_device_icon_description" = "When on, the AirPlay button shows the icon of the device playing the sound, such as AirPods, HomePod, or your car. When off, it always shows the AirPlay icon.";
 "player_orientation_to_landscape" = "Show in Landscape";
 "player_orientation_to_portrait" = "Show in Portrait";
 "interface_orientation_title" = "Screen Orientation";

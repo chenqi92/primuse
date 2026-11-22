@@ -1040,7 +1040,7 @@ struct ImmersivePlayerView: View {
                     .foregroundStyle(pillInk.opacity(0.7))
                     .lineLimit(1)
                     .minimumScaleFactor(0.62)
-                AirPlayButton()
+                AirPlayButton(glyphFont: .system(size: 15, weight: .medium))
                     .frame(width: 34, height: 34)
                     .accessibilityLabel(Text("cast_to_device"))
                 queueButton(diameter: 36)

@@ -7332,6 +7332,8 @@
 "player_controls_action_orientation" = "横竖屏切换";
 "player_follows_device_orientation_title" = "跟随手机方向转屏";
 "player_follows_device_orientation_description" = "关掉后播放页停在当前的方向，转动手机也不跟着转。横竖屏用「横竖屏切换」换：可以摆在播放页上，没摆时在「更多」里。";
+"player_airplay_device_icon_title" = "AirPlay 按钮显示当前设备";
+"player_airplay_device_icon_description" = "打开后，声音从 AirPods、HomePod、车载等设备出来时，AirPlay 按钮换成这台设备的图标。关掉时一直是 AirPlay 图标。";
 "player_orientation_to_landscape" = "横屏显示";
 "player_orientation_to_portrait" = "竖屏显示";
 "interface_orientation_title" = "屏幕方向";

@@ -7239,6 +7239,8 @@
 "player_controls_action_orientation" = "가로·세로 전환";
 "player_follows_device_orientation_title" = "휴대폰 방향에 따라 회전";
 "player_follows_device_orientation_description" = "끄면 휴대폰을 돌려도 재생 화면이 지금 방향을 유지합니다. 방향은 '가로·세로 전환'으로 바꿉니다. 재생 화면에 둘 수 있고, 두지 않았을 때는 '더 보기'에 있습니다.";
+"player_airplay_device_icon_title" = "AirPlay 버튼에 현재 기기 표시";
+"player_airplay_device_icon_description" = "켜면 AirPods, HomePod, 차량 등으로 소리가 나올 때 AirPlay 버튼이 해당 기기 아이콘으로 바뀝니다. 끄면 항상 AirPlay 아이콘이 표시됩니다.";
 "player_orientation_to_landscape" = "가로로 보기";
 "player_orientation_to_portrait" = "세로로 보기";
 "interface_orientation_title" = "화면 방향";

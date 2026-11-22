@@ -788,6 +788,7 @@ final class InterfaceLayoutSync {
         // 帧率看屏幕与电量, 都不收。
         PlayerAppearancePreferences.showsVolumeBarKey,
         PlayerAppearancePreferences.showsAlbumInSubtitleKey,
+        PlayerAppearancePreferences.airPlayShowsOutputDeviceKey,
         PlayerAppearancePreferences.volumeBarStyleKey,
         PlayerAppearancePreferences.volumeThicknessKey,
         PlayerAppearancePreferences.showsArtworkLyricsKey,

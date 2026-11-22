@@ -7145,6 +7145,8 @@
 "player_controls_action_orientation" = "Obróć ekran";
 "player_follows_device_orientation_title" = "Obracaj razem z telefonem";
 "player_follows_device_orientation_description" = "Gdy wyłączone, odtwarzacz zostaje w obecnej orientacji po obróceniu telefonu. Zmieniaj ją przyciskiem Obróć ekran: umieść go w odtwarzaczu albo znajdź w menu Więcej.";
+"player_airplay_device_icon_title" = "Pokazuj bieżące urządzenie na przycisku AirPlay";
+"player_airplay_device_icon_description" = "Po włączeniu przycisk AirPlay pokazuje ikonę urządzenia, które odtwarza dźwięk, np. AirPods, HomePod lub samochodu. Po wyłączeniu zawsze widać ikonę AirPlay.";
 "player_orientation_to_landscape" = "Pokaż poziomo";
 "player_orientation_to_portrait" = "Pokaż pionowo";
 "interface_orientation_title" = "Orientacja ekranu";

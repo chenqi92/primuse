@@ -7145,6 +7145,8 @@
 "player_controls_action_orientation" = "Girar tela";
 "player_follows_device_orientation_title" = "Girar com o celular";
 "player_follows_device_orientation_description" = "Desativado, o player mantém a orientação atual quando você gira o celular. Alterne com Girar tela: coloque-o no player ou encontre-o no menu Mais.";
+"player_airplay_device_icon_title" = "Mostrar o dispositivo atual no botão AirPlay";
+"player_airplay_device_icon_description" = "Quando ativado, o botão AirPlay mostra o ícone do dispositivo que está tocando o som, como AirPods, HomePod ou o carro. Quando desativado, sempre mostra o ícone do AirPlay.";
 "player_orientation_to_landscape" = "Ver na horizontal";
 "player_orientation_to_portrait" = "Ver na vertical";
 "interface_orientation_title" = "Orientação da tela";

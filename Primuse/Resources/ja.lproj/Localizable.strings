@@ -7240,6 +7240,8 @@
 "player_controls_action_orientation" = "向きの切り替え";
 "player_follows_device_orientation_title" = "iPhone の向きに合わせて回転";
 "player_follows_device_orientation_description" = "オフにすると、iPhone を回しても再生画面は今の向きのままです。向きは「向きの切り替え」で変えます。再生画面に置けるほか、置いていないときは「その他」にあります。";
+"player_airplay_device_icon_title" = "AirPlay ボタンに現在のデバイスを表示";
+"player_airplay_device_icon_description" = "オンにすると、AirPods、HomePod、車などから再生しているときに AirPlay ボタンがそのデバイスのアイコンになります。オフのときは常に AirPlay アイコンです。";
 "player_orientation_to_landscape" = "横向きで表示";
 "player_orientation_to_portrait" = "縦向きで表示";
 "interface_orientation_title" = "画面の向き";

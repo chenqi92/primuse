@@ -7145,6 +7145,8 @@
 "player_controls_action_orientation" = "Поворот екрана";
 "player_follows_device_orientation_title" = "Повертати разом з iPhone";
 "player_follows_device_orientation_description" = "Якщо вимкнено, під час повороту iPhone плеєр зберігає поточну орієнтацію. Перемикайте її кнопкою «Поворот екрана»: розмістіть її в плеєрі або знайдіть у меню «Більше».";
+"player_airplay_device_icon_title" = "Показувати поточний пристрій на кнопці AirPlay";
+"player_airplay_device_icon_description" = "Якщо ввімкнено, кнопка AirPlay показує значок пристрою, через який іде звук, наприклад AirPods, HomePod або автомобіля. Якщо вимкнено, завжди показується значок AirPlay.";
 "player_orientation_to_landscape" = "Альбомна орієнтація";
 "player_orientation_to_portrait" = "Книжкова орієнтація";
 "interface_orientation_title" = "Орієнтація екрана";
