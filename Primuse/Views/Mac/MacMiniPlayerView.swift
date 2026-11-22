@@ -831,7 +831,9 @@ private struct MacMiniQueueList: View {
         let revealsCurrent = player.currentSong != nil && layout.revealsCurrentOnAppear
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 8) {
+                // 几段用普通的 VStack 叠,每段的行在各自的惰性列表里(`QueueSectionStack`):段若也是惰性的,
+                // 定位到正在播放后往上翻到已播放,一行行建出来、估计的高度一路在改,整列跟着跳。
+                VStack(alignment: .leading, spacing: 8) {
                     if entries.isEmpty {
                         emptyState
                     } else {
@@ -892,7 +894,7 @@ private struct MacMiniQueueList: View {
 
     /// 已播放:最早的在上,刚放完的紧挨正在播放。更早的收在顶上的「显示更早的」里。
     private func historySection(_ played: [QueuePresentationEntry], layout: QueueHistoryLayout) -> some View {
-        LazyVStack(alignment: .leading, spacing: 8) {
+        QueueSectionStack(spacing: 8) {
             sectionTitle("played")
             if layout.nextRevealCount > 0 {
                 PMScrollingButton {
@@ -906,6 +908,7 @@ private struct MacMiniQueueList: View {
                         .contentShape(Rectangle())
                 }
             }
+        } rows: {
             ForEach(Array(played.enumerated()), id: \.element.id) { index, presentation in
                 row(presentation.entry, ordinal: layout.historyOrdinal(visibleOffset: index), totalCount: layout.totalCount)
                     .opacity(0.55)
@@ -920,18 +923,25 @@ private struct MacMiniQueueList: View {
         let upNext = QueueContinuationPolicy.splitUpcoming(upcomingEntries) {
             player.isAutoContinuationEntry($0.entry)
         }
+        // 外层是普通的 VStack,行一定要放进惰性列表,整条队列才不会一打开就全建出来。
         if !upNext.queued.isEmpty {
-            sectionTitle("up_next")
-                .padding(.top, 6)
-            ForEach(Array(upNext.queued.enumerated()), id: \.element.id) { index, presentation in
-                row(presentation.entry, ordinal: layout.upcomingOrdinal(offset: index), totalCount: layout.totalCount)
+            QueueSectionStack(spacing: 8) {
+                sectionTitle("up_next")
+                    .padding(.top, 6)
+            } rows: {
+                ForEach(Array(upNext.queued.enumerated()), id: \.element.id) { index, presentation in
+                    row(presentation.entry, ordinal: layout.upcomingOrdinal(offset: index), totalCount: layout.totalCount)
+                }
             }
         }
         if !upNext.autoplay.isEmpty {
-            sectionTitle("queue_autoplay_section")
-                .padding(.top, 6)
-            ForEach(Array(upNext.autoplay.enumerated()), id: \.element.id) { index, presentation in
-                row(presentation.entry, ordinal: layout.upcomingOrdinal(offset: upNext.queued.count + index), totalCount: layout.totalCount)
+            QueueSectionStack(spacing: 8) {
+                sectionTitle("queue_autoplay_section")
+                    .padding(.top, 6)
+            } rows: {
+                ForEach(Array(upNext.autoplay.enumerated()), id: \.element.id) { index, presentation in
+                    row(presentation.entry, ordinal: layout.upcomingOrdinal(offset: upNext.queued.count + index), totalCount: layout.totalCount)
+                }
             }
         }
     }

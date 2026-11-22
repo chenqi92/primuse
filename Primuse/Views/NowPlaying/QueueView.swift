@@ -256,42 +256,56 @@ struct QueueView: View {
                 player.isAutoContinuationEntry($0.entry)
             }
             let revealsCurrent = layout.revealsCurrentOnAppear
+            let edgePadding = heightClass.value(12, compact: 8)
+            let sectionSpacing = heightClass.value(18, compact: 10)
             ScrollViewReader { proxy in
                 ScrollView {
                     // Match the large song list's virtualization strategy. List's
-                    // edit/reorder bridge registers every queue row up front; a
-                    // LazyVStack creates only the visible lightweight rows and
-                    // keeps long queues responsive while preserving one continuous
-                    // scroll surface.
-                    LazyVStack(alignment: .leading, spacing: heightClass.value(18, compact: 10)) {
+                    // edit/reorder bridge registers every queue row up front; lazy
+                    // stacks create only the visible lightweight rows.
+                    // 几段用普通的 VStack 上下叠,各段的行仍在各自的惰性列表里(只建露出来的几行)。
+                    // 整张表若是一个惰性列表、每段又是一个惰性列表,没露出来的段只能按估计的高度排:
+                    // 定位到正在播放时差上几点(标题压到导航栏底下),再往上翻到已播放,一行行建出来、
+                    // 估计的高度一路在改,整列跟着上下跳。现在段与段之间的高度当场就是准的;
+                    // 段标题和按钮放在惰性列表外面,惰性列表里只剩一样高的行,没建的行按建好的估,估得准。
+                    VStack(alignment: .leading, spacing: 0) {
                         // 从上往下:已播放 → 正在播放 → 接下来(见 `QueueHistoryLayout`)。
                         if layout.playedCount > 0 {
                             historySection(history.entries, layout: layout)
+                                .padding(.top, edgePadding)
                         }
                         nowPlayingSection(currentEntry, layout: layout)
+                            // 上沿的间距算在这一段里:定位时连它一起停在顶上,标题不贴着导航栏;
+                            // 上面没有已播放时就是列表本来的顶。
+                            .padding(.top, layout.playedCount > 0 ? sectionSpacing : edgePadding)
                             .id(Self.nowPlayingAnchor)
                         if !upcoming.queued.isEmpty {
-                            queueSection(title: "up_next") {
+                            QueueSectionStack {
+                                sectionHeader("up_next")
+                            } rows: {
                                 ForEach(Array(upcoming.queued.enumerated()), id: \.element.id) { @Sendable index, presentation in
                                     LazyItemCell {
                                         upcomingRow(presentation, currentEntry: currentEntry, ordinal: layout.upcomingOrdinal(offset: index), totalCount: layout.totalCount)
                                     }
                                 }
                             }
+                            .padding(.top, sectionSpacing)
                         }
                         if !upcoming.autoplay.isEmpty {
-                            queueSection(title: "queue_autoplay_section") {
+                            QueueSectionStack {
+                                sectionHeader("queue_autoplay_section")
+                            } rows: {
                                 ForEach(Array(upcoming.autoplay.enumerated()), id: \.element.id) { @Sendable index, presentation in
                                     LazyItemCell {
                                         upcomingRow(presentation, currentEntry: currentEntry, ordinal: layout.upcomingOrdinal(offset: upcoming.queued.count + index), totalCount: layout.totalCount)
                                     }
                                 }
                             }
+                            .padding(.top, sectionSpacing)
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, heightClass.value(12, compact: 8))
-                    .padding(.bottom, heightClass.value(28, compact: 12))
+                    .padding(.bottom, edgePadding + heightClass.value(28, compact: 12))
                 }
                 // 半屏队列(iPhone Duo 竖栏)里的行和拖动把手停在竖栏左侧;嵌在播放页右栏时竖栏那一条归播放页自己用。
                 .modifier(QueueVerticalBarFill(isEnabled: !isEmbedded))
@@ -318,7 +332,7 @@ struct QueueView: View {
 
     private static let nowPlayingAnchor = "queue.nowPlaying"
 
-    /// 定位用的是整段「正在播放」(列表的直接子项),不是某一行:惰性列表找目标只过一遍这几段,
+    /// 定位用的是整段「正在播放」(列表的直接子项),不是某一行:不用到惰性列表里去找,
     /// 上面的已播放又只画最近一段,不会从顶上一格一格建过来。
     private func scrollToCurrent(_ proxy: ScrollViewProxy) {
         var transaction = Transaction()
@@ -330,11 +344,12 @@ struct QueueView: View {
 
     /// 已播放:最早的在上,刚放完的紧挨正在播放。更早的收在顶上的「显示更早的」里。
     private func historySection(_ played: [QueuePresentationEntry], layout: QueueHistoryLayout) -> some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
+        QueueSectionStack {
             historyHeader
             if layout.nextRevealCount > 0 {
                 showEarlierButton(layout)
             }
+        } rows: {
             ForEach(Array(played.enumerated()), id: \.element.id) { @Sendable index, presentation in
                 LazyItemCell {
                     queueRow(
@@ -391,7 +406,9 @@ struct QueueView: View {
     }
 
     private func nowPlayingSection(_ currentEntry: QueueEntry, layout: QueueHistoryLayout) -> some View {
-        queueSection(title: "now_playing") {
+        QueueSectionStack {
+            sectionHeader("now_playing")
+        } rows: {
             queueRow(
                 entry: currentEntry,
                 ordinal: layout.currentOrdinal,
@@ -420,16 +437,10 @@ struct QueueView: View {
         )
     }
 
-    private func queueSection<Content: View>(
-        title: LocalizedStringKey,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
-            sectionTitle(title)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
-            content()
-        }
+    private func sectionHeader(_ title: LocalizedStringKey) -> some View {
+        sectionTitle(title)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 6)
     }
 
     private func sectionTitle(_ title: LocalizedStringKey) -> some View {
@@ -778,6 +789,25 @@ private struct QueueVerticalBarFill: ViewModifier {
             content.pmExtendsUnderVerticalBar()
         } else {
             content
+        }
+    }
+}
+
+/// 队列里的一段:段标题(和标题旁的按钮)在上,行放在惰性列表里,只建露出来的几行。
+/// 惰性列表按建好的行估没建的行有多高:里面只放一样高的行,标题这类高矮不一的东西放在外面,估出来才准,
+/// 往上翻到还没建过的行时整列不会跳。iPhone / iPad 的队列和 Mac 的队列面板、迷你播放器共用。
+struct QueueSectionStack<Header: View, Rows: View>: View {
+    /// 行与行之间、标题与第一行之间的间距。
+    var spacing: CGFloat = 0
+    @ViewBuilder let header: Header
+    @ViewBuilder let rows: Rows
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            header
+            LazyVStack(alignment: .leading, spacing: spacing) {
+                rows
+            }
         }
     }
 }

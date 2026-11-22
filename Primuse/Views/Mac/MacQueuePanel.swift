@@ -80,10 +80,12 @@ struct MacQueuePanel: View {
                     // A large library can put thousands of songs in the queue.
                     // Eager stacks instantiate every row (including its artwork)
                     // as soon as the panel opens, which made a 2K-song queue add
-                    // roughly 600 MB of resident memory. Keep both the section
-                    // list and each section's rows lazy so only visible artwork is
-                    // decoded and retained.
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    // roughly 600 MB of resident memory. Each section's rows stay
+                    // lazy (`QueueSectionStack`) so only visible artwork is decoded
+                    // and retained.
+                    // 几段本身用普通的 VStack 叠:段若也是惰性的,没露出来的已播放只能按估计的高度排,
+                    // 定位到正在播放后往上翻,一行行建出来、估计一路在改,整列跟着跳。
+                    VStack(alignment: .leading, spacing: 12) {
                         // 从上往下:已播放 → 正在播放 → 接下来(见 `QueueHistoryLayout`)。
                         if layout.playedCount > 0 {
                             historySection(history.entries, layout: layout)
@@ -133,7 +135,8 @@ struct MacQueuePanel: View {
 
     /// 已播放:最早的在上,刚放完的紧挨正在播放。更早的收在顶上的「显示更早的」里,点一下往上加一页。
     private func historySection(_ played: [QueuePresentationEntry], layout: QueueHistoryLayout) -> some View {
-        queueSection(title: "played") {
+        QueueSectionStack {
+            sectionTitle("played", accent: false)
             if layout.nextRevealCount > 0 {
                 PMScrollingButton {
                     historyLimit = layout.expandedHistoryLimit
@@ -146,6 +149,7 @@ struct MacQueuePanel: View {
                         .contentShape(Rectangle())
                 }
             }
+        } rows: {
             ForEach(Array(played.enumerated()), id: \.element.id) { index, entry in
                 queueRow(entry: entry.entry, ordinal: layout.historyOrdinal(visibleOffset: index), totalCount: layout.totalCount, dimmed: true)
             }
@@ -237,21 +241,28 @@ struct MacQueuePanel: View {
         .padding(.bottom, 8)
     }
 
+    /// 段标题在惰性列表外面,惰性列表里只放一样高的行(见 `QueueSectionStack`)。
     private func queueSection<Content: View>(
         title: LocalizedStringKey,
         accent: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.system(size: 10.5, weight: .semibold))
-                .tracking(0.6)
-                .textCase(.uppercase)
-                .foregroundStyle(accent ? PMColor.brand : PMColor.textFaint)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-            content()
+        let rows = content()
+        return QueueSectionStack {
+            sectionTitle(title, accent: accent)
+        } rows: {
+            rows
         }
+    }
+
+    private func sectionTitle(_ title: LocalizedStringKey, accent: Bool) -> some View {
+        Text(title)
+            .font(.system(size: 10.5, weight: .semibold))
+            .tracking(0.6)
+            .textCase(.uppercase)
+            .foregroundStyle(accent ? PMColor.brand : PMColor.textFaint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
     }
 
     @ViewBuilder
