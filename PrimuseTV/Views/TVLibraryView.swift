@@ -165,6 +165,9 @@ struct TVLibraryView: View {
     private var customRecommendationIntentsRawValue = ""
     @AppStorage(AIRecommendationIntentPresetVisibilityPolicy.storageKey)
     private var hiddenRecommendationPresetsRawValue = ""
+    /// 手机、Mac 推荐页上改过的内置方向(名字、提示词),经 iCloud 同步过来。
+    @AppStorage(AIRecommendationIntentPresetOverridePolicy.storageKey)
+    private var recommendationPresetOverridesRawValue = ""
     @AppStorage(AIRecommendationIntentSelectionPolicy.storageKey)
     private var selectedRecommendationIntentID =
         AIRecommendationIntentSelectionPolicy.defaultSelectionID
@@ -1189,31 +1192,25 @@ struct TVLibraryView: View {
     }
 
     private var recommendationIntents: [RecommendationIntent] {
-        let visiblePresets = [AIRecommendationIntentPreset.balanced]
-            + AIRecommendationIntentPresetVisibilityPolicy.visiblePresets(
-                hiddenRecommendationPresetsRawValue
-            )
-        let presets = visiblePresets.map { preset in
-            RecommendationIntent(
-                id: preset.selectionID,
-                title: preset.localizedTitle,
-                detail: preset.localizedDetail,
-                semanticIntent: preset.semanticIntent,
-                kind: preset == .balanced ? .defaultSelection : .preset(preset)
+        AIRecommendationIntentCatalog.options(
+            customRawValue: customRecommendationIntentsRawValue,
+            hiddenPresetsRawValue: hiddenRecommendationPresetsRawValue,
+            presetOverridesRawValue: recommendationPresetOverridesRawValue
+        ).map { option in
+            let kind: RecommendationIntentKind
+            switch option.source {
+            case .defaultSelection: kind = .defaultSelection
+            case .preset(let preset): kind = .preset(preset)
+            case .custom(let id): kind = .custom(id)
+            }
+            return RecommendationIntent(
+                id: option.id,
+                title: option.title,
+                detail: option.detail,
+                semanticIntent: option.prompt,
+                kind: kind
             )
         }
-        let custom = AIRecommendationIntentStoragePolicy
-            .decode(customRecommendationIntentsRawValue)
-            .map { intent in
-                RecommendationIntent(
-                    id: intent.selectionID,
-                    title: intent.title,
-                    detail: intent.prompt,
-                    semanticIntent: intent.prompt,
-                    kind: .custom(intent.id)
-                )
-            }
-        return presets + custom
     }
 
     private var effectiveSelectedRecommendationIntentID: String {
@@ -1234,6 +1231,7 @@ struct TVLibraryView: View {
             effectiveSelectedRecommendationIntentID,
             customRecommendationIntentsRawValue,
             hiddenRecommendationPresetsRawValue,
+            recommendationPresetOverridesRawValue,
             String(intelligence.settingsStore.revision),
             String(intelligence.regionAvailability.revision),
         ].joined(separator: "#")
@@ -1267,6 +1265,17 @@ struct TVLibraryView: View {
             CloudKVSSync.shared.markChanged(
                 key: CloudKVSKey.aiRecommendationHiddenPresets
             )
+            // 和手机、Mac 一样连改写一起丢掉,以后恢复内置方向拿回的是原样。
+            if AIRecommendationIntentPresetOverridePolicy.override(
+                for: preset,
+                in: recommendationPresetOverridesRawValue
+            ) != nil {
+                recommendationPresetOverridesRawValue = AIRecommendationIntentPresetOverridePolicy.removing(
+                    preset,
+                    in: recommendationPresetOverridesRawValue
+                )
+                CloudKVSSync.shared.markChanged(key: CloudKVSKey.aiRecommendationPresetOverrides)
+            }
         case .custom(let id):
             let remaining = AIRecommendationIntentStoragePolicy
                 .decode(customRecommendationIntentsRawValue)

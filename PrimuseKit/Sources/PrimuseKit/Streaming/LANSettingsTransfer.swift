@@ -167,6 +167,8 @@ public enum LANSettingsTransferPolicy {
         AIRecommendationIntentStoragePolicy.storageKey: .intelligence,
         AIRecommendationIntentPresetVisibilityPolicy.storageKey: .intelligence,
         AIRecommendationIntentSelectionPolicy.storageKey: .intelligence,
+        AIRecommendationIntentPresetOverridePolicy.storageKey: .intelligence,
+        AIRecommendationSceneConfigurationPolicy.storageKey: .intelligence,
         ArtistNameConfiguration.storageKey: .artistNames,
         playerEffectKey: .playerEffect,
         ImmersiveKineticScenePreference.storageKey: .playerEffect,

@@ -1,48 +1,10 @@
 import SwiftUI
 import PrimuseKit
 
-private struct AIRecommendationIntentChoice: Identifiable, Hashable {
-    var id: String
-    var title: String
-    var detail: String
-    var semanticIntent: String?
-
-    static func all(
-        customRawValue: String,
-        hiddenPresetsRawValue: String
-    ) -> [AIRecommendationIntentChoice] {
-        let visiblePresets = [AIRecommendationIntentPreset.balanced]
-            + AIRecommendationIntentPresetVisibilityPolicy.visiblePresets(
-                hiddenPresetsRawValue
-            )
-        let presets = visiblePresets.map { preset in
-            AIRecommendationIntentChoice(
-                id: preset.selectionID,
-                title: preset.localizedTitle,
-                detail: preset.localizedDetail,
-                semanticIntent: preset.semanticIntent
-            )
-        }
-        let custom = AIRecommendationIntentStoragePolicy.decode(customRawValue).map { intent in
-            AIRecommendationIntentChoice(
-                id: intent.selectionID,
-                title: intent.title,
-                detail: intent.prompt,
-                semanticIntent: intent.prompt
-            )
-        }
-        return presets + custom
-    }
-}
-
 /// A library-sized recommendation destination. The local discovery engine is
 /// always the source of playable candidates; a configured remote provider may
 /// only reorder those candidates and explain the result.
 struct AIRecommendationLibraryView: View {
-    private static let recommendationPoolSize = 36
-    private static let recommendationPageSize = 12
-    private static let minimumRecommendationPageSize = 10
-
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicIntelligenceService.self) private var intelligence
@@ -52,10 +14,14 @@ struct AIRecommendationLibraryView: View {
     private var customIntentsRawValue = ""
     @AppStorage(AIRecommendationIntentPresetVisibilityPolicy.storageKey)
     private var hiddenPresetsRawValue = ""
+    @AppStorage(AIRecommendationIntentPresetOverridePolicy.storageKey)
+    private var presetOverridesRawValue = ""
     @AppStorage(AIRecommendationIntentSelectionPolicy.storageKey)
     private var selectedIntentID = AIRecommendationIntentSelectionPolicy.defaultSelectionID
     @AppStorage("primuse.ai.recommendationScene.v1")
     private var recommendationSceneRawValue = AIRecommendationScene.automatic.rawValue
+    @AppStorage(AIRecommendationSceneConfigurationPolicy.storageKey)
+    private var sceneConfigurationRawValue = ""
 
     @State private var localResults: [MusicDiscoveryResult] = []
     @State private var aiRecommendation = AIRecommendationViewModel()
@@ -68,6 +34,13 @@ struct AIRecommendationLibraryView: View {
     /// 「推荐 MV」那一排:按这一页推荐出来的歌里的艺人挑。
     @State private var musicVideoPicks: [Song] = []
     @State private var playlistSong: Song?
+    @State private var showsIntentManager = false
+    @State private var showsSceneSettings = false
+    #if os(iOS)
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @Environment(\.librarySectionRailActive) private var sectionRailActive
+    #endif
     #if os(macOS)
     @State private var showsSongDiscovery = false
     /// 给了就是 Mac 窗口右侧的推荐面板: 一行标题带全部播放与关闭, 歌单成一列紧凑的行。
@@ -80,10 +53,11 @@ struct AIRecommendationLibraryView: View {
     private var isPanel: Bool { panelOnClose != nil }
     #endif
 
-    private var intentChoices: [AIRecommendationIntentChoice] {
-        AIRecommendationIntentChoice.all(
+    private var intentChoices: [AIRecommendationIntentOption] {
+        AIRecommendationIntentCatalog.options(
             customRawValue: customIntentsRawValue,
-            hiddenPresetsRawValue: hiddenPresetsRawValue
+            hiddenPresetsRawValue: hiddenPresetsRawValue,
+            presetOverridesRawValue: presetOverridesRawValue
         )
     }
 
@@ -94,13 +68,24 @@ struct AIRecommendationLibraryView: View {
         )
     }
 
-    private var selectedIntent: AIRecommendationIntentChoice {
+    private var selectedIntent: AIRecommendationIntentOption {
         intentChoices.first { $0.id == effectiveSelectedIntentID }
             ?? intentChoices[0]
     }
 
+    private var sceneConfiguration: AIRecommendationSceneConfiguration {
+        AIRecommendationSceneConfigurationPolicy.decode(sceneConfigurationRawValue)
+    }
+
+    /// 选中的场景;它被关掉了就按第一个还显示的场景算。
     private var recommendationScene: AIRecommendationScene {
-        AIRecommendationScene(rawValue: recommendationSceneRawValue) ?? .automatic
+        sceneConfiguration.resolvedSelection(
+            AIRecommendationScene(rawValue: recommendationSceneRawValue) ?? .automatic
+        )
+    }
+
+    private var sceneSettings: AIRecommendationSceneSettings {
+        sceneConfiguration.settings(for: recommendationScene)
     }
 
     private var displayedResults: [MusicDiscoveryResult] {
@@ -119,10 +104,11 @@ struct AIRecommendationLibraryView: View {
 
     private var contentRevision: String {
         [
-            recommendationSceneRawValue,
+            recommendationScene.rawValue,
             selectedIntent.id,
-            customIntentsRawValue,
-            hiddenPresetsRawValue,
+            selectedIntent.prompt ?? "",
+            String(sceneSettings.songCount),
+            sceneSettings.refreshInterval?.rawValue ?? "",
             String(library.visibleSongCollectionRevision),
             library.songReplacementToken.uuidString,
             String(intelligence.settingsStore.revision),
@@ -133,6 +119,7 @@ struct AIRecommendationLibraryView: View {
 
     private var localContentRevision: String {
         [
+            String(sceneSettings.candidatePoolSize),
             String(library.visibleSongCollectionRevision),
             library.songReplacementToken.uuidString,
             String(historyRevision),
@@ -173,9 +160,9 @@ struct AIRecommendationLibraryView: View {
         // 面板铺在侧栏同款的半透明底上, 自己不再垫底色。
         .background(isPanel ? Color.clear : PMColor.bg)
         #endif
-        .onAppear(perform: normalizeIntentSelectionIfNeeded)
+        .onAppear(perform: normalizeSelectionsIfNeeded)
         .onChange(of: selectedIntentID) { _, _ in
-            normalizeIntentSelectionIfNeeded()
+            normalizeSelectionsIfNeeded()
         }
         .task(id: refreshState) {
             guard refreshState.shouldRefresh else { return }
@@ -191,11 +178,9 @@ struct AIRecommendationLibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
             historyRevision &+= 1
         }
-        .onChange(of: customIntentsRawValue) { _, _ in
-            normalizeIntentSelectionIfNeeded()
-        }
-        .onChange(of: hiddenPresetsRawValue) { _, _ in
-            normalizeIntentSelectionIfNeeded()
+        // 方向被删、场景被关(这台或别的设备上)时选中的那一项改成还在的。
+        .onChange(of: selectionInputs) { _, _ in
+            normalizeSelectionsIfNeeded()
         }
         .onChange(of: aiRecommendation.orderedSongIDs) { _, _ in
             appendNewStreamingRecommendationsToOwnedQueue()
@@ -203,6 +188,30 @@ struct AIRecommendationLibraryView: View {
         .onDisappear {
             streamedQueueSongIDs = nil
         }
+        .modifier(customizationChrome)
+    }
+
+    private var selectionInputs: [String] {
+        [customIntentsRawValue, hiddenPresetsRawValue, recommendationSceneRawValue, sceneConfigurationRawValue]
+    }
+
+    /// 右上角的「选歌方向」「推荐场景」两颗键和它们打开的设置页。
+    private var customizationChrome: AIRecommendationCustomizationChrome {
+        #if os(iOS)
+        AIRecommendationCustomizationChrome(
+            showsIntentManager: $showsIntentManager,
+            showsSceneSettings: $showsSceneSettings,
+            currentScene: recommendationScene,
+            titledToolbarItems: verticalBarEdge != nil,
+            collapsesToolbarItems: sectionRailActive
+        )
+        #else
+        AIRecommendationCustomizationChrome(
+            showsIntentManager: $showsIntentManager,
+            showsSceneSettings: $showsSceneSettings,
+            currentScene: recommendationScene
+        )
+        #endif
     }
 
     /// iOS 的迷你条由标签页外层统一让位，这里只留基线间距；macOS 沿用原值。
@@ -247,7 +256,8 @@ struct AIRecommendationLibraryView: View {
     private var pageContent: some View {
         let videoRequest = MusicVideoRecommendationPolicy.Request(
             catalogRevision: library.musicVideoContentRevision, favoriteArtistIDs: localResults.compactMap(\.song.artistID),
-            recentlyPlayedIDs: [], day: HomeHeroRecommendationPolicy.dayStamp(Date()), limit: 10
+            recentlyPlayedIDs: [], day: HomeHeroRecommendationPolicy.dayStamp(Date()),
+            limit: sceneSettings.showsMusicVideos ? 10 : 0
         )
         #if os(macOS)
         let showsIndicators = false
@@ -261,7 +271,7 @@ struct AIRecommendationLibraryView: View {
                 if showsActionableStatus {
                     statusPanel
                 }
-                if !musicVideoPicks.isEmpty {
+                if sceneSettings.showsMusicVideos, !musicVideoPicks.isEmpty {
                     musicVideoShelf
                 }
                 Text("library_recommendations_songs_title")
@@ -336,6 +346,21 @@ struct AIRecommendationLibraryView: View {
                 .disabled(playable.isEmpty)
                 .accessibilityLabel(Text("shuffle"))
                 Spacer(minLength: 0)
+                #if os(macOS)
+                // Mac 的推荐页没有导航栏:两颗设置键排在卡片里刷新键的左边。
+                Button { showsIntentManager = true } label: {
+                    mixCircleIcon("wand.and.stars")
+                }
+                .buttonStyle(.plain)
+                .help(Text("ai_recommendation_intents_settings_title"))
+                .accessibilityLabel(Text("ai_recommendation_intents_settings_title"))
+                Button { showsSceneSettings = true } label: {
+                    mixCircleIcon("slider.horizontal.3")
+                }
+                .buttonStyle(.plain)
+                .help(Text("ai_recommendation_scenes_title"))
+                .accessibilityLabel(Text("ai_recommendation_scenes_title"))
+                #endif
                 if intelligence.isPersonalizedRecommendationsConfigured {
                     Button {
                         Task { await refresh(forceAIRefresh: true) }
@@ -466,7 +491,7 @@ struct AIRecommendationLibraryView: View {
                     } label: {
                         let hasIntent = effectiveSelectedIntentID != AIRecommendationIntentSelectionPolicy.defaultSelectionID
                         HStack(spacing: 5) {
-                            Image(systemName: "slider.horizontal.3")
+                            Image(systemName: "wand.and.stars")
                             if hasIntent {
                                 Text(verbatim: selectedIntent.title).lineLimit(1)
                             } else {
@@ -489,12 +514,12 @@ struct AIRecommendationLibraryView: View {
                         .fill(platformDividerColor)
                         .frame(width: 0.5, height: 20)
 
-                    ForEach(AIRecommendationScene.allCases, id: \.self) { scene in
+                    ForEach(sceneConfiguration.visibleScenes, id: \.self) { scene in
                         let isSelected = recommendationScene == scene
                         Button {
                             recommendationSceneRawValue = scene.rawValue
                         } label: {
-                            Label(scene.localizedName, systemImage: sceneIcon(scene))
+                            Label(scene.localizedName, systemImage: scene.recommendationIcon)
                                 .labelStyle(.titleAndIcon)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(isSelected ? Color.white : platformPrimaryTextColor)
@@ -520,17 +545,6 @@ struct AIRecommendationLibraryView: View {
                     .foregroundStyle(platformSecondaryTextColor)
                     .fixedSize(horizontal: false, vertical: true)
             }
-        }
-    }
-
-    private func sceneIcon(_ scene: AIRecommendationScene) -> String {
-        switch scene {
-        case .automatic: "sparkles"
-        case .driving: "car.fill"
-        case .focus: "brain.head.profile"
-        case .workout: "figure.run"
-        case .relaxation: "leaf.fill"
-        case .bedtime: "moon.stars.fill"
         }
     }
 
@@ -571,6 +585,12 @@ struct AIRecommendationLibraryView: View {
                 }
             }
         }
+        Divider()
+        Button {
+            showsIntentManager = true
+        } label: {
+            Label("ai_recommendation_intents_edit", systemImage: "pencil")
+        }
     }
 
     /// 「推荐 MV」:这一页推荐出来的歌里有哪些艺人,就先挑他们的 MV。
@@ -609,7 +629,7 @@ struct AIRecommendationLibraryView: View {
                     intentMenuContent
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: "slider.horizontal.3")
+                        Image(systemName: "wand.and.stars")
                         if effectiveSelectedIntentID
                             == AIRecommendationIntentSelectionPolicy.defaultSelectionID {
                             Text("library_recommendations_theme")
@@ -638,7 +658,7 @@ struct AIRecommendationLibraryView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 8) {
-                    ForEach(AIRecommendationScene.allCases, id: \.self) { scene in
+                    ForEach(sceneConfiguration.visibleScenes, id: \.self) { scene in
                         Button {
                             recommendationSceneRawValue = scene.rawValue
                         } label: {
@@ -1041,6 +1061,26 @@ struct AIRecommendationLibraryView: View {
             }
             .buttonStyle(.plain)
             .disabled(displayedResults.map(\.song).filteredPlayable().isEmpty)
+            Menu {
+                Button { showsIntentManager = true } label: {
+                    Label("ai_recommendation_intents_settings_title", systemImage: "wand.and.stars")
+                }
+                Button { showsSceneSettings = true } label: {
+                    Label("ai_recommendation_scenes_title", systemImage: "slider.horizontal.3")
+                }
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 24, height: 24)
+                    .background(PMColor.glassBtn, in: .circle)
+                    .contentShape(Circle())
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help(Text("library_recommendations_customize"))
             Button {
                 panelOnClose?()
             } label: {
@@ -1190,7 +1230,8 @@ struct AIRecommendationLibraryView: View {
         let generation = refreshGeneration
         loadMoreFailed = false
         let input = MusicDiscoveryEngine.recommendationInput(in: library)
-        let recommendationPoolSize = Self.recommendationPoolSize
+        let settings = sceneSettings
+        let recommendationPoolSize = settings.candidatePoolSize
         let results = await Task.detached(priority: .userInitiated) {
             MusicDiscoveryEngine.dailyRecommendations(
                 from: input,
@@ -1205,13 +1246,15 @@ struct AIRecommendationLibraryView: View {
         preparedLocalContentRevision = operationLocalContentRevision
         await aiRecommendation.refresh(
             scene: recommendationScene,
-            intent: selectedIntent.semanticIntent,
+            intent: selectedIntent.prompt,
             candidates: results.map(\.song),
             using: intelligence,
             forceRefresh: forceAIRefresh,
-            maximumResults: Self.recommendationPageSize,
-            minimumResults: Self.minimumRecommendationPageSize,
-            reuseSurface: .library
+            maximumResults: settings.songCount,
+            minimumResults: settings.minimumResults,
+            candidateLimit: recommendationPoolSize,
+            reuseSurface: .library,
+            refreshInterval: settings.refreshInterval
         )
     }
 
@@ -1229,13 +1272,15 @@ struct AIRecommendationLibraryView: View {
         loadMoreFailed = false
         defer { isLoadingMore = false }
 
+        let settings = sceneSettings
         let appended = await aiRecommendation.refresh(
             scene: recommendationScene,
-            intent: selectedIntent.semanticIntent,
+            intent: selectedIntent.prompt,
             candidates: remaining.map(\.song),
             using: intelligence,
-            maximumResults: Self.recommendationPageSize,
-            minimumResults: min(Self.minimumRecommendationPageSize, remaining.count),
+            maximumResults: settings.songCount,
+            minimumResults: min(settings.minimumResults, remaining.count),
+            candidateLimit: settings.candidatePoolSize,
             appending: true
         )
         guard !Task.isCancelled,
@@ -1342,10 +1387,15 @@ struct AIRecommendationLibraryView: View {
         )
     }
 
-    private func normalizeIntentSelectionIfNeeded() {
+    private func normalizeSelectionsIfNeeded() {
         let normalizedID = effectiveSelectedIntentID
-        guard normalizedID != selectedIntentID else { return }
-        selectIntent(normalizedID)
+        if normalizedID != selectedIntentID {
+            selectIntent(normalizedID)
+        }
+        let scene = recommendationScene
+        if scene.rawValue != recommendationSceneRawValue {
+            recommendationSceneRawValue = scene.rawValue
+        }
     }
 
     private var statusIcon: String {
@@ -1415,6 +1465,723 @@ struct AIRecommendationLibraryView: View {
     private var platformDividerColor: Color { Color.secondary.opacity(0.18) }
     private var platformSkeletonFill: Color { Color.secondary.opacity(0.14) }
     #endif
+}
+
+// MARK: - 自定义:选歌方向与推荐场景
+
+private extension AIRecommendationScene {
+    var recommendationIcon: String {
+        switch self {
+        case .automatic: "sparkles"
+        case .driving: "car.fill"
+        case .focus: "brain.head.profile"
+        case .workout: "figure.run"
+        case .relaxation: "leaf.fill"
+        case .bedtime: "moon.stars.fill"
+        }
+    }
+}
+
+/// 推荐页右上角的「选歌方向」「推荐场景」两颗键(iPhone、iPad 的导航栏与极简页头)和它们打开的设置页。
+/// Mac 的两颗键排在页面卡片和侧边面板的标题行里,这里只挂设置页。
+private struct AIRecommendationCustomizationChrome: ViewModifier {
+    @Binding var showsIntentManager: Bool
+    @Binding var showsSceneSettings: Bool
+    let currentScene: AIRecommendationScene
+    #if os(iOS)
+    /// 系统工具栏竖排到侧边时(iPhone Duo)按钮带上标题。
+    let titledToolbarItems: Bool
+    /// 资料库分类在 Duo 竖栏里时两颗键收进一个「⋯」,竖栏中间留给分类。
+    let collapsesToolbarItems: Bool
+    #endif
+
+    func body(content: Content) -> some View {
+        content
+            #if os(iOS)
+            .toolbar {
+                if collapsesToolbarItems {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            customizationButtons(titled: true)
+                        } label: {
+                            PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: true)
+                        }
+                        .accessibilityIdentifier("library.recommendations.more")
+                    }
+                } else {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        customizationButtons(titled: titledToolbarItems)
+                    }
+                }
+            }
+            // 极简模式根页没有导航栏:两颗键排在页头右边。
+            .minimalPageHeader {
+                HStack(spacing: 4) {
+                    Spacer(minLength: 8)
+                    MinimalHeaderActions {
+                        customizationButtons(titled: false)
+                    }
+                }
+            }
+            #endif
+            .sheet(isPresented: $showsIntentManager) {
+                AIRecommendationIntentManagerView()
+            }
+            .sheet(isPresented: $showsSceneSettings) {
+                AIRecommendationSceneSettingsView(initiallyExpandedScene: currentScene)
+            }
+    }
+
+    #if os(iOS)
+    @ViewBuilder
+    private func customizationButtons(titled: Bool) -> some View {
+        Button {
+            showsIntentManager = true
+        } label: {
+            PMToolbarItemLabel(
+                "ai_recommendation_intents_settings_title",
+                systemImage: "wand.and.stars",
+                titled: titled
+            )
+        }
+        .accessibilityLabel(Text("ai_recommendation_intents_settings_title"))
+        .accessibilityIdentifier("library.recommendations.directions")
+        Button {
+            showsSceneSettings = true
+        } label: {
+            PMToolbarItemLabel("ai_recommendation_scenes_title", systemImage: "slider.horizontal.3", titled: titled)
+        }
+        .accessibilityLabel(Text("ai_recommendation_scenes_title"))
+        .accessibilityIdentifier("library.recommendations.scenes")
+    }
+    #endif
+}
+
+/// 正在改的一条选歌方向:新加的,或列表里已有的。
+private enum AIRecommendationIntentEditTarget: Identifiable, Hashable {
+    case new
+    case existing(AIRecommendationIntentOption)
+
+    var id: String {
+        switch self {
+        case .new: "new"
+        case .existing(let option): option.id
+        }
+    }
+
+    var option: AIRecommendationIntentOption? {
+        if case .existing(let option) = self { return option }
+        return nil
+    }
+}
+
+/// 「选歌方向」:内置方向可以改名字和提示词、移除、还原,也可以加自己的方向。
+private struct AIRecommendationIntentManagerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
+    private var customIntentsRawValue = ""
+    @AppStorage(AIRecommendationIntentPresetVisibilityPolicy.storageKey)
+    private var hiddenPresetsRawValue = ""
+    @AppStorage(AIRecommendationIntentPresetOverridePolicy.storageKey)
+    private var presetOverridesRawValue = ""
+    @AppStorage(AIRecommendationIntentSelectionPolicy.storageKey)
+    private var selectedIntentID = AIRecommendationIntentSelectionPolicy.defaultSelectionID
+    #if os(macOS)
+    @State private var editingTarget: AIRecommendationIntentEditTarget?
+    #endif
+
+    private var options: [AIRecommendationIntentOption] {
+        AIRecommendationIntentCatalog.options(
+            customRawValue: customIntentsRawValue,
+            hiddenPresetsRawValue: hiddenPresetsRawValue,
+            presetOverridesRawValue: presetOverridesRawValue
+        )
+    }
+
+    private var customIntents: [AICustomRecommendationIntent] {
+        AIRecommendationIntentStoragePolicy.decode(customIntentsRawValue)
+    }
+
+    private var canAddIntent: Bool {
+        customIntents.count < AIRecommendationIntentStoragePolicy.maximumCustomIntents
+    }
+
+    private var hasHiddenPresets: Bool {
+        !AIRecommendationIntentPresetVisibilityPolicy.hiddenPresets(hiddenPresetsRawValue).isEmpty
+    }
+
+    var body: some View {
+        #if os(macOS)
+        VStack(spacing: 0) {
+            MacSheetHeader(
+                Text("ai_recommendation_intents_settings_title"),
+                systemImage: "wand.and.stars",
+                onClose: { dismiss() }
+            )
+            form
+                .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
+        }
+        .frame(width: 520, height: 560)
+        .background(PMColor.bg)
+        .sheet(item: $editingTarget) { target in
+            editor(for: target)
+        }
+        #else
+        NavigationStack {
+            form
+                .navigationTitle("ai_recommendation_intents_settings_title")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("done") { dismiss() }
+                    }
+                }
+        }
+        #endif
+    }
+
+    private var form: some View {
+        Form {
+            Section {
+                ForEach(options.filter { $0.source != .defaultSelection }) { option in
+                    row(for: option)
+                }
+            } footer: {
+                Text("ai_recommendation_intents_manager_footer")
+            }
+
+            Section {
+                editLink(.new) {
+                    Label("ai_recommendation_custom_add", systemImage: "plus")
+                }
+                .disabled(!canAddIntent)
+                if hasHiddenPresets {
+                    Button("ai_recommendation_presets_restore", systemImage: "arrow.counterclockwise") {
+                        restoreHiddenPresets()
+                    }
+                }
+            }
+        }
+    }
+
+    private func row(for option: AIRecommendationIntentOption) -> some View {
+        editLink(.existing(option)) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(verbatim: option.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    if option.isModifiedPreset {
+                        Text("ai_recommendation_intent_modified")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.12), in: Capsule())
+                    }
+                }
+                Text(verbatim: option.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        #if os(iOS)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                remove(option)
+            } label: {
+                Label("ai_recommendation_custom_remove", systemImage: "trash")
+            }
+        }
+        #else
+        .contextMenu {
+            Button(role: .destructive) {
+                remove(option)
+            } label: {
+                Label("ai_recommendation_custom_remove", systemImage: "trash")
+            }
+        }
+        #endif
+    }
+
+    /// iPhone、iPad 推进去;Mac 的弹框里不推导航,另开一个弹框。
+    @ViewBuilder
+    private func editLink<RowLabel: View>(
+        _ target: AIRecommendationIntentEditTarget,
+        @ViewBuilder label: () -> RowLabel
+    ) -> some View {
+        #if os(iOS)
+        NavigationLink {
+            editor(for: target)
+        } label: {
+            label()
+        }
+        #else
+        Button {
+            editingTarget = target
+        } label: {
+            HStack(spacing: 8) {
+                label()
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        #endif
+    }
+
+    private func editor(for target: AIRecommendationIntentEditTarget) -> some View {
+        let option = target.option
+        var removal: (() -> Void)?
+        var presetRestore: (() -> Void)?
+        if let option {
+            removal = { remove(option) }
+            if option.isModifiedPreset, case .preset(let preset) = option.source {
+                presetRestore = { restorePreset(preset) }
+            }
+        }
+        return AIRecommendationIntentEditor(
+            target: target,
+            options: options,
+            onSave: { title, prompt in save(target, title: title, prompt: prompt) },
+            onRemove: removal,
+            onRestorePreset: presetRestore
+        )
+    }
+
+    private func save(_ target: AIRecommendationIntentEditTarget, title: String, prompt: String) {
+        switch target {
+        case .new:
+            guard canAddIntent,
+                  let intent = AIRecommendationIntentStoragePolicy.makeIntent(title: title, prompt: prompt)
+            else { return }
+            customIntentsRawValue = AIRecommendationIntentStoragePolicy.encode(customIntents + [intent])
+            CloudKVSSync.shared.markChanged(key: CloudKVSKey.aiRecommendationIntents)
+            // 在推荐页上加的方向多半就是要马上用的。
+            select(intent.selectionID)
+        case .existing(let option):
+            switch option.source {
+            case .defaultSelection:
+                return
+            case .preset(let preset):
+                presetOverridesRawValue = AIRecommendationIntentPresetOverridePolicy.setting(
+                    preset,
+                    title: title,
+                    prompt: prompt,
+                    in: presetOverridesRawValue
+                )
+                CloudKVSSync.shared.markChanged(key: CloudKVSKey.aiRecommendationPresetOverrides)
+            case .custom(let id):
+                guard let updated = AIRecommendationIntentStoragePolicy.updating(
+                    id: id,
+                    title: title,
+                    prompt: prompt,
+                    in: customIntents
+                ) else { return }
+                customIntentsRawValue = AIRecommendationIntentStoragePolicy.encode(updated)
+                CloudKVSSync.shared.markChanged(key: CloudKVSKey.aiRecommendationIntents)
+            }
+        }
+    }
+
+    private func remove(_ option: AIRecommendationIntentOption) {
+        switch option.source {
+        case .defaultSelection:
+            return
+        case .preset(let preset):
+            hiddenPresetsRawValue = AIRecommendationIntentPresetVisibilityPolicy.hiding(
+                preset,
+                in: hiddenPresetsRawValue
+            )
+            CloudKVSSync.shared.markChanged(key: CloudKVSKey.aiRecommendationHiddenPresets)
+            // 移除时连改写一起丢掉,以后「恢复内置方向」拿回来的是原样。
+            if AIRecommendationIntentPresetOverridePolicy.override(for: preset, in: presetOverridesRawValue) != nil {
+                restorePreset(preset)
+            }
+        case .custom(let id):
+            customIntentsRawValue = AIRecommendationIntentStoragePolicy.encode(
+                customIntents.filter { $0.id != id }
+            )
+            CloudKVSSync.shared.markChanged(key: CloudKVSKey.aiRecommendationIntents)
+        }
+        if selectedIntentID == option.id {
+            select(AIRecommendationIntentSelectionPolicy.defaultSelectionID)
+        }
+    }
+
+    private func restorePreset(_ preset: AIRecommendationIntentPreset) {
+        presetOverridesRawValue = AIRecommendationIntentPresetOverridePolicy.removing(
+            preset,
+            in: presetOverridesRawValue
+        )
+        CloudKVSSync.shared.markChanged(key: CloudKVSKey.aiRecommendationPresetOverrides)
+    }
+
+    private func restoreHiddenPresets() {
+        hiddenPresetsRawValue = AIRecommendationIntentPresetVisibilityPolicy.restoringAll()
+        CloudKVSSync.shared.markChanged(key: CloudKVSKey.aiRecommendationHiddenPresets)
+    }
+
+    private func select(_ selectionID: String) {
+        selectedIntentID = selectionID
+        CloudKVSSync.shared.markChanged(key: CloudKVSKey.aiRecommendationSelectedIntent)
+    }
+}
+
+/// 改一条选歌方向的名字和交给智能服务的提示词。
+private struct AIRecommendationIntentEditor: View {
+    let target: AIRecommendationIntentEditTarget
+    /// 推荐页上现有的全部方向,查重名用。
+    let options: [AIRecommendationIntentOption]
+    let onSave: (_ title: String, _ prompt: String) -> Void
+    let onRemove: (() -> Void)?
+    let onRestorePreset: (() -> Void)?
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @State private var title: String
+    @State private var prompt: String
+    private let initialTitle: String
+    private let initialPrompt: String
+
+    init(
+        target: AIRecommendationIntentEditTarget,
+        options: [AIRecommendationIntentOption],
+        onSave: @escaping (_ title: String, _ prompt: String) -> Void,
+        onRemove: (() -> Void)?,
+        onRestorePreset: (() -> Void)?
+    ) {
+        self.target = target
+        self.options = options
+        self.onSave = onSave
+        self.onRemove = onRemove
+        self.onRestorePreset = onRestorePreset
+        let title = target.option?.title ?? ""
+        let prompt = target.option?.prompt ?? ""
+        _title = State(initialValue: title)
+        _prompt = State(initialValue: prompt)
+        initialTitle = title
+        initialPrompt = prompt
+    }
+
+    /// 内置 AI 收 160 字,只用自己的服务时放开。
+    private var promptLimit: Int {
+        intelligence.promptCharacterLimit(for: .recommendations)
+    }
+
+    private var hasTitleConflict: Bool {
+        AIRecommendationIntentCatalog.hasTitleConflict(title, excludingID: target.option?.id, in: options)
+    }
+
+    private var canSave: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !hasTitleConflict
+            && (title != initialTitle || prompt != initialPrompt)
+    }
+
+    private var screenTitle: String {
+        target.option?.title ?? String(localized: "ai_recommendation_custom_add")
+    }
+
+    var body: some View {
+        #if os(macOS)
+        VStack(spacing: 0) {
+            MacSheetHeader(Text(verbatim: screenTitle), systemImage: "wand.and.stars", onClose: { dismiss() })
+            form
+                .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
+            MacSheetFooter {
+                Button("cancel") { dismiss() }
+                    .buttonStyle(MacSheetButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                Button("save") { save() }
+                    .buttonStyle(MacSheetButtonStyle(kind: .primary))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canSave)
+            }
+        }
+        .frame(width: 480, height: 500)
+        .background(PMColor.bg)
+        #else
+        form
+            .navigationTitle(Text(verbatim: screenTitle))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("save") { save() }
+                        .disabled(!canSave)
+                }
+            }
+        #endif
+    }
+
+    private var form: some View {
+        Form {
+            Section {
+                TextField("ai_recommendation_custom_title_placeholder", text: $title)
+                    .onChange(of: title) { _, value in
+                        let limit = AIRecommendationIntentStoragePolicy.maximumTitleLength
+                        if value.count > limit { title = String(value.prefix(limit)) }
+                    }
+                    .accessibilityIdentifier("library.recommendations.directionTitle")
+            } header: {
+                Text("ai_recommendation_intent_name_label")
+            } footer: {
+                if hasTitleConflict {
+                    Text("ai_recommendation_intent_title_conflict")
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section {
+                TextField("ai_recommendation_custom_prompt_placeholder", text: $prompt, axis: .vertical)
+                    .lineLimit(4...12)
+                    .onChange(of: prompt) { _, value in
+                        if value.count > promptLimit { prompt = String(value.prefix(promptLimit)) }
+                    }
+                    .accessibilityIdentifier("library.recommendations.directionPrompt")
+            } header: {
+                Text("ai_recommendation_intent_prompt_label")
+            } footer: {
+                Text("ai_recommendation_intent_prompt_footer \(prompt.count) \(promptLimit)")
+            }
+
+            if let onRestorePreset {
+                Section {
+                    Button("ai_recommendation_intent_restore_preset", systemImage: "arrow.uturn.backward") {
+                        onRestorePreset()
+                        dismiss()
+                    }
+                }
+            }
+
+            if let onRemove {
+                Section {
+                    Button("ai_recommendation_custom_remove", systemImage: "trash", role: .destructive) {
+                        onRemove()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        onSave(title, prompt)
+        dismiss()
+    }
+}
+
+/// 「推荐场景」:哪些场景排在推荐页上,每个场景每次加载几首、多久重新问一次智能服务、要不要推荐 MV。
+private struct AIRecommendationSceneSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @AppStorage(AIRecommendationSceneConfigurationPolicy.storageKey)
+    private var configurationRawValue = ""
+    @AppStorage(AIRecommendationRefreshInterval.storageKey)
+    private var defaultRefreshRawValue = AIRecommendationRefreshInterval.defaultInterval.rawValue
+    @State private var expandedScenes: Set<AIRecommendationScene>
+
+    init(initiallyExpandedScene: AIRecommendationScene) {
+        _expandedScenes = State(initialValue: [initiallyExpandedScene])
+    }
+
+    private var configuration: AIRecommendationSceneConfiguration {
+        AIRecommendationSceneConfigurationPolicy.decode(configurationRawValue)
+    }
+
+    /// 「跟随默认」后面写上默认此刻实际是哪一档(「智能」设置里的刷新频率)。
+    private var defaultRefreshTitle: String {
+        let resolved = intelligence.resolvedRecommendationRefreshInterval(
+            AIRecommendationRefreshInterval.stored(defaultRefreshRawValue)
+        )
+        return String(
+            format: String(localized: "ai_recommendation_scene_refresh_default_format"),
+            resolved.localizedTitle
+        )
+    }
+
+    var body: some View {
+        #if os(macOS)
+        VStack(spacing: 0) {
+            MacSheetHeader(
+                Text("ai_recommendation_scenes_title"),
+                systemImage: "slider.horizontal.3",
+                onClose: { dismiss() }
+            )
+            form
+                .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
+        }
+        .frame(width: 520, height: 600)
+        .background(PMColor.bg)
+        #else
+        NavigationStack {
+            form
+                .navigationTitle("ai_recommendation_scenes_title")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("done") { dismiss() }
+                    }
+                }
+        }
+        #endif
+    }
+
+    private var form: some View {
+        Form {
+            Section {
+                ForEach(AIRecommendationScene.allCases, id: \.self) { scene in
+                    AIRecommendationSceneSettingsGroup(
+                        scene: scene,
+                        configuration: configuration,
+                        defaultRefreshTitle: defaultRefreshTitle,
+                        isExpanded: expansionBinding(for: scene),
+                        update: update
+                    )
+                }
+            } footer: {
+                Text("ai_recommendation_scenes_footer")
+            }
+        }
+    }
+
+    private func expansionBinding(for scene: AIRecommendationScene) -> Binding<Bool> {
+        Binding(
+            get: { expandedScenes.contains(scene) },
+            set: { isExpanded in
+                if isExpanded {
+                    expandedScenes.insert(scene)
+                } else {
+                    expandedScenes.remove(scene)
+                }
+            }
+        )
+    }
+
+    private func update(_ change: (inout AIRecommendationSceneConfiguration) -> Void) {
+        var value = configuration
+        change(&value)
+        let encoded = AIRecommendationSceneConfigurationPolicy.encode(value)
+        guard encoded != configurationRawValue else { return }
+        configurationRawValue = encoded
+        CloudKVSSync.shared.markChanged(key: CloudKVSKey.aiRecommendationScenes)
+    }
+}
+
+/// 「推荐场景」里的一个场景:收起时一行名字和概况,展开是它的几项设置。
+private struct AIRecommendationSceneSettingsGroup: View {
+    let scene: AIRecommendationScene
+    let configuration: AIRecommendationSceneConfiguration
+    let defaultRefreshTitle: String
+    @Binding var isExpanded: Bool
+    let update: ((inout AIRecommendationSceneConfiguration) -> Void) -> Void
+
+    private var settings: AIRecommendationSceneSettings {
+        configuration.settings(for: scene)
+    }
+
+    private var isVisible: Bool {
+        configuration.isVisible(scene)
+    }
+
+    private var accentColor: Color {
+        #if os(macOS)
+        PMColor.brand
+        #else
+        Color.accentColor
+        #endif
+    }
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            Toggle("ai_recommendation_scene_visible", isOn: visibilityBinding)
+                .disabled(isVisible && !configuration.canHide(scene))
+            Picker("ai_recommendation_scene_song_count", selection: settingBinding(\.songCount)) {
+                ForEach(AIRecommendationSceneSettings.songCountChoices, id: \.self) { count in
+                    Text(verbatim: Self.songCountText(count)).tag(count)
+                }
+            }
+            .pickerStyle(.menu)
+            Picker("ai_recommendation_refresh_interval", selection: settingBinding(\.refreshInterval)) {
+                Text(verbatim: defaultRefreshTitle).tag(AIRecommendationRefreshInterval?.none)
+                ForEach(AIRecommendationSceneSettings.refreshIntervalChoices, id: \.self) { interval in
+                    Text(verbatim: interval.localizedTitle).tag(Optional(interval))
+                }
+            }
+            .pickerStyle(.menu)
+            Toggle("ai_recommendation_scene_shows_music_videos", isOn: settingBinding(\.showsMusicVideos))
+            if settings != .default {
+                Button("Restore Defaults", systemImage: "arrow.counterclockwise") {
+                    update { $0.setSettings(.default, for: scene) }
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: scene.recommendationIcon)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(isVisible ? accentColor : Color.secondary)
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: scene.localizedName)
+                        .foregroundStyle(isVisible ? Color.primary : Color.secondary)
+                    Text(verbatim: summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .accessibilityElement(children: .combine)
+        }
+        .accessibilityIdentifier("library.recommendations.scene." + scene.rawValue)
+    }
+
+    private var summary: String {
+        guard isVisible else { return String(localized: "ai_recommendation_scene_hidden") }
+        var parts = [
+            Self.songCountText(settings.songCount),
+            settings.refreshInterval?.localizedTitle
+                ?? String(localized: "ai_recommendation_scene_refresh_default_short"),
+        ]
+        if !settings.showsMusicVideos {
+            parts.append(String(localized: "ai_recommendation_scene_no_music_videos"))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func songCountText(_ count: Int) -> String {
+        String(format: String(localized: "ai_recommendation_scene_song_count_format"), count)
+    }
+
+    private var visibilityBinding: Binding<Bool> {
+        Binding(
+            get: { isVisible },
+            set: { visible in update { $0.setVisible(visible, for: scene) } }
+        )
+    }
+
+    private func settingBinding<Value>(
+        _ keyPath: WritableKeyPath<AIRecommendationSceneSettings, Value>
+    ) -> Binding<Value> {
+        Binding(
+            get: { settings[keyPath: keyPath] },
+            set: { value in
+                update { configuration in
+                    var next = configuration.settings(for: scene)
+                    next[keyPath: keyPath] = value
+                    configuration.setSettings(next, for: scene)
+                }
+            }
+        )
+    }
 }
 
 /// 「多久后可重试」。一分钟以内按秒倒数；按天、按月的额度用完时服务端给的是到下个周期的时间，

@@ -204,7 +204,8 @@ final class SettingsDiscoveryTests: XCTestCase {
         XCTAssertEqual(SettingsCatalog.byID["lyrics.lockScreen"]?.page, .playback)
         XCTAssertEqual(SettingsCatalog.byID["lyrics.colorMode"]?.page, .lyrics)
         XCTAssertEqual(SettingsCatalog.byID["storage.wifiOnly"]?.page, .storage)
-        XCTAssertEqual(SettingsCatalog.byID["library.recommendationDirections"]?.page, .libraryDisplay)
+        // 选歌方向改到资料库「智能推荐」页右上角编辑,设置里不再有这一项。
+        XCTAssertNil(SettingsCatalog.byID["library.recommendationDirections"])
         XCTAssertEqual(SettingsCatalog.byID["appearance.immersiveMotionIntensity"]?.page, .fullscreen)
         #endif
         XCTAssertTrue(SettingsCatalog.search("动效强度").contains { $0.id == "appearance.immersiveMotionIntensity" })

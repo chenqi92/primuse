@@ -2161,17 +2161,23 @@ final class MusicIntelligenceService {
 
     /// `reuseSlot` 是哪一处推荐(`AIRecommendationReusePolicy.slotKey`):给了就在刷新间隔内
     /// 沿用这一处上次的结果,问到新结果也记在这一处。翻页追加、生成歌单不给。
+    /// `refreshInterval` 是这一处自己的刷新档位(资料库各场景可单独设),nil 时用「智能」设置里的。
     func recommendationOutcome(
         for request: AIRecommendationRequest,
         forceRefresh: Bool = false,
         reuseSlot: String? = nil,
+        refreshInterval: AIRecommendationRefreshInterval? = nil,
         onStreamEvent: ((AIRecommendationStreamEvent) -> Void)? = nil
     ) async -> AIRecommendationOutcome {
         let regionSnapshot = regionAvailability.snapshot
         guard isPersonalizedRecommendationsConfigured,
               !request.candidates.isEmpty else { return .unavailable }
         if !forceRefresh,
-           let cached = cachedRecommendationOutcome(for: request, reuseSlot: reuseSlot) {
+           let cached = cachedRecommendationOutcome(
+               for: request,
+               reuseSlot: reuseSlot,
+               refreshInterval: refreshInterval
+           ) {
             return cached
         }
 
@@ -2649,7 +2655,8 @@ final class MusicIntelligenceService {
 
     func cachedRecommendationOutcome(
         for request: AIRecommendationRequest,
-        reuseSlot: String? = nil
+        reuseSlot: String? = nil,
+        refreshInterval: AIRecommendationRefreshInterval? = nil
     ) -> AIRecommendationOutcome? {
         let regionSnapshot = regionAvailability.snapshot
         guard isPersonalizedRecommendationsConfigured,
@@ -2711,7 +2718,8 @@ final class MusicIntelligenceService {
                entry,
                for: request,
                routes: recommendationRoutes(providers: providers),
-               interval: recommendationRefreshInterval,
+               interval: refreshInterval.map { resolvedRecommendationRefreshInterval($0) }
+                   ?? recommendationRefreshInterval,
                now: Date()
            ) {
             return .success(AIRecommendationExecution(
@@ -2730,6 +2738,13 @@ final class MusicIntelligenceService {
         AIRecommendationRefreshInterval.stored(
             recommendationReuseStore.defaults.string(forKey: AIRecommendationRefreshInterval.storageKey)
         ).resolved(usesBuiltIn: isPrimuseRelayAvailable(for: .recommendations))
+    }
+
+    /// 某一档实际是多久:「自动」按这时谁先回答换算,其余原样。
+    func resolvedRecommendationRefreshInterval(
+        _ interval: AIRecommendationRefreshInterval
+    ) -> AIRecommendationRefreshInterval {
+        interval.resolved(usesBuiltIn: isPrimuseRelayAvailable(for: .recommendations))
     }
 
     /// 「自动」此刻相当于哪一档,设置里写在选项上。
@@ -3814,6 +3829,7 @@ final class AIRecommendationViewModel {
         unit: AIRecommendationUnit = .songs,
         albumCandidates: [AIRecommendationAlbumCandidate] = [],
         reuseSurface: AIRecommendationSurface? = nil,
+        refreshInterval: AIRecommendationRefreshInterval? = nil,
         followsTimeOfDay: Bool = true,
         keepsStreamedSongsOnCancel: Bool = false
     ) async -> Bool {
@@ -3874,7 +3890,11 @@ final class AIRecommendationViewModel {
         let startingAlbumReasons = reasonsByAlbumKey
         let outcome: AIRecommendationOutcome
         if !forceRefresh,
-           let cached = intelligence.cachedRecommendationOutcome(for: request, reuseSlot: reuseSlot) {
+           let cached = intelligence.cachedRecommendationOutcome(
+               for: request,
+               reuseSlot: reuseSlot,
+               refreshInterval: refreshInterval
+           ) {
             isStreaming = false
             outcome = cached
         } else {
@@ -3889,6 +3909,7 @@ final class AIRecommendationViewModel {
                 for: request,
                 forceRefresh: forceRefresh,
                 reuseSlot: reuseSlot,
+                refreshInterval: refreshInterval,
                 onStreamEvent: { [weak self] event in
                     guard let self,
                           operationGeneration == self.generation,

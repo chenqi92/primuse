@@ -668,6 +668,10 @@ enum CloudKVSKey {
     static let aiRecommendationHiddenPresets =
         AIRecommendationIntentPresetVisibilityPolicy.storageKey
     static let aiRecommendationSelectedIntent = AIRecommendationIntentSelectionPolicy.storageKey
+    /// 改过名字或提示词的内置选歌方向。
+    static let aiRecommendationPresetOverrides = AIRecommendationIntentPresetOverridePolicy.storageKey
+    /// 资料库「智能推荐」的场景:显示哪些、各自加载几首、刷新频率与 MV。
+    static let aiRecommendationScenes = AIRecommendationSceneConfigurationPolicy.storageKey
     /// 电台清单订阅的定义(不含刷新状态)。订阅每次变化时自己推送; 打开开关时的
     /// 补推按修订号比对, 一台没有订阅的设备不会再把别的设备的订阅清空。
     static let radioSubscriptions = "primuse_radio_subscriptions_v1"

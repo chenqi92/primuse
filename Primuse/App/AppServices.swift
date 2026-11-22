@@ -2154,6 +2154,8 @@ final class AppServices {
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationIntents) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationHiddenPresets) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
+        CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationPresetOverrides) { }
+        CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationScenes) { }
         // 手动的专辑分类在几台设备之间同步。
         ReleaseCategoryCloudSync.shared.start()
         // 旧版单个动态封面服务地址搬进动态封面源列表:赶在同步登记之前,只算本机的值,

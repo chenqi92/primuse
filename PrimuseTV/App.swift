@@ -331,6 +331,8 @@ struct PrimuseTVApp: App {
                         key: CloudKVSKey.aiRecommendationHiddenPresets
                     ) { }
                     CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
+                    // 在手机、Mac 上改过的内置方向提示词,电视的推荐照样按改过的问。
+                    CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationPresetOverrides) { }
                     // 歌词的间奏提示点跟着 iPhone / Mac 的设置走(那两端由 InterfaceLayoutSync 登记同一个键)。
                     CloudKVSSync.shared.register(key: PlayerAppearancePreferences.showsLyricsInterludeKey) { }
                     CloudKVSSync.shared.register(key: PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey) { }

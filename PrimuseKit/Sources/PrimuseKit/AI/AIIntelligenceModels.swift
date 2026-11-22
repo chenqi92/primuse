@@ -394,18 +394,37 @@ public enum AIRecommendationIntentStoragePolicy {
                     title: intent.title,
                     prompt: intent.prompt
                   ) else { continue }
-            let titleKey = value.title.folding(
-                options: [.caseInsensitive, .diacriticInsensitive],
-                locale: Locale(identifier: "en_US_POSIX")
-            )
-            guard seenTitles.insert(titleKey).inserted else { continue }
+            guard seenTitles.insert(titleKey(value.title)).inserted else { continue }
             output.append(value)
             if output.count == maximumCustomIntents { break }
         }
         return output
     }
 
-    private static func clean(_ rawValue: String, limit: Int) -> String {
+    /// 改一条自定义方向,位置和 id 不变。名字或提示词清空、名字和别的自定义方向撞了时为 nil。
+    public static func updating(
+        id: UUID,
+        title: String,
+        prompt: String,
+        in intents: [AICustomRecommendationIntent]
+    ) -> [AICustomRecommendationIntent]? {
+        guard let index = intents.firstIndex(where: { $0.id == id }),
+              let updated = makeIntent(id: id, title: title, prompt: prompt) else { return nil }
+        let key = titleKey(updated.title)
+        guard !intents.contains(where: { $0.id != id && titleKey($0.title) == key }) else { return nil }
+        var output = intents
+        output[index] = updated
+        return output
+    }
+
+    static func titleKey(_ title: String) -> String {
+        title.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: Locale(identifier: "en_US_POSIX")
+        )
+    }
+
+    static func clean(_ rawValue: String, limit: Int) -> String {
         let value = rawValue
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
@@ -413,6 +432,368 @@ public enum AIRecommendationIntentStoragePolicy {
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return String(value.prefix(limit))
+    }
+}
+
+/// 用户改过的内置选歌方向:只记和内置不同的字段,没改的跟着内置走(换系统语言照样翻译)。
+public struct AIRecommendationIntentPresetOverride: Codable, Hashable, Sendable {
+    public var title: String?
+    public var prompt: String?
+
+    public init(title: String? = nil, prompt: String? = nil) {
+        self.title = title
+        self.prompt = prompt
+    }
+
+    public var isEmpty: Bool { title == nil && prompt == nil }
+}
+
+public enum AIRecommendationIntentPresetOverridePolicy {
+    public static let storageKey = "primuse.ai.recommendationIntent.presetOverrides.v1"
+
+    /// 按内置方向的 rawValue 存;认不出的键(更新版本加的方向)原样留着。
+    public static func decode(_ rawValue: String) -> [String: AIRecommendationIntentPresetOverride] {
+        guard let data = rawValue.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(
+                [String: AIRecommendationIntentPresetOverride].self,
+                from: data
+              ) else { return [:] }
+        return decoded.compactMapValues(normalized)
+    }
+
+    public static func encode(_ overrides: [String: AIRecommendationIntentPresetOverride]) -> String {
+        let kept = overrides.compactMapValues(normalized)
+        guard !kept.isEmpty else { return "" }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(kept) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    public static func override(
+        for preset: AIRecommendationIntentPreset,
+        in rawValue: String
+    ) -> AIRecommendationIntentPresetOverride? {
+        decode(rawValue)[preset.rawValue]
+    }
+
+    /// 改写一个内置方向。和内置相同或留空的字段不记,两项都和内置一样时删掉这一条。
+    public static func setting(
+        _ preset: AIRecommendationIntentPreset,
+        title: String,
+        prompt: String,
+        in rawValue: String
+    ) -> String {
+        var overrides = decode(rawValue)
+        guard preset != .balanced else { return encode(overrides) }
+        let title = AIRecommendationIntentStoragePolicy.clean(
+            title,
+            limit: AIRecommendationIntentStoragePolicy.maximumTitleLength
+        )
+        let prompt = AIRecommendationIntentStoragePolicy.clean(
+            prompt,
+            limit: AIRecommendationIntentStoragePolicy.maximumCustomProviderPromptLength
+        )
+        let value = AIRecommendationIntentPresetOverride(
+            title: title.isEmpty || title == preset.localizedTitle ? nil : title,
+            prompt: prompt.isEmpty || prompt == preset.semanticIntent ? nil : prompt
+        )
+        overrides[preset.rawValue] = value.isEmpty ? nil : value
+        return encode(overrides)
+    }
+
+    public static func removing(_ preset: AIRecommendationIntentPreset, in rawValue: String) -> String {
+        var overrides = decode(rawValue)
+        overrides[preset.rawValue] = nil
+        return encode(overrides)
+    }
+
+    private static func normalized(
+        _ value: AIRecommendationIntentPresetOverride
+    ) -> AIRecommendationIntentPresetOverride? {
+        let title = value.title.map {
+            AIRecommendationIntentStoragePolicy.clean($0, limit: AIRecommendationIntentStoragePolicy.maximumTitleLength)
+        }
+        let prompt = value.prompt.map {
+            AIRecommendationIntentStoragePolicy.clean(
+                $0,
+                limit: AIRecommendationIntentStoragePolicy.maximumCustomProviderPromptLength
+            )
+        }
+        let output = AIRecommendationIntentPresetOverride(
+            title: title?.isEmpty == false ? title : nil,
+            prompt: prompt?.isEmpty == false ? prompt : nil
+        )
+        return output.isEmpty ? nil : output
+    }
+}
+
+/// 推荐页上能选的一个选歌方向:「无额外方向」、内置方向(含用户的改写)或自定义方向。
+public struct AIRecommendationIntentOption: Identifiable, Hashable, Sendable {
+    public enum Source: Hashable, Sendable {
+        /// 「无额外方向」。
+        case defaultSelection
+        case preset(AIRecommendationIntentPreset)
+        case custom(UUID)
+    }
+
+    public var id: String
+    public var source: Source
+    public var title: String
+    /// 列表里的第二行:内置方向没改提示词时是内置说明,改过的和自定义的就是提示词本身。
+    public var detail: String
+    /// 交给智能服务的提示词;「无额外方向」为 nil。
+    public var prompt: String?
+    /// 内置方向被改过名字或提示词。
+    public var isModifiedPreset: Bool
+
+    public init(
+        id: String,
+        source: Source,
+        title: String,
+        detail: String,
+        prompt: String?,
+        isModifiedPreset: Bool = false
+    ) {
+        self.id = id
+        self.source = source
+        self.title = title
+        self.detail = detail
+        self.prompt = prompt
+        self.isModifiedPreset = isModifiedPreset
+    }
+}
+
+/// 三份存储(自定义方向、隐藏的内置方向、内置方向的改写)合成推荐页上的方向列表。手机、Mac、电视共用。
+public enum AIRecommendationIntentCatalog {
+    public static func options(
+        customRawValue: String,
+        hiddenPresetsRawValue: String,
+        presetOverridesRawValue: String
+    ) -> [AIRecommendationIntentOption] {
+        let balanced = AIRecommendationIntentPreset.balanced
+        var options = [
+            AIRecommendationIntentOption(
+                id: balanced.selectionID,
+                source: .defaultSelection,
+                title: balanced.localizedTitle,
+                detail: balanced.localizedDetail,
+                prompt: nil
+            ),
+        ]
+        let overrides = AIRecommendationIntentPresetOverridePolicy.decode(presetOverridesRawValue)
+        for preset in AIRecommendationIntentPresetVisibilityPolicy.visiblePresets(hiddenPresetsRawValue) {
+            let override = overrides[preset.rawValue]
+            options.append(AIRecommendationIntentOption(
+                id: preset.selectionID,
+                source: .preset(preset),
+                title: override?.title ?? preset.localizedTitle,
+                detail: override?.prompt ?? preset.localizedDetail,
+                prompt: override?.prompt ?? preset.semanticIntent,
+                isModifiedPreset: override != nil
+            ))
+        }
+        for intent in AIRecommendationIntentStoragePolicy.decode(customRawValue) {
+            options.append(AIRecommendationIntentOption(
+                id: intent.selectionID,
+                source: .custom(intent.id),
+                title: intent.title,
+                detail: intent.prompt,
+                prompt: intent.prompt
+            ))
+        }
+        return options
+    }
+
+    /// 名字和列表里别的方向撞了(不分大小写和变音符号)。`excludingID` 是正在改的那一条。
+    public static func hasTitleConflict(
+        _ title: String,
+        excludingID: String?,
+        in options: [AIRecommendationIntentOption]
+    ) -> Bool {
+        let key = AIRecommendationIntentStoragePolicy.titleKey(
+            AIRecommendationIntentStoragePolicy.clean(
+                title,
+                limit: AIRecommendationIntentStoragePolicy.maximumTitleLength
+            )
+        )
+        guard !key.isEmpty else { return false }
+        return options.contains {
+            $0.id != excludingID && AIRecommendationIntentStoragePolicy.titleKey($0.title) == key
+        }
+    }
+}
+
+/// 资料库「智能推荐」里一个场景自己的设置:每次加载几首、多久重新问一次智能服务、要不要推荐 MV。
+public struct AIRecommendationSceneSettings: Codable, Hashable, Sendable {
+    public static let songCountChoices = [12, 20, 30]
+    public static let defaultSongCount = 12
+    public static let `default` = AIRecommendationSceneSettings()
+    /// 场景能单独选的刷新档位;「跟随默认」(nil)之外不再给「自动」,免得两种默认叫法并存。
+    public static let refreshIntervalChoices: [AIRecommendationRefreshInterval] = [
+        .realtime, .hourly, .sixHours, .daily,
+    ]
+
+    /// 每次加载(含「加载更多」)要几首。
+    public var songCount: Int
+    /// nil:跟随「智能」设置里的刷新频率。
+    public var refreshInterval: AIRecommendationRefreshInterval?
+    public var showsMusicVideos: Bool
+
+    public init(
+        songCount: Int = AIRecommendationSceneSettings.defaultSongCount,
+        refreshInterval: AIRecommendationRefreshInterval? = nil,
+        showsMusicVideos: Bool = true
+    ) {
+        self.songCount = Self.clampedSongCount(songCount)
+        self.refreshInterval = refreshInterval == .automatic ? nil : refreshInterval
+        self.showsMusicVideos = showsMusicVideos
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case songCount, refreshInterval, showsMusicVideos
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let songCount = (try? container.decodeIfPresent(Int.self, forKey: .songCount)) ?? nil
+        let interval = ((try? container.decodeIfPresent(String.self, forKey: .refreshInterval)) ?? nil)
+            .flatMap(AIRecommendationRefreshInterval.init(rawValue:))
+        let showsMusicVideos = (try? container.decodeIfPresent(Bool.self, forKey: .showsMusicVideos)) ?? nil
+        self.init(
+            songCount: songCount ?? Self.defaultSongCount,
+            refreshInterval: interval,
+            showsMusicVideos: showsMusicVideos ?? true
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(songCount, forKey: .songCount)
+        try container.encodeIfPresent(refreshInterval?.rawValue, forKey: .refreshInterval)
+        try container.encode(showsMusicVideos, forKey: .showsMusicVideos)
+    }
+
+    /// 本地先算出的候选池:够翻两三页,最多是一次请求收得下的候选数。
+    public var candidatePoolSize: Int {
+        min(AIRecommendationRequest.maximumCandidates, max(36, songCount * 3))
+    }
+
+    /// 智能服务至少要给回几首才算这一页完整(约八成)。
+    public var minimumResults: Int {
+        max(1, (songCount * 4 + 4) / 5)
+    }
+
+    private static func clampedSongCount(_ value: Int) -> Int {
+        min(max(1, value), AIRecommendationRequest.maximumSongSelections)
+    }
+}
+
+/// 资料库「智能推荐」的场景:哪些显示在推荐页上,以及各场景自己的设置。
+public struct AIRecommendationSceneConfiguration: Codable, Hashable, Sendable {
+    /// 关掉的场景(rawValue);认不出的(更新版本加的场景)原样留着。
+    public private(set) var hiddenScenes: [String]
+    public private(set) var sceneSettings: [String: AIRecommendationSceneSettings]
+
+    public init(
+        hiddenScenes: [String] = [],
+        sceneSettings: [String: AIRecommendationSceneSettings] = [:]
+    ) {
+        self.hiddenScenes = []
+        self.sceneSettings = [:]
+        for raw in hiddenScenes where !self.hiddenScenes.contains(raw) {
+            self.hiddenScenes.append(raw)
+        }
+        for (raw, settings) in sceneSettings where settings != .default {
+            self.sceneSettings[raw] = settings
+        }
+        normalizeHiddenScenes()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hiddenScenes, sceneSettings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            hiddenScenes: ((try? container.decodeIfPresent([String].self, forKey: .hiddenScenes)) ?? nil) ?? [],
+            sceneSettings: ((try? container.decodeIfPresent(
+                [String: AIRecommendationSceneSettings].self,
+                forKey: .sceneSettings
+            )) ?? nil) ?? [:]
+        )
+    }
+
+    public var isDefault: Bool { hiddenScenes.isEmpty && sceneSettings.isEmpty }
+
+    public func settings(for scene: AIRecommendationScene) -> AIRecommendationSceneSettings {
+        sceneSettings[scene.rawValue] ?? .default
+    }
+
+    public mutating func setSettings(
+        _ settings: AIRecommendationSceneSettings,
+        for scene: AIRecommendationScene
+    ) {
+        sceneSettings[scene.rawValue] = settings == .default ? nil : settings
+    }
+
+    public func isVisible(_ scene: AIRecommendationScene) -> Bool {
+        !hiddenScenes.contains(scene.rawValue)
+    }
+
+    /// 推荐页上排出来的场景,至少一个。
+    public var visibleScenes: [AIRecommendationScene] {
+        let visible = AIRecommendationScene.allCases.filter { isVisible($0) }
+        return visible.isEmpty ? AIRecommendationScene.allCases : visible
+    }
+
+    /// 最后一个还显示的场景不能关。
+    public func canHide(_ scene: AIRecommendationScene) -> Bool {
+        isVisible(scene) && visibleScenes.count > 1
+    }
+
+    public mutating func setVisible(_ visible: Bool, for scene: AIRecommendationScene) {
+        if visible {
+            hiddenScenes.removeAll { $0 == scene.rawValue }
+        } else if canHide(scene) {
+            hiddenScenes.append(scene.rawValue)
+            normalizeHiddenScenes()
+        }
+    }
+
+    /// 选中的场景被关掉了就换成第一个还显示的。
+    public func resolvedSelection(_ scene: AIRecommendationScene) -> AIRecommendationScene {
+        isVisible(scene) ? scene : visibleScenes[0]
+    }
+
+    /// 已知场景按内置顺序在前,认不出的留在后面;全部已知场景都关掉时一个也不算关。
+    private mutating func normalizeHiddenScenes() {
+        let known = AIRecommendationScene.allCases.map(\.rawValue)
+        let hidden = hiddenScenes
+        var ordered = known.filter { hidden.contains($0) }
+        if ordered.count == known.count { ordered = [] }
+        hiddenScenes = ordered + hidden.filter { !known.contains($0) }
+    }
+}
+
+public enum AIRecommendationSceneConfigurationPolicy {
+    public static let storageKey = "primuse.ai.recommendationScenes.v1"
+
+    public static func decode(_ rawValue: String) -> AIRecommendationSceneConfiguration {
+        guard let data = rawValue.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(AIRecommendationSceneConfiguration.self, from: data)
+        else { return AIRecommendationSceneConfiguration() }
+        return decoded
+    }
+
+    /// 全是默认时存空串。
+    public static func encode(_ configuration: AIRecommendationSceneConfiguration) -> String {
+        guard !configuration.isDefault else { return "" }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(configuration) else { return "" }
+        return String(decoding: data, as: UTF8.self)
     }
 }
 
@@ -830,13 +1211,19 @@ public enum AIRecommendationReusePolicy {
         sceneSelection: AIRecommendationScene,
         request: AIRecommendationRequest
     ) -> String {
-        [
+        var parts = [
             surface.rawValue,
             sceneSelection.rawValue,
             request.unit.rawValue,
             request.languageCode ?? "",
             request.intent ?? "",
-        ].joined(separator: "\u{1F}")
+        ]
+        // 资料库的场景可以一次要 20、30 首:按条数分开记,调多以后不拿少的那份顶替。
+        // 12 首及以下(首页、电视与默认设置)不加,原有的结果照旧沿用。
+        if request.maximumResults > AIRecommendationSceneSettings.defaultSongCount {
+            parts.append("n\(request.maximumResults)")
+        }
+        return parts.joined(separator: "\u{1F}")
     }
 
     public static func isFresh(

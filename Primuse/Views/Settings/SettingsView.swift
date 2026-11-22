@@ -988,31 +988,11 @@ private struct LibraryDisplaySettingsView: View {
     private var sectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenSectionsRawValue = ""
-    @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
-    private var customIntentsRawValue = ""
-    @AppStorage(AIRecommendationIntentPresetVisibilityPolicy.storageKey)
-    private var hiddenRecommendationPresetsRawValue = ""
-    @AppStorage(AIRecommendationIntentSelectionPolicy.storageKey)
-    private var selectedRecommendationIntentID =
-        AIRecommendationIntentSelectionPolicy.defaultSelectionID
-    @State private var customIntentTitle = ""
-    @State private var customIntentPrompt = ""
-    @State private var inspectedRecommendationIntent: AIRecommendationIntentDetails?
     @AppStorage(ListeningIntentService.minimalSongsVisibilityKey)
     private var showsMinimalStartListening = true
 
     private var sectionOrder: [LibrarySection] {
         LibraryDisplayConfiguration.decodeSectionOrder(sectionOrderRawValue)
-    }
-
-    private var customIntents: [AICustomRecommendationIntent] {
-        AIRecommendationIntentStoragePolicy.decode(customIntentsRawValue)
-    }
-
-    private var visibleRecommendationPresets: [AIRecommendationIntentPreset] {
-        AIRecommendationIntentPresetVisibilityPolicy.visiblePresets(
-            hiddenRecommendationPresetsRawValue
-        )
     }
 
     private var defaultFlatBrowseBinding: Binding<Bool> {
@@ -1159,105 +1139,6 @@ private struct LibraryDisplaySettingsView: View {
             }
 
             Section {
-                ForEach(visibleRecommendationPresets, id: \.self) { preset in
-                    HStack(alignment: .center, spacing: 10) {
-                        Button {
-                            inspectedRecommendationIntent = preset.intentDetails
-                        } label: {
-                            HStack(spacing: 10) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(verbatim: preset.localizedTitle)
-                                        .font(.body.weight(.semibold))
-                                    Text(verbatim: preset.localizedDetail)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength: 8)
-                                Image(systemName: "info.circle")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        Button(role: .destructive) {
-                            removeRecommendationPreset(preset)
-                        } label: {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel(Text("ai_recommendation_custom_remove"))
-                    }
-                }
-
-                ForEach(customIntents) { intent in
-                    HStack(alignment: .top, spacing: 10) {
-                        Button {
-                            inspectedRecommendationIntent = intent.intentDetails
-                        } label: {
-                            HStack(spacing: 10) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(verbatim: intent.title)
-                                        .font(.body.weight(.semibold))
-                                    Text(verbatim: intent.prompt)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength: 8)
-                                Image(systemName: "info.circle")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        Button(role: .destructive) {
-                            removeCustomIntent(id: intent.id)
-                        } label: {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel(Text("ai_recommendation_custom_remove"))
-                    }
-                }
-
-                if !AIRecommendationIntentPresetVisibilityPolicy
-                    .hiddenPresets(hiddenRecommendationPresetsRawValue).isEmpty {
-                    Button(
-                        "ai_recommendation_presets_restore",
-                        systemImage: "arrow.counterclockwise"
-                    ) {
-                        restoreRecommendationPresets()
-                    }
-                }
-
-                TextField("ai_recommendation_custom_title_placeholder", text: $customIntentTitle)
-                    .textInputAutocapitalization(.sentences)
-                TextField(
-                    "ai_recommendation_custom_prompt_placeholder",
-                    text: $customIntentPrompt,
-                    axis: .vertical
-                )
-                .lineLimit(2...4)
-                Button("ai_recommendation_custom_add", systemImage: "plus") {
-                    addCustomIntent()
-                }
-                .disabled(
-                    AIRecommendationIntentStoragePolicy.makeIntent(
-                        title: customIntentTitle,
-                        prompt: customIntentPrompt
-                    ) == nil
-                    || customIntents.count
-                        >= AIRecommendationIntentStoragePolicy.maximumCustomIntents
-                )
-            } header: {
-                SettingsInfoHeader("ai_recommendation_intents_settings_title") {
-                    Text("ai_recommendation_intents_settings_footer")
-                }
-            }
-            .settingsAnchor("library.recommendationDirections")
-
-            Section {
                 Toggle("library_default_flat_view", isOn: defaultFlatBrowseBinding)
                 .settingsAnchor("library.flatBrowse")
                     .accessibilityHint(Text("library_default_flat_view_description"))
@@ -1281,9 +1162,6 @@ private struct LibraryDisplaySettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .sheet(item: $inspectedRecommendationIntent) { details in
-            AIRecommendationIntentDetailView(details: details)
-        }
         .libraryBackupPresentations(
             flow: backupFlow,
             showsImporter: $showsBackupImporter,
@@ -1363,82 +1241,6 @@ private struct LibraryDisplaySettingsView: View {
         var updated = sectionOrder
         updated.move(fromOffsets: source, toOffset: destination)
         sectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)
-    }
-
-    private func removeRecommendationPreset(_ preset: AIRecommendationIntentPreset) {
-        hiddenRecommendationPresetsRawValue =
-            AIRecommendationIntentPresetVisibilityPolicy.hiding(
-                preset,
-                in: hiddenRecommendationPresetsRawValue
-            )
-        CloudKVSSync.shared.markChanged(
-            key: AIRecommendationIntentPresetVisibilityPolicy.storageKey
-        )
-        resetRecommendationSelectionIfNeeded(removing: preset.selectionID)
-    }
-
-    private func restoreRecommendationPresets() {
-        hiddenRecommendationPresetsRawValue =
-            AIRecommendationIntentPresetVisibilityPolicy.restoringAll()
-        CloudKVSSync.shared.markChanged(
-            key: AIRecommendationIntentPresetVisibilityPolicy.storageKey
-        )
-    }
-
-    private func addCustomIntent() {
-        guard customIntents.count < AIRecommendationIntentStoragePolicy.maximumCustomIntents,
-              let intent = AIRecommendationIntentStoragePolicy.makeIntent(
-                title: customIntentTitle,
-                prompt: customIntentPrompt
-              ) else { return }
-        customIntentsRawValue = AIRecommendationIntentStoragePolicy.encode(customIntents + [intent])
-        customIntentTitle = ""
-        customIntentPrompt = ""
-        CloudKVSSync.shared.markChanged(key: AIRecommendationIntentStoragePolicy.storageKey)
-    }
-
-    private func removeCustomIntent(id: UUID) {
-        customIntentsRawValue = AIRecommendationIntentStoragePolicy.encode(
-            customIntents.filter { $0.id != id }
-        )
-        CloudKVSSync.shared.markChanged(key: AIRecommendationIntentStoragePolicy.storageKey)
-        resetRecommendationSelectionIfNeeded(removing: "custom:\(id.uuidString)")
-    }
-
-    private func resetRecommendationSelectionIfNeeded(removing selectionID: String) {
-        guard selectedRecommendationIntentID == selectionID else { return }
-        selectedRecommendationIntentID = AIRecommendationIntentSelectionPolicy.defaultSelectionID
-        CloudKVSSync.shared.markChanged(
-            key: AIRecommendationIntentSelectionPolicy.storageKey
-        )
-    }
-}
-
-private struct AIRecommendationIntentDetailView: View {
-    @Environment(\.dismiss) private var dismiss
-    let details: AIRecommendationIntentDetails
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("ai_recommendation_intent_description_label") {
-                    Text(verbatim: details.detail)
-                        .textSelection(.enabled)
-                }
-                if let prompt = details.prompt {
-                    Section("ai_recommendation_intent_prompt_label") {
-                        Text(verbatim: prompt)
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-            .navigationTitle(details.title)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("done") { dismiss() }
-                }
-            }
-        }
     }
 }
 
