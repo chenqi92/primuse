@@ -712,7 +712,10 @@ struct GroupingMaintenance {
         var pending = dirty.folders
         while let folder = pending.popFirst() {
             let count = try Int.fetchOne(db, sql: "SELECT count(*) FROM song WHERE folderKey = ?", arguments: [folder]) ?? 0
-            let children = try Int.fetchOne(db, sql: "SELECT count(*) FROM folder WHERE parentKey = ?", arguments: [folder]) ?? 0
+            // 带上源键:(源, 上一级, 名字) 的唯一索引才用得上,否则每个脏文件夹都要扫整张文件夹表。
+            let children = try Int.fetchOne(db, sql: """
+                SELECT count(*) FROM folder WHERE sourceKey = (SELECT sourceKey FROM folder WHERE key = ?) AND parentKey = ?
+                """, arguments: [folder, folder]) ?? 0
             if count == 0, children == 0 {
                 let parent = try Int64.fetchOne(db, sql: "SELECT parentKey FROM folder WHERE key = ?", arguments: [folder])
                 try db.execute(sql: "DELETE FROM folder WHERE key = ?", arguments: [folder])
