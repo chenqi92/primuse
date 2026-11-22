@@ -2136,6 +2136,208 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertEqual(firstTrack()?.lyricsText, "first track lyric line")
     }
 
+    // MARK: 用户反馈:CUE 分轨重扫后的评分、简介与改动
+
+    /// 一张整轨 WAV + CUE 的专辑放进本机接收目录,返回目录名、CUE 路径与按起点排好的分轨。
+    private func makeCueAlbum(
+        in fixture: Fixture,
+        store: TVStore,
+        source: MusicSource,
+        secondTitle: String = "Second"
+    ) async throws -> (folderName: String, folder: URL, cuePath: String) {
+        let folderName = "TV CUE Feedback QA \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try waveFixture(duration: 6).write(to: folder.appendingPathComponent("Album.wav"))
+        try cueSheet(secondTitle: secondTitle).write(to: folder.appendingPathComponent("Album.cue"))
+        let scanned = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(scanned)
+        return (folderName, folder, "/\(folderName)/Album.cue")
+    }
+
+    private func cueSheet(secondTitle: String) -> Data {
+        Data("""
+        PERFORMER "Sheet Artist"
+        TITLE "Sheet Album"
+        REM DATE 2001
+        FILE "Album.wav" WAVE
+          TRACK 01 AUDIO
+            TITLE "First"
+            INDEX 01 00:00:00
+          TRACK 02 AUDIO
+            TITLE "\(secondTitle)"
+            INDEX 01 00:02:00
+          TRACK 03 AUDIO
+            TITLE "Third"
+            INDEX 01 00:04:00
+        """.utf8)
+    }
+
+    private func cueTracks(_ fixture: Fixture, cuePath: String) -> [Song] {
+        fixture.library.songs
+            .filter { $0.cueSheetPath == cuePath }
+            .sorted { ($0.cueStartTime ?? 0) < ($1.cueStartTime ?? 0) }
+    }
+
+    /// 全量扫描、重新读取全部标签之后,分轨的评分评论、红心、专辑评分和专辑简介都还在。
+    func testFullRescanAndRereadKeepCueTrackReviewsLikesAndAlbumInsight() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let source = try store.prepareTransferSource()
+        let album = try await makeCueAlbum(in: fixture, store: store, source: source)
+        defer { try? FileManager.default.removeItem(at: album.folder) }
+        let original = cueTracks(fixture, cuePath: album.cuePath)
+        XCTAssertEqual(original.map(\.title), ["First", "Second", "Third"])
+        let second = original[1]
+        let albumID = try XCTUnwrap(second.albumID)
+        XCTAssertEqual(Set(original.map(\.albumID)), [albumID])
+
+        fixture.library.updateLibraryReview(for: .song(second.id), rating: 4, comment: "track note")
+        fixture.library.updateLibraryReview(for: .album(albumID), rating: 5, comment: "album note")
+        fixture.library.toggleLiked(songID: second.id)
+        let subject = LibraryInsightSubject.album(
+            title: second.albumTitle ?? "", artist: second.albumArtistName ?? second.artistName ?? "",
+            year: second.year, genres: [], tracks: original.map(\.title)
+        )
+        let insightID = subject.recordID()
+        fixture.library.saveLibraryInsightRecord(LibraryInsightRecord(
+            id: insightID, kind: .album, albumTitle: subject.albumTitle, artistName: subject.artistName,
+            summary: "my own album intro", tags: ["live"], isUserEdited: true, updatedAt: Date()
+        ))
+        _ = await fixture.library.persistNowAndWait()
+
+        func assertMarksSurvive(_ step: String, file: StaticString = #filePath, line: UInt = #line) {
+            let tracks = cueTracks(fixture, cuePath: album.cuePath)
+            XCTAssertEqual(tracks.map(\.id), original.map(\.id), "\(step): CUE track ids", file: file, line: line)
+            XCTAssertEqual(fixture.library.libraryReview(for: .song(second.id))?.rating, 4, step, file: file, line: line)
+            XCTAssertEqual(fixture.library.libraryReview(for: .song(second.id))?.comment, "track note", step, file: file, line: line)
+            XCTAssertEqual(fixture.library.libraryReview(for: .album(albumID))?.rating, 5, step, file: file, line: line)
+            XCTAssertEqual(fixture.library.libraryReview(for: .album(albumID))?.comment, "album note", step, file: file, line: line)
+            XCTAssertTrue(fixture.library.isLiked(songID: second.id), step, file: file, line: line)
+            XCTAssertEqual(fixture.library.libraryInsightRecord(id: insightID)?.summary, "my own album intro",
+                           step, file: file, line: line)
+            XCTAssertEqual(Set(tracks.map(\.albumID)), [albumID], "\(step): album grouping", file: file, line: line)
+        }
+
+        let full = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"], mode: .full)
+        XCTAssertTrue(full)
+        assertMarksSurvive("full rescan")
+
+        let reread = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"],
+                                         rereadMetadata: true)
+        XCTAssertTrue(reread)
+        assertMarksSurvive("reread all tags")
+
+        let incremental = await store.runScan(source: source, lister: TVLocalDirectoryLister(),
+                                              dirs: ["/\(album.folderName)"], mode: .incremental)
+        XCTAssertTrue(incremental)
+        assertMarksSurvive("incremental rescan")
+
+        // 重启后从数据库读回来也还在。
+        _ = await fixture.library.persistNowAndWait()
+        let restarted = MusicLibrary(storageDirectory: fixture.directory)
+        XCTAssertEqual(restarted.libraryReview(for: .song(second.id))?.comment, "track note")
+        XCTAssertEqual(restarted.libraryReview(for: .album(albumID))?.rating, 5)
+        XCTAssertEqual(restarted.libraryInsightRecord(id: insightID)?.summary, "my own album intro")
+    }
+
+    /// 只改了 CUE 里某一轨的曲名(整轨音频没动):增量扫描读得到。
+    func testIncrementalRescanPicksUpEditedCueSheet() async throws {
+        try await assertRescanPicksUpEditedCueSheet(mode: .incremental, rereadMetadata: false)
+    }
+
+    /// 同上,全量扫描读得到。
+    func testFullRescanPicksUpEditedCueSheet() async throws {
+        try await assertRescanPicksUpEditedCueSheet(mode: .full, rereadMetadata: false)
+    }
+
+    /// 同上,「重新读取全部标签」读得到。
+    func testRereadAllTagsPicksUpEditedCueSheet() async throws {
+        try await assertRescanPicksUpEditedCueSheet(mode: .full, rereadMetadata: true)
+    }
+
+    private func assertRescanPicksUpEditedCueSheet(
+        mode: TVScanMode,
+        rereadMetadata: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let source = try store.prepareTransferSource()
+        let album = try await makeCueAlbum(in: fixture, store: store, source: source)
+        defer { try? FileManager.default.removeItem(at: album.folder) }
+        let original = cueTracks(fixture, cuePath: album.cuePath)
+        XCTAssertEqual(original.map(\.title), ["First", "Second", "Third"], file: file, line: line)
+        fixture.library.updateLibraryReview(for: .song(original[1].id), rating: 3, comment: "keep me")
+
+        // 发现第二轨曲名写错,只改 CUE;等一秒让修改时间确实变了。
+        try await Task.sleep(for: .seconds(1.1))
+        try cueSheet(secondTitle: "Second (Fixed)").write(to: album.folder.appendingPathComponent("Album.cue"))
+        let dirs = mode == .incremental ? ["/\(album.folderName)"] : ["/"]
+        let admitted = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: dirs,
+                                           rereadMetadata: rereadMetadata, mode: mode)
+        XCTAssertTrue(admitted, file: file, line: line)
+        let rescanned = cueTracks(fixture, cuePath: album.cuePath)
+        XCTAssertEqual(rescanned.map(\.title), ["First", "Second (Fixed)", "Third"], file: file, line: line)
+        XCTAssertEqual(rescanned.map(\.id), original.map(\.id), file: file, line: line)
+        XCTAssertEqual(fixture.library.libraryReview(for: .song(original[1].id))?.comment, "keep me",
+                       file: file, line: line)
+    }
+
+    /// 单首手动匹配选错了候选:结果页给的艺术家、专辑、专辑艺术家、轨号、碟号对 CUE 分轨不生效,
+    /// 曲名、年份、流派换掉,这一轨仍留在原专辑里。
+    func testWrongManualMatchOnCueTrackKeepsItInTheAlbum() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let source = try store.prepareTransferSource()
+        let album = try await makeCueAlbum(in: fixture, store: store, source: source)
+        defer { try? FileManager.default.removeItem(at: album.folder) }
+        let original = cueTracks(fixture, cuePath: album.cuePath)
+        let albumID = try XCTUnwrap(original[2].albumID)
+
+        var catalog = ScrapeReviewCatalog()
+        catalog.addText("Wrong Song", field: .title, source: "QA")
+        catalog.addText("Wrong Artist", field: .artist, source: "QA")
+        catalog.addText("Wrong Album", field: .album, source: "QA")
+        catalog.addText("Wrong Album Artist", field: .albumArtist, source: "QA")
+        catalog.addText("1987", field: .year, source: "QA")
+        catalog.addText("7", field: .track, source: "QA")
+        catalog.addText("2", field: .disc, source: "QA")
+        catalog.addText("Polka", field: .genre, source: "QA")
+        let settings = ScraperSettings.load()
+        let request = settings.reviewFields(for: original[2], parts: .all)
+        var draft = ScrapeReviewDraft(song: original[2], catalog: catalog, request: request, defaults: request)
+        for field in ScrapeField.tags {
+            draft.select(catalog.options[field]?.first?.id, for: field)
+        }
+        let applied = await store.metadataScraper.apply(draft, coverData: nil)
+        XCTAssertTrue(applied)
+
+        let tracks = cueTracks(fixture, cuePath: album.cuePath)
+        XCTAssertEqual(tracks[2].title, "Wrong Song")
+        XCTAssertEqual(tracks[2].year, 1987)
+        XCTAssertEqual(tracks[2].artistName, original[2].artistName)
+        XCTAssertEqual(tracks[2].albumTitle, original[2].albumTitle)
+        XCTAssertEqual(tracks[2].albumArtistName, original[2].albumArtistName)
+        XCTAssertEqual(tracks[2].trackNumber, original[2].trackNumber)
+        XCTAssertEqual(tracks[2].discNumber, original[2].discNumber)
+        XCTAssertEqual(Set(tracks.map(\.albumID)), [albumID])
+
+        // 之后再全量扫描,用户挑的曲名照留,仍是同一张专辑。
+        let full = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"], mode: .full)
+        XCTAssertTrue(full)
+        let rescanned = cueTracks(fixture, cuePath: album.cuePath)
+        XCTAssertEqual(rescanned[2].title, "Wrong Song")
+        XCTAssertEqual(Set(rescanned.map(\.albumID)), [albumID])
+    }
+
     /// 带 ID3 标签的 WAV(标签放在 `id3 ` 块里),与 TVMetadataParityTests 的写法一致。
     private func taggedWaveFixture(title: String, album: String) -> Data {
         func le<T: FixedWidthInteger>(_ value: T) -> Data {
