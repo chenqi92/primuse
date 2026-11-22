@@ -269,7 +269,34 @@ public enum TVScanPipelinePolicy {
         return ServerSongCatalogMergePolicy.contentChanged(
             existing: existing,
             incoming: candidate
-        )
+        ) || cueSheetTextChanged(existing: existing, candidate: candidate)
+    }
+
+    /// 只改了 .cue 里这一轨的曲名、艺术家、专辑名、专辑艺术家或轨号,整轨音频没动:文件的大小和
+    /// 修改时间看不出来,和手机、Mac 的扫描器一样按 CUE 给出的值比。CUE 没写、读标签时补上的字段
+    /// 不算变化(不然这类专辑每次重扫都要重读);专辑艺术家只在 CUE 明写了整张的 PERFORMER 时才比;
+    /// 手动改过标签的分轨以用户改的为准,也不算。
+    static func cueSheetTextChanged(existing: Song, candidate: Song) -> Bool {
+        guard candidate.isCueTrack, !candidate.isDiscImageTrack,
+              existing.userMetadataEditedAt == nil else { return false }
+        func value(_ text: String?) -> String? {
+            guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+        func changed(_ old: String?, _ new: String?) -> Bool {
+            guard let new = value(new) else { return false }
+            return value(old) != new
+        }
+        let placeholderTitle = candidate.trackNumber.map { PMString("cue_track_title_format", $0) }
+        let titleChanged = candidate.title != placeholderTitle && changed(existing.title, candidate.title)
+        let sheetAlbumArtist = value(candidate.albumArtistName) == value(candidate.artistName)
+            ? nil : candidate.albumArtistName
+        return titleChanged
+            || changed(existing.artistName, candidate.artistName)
+            || changed(existing.albumTitle, candidate.albumTitle)
+            || changed(existing.albumArtistName, sheetAlbumArtist)
+            || (candidate.trackNumber != nil && existing.trackNumber != candidate.trackNumber)
     }
 }
 

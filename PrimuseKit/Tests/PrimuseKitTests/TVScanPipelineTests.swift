@@ -201,6 +201,60 @@ struct TVScanPipelineTests {
         ))
     }
 
+    @Test func editedCueSheetTextReplacesTheUnchangedImageRow() {
+        func cueTrack(title: String, artist: String?, album: String?, albumArtist: String?, track: Int) -> Song {
+            var song = Song(id: "cue-2", title: title, albumTitle: album, artistName: artist,
+                            albumArtistName: albumArtist, trackNumber: track, duration: 120,
+                            fileFormat: .wav, filePath: "/Album/Album.wav", sourceID: "source",
+                            fileSize: 4_000, lastModified: Date(timeIntervalSince1970: 100),
+                            cueSheetPath: "/Album/Album.cue", cueStartTime: 120, cueEndTime: 240)
+            song.bitRate = 1_411
+            return song
+        }
+        let existing = cueTrack(title: "Second", artist: "Sheet Artist", album: "Sheet Album",
+                                albumArtist: "Sheet Artist", track: 2)
+        // 音频没动、CUE 也没变:沿用读过的整行。
+        #expect(!TVScanPipelinePolicy.cueSheetTextChanged(existing: existing, candidate: existing))
+        #expect(TVScanPipelinePolicy.canReuseMetadata(existing: existing, candidate: existing))
+
+        // 改了 CUE 里的曲名:重建这一轨,不再复用。
+        var renamed = cueTrack(title: "Second (Fixed)", artist: "Sheet Artist", album: "Sheet Album",
+                               albumArtist: "Sheet Artist", track: 2)
+        renamed.bitRate = nil
+        #expect(TVScanPipelinePolicy.cueSheetTextChanged(existing: existing, candidate: renamed))
+        #expect(!TVScanPipelinePolicy.canReuseMetadata(existing: existing, candidate: renamed))
+        let rebuilt = TVScanPipelinePolicy.reconciledSkeleton(existing: existing, candidate: renamed)
+        #expect(rebuilt.title == "Second (Fixed)")
+        #expect(rebuilt.dateAdded == existing.dateAdded)
+
+        // 改了整张的 PERFORMER、轨号也算。
+        #expect(TVScanPipelinePolicy.cueSheetTextChanged(
+            existing: existing,
+            candidate: cueTrack(title: "Second", artist: "Track Artist", album: "Sheet Album",
+                                albumArtist: "Fixed Album Artist", track: 2)
+        ))
+        #expect(TVScanPipelinePolicy.cueSheetTextChanged(
+            existing: existing,
+            candidate: cueTrack(title: "Second", artist: "Sheet Artist", album: "Sheet Album",
+                                albumArtist: "Sheet Artist", track: 3)
+        ))
+
+        // CUE 没写、读标签补上的字段不算变化:没写艺术家、曲名只是「第几首」的占位。
+        let tagFilled = cueTrack(title: "Tag Title", artist: "Tag Artist", album: "Sheet Album",
+                                 albumArtist: "Tag Artist", track: 2)
+        #expect(!TVScanPipelinePolicy.cueSheetTextChanged(
+            existing: tagFilled,
+            candidate: cueTrack(title: PMString("cue_track_title_format", 2), artist: nil, album: "Sheet Album",
+                                albumArtist: nil, track: 2)
+        ))
+
+        // 手动改过标签的分轨以用户改的为准。
+        var edited = existing
+        edited.title = "My Title"
+        edited.userMetadataEditedAt = Date(timeIntervalSince1970: 300)
+        #expect(!TVScanPipelinePolicy.cueSheetTextChanged(existing: edited, candidate: renamed))
+    }
+
     @Test func unreadM4ACodecIsInspectedOnce() {
         var existing = song(id: "same", path: "/Music/Track.m4a", duration: 120, revision: "r1")
         existing.fileFormat = .m4a
