@@ -588,6 +588,9 @@
 "fullscreen_effect_kinetic_lyrics" = "Animowany tekst";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "Jedna linijka naraz na środku ekranu: słowa wyskakują jedno po drugim, rozświetlają się podczas śpiewu, a poprzednia linijka odpływa w górę";
 "fullscreen_effect_kinetic_lyrics_motion" = "Słowa podskakują i świecą w rytm śpiewu · Miękkie przejścia między linijkami · Bez widma na żywo";
+"fullscreen_effect_watercolor_storybook" = "Akwarelowa bajka";
+"fullscreen_effect_watercolor_storybook_subtitle" = "Akwarela rozlewa się po papierze, ręcznie rysowane linie tuszu lekko drżą, okładka podskakuje w rytm, a tekst widnieje na malowanym pasku";
+"fullscreen_effect_watercolor_storybook_motion" = "Linie tuszu drżą 12 razy na sekundę · Okładka podskakuje w rytm";
 "fullscreen_effect_native" = "Oryginał";
 "fullscreen_effect_native_motion" = "Przejście natywne · Domyślne";
 "fullscreen_effect_native_subtitle" = "Znajomy układ odtwarzacza i sterowanie";

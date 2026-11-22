@@ -16,6 +16,9 @@ extension EnvironmentValues {
     @Entry var immersiveFrameRate: ImmersiveFrameRateMode = .defaultValue
     /// 全屏效果的动效强度，同样由 `ImmersiveStageView` 注入；设置页预览跟着设置走，取证页保持「标准」。
     @Entry var immersiveMotionIntensity: ImmersiveMotionIntensity = .defaultValue
+    /// 浅色画面（`FullscreenPlayerEffect.prefersLightContent`）上的浮动控件：玻璃换成亮的，配深色图标。
+    /// 由全屏页注入给控件层，别处保持深色玻璃。
+    @Entry var immersiveLightChrome = false
 }
 
 extension ImmersiveMotionIntensity {
@@ -1546,11 +1549,15 @@ struct ImmersiveHairlineProgress: View {
 struct ImmersiveGlassPill<Content: View>: View {
     var horizontalPadding: CGFloat
     var verticalPadding: CGFloat
-    /// 液态铬用亮色玻璃,其余风格用深色玻璃
+    /// 浅色画面用亮色玻璃,其余风格用深色玻璃;全屏页也会经 `immersiveLightChrome` 打开它
     var isLight: Bool = false
     /// tvOS 焦点层需要越过胶囊边界，避免放大、上抬后的描边被裁切。
     var clipsContent: Bool = true
     @ViewBuilder var content: () -> Content
+
+    @Environment(\.immersiveLightChrome) private var lightChrome
+
+    private var usesLightGlass: Bool { isLight || lightChrome }
 
     @ViewBuilder
     var body: some View {
@@ -1569,11 +1576,11 @@ struct ImmersiveGlassPill<Content: View>: View {
                 ZStack {
                     Capsule(style: .continuous)
                         .fill(.ultraThinMaterial)
-                        .environment(\.colorScheme, .dark)
+                        .environment(\.colorScheme, usesLightGlass ? .light : .dark)
                     Capsule(style: .continuous)
                         .fill(
-                            isLight
-                                ? Color.white.opacity(0.14)
+                            usesLightGlass
+                                ? Color.white.opacity(0.34)
                                 : Color(red: 0.071, green: 0.075, blue: 0.122).opacity(0.42)
                         )
                 }
@@ -1583,8 +1590,8 @@ struct ImmersiveGlassPill<Content: View>: View {
                     .strokeBorder(
                         LinearGradient(
                             colors: [
-                                .white.opacity(isLight ? 0.34 : 0.20),
-                                .white.opacity(0.04),
+                                .white.opacity(usesLightGlass ? 0.70 : 0.20),
+                                usesLightGlass ? Color.black.opacity(0.10) : Color.white.opacity(0.04),
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -1603,6 +1610,9 @@ struct ImmersiveGlassActionLabel: View {
     var diameter: CGFloat = 44
     var isSelected = false
 
+    /// 浅色画面上换亮玻璃（`immersiveLightChrome`），图标的深色由调用方的 `tint` 给。
+    @Environment(\.immersiveLightChrome) private var lightChrome
+
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: diameter * 0.34, weight: .semibold))
@@ -1611,14 +1621,14 @@ struct ImmersiveGlassActionLabel: View {
             .background {
                 Circle()
                     .fill(.ultraThinMaterial)
-                    .environment(\.colorScheme, .dark)
+                    .environment(\.colorScheme, lightChrome ? .light : .dark)
                 Circle()
-                    .fill(isSelected ? tint.opacity(0.18) : .black.opacity(0.16))
+                    .fill(isSelected ? tint.opacity(0.18) : (lightChrome ? Color.white.opacity(0.30) : Color.black.opacity(0.16)))
             }
             .overlay {
                 Circle()
                     .strokeBorder(
-                        isSelected ? tint.opacity(0.62) : .white.opacity(0.20),
+                        isSelected ? tint.opacity(0.62) : (lightChrome ? Color.black.opacity(0.12) : Color.white.opacity(0.20)),
                         lineWidth: isSelected ? 1.1 : 0.8
                     )
             }

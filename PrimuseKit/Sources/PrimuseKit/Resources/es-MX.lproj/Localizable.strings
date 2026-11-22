@@ -588,6 +588,9 @@
 "fullscreen_effect_kinetic_lyrics" = "Letra animada";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "Una línea a la vez al centro de la pantalla: las palabras saltan una por una, se iluminan al cantarse y la línea anterior se desvanece hacia arriba";
 "fullscreen_effect_kinetic_lyrics_motion" = "Palabras que saltan y brillan al cantarse · Cambios de línea con desenfoque suave · No requiere espectro en tiempo real";
+"fullscreen_effect_watercolor_storybook" = "Cuento en acuarela";
+"fullscreen_effect_watercolor_storybook_subtitle" = "La acuarela se extiende sobre el papel, los trazos de tinta hechos a mano tiemblan suavemente, la portada rebota al ritmo y la letra aparece sobre una franja pintada";
+"fullscreen_effect_watercolor_storybook_motion" = "Trazos de tinta que tiemblan 12 veces por segundo · La portada rebota al ritmo";
 "fullscreen_effect_native" = "Original";
 "fullscreen_effect_native_motion" = "Transición nativa · Predeterminado";
 "fullscreen_effect_native_subtitle" = "El diseño y los controles familiares del reproductor";

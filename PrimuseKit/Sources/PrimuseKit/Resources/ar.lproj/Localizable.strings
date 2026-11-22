@@ -588,6 +588,9 @@
 "fullscreen_effect_kinetic_lyrics" = "كلمات متحركة";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "سطر واحد في كل مرة في منتصف الشاشة: تقفز الكلمات واحدة تلو الأخرى وتتوهّج عند غنائها، ويتلاشى السطر السابق صعودًا";
 "fullscreen_effect_kinetic_lyrics_motion" = "كلمات تقفز وتتوهّج مع الغناء · انتقال ناعم بين الأسطر · لا يحتاج إلى طيف مباشر";
+"fullscreen_effect_watercolor_storybook" = "كتاب مصوّر بالألوان المائية";
+"fullscreen_effect_watercolor_storybook_subtitle" = "ألوان مائية تنتشر على الورق وخطوط حبر مرسومة باليد ترتجف برفق، والغلاف يقفز مع الإيقاع، والكلمات مكتوبة على شريط مرسوم بالألوان";
+"fullscreen_effect_watercolor_storybook_motion" = "خطوط الحبر ترتجف 12 مرة في الثانية · الغلاف يقفز مع الإيقاع";
 "fullscreen_effect_native" = "الأصل";
 "fullscreen_effect_native_motion" = "الانتقال الأصلي · الافتراضي";
 "fullscreen_effect_native_subtitle" = "تخطيط المشغّل وعناصر التحكم المألوفة";

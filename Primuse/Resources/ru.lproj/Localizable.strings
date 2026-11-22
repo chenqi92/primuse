@@ -1551,6 +1551,9 @@
 "fullscreen_effect_kinetic_lyrics" = "Живой текст";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "По одной строке в центре экрана: слова появляются одно за другим, загораются, когда их поют, а предыдущая строка уплывает вверх";
 "fullscreen_effect_kinetic_lyrics_motion" = "Слова подпрыгивают и светятся в такт пению · Мягкая смена строк с размытием · Спектр в реальном времени не нужен";
+"fullscreen_effect_watercolor_storybook" = "Акварельная книжка";
+"fullscreen_effect_watercolor_storybook_subtitle" = "Акварель растекается по бумаге, нарисованные от руки линии туши слегка дрожат, обложка подпрыгивает в такт, а текст написан на акварельной полосе";
+"fullscreen_effect_watercolor_storybook_motion" = "Линии туши дрожат 12 раз в секунду · Обложка подпрыгивает в такт";
 "unknown_title" = "Неизвестное название";
 "metadata" = "Метаданные";
 "synology_auth_error_406" = "Для этой учетной записи включена двухэтапная проверка.";

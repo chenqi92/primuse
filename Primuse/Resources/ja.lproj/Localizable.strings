@@ -2023,6 +2023,9 @@
 "fullscreen_effect_kinetic_lyrics" = "キネティック歌詞";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "一度に一行を画面の中央に。言葉が一つずつ跳ね上がり、歌われた言葉から光り、前の行は上へ消えていきます";
 "fullscreen_effect_kinetic_lyrics_motion" = "歌に合わせて文字が跳ねて光る · 行はソフトフォーカスで入れ替わる · リアルタイムスペクトル不要";
+"fullscreen_effect_watercolor_storybook" = "水彩絵本";
+"fullscreen_effect_watercolor_storybook_subtitle" = "紙ににじむ水彩と、かすかに揺れる手描きの墨線。カバーはビートに合わせて弾み、歌詞は水彩の帯に書かれます";
+"fullscreen_effect_watercolor_storybook_motion" = "墨線は毎秒12コマで揺れる · カバーがビートに合わせて弾む";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

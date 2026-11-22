@@ -314,6 +314,9 @@
 "fullscreen_effect_kinetic_lyrics" = "Hareketli Sözler";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "Ekranın ortasında her seferinde tek satır: kelimeler tek tek sıçrar, söylendikçe parlar ve önceki satır yukarı doğru dağılır";
 "fullscreen_effect_kinetic_lyrics_motion" = "Kelimeler söylendikçe sıçrar ve parlar · Yumuşak odaklı satır geçişleri · Canlı spektrum gerekmez";
+"fullscreen_effect_watercolor_storybook" = "Suluboya Masal Kitabı";
+"fullscreen_effect_watercolor_storybook_subtitle" = "Kâğıda yayılan suluboya ve hafifçe titreyen elle çizilmiş mürekkep çizgileri; kapak ritimle zıplar, sözler boyalı bir şeridin üzerinde durur";
+"fullscreen_effect_watercolor_storybook_motion" = "Mürekkep çizgileri saniyede 12 kez titrer · Kapak ritimle zıplar";
 "ext.tv.otp.authFailed" = "Oturum açma başarısız oldu. Hesabı ve şifreyi kontrol edin.";
 "ext.tv.search.eyebrow" = "Ara";
 "ext.tv.sources.hint.daoliyu" = "Daoliyu yerlisi API";

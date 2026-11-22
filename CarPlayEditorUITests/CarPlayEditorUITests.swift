@@ -7,7 +7,7 @@ final class FullscreenOrientationUITests: XCTestCase {
         restoreHomeAfterTest(app)
         for effect in ["coverGallery", "flowingLines", "radialPulse", "vinylDeck", "auroraVeil",
                        "spectrumHorizon", "particleBloom", "albumFlow", "chladniPlate",
-                       "fireflySync", "flyBrain", "kineticLyrics"] {
+                       "fireflySync", "flyBrain", "kineticLyrics", "watercolorStorybook"] {
             app.launchArguments = orientationArguments(effect: effect)
             app.launch()
             XCTAssertTrue(app.buttons["Exit full-screen effect"].waitForExistence(timeout: 20), effect)
@@ -16,7 +16,7 @@ final class FullscreenOrientationUITests: XCTestCase {
             rotate(app, toLandscape: false)
             XCTAssertTrue(app.buttons["Exit full-screen effect"].exists,
                           "Manually opened effects must remain selected after rotating: \(effect)")
-            if ["coverGallery", "vinylDeck", "kineticLyrics"].contains(effect) {
+            if ["coverGallery", "vinylDeck", "kineticLyrics", "watercolorStorybook"].contains(effect) {
                 let attachment = XCTAttachment(screenshot: app.screenshot())
                 attachment.name = "\(effect)-returned-to-portrait"
                 attachment.lifetime = .keepAlways

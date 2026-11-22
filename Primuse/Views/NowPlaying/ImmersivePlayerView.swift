@@ -274,6 +274,8 @@ struct ImmersivePlayerView: View {
 
                 if showsChrome && !isAmbientRest && !presentsOnExternalDisplay {
                     chrome(metrics: chromeMetrics)
+                        // 浅色画面（水彩绘本）上玻璃换亮的，图标照 `pillInk` 用深色。
+                        .environment(\.immersiveLightChrome, presentationEffect.prefersLightContent)
                         .offset(y: showsChrome ? 0 : 8)
                         .transition(.opacity.combined(with: .offset(y: 8)))
                 }
@@ -286,8 +288,8 @@ struct ImmersivePlayerView: View {
                             showsWordLevel: false,
                             showsSimulatedWordTiming: showsSimulatedWordTiming,
                             source: nil,
-                            foreground: .white.opacity(0.8),
-                            fill: .black.opacity(0.25),
+                            foreground: presentationEffect.prefersLightContent ? pillInk.opacity(0.8) : .white.opacity(0.8),
+                            fill: presentationEffect.prefersLightContent ? .white.opacity(0.45) : .black.opacity(0.25),
                             companionTracks: tracks,
                             onInteraction: { registerInteraction(revealControls: true) }
                         )
@@ -996,6 +998,9 @@ struct ImmersivePlayerView: View {
         case .flyBrain:
             // 歌词列在前缘、底下是数据来源，控件放到大脑那一侧的下方。
             return .trailing
+        case .watercolorStorybook:
+            // 封面贴前缘，控件在歌名和歌词带那一侧。
+            return .trailing
         case .native, .albumFlow, .kineticLyrics:
             // 封面流的画面左右对称、动态歌词压在正中, 控件也居中。
             return .center
@@ -1140,7 +1145,8 @@ struct ImmersivePlayerView: View {
     }
 
     private func playPauseButton(diameter: CGFloat, outlined: Bool) -> some View {
-        let emphasis = artworkPalette.primary
+        // 浅色画面上主题色可能很浅，播放键改用深色墨。
+        let emphasis = presentationEffect.prefersLightContent ? pillInk : artworkPalette.primary
         return Button {
             revealChrome()
             guard !player.isLoading else { return }

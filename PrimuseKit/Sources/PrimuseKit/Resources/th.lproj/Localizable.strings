@@ -588,6 +588,9 @@
 "fullscreen_effect_kinetic_lyrics" = "เนื้อเพลงเคลื่อนไหว";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "ทีละบรรทัดกลางจอ: คำเด้งขึ้นมาทีละคำ สว่างขึ้นเมื่อถูกร้อง และบรรทัดก่อนหน้าลอยหายขึ้นไป";
 "fullscreen_effect_kinetic_lyrics_motion" = "คำเด้งและเรืองแสงตามการร้อง · เปลี่ยนบรรทัดแบบโฟกัสนุ่ม · ไม่ต้องใช้สเปกตรัมสด";
+"fullscreen_effect_watercolor_storybook" = "สมุดภาพสีน้ำ";
+"fullscreen_effect_watercolor_storybook_subtitle" = "สีน้ำซึมไปบนกระดาษ เส้นหมึกวาดมือสั่นไหวเบา ๆ ปกอัลบั้มเด้งตามจังหวะ และเนื้อเพลงเขียนอยู่บนแถบสีน้ำ";
+"fullscreen_effect_watercolor_storybook_motion" = "เส้นหมึกสั่นไหว 12 ครั้งต่อวินาที · ปกเด้งตามจังหวะ";
 "fullscreen_effect_native" = "ต้นฉบับ";
 "fullscreen_effect_native_motion" = "การเปลี่ยนผ่านแบบเนทีฟ · ค่าเริ่มต้น";
 "fullscreen_effect_native_subtitle" = "รูปแบบและการควบคุมของผู้เล่นที่คุ้นเคย";

@@ -2060,6 +2060,9 @@
 "fullscreen_effect_kinetic_lyrics" = "Kinetic Lyrics";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "One line at a time, center stage: words spring up one by one, light up as they’re sung, and the last line drifts away";
 "fullscreen_effect_kinetic_lyrics_motion" = "Words spring and glow as they’re sung · Soft-focus line changes · No live spectrum needed";
+"fullscreen_effect_watercolor_storybook" = "Watercolor Storybook";
+"fullscreen_effect_watercolor_storybook_subtitle" = "Watercolor washes bloom across the paper, hand-drawn ink lines gently wobble, the cover bounces to the beat, and lyrics sit on a painted band";
+"fullscreen_effect_watercolor_storybook_motion" = "Ink lines redrawn 12 times a second · Cover bounces to the beat";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

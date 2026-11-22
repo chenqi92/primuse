@@ -249,6 +249,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveStageDeferredScene { flyBrainScene }
         case .kineticLyrics:
             ImmersiveStageDeferredScene { kineticLyricsScene }
+        case .watercolorStorybook:
+            ImmersiveStageDeferredScene { watercolorStoryScene }
         }
     }
 
@@ -1377,6 +1379,28 @@ struct ImmersiveStageView<Artwork: View>: View {
             width: width,
             fontSize: fontSize
         ))
+    }
+
+    // MARK: - 13. 水彩绘本
+
+    /// 纸面、水彩、封面和墨线都在 `ImmersiveWatercolorStoryScene`；歌词带里的字照旧走舞台自己的当前句加下一句
+    /// （`albumFlowLyrics`），逐字扫光、译文、从右往左和歌词字体都不变，场景只把白字乘成墨色。
+    private var watercolorStoryScene: some View {
+        ImmersiveWatercolorStoryScene(
+            metrics: metrics,
+            platform: platform,
+            palette: palette,
+            title: track.title,
+            subtitle: track.subtitle,
+            songKey: "\(track.title)\u{1F}\(track.artist)\u{1F}\(track.album)",
+            insets: EdgeInsets(top: topInset, leading: leadingInset, bottom: bottomInset, trailing: trailingInset),
+            hasLyrics: hasStageLyrics,
+            isAnimating: sceneIsAnimating,
+            isResting: isResting,
+            levelsProvider: scheduledSpectrumProvider,
+            lyrics: { fonts, width in albumFlowLyrics(fonts: fonts, width: width) },
+            artwork: artwork
+        )
     }
 
     // MARK: - 只放歌词（沙画、萤火、神经共鸣的非竖屏）

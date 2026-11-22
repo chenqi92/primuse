@@ -1362,6 +1362,27 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         )
     }
 
+    /// 水彩绘本追加在最后，归在场景动态那一组；有频谱就读、读不到不提示，只有它用浅色画面。
+    func testWatercolorStorybookIsAppendedLast() {
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .watercolorStorybook)
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .watercolorStorybook), 13)
+        XCTAssertEqual(FullscreenPlayerEffect.watercolorStorybook.rawValue, "watercolorStorybook")
+        XCTAssertEqual(FullscreenPlayerEffect(rawValue: "watercolorStorybook"), .watercolorStorybook)
+        XCTAssertEqual(FullscreenPlayerEffect.watercolorStorybook.collection, .sceneMotion)
+        XCTAssertEqual(FullscreenPlayerEffect.watercolorStorybook.scene, .watercolorStorybook)
+        XCTAssertFalse(FullscreenPlayerEffect.watercolorStorybook.usesRealtimeSpectrum)
+        XCTAssertTrue(FullscreenPlayerEffect.watercolorStorybook.readsRealtimeSpectrum)
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.filter(\.prefersLightContent), [.watercolorStorybook])
+        XCTAssertEqual(
+            ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: "watercolorStorybook",
+                hasSynchronizedLyrics: false,
+                hasArtwork: false
+            ),
+            "watercolorStorybook"
+        )
+    }
+
     @MainActor
     func testDiscPositionDragPersistsAndResetRestoresCenter() throws {
         let suite = "DiscPositionTests-\(UUID().uuidString)"
@@ -1384,7 +1405,7 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
     }
 
     func testDiscStylesShareOneEffectWithoutChangingExistingShortcuts() {
-        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .kineticLyrics)
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .watercolorStorybook)
         XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .vinylDeck), 4)
         XCTAssertEqual(FullscreenPlayerEffect(rawValue: "compactDisc"), .vinylDeck)
         XCTAssertEqual(FullscreenPlayerEffect.allCases.filter { $0.scene == .vinylDeck }, [.vinylDeck])

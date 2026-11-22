@@ -694,6 +694,9 @@
 "fullscreen_effect_kinetic_lyrics" = "動態歌詞";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "一次一句置於畫面正中，字一個個彈上來，唱到哪個字哪個字亮起，上一句往上飄散";
 "fullscreen_effect_kinetic_lyrics_motion" = "字隨演唱彈起、點亮 · 上下句柔焦交替 · 無需即時頻譜";
+"fullscreen_effect_watercolor_storybook" = "水彩繪本";
+"fullscreen_effect_watercolor_storybook_subtitle" = "紙面上暈開的水彩和會微微抖動的手繪墨線，封面跟著節拍彈跳，歌詞寫在一條水彩帶上";
+"fullscreen_effect_watercolor_storybook_motion" = "墨線每秒十二格抖動 · 封面跟著節拍彈跳";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "圖言吐語";
 "immersive_demo_album" = "soundisle";

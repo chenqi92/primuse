@@ -1261,6 +1261,7 @@ enum ImmersiveEffectScene: Sendable {
     case fireflySync
     case flyBrain
     case kineticLyrics
+    case watercolorStorybook
 }
 
 /// 保留控制层语义，便于三端共用同一套容器。
@@ -1327,6 +1328,9 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case flyBrain
     /// 动态歌词：一次一句压在画面正中，字一个个弹上来、唱到就亮起，上一句往上飘走。只用专辑色，不读频谱。
     case kineticLyrics
+    /// 水彩绘本：暖色纸面上晕开几团封面色的水彩，封面像绘本里的一幅画，墨线一秒换十二笔微微抖动，
+    /// 有频谱时封面跟着鼓点弹一下、旁边冒出小涂鸦；歌词写在一条水彩带上。浅色画面。
+    case watercolorStorybook
 
     static let storageKey = "primuse.fullscreenPlayerEffect"
     static let defaultValue = FullscreenPlayerEffect.native
@@ -1350,6 +1354,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .fireflySync: "fireflySync"
         case .flyBrain: "flyBrain"
         case .kineticLyrics: "kineticLyrics"
+        case .watercolorStorybook: "watercolorStorybook"
         }
     }
 
@@ -1389,6 +1394,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
             self = .flyBrain
         case "kineticLyrics":
             self = .kineticLyrics
+        case "watercolorStorybook":
+            self = .watercolorStorybook
         default:
             return nil
         }
@@ -1398,7 +1405,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         switch self {
         case .native: .native
         case .coverGallery, .vinylDeck, .albumFlow: .coverReactive
-        case .flowingLines, .auroraVeil, .kineticLyrics: .sceneMotion
+        case .flowingLines, .auroraVeil, .kineticLyrics, .watercolorStorybook: .sceneMotion
         case .radialPulse, .spectrumHorizon, .particleBloom, .chladniPlate, .fireflySync, .flyBrain: .audioReactive
         }
     }
@@ -1417,6 +1424,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .fireflySync: .fireflySync
         case .flyBrain: .flyBrain
         case .kineticLyrics: .kineticLyrics
+        case .watercolorStorybook: .watercolorStorybook
         }
     }
 
@@ -1424,7 +1432,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var chromeFamily: ImmersiveEffectChromeFamily { .showcase }
     var lyricsOverlay: ImmersiveLyricsOverlayKind { .none }
     var displaysLyrics: Bool { !isNative }
-    var prefersLightContent: Bool { false }
+    /// 浅色画面：控件换成深色墨、亮玻璃（三端全屏页按它切换）。
+    var prefersLightContent: Bool { self == .watercolorStorybook }
     var usesRealtimeSpectrum: Bool {
         switch self {
         case .radialPulse, .spectrumHorizon, .particleBloom, .chladniPlate, .fireflySync, .flyBrain: true
@@ -1432,8 +1441,11 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         }
     }
     /// 有频谱就拿来用的效果：除了跟着频谱的那几种，「动态歌词」的背景也跟着鼓点动，读不到频谱时改跟歌词的
-    /// 字头，所以不提示「读不到频谱」——那个提示只看 `usesRealtimeSpectrum`。
-    var readsRealtimeSpectrum: Bool { usesRealtimeSpectrum || self == .kineticLyrics }
+    /// 字头；「水彩绘本」的封面跟着鼓点弹，读不到时只轻轻呼吸。所以都不提示「读不到频谱」——那个提示只看
+    /// `usesRealtimeSpectrum`。
+    var readsRealtimeSpectrum: Bool {
+        usesRealtimeSpectrum || self == .kineticLyrics || self == .watercolorStorybook
+    }
     var usesShowcaseChrome: Bool { !isNative }
 
     /// 效果面板里看到的顺序：按 `FullscreenEffectCollection` 分组排，原生打头。
@@ -1465,6 +1477,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .fireflySync: "firefly_sync"
         case .flyBrain: "fly_brain"
         case .kineticLyrics: "kinetic_lyrics"
+        case .watercolorStorybook: "watercolor_storybook"
         }
     }
 
@@ -1499,6 +1512,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .fireflySync: "sparkles"
         case .flyBrain: "brain"
         case .kineticLyrics: "textformat.size"
+        case .watercolorStorybook: "paintbrush.pointed.fill"
         }
     }
 }

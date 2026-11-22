@@ -2022,6 +2022,9 @@
 "fullscreen_effect_kinetic_lyrics" = "Bewegter Liedtext";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "Eine Zeile nach der anderen in der Bildmitte: Wörter springen einzeln herein, leuchten beim Singen auf, und die vorige Zeile schwebt davon";
 "fullscreen_effect_kinetic_lyrics_motion" = "Wörter springen und leuchten beim Singen · Weiche Zeilenwechsel · Kein Live-Spektrum nötig";
+"fullscreen_effect_watercolor_storybook" = "Aquarell-Bilderbuch";
+"fullscreen_effect_watercolor_storybook_subtitle" = "Aquarellfarben verlaufen auf dem Papier, handgezeichnete Tuschelinien zittern leicht, das Cover hüpft im Takt und der Liedtext steht auf einem gemalten Farbband";
+"fullscreen_effect_watercolor_storybook_motion" = "Tuschelinien zittern mit 12 Bildern pro Sekunde · Cover hüpft im Takt";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

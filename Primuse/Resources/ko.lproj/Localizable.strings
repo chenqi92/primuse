@@ -2022,6 +2022,9 @@
 "fullscreen_effect_kinetic_lyrics" = "키네틱 가사";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "한 번에 한 줄을 화면 가운데에. 단어가 하나씩 튀어 오르고 부르는 순간 빛나며, 이전 줄은 위로 흩어집니다";
 "fullscreen_effect_kinetic_lyrics_motion" = "노래에 맞춰 글자가 튀어 오르며 빛남 · 줄 전환은 소프트 포커스 · 실시간 스펙트럼 불필요";
+"fullscreen_effect_watercolor_storybook" = "수채화 그림책";
+"fullscreen_effect_watercolor_storybook_subtitle" = "종이 위로 번지는 수채화와 살짝 떨리는 손그림 잉크 선, 커버는 비트에 맞춰 통통 튀고 가사는 수채화 띠 위에 적힙니다";
+"fullscreen_effect_watercolor_storybook_motion" = "잉크 선이 초당 12프레임으로 떨림 · 커버가 비트에 맞춰 튀어 오름";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

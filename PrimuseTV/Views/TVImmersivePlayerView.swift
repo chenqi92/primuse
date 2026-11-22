@@ -380,15 +380,20 @@ struct TVImmersivePlayerView: View {
                             if showsSimulatedWordTiming {
                                 Text("lyrics_simulated_word_badge")
                                     .tvFont(.meta)
+                                    .foregroundStyle(presentationEffect.prefersLightContent ? ImmersiveWatercolorInk.ink : Color.primary)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 6)
-                                    .background(.black.opacity(0.25), in: Capsule())
+                                    .background(
+                                        presentationEffect.prefersLightContent ? Color.white.opacity(0.45) : Color.black.opacity(0.25),
+                                        in: Capsule()
+                                    )
                                     .allowsHitTesting(false)
                             }
                             if showsChrome && !chromeYieldsFocus && !showsDiscPosition && !showsQueue && !store.currentItemIsSpokenWord {
                                 LyricsCompanionTrackButtons(
                                     tracks: TVLyricsTranslationController.shared.availableCompanionTracks(for: store.currentSongID),
-                                    foreground: .white, fill: .black.opacity(0.25),
+                                    foreground: presentationEffect.prefersLightContent ? ImmersiveWatercolorInk.ink : .white,
+                                    fill: presentationEffect.prefersLightContent ? .white.opacity(0.45) : .black.opacity(0.25),
                                     onInteraction: {
                                         scheduleChromeHide()
                                         scheduleLowPower()
@@ -792,7 +797,7 @@ struct TVImmersivePlayerView: View {
                 Label(PMString("ext.tv.immersive.exitHint"), systemImage: "arrow.uturn.backward")
                     // 展示屏的字号统一走 metrics 等比缩放,与同屏其它文字保持一致
                     .font(.system(size: metrics.s(20), weight: .medium))
-                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.5))
+                    .foregroundStyle(floatingTextInk.opacity(0.5))
             }
             .padding(.horizontal, 56)
             .padding(.top, 56)
@@ -801,6 +806,14 @@ struct TVImmersivePlayerView: View {
 
             if showsSeekControls, !store.isLiveRadio, store.duration > 0 {
                 tvProgress
+                    // 进度条是按深色画面画的白条:浅色画面上垫一块深色底,白条和时间才看得见。
+                    .padding(presentationEffect.prefersLightContent ? 24 : 0)
+                    .background {
+                        if presentationEffect.prefersLightContent {
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(Color.black.opacity(0.42))
+                        }
+                    }
                     .frame(maxWidth: 1200)
                     .padding(.horizontal, 112)
                     .padding(.bottom, 24)
@@ -837,6 +850,12 @@ struct TVImmersivePlayerView: View {
         }
     }
 
+    /// 直接压在舞台上的返回提示:浅色画面上换深色墨。
+    /// 控件排仍是深色玻璃配白图标,在浅色纸面上照样清楚,焦点光圈也不用另调。
+    private var floatingTextInk: Color {
+        presentationEffect.prefersLightContent ? ImmersiveWatercolorInk.ink : ImmersiveStagePalette.text
+    }
+
     private var tvShowcaseControlAlignment: Alignment {
         switch presentationEffect {
         case .radialPulse, .vinylDeck, .particleBloom:
@@ -852,6 +871,9 @@ struct TVImmersivePlayerView: View {
             .trailing
         case .flyBrain:
             // 歌词列在前缘、底下是数据来源，控件放到大脑那一侧的下方。
+            .trailing
+        case .watercolorStorybook:
+            // 封面贴前缘，控件在歌名和歌词带那一侧。
             .trailing
         case .native, .albumFlow, .kineticLyrics:
             .center

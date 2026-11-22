@@ -233,6 +233,8 @@ struct MacImmersivePlayerView: View {
                 // 卡拉 OK 舞台有自己的收起、进度和传输键,沉浸页的控件让开。
                 if showsChrome && isRenderingActive && !showsKaraoke {
                     chrome(metrics: metrics)
+                        // 浅色画面（水彩绘本）上胶囊换亮玻璃，按钮照 `chromeInk` 用深色。
+                        .environment(\.immersiveLightChrome, presentationEffect.prefersLightContent)
                         .transition(.opacity)
                 }
 
@@ -244,8 +246,8 @@ struct MacImmersivePlayerView: View {
                             showsWordLevel: false,
                             showsSimulatedWordTiming: showsSimulatedWordTiming,
                             source: nil,
-                            foreground: .white.opacity(0.8),
-                            fill: .black.opacity(0.25),
+                            foreground: presentationEffect.prefersLightContent ? chromeInk.opacity(0.8) : .white.opacity(0.8),
+                            fill: presentationEffect.prefersLightContent ? .white.opacity(0.45) : .black.opacity(0.25),
                             companionTracks: tracks,
                             onInteraction: revealChrome
                         )
@@ -736,7 +738,7 @@ struct MacImmersivePlayerView: View {
                 Text(player.currentTime.formattedDuration)
                     .font(.system(size: metrics.s(12), design: .monospaced))
                     .foregroundStyle(chromeInk.opacity(0.48))
-                MacImmersiveScrubber(accent: seekTint) { fraction in
+                MacImmersiveScrubber(accent: seekTint, ink: chromeInk) { fraction in
                     revealChrome()
                     player.seek(to: fraction * player.duration)
                 }
@@ -796,7 +798,7 @@ struct MacImmersivePlayerView: View {
                     .monospacedDigit()
                     .foregroundStyle(chromeInk.opacity(0.52))
 
-                MacImmersiveScrubber(accent: seekTint) { fraction in
+                MacImmersiveScrubber(accent: seekTint, ink: chromeInk) { fraction in
                     revealChrome()
                     player.seek(to: fraction * player.duration)
                 }
@@ -1034,6 +1036,9 @@ struct MacImmersivePlayerView: View {
             .trailing
         case .flyBrain:
             // 歌词列在前缘、底下是数据来源，控件放到大脑那一侧的下方。
+            .trailing
+        case .watercolorStorybook:
+            // 封面贴前缘，控件在歌名和歌词带那一侧。
             .trailing
         case .native, .albumFlow, .kineticLyrics:
             .center
@@ -1972,6 +1977,8 @@ struct MacImmersivePlayerView: View {
 /// 可点击 / 拖动定位的进度条。松手时把 0...1 比例回调出去做 seek。
 private struct MacImmersiveScrubber: View {
     let accent: Color
+    /// 轨道与滑块描边的颜色：浅色画面上换成深色墨，不然白轨道看不见。
+    var ink: Color = ImmersiveStagePalette.text
     let onSeek: (Double) -> Void
 
     @Environment(AudioPlayerService.self) private var player
@@ -1984,10 +1991,11 @@ private struct MacImmersiveScrubber: View {
             let fillWidth = width * fraction
 
             ZStack(alignment: .leading) {
-                Capsule().fill(ImmersiveStagePalette.text.opacity(0.18)).frame(height: 4)
+                Capsule().fill(ink.opacity(0.18)).frame(height: 4)
                 Capsule().fill(accent).frame(width: max(4, fillWidth), height: 4)
                 Circle()
                     .fill(.white)
+                    .overlay { Circle().strokeBorder(ink.opacity(0.22), lineWidth: 0.75) }
                     .frame(width: 12, height: 12)
                     .shadow(color: accent.opacity(0.4), radius: 6)
                     .offset(x: min(max(0, fillWidth - 6), width - 12))

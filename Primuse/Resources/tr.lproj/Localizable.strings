@@ -1551,6 +1551,9 @@
 "fullscreen_effect_kinetic_lyrics" = "Hareketli Sözler";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "Ekranın ortasında her seferinde tek satır: kelimeler tek tek sıçrar, söylendikçe parlar ve önceki satır yukarı doğru dağılır";
 "fullscreen_effect_kinetic_lyrics_motion" = "Kelimeler söylendikçe sıçrar ve parlar · Yumuşak odaklı satır geçişleri · Canlı spektrum gerekmez";
+"fullscreen_effect_watercolor_storybook" = "Suluboya Masal Kitabı";
+"fullscreen_effect_watercolor_storybook_subtitle" = "Kâğıda yayılan suluboya ve hafifçe titreyen elle çizilmiş mürekkep çizgileri; kapak ritimle zıplar, sözler boyalı bir şeridin üzerinde durur";
+"fullscreen_effect_watercolor_storybook_motion" = "Mürekkep çizgileri saniyede 12 kez titrer · Kapak ritimle zıplar";
 "unknown_title" = "Bilinmeyen Başlık";
 "metadata" = "Üst veri";
 "synology_auth_error_406" = "Bu hesap için iki adımlı doğrulama uygulanmaktadır.";

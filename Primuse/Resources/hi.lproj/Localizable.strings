@@ -1463,6 +1463,9 @@
 "fullscreen_effect_kinetic_lyrics" = "गतिशील बोल";
 "fullscreen_effect_kinetic_lyrics_subtitle" = "एक बार में एक पंक्ति, स्क्रीन के बीच में: शब्द एक-एक कर उछलते हैं, गाए जाते ही चमकते हैं, और पिछली पंक्ति ऊपर बिखर जाती है";
 "fullscreen_effect_kinetic_lyrics_motion" = "गाने के साथ शब्द उछलते और चमकते हैं · पंक्तियाँ नरम फ़ोकस से बदलती हैं · लाइव स्पेक्ट्रम की ज़रूरत नहीं";
+"fullscreen_effect_watercolor_storybook" = "जलरंग चित्र-कथा";
+"fullscreen_effect_watercolor_storybook_subtitle" = "कागज़ पर फैलते जलरंग और हल्के से काँपती हाथ से बनी स्याही की रेखाएँ, कवर ताल के साथ उछलता है और बोल एक रंगी हुई पट्टी पर लिखे आते हैं";
+"fullscreen_effect_watercolor_storybook_motion" = "स्याही की रेखाएँ हर सेकंड 12 बार काँपती हैं · कवर ताल के साथ उछलता है";
 "fullscreen_effect_native" = "मूल";
 "fullscreen_effect_native_motion" = "मूल संक्रमण · डिफ़ॉल्ट";
 "fullscreen_effect_native_subtitle" = "परिचित प्लेयर लेआउट और नियंत्रण";
