@@ -202,7 +202,7 @@ final class DLNARendererService {
     /// UPnP RenderingControl 的 mute 是独立状态,不能简单等同于 volume=0。
     private var rendererMuted = false
     private var lastNonMutedVolume: Float = 0.6
-    private struct TransportItem: Sendable {
+    struct TransportItem: Sendable {
         let uri: String
         let metadata: String
         let title: String
@@ -217,7 +217,7 @@ final class DLNARendererService {
     private var currentTransportItem: TransportItem?
     private var nextTransportItem: TransportItem?
     private var activeControllerID: String?
-    private var transportPlaybackTask: Task<Void, Never>?
+    private(set) var transportPlaybackTask: Task<Void, Never>?
 
     private var advertisement = DLNARendererAdvertisement()
     private static let ssdpMulticastHost: NWEndpoint.Host = "239.255.255.250"
@@ -397,8 +397,8 @@ final class DLNARendererService {
         let now = Date()
         // 顺手清掉过期订阅 (控制点没 UNSUBSCRIBE 就掉线的常见情况)
         subscriptions = subscriptions.filter { $0.value.expiresAt > now }
-        for sid in subscriptions.keys {
-            sendGenaNotify(sid: sid)
+        for sub in subscriptions.values where sub.seq != 0 {
+            sendGenaNotify(sid: sub.sid)
         }
     }
 
@@ -1302,7 +1302,7 @@ final class DLNARendererService {
         activeHTTPConnections = 0
     }
 
-    private func handleHTTPConnection(_ connection: NWConnection) {
+    func handleHTTPConnection(_ connection: NWConnection) {
         // 并发连接上限: 超过直接 cancel, 防 LAN 端无限累积 fd。
         guard activeHTTPConnections < Self.maxHTTPConnections else {
             connection.cancel(); return
@@ -1591,8 +1591,9 @@ final class DLNARendererService {
         }) {
             headers[key] = value
         }
-        if let existingSID = headers["sid"], var sub = subscriptions[existingSID] {
-            guard sub.service == service else {
+        subscriptions = subscriptions.filter { $0.value.expiresAt > Date() }
+        if let existingSID = headers["sid"] {
+            guard var sub = subscriptions[existingSID], sub.service == service else {
                 await sendStatus(412, on: connection)
                 return
             }
@@ -1622,12 +1623,15 @@ final class DLNARendererService {
         )
         subscriptions[sid] = sub
         logEvent(.event, "SUBSCRIBE \(service) → \(callbackURL.host ?? "?") (sid=\(sid.suffix(8)))")
-        await sendSubscribeResponse(sid: sid, timeoutSeconds: timeoutSeconds, on: connection)
-        // 按规范, SUBSCRIBE 返回 200 后立刻发一次"initial event" 把当前状态推过去
+        guard await sendSubscribeResponse(sid: sid, timeoutSeconds: timeoutSeconds, on: connection) else {
+            subscriptions.removeValue(forKey: sid)
+            return
+        }
         sendGenaNotify(sid: sid)
     }
 
-    private func sendSubscribeResponse(sid: String, timeoutSeconds: Int, on connection: NWConnection) async {
+    @discardableResult
+    private func sendSubscribeResponse(sid: String, timeoutSeconds: Int, on connection: NWConnection) async -> Bool {
         let response = """
         HTTP/1.1 200 OK\r
         DATE: \(rfc1123Now())\r
@@ -1638,9 +1642,12 @@ final class DLNARendererService {
         \r
 
         """
-        connection.send(content: response.data(using: .utf8), completion: .contentProcessed { _ in
-            connection.cancel()
-        })
+        return await withCheckedContinuation { continuation in
+            connection.send(content: Data(response.utf8), completion: .contentProcessed { error in
+                connection.cancel()
+                continuation.resume(returning: error == nil)
+            })
+        }
     }
 
     private func handleUnsubscribe(raw: String, connection: NWConnection) async {
@@ -1660,7 +1667,7 @@ final class DLNARendererService {
         guard let body = makeEventBody(for: sub.service) else { return }
         var newSub = sub
         let sequence = newSub.seq
-        newSub.seq &+= 1
+        newSub.seq = sequence == .max ? 1 : sequence + 1
         subscriptions[sid] = newSub
 
         var request = URLRequest(url: sub.callbackURL)
@@ -1678,22 +1685,25 @@ final class DLNARendererService {
             guard error != nil || status.map({ !(200 ..< 300).contains($0) }) == true else { return }
             Task { @MainActor in
                 guard self?.subscriptions[sid]?.callbackURL == callbackURL else { return }
-                self?.subscriptions.removeValue(forKey: sid)
-                self?.logEvent(.event, "GENA callback failed; subscription removed (sid=\(sid.suffix(8)))")
+                if status == 412 {
+                    self?.subscriptions.removeValue(forKey: sid)
+                    self?.logEvent(.event, "GENA subscription rejected (sid=\(sid.suffix(8)))")
+                } else {
+                    self?.logEvent(.event, "GENA notification undelivered (sid=\(sid.suffix(8)))")
+                }
             }
         }.resume()
     }
 
-    private func makeEventBody(for service: String) -> String? {
+    func makeEventBody(for service: String) -> String? {
         switch service {
         case "AVTransport":
-            let state = player.isPlaying ? "PLAYING" : (player.currentSong != nil ? "PAUSED_PLAYBACK" : "STOPPED")
             let current = currentTransportItem
             let next = nextTransportItem
             let lastChange = """
             <Event xmlns="urn:schemas-upnp-org:metadata-1-0/AVT/">
               <InstanceID val="0">
-                <TransportState val="\(state)"/>
+                <TransportState val="\(transportState)"/>
                 <TransportStatus val="OK"/>
                 <AVTransportURI val="\(xmlEscape(current?.uri ?? ""))"/>
                 <AVTransportURIMetaData val="\(xmlEscape(didl(for: current)))"/>
@@ -1818,8 +1828,7 @@ final class DLNARendererService {
                 return
             }
             logEvent(.control, "Set current URI → \(item.title) (\(item.url.host ?? item.url.scheme ?? "?"))")
-            markController(controllerID, isCasting: true)
-            prepareTransportItem(item)
+            prepareTransportItem(item, controllerID: controllerID)
             await sendSOAP(action: "SetAVTransportURI", body: "", on: connection)
         case "SetNextAVTransportURI":
             guard let item = transportItem(uriTag: "NextURI", metadataTag: "NextURIMetaData", from: body) else {
@@ -1833,14 +1842,7 @@ final class DLNARendererService {
             await sendSOAP(action: "SetNextAVTransportURI", body: "", on: connection)
         case "Play":
             markController(controllerID, isCasting: true)
-            if player.isLoading {
-                // A pushed URL is already opening; acknowledge quickly and
-                // let the in-flight playback task finish.
-            } else if !player.isPlaying, let current = currentTransportItem, player.currentSong == nil {
-                playTransportItem(current)
-            } else if !player.isPlaying {
-                player.resume()
-            }
+            playSelectedTransportItem()
             await sendSOAP(action: "Play", body: "", on: connection)
         case "Pause":
             if player.isPlaying { player.togglePlayPause() }
@@ -1850,6 +1852,7 @@ final class DLNARendererService {
             player.stop()
             markController(controllerID, isCasting: false)
             statusText = String(localized: "dlna_status_listening")
+            notifyAllSubscribers()
             await sendSOAP(action: "Stop", body: "", on: connection)
         case "Next":
             guard let next = nextTransportItem else {
@@ -1863,18 +1866,8 @@ final class DLNARendererService {
         case "Previous":
             await sendSOAPError(code: 711, description: "Transition not available", on: connection)
         case "GetTransportInfo":
-            let state: String
-            if player.isPlaying {
-                state = "PLAYING"
-            } else if player.isLoading || transportPlaybackTask != nil {
-                state = "TRANSITIONING"
-            } else if player.currentSong != nil {
-                state = "PAUSED_PLAYBACK"
-            } else {
-                state = "STOPPED"
-            }
             let body = """
-            <CurrentTransportState>\(state)</CurrentTransportState>
+            <CurrentTransportState>\(transportState)</CurrentTransportState>
             <CurrentTransportStatus>OK</CurrentTransportStatus>
             <CurrentSpeed>1</CurrentSpeed>
             """
@@ -1947,6 +1940,12 @@ final class DLNARendererService {
         }
     }
 
+    var transportState: String {
+        if transportPlaybackTask != nil || player.isLoading { return "TRANSITIONING" }
+        if player.isPlaying { return "PLAYING" }
+        return player.currentSong == nil ? "STOPPED" : "PAUSED_PLAYBACK"
+    }
+
     private func currentTransportActions() -> [String] {
         var actions: [String] = []
         if currentTransportItem != nil || player.currentSong != nil {
@@ -1990,31 +1989,48 @@ final class DLNARendererService {
         )
     }
 
+    func playSelectedTransportItem() {
+        guard transportPlaybackTask == nil, !player.isLoading, !player.isPlaying else { return }
+        if let current = currentTransportItem, player.currentSong == nil {
+            playTransportItem(current)
+        } else {
+            player.resume()
+        }
+    }
+
     private func playTransportItem(_ item: TransportItem) {
         currentTransportItem = item
-        statusText = String(format: String(localized: "dlna_status_playing_format"), item.title)
-        notifyAllSubscribers()
-
+        statusText = String(localized: "radio_buffering")
         transportPlaybackTask?.cancel()
         transportPlaybackTask = Task { @MainActor [weak self, item] in
-            guard let self else { return }
-            let started = await self.playRemote(url: item.url, title: item.title, artist: item.artist)
-            guard !Task.isCancelled, self.currentTransportItem?.uri == item.uri else { return }
-            self.transportPlaybackTask = nil
-            if started {
-                self.statusText = String(format: String(localized: "dlna_status_playing_format"), item.title)
-            } else {
-                self.statusText = String(format: String(localized: "dlna_status_error_format"), "Playback failed")
-                self.logEvent(.error, "Playback failed to start for \(item.title)")
+            guard let self, !Task.isCancelled else { return }
+            do {
+                let started = try await self.playRemote(url: item.url, title: item.title, artist: item.artist)
+                guard !Task.isCancelled else { return }
+                if started {
+                    self.statusText = String(format: String(localized: "dlna_status_playing_format"), item.title)
+                } else {
+                    self.statusText = String(format: String(localized: "dlna_status_error_format"), "Playback failed")
+                    self.logEvent(.error, "Playback failed to start for \(item.title)")
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.statusText = error.localizedDescription
             }
+            self.transportPlaybackTask = nil
             self.notifyAllSubscribers()
         }
+        notifyAllSubscribers()
     }
 
     /// UPnP SetAVTransportURI selects media but does not grant playback. Keep
     /// the renderer stopped until the controller sends an explicit Play (or
     /// another explicit transport action such as Next).
-    private func prepareTransportItem(_ item: TransportItem) {
+    func prepareTransportItem(_ item: TransportItem, controllerID: String) {
+        let sameController = activeControllerID == controllerID
+        markController(controllerID, isCasting: true)
+        // A control point can retry SetURI + Play while the receiver is still waiting for consent.
+        if sameController, transportPlaybackTask != nil, currentTransportItem?.uri == item.uri { return }
         transportPlaybackTask?.cancel()
         transportPlaybackTask = nil
         if player.currentSong != nil || player.isPlaying || player.isLoading {
@@ -2028,8 +2044,8 @@ final class DLNARendererService {
     /// 创建一个临时 Song 喂给 player.play(song:from:)。sourceID 用 "dlna"
     /// 标识来源,filePath 存 URL ── 走的是 AudioPlayerService 的 "from URL"
     /// 分支,跟我们的 MusicSource 系统完全独立,不会污染库。
-    private func playRemote(url: URL, title: String, artist: String?) async -> Bool {
-        let probe = await probeRemoteMedia(url: url)
+    private func playRemote(url: URL, title: String, artist: String?) async throws -> Bool {
+        let probe = try await probeRemoteMedia(url: url)
         if !probe.detail.isEmpty {
             logEvent(.control, "Media probe \(url.host ?? url.scheme ?? "?"): \(probe.detail)")
         }
@@ -2049,7 +2065,7 @@ final class DLNARendererService {
         return player.currentSong?.id == song.id && player.isPlaying
     }
 
-    private func probeRemoteMedia(url: URL) async -> RemoteMediaProbe {
+    private func probeRemoteMedia(url: URL) async throws -> RemoteMediaProbe {
         if url.isFileURL {
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
             return RemoteMediaProbe(fileSize: size, supportsRange: false, detail: size > 0 ? "local size=\(size / 1024)KB" : "")
@@ -2063,27 +2079,21 @@ final class DLNARendererService {
         config.timeoutIntervalForRequest = 5
         config.timeoutIntervalForResource = 8
         config.httpMaximumConnectionsPerHost = 2
-        // A delegate-backed URLSession strongly retains its delegate and never
-        // deallocates until explicitly invalidated, so a per-cast session would
-        // leak both the session and its SmartSSLDelegate. invalidateAndCancel()
-        // also tears down any task still in flight — notably the probeRange 200
-        // branch, where the server ignored Range and we abandoned the AsyncBytes
-        // stream (the underlying connection would otherwise hang until timeout).
-        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        let session = TrustedHTTPTransport.makeMediaSession(configuration: config)
         defer { session.invalidateAndCancel() }
 
-        if let range = await probeRange(url: url, session: session) {
+        if let range = try await probeRange(url: url, session: session) {
             return range
         }
 
-        if let head = await probeHead(url: url, session: session) {
+        if let head = try await probeHead(url: url, session: session) {
             return head
         }
 
         return RemoteMediaProbe(fileSize: 0, supportsRange: false, detail: "no range/length response; using progressive fallback")
     }
 
-    private func probeRange(url: URL, session: URLSession) async -> RemoteMediaProbe? {
+    private func probeRange(url: URL, session: URLSession) async throws -> RemoteMediaProbe? {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(HTTPRangeProbePolicy.requestHeaderValue, forHTTPHeaderField: "Range")
@@ -2091,7 +2101,10 @@ final class DLNARendererService {
         request.timeoutInterval = 5
 
         do {
-            let (_, response) = try await session.bytes(for: request)
+            let (file, response) = try await TrustedHTTPTransport.mediaDownload(
+                for: request, session: session, maximumRangedBodyBytes: 64 * 1024, wholeResponsePrefixLimit: 2
+            )
+            defer { try? FileManager.default.removeItem(at: file) }
             guard let http = response as? HTTPURLResponse else { return nil }
             switch http.statusCode {
             case 206:
@@ -2112,20 +2125,25 @@ final class DLNARendererService {
             default:
                 return RemoteMediaProbe(fileSize: 0, supportsRange: false, detail: "range probe HTTP \(http.statusCode)")
             }
+        } catch let error as TrustedHTTPTransportError {
+            throw error
         } catch {
+            try Task.checkCancellation()
             logEvent(.error, "Media range probe failed for \(url.host ?? "?"): \(error.localizedDescription)")
             return nil
         }
     }
 
-    private func probeHead(url: URL, session: URLSession) async -> RemoteMediaProbe? {
+    private func probeHead(url: URL, session: URLSession) async throws -> RemoteMediaProbe? {
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         request.timeoutInterval = 5
 
         do {
-            let (_, response) = try await session.data(for: request)
+            let (_, response) = try await TrustedHTTPTransport.mediaData(
+                for: request, session: session, maxBytes: 64 * 1024
+            )
             guard let http = response as? HTTPURLResponse else { return nil }
             let size = contentLength(from: http) ?? 0
             let acceptsRange = responseHeader("Accept-Ranges", in: http)?
@@ -2138,7 +2156,10 @@ final class DLNARendererService {
                 supportsRange: acceptsRange,
                 detail: acceptsRange ? "HEAD range advertised size=\(size / 1024)KB" : "HEAD size=\(size / 1024)KB without range"
             )
+        } catch let error as TrustedHTTPTransportError {
+            throw error
         } catch {
+            try Task.checkCancellation()
             logEvent(.error, "Media HEAD probe failed for \(url.host ?? "?"): \(error.localizedDescription)")
             return nil
         }
@@ -2348,7 +2369,7 @@ final class DLNARendererService {
             <stateVariable sendEvents="no"><name>TransportPlaySpeed</name><dataType>string</dataType><allowedValueList><allowedValue>1</allowedValue></allowedValueList></stateVariable>
             <stateVariable sendEvents="no"><name>A_ARG_TYPE_SeekMode</name><dataType>string</dataType><allowedValueList><allowedValue>REL_TIME</allowedValue></allowedValueList></stateVariable>
             <stateVariable sendEvents="no"><name>A_ARG_TYPE_SeekTarget</name><dataType>string</dataType></stateVariable>
-            <stateVariable sendEvents="yes"><name>TransportState</name><dataType>string</dataType><allowedValueList><allowedValue>STOPPED</allowedValue><allowedValue>PLAYING</allowedValue><allowedValue>PAUSED_PLAYBACK</allowedValue></allowedValueList></stateVariable>
+            <stateVariable sendEvents="yes"><name>TransportState</name><dataType>string</dataType><allowedValueList><allowedValue>STOPPED</allowedValue><allowedValue>TRANSITIONING</allowedValue><allowedValue>PLAYING</allowedValue><allowedValue>PAUSED_PLAYBACK</allowedValue></allowedValueList></stateVariable>
             <stateVariable sendEvents="yes"><name>TransportStatus</name><dataType>string</dataType><allowedValueList><allowedValue>OK</allowedValue></allowedValueList></stateVariable>
             <stateVariable sendEvents="no"><name>CurrentTransportActions</name><dataType>string</dataType></stateVariable>
             <stateVariable sendEvents="no"><name>CurrentPlayMode</name><dataType>string</dataType><allowedValueList><allowedValue>NORMAL</allowedValue></allowedValueList></stateVariable>

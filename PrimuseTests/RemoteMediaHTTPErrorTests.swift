@@ -1,8 +1,126 @@
 import Foundation
+import Network
 import Security
 import PrimuseKit
 import XCTest
 @testable import Primuse
+
+@MainActor
+final class DLNAReceiverPlaybackTests: XCTestCase {
+    private func listen(
+        _ accept: @escaping @Sendable (NWConnection) -> Void
+    ) async throws -> (NWListener, URL) {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let listener = try NWListener(using: parameters)
+        listener.newConnectionHandler = accept
+        listener.start(queue: .global())
+        for _ in 0..<300 {
+            if let port = listener.port, port.rawValue != 0 {
+                return (listener, try XCTUnwrap(URL(string: "http://127.0.0.1:\(port.rawValue)")))
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        listener.cancel()
+        throw URLError(.timedOut)
+    }
+
+    func testSubscriptionCanRenewAfterCallbackConnectionDrops() async throws {
+        let renderer = DLNARendererService(player: AudioPlayerService(activateAudioSession: { _ in }))
+        let (receiver, baseURL) = try await listen { connection in
+            Task { @MainActor in renderer.handleHTTPConnection(connection) }
+        }
+        defer { receiver.cancel() }
+        let (dropper, callback) = try await listen { connection in
+            connection.start(queue: .global())
+            connection.cancel()
+        }
+        defer { dropper.cancel() }
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let url = baseURL.appendingPathComponent("event/AVTransport")
+        var request = URLRequest(url: url, timeoutInterval: 3)
+        request.httpMethod = "SUBSCRIBE"
+        request.setValue("upnp:event", forHTTPHeaderField: "NT")
+        request.setValue("<\(callback.absoluteString)/events>", forHTTPHeaderField: "CALLBACK")
+        let (_, response) = try await session.data(for: request)
+        let http = try XCTUnwrap(response as? HTTPURLResponse)
+        XCTAssertEqual(http.statusCode, 200)
+        let sid = try XCTUnwrap(http.value(forHTTPHeaderField: "SID"))
+        for _ in 0..<600 {
+            if renderer.recentEvents.contains(where: { $0.detail.contains("GENA notification undelivered") }) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(renderer.recentEvents.contains(where: { $0.detail.contains("GENA notification undelivered") }))
+        var renewal = URLRequest(url: url, timeoutInterval: 3)
+        renewal.httpMethod = "SUBSCRIBE"
+        renewal.setValue(sid, forHTTPHeaderField: "SID")
+        let (_, renewed) = try await session.data(for: renewal)
+        XCTAssertEqual((renewed as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertEqual((renewed as? HTTPURLResponse)?.value(forHTTPHeaderField: "SID"), sid)
+        var cancel = renewal
+        cancel.httpMethod = "UNSUBSCRIBE"
+        _ = try await session.data(for: cancel)
+        let (_, expired) = try await session.data(for: renewal)
+        XCTAssertEqual((expired as? HTTPURLResponse)?.statusCode, 412)
+    }
+
+    func testRepeatedPlayAndSelectionSharePendingStartUntilTheURIChanges() async throws {
+        let player = AudioPlayerService(activateAudioSession: { _ in })
+        let renderer = DLNARendererService(player: player)
+        let origin = "http://\(UUID().uuidString.lowercased()).invalid"
+        func item(_ path: String) throws -> DLNARendererService.TransportItem {
+            let url = try XCTUnwrap(URL(string: "\(origin)/\(path)"))
+            return .init(uri: url.absoluteString, metadata: "", title: path, artist: nil, url: url)
+        }
+        let first = try item("first.mp3")
+        renderer.prepareTransportItem(first, controllerID: "sender")
+        XCTAssertEqual(renderer.transportState, "STOPPED")
+        renderer.playSelectedTransportItem()
+        let start = try XCTUnwrap(renderer.transportPlaybackTask)
+        for _ in 0..<3 {
+            renderer.prepareTransportItem(first, controllerID: "sender")
+            renderer.playSelectedTransportItem()
+            XCTAssertEqual(renderer.transportPlaybackTask, start)
+            XCTAssertFalse(start.isCancelled)
+            XCTAssertEqual(renderer.transportState, "TRANSITIONING")
+            let event = try XCTUnwrap(renderer.makeEventBody(for: "AVTransport"))
+            XCTAssertTrue(event.contains("TransportState val=&quot;TRANSITIONING&quot;"))
+        }
+
+        let next = try item("second.mp3")
+        renderer.prepareTransportItem(next, controllerID: "sender")
+        XCTAssertTrue(start.isCancelled)
+        XCTAssertNil(renderer.transportPlaybackTask)
+        renderer.playSelectedTransportItem()
+        let replacement = try XCTUnwrap(renderer.transportPlaybackTask)
+        XCTAssertNotEqual(start, replacement)
+        await replacement.value
+        await start.value
+        // The test host declines unapproved public HTTP. No probe or decoder may run after that decision.
+        let endpoint = try XCTUnwrap(TrustedHTTPTransport.trustTarget(for: next.url))
+        XCTAssertEqual(renderer.statusText, TrustedHTTPTransportError.permissionRequired(host: endpoint).localizedDescription)
+        XCTAssertNil(player.currentSong)
+        XCTAssertEqual(renderer.transportState, "STOPPED")
+    }
+
+    func testApprovedMediaOriginIsReusedAcrossTracksButNotPorts() async throws {
+        let host = "\(UUID().uuidString.lowercased()).invalid"
+        let first = try XCTUnwrap(URL(string: "http://\(host)/first.mp3?track=1"))
+        let next = try XCTUnwrap(URL(string: "http://\(host):80/second.mp3?track=2"))
+        let other = try XCTUnwrap(URL(string: "http://\(host):8080/second.mp3"))
+        let endpoint = try XCTUnwrap(TrustedHTTPTransport.trustTarget(for: first))
+        let nextEndpoint = try XCTUnwrap(TrustedHTTPTransport.trustTarget(for: next))
+        let otherEndpoint = try XCTUnwrap(TrustedHTTPTransport.trustTarget(for: other))
+        let store = SSLTrustStore.shared
+        defer { store.disallowInsecureHTTP(domain: endpoint) }
+        store.allowInsecureHTTP(domain: endpoint)
+        let accepted = await store.requestInsecureHTTPTrust(domain: nextEndpoint)
+        XCTAssertTrue(accepted)
+        XCTAssertTrue(SSLTrustStore.allowsInsecureHTTPHostSync(domain: nextEndpoint))
+        XCTAssertFalse(SSLTrustStore.allowsInsecureHTTPHostSync(domain: otherEndpoint))
+    }
+}
 
 final class RemoteMediaHTTPErrorTests: XCTestCase {
     func testCloudReadErrorClearsAfterSuccessfulRead() throws {
