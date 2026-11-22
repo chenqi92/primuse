@@ -82,6 +82,97 @@ struct LogDuplicateCoalescerTests {
         #expect(coalescer.absorb(key: "a", line: "loop") == ["loop"])
     }
 
+    @Test("A repeat summary carries the repeated line's source and last repeat time, not the next line's")
+    func repeatSummaryCarriesRepeatedLineSource() {
+        var coalescer = LogDuplicateCoalescer()
+        let start = Date(timeIntervalSince1970: 1_000)
+        func at(_ seconds: Double) -> Date { start.addingTimeInterval(seconds) }
+        let watch = "WatchConnectivityService:412"
+        let intent = "ListeningIntentService:88"
+        let first = coalescer.absorb(key: "\(watch) deliver payload", line: "deliver payload", source: watch, at: at(0))
+        #expect(first == [.init(text: "deliver payload", source: watch, timestamp: at(0), isRepeatSummary: false)])
+        for repeatIndex in 1...28 {
+            #expect(coalescer.absorb(key: "\(watch) deliver payload", line: "deliver payload",
+                                     source: watch, at: at(Double(repeatIndex))).isEmpty)
+        }
+        // 打断重复的是另一处的一行:汇总仍记在 Watch 那一行名下,时间是第 28 次重复的时间。
+        let produced = coalescer.absorb(key: "\(intent) plan", line: "plan", source: intent, at: at(60))
+        #expect(produced.count == 2)
+        #expect(produced[0].isRepeatSummary)
+        #expect(produced[0].text.contains("重复 28 次"))
+        #expect(produced[0].source == watch)
+        #expect(produced[0].timestamp == at(28))
+        #expect(produced[1] == .init(text: "plan", source: intent, timestamp: at(60), isRepeatSummary: false))
+    }
+
+    @Test("Periodic and final summaries also name the repeated line")
+    func periodicAndFlushedSummariesNameRepeatedLine() {
+        var coalescer = LogDuplicateCoalescer(flushEvery: 3)
+        let source = "ScanService:6150"
+        let start = Date(timeIntervalSince1970: 50)
+        _ = coalescer.absorb(key: "k", line: "loop", source: source, at: start)
+        var periodic: [LogDuplicateCoalescer.Emission] = []
+        for offset in 1...4 {
+            periodic += coalescer.absorb(key: "k", line: "loop", source: source, at: start.addingTimeInterval(Double(offset)))
+        }
+        #expect(periodic.count == 1)
+        #expect(periodic.first?.source == source)
+        #expect(periodic.first?.timestamp == start.addingTimeInterval(3))
+        let flushed = coalescer.flushEmissions()
+        #expect(flushed.count == 1)
+        #expect(flushed.first?.text.contains("重复 1 次") == true)
+        #expect(flushed.first?.source == source)
+        #expect(flushed.first?.timestamp == start.addingTimeInterval(4))
+        #expect(coalescer.flushEmissions().isEmpty)
+    }
+
+    @Test("After dropped lines the pending repeat summary comes first, so timestamps never go backwards")
+    func droppedLinesKeepTimestampsInOrder() {
+        var coalescer = LogDuplicateCoalescer()
+        let start = Date(timeIntervalSince1970: 5_000)
+        let loop = "MetadataBackfillService:900"
+        _ = coalescer.absorb(key: "loop", line: "read tag", source: loop, at: start)
+        for offset in 1...5 {
+            _ = coalescer.absorb(key: "loop", line: "read tag", source: loop, at: start.addingTimeInterval(Double(offset)))
+        }
+        let next = start.addingTimeInterval(30)
+        let produced = coalescer.absorb(
+            key: "other", line: "scan done", source: "ScanService:10", at: next,
+            droppedBefore: 1_234, droppedSource: "FileLogger"
+        )
+        #expect(produced.map(\.text).count == 3)
+        #expect(produced[0].isRepeatSummary)
+        #expect(produced[0].text.contains("重复 5 次"))
+        #expect(produced[0].source == loop)
+        #expect(produced[1].text == LogBacklogPolicy.droppedSummary(count: 1_234))
+        #expect(produced[1].source == "FileLogger")
+        #expect(produced[2].text == "scan done")
+        #expect(zip(produced, produced.dropFirst()).allSatisfy { $0.timestamp <= $1.timestamp })
+        // 丢过行之后,同一行再来按新行写,不接着算成前面的重复。
+        let again = coalescer.absorb(
+            key: "other", line: "scan done", source: "ScanService:10", at: next.addingTimeInterval(1),
+            droppedBefore: 3, droppedSource: "FileLogger"
+        )
+        #expect(again.map(\.text) == [LogBacklogPolicy.droppedSummary(count: 3), "scan done"])
+        // 没丢过行时与普通吸收相同。
+        #expect(coalescer.absorb(key: "x", line: "x", source: "s", at: next, droppedBefore: 0, droppedSource: "FileLogger")
+            .map(\.text) == ["x"])
+    }
+
+    @Test("A repeat summary that triggers rotation stays in the file holding its repeated line")
+    func repeatSummaryStaysBeforeRotation() {
+        var coalescer = LogDuplicateCoalescer()
+        let now = Date(timeIntervalSince1970: 9_000)
+        _ = coalescer.absorb(key: "a", line: "loop", source: "A:1", at: now)
+        _ = coalescer.absorb(key: "a", line: "loop", source: "A:1", at: now)
+        let produced = coalescer.absorb(key: "b", line: "next", source: "B:2", at: now)
+        #expect(produced.count == 2)
+        #expect(LogRotationPlacement.writesBeforeRotation(produced[0]))
+        #expect(!LogRotationPlacement.writesBeforeRotation(produced[1]))
+        let dropped = coalescer.absorb(key: "c", line: "c", source: "C:3", at: now, droppedBefore: 2, droppedSource: "FileLogger")
+        #expect(!dropped.contains { LogRotationPlacement.writesBeforeRotation($0) })
+    }
+
     @Test("Alternating lines never coalesce")
     func alternatingLinesNeverCoalesce() {
         var coalescer = LogDuplicateCoalescer()

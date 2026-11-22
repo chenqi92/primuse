@@ -305,57 +305,66 @@ final class FileLogger: @unchecked Sendable {
             self.droppedCount = 0
             self.backlogLock.unlock()
 
-            // 丢弃汇总写在当前这条之前, 文件里就能看出丢了多少、丢在哪个位置。
-            if dropped > 0 {
-                self.appendToFile(
-                    self.formatEntry(
-                        LogBacklogPolicy.droppedSummary(count: dropped),
-                        source: Self.internalSource
-                    )
-                )
-            }
-
             // 判重用原始消息, 比较的是廉价的字符串相等, 不碰正则。
+            // 重复汇总带着被重复那一行的来源与最后一次重复的时间, 不挂在打断它的这一行下面;
+            // 丢过行时先写挂起的重复汇总、再写丢弃汇总、最后才是这一条, 时间不倒流,
+            // 文件里也看得出丢了多少、丢在哪个位置。
             let key = "\(fileName):\(line) \(message)"
-            for produced in self.coalescer.absorb(key: key, line: message) {
-                self.appendToFile(self.formatEntry(produced, source: "\(fileName):\(line)"))
+            let produced = self.coalescer.absorb(
+                key: key, line: message, source: "\(fileName):\(line)", at: Date(),
+                droppedBefore: dropped, droppedSource: Self.internalSource
+            )
+            for entry in produced {
+                self.appendToFile(
+                    self.formatEntry(entry.text, source: entry.source, at: entry.timestamp),
+                    writesBeforeRotation: LogRotationPlacement.writesBeforeRotation(entry)
+                )
             }
         }
     }
 
     /// 把挂起的重复汇总写出去。只在 `queue` 上调用。
     private func flushPendingSummaries() {
-        for summary in coalescer.flush() {
-            appendToFile(formatEntry(summary, source: Self.internalSource))
+        for summary in coalescer.flushEmissions() {
+            appendToFile(
+                formatEntry(summary.text, source: summary.source, at: summary.timestamp),
+                writesBeforeRotation: LogRotationPlacement.writesBeforeRotation(summary)
+            )
         }
     }
 
     /// 脱敏 + 时间戳 + 来源前缀。每一条写进文件的行(含 logger 自己产生的汇总)
     /// 都走这里, 脱敏覆盖面与改动前一致。
-    private func formatEntry(_ body: String, source: String) -> String {
+    private func formatEntry(_ body: String, source: String, at date: Date = Date()) -> String {
         let safeMessage = Self.redactSensitiveData(body)
-        let timestamp = dateFormatter.string(from: Date())
+        let timestamp = dateFormatter.string(from: date)
         #if DEBUG
         print(safeMessage)
         #endif
         return "[\(timestamp)] [\(source)] \(safeMessage)\n"
     }
 
-    private func appendToFile(_ text: String) {
+    /// `writesBeforeRotation`: 这一行本身是重复汇总(说的是旧文件里那一行), 要轮转时写进旧文件。
+    private func appendToFile(_ text: String, writesBeforeRotation: Bool = false) {
+        guard let data = text.data(using: .utf8) else { return }
         // 写入前若已超上限, 先轮转(保留一代到 .1, 再从零开始新文件)。
         if currentBytes >= limits.maxFileBytes {
             // 挂起的重复计数属于旧的一代, 轮转前先落盘, 否则这条汇总会跨代,
             // 读旧文件的人看不到"最后那几行重复了多少次"。这里必须直接走
             // `writeRaw`: 再进 `appendToFile` 会二次触发轮转, 把上一代覆盖掉。
-            for summary in coalescer.flush() {
-                if let data = formatEntry(summary, source: Self.internalSource).data(using: .utf8) {
-                    writeRaw(data)
+            for summary in coalescer.flushEmissions() {
+                if let summaryData = formatEntry(summary.text, source: summary.source, at: summary.timestamp)
+                    .data(using: .utf8) {
+                    writeRaw(summaryData)
                 }
+            }
+            if writesBeforeRotation {
+                writeRaw(data)
+                rotate()
+                return
             }
             rotate()
         }
-
-        guard let data = text.data(using: .utf8) else { return }
         writeRaw(data)
     }
 

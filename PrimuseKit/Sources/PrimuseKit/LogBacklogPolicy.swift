@@ -26,51 +26,124 @@ public enum LogBacklogPolicy {
 /// 既能把写盘量压下去, 又不会丢掉"这里在刷屏"这个诊断信息。
 ///
 /// 只在同一条串行队列上驱动, 所以顺序天然保持: `absorb` 返回什么就按顺序写什么。
+/// 重复汇总记的是被重复的那一行的来源与最后一次重复的时间(`Emission`), 不是打断
+/// 重复的那一行的: 否则汇总会挂在下一行的 文件:行 下面, 读日志时看成是那一行刷了屏。
 public struct LogDuplicateCoalescer: Sendable {
+    /// 要按顺序写出的一行。
+    public struct Emission: Equatable, Sendable {
+        public let text: String
+        /// 普通行是它自己的来源; 重复汇总是被重复的那一行的来源。
+        public let source: String
+        /// 普通行是它自己的时间; 重复汇总是最后一次重复的时间。
+        public let timestamp: Date
+        public let isRepeatSummary: Bool
+
+        public init(text: String, source: String, timestamp: Date, isRepeatSummary: Bool) {
+            self.text = text
+            self.source = source
+            self.timestamp = timestamp
+            self.isRepeatSummary = isRepeatSummary
+        }
+    }
+
     /// 连续重复累计到这个数时立刻吐一条汇总并清零, 保证无限重复的行
     /// 每 `flushEvery` 次至少留下一行痕迹, 不会一直沉默。
     private let flushEvery: Int
     private var previousKey: String?
+    private var previousSource = ""
+    private var lastRepeatAt = Date.distantPast
     private var repeatCount = 0
 
     public init(flushEvery: Int = 100) {
         self.flushEvery = max(1, flushEvery)
     }
 
-    /// 吸收一行。`key` 用于判重(通常是 文件:行 + 原始消息), `line` 是实际要写的内容。
+    /// 吸收一行。`key` 用于判重(通常是 文件:行 + 原始消息), `line` 是实际要写的内容,
+    /// `source` 是它的来源(文件:行), `timestamp` 是它的时间。
     /// 返回需要按顺序写出的行: 新行返回自身(必要时前面带上一段重复汇总),
     /// 重复行返回空数组, 只有攒够 `flushEvery` 次才返回一条汇总。
-    public mutating func absorb(key: String, line: String) -> [String] {
+    public mutating func absorb(key: String, line: String, source: String, at timestamp: Date) -> [Emission] {
         if key == previousKey {
             repeatCount += 1
+            lastRepeatAt = timestamp
             guard repeatCount >= flushEvery else { return [] }
-            let summary = Self.repeatSummary(count: repeatCount)
-            repeatCount = 0
-            return [summary]
+            return [takeRepeatSummary()]
         }
 
-        var produced: [String] = []
+        var produced: [Emission] = []
         if repeatCount > 0 {
-            produced.append(Self.repeatSummary(count: repeatCount))
-            repeatCount = 0
+            produced.append(takeRepeatSummary())
         }
         previousKey = key
-        produced.append(line)
+        previousSource = source
+        produced.append(Emission(text: line, source: source, timestamp: timestamp, isRepeatSummary: false))
         return produced
     }
 
     /// 收尾: 把挂起的重复计数写出去。会同时清掉上一条 key, 让 flush 之后
     /// 再来的同一行当作新行完整打印(轮转、会话切换这类边界需要这个行为)。
-    public mutating func flush() -> [String] {
+    public mutating func flushEmissions() -> [Emission] {
         previousKey = nil
         guard repeatCount > 0 else { return [] }
-        let summary = Self.repeatSummary(count: repeatCount)
+        return [takeRepeatSummary()]
+    }
+
+    /// 吸收一行;队列积压、这一行之前丢过 `droppedCount` 行时,先写挂起的重复汇总(它的时间
+    /// 更早),再写丢弃汇总,最后是这一行:文件里的时间不倒流,丢掉的那些行也不会被算成
+    /// 「上一行」的重复(重复计数在这里结清,之后同一行再来按新行写)。
+    public mutating func absorb(
+        key: String,
+        line: String,
+        source: String,
+        at timestamp: Date,
+        droppedBefore droppedCount: Int,
+        droppedSource: String
+    ) -> [Emission] {
+        guard droppedCount > 0 else { return absorb(key: key, line: line, source: source, at: timestamp) }
+        var produced = flushEmissions()
+        produced.append(Emission(
+            text: LogBacklogPolicy.droppedSummary(count: droppedCount),
+            source: droppedSource,
+            timestamp: timestamp,
+            isRepeatSummary: false
+        ))
+        produced.append(contentsOf: absorb(key: key, line: line, source: source, at: timestamp))
+        return produced
+    }
+
+    /// 只要文本的旧入口。
+    public mutating func absorb(key: String, line: String) -> [String] {
+        absorb(key: key, line: line, source: "", at: Date()).map(\.text)
+    }
+
+    /// 只要文本的旧入口。
+    public mutating func flush() -> [String] {
+        flushEmissions().map(\.text)
+    }
+
+    private mutating func takeRepeatSummary() -> Emission {
+        let summary = Emission(
+            text: Self.repeatSummary(count: repeatCount),
+            source: previousSource,
+            timestamp: lastRepeatAt,
+            isRepeatSummary: true
+        )
         repeatCount = 0
-        return [summary]
+        return summary
     }
 
     private static func repeatSummary(count: Int) -> String {
         "（上一行重复 \(count) 次）"
+    }
+}
+
+/// 写一行之前文件到了上限、要轮转时,哪些行写进旧文件。
+///
+/// 挂起的重复汇总、以及要写的这一行本身就是重复汇总时,说的都是旧文件里的那一行:写在轮转之前,
+/// 读旧文件的人看得到「最后那几行重复了多少次」,新文件也不会以一条没头没尾的汇总开头。
+public enum LogRotationPlacement {
+    public static func writesBeforeRotation(_ emission: LogDuplicateCoalescer.Emission) -> Bool {
+        emission.isRepeatSummary
     }
 }
 
