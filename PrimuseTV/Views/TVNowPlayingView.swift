@@ -1798,17 +1798,9 @@ struct TVNowPlayingView: View {
                         .foregroundStyle(lyricsColors.style(defaultColor: TVColor.text, isActive: isCur, opacity: 0.62, layoutDirection: lyricLayoutDirection(for: background.writingDirection)))
                         .multilineTextAlignment(textAlignment)
                 }
+                lyricCompanions(for: background, size: companionSize * 0.7, alignment: textAlignment)
             }
-            if !ln.romanization.isEmpty {
-                TVLyricCompanionText(text: ln.romanization, size: companionSize)
-                    .foregroundStyle(TVColor.textFaint)
-                    .multilineTextAlignment(textAlignment)
-            }
-            if !ln.translation.isEmpty {
-                TVLyricCompanionText(text: LyricCompanionTextPolicy.displayText(ln.translation), size: companionSize, italic: true)
-                    .foregroundStyle(TVColor.textFaint)
-                    .multilineTextAlignment(textAlignment)
-            }
+            lyricCompanions(for: ln, size: companionSize, alignment: textAlignment)
         }
         .scaleEffect(scale, anchor: isTrailing ? .trailing : .leading)
         .opacity(opacity)
@@ -1826,6 +1818,20 @@ struct TVNowPlayingView: View {
         .accessibilityValue(Text(isCur ? PMString("playback") : ""))
         .accessibilityAddTraits(isCur ? [.isSelected] : [])
         .environment(\.layoutDirection, lyricLayoutDirection(for: ln.writingDirection))
+    }
+
+    @ViewBuilder
+    private func lyricCompanions(for line: TVLyricLine, size: CGFloat, alignment: TextAlignment) -> some View {
+        if !line.romanization.isEmpty {
+            TVLyricCompanionText(text: line.romanization, size: size)
+                .foregroundStyle(TVColor.textFaint)
+                .multilineTextAlignment(alignment)
+        }
+        if !line.translation.isEmpty {
+            TVLyricCompanionText(text: LyricCompanionTextPolicy.displayText(line.translation), size: size, italic: true)
+                .foregroundStyle(TVColor.textFaint)
+                .multilineTextAlignment(alignment)
+        }
     }
 }
 

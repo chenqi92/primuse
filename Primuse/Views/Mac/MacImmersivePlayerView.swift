@@ -1446,15 +1446,17 @@ struct MacImmersivePlayerView: View {
                 ),
                 background: ImmersiveStageBackgroundLyric.rows(
                     for: line,
-                    documentFallback: documentDirection
+                    documentFallback: documentDirection,
+                    companions: lyricCompanions
                 ),
-                companions: LyricCompanionTextPolicy.texts(
-                    for: line,
-                    translatedText: translatedTextByLineID[line.id]
-                        ?? line.manualTranslation?.text
-                ).map(LyricCompanionTextPolicy.displayText)
+                companions: lyricCompanions(line)
             )
         }
+    }
+
+    private func lyricCompanions(_ line: LyricLine) -> [String] {
+        LyricCompanionTextPolicy.texts(for: line, translatedText: translatedTextByLineID[line.id])
+            .map(LyricCompanionTextPolicy.displayText)
     }
 
     private func immersiveLineEnd(at position: Int) -> TimeInterval? {

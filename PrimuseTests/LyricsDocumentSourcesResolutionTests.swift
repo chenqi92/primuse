@@ -11,6 +11,119 @@ import XCTest
 /// rewrites exactly one file, byte for byte, only while it is unchanged.
 final class LyricsDocumentSourcesResolutionTests: XCTestCase {
     @MainActor
+    func testSelectingEmbeddedOriginalKeepsAllCompanionsAndAlsoListsTailLyrics() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let media = root.appendingPathComponent("music")
+        try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: UUID().uuidString, name: "Test", type: .local, basePath: media.path)
+        let local = LocalFileSource(sourceID: source.id, basePath: media)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in local })
+        let sources = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"), publishesKeychainOptOuts: false)
+        sources.add(source)
+        let original = "[00:01.00]苇灯摇\n[00:04.00]青帆回"
+        let rawTTML = "<tt xmlns=\"http://www.w3.org/ns/ttml\"><body><div><p begin=\"1s\">纸帆起</p><p begin=\"4s\">雾钟鸣</p></div></body></tt>"
+        let reading = "[00:01]<00:01>zhǐ <00:01.45>fān qǐ\n[00:04]wù zhōng míng"
+        let translation = "[00:01]A paper sail rises\n[00:04]The mist bell rings"
+        let alternate = "[00:01]Paper sails climb"
+        func frame(_ key: String, _ data: Data) -> Data {
+            let size = Data((0..<4).reversed().map { UInt8((data.count >> ($0 * 7)) & 127) })
+            return Data(key.utf8) + size + Data([0, 0]) + data
+        }
+        var tags = frame("USLT", Data([3]) + Data("zho".utf8) + Data([0]) + Data(original.utf8))
+        for (key, value) in [("studio_verse", rawTTML), ("PINYIN", reading), ("TRANSLATION:en", translation),
+                             ("TRANSLATION:en", alternate), ("MIX_NOTES", "Move the microphone")] {
+            tags += frame("TXXX", Data([3]) + Data(key.utf8) + Data([0]) + Data(value.utf8))
+        }
+        var file = Data([0x49, 0x44, 0x33, 4, 0, 0])
+        file += Data((0..<4).reversed().map { UInt8((tags.count >> ($0 * 7)) & 127) })
+        file += tags
+        for _ in 0..<8 { file += Data([0xff, 0xfb, 0x90, 0x64]) + Data(count: 413) }
+        let tailText = "[00:09]A brass reed turns"
+        let tail = "LYRICSBEGINLYR" + String(format: "%05d", tailText.utf8.count) + tailText
+        file += Data((tail + String(format: "%06d", tail.utf8.count) + "LYRICS200").utf8)
+        try file.write(to: media.appendingPathComponent("Reeds.mp3"))
+        var track: Song?
+        for try await row in try await local.scanSongs(from: "/", existingSongs: []) { track = row.song }
+        let song = try XCTUnwrap(track)
+        addTeardownBlock { await MetadataAssetStore.shared.invalidateCaches(forSongIDs: [song.id]) }
+        func list() async throws -> [LyricsDocumentCatalog.Entry] {
+            guard case .documents(let result) = await LyricsDocumentCatalog.load(for: song, sourceManager: manager, sourcesStore: sources)
+            else { throw CocoaError(.fileReadUnknown) }
+            return result.entries
+        }
+        let entries = try await list()
+        let fields = entries.filter(\.isEmbedded)
+        XCTAssertEqual(fields.count, 6)
+        XCTAssertEqual(fields.filter { $0.name == "TRANSLATION:en" }.count, 2)
+        XCTAssertTrue(fields.contains { $0.embeddedText == tailText && !$0.isEditable })
+        let chosen = try XCTUnwrap(fields.first { $0.embeddedText == rawTTML })
+        try await LyricsDocumentCatalog.activate(chosen, for: song, sourceManager: manager)
+        let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+        let line = try XCTUnwrap(cached?.first)
+        XCTAssertEqual(line.text, "纸帆起")
+        XCTAssertEqual(line.romanizationSyllables?.map(\.start), [1, 1.45])
+        XCTAssertEqual(Set(line.allManualTranslations.map(\.text)), ["A paper sail rises", "Paper sails climb"])
+        let reopened = try await list()
+        XCTAssertEqual(reopened.first(where: \.isActive)?.id, chosen.id)
+        let url = media.appendingPathComponent("Reeds.mp3")
+        XCTAssertEqual(try Data(contentsOf: url), file)
+
+        // Only the reading changes on disk. The selected primary field keeps its identity.
+        let newReading = reading.replacingOccurrences(of: "zhǐ", with: "zhī")
+        let range = try XCTUnwrap(file.range(of: Data(reading.utf8)))
+        file.replaceSubrange(range, with: newReading.utf8)
+        try file.write(to: url)
+        let reread = await FileMetadataReader.read(from: url)
+        let current = try XCTUnwrap(FileMetadataReader.parsedEmbeddedLyrics(from: reread))
+        _ = await MetadataAssetStore.shared.storeLyricsFromTagRead(current, alternatives: reread.embeddedLyricsAlternatives, forSongID: song.id)
+        let refreshed = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(refreshed?.first?.text, "纸帆起")
+        XCTAssertTrue(refreshed?.first?.romanization?.contains("zhī") == true)
+        XCTAssertEqual(Set(refreshed?.first?.allManualTranslations.map(\.text) ?? []), ["A paper sail rises", "Paper sails climb"])
+        let selected = await MetadataAssetStore.shared.lyricsVersionPreferences(forSongID: song.id)
+        XCTAssertEqual(selected?.selectedID, chosen.id)
+    }
+
+    func testRangeReadsLyricFramesAndFLACCommentsBeyondArtwork() async throws {
+        let artworkSize = 5 * 1024 * 1024
+        let lyric = "[00:01]Lanterns on the tide"
+        func be(_ value: Int, width: Int, bits: Int = 8) -> Data {
+            Data((0..<width).reversed().map { UInt8((value >> ($0 * bits)) & ((1 << bits) - 1)) })
+        }
+        let image = Data(repeating: 170, count: artworkSize)
+        let frame = Data("APIC".utf8) + be(artworkSize, width: 4, bits: 7) + Data(count: 2)
+        let value = Data([3]) + Data("eng".utf8) + Data([0]) + Data(lyric.utf8)
+        let tag = Data("USLT".utf8) + be(value.count, width: 4, bits: 7) + Data(count: 2) + value
+        let size = frame.count + artworkSize + tag.count
+        let mp3Header = Data([73, 68, 51, 4, 0, 0]) + be(size, width: 4, bits: 7) + frame
+        let mp3 = mp3Header + image + tag + Data(count: 72)
+        let vorbisString = Data(("LYRICS=" + lyric).utf8)
+        let comments = Data([0,0,0,0, 1,0,0,0]) + Data(be(vorbisString.count, width: 4).reversed()) + vorbisString
+        let flacHeader = Data("fLaC".utf8) + Data([0, 0, 0, 34]) + Data(count: 34) + Data([6]) + be(artworkSize, width: 3)
+        let flac = flacHeader + image + Data([0x84]) + be(comments.count, width: 3) + comments
+        for (data, prefix, ext) in [(mp3, mp3Header, "mp3"), (flac, flacHeader, "flac")] {
+            var requestedBytes = 0
+            func fetch(_ offset: Int64, _ length: Int64) async throws -> Data {
+                let start = Int(offset)
+                XCTAssertGreaterThanOrEqual(start, prefix.count + artworkSize)
+                let count = min(11, Int(length))
+                requestedBytes += count
+                return data.subdata(in: start..<(start + count))
+            }
+            let bytes: Data?
+            if ext == "mp3" {
+                bytes = try await FileMetadataReader.id3LyricsBeyondHead(prefix, fileSize: Int64(data.count), fetch: fetch)
+                XCTAssertEqual(bytes.flatMap { ID3EmbeddedLyrics.fields(in: $0).first?.text }, lyric)
+            } else {
+                bytes = try await FileMetadataReader.flacTagsBeyondHead(prefix, fileSize: Int64(data.count), fetch: fetch)
+                XCTAssertEqual(bytes.flatMap { EmbeddedTagMetadataParser.parse(head: $0, fileExtension: ext)?.lyricFields.first?.text }, lyric)
+            }
+            XCTAssertLessThan(requestedBytes, 256)
+        }
+    }
+
+    @MainActor
     func testEmbeddedSaveUsesTheFileOpenedByTheEditorAndRefusesLaterAudioChanges() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let media = directory.appendingPathComponent("music")
@@ -723,6 +836,81 @@ final class LyricsDocumentSourcesResolutionTests: XCTestCase {
         let lines = try XCTUnwrap(SidecarMetadataLoader.loadLyrics(for: renamed))
         XCTAssertEqual(lines.first?.text, "Fold a silver sail")
         XCTAssertEqual(lines.first?.manualTranslation?.text, "折起一面银帆")
+    }
+
+    @MainActor
+    func testTTMLPrioritySurvivesTagRereadAndMissingSidecar() async throws {
+        let defaults = UserDefaults.standard
+        let priority = EmbeddedLyricsVariantPriority.self
+        let keys = [priority.storageKey, priority.timingOrderKey, priority.formatOrderKey]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
+        defaults.set(priority.timingType.rawValue, forKey: priority.storageKey)
+        defaults.set("wordLevel,lineLevel,plain", forKey: priority.timingOrderKey)
+        defaults.set("ttml,lrc", forKey: priority.formatOrderKey)
+
+        let lrc = "[00:01.00]<00:01.00>纸<00:01.50>舟\n[00:03.00]<00:03.00>银<00:03.50>港"
+        let ttml = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+        <body><div><p begin="1s" end="2s" ttm:agent="v1">纸舟<span ttm:role="x-roman">zhi zhou</span></p>
+        <p begin="3s" end="4s" ttm:agent="v2">银港<span ttm:role="x-roman">yin gang</span></p></div></body></tt>
+        """
+        func sizeBytes(_ size: Int, bits: Int) -> Data {
+            Data((0..<4).reversed().map { UInt8((size >> ($0 * bits)) & ((1 << bits) - 1)) })
+        }
+        func uslt(_ text: String, descriptor: String) -> Data {
+            let payload = Data([3]) + Data("zho".utf8) + Data(descriptor.utf8) + Data([0]) + Data(text.utf8)
+            return Data("USLT".utf8) + sizeBytes(payload.count, bits: 8) + Data([0, 0]) + payload
+        }
+        let frames = uslt(lrc, descriptor: "LRC") + uslt(ttml, descriptor: "TTML")
+        let audio = Data([0x49, 0x44, 0x33, 3, 0, 0]) + sizeBytes(frames.count, bits: 7) + frames
+        let service = MetadataService()
+        let song = song()
+        let (manager, store) = recheckFixture([:])
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [song.id]) }
+        let first = await service.loadEmbeddedMetadata(from: audio, fileExtension: "mp3", cacheKey: song.id,
+                                                       fallbackTitle: song.title)
+        XCTAssertEqual(first.embeddedLyricsAlternatives?.variants.count, 2)
+        let original = try XCTUnwrap(first.lyrics)
+        XCTAssertTrue(original[0].containsWordLevelContent)
+        XCTAssertNil(original[0].romanization)
+        await store.storeEmbeddedFallbackLyrics(original, forSongID: song.id)
+
+        defaults.set(priority.lyricsFormat.rawValue, forKey: priority.storageKey)
+        var legacy = original
+        legacy[0].documentSource = nil
+        let storedLegacy = await store.cacheLyrics(legacy, forSongID: song.id, force: true)
+        XCTAssertTrue(storedLegacy)
+        let playback = await store.cachedLyricsForPlayback(for: song)
+        XCTAssertEqual(playback?.map(\.romanization), ["zhi zhou", "yin gang"])
+        XCTAssertEqual(playback?.map(\.voice), [.primary, .secondary])
+
+        let storedOriginal = await store.cacheLyrics(original, forSongID: song.id, force: true)
+        XCTAssertTrue(storedOriginal)
+        let reread = await service.loadEmbeddedMetadata(from: audio, fileExtension: "mp3", cacheKey: song.id,
+                                                        fallbackTitle: song.title)
+        let preferred = try XCTUnwrap(reread.lyrics)
+        XCTAssertEqual(preferred.map(\.romanization), ["zhi zhou", "yin gang"])
+        XCTAssertEqual(preferred.map(\.voice), [.primary, .secondary])
+        let cached = await store.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(cached?.map(\.romanization), preferred.map(\.romanization))
+
+        // A sidecar was removed after the earlier scan saved the LRC as its fallback.
+        let sidecar = LyricsDocumentSource.file("Paper.lrc").stamped(LyricsContentParser.parseText("[00:01.00]纸舟"))
+        let storedSidecar = await store.cacheLyrics(sidecar, forSongID: song.id, force: true)
+        XCTAssertTrue(storedSidecar)
+        let sidecarPlayback = await store.cachedLyricsForPlayback(for: song)
+        XCTAssertEqual(sidecarPlayback?.map(\.text), ["纸舟"])
+        let restored = await LyricsLoader.recheckSourceDocument(for: song, sourceManager: manager, cachedDocument: sidecar)
+        XCTAssertEqual(restored?.map(\.romanization), preferred.map(\.romanization))
+        XCTAssertEqual(restored?.map(\.voice), preferred.map(\.voice))
+
+        let saved = await store.cacheLyrics(original, forSongID: song.id, force: true, origin: .user)
+        XCTAssertTrue(saved)
+        _ = await service.loadEmbeddedMetadata(from: audio, fileExtension: "mp3", cacheKey: song.id,
+                                               fallbackTitle: song.title)
+        let userChoice = await store.cachedLyricsForPlayback(for: song)
+        XCTAssertEqual(userChoice?.map(\.voice), original.map(\.voice))
     }
 
     @MainActor

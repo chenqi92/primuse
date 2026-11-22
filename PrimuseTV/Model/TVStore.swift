@@ -507,6 +507,7 @@ struct TVLyricLine: Identifiable, Hashable {
     /// Authored romanization of the line, shown between the sung text and the
     /// translation.
     let romanization: String
+    let romanizationSyllables: [TVSyllable]
     let writingDirection: LyricWritingDirection
     /// Which singer a duet row belongs to.
     let voice: LyricVoice
@@ -524,6 +525,7 @@ struct TVLyricLine: Identifiable, Hashable {
         syllables: [TVSyllable] = [],
         translation: String = "",
         romanization: String = "",
+        romanizationSyllables: [TVSyllable] = [],
         writingDirection: LyricWritingDirection = .natural,
         voice: LyricVoice = .primary,
         background: [TVLyricLine] = [],
@@ -536,6 +538,7 @@ struct TVLyricLine: Identifiable, Hashable {
         self.syllables = syllables
         self.translation = translation
         self.romanization = romanization
+        self.romanizationSyllables = romanizationSyllables
         self.writingDirection = writingDirection
         self.voice = voice
         self.background = background
@@ -9851,16 +9854,20 @@ private extension TVLyricLine {
     func withTranslation(_ translation: String) -> TVLyricLine {
         TVLyricLine(id: id, time: time, text: text, isSynchronized: isSynchronized,
                     syllables: syllables, translation: translation, romanization: romanization,
+                    romanizationSyllables: romanizationSyllables,
                     writingDirection: writingDirection, voice: voice, background: background,
                     endTimestamp: endTimestamp)
     }
 
     func shiftedForMedley(by offset: Double) -> TVLyricLine {
-        TVLyricLine(id: id, time: time - offset, text: text, isSynchronized: isSynchronized,
-                    syllables: syllables.map { TVSyllable(w: $0.w, start: $0.start - offset, end: $0.end - offset, endTiming: $0.endTiming) },
-                    translation: translation, romanization: romanization, writingDirection: writingDirection,
-                    voice: voice, background: background.map { $0.shiftedForMedley(by: offset) },
-                    endTimestamp: endTimestamp.map { $0 - offset })
+        func shifted(_ word: TVSyllable) -> TVSyllable {
+            TVSyllable(w: word.w, start: word.start - offset, end: word.end - offset, endTiming: word.endTiming)
+        }
+        return TVLyricLine(id: id, time: time - offset, text: text, isSynchronized: isSynchronized,
+                           syllables: syllables.map(shifted), translation: translation, romanization: romanization,
+                           romanizationSyllables: romanizationSyllables.map(shifted), writingDirection: writingDirection,
+                           voice: voice, background: background.map { $0.shiftedForMedley(by: offset) },
+                           endTimestamp: endTimestamp.map { $0 - offset })
     }
 }
 

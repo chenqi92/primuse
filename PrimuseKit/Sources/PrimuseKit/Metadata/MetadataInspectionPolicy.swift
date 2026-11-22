@@ -184,7 +184,7 @@ public enum AudioFileSignaturePolicy {
         if bytes.count >= 2,
            bytes[0] == 0xFF,
            (bytes[1] & 0xF6) == 0xF0 { return .adtsAAC }
-        if containsMPEGFrameSequence(bytes) { return .mpegAudio }
+        if verifiedMPEGFrameDuration(in: bytes) != nil { return .mpegAudio }
         return .unknown
     }
 
@@ -228,6 +228,12 @@ public enum AudioFileSignaturePolicy {
         let layerBits: Int
         let sampleRate: Int
         let byteCount: Int
+
+        var samplesPerFrame: Int {
+            if layerBits == 3 { return 384 }
+            if layerBits == 1 && versionBits != 3 { return 576 }
+            return 1152
+        }
     }
 
     /// 第一帧不一定紧贴 ID3 标签: 转码/改标签的工具经常在标签与音频之间留下
@@ -236,10 +242,10 @@ public enum AudioFileSignaturePolicy {
     /// "标签无法读取"。这里与 DTS 探测用同一个 64 KiB 口径。
     private static let mpegFrameSearchWindow = 64 * 1024
 
-    private static func containsMPEGFrameSequence(_ data: Data) -> Bool {
-        guard data.count >= 8 else { return false }
-        let finalOffset = min(data.count - 4, mpegFrameSearchWindow)
-        for offset in 0...finalOffset {
+    static func verifiedMPEGFrameDuration(in data: Data, from start: Int = 0) -> TimeInterval? {
+        guard start >= 0, start <= data.count - 8 else { return nil }
+        let finalOffset = min(data.count - 4, start + mpegFrameSearchWindow)
+        for offset in start...finalOffset {
             // 绝大多数字节在这里就被挡掉, 窗口放大不会变成逐字节解析。
             guard data[offset] == 0xFF else { continue }
             guard let first = mpegFrameHeader(in: data, at: offset) else { continue }
@@ -248,9 +254,9 @@ public enum AudioFileSignaturePolicy {
                   second.versionBits == first.versionBits,
                   second.layerBits == first.layerBits,
                   second.sampleRate == first.sampleRate else { continue }
-            return true
+            return Double(first.samplesPerFrame) / Double(first.sampleRate)
         }
-        return false
+        return nil
     }
 
     private static func mpegFrameHeader(in data: Data, at offset: Int) -> MPEGFrameHeader? {

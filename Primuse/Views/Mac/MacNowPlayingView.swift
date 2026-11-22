@@ -1650,6 +1650,7 @@ struct MacNowPlayingView: View {
         )
         let visualScale = lyricVisualScale(isActive: isActive)
 
+        let companionSize = lyricsTranslationFontScale > 0 ? fontSize * CGFloat(lyricsTranslationFontScale) : scaledSize
         VStack(alignment: horizontal, spacing: 4) {
             VStack(alignment: horizontal, spacing: 4) {
                 macSingleLyricLine(
@@ -1663,9 +1664,7 @@ struct MacNowPlayingView: View {
                 )
                 macLyricCompanions(
                     for: line,
-                    fontSize: lyricsTranslationFontScale > 0
-                        ? fontSize * CGFloat(lyricsTranslationFontScale)
-                        : scaledSize,
+                    fontSize: companionSize,
                     textAlignment: textAlignment
                 )
             }
@@ -1683,15 +1682,18 @@ struct MacNowPlayingView: View {
             ))
             if let backgrounds = line.background {
                 ForEach(backgrounds) { background in
-                    macSingleLyricLine(
-                        line: background,
-                        index: index,
-                        isActive: activeInterludeAnchor == nil && activeBackgroundLineIDs.contains(background.id),
-                        fontSize: scaledSize * 0.7,
-                        weight: .medium,
-                        tint: tint,
-                        textAlignment: textAlignment
-                    )
+                    VStack(alignment: horizontal, spacing: 3) {
+                        macSingleLyricLine(
+                            line: background,
+                            index: index,
+                            isActive: activeInterludeAnchor == nil && activeBackgroundLineIDs.contains(background.id),
+                            fontSize: scaledSize * 0.7,
+                            weight: .medium,
+                            tint: tint,
+                            textAlignment: textAlignment
+                        )
+                        macLyricCompanions(for: background, fontSize: companionSize * 0.7, textAlignment: textAlignment)
+                    }
                     .opacity(0.72)
                     .contentShape(Rectangle())
                     .if(canSeekToLyricLine(background)) { view in

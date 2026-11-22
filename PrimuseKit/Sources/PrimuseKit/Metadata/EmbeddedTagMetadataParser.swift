@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 /// Dependency-free metadata recovered from containers that AVFoundation does
 /// not consistently inspect, especially when the caller only owns bounded
@@ -22,6 +23,7 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
     public var languageTaggedTranslations: [String: String]
     /// 不止一份原文歌词时按在文件里的先后都记下（`lyrics` 是按设置挑出来的那份），见 `EmbeddedLyricsVariantPolicy`。
     public var lyricsVariants: [EmbeddedLyricsVariant]
+    public var lyricFields: [EmbeddedLyricField] = []
     public var coverArtData: Data?
     public var replayGainTrackGain: Double?
     public var replayGainTrackPeak: Double?
@@ -90,6 +92,7 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
             && translatedLyrics == nil
             && languageTaggedLyrics.isEmpty
             && languageTaggedTranslations.isEmpty
+            && lyricFields.isEmpty
             && coverArtData == nil
             && replayGainTrackGain == nil
             && replayGainTrackPeak == nil
@@ -108,12 +111,20 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         discNumber = discNumber ?? fallback.discNumber
         year = year ?? fallback.year
         genre = genre ?? fallback.genre
+        EmbeddedLyricField.merge(fallback.lyricFields, into: &lyricFields)
         if lyrics == nil {
             lyrics = fallback.lyrics
             lyricsLanguageCode = fallback.lyricsLanguageCode
             lyricsVariants = fallback.lyricsVariants
         } else if lyrics == fallback.lyrics, lyricsLanguageCode == nil {
             lyricsLanguageCode = fallback.lyricsLanguageCode
+        }
+        if let chosen = EmbeddedLyricsVariantPolicy.merge(
+            fallback.lyrics, languageCode: fallback.lyricsLanguageCode, variants: fallback.lyricsVariants,
+            current: lyrics, currentLanguage: lyricsLanguageCode, into: &lyricsVariants, preferringIncomingOrder: false
+        ) {
+            lyrics = chosen.text
+            lyricsLanguageCode = chosen.languageCode ?? lyricsLanguageCode
         }
         if translatedLyrics == nil {
             translatedLyrics = fallback.translatedLyrics
@@ -147,29 +158,21 @@ public enum EmbeddedTagMetadataParser {
     /// Keep the order across different keys as well as repeated values of one key.
     public static func metadata(fromOrderedTagValues fields: [(key: String, value: String)]) -> EmbeddedTagMetadata {
         var values: [String: [String]] = [:]
-        var originals: [EmbeddedLyricsVariant] = []
+        var lyricFields: [EmbeddedLyricField] = []
         for field in fields {
             let key = normalizedKey(field.key)
             let value = field.value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty, !value.isEmpty else { continue }
             values[key, default: []].append(value)
-            if let variant = originalLyric(key: key, text: value) { originals.append(variant) }
+            if let role = ISOBaseMediaLyricsParser.lyricFieldRole(field.key, text: value) {
+                lyricFields.append(role.field(name: field.key, text: value))
+            }
         }
-        return metadata(from: values, orderedOriginals: originals)
+        return metadata(from: values, orderedFields: lyricFields)
     }
 
-    /// 这个 Vorbis / APE 字段名装的是不是一份歌词原文（`LYRICS`、`SYNCEDLYRICS`、带语言后缀的……），
-    /// 和读标签时认原文的规则同一份。改写某一份内嵌原文时用它找字段。
-    static func isOriginalLyricKey(_ rawKey: String) -> Bool {
-        originalLyric(key: normalizedKey(rawKey), text: "-") != nil
-    }
-
-    private static func originalLyric(key: String, text: String) -> EmbeddedLyricsVariant? {
-        if originalLyricKeys.contains(key) { return .init(text: text) }
-        guard key.contains("LYRICS"), let language = lyricLanguageSuffix(in: key, roots: originalLyricKeys) else {
-            return nil
-        }
-        return .init(text: text, languageCode: language)
+    public static func metadata(fromLyricFields fields: [EmbeddedLyricField]) -> EmbeddedTagMetadata {
+        metadata(from: [:], orderedFields: fields)
     }
 
     /// Resolves already-decoded text fields with the same mapping used by the
@@ -202,6 +205,16 @@ public enum EmbeddedTagMetadataParser {
     ) -> EmbeddedTagMetadata? {
         let ext = normalizedExtension(fileExtension)
         var result = EmbeddedTagMetadata()
+        let leadingID3Size = id3TagByteCount(in: head)
+        if let leadingID3Size, leadingID3Size <= head.count {
+            let fields = ID3EmbeddedLyrics.fields(in: head)
+            if !fields.isEmpty { result.fillMissing(from: metadata(from: [:], orderedFields: fields)) }
+        }
+        let leadingAPE = leadingAPEItems(in: head)
+        if let leadingAPE, leadingAPE.end <= head.count,
+           let parsed = parseAPEItems(in: head, range: leadingAPE.items, count: leadingAPE.count) {
+            result.fillMissing(from: parsed)
+        }
 
         switch ext {
         case "flac":
@@ -214,13 +227,6 @@ public enum EmbeddedTagMetadataParser {
             }
         case "mod", "xm", "it", "s3m", "stm", "mtm", "ptm":
             result.title = trackerModuleTitle(head, fileExtension: ext)
-        case "ape", "wv", "mpc", "tta":
-            if let tail, let parsed = parseAPEv2(tail) {
-                result.fillMissing(from: parsed)
-            }
-            if result.isEmpty, let parsed = parseAPEv2(head) {
-                result.fillMissing(from: parsed)
-            }
         case "wma":
             if let parsed = parseASF(head) {
                 result.fillMissing(from: parsed)
@@ -239,19 +245,41 @@ public enum EmbeddedTagMetadataParser {
             if let tail, let parsed = parseAIFFText(tail) {
                 result.fillMissing(from: parsed)
             }
+        case "dff":
+            for data in [head, tail].compactMap({ $0 }) {
+                let chunks = dsdiffID3Chunks(in: data).map(ChunkField.id3)
+                if let parsed = metadata(from: chunks) { result.fillMissing(from: parsed) }
+            }
         default:
             break
         }
 
-        // APEv2 is an EOF tag family rather than an audio container. Besides
-        // Monkey's Audio/WavPack/Musepack/TTA it is commonly used by TAK and
-        // can legally accompany tag-poor elementary streams. The footer is
-        // accepted only at an exact EOF position (or immediately before
-        // ID3v1), so applying this structural check across formats does not
-        // mistake compressed payload bytes for metadata.
-        if let tail, let parsed = parseAPEv2(tail) {
-            result.fillMissing(from: parsed)
+        let suffix = tail ?? head
+        lazy var frameDuration = AudioFileSignaturePolicy.verifiedMPEGFrameDuration(in: head, from: leadingID3Size ?? leadingAPE?.end ?? 0)
+        var suffixFields: [EmbeddedLyricField] = []
+        let precedingFields = result.lyricFields
+        for tag in trailingTags(in: suffix, fileExtension: ext).tags.reversed() {
+            let parsed: EmbeddedTagMetadata?
+            switch tag {
+            case .id3(let range):
+                if range.lowerBound == 0, leadingID3Size == range.count, (tail == nil || head == suffix) { continue }
+                let fields = ID3EmbeddedLyrics.fields(in: suffix.subdata(in: range), mpegFrameDuration: frameDuration)
+                parsed = metadata(from: [:], orderedFields: fields)
+            case .ape(let footer):
+                if let leadingAPE, leadingAPE.end == footer + 32, leadingAPE.items.upperBound == footer,
+                   (tail == nil || head == suffix) { continue }
+                let start = footer + 32 - readUInt32LE(suffix, at: footer + 12)
+                parsed = parseAPEItems(in: suffix, range: start..<footer, count: readUInt32LE(suffix, at: footer + 16))
+            case .lyrics3(let bodies):
+                let texts = TextEncodingRepair.decodeTagValues(bodies.map { suffix.subdata(in: $0) })
+                parsed = metadata(fromOrderedTagValues: texts.compactMap { $0.map { ("LYRICS3", $0) } })
+            }
+            if let parsed {
+                suffixFields.append(contentsOf: parsed.lyricFields)
+                result.fillMissing(from: parsed)
+            }
         }
+        if !suffixFields.isEmpty { result.lyricFields = precedingFields + suffixFields }
 
         return result.isEmpty ? nil : result
     }
@@ -360,34 +388,29 @@ public enum EmbeddedTagMetadataParser {
         let fileLimit = boundedFileLimit(fileSize)
         guard currentData.count < fileLimit else { return nil }
 
+        if let header = leadingAPEItems(in: currentData), header.end > currentData.count {
+            return min(fileLimit, header.end)
+        }
         if ext == "wma", let declared = asfHeaderByteCount(in: currentData) {
             let wanted = min(fileLimit, declared)
             return wanted > currentData.count ? wanted : nil
         }
 
         guard ["ogg", "opus", "speex"].contains(ext) else { return nil }
-        let scan = scanOggPackets(currentData)
-        guard !oggCommentInspectionComplete(scan) else { return nil }
+        guard let required = scanOggComments(currentData).nextReadSize else { return nil }
         let doubled = max(currentData.count + 64 * 1024, currentData.count * 2)
-        let wanted = min(fileLimit, max(doubled, scan.minimumCompleteByteCount ?? 0))
+        let wanted = min(fileLimit, max(doubled, required))
         return wanted > currentData.count ? wanted : nil
     }
 
-    /// APEv2 normally lives at EOF. Its footer declares the complete tag size,
-    /// allowing a second negative Range request to be exact instead of pulling
-    /// the full audio file.
+    /// Both APE and Lyrics3v2 declare their size at EOF, optionally before ID3v1.
     public static func expandedTailReadSize(
         fileSize: Int64,
         currentData: Data,
-        fileExtension _: String
+        fileExtension: String
     ) -> Int? {
-        guard let footer = lastAPEv2Footer(in: currentData) else {
-            return nil
-        }
-        let tagSize = readUInt32LE(currentData, at: footer + 12)
-        guard tagSize >= 32 else { return nil }
-        let fileLimit = boundedFileLimit(fileSize)
-        let wanted = min(fileLimit, tagSize + 128)
+        guard let needed = trailingTags(in: currentData, fileExtension: normalizedExtension(fileExtension)).needed else { return nil }
+        let wanted = min(boundedFileLimit(fileSize), needed)
         return wanted > currentData.count ? wanted : nil
     }
 
@@ -416,8 +439,8 @@ public enum EmbeddedTagMetadataParser {
             if let tag = riffID3Chunk(in: head) { return tag }
             if let tail, let tag = riffID3Chunk(in: tail) { return tag }
         } else if ext == "aiff" || ext == "aif" || ext == "dff" {
-            if let tag = bigEndianID3Chunk(in: head) { return tag }
-            if let tail, let tag = bigEndianID3Chunk(in: tail) { return tag }
+            if let tag = bigEndianID3Chunk(in: head, dsdiff: ext == "dff") { return tag }
+            if let tail, let tag = bigEndianID3Chunk(in: tail, dsdiff: ext == "dff") { return tag }
         } else {
             if let tag = completeLeadingID3Tag(in: head) { return tag }
             if let tail, let tag = completeTrailingID3Tag(in: tail) { return tag }
@@ -448,134 +471,114 @@ public enum EmbeddedTagMetadataParser {
 
     // MARK: - Ogg/Vorbis comments
 
-    private struct OggPacketScan {
-        var packets: [Data]
-        var isTruncated: Bool
-        var minimumCompleteByteCount: Int?
+    private struct OggCommentScan {
+        enum Packet { case payload(Data), fields([EmbeddedLyricField]) }
+        var packets: [Packet] = []
+        var nextReadSize: Int?
     }
 
-    private static func scanOggPackets(_ data: Data) -> OggPacketScan {
-        var packets: [Data] = []
-        var packet = Data()
+    private enum OggHeaderPhase {
+        case identify, vorbis, opus, speex, flac, complete
+
+        mutating func commentOffset(prefix bytes: Data, packetSize: Int) -> Int? {
+            if self == .identify {
+                if bytes.starts(with: [0x01] + "vorbis".utf8) { self = .vorbis; return nil }
+                if bytes.starts(with: "OpusHead".utf8) { self = .opus; return nil }
+                if bytes.starts(with: "Speex   ".utf8) { self = .speex; return nil }
+                if bytes.starts(with: [0x7F] + "FLAC".utf8 + [1]) { self = .flac; return nil }
+            }
+            defer { self = .complete }
+            if (self == .vorbis || self == .identify), bytes.starts(with: [0x03] + "vorbis".utf8) { return 7 }
+            if (self == .opus || self == .identify), bytes.starts(with: "OpusTags".utf8) { return 8 }
+            if self == .speex { return 0 }
+            if self == .flac, bytes.count >= 4, bytes[0] & 0x7f == 4 {
+                let length = Int(bytes[1]) << 16 | Int(bytes[2]) << 8 | Int(bytes[3])
+                if length == packetSize - 4 { return 4 }
+            }
+            return nil
+        }
+    }
+
+    private static func scanOggComments(_ data: Data, collecting: Bool = false) -> OggCommentScan {
+        var result = OggCommentScan()
+        var streams: [Int: SparseOggStream] = [:]
         var cursor = 0
-        var minimumCompleteByteCount: Int?
-
         while cursor < data.count {
-            guard cursor + 27 <= data.count else {
-                return OggPacketScan(
-                    packets: packets,
-                    isTruncated: true,
-                    minimumCompleteByteCount: cursor + 27
-                )
-            }
-            guard data[cursor..<(cursor + 4)].elementsEqual(Data("OggS".utf8)),
-                  data[cursor + 4] == 0 else {
-                break
-            }
-            let segmentCount = Int(data[cursor + 26])
-            let tableEnd = cursor + 27 + segmentCount
-            guard tableEnd <= data.count else {
-                return OggPacketScan(
-                    packets: packets,
-                    isTruncated: true,
-                    minimumCompleteByteCount: tableEnd
-                )
-            }
-            var bodyLength = 0
-            for index in (cursor + 27)..<tableEnd {
-                bodyLength += Int(data[index])
-            }
-            let pageEnd = tableEnd + bodyLength
-            guard pageEnd <= data.count else {
-                minimumCompleteByteCount = pageEnd
-                return OggPacketScan(
-                    packets: packets,
-                    isTruncated: true,
-                    minimumCompleteByteCount: minimumCompleteByteCount
-                )
-            }
+            guard cursor <= data.count - 27 else { result.nextReadSize = cursor + 27; return result }
+            guard data[cursor..<(cursor + 4)].elementsEqual("OggS".utf8), data[cursor + 4] == 0 else { return result }
+            let flags = data[cursor + 5]
+            let serial = readUInt32LE(data, at: cursor + 14)
+            let sequence = UInt32(readUInt32LE(data, at: cursor + 18))
+            let tableStart = cursor + 27
+            let tableEnd = tableStart + Int(data[cursor + 26])
+            guard tableEnd <= data.count else { result.nextReadSize = tableEnd; return result }
+            let lacing = data[tableStart..<tableEnd]
+            let pageEnd = lacing.reduce(tableEnd) { $0 + Int($1) }
+            guard pageEnd <= data.count else { result.nextReadSize = pageEnd; return result }
 
-            var bodyCursor = tableEnd
-            for index in (cursor + 27)..<tableEnd {
-                let length = Int(data[index])
-                packet.append(data.subdata(in: bodyCursor..<(bodyCursor + length)))
-                bodyCursor += length
-                if length < 255 {
-                    packets.append(packet)
-                    packet.removeAll(keepingCapacity: true)
-                    if packets.count >= 4 {
-                        return OggPacketScan(
-                            packets: packets,
-                            isTruncated: false,
-                            minimumCompleteByteCount: nil
-                        )
-                    }
-                }
+            var stream = streams.removeValue(forKey: serial) ?? SparseOggStream()
+            let continuation = flags & 1 != 0
+            var skipPartial = continuation && (stream.size == 0 || stream.sequence != sequence)
+            if !continuation || skipPartial { stream.resetPacket() }
+            stream.sequence = sequence &+ 1
+            var offset = tableEnd
+            for lace in lacing {
+                guard stream.phase != .complete else { break }
+                let length = Int(lace)
+                if !skipPartial {
+                    stream.append(Int64(offset)..<Int64(offset + length))
+                    if length < 255, let packet = stream.finish(in: data, collecting: collecting) { result.packets.append(packet) }
+                } else if length < 255 { skipPartial = false }
+                offset += length
             }
+            streams[serial] = stream
             cursor = pageEnd
+            // All BOS pages of multiplexed streams precede their other pages.
+            if flags & 2 == 0, streams.values.allSatisfy({ $0.phase == .complete }) { return result }
         }
-
-        return OggPacketScan(
-            packets: packets,
-            isTruncated: !packet.isEmpty,
-            minimumCompleteByteCount: minimumCompleteByteCount
-        )
-    }
-
-    private static func oggCommentInspectionComplete(_ scan: OggPacketScan) -> Bool {
-        if commentPayload(in: scan.packets) != nil { return true }
-        guard let first = scan.packets.first else { return false }
-        if first.starts(with: Data("OpusHead".utf8))
-            || first.starts(with: Data([0x01]) + Data("vorbis".utf8))
-            || first.starts(with: Data("Speex   ".utf8)) {
-            return scan.packets.count >= 2 && !scan.isTruncated
+        if streams.isEmpty || streams.values.contains(where: { $0.phase != .complete }) {
+            result.nextReadSize = cursor + 27
         }
-        return scan.packets.count >= 3 || (!scan.isTruncated && !scan.packets.isEmpty)
+        return result
     }
 
     private static func parseFLACComments(_ data: Data) -> EmbeddedTagMetadata? {
-        guard data.starts(with: Data("fLaC".utf8)) else { return nil }
-        var cursor = 4
+        let start = id3TagByteCount(in: data) ?? 0
+        guard start <= data.count - 4, data[start..<(start + 4)].elementsEqual("fLaC".utf8) else { return nil }
+        var cursor = start + 4
+        var fields: [(key: String, value: String)] = []
         while cursor + 4 <= data.count {
             let header = data[cursor]
             let count = Int(data[cursor + 1]) << 16 | Int(data[cursor + 2]) << 8 | Int(data[cursor + 3])
             cursor += 4
-            guard count <= data.count - cursor else { return nil }
-            if header & 0x7f == 4 {
-                guard let comments = parseVorbisCommentList(data.subdata(in: cursor..<(cursor + count))) else { return nil }
-                return metadata(fromOrderedTagValues: comments)
+            guard count <= data.count - cursor else { break }
+            if header & 0x7f == 4,
+               let comments = parseVorbisCommentList(data.subdata(in: cursor..<(cursor + count))) {
+                fields.append(contentsOf: comments)
             }
             cursor += count
             if header & 0x80 != 0 { break }
         }
-        return nil
+        return fields.isEmpty ? nil : metadata(fromOrderedTagValues: fields)
     }
 
     private static func parseOggComments(_ data: Data) -> EmbeddedTagMetadata? {
-        let scan = scanOggPackets(data)
-        guard let payload = commentPayload(in: scan.packets),
-              let comments = parseVorbisCommentList(payload) else {
-            return nil
-        }
-        return metadata(fromOrderedTagValues: comments)
-    }
-
-    private static func commentPayload(in packets: [Data]) -> Data? {
-        for packet in packets {
-            let vorbisPrefix = Data([0x03]) + Data("vorbis".utf8)
-            if packet.starts(with: vorbisPrefix) {
-                return Data(packet.dropFirst(vorbisPrefix.count))
+        var result = EmbeddedTagMetadata()
+        var fields: [EmbeddedLyricField] = []
+        for packet in scanOggComments(data, collecting: true).packets {
+            let parsed: EmbeddedTagMetadata
+            switch packet {
+            case .payload(let bytes):
+                guard let values = parseVorbisCommentList(bytes) else { continue }
+                parsed = metadata(fromOrderedTagValues: values)
+            case .fields(let lyrics):
+                parsed = metadata(fromLyricFields: lyrics)
             }
-            let opusPrefix = Data("OpusTags".utf8)
-            if packet.starts(with: opusPrefix) {
-                return Data(packet.dropFirst(opusPrefix.count))
-            }
+            fields.append(contentsOf: parsed.lyricFields)
+            result.fillMissing(from: parsed)
         }
-        if packets.first?.starts(with: Data("Speex   ".utf8)) == true,
-           packets.count >= 2 {
-            return packets[1]
-        }
-        return nil
+        result.lyricFields = fields
+        return result.isEmpty ? nil : result
     }
 
     private static func parseVorbisCommentList(_ data: Data) -> [(key: String, value: String)]? {
@@ -615,46 +618,337 @@ public enum EmbeddedTagMetadataParser {
         return (key, Data(item[item.index(after: separator)...]))
     }
 
+    /// The prefix parser can read a whole small tag. A range reader can also step over an
+    /// embedded picture without allocating it or losing the comments that follow it.
+    public static func rangedCommentLyrics(head: Data, tail: Data?, fileSize: Int64, fileExtension: String,
+                                            fetch: (Int64, Int64) async throws -> Data) async throws -> [EmbeddedLyricField] {
+        guard fileSize > 0 else { return [] }
+        func read(_ offset: Int64, _ count: Int) async throws -> Data {
+            guard offset >= 0, count >= 0, Int64(count) <= fileSize - offset else { throw URLError(.cannotParseResponse) }
+            if let tail, tail.count <= fileSize, offset >= fileSize - Int64(tail.count) {
+                let start = tail.startIndex + Int(offset - (fileSize - Int64(tail.count)))
+                return tail.subdata(in: start..<(start + count))
+            }
+            return try await tagBytes(head: head, at: offset, count: count, fetch: fetch)
+        }
+        let ext = normalizedExtension(fileExtension)
+        var fields: [EmbeddedLyricField] = []
+        if head.starts(with: "OggS".utf8) {
+            fields = try await rangedOggLyrics(fileSize: fileSize, read: read)
+        }
+        if tail != nil || head.starts(with: apeSignature) ||
+            ["ape", "wv", "mp3", "mp2", "mp1", "mpa", "m2a", "mpc", "tak", "tta", "dts", "ac3"].contains(ext) {
+            fields += try await rangedAPELyrics(head: head, fileSize: fileSize, read: read)
+        }
+        return fields
+    }
+
+    private typealias TagRead = (Int64, Int) async throws -> Data
+
+    private struct SparseCommentFields {
+        var fields: [EmbeddedLyricField] = []
+        private var values: [(key: String, bytes: Data)] = []
+        private var byteCount = 0
+
+        mutating func append(key: String, bytes: Data) {
+            if byteCount + bytes.count > maximumRangeByteCount { flush() }
+            values.append((key, bytes))
+            byteCount += bytes.count
+        }
+
+        mutating func flush() {
+            let decoded = TextEncodingRepair.decodeTagValues(values.map(\.bytes))
+            let entries = zip(values, decoded).compactMap { value, text in text.map { (value.key, $0) } }
+            fields.append(contentsOf: metadata(fromOrderedTagValues: entries).lyricFields)
+            values = []
+            byteCount = 0
+        }
+    }
+
+    private static func isPictureField(_ key: String) -> Bool {
+        let key = normalizedKey(key)
+        return key.hasPrefix("COVER ART") || ["COVERART", "METADATA_BLOCK_PICTURE", "FRONT COVER", "BACK COVER"].contains(key)
+    }
+
+    /// A packet can be scattered across pages and interleaved with other logical streams.
+    /// The cursor advances across physical spans even when a field is skipped.
+    private struct OggPacketCursor {
+        let spans: [Range<Int64>]
+        var remaining: Int
+        var index = 0
+        var usedInSpan = 0
+
+        mutating func take(_ count: Int) -> [Range<Int64>]? {
+            guard count >= 0, count <= remaining else { return nil }
+            var result: [Range<Int64>] = []
+            var left = count
+            while left > 0, index < spans.count {
+                let span = spans[index]
+                let start = span.lowerBound + Int64(usedInSpan)
+                let used = min(left, span.count - usedInSpan)
+                result.append(start..<(start + Int64(used)))
+                usedInSpan += used
+                if usedInSpan == span.count { index += 1; usedInSpan = 0 }
+                left -= used
+            }
+            guard left == 0 else { return nil }
+            remaining -= count
+            return result
+        }
+
+    }
+
+    private struct VorbisFieldReader {
+        enum Step { case vendorLength, count, length, prefix(Int), value(Data, Int) }
+        var cursor: OggPacketCursor
+        var step: Step? = .vendorLength
+        var remainingFields = 0
+
+        mutating func nextSpans() -> [Range<Int64>]? {
+            switch step {
+            case .vendorLength, .count, .length: return cursor.take(4)
+            case .prefix(let size): return cursor.take(min(256, size))
+            case .value(_, let rest): return cursor.take(rest)
+            case nil: return nil
+            }
+        }
+
+        mutating func accept(_ data: Data, into comments: inout SparseCommentFields) {
+            switch step {
+            case .vendorLength:
+                step = cursor.take(readUInt32LE(data, at: 0)) == nil ? nil : .count
+            case .count:
+                remainingFields = readUInt32LE(data, at: 0)
+                step = (1...100_000).contains(remainingFields) && remainingFields <= cursor.remaining / 4 ? .length : nil
+            case .length:
+                let size = readUInt32LE(data, at: 0)
+                guard size <= cursor.remaining else { step = nil; return }
+                if size > maximumRangeByteCount { _ = cursor.take(size); finishField() }
+                else { step = .prefix(size) }
+            case .prefix(let size):
+                let rest = size - data.count
+                if let field = vorbisCommentField(data), isPictureField(field.key) {
+                    _ = cursor.take(rest)
+                    finishField()
+                } else { step = .value(data, rest) }
+            case .value(let prefix, _):
+                if let field = vorbisCommentField(prefix + data) { comments.append(key: field.key, bytes: field.value) }
+                finishField()
+            case nil: break
+            }
+        }
+
+        mutating func finishField() {
+            remainingFields -= 1
+            step = remainingFields > 0 ? .length : nil
+        }
+    }
+
+    private struct SparseOggStream {
+        var phase: OggHeaderPhase = .identify
+        var sequence: UInt32?
+        var spans: [Range<Int64>] = []
+        var size = 0
+
+        mutating func append(_ span: Range<Int64>) {
+            guard !span.isEmpty else { return }
+            if let last = spans.last, last.upperBound == span.lowerBound {
+                spans[spans.count - 1] = last.lowerBound..<span.upperBound
+            } else { spans.append(span) }
+            size += span.count
+        }
+
+        mutating func resetPacket() { spans = []; size = 0 }
+
+        mutating func finish(in data: Data, collecting: Bool) -> OggCommentScan.Packet? {
+            defer { resetPacket() }
+            func bytes(_ spans: [Range<Int64>]) -> Data {
+                spans.reduce(into: Data()) { bytes, span in
+                    bytes.append(contentsOf: data[Int(span.lowerBound)..<Int(span.upperBound)])
+                }
+            }
+            var cursor = OggPacketCursor(spans: spans, remaining: size)
+            var probe = cursor
+            guard let prefix = probe.take(min(8, size)), let start = phase.commentOffset(prefix: bytes(prefix), packetSize: size),
+                  collecting, cursor.take(start) != nil else { return nil }
+            if size <= maximumRangeByteCount, let spans = cursor.take(cursor.remaining) { return .payload(bytes(spans)) }
+            var parser = VorbisFieldReader(cursor: cursor)
+            var comments = SparseCommentFields()
+            while let spans = parser.nextSpans() { parser.accept(bytes(spans), into: &comments) }
+            comments.flush()
+            return .fields(comments.fields)
+        }
+
+        mutating func finish(into comments: inout SparseCommentFields, read: TagRead) async throws {
+            defer { resetPacket() }
+            func bytes(_ spans: [Range<Int64>]) async throws -> Data {
+                var result = Data()
+                for span in spans { result.append(try await read(span.lowerBound, span.count)) }
+                return result
+            }
+            var cursor = OggPacketCursor(spans: spans, remaining: size)
+            var probe = cursor
+            guard let prefix = probe.take(min(8, size)), let start = phase.commentOffset(prefix: try await bytes(prefix), packetSize: size),
+                  cursor.take(start) != nil else { return }
+            var parser = VorbisFieldReader(cursor: cursor)
+            while let spans = parser.nextSpans() { parser.accept(try await bytes(spans), into: &comments) }
+        }
+    }
+
+    private static func rangedOggLyrics(fileSize: Int64, read: TagRead) async throws -> [EmbeddedLyricField] {
+        var streams: [Int: SparseOggStream] = [:]
+        var offset: Int64 = 0
+        var comments = SparseCommentFields()
+        var inspected = 0
+        while offset <= fileSize - 27, inspected < maximumRangeByteCount {
+            try Task.checkCancellation()
+            let header = try await read(offset, Int(min(282, fileSize - offset)))
+            guard header.starts(with: "OggS".utf8), header[4] == 0 else { break }
+            let count = Int(header[26])
+            guard header.count >= 27 + count else { break }
+            inspected += header.count
+            let flags = header[5]
+            let serial = readUInt32LE(header, at: 14)
+            let sequence = UInt32(readUInt32LE(header, at: 18))
+            let lacing = header[27..<(27 + count)]
+            let body = offset + Int64(27 + count)
+            let size = lacing.reduce(0) { $0 + Int($1) }
+            guard Int64(size) <= fileSize - body else { break }
+            offset = body + Int64(size)
+            var stream = streams.removeValue(forKey: serial) ?? SparseOggStream()
+            let continuation = flags & 1 != 0
+            var skip = continuation && (stream.size == 0 || stream.sequence != sequence)
+            if !continuation || skip { stream.resetPacket() }
+            stream.sequence = sequence &+ 1
+            var location = body
+            for lace in lacing where stream.phase != .complete {
+                let end = location + Int64(lace)
+                if !skip {
+                    stream.append(location..<end)
+                    if lace < 255 { try await stream.finish(into: &comments, read: read) }
+                } else if lace < 255 { skip = false }
+                location = end
+            }
+            streams[serial] = stream
+            if flags & 2 == 0, streams.values.allSatisfy({ $0.phase == .complete }) { break }
+        }
+        comments.flush()
+        return comments.fields
+    }
+
     // MARK: - APEv2
 
-    private static func parseAPEv2(_ data: Data) -> EmbeddedTagMetadata? {
-        guard let footer = lastAPEv2Footer(in: data), footer + 32 <= data.count else {
-            return nil
+    private static func rangedAPELyrics(head: Data, fileSize: Int64, read: TagRead) async throws -> [EmbeddedLyricField] {
+        guard fileSize >= 32 else { return [] }
+        var regions: [Int64: (end: Int64, count: Int)] = [:]
+        if head.starts(with: apeSignature) {
+            let header = try await read(0, 32)
+            let flags = readUInt32LE(header, at: 20)
+            let size = Int64(readUInt32LE(header, at: 12))
+            let footer: Int64 = flags & 0x40000000 == 0 ? 32 : 0
+            if flags & 0xa0000000 == 0xa0000000, readUInt32LE(header, at: 8) == 2_000,
+               size >= footer, size <= fileSize - 32 {
+                let end = 32 + size - footer
+                let validFooter = footer == 0 ? true : try await read(end, 8).elementsEqual(apeSignature)
+                if validFooter { regions[32] = (end, readUInt32LE(header, at: 16)) }
+            }
         }
-        let tagSize = readUInt32LE(data, at: footer + 12)
-        let itemCount = readUInt32LE(data, at: footer + 16)
-        guard tagSize >= 32, tagSize <= maximumRangeByteCount,
-              itemCount <= 100_000 else {
-            return nil
+        var end = fileSize
+        if end >= 128, try await read(end - 128, 3).elementsEqual("TAG".utf8) { end -= 128 }
+        while end >= 32 {
+            try Task.checkCancellation()
+            let footer = try await read(end - 32, 32)
+            if footer.starts(with: apeSignature), (1_000...2_000).contains(readUInt32LE(footer, at: 8)) {
+                let size = Int64(readUInt32LE(footer, at: 12))
+                let flags = readUInt32LE(footer, at: 20)
+                guard size >= 32, size <= end, flags & 0x20000000 == 0 else { break }
+                let start = end - size
+                regions[start] = (end - 32, readUInt32LE(footer, at: 16))
+                end = start
+                if flags & 0x80000000 != 0, end >= 32, try await read(end - 32, 8).elementsEqual(apeSignature) { end -= 32 }
+            } else if footer.suffix(9).elementsEqual("LYRICS200".utf8), let size = decimal(footer[17..<23]) {
+                let start = end - 15 - Int64(size)
+                guard size >= lyrics3Begin.count, start >= 0, try await read(start, lyrics3Begin.count) == lyrics3Begin else { break }
+                end = start
+            } else if footer[22..<25].elementsEqual("3DI".utf8), footer[25] == 4, footer[27] & 0x10 != 0 {
+                let header = id3Signature + footer[25..<32]
+                guard let size = id3TagByteCount(in: header), size <= end,
+                      try await read(end - Int64(size), 10) == header else { break }
+                end -= Int64(size)
+            } else { break }
         }
-        let tagStart = footer + 32 - tagSize
-        guard tagStart >= 0 else { return nil }
-        var cursor = tagStart
-        if cursor + 32 <= footer,
-           data[cursor..<(cursor + 8)].elementsEqual(apeSignature) {
+
+        var comments = SparseCommentFields()
+        for (start, region) in regions.sorted(by: { $0.key < $1.key }) {
+            var offset = start
+            guard region.count <= 100_000, Int64(region.count) <= (region.end - start) / 9 else { continue }
+            for _ in 0..<region.count {
+                try Task.checkCancellation()
+                guard offset <= region.end - 9 else { break }
+                let header = try await read(offset, Int(min(264, region.end - offset)))
+                guard let keyEnd = header[8...].firstIndex(of: 0), keyEnd > 8,
+                      let key = String(data: header[8..<keyEnd], encoding: .utf8) else { break }
+                let size = readUInt32LE(header, at: 0)
+                let valueType = (readUInt32LE(header, at: 4) >> 1) & 3
+                let valueStart = offset + Int64(keyEnd + 1)
+                guard Int64(size) <= region.end - valueStart else { break }
+                offset = valueStart + Int64(size)
+                guard valueType <= 1, size <= maximumRangeByteCount, !isPictureField(key) else { continue }
+                let value = try await read(valueStart, size)
+                if valueType == 0 {
+                    for part in value.split(separator: 0) { comments.append(key: key, bytes: Data(part)) }
+                } else if let field = binaryLyricText(in: value, name: key) {
+                    comments.append(key: field.key, bytes: Data(field.value.utf8))
+                }
+            }
+        }
+        comments.flush()
+        return comments.fields
+    }
+
+    private static func leadingAPEItems(in data: Data) -> (items: Range<Int>, count: Int, end: Int)? {
+        guard data.count >= 32, data.starts(with: apeSignature), readUInt32LE(data, at: 8) == 2_000 else { return nil }
+        let flags = readUInt32LE(data, at: 20)
+        guard flags & 0xa0000000 == 0xa0000000 else { return nil }
+        let size = readUInt32LE(data, at: 12)
+        let footerSize = flags & 0x40000000 == 0 ? 32 : 0
+        guard size >= footerSize, size <= max(data.count, maximumRangeByteCount) - 32 else { return nil }
+        let end = 32 + size
+        if footerSize == 32 && end <= data.count,
+           !data[(end - 32)..<(end - 24)].elementsEqual(apeSignature) { return nil }
+        return (32..<(end - footerSize), readUInt32LE(data, at: 16), end)
+    }
+
+    private static func parseAPEItems(in data: Data, range: Range<Int>, count: Int) -> EmbeddedTagMetadata? {
+        guard count <= 100_000 else { return nil }
+        let end = range.upperBound
+        var cursor = range.lowerBound
+        if cursor + 32 <= end, data[cursor..<(cursor + 8)].elementsEqual(apeSignature) {
             cursor += 32
         }
 
         var fields: [(key: String, value: String)] = []
         var textItems: [(key: String, values: [Data])] = []
         var cover: Data?
-        for _ in 0..<itemCount {
-            guard cursor + 8 <= footer else { return nil }
+        for _ in 0..<count {
+            guard cursor + 8 <= end else { return nil }
             let valueSize = readUInt32LE(data, at: cursor)
             let flags = readUInt32LE(data, at: cursor + 4)
             cursor += 8
-            guard let keyEnd = data[cursor..<footer].firstIndex(of: 0) else { return nil }
+            guard let keyEnd = data[cursor..<end].firstIndex(of: 0) else { return nil }
             let keyData = data.subdata(in: cursor..<keyEnd)
             cursor = keyEnd + 1
-            guard valueSize <= footer - cursor else { return nil }
-            let value = data.subdata(in: cursor..<(cursor + valueSize))
+            guard valueSize <= end - cursor else { return nil }
+            let valueStart = cursor
             cursor += valueSize
+            guard valueSize <= maximumRangeByteCount else { continue }
+            let value = data.subdata(in: valueStart..<cursor)
             guard let rawKey = String(data: keyData, encoding: .utf8) else { continue }
             let key = normalizedKey(rawKey)
             let valueType = (flags >> 1) & 0x03
             if valueType == 0 {
                 let pieces = value.split(separator: 0, omittingEmptySubsequences: true).map { Data($0) }
-                if !pieces.isEmpty { textItems.append((key, pieces)) }
+                if !pieces.isEmpty { textItems.append((rawKey, pieces)) }
             } else if valueType == 1,
                       ["COVER ART (FRONT)", "COVERART", "FRONT COVER"].contains(key),
                       cover == nil {
@@ -662,6 +956,8 @@ public enum EmbeddedTagMetadataParser {
                 if imageStart < value.count {
                     cover = normalizedImageData(value.subdata(in: imageStart..<value.count))
                 }
+            } else if valueType == 1, let field = binaryLyricText(in: value, name: rawKey) {
+                textItems.append((field.key, [Data(field.value.utf8)]))
             }
         }
 
@@ -680,24 +976,120 @@ public enum EmbeddedTagMetadataParser {
         return metadata.isEmpty ? nil : metadata
     }
 
-    private static func lastAPEv2Footer(in data: Data) -> Int? {
-        guard data.count >= 32 else { return nil }
-        // The footer is either the final 32 bytes or immediately before an
-        // ID3v1 footer. Restricting the signature to those two absolute EOF
-        // positions prevents audio payload bytes from masquerading as a tag.
-        let candidates = [data.count - 32, data.count - 160]
-        for offset in candidates where offset >= 0 && offset + 32 <= data.count {
-            if offset == data.count - 160,
-               !data[(data.count - 128)..<(data.count - 125)]
-                .elementsEqual(Data("TAG".utf8)) {
+    private static func binaryLyricText(in data: Data, name: String) -> (key: String, value: String)? {
+        guard !data.isEmpty, data.count <= LyricsRawDocumentPolicy.maximumByteCount else { return nil }
+        var bytes = data
+        var key = name
+        // Some attachments prefix their document with a NUL-terminated file name.
+        if let separator = data.prefix(256).firstIndex(of: 0), separator > 0,
+           let filename = String(data: data.prefix(separator), encoding: .utf8), LyricsDocumentFormat(fileName: filename) != nil {
+            if ISOBaseMediaLyricsParser.lyricFieldRole(key) == nil { key = filename }
+            bytes = Data(data.dropFirst(separator + 1))
+        }
+        let declared = ISOBaseMediaLyricsParser.lyricFieldRole(key) != nil
+        if !declared {
+            let first = bytes.prefix(128).first { ![9, 10, 13, 32].contains($0) }
+            guard let first, "[<0123456789WD".utf8.contains(first) || [0, 0xef, 0xfe, 0xff].contains(first) else { return nil }
+        }
+        guard let text = TextEncodingRepair.decodeTextFile(bytes)?.text,
+              text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) || CharacterSet.whitespacesAndNewlines.contains($0) }),
+              declared || ISOBaseMediaLyricsParser.lyricFieldRole(key, text: text) != nil else { return nil }
+        return (key, text)
+    }
+
+    private enum TrailingTag {
+        case ape(footer: Int)
+        case id3(Range<Int>)
+        case lyrics3(bodies: [Range<Int>])
+    }
+
+    private static let lyrics3Begin = Data("LYRICSBEGIN".utf8)
+
+    /// Walk adjacent footer-delimited tags backwards. Signatures found in the
+    /// audio body or inside a field never establish another tag boundary.
+    private static func trailingTags(in data: Data, fileExtension: String) -> (tags: [TrailingTag], needed: Int?) {
+        var tags: [TrailingTag] = []
+        var end = data.count
+        if end >= 128, data[(end - 128)..<(end - 125)].elementsEqual("TAG".utf8) { end -= 128 }
+        let allowsLyrics3 = ["mp3", "mp2", "mp1", "mpa", "m2a"].contains(fileExtension)
+        while end >= 9 {
+            let footer = end - 32
+            if footer >= 0, data[footer..<(footer + 8)].elementsEqual(apeSignature),
+               (1_000...2_000).contains(readUInt32LE(data, at: footer + 8)) {
+                let size = readUInt32LE(data, at: footer + 12)
+                let flags = readUInt32LE(data, at: footer + 20)
+                guard size >= 32, size <= max(maximumRangeByteCount, end), flags & 0x20000000 == 0 else { break }
+                let headerSize = flags & 0x80000000 == 0 ? 0 : 32
+                let start = end - size
+                guard start >= 0 else { return (tags, size + max(128, data.count - end + headerSize)) }
+                tags.append(.ape(footer: footer))
+                end = start
+                if headerSize > 0, start >= 32, data[(start - 32)..<(start - 24)].elementsEqual(apeSignature) {
+                    end -= 32
+                }
                 continue
             }
-            if data[offset..<(offset + 8)].elementsEqual(apeSignature),
-               readUInt32LE(data, at: offset + 8) >= 1_000 {
-                return offset
+            guard allowsLyrics3 else { break }
+            if end >= 10, data[(end - 10)..<(end - 7)].elementsEqual("3DI".utf8),
+               data[end - 7] == 4, data[end - 5] & 0x10 != 0 {
+                let header = id3Signature + data[(end - 7)..<end]
+                guard let length = id3TagByteCount(in: header), length <= max(maximumRangeByteCount, end) else { break }
+                let start = end - length
+                guard start >= 0 else { return (tags, data.count - end + length) }
+                guard data[start..<(start + 10)].elementsEqual(header) else { break }
+                tags.append(.id3(start..<end))
+                end = start
+                continue
             }
+            let marker = data[(end - 9)..<end]
+            if marker.elementsEqual("LYRICS200".utf8), end >= 15,
+               let size = decimal(data[(end - 15)..<(end - 9)]), size >= lyrics3Begin.count {
+                let payloadEnd = end - 15
+                let start = payloadEnd - size
+                guard start >= 0 else { return (tags, data.count - end + 15 + size) }
+                guard data[start..<(start + lyrics3Begin.count)].elementsEqual(lyrics3Begin),
+                      let bodies = lyrics3Fields(in: data, range: (start + lyrics3Begin.count)..<payloadEnd) else { break }
+                tags.append(.lyrics3(bodies: bodies))
+                end = start
+            } else if marker.elementsEqual("LYRICSEND".utf8) {
+                let payloadEnd = end - 9
+                let lowerBound = max(0, payloadEnd - 5_100 - lyrics3Begin.count)
+                guard let start = data.range(of: lyrics3Begin, in: lowerBound..<payloadEnd) else {
+                    return (tags, data.count - end + 9 + 5_100 + lyrics3Begin.count)
+                }
+                let body = start.upperBound..<payloadEnd
+                guard !data[body].contains(0), !data[body].contains(255) else { break }
+                tags.append(.lyrics3(bodies: [body]))
+                end = start.lowerBound
+            } else if let range = trailingID3Range(in: data, endingAt: end) {
+                tags.append(.id3(range))
+                end = range.lowerBound
+            } else { break }
         }
-        return nil
+        return (tags, nil)
+    }
+
+    private static func decimal(_ bytes: Data.SubSequence) -> Int? {
+        var value = 0
+        for byte in bytes {
+            guard (48...57).contains(byte) else { return nil }
+            value = value * 10 + Int(byte - 48)
+        }
+        return value
+    }
+
+    private static func lyrics3Fields(in data: Data, range: Range<Int>) -> [Range<Int>]? {
+        var bodies: [Range<Int>] = []
+        var cursor = range.lowerBound
+        while cursor < range.upperBound {
+            guard cursor <= range.upperBound - 8,
+                  let length = decimal(data[(cursor + 3)..<(cursor + 8)]),
+                  length <= range.upperBound - cursor - 8 else { return nil }
+            let body = (cursor + 8)..<(cursor + 8 + length)
+            if data[cursor..<(cursor + 3)].elementsEqual("LYR".utf8) { bodies.append(body) }
+            cursor = body.upperBound
+        }
+        return bodies
     }
 
     // MARK: - ASF/WMA
@@ -714,6 +1106,26 @@ public enum EmbeddedTagMetadataParser {
         0x40, 0xA4, 0xD0, 0xD2, 0x07, 0xE3, 0xD2, 0x11,
         0x97, 0xF0, 0x00, 0xA0, 0xC9, 0x5E, 0xA8, 0x50,
     ])
+    private static let asfHeaderExtensionGUID = Data([
+        0xB5, 0x03, 0xBF, 0x5F, 0x2E, 0xA9, 0xCF, 0x11,
+        0x8E, 0xE3, 0x00, 0xC0, 0x0C, 0x20, 0x53, 0x65,
+    ])
+    private static let asfMetadataGUID = Data([
+        0xEA, 0xCB, 0xF8, 0xC5, 0xAF, 0x5B, 0x77, 0x48,
+        0x84, 0x67, 0xAA, 0x8C, 0x44, 0xFA, 0x4C, 0xCA,
+    ])
+    private static let asfMetadataLibraryGUID = Data([
+        0x94, 0x1C, 0x23, 0x44, 0x98, 0x94, 0xD1, 0x49,
+        0xA1, 0x41, 0x1D, 0x13, 0x4E, 0x45, 0x70, 0x54,
+    ])
+    private static let asfLanguageListGUID = Data([
+        0xA9, 0x46, 0x43, 0x7C, 0xE0, 0xEF, 0xFC, 0x4B,
+        0xB2, 0x29, 0x39, 0x3E, 0xDE, 0x41, 0x5C, 0x85,
+    ])
+    private static let asfXMPGUID = Data([
+        0xCB, 0xCF, 0x7A, 0xBE, 0xA9, 0x97, 0xE8, 0x42,
+        0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC,
+    ])
 
     private static func asfHeaderByteCount(in data: Data) -> Int? {
         guard data.count >= 24,
@@ -723,26 +1135,91 @@ public enum EmbeddedTagMetadataParser {
         return Int(size)
     }
 
+    /// An ASF XMP object is a sibling of the data object and can follow all audio packets.
+    public static func topLevelASFXMP(head: Data, fileSize: Int64,
+                                      fetch: (Int64, Int64) async throws -> Data) async throws -> [EmbeddedLyricField] {
+        guard let headerSize = asfHeaderByteCount(in: head), fileSize >= Int64(headerSize) else { return [] }
+        var offset = Int64(headerSize)
+        var fields: [EmbeddedLyricField] = []
+        while offset <= fileSize - 24 {
+            try Task.checkCancellation()
+            let header = try await tagBytes(head: head, at: offset, count: 24, fetch: fetch)
+            guard let length = Int64(exactly: readUInt64LE(header, at: 16)), length >= 24, length <= fileSize - offset else { break }
+            if header.starts(with: asfXMPGUID), length - 24 <= LyricsRawDocumentPolicy.maximumByteCount {
+                let packet = try await tagBytes(head: head, at: offset + 24, count: Int(length - 24), fetch: fetch)
+                fields.append(contentsOf: xmpLyricFields(in: packet))
+            }
+            offset += length
+        }
+        return fields
+    }
+
+    private struct ASFObject {
+        let guid: Data
+        let body: Range<Int>
+    }
+
+    private static func asfObjects(in data: Data, range: Range<Int>, maximumCount: Int) -> [ASFObject] {
+        var result: [ASFObject] = []
+        var cursor = range.lowerBound
+        for _ in 0..<maximumCount {
+            guard cursor <= range.upperBound - 24 else { break }
+            let size = readUInt64LE(data, at: cursor + 16)
+            guard size >= 24, size <= UInt64(range.upperBound - cursor) else { break }
+            let end = cursor + Int(size)
+            result.append(.init(guid: data.subdata(in: cursor..<(cursor + 16)), body: (cursor + 24)..<end))
+            cursor = end
+        }
+        return result
+    }
+
+    private static func asfLanguages(in data: Data, range: Range<Int>) -> [String?] {
+        guard range.count >= 2 else { return [] }
+        let count = readUInt16LE(data, at: range.lowerBound)
+        var cursor = range.lowerBound + 2
+        var result: [String?] = []
+        for _ in 0..<count {
+            guard cursor < range.upperBound else { break }
+            let length = Int(data[cursor])
+            cursor += 1
+            guard length <= range.upperBound - cursor else { break }
+            result.append(decodedUTF16LE(data.subdata(in: cursor..<(cursor + length))))
+            cursor += length
+        }
+        return result
+    }
+
     private static func parseASF(_ data: Data) -> EmbeddedTagMetadata? {
         guard let declaredSize = asfHeaderByteCount(in: data),
               declaredSize <= data.count,
               data.count >= 30 else { return nil }
         let objectCount = readUInt32LE(data, at: 24)
         guard objectCount <= 100_000 else { return nil }
-        var cursor = 30
-        var fields: [(key: String, value: String)] = []
+        let objects = asfObjects(in: data, range: 30..<declaredSize, maximumCount: objectCount).flatMap { object -> [ASFObject] in
+            guard object.guid == asfHeaderExtensionGUID else { return [object] }
+            guard object.body.count >= 22 else { return [] }
+            let length = readUInt32LE(data, at: object.body.lowerBound + 18)
+            let start = object.body.lowerBound + 22
+            guard length <= object.body.upperBound - start else { return [] }
+            return asfObjects(in: data, range: start..<(start + length), maximumCount: length / 24)
+        }
+        // A language list may follow the metadata library that references it.
+        let languages = objects.first(where: { $0.guid == asfLanguageListGUID })
+            .map { asfLanguages(in: data, range: $0.body) } ?? []
+        var values: [String: [String]] = [:]
+        var lyricFields: [EmbeddedLyricField] = []
         var cover: Data?
-
-        for _ in 0..<objectCount {
-            guard cursor + 24 <= declaredSize else { break }
-            let guid = data.subdata(in: cursor..<(cursor + 16))
-            let size64 = readUInt64LE(data, at: cursor + 16)
-            guard size64 >= 24, size64 <= UInt64(Int.max) else { break }
-            let objectEnd = cursor + Int(size64)
-            guard objectEnd <= declaredSize else { break }
-            let payloadStart = cursor + 24
-
-            if guid == asfContentDescriptionGUID, payloadStart + 10 <= objectEnd {
+        func append(_ name: String, text: String, language: String? = nil) {
+            values[normalizedKey(name), default: []].append(text)
+            guard let role = ISOBaseMediaLyricsParser.lyricFieldRole(name, text: text) else { return }
+            var field = role.field(name: name, text: text)
+            field.languageCode = field.languageCode ?? language.flatMap(LyricLanguageCodePolicy.canonicalIdentifier)
+            lyricFields.append(field)
+        }
+        for object in objects {
+            let payloadStart = object.body.lowerBound
+            let objectEnd = object.body.upperBound
+            if object.guid == asfContentDescriptionGUID, object.body.count >= 10 {
                 var lengthCursor = payloadStart
                 let lengths = (0..<5).map { index in
                     readUInt16LE(data, at: lengthCursor + index * 2)
@@ -752,47 +1229,103 @@ public enum EmbeddedTagMetadataParser {
                 for (key, length) in zip(keys, lengths) {
                     guard length <= objectEnd - lengthCursor else { break }
                     if let text = decodedUTF16LE(data.subdata(in: lengthCursor..<(lengthCursor + length))) {
-                        fields.append((key, text))
+                        append(key, text: text)
                     }
                     lengthCursor += length
                 }
-            } else if guid == asfExtendedContentDescriptionGUID,
-                      payloadStart + 2 <= objectEnd {
+            } else if [asfExtendedContentDescriptionGUID, asfMetadataGUID, asfMetadataLibraryGUID].contains(object.guid),
+                      object.body.count >= 2 {
                 let descriptorCount = readUInt16LE(data, at: payloadStart)
                 var descriptorCursor = payloadStart + 2
                 for _ in 0..<descriptorCount {
-                    guard descriptorCursor + 2 <= objectEnd else { break }
-                    let nameLength = readUInt16LE(data, at: descriptorCursor)
-                    descriptorCursor += 2
-                    guard nameLength <= objectEnd - descriptorCursor else { break }
-                    let nameData = data.subdata(
-                        in: descriptorCursor..<(descriptorCursor + nameLength)
-                    )
-                    descriptorCursor += nameLength
-                    guard descriptorCursor + 4 <= objectEnd else { break }
-                    let valueType = readUInt16LE(data, at: descriptorCursor)
-                    let valueLength = readUInt16LE(data, at: descriptorCursor + 2)
-                    descriptorCursor += 4
+                    let name: Range<Int>
+                    let valueType: Int
+                    let valueLength: Int
+                    var language: String?
+                    if object.guid == asfExtendedContentDescriptionGUID {
+                        guard descriptorCursor <= objectEnd - 2 else { break }
+                        let length = readUInt16LE(data, at: descriptorCursor)
+                        descriptorCursor += 2
+                        guard length <= objectEnd - descriptorCursor - 4 else { break }
+                        name = descriptorCursor..<(descriptorCursor + length)
+                        valueType = readUInt16LE(data, at: name.upperBound)
+                        valueLength = readUInt16LE(data, at: name.upperBound + 2)
+                        descriptorCursor = name.upperBound + 4
+                    } else {
+                        guard descriptorCursor <= objectEnd - 12 else { break }
+                        let languageIndex = readUInt16LE(data, at: descriptorCursor)
+                        if object.guid == asfMetadataLibraryGUID, languageIndex < languages.count {
+                            language = languages[languageIndex]
+                        }
+                        let length = readUInt16LE(data, at: descriptorCursor + 4)
+                        valueType = readUInt16LE(data, at: descriptorCursor + 6)
+                        valueLength = readUInt32LE(data, at: descriptorCursor + 8)
+                        descriptorCursor += 12
+                        guard length <= objectEnd - descriptorCursor else { break }
+                        name = descriptorCursor..<(descriptorCursor + length)
+                        descriptorCursor = name.upperBound
+                    }
                     guard valueLength <= objectEnd - descriptorCursor else { break }
                     let valueData = data.subdata(
                         in: descriptorCursor..<(descriptorCursor + valueLength)
                     )
                     descriptorCursor += valueLength
-                    guard let name = decodedUTF16LE(nameData) else { continue }
-                    let key = normalizedKey(name)
-                    if key == "WM/PICTURE", valueType == 1, cover == nil {
-                        cover = parseASFPicture(valueData)
-                    } else if let text = decodedASFValue(valueData, type: valueType) {
-                        fields.append((key, text))
+                    guard let label = decodedUTF16LE(data.subdata(in: name)) else { continue }
+                    let key = normalizedKey(label)
+                    if key == "WM/PICTURE", valueType == 1 {
+                        if cover == nil { cover = parseASFPicture(valueData) }
+                    } else if key == "ID3", valueType == 1 {
+                        for var field in ID3EmbeddedLyrics.fields(in: valueData) {
+                            field.languageCode = field.languageCode ?? language.flatMap(LyricLanguageCodePolicy.canonicalIdentifier)
+                            lyricFields.append(field)
+                        }
+                    } else if let field = asfTextField(name: label, type: valueType, data: valueData) {
+                        append(field.key, text: field.value, language: language)
                     }
                 }
             }
-            cursor = objectEnd
         }
 
-        var metadata = metadata(fromOrderedTagValues: fields)
+        let following = declaredSize..<data.count
+        for object in asfObjects(in: data, range: following, maximumCount: following.count / 24) where object.guid == asfXMPGUID {
+            if object.body.count <= LyricsRawDocumentPolicy.maximumByteCount {
+                lyricFields.append(contentsOf: xmpLyricFields(in: data.subdata(in: object.body)))
+            }
+        }
+        var metadata = metadata(from: values, orderedFields: lyricFields)
         metadata.coverArtData = metadata.coverArtData ?? cover
         return metadata.isEmpty ? nil : metadata
+    }
+
+    private static func asfTextField(name: String, type: Int, data: Data) -> (key: String, value: String)? {
+        let key = normalizedKey(name)
+        if type == 1, ["WM/LYRICS_SYNCHRONISED", "WM/LYRICS_SYNCHRONIZED"].contains(key) {
+            guard data.count >= 8, [1, 2].contains(data[0]), [1, 2].contains(data[1]),
+                  let descriptionEnd = utf16NullOffset(in: data, from: 6),
+                  readUInt32LE(data, at: 2) == data.count - descriptionEnd - 2 else { return nil }
+            let descriptor = decodedUTF16LE(data.subdata(in: 6..<descriptionEnd))
+            let field = descriptor.flatMap { ISOBaseMediaLyricsParser.id3UserTextRole($0) == nil ? nil : $0 } ?? name
+            var cursor = descriptionEnd + 2
+            var cues: [(text: String, milliseconds: Int)] = []
+            while cursor < data.count {
+                guard let end = utf16NullOffset(in: data, from: cursor), end <= data.count - 6,
+                      let text = String(data: data.subdata(in: cursor..<end), encoding: .utf16LittleEndian) else { return nil }
+                cues.append((text, readUInt32LE(data, at: end + 2)))
+                cursor = end + 6
+            }
+            // A frame counter cannot be converted to clock time without its stream timebase.
+            let text = data[0] == 2 ? ID3SynchronizedLyricsParser.renderedCues(cues) : cues.map(\.text).joined()
+            return text.flatMap { $0.isEmpty ? nil : (field, $0) }
+        }
+        if key == "WM/TEXT", type == 1,
+           let end = utf16NullOffset(in: data, from: 0),
+           let label = decodedUTF16LE(data.subdata(in: 0..<end)),
+           let text = decodedUTF16LE(data.subdata(in: (end + 2)..<data.count)),
+           ISOBaseMediaLyricsParser.id3UserTextRole(label, text: text) != nil {
+            return (label, text)
+        }
+        if type == 1 { return binaryLyricText(in: data, name: name) }
+        return decodedASFValue(data, type: type).map { (name, $0) }
     }
 
     private static func parseASFPicture(_ data: Data) -> Data? {
@@ -827,65 +1360,69 @@ public enum EmbeddedTagMetadataParser {
 
     // MARK: - RIFF/AIFF text
 
-    /// Builds a small RIFF containing just the tag chunks missing from the prefix.
-    /// RIFF chunk lengths let a range reader skip PCM and padding without searching
-    /// the audio for an ID3 signature.
+    /// Rebuilds RIFF/WAVE or FORM/AIFF with just the tag chunks missing from the
+    /// prefix. Chunk lengths let a range reader skip PCM and padding.
     public static func waveMetadataFile(
         head: Data, fileSize: Int64,
         fetch: (Int64, Int64) async throws -> Data
     ) async throws -> Data? {
-        guard head.count >= 12, head.starts(with: "RIFF".utf8),
-              head[8..<12].elementsEqual("WAVE".utf8) else { return nil }
-        let end = Int64(readUInt32LE(head, at: 4)) + 8
-        guard end > head.count, end <= fileSize else { return nil }
-
-        func read(at offset: Int64, count: Int) async throws -> Data {
-            let start = Int(offset)
-            let cachedEnd = min(start + count, head.count)
-            var bytes = start < cachedEnd ? head.subdata(in: start..<cachedEnd) : Data()
-            // A provider may cap a successful range response below its requested length.
-            var attempts = 0
-            while bytes.count < count {
-                guard attempts < 64 else { throw URLError(.badServerResponse) }
-                attempts += 1
+        if var scan = DSDIFFChunks(head), scan.end <= fileSize, scan.end > head.count {
+            var chunks = Data()
+            while let offset = scan.nextOffset {
                 try Task.checkCancellation()
-                let missing = count - bytes.count
-                let part = try await fetch(offset + Int64(bytes.count), Int64(missing))
-                guard !part.isEmpty, part.count <= missing else { throw URLError(.badServerResponse) }
-                bytes.append(part)
+                let header = try await tagBytes(head: head, at: offset, count: scan.headerLength, fetch: fetch)
+                guard let range = scan.advance(header), range.upperBound > head.count,
+                      range.count <= 32 * 1024 * 1024 - chunks.count - 13 else { continue }
+                chunks.append(header.prefix(12))
+                chunks.append(try await tagBytes(head: head, at: range.lowerBound, count: range.count, fetch: fetch))
+                if !range.count.isMultiple(of: 2) { chunks.append(0) }
             }
-            return bytes
+            guard !chunks.isEmpty else { return nil }
+            var result = Data("FRM8".utf8)
+            var length = UInt64(4 + chunks.count).bigEndian
+            withUnsafeBytes(of: &length) { result.append(contentsOf: $0) }
+            return result + Data("DSD ".utf8) + chunks
         }
+        guard head.count >= 12 else { return nil }
+        let form = head[8..<12]
+        let wave = head.starts(with: "RIFF".utf8) && form.elementsEqual("WAVE".utf8)
+        let aiff = head.starts(with: "FORM".utf8) && (form.elementsEqual("AIFF".utf8) || form.elementsEqual("AIFC".utf8))
+        guard wave || aiff else { return nil }
+        func chunkSize(_ bytes: Data) -> Int { wave ? readUInt32LE(bytes, at: 4) : readUInt32BE(bytes, at: 4) }
+        let end = Int64(chunkSize(head)) + 8
+        guard end > head.count, end <= fileSize else { return nil }
 
         var offset: Int64 = 12
         var chunks = Data()
         let maximumTagBytes = 32 * 1024 * 1024
-        for _ in 0..<64 {
+        while offset <= end - 8 {
             try Task.checkCancellation()
-            guard offset <= end - 8 else { break }
-            let header = try await read(at: offset, count: Int(min(12, end - offset)))
-            let length = readUInt32LE(header, at: 4)
+            let header = try await tagBytes(head: head, at: offset, count: Int(min(12, end - offset)), fetch: fetch)
+            let length = chunkSize(header)
             let body = offset + 8
             let next = body + Int64(length)
             guard next <= end else { break }
             offset = next + Int64(length % 2)
             guard next > head.count, length > 0,
                   length + 9 <= maximumTagBytes - chunks.count else { continue }
-            let id = ascii(header, at: 0, count: 4)
-            let isInfo = id == "LIST" && length >= 4 && header.suffix(4).elementsEqual("INFO".utf8)
-            guard isInfo || id == "id3 " || id == "ID3 " else { continue }
+            guard let id = ascii(header, at: 0, count: 4) else { continue }
+            let isInfo = wave && id == "LIST" && length >= 4 && header.suffix(4).elementsEqual("INFO".utf8)
+            let isWaveXMP = wave && id == "_PMX"
+            let isAIFFText = aiff && ["NAME", "AUTH", "(c) ", "ANNO", "COMT"].contains(id)
+            let isAIFFXMP = aiff && id == "APPL" && length >= 4 && header.suffix(4).elementsEqual("XMP ".utf8)
+            guard id == "id3 " || id == "ID3 " || isInfo || isWaveXMP || isAIFFText || isAIFFXMP else { continue }
             let prefixLength = min(length, header.count - 8)
             chunks.append(header.prefix(8 + prefixLength))
             if prefixLength < length {
-                chunks.append(try await read(at: body + Int64(prefixLength), count: length - prefixLength))
+                chunks.append(try await tagBytes(head: head, at: body + Int64(prefixLength), count: length - prefixLength, fetch: fetch))
             }
             if !length.isMultiple(of: 2) { chunks.append(0) }
         }
         guard !chunks.isEmpty else { return nil }
-        var result = Data("RIFF".utf8)
-        var size = UInt32(4 + chunks.count).littleEndian
+        var result = Data(head.prefix(4))
+        var size = wave ? UInt32(4 + chunks.count).littleEndian : UInt32(4 + chunks.count).bigEndian
         withUnsafeBytes(of: &size) { result.append(contentsOf: $0) }
-        result.append(contentsOf: "WAVE".utf8)
+        result.append(contentsOf: form)
         result.append(chunks)
         // Some writers also append legacy tags outside RIFF, including ID3v1 or APEv2.
         if end < fileSize {
@@ -895,19 +1432,39 @@ public enum EmbeddedTagMetadataParser {
         return result
     }
 
+    private static func tagBytes(head: Data, at offset: Int64, count: Int,
+                                 fetch: (Int64, Int64) async throws -> Data) async throws -> Data {
+        let cached = min(count, max(0, head.count - Int(offset)))
+        var bytes = cached > 0 ? head.subdata(in: Int(offset)..<(Int(offset) + cached)) : Data()
+        // A provider may cap a successful range response below its requested length.
+        while bytes.count < count {
+            try Task.checkCancellation()
+            let missing = count - bytes.count
+            let part = try await fetch(offset + Int64(bytes.count), Int64(missing))
+            guard !part.isEmpty, part.count <= missing else { throw URLError(.badServerResponse) }
+            bytes.append(part)
+        }
+        return bytes
+    }
+
     private static func parseRIFFInfo(_ data: Data) -> EmbeddedTagMetadata? {
         guard data.count >= 12,
               data.prefix(4).elementsEqual(Data("RIFF".utf8)),
               data[8..<12].elementsEqual(Data("WAVE".utf8)) else { return nil }
         var cursor = 12
-        var fields: [(key: String, value: Data)] = []
-        while cursor + 8 <= data.count {
+        var fields: [ChunkField] = []
+        let end = min(data.count, 8 + readUInt32LE(data, at: 4))
+        while cursor + 8 <= end {
             guard let identifier = ascii(data, at: cursor, count: 4) else { break }
             let length = readUInt32LE(data, at: cursor + 4)
             let bodyStart = cursor + 8
             let bodyEnd = bodyStart + length
-            guard bodyEnd <= data.count else { break }
-            if identifier == "LIST", length >= 4,
+            guard bodyEnd <= end else { break }
+            if identifier == "id3 " || identifier == "ID3 " {
+                fields.append(.id3(data.subdata(in: bodyStart..<bodyEnd)))
+            } else if identifier == "_PMX" {
+                fields.append(.xmp(data.subdata(in: bodyStart..<bodyEnd)))
+            } else if identifier == "LIST", length >= 4,
                data[bodyStart..<(bodyStart + 4)].elementsEqual(Data("INFO".utf8)) {
                 var infoCursor = bodyStart + 4
                 while infoCursor + 8 <= bodyEnd {
@@ -918,19 +1475,14 @@ public enum EmbeddedTagMetadataParser {
                     guard valueEnd <= bodyEnd else { break }
                     let bytes = data[valueStart..<valueEnd].prefix(while: { $0 != 0 })
                     if !bytes.isEmpty {
-                        fields.append((normalizedKey(key), Data(bytes)))
+                        fields.append(.text(normalizedKey(key), Data(bytes)))
                     }
                     infoCursor = valueEnd + (valueLength.isMultiple(of: 2) ? 0 : 1)
                 }
             }
             cursor = bodyEnd + (length.isMultiple(of: 2) ? 0 : 1)
         }
-        var values: [String: [String]] = [:]
-        for (field, decoded) in zip(fields, TextEncodingRepair.decodeTagValues(fields.map(\.value))) {
-            if let decoded { values[field.key, default: []].append(decoded) }
-        }
-        let result = metadata(from: values)
-        return result.isEmpty ? nil : result
+        return metadata(from: fields)
     }
 
     private static func parseAIFFText(_ data: Data) -> EmbeddedTagMetadata? {
@@ -939,13 +1491,14 @@ public enum EmbeddedTagMetadataParser {
               (data[8..<12].elementsEqual(Data("AIFF".utf8))
                 || data[8..<12].elementsEqual(Data("AIFC".utf8))) else { return nil }
         var cursor = 12
-        var values: [String: [String]] = [:]
-        while cursor + 8 <= data.count {
+        var fields: [ChunkField] = []
+        let end = min(data.count, 8 + readUInt32BE(data, at: 4))
+        while cursor + 8 <= end {
             guard let identifier = ascii(data, at: cursor, count: 4) else { break }
             let length = readUInt32BE(data, at: cursor + 4)
             let bodyStart = cursor + 8
             let bodyEnd = bodyStart + length
-            guard bodyEnd <= data.count else { break }
+            guard bodyEnd <= end else { break }
             let mappedKey: String? = switch identifier {
             case "NAME": "TITLE"
             case "AUTH": "ARTIST"
@@ -953,17 +1506,189 @@ public enum EmbeddedTagMetadataParser {
             case "ANNO": "COMMENT"
             default: nil
             }
-            if let mappedKey,
-               let value = decodedNullTerminatedText(data.subdata(in: bodyStart..<bodyEnd)) {
-                values[mappedKey, default: []].append(value)
+            if let mappedKey {
+                fields.append(.text(mappedKey, Data(data[bodyStart..<bodyEnd].prefix(while: { $0 != 0 }))))
+            } else if identifier == "ID3 " || identifier == "id3 " {
+                fields.append(.id3(data.subdata(in: bodyStart..<bodyEnd)))
+            } else if identifier == "APPL", length >= 4, data[bodyStart..<(bodyStart + 4)].elementsEqual("XMP ".utf8) {
+                fields.append(.xmp(data.subdata(in: (bodyStart + 4)..<bodyEnd)))
+            } else if identifier == "COMT", length >= 2 {
+                var pos = bodyStart + 2
+                for _ in 0..<readUInt16BE(data, at: bodyStart) {
+                    guard pos <= bodyEnd - 8 else { break }
+                    let count = readUInt16BE(data, at: pos + 6)
+                    pos += 8
+                    guard count <= bodyEnd - pos else { break }
+                    fields.append(.text("COMMENT", data.subdata(in: pos..<(pos + count))))
+                    pos += count + count % 2
+                }
             }
             cursor = bodyEnd + (length.isMultiple(of: 2) ? 0 : 1)
         }
-        let result = metadata(from: values)
+        return metadata(from: fields)
+    }
+
+    private enum ChunkField { case text(String, Data), id3(Data), xmp(Data) }
+
+    private static func metadata(from chunks: [ChunkField]) -> EmbeddedTagMetadata? {
+        let bytes = chunks.compactMap { field -> Data? in
+            if case .text(_, let value) = field { return value }
+            return nil
+        }
+        var decoded = TextEncodingRepair.decodeTagValues(bytes).makeIterator()
+        var values: [String: [String]] = [:]
+        var lyrics: [EmbeddedLyricField] = []
+        for field in chunks {
+            switch field {
+            case .id3(let payload):
+                lyrics.append(contentsOf: ID3EmbeddedLyrics.fields(in: payload))
+            case .xmp(let payload):
+                lyrics.append(contentsOf: xmpLyricFields(in: payload))
+            case .text(let name, _):
+                guard let item = decoded.next(), let text = item else { continue }
+                values[name, default: []].append(text)
+                if let role = ISOBaseMediaLyricsParser.lyricFieldRole(name, text: text) {
+                    lyrics.append(role.field(name: name, text: text))
+                }
+            }
+        }
+        let result = metadata(from: values, orderedFields: lyrics)
         return result.isEmpty ? nil : result
     }
 
+    /// Adobe Dynamic Media defines its lyrics property as text. Other fields
+    /// in the RDF packet (such as comments or rights) describe the asset itself.
+    public static func xmpLyricFields(in data: Data) -> [EmbeddedLyricField] {
+        guard !data.isEmpty else { return [] }
+        let reader = XMPLyricReader()
+        let parser = XMLParser(data: data)
+        parser.shouldProcessNamespaces = true
+        parser.shouldReportNamespacePrefixes = true
+        parser.delegate = reader
+        if parser.parse(), !reader.fields.isEmpty { return reader.fields }
+        guard let packet = CGImageMetadataCreateFromXMPData(data as CFData) else { return [] }
+        var result: [EmbeddedLyricField] = []
+        CGImageMetadataEnumerateTagsUsingBlock(packet, nil, nil) { _, tag in
+            guard CGImageMetadataTagCopyName(tag) as String? == "lyrics",
+                  CGImageMetadataTagCopyNamespace(tag) as String? == "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                  let text = CGImageMetadataTagCopyValue(tag) as? String,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
+            let qualifiers = CGImageMetadataTagCopyQualifiers(tag) as? [CGImageMetadataTag] ?? []
+            let language = qualifiers.first { qualifier in
+                CGImageMetadataTagCopyName(qualifier) as String? == "lang"
+                    && CGImageMetadataTagCopyNamespace(qualifier) as String? == "http://www.w3.org/XML/1998/namespace"
+            }.flatMap { CGImageMetadataTagCopyValue($0) as? String }.flatMap(LyricLanguageCodePolicy.canonicalIdentifier)
+            result.append(.init(name: "xmpDM:lyrics", text: text, languageCode: language))
+            return true
+        }
+        return result
+    }
+
+    private final class XMPLyricReader: NSObject, XMLParserDelegate {
+        private let rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        private let dynamicMedia = "http://ns.adobe.com/xmp/1.0/DynamicMedia/"
+        private var prefixes: [String: [String]] = [:]
+        private var languages: [String?] = []
+        private var lyricDepth: Int?
+        private var valueDepth: Int?
+        private var value = ""
+        var fields: [EmbeddedLyricField] = []
+
+        func parser(_ parser: XMLParser, didStartMappingPrefix prefix: String, toURI uri: String) {
+            prefixes[prefix, default: []].append(uri)
+        }
+
+        func parser(_ parser: XMLParser, didEndMappingPrefix prefix: String) {
+            _ = prefixes[prefix]?.popLast()
+        }
+
+        func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI uri: String?,
+                    qualifiedName: String?, attributes: [String: String]) {
+            let language = attributes["xml:lang"].flatMap(LyricLanguageCodePolicy.canonicalIdentifier) ?? languages.last ?? nil
+            languages.append(language)
+            if uri == rdf && name == "Description" {
+                for (attribute, text) in attributes {
+                    let parts = attribute.split(separator: ":", maxSplits: 1)
+                    if parts.count == 2, parts[1] == "lyrics", prefixes[String(parts[0])]?.last == dynamicMedia {
+                        add(text)
+                    }
+                }
+            }
+            if uri == dynamicMedia && name == "lyrics" {
+                lyricDepth = languages.count
+                valueDepth = languages.count
+                value = ""
+            } else if lyricDepth != nil, uri == rdf && (name == "li" || name == "value") {
+                valueDepth = languages.count
+                value = ""
+            }
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters text: String) {
+            if valueDepth == languages.count { value += text }
+        }
+
+        func parser(_ parser: XMLParser, foundCDATA bytes: Data) {
+            if valueDepth == languages.count { value += String(decoding: bytes, as: UTF8.self) }
+        }
+
+        func parser(_ parser: XMLParser, didEndElement name: String, namespaceURI uri: String?, qualifiedName: String?) {
+            if valueDepth == languages.count { add(value); value = ""; valueDepth = nil }
+            if lyricDepth == languages.count { lyricDepth = nil }
+            _ = languages.popLast()
+        }
+
+        private func add(_ text: String) {
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            fields.append(.init(name: "xmpDM:lyrics", text: text, languageCode: languages.last ?? nil))
+        }
+    }
+
     // MARK: - Embedded ID3 chunks
+
+    /// DSDIFF writers put ID3 at the top level or inside PROP/SND. Chunk sizes
+    /// are 64-bit and exclude the pad byte, even on files larger than 4 GB.
+    private struct DSDIFFChunks {
+        let end: Int64
+        private var pending: [Range<Int64>]
+
+        init?(_ head: Data) {
+            guard head.count >= 16, head.starts(with: "FRM8".utf8), head[12..<16].elementsEqual("DSD ".utf8),
+                  let size = Int64(exactly: readUInt64BE(head, at: 4)), size >= 4, size <= Int64.max - 12 else { return nil }
+            end = size + 12
+            pending = end >= 28 ? [16..<end] : []
+        }
+
+        var nextOffset: Int64? { pending.last?.lowerBound }
+        var headerLength: Int { pending.last.map { Int(min(16, $0.upperBound - $0.lowerBound)) } ?? 0 }
+
+        mutating func advance(_ header: Data) -> Range<Int64>? {
+            guard let remaining = pending.popLast(), header.count >= 12,
+                  let size = Int64(exactly: readUInt64BE(header, at: 4)) else { return nil }
+            let start = remaining.lowerBound + 12
+            guard size <= remaining.upperBound - start else { return nil }
+            let end = start + size
+            if remaining.upperBound - end >= 12 + size % 2 {
+                pending.append((end + size % 2)..<remaining.upperBound)
+            }
+            if header.starts(with: "PROP".utf8), size >= 16, header.count >= 16, header[12..<16].elementsEqual("SND ".utf8) {
+                pending.append((start + 4)..<end)
+            }
+            return header.starts(with: "ID3 ".utf8) || header.starts(with: "id3 ".utf8) ? start..<end : nil
+        }
+    }
+
+    private static func dsdiffID3Chunks(in data: Data) -> [Data] {
+        guard var scan = DSDIFFChunks(data) else { return [] }
+        var result: [Data] = []
+        while let offset = scan.nextOffset, offset <= data.count - scan.headerLength {
+            let header = data.subdata(in: Int(offset)..<(Int(offset) + scan.headerLength))
+            if let range = scan.advance(header), range.upperBound <= data.count {
+                result.append(data.subdata(in: Int(range.lowerBound)..<Int(range.upperBound)))
+            }
+        }
+        return result
+    }
 
     private static func riffID3Chunk(in data: Data) -> Data? {
         guard data.count >= 12,
@@ -985,24 +1710,23 @@ public enum EmbeddedTagMetadataParser {
         return completeID3Tag(in: data)
     }
 
-    private static func bigEndianID3Chunk(in data: Data) -> Data? {
-        var cursor = data.prefix(4).elementsEqual(Data("FORM".utf8)) ? 12 : 0
-        while cursor + 8 <= data.count {
+    private static func bigEndianID3Chunk(in data: Data, dsdiff: Bool) -> Data? {
+        if dsdiff, DSDIFFChunks(data) != nil, let embedded = dsdiffID3Chunks(in: data).first {
+            return completeLeadingID3Tag(in: embedded)
+        }
+        var cursor = 0
+        if data.starts(with: "FORM".utf8) { cursor = 12 }
+        else if dsdiff, data.starts(with: "FRM8".utf8) { cursor = 16 }
+        let headerSize = dsdiff ? 12 : 8
+        while cursor <= data.count - headerSize {
             guard let identifier = ascii(data, at: cursor, count: 4) else { break }
-            let headerSize = identifier == "ID3 " && cursor + 12 <= data.count ? 12 : 8
-            let length: Int
-            if headerSize == 12 {
-                let size64 = readUInt64BE(data, at: cursor + 4)
-                guard size64 <= UInt64(Int.max) else { break }
-                length = Int(size64)
-            } else {
-                length = readUInt32BE(data, at: cursor + 4)
-            }
             let bodyStart = cursor + headerSize
+            let size = dsdiff ? readUInt64BE(data, at: cursor + 4) : UInt64(readUInt32BE(data, at: cursor + 4))
+            guard size <= UInt64(data.count - bodyStart) else { break }
+            let length = Int(size)
             let bodyEnd = bodyStart + length
-            guard bodyEnd <= data.count else { break }
-            if identifier == "ID3 " {
-                return completeID3Tag(in: data.subdata(in: bodyStart..<bodyEnd))
+            if identifier == "ID3 " || identifier == "id3 " {
+                if let tag = completeLeadingID3Tag(in: data.subdata(in: bodyStart..<bodyEnd)) { return tag }
             }
             cursor = bodyEnd + (length.isMultiple(of: 2) ? 0 : 1)
         }
@@ -1031,21 +1755,19 @@ public enum EmbeddedTagMetadataParser {
     }
 
     private static func completeTrailingID3Tag(in data: Data) -> Data? {
-        var searchStart = 0
-        while searchStart + 10 <= data.count,
-              let range = data.range(of: id3Signature, in: searchStart..<data.count) {
+        var end = data.count
+        if end >= 128, data[(end - 128)..<(end - 125)].elementsEqual("TAG".utf8) { end -= 128 }
+        return trailingID3Range(in: data, endingAt: end).map { data.subdata(in: $0) }
+    }
+
+    private static func trailingID3Range(in data: Data, endingAt end: Int) -> Range<Int>? {
+        if id3TagByteCount(in: data) == end { return 0..<end }
+        var searchStart = max(0, end - maximumRangeByteCount)
+        while searchStart <= end - 10,
+              let range = data.range(of: id3Signature, in: searchStart..<(end - 7)) {
             let start = range.lowerBound
-            let candidate = data.subdata(in: start..<data.count)
-            if let byteCount = id3TagByteCount(in: candidate) {
-                let end = start + byteCount
-                let endsAtEOF = end == data.count
-                let endsBeforeID3v1 = end == data.count - 128
-                    && data.count >= 128
-                    && data[(data.count - 128)..<(data.count - 125)]
-                        .elementsEqual(Data("TAG".utf8))
-                if byteCount <= candidate.count, endsAtEOF || endsBeforeID3v1 {
-                    return candidate.subdata(in: 0..<byteCount)
-                }
+            if let byteCount = id3TagByteCount(in: data.subdata(in: start..<(start + 10))), byteCount == end - start {
+                return start..<end
             }
             searchStart = start + 1
         }
@@ -1054,7 +1776,7 @@ public enum EmbeddedTagMetadataParser {
 
     // MARK: - Shared field mapping
 
-    private static func metadata(from values: [String: [String]], orderedOriginals: [EmbeddedLyricsVariant]? = nil) -> EmbeddedTagMetadata {
+    private static func metadata(from values: [String: [String]], orderedFields: [EmbeddedLyricField]? = nil) -> EmbeddedTagMetadata {
         func first(_ keys: String...) -> String? {
             for key in keys {
                 if let value = values[normalizedKey(key)]?.first, !value.isEmpty { return value }
@@ -1079,7 +1801,13 @@ public enum EmbeddedTagMetadataParser {
         let track = first("TRACKNUMBER", "TRACK", "WM/TRACKNUMBER", "IPRT", "ITRK")
         let disc = first("DISCNUMBER", "DISC", "WM/PARTOFSET")
         let date = first("DATE", "YEAR", "WM/YEAR", "ICRD")
-        let lyricFields = resolvedLyricFields(from: values, orderedOriginals: orderedOriginals)
+        // Dictionary-only decoders do not have file order; retain the legacy order of known keys.
+        let fields = orderedFields ?? (originalLyricKeys + values.keys.sorted().filter { !originalLyricKeys.contains($0) }).flatMap { key in
+            (values[key] ?? []).compactMap { text in
+                ISOBaseMediaLyricsParser.lyricFieldRole(key, text: text)?.field(name: key, text: text)
+            }
+        }
+        let lyricFields = resolvedLyricFields(from: values, fields: fields)
         var result = EmbeddedTagMetadata(
             title: first("TITLE", "WM/TITLE", "INAM"),
             artist: artists?.joined(separator: "; "),
@@ -1103,6 +1831,8 @@ public enum EmbeddedTagMetadataParser {
             replayGainAlbumGain: first("REPLAYGAIN_ALBUM_GAIN").flatMap(replayGain),
             replayGainAlbumPeak: first("REPLAYGAIN_ALBUM_PEAK").flatMap(Double.init)
         )
+
+        result.lyricFields = fields
 
         if let encoded = first("METADATA_BLOCK_PICTURE"),
            let picture = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters) {
@@ -1131,7 +1861,7 @@ public enum EmbeddedTagMetadataParser {
     /// enough information to decide which one is the source language.
     private static func resolvedLyricFields(
         from values: [String: [String]],
-        orderedOriginals: [EmbeddedLyricsVariant]?
+        fields: [EmbeddedLyricField]
     ) -> ResolvedLyricFields {
         let translationRoots = [
             "TRANSLATEDLYRICS", "TRANSLATED LYRICS", "TRANSLATION",
@@ -1147,19 +1877,16 @@ public enum EmbeddedTagMetadataParser {
             return nil
         }
 
-        func taggedValues(for roots: [String]) -> [String: String] {
+        func taggedValues(for role: EmbeddedLyricField.Role) -> [String: String] {
             var result: [String: String] = [:]
-            for key in values.keys.sorted() {
-                guard let languageCode = lyricLanguageSuffix(in: key, roots: roots),
-                      let value = values[key]?.first,
-                      !value.isEmpty else { continue }
-                result[languageCode] = result[languageCode] ?? value
+            for field in fields where field.role == role {
+                if let code = field.languageCode, result[code] == nil { result[code] = field.text }
             }
             return result
         }
 
-        let taggedLyrics = taggedValues(for: originalLyricKeys)
-        let taggedTranslations = taggedValues(for: translationRoots)
+        let taggedLyrics = taggedValues(for: .original)
+        let taggedTranslations = taggedValues(for: .translation)
         let declaredLyricsLanguage = normalizedLyricLanguageCode(
             first(["LYRICS_LANGUAGE", "LYRICS LANGUAGE"])
         )
@@ -1170,10 +1897,7 @@ public enum EmbeddedTagMetadataParser {
             ])
         )
 
-        // Unordered callers retain the legacy priority across keys.
-        let originals = orderedOriginals ?? (originalLyricKeys + values.keys.sorted().filter {
-            !originalLyricKeys.contains($0) && $0.contains("LYRICS")
-        }).flatMap { key in (values[key] ?? []).compactMap { originalLyric(key: key, text: $0) } }
+        let originals = fields.filter { $0.role == .original }
         let untaggedTexts = Set(originals.filter { $0.languageCode == nil }.map(\.text))
         let sourceLanguage: String?
         if let declaredLyricsLanguage {
@@ -1182,7 +1906,8 @@ public enum EmbeddedTagMetadataParser {
             let possibleLanguages = Set(originals.compactMap { entry in
                 untaggedTexts.isEmpty || untaggedTexts.contains(entry.text) ? entry.languageCode : nil
             })
-            sourceLanguage = possibleLanguages.count == 1 ? possibleLanguages.first : nil
+            sourceLanguage = possibleLanguages.count == 1 ? possibleLanguages.first
+                : (untaggedTexts.isEmpty ? originals.first?.languageCode : nil)
         }
         var variants: [EmbeddedLyricsVariant] = []
         for entry in originals where entry.languageCode == nil || entry.languageCode == sourceLanguage {
@@ -1194,7 +1919,7 @@ public enum EmbeddedTagMetadataParser {
                 priority: EmbeddedLyricsVariantPriority.current()
             )?.text,
             lyricsLanguageCode: sourceLanguage,
-            translatedLyrics: first(translationRoots),
+            translatedLyrics: first(translationRoots) ?? fields.first { $0.role == .translation && $0.languageCode == nil }?.text,
             translatedLyricsLanguageCode: declaredTranslationLanguage,
             languageTaggedLyrics: taggedLyrics,
             languageTaggedTranslations: taggedTranslations,
@@ -1243,28 +1968,6 @@ public enum EmbeddedTagMetadataParser {
         }
 
         return result
-    }
-
-    private static func lyricLanguageSuffix(
-        in key: String,
-        roots: [String]
-    ) -> String? {
-        let normalized = normalizedKey(key)
-        for root in roots.sorted(by: { $0.count > $1.count }) {
-            let normalizedRoot = normalizedKey(root)
-            guard normalized != normalizedRoot,
-                  normalized.hasPrefix(normalizedRoot) else { continue }
-            let rawSuffix = normalized.dropFirst(normalizedRoot.count)
-            guard rawSuffix.first.map({ " .:_-/[".contains($0) }) == true else {
-                continue
-            }
-            let suffix = rawSuffix
-                .trimmingCharacters(in: CharacterSet(charactersIn: " .:_-/[]()"))
-            if let languageCode = normalizedLyricLanguageCode(String(suffix)) {
-                return languageCode
-            }
-        }
-        return nil
     }
 
     private static func normalizedLyricLanguageCode(_ value: String?) -> String? {
@@ -1340,15 +2043,6 @@ public enum EmbeddedTagMetadataParser {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func decodedNullTerminatedText(_ data: Data) -> String? {
-        let bytes = data.prefix(while: { $0 != 0 })
-        guard !bytes.isEmpty else { return nil }
-        let value = String(data: Data(bytes), encoding: .utf8)
-            ?? String(data: Data(bytes), encoding: .isoLatin1)
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
     private static func utf16NullOffset(in data: Data, from start: Int) -> Int? {
         guard start >= 0, start < data.count else { return nil }
         var cursor = start
@@ -1377,6 +2071,10 @@ public enum EmbeddedTagMetadataParser {
     private static func readUInt16LE(_ data: Data, at offset: Int) -> Int {
         guard offset >= 0, offset <= data.count - 2 else { return 0 }
         return Int(data[offset]) | (Int(data[offset + 1]) << 8)
+    }
+
+    private static func readUInt16BE(_ data: Data, at offset: Int) -> Int {
+        Int(data[offset]) << 8 | Int(data[offset + 1])
     }
 
     private static func readUInt32LE(_ data: Data, at offset: Int) -> Int {

@@ -359,16 +359,11 @@ enum LyricsLoader {
         for song: Song, sourceManager: SourceManager, sourceType: MusicSourceType?,
         allowsAutomaticOnlineLyrics: Bool
     ) async -> [LyricLine] {
-        if var cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+        if let cached = await MetadataAssetStore.shared.cachedLyricsForPlayback(for: song) {
             guard !Task.isCancelled else { return [] }
-            logLoaded(cached, song: song, tier: "Tier1a")
+            logLoaded(cached, song: song, tier: "Tier1")
             if await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected != nil {
                 return cached
-            }
-            // 用户保存的那一份不按设置重挑（`reselectedEmbeddedVariant` 自己会跳过），回源核对照常：
-            // 源里真被别处改过才会换掉它。
-            if let reselected = await reselectedEmbeddedVariant(for: song, cached: cached) {
-                cached = reselected
             }
             scheduleAutomaticSourceRefresh(
                 for: song,
@@ -385,39 +380,6 @@ enum LyricsLoader {
             return cached
         }
         let isPinned = readsPinnedDocument(song)
-        if !isPinned,
-           let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName),
-           await !MetadataAssetStore.shared.isHiddenLyricsVersion(cached, forSongID: song.id) {
-            guard !Task.isCancelled else { return [] }
-            let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
-                cached,
-                forSongID: song.id,
-                expectedFingerprint: nil,
-                force: false
-            )
-            guard !Task.isCancelled else { return [] }
-            var resolved = wrote
-                ? cached
-                : await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? cached
-            if let reselected = await reselectedEmbeddedVariant(for: song, cached: resolved) {
-                resolved = reselected
-            }
-            logLoaded(resolved, song: song, tier: "Tier1b")
-            scheduleAutomaticSourceRefresh(
-                for: song,
-                sourceType: sourceType,
-                sourceManager: sourceManager,
-                cachedDocument: resolved
-            )
-            scheduleSourceDocumentRecheck(
-                for: song,
-                sourceType: sourceType,
-                sourceManager: sourceManager,
-                cachedDocument: resolved
-            )
-            return resolved
-        }
-
         // 播客单集不在任何音乐源里:文字只来自 feed 里的 `<podcast:transcript>`。
         if PodcastPlaybackSong.isEpisode(song) {
             return await PodcastTranscriptLoader.lines(for: song)
@@ -804,9 +766,10 @@ enum LyricsLoader {
                 await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
                 settled = true
                 guard let embedded,
-                      LyricsDocumentFingerprint(lines: embedded) != cachedFingerprint else { return nil }
+                      let preferred = await MetadataAssetStore.shared.preferredEmbeddedLyrics(forSongID: song.id, fallback: embedded),
+                      MetadataAssetStore.lyricsFingerprint(preferred) != cachedFingerprint.rawValue else { return nil }
                 // 歌词文件被删了: 缓存里是那份文件留下的, 不分时间轴粗细都换回内嵌歌词。
-                replacement = embedded
+                replacement = preferred
                 forced = true
             }
             guard !Task.isCancelled else { return nil }
@@ -846,31 +809,7 @@ enum LyricsLoader {
     /// （`EmbeddedLyricsVariantPriority`），改了设置不用重读文件。本机改过的、在歌词来源页选定过的、
     /// 在 App 里配过译文的不动。换了就写回缓存并返回新的那份。
     static func reselectedEmbeddedVariant(for song: Song, cached: [LyricLine]) async -> [LyricLine]? {
-        // 用户刚保存的那一份也标着「内嵌」，记下的几份原文可能还是保存之前的：不能拿旧的换掉它。
-        let pinned = await MetadataAssetStore.shared.isUserPinned(forSongID: song.id)
-        guard !pinned else { return nil }
-        guard !cached.isEmpty,
-              cached.first?.documentIsLocalOverride != true,
-              LyricsDocumentSource.of(cached)?.kind == .embedded,
-              !cached.contains(where: { line in
-                  ([line.manualTranslation].compactMap { $0 } + line.alternateManualTranslations)
-                      .contains { $0.source == .localEditor }
-              }),
-              let alternatives = await MetadataAssetStore.shared.embeddedLyricsAlternatives(forSongID: song.id),
-              let preferred = embeddedVariant(from: alternatives) else { return nil }
-        let fingerprint = LyricsDocumentFingerprint(lines: cached)
-        let normalized = MetadataAssetStore.normalizedCachedLyrics(preferred)
-        guard LyricsDocumentFingerprint(lines: normalized) != fingerprint else { return nil }
-        let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
-            preferred,
-            forSongID: song.id,
-            expectedFingerprint: fingerprint,
-            force: true,
-            preservingSelection: true
-        )
-        guard wrote, !Task.isCancelled else { return nil }
-        logLoaded(preferred, song: song, tier: "embedded-variant")
-        return preferred
+        await MetadataAssetStore.shared.reselectedEmbeddedLyrics(forSongID: song.id, cached: cached)
     }
 
     private static var embeddedRefreshRunning = false
@@ -913,29 +852,14 @@ enum LyricsLoader {
         MetadataAssetStore.embeddedLyricsDocument(for: variant, in: alternatives)
     }
 
-    /// 按设置里现在那一档从记下的几份里挑出一份，连同文件里的译文拼成歌词。
-    private static func embeddedVariant(from alternatives: EmbeddedLyricsAlternatives) -> [LyricLine]? {
-        guard let metadata = FileMetadataReader.Metadata.embeddedLyrics(
-            from: alternatives,
-            priority: EmbeddedLyricsVariantPriority.current()
-        ) else { return nil }
-        return FileMetadataReader.parsedEmbeddedLyrics(from: metadata)
-    }
-
     /// 读标签时因为歌旁边有歌词文件而没进缓存的内嵌歌词。源里读不到歌词文件时先用它,
     /// 再去在线找; 用上了就写进缓存, 下次直接命中。
     static func embeddedFallbackLyrics(for song: Song) async -> [LyricLine]? {
         let store = MetadataAssetStore.shared
         guard await !store.hasUserClearedLyrics(forSongID: song.id) else { return nil }
-        guard var embedded = await store.embeddedFallbackLyrics(forSongID: song.id),
+        guard let fallback = await store.embeddedFallbackLyrics(forSongID: song.id),
+              let embedded = await store.preferredEmbeddedLyrics(forSongID: song.id, fallback: fallback),
               !Task.isCancelled else { return nil }
-        // 文件里原文不止一份时按设置里现在那一档挑。
-        if let alternatives = await MetadataAssetStore.shared.embeddedLyricsAlternatives(forSongID: song.id),
-           let preferred = embeddedVariant(from: alternatives) {
-            embedded = preferred
-        }
-        // 用户在 Primuse 里隐藏的那份不拿出来用。
-        guard await !store.isHiddenLyricsVersion(embedded, forSongID: song.id) else { return nil }
         let wrote = await store.replaceLyricsIfUnchanged(
             embedded,
             forSongID: song.id,
@@ -1377,5 +1301,67 @@ extension LyricsLoader {
               !latest.isEmpty
         else { return nil }
         return latest
+    }
+}
+
+extension MetadataAssetStore {
+    /// Resolve the current and legacy cache references under the same preference as a fresh tag read.
+    func cachedLyricsForPlayback(for song: Song) -> [LyricLine]? {
+        guard !hasUserClearedLyrics(forSongID: song.id) else { return nil }
+        let cached: [LyricLine]
+        if let current = cachedLyrics(forSongID: song.id) {
+            cached = current
+        } else {
+            guard !LyricsLoader.readsPinnedDocument(song),
+                  let legacy = lyrics(named: song.lyricsFileName),
+                  !isHiddenLyricsVersion(legacy, forSongID: song.id) else { return nil }
+            if !replaceLyricsIfUnchanged(legacy, forSongID: song.id, expectedFingerprint: nil, force: false) {
+                guard lyricsVersionPreferences(forSongID: song.id)?.permits(legacy) != false else { return nil }
+                return cachedLyrics(forSongID: song.id) ?? legacy
+            }
+            cached = legacy
+        }
+        return reselectedEmbeddedLyrics(forSongID: song.id, cached: cached) ?? cached
+    }
+
+    func canReselectEmbeddedLyrics(_ cached: [LyricLine], alternatives: EmbeddedLyricsAlternatives, forSongID id: String) -> Bool {
+        guard cached.first?.documentIsLocalOverride != true,
+              !isUserPinned(forSongID: id),
+              lyricsVersionPreferences(forSongID: id)?.selectedID == nil,
+              lyricsSourceCollection(forSongID: id).selected == nil else { return false }
+        if let source = LyricsDocumentSource.of(cached) {
+            guard source.kind == .embedded else { return false }
+        } else if LyricsLoader.embeddedVariant(matching: cached, in: alternatives) == nil {
+            // Older caches have no source stamp. Only a complete match identifies an embedded version.
+            return false
+        }
+        func hasLocalTranslation(_ line: LyricLine) -> Bool {
+            line.allManualTranslations.contains { $0.source == .localEditor }
+        }
+        return !cached.contains { hasLocalTranslation($0) || $0.background?.contains(where: hasLocalTranslation) == true }
+    }
+
+    func preferredVariant(in alternatives: EmbeddedLyricsAlternatives) -> [LyricLine]? {
+        guard let metadata = FileMetadataReader.Metadata.embeddedLyrics(from: alternatives, priority: .current()) else { return nil }
+        return FileMetadataReader.parsedEmbeddedLyrics(from: metadata)
+    }
+
+    func reselectedEmbeddedLyrics(forSongID id: String, cached: [LyricLine]) -> [LyricLine]? {
+        guard !Task.isCancelled,
+              let alternatives = embeddedLyricsAlternatives(forSongID: id),
+              canReselectEmbeddedLyrics(cached, alternatives: alternatives, forSongID: id),
+              let preferred = preferredVariant(in: alternatives) else { return nil }
+        let fingerprint = LyricsDocumentFingerprint(lines: cached)
+        guard Self.lyricsFingerprint(preferred) != fingerprint.rawValue,
+              replaceLyricsIfUnchanged(preferred, forSongID: id, expectedFingerprint: fingerprint,
+                                       force: true, preservingSelection: true) else { return nil }
+        return preferred
+    }
+
+    func preferredEmbeddedLyrics(forSongID id: String, fallback: [LyricLine]) -> [LyricLine]? {
+        let preferred = embeddedLyricsAlternatives(forSongID: id).flatMap(preferredVariant) ?? fallback
+        guard lyricsVersionPreferences(forSongID: id)?.permits(preferred) != false,
+              !isHiddenLyricsVersion(preferred, forSongID: id) else { return nil }
+        return preferred
     }
 }

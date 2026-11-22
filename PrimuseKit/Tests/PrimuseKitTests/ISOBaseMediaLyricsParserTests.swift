@@ -336,6 +336,39 @@ struct ISOBaseMediaLyricsParserTests {
         #expect(ISOBaseMediaLyricsParser.editingOriginals(in: file, .replace(text: changed, anchor: nil)) == nil)
     }
 
+    @Test("Reads only the Adobe XMP packet beyond the media, alongside an independent iTunes lyric")
+    func topLevelXMPWithAudioAndAnotherUUID() async throws {
+        let original = "[00:01]Copper kites"
+        let packet = Data("""
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dm="http://ns.adobe.com/xmp/1.0/DynamicMedia/">
+        <rdf:Description dm:lyrics="[00:02]Glass reeds"/>
+        </rdf:RDF>
+        """.utf8)
+        let guid = Data([0xbe, 0x7a, 0xcf, 0xcb, 0x97, 0xa9, 0x42, 0xe8, 0x9c, 0x71, 0x99, 0x94, 0x91, 0xe3, 0xaf, 0xac])
+        let head = mediaFile(items: atom(type: Data([0xa9, 0x6c, 0x79, 0x72]), payload: dataAtom(Data(original.utf8))))
+        let audio = atom("mdat", payload: Data(repeating: 93, count: 600_000))
+        let file = head + audio + atom("uuid", payload: Data(count: 16) + packet) + atom("uuid", payload: guid + packet)
+        var bytesRead = 0
+        let fields = try await ISOBaseMediaLyricsParser.topLevelXMP(head: head, fileSize: Int64(file.count)) { at, length in
+            let count = min(23, Int(length))
+            bytesRead += count
+            return file.subdata(in: Int(at)..<(Int(at) + count))
+        }
+        #expect(bytesRead < 1024)
+        #expect(fields.map(\.text) == ["[00:02]Glass reeds"])
+        #expect(ISOBaseMediaLyricsParser.payload(in: file)?.fields.map(\.text) == [original, "[00:02]Glass reeds"])
+    }
+
+    @Test("Editing a timed lyric in a comment preserves its ordinary sibling")
+    func editsOnlyLyricValueInMixedComment() throws {
+        let original = "[00:01]Cloud ferry"
+        let note = dataAtom(Data("Room tone take seven".utf8))
+        let file = mediaFile(items: atom(type: Data([0xa9,0x63,0x6d,0x74]), payload: note + dataAtom(Data(original.utf8))))
+        let result = try #require(ISOBaseMediaLyricsParser.editingOriginals(in: file, .removeOne(original)))
+        #expect(result.data.range(of: note) != nil)
+        #expect(ISOBaseMediaLyricsParser.payload(in: result.data) == nil)
+    }
+
     private func mediaFile(items: Data) -> Data {
         mediaFile(metadata: metadataAtom(keys: [], items: items))
     }

@@ -12443,11 +12443,8 @@ struct NowPlayingView: View {
             return
         }
 
-        // Tier 1a: songID hash cache —— 即使 NAS path 也读 (stale-while-revalidate)。
-        // 历史污染 cache 现在通过 trustedSource:false + sidecar 写后回写 cache
-        // 在根源上修复, 这里允许 cache hit 立即显示, 后台再校验。
-        if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !cached.isEmpty {
-            plog(String(format: "📜 loadLyrics '%@' Tier1a hit (songID hash) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, cached.count))
+        if let cached = await MetadataAssetStore.shared.cachedLyricsForPlayback(for: song), !cached.isEmpty {
+            plog(String(format: "📜 loadLyrics '%@' cache hit in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, cached.count))
             guard setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision) else { return }
             let sourceType = sourcesStore.source(id: song.sourceID)?.type
             if LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) {
@@ -12479,27 +12476,7 @@ struct NowPlayingView: View {
             return
         }
 
-        let lyricsRefIsRemote = (song.lyricsFileName ?? "").contains("/")
-        // A picked lyric file is read from the source; the shortcuts below
-        // only know the scanner's choice.
         let readsPinnedDocument = LyricsLoader.readsPinnedDocument(song)
-
-        // Tier 1b: legacy named ref (only for non-NAS path)
-        if !lyricsRefIsRemote,
-           !readsPinnedDocument,
-           let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName),
-           await !MetadataAssetStore.shared.isHiddenLyricsVersion(cached, forSongID: song.id) {
-            guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
-            await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
-            plog(String(format: "📜 loadLyrics '%@' Tier1b hit (named ref) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, cached.count))
-            guard setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision) else { return }
-            if !LyricsAuthoritativeSourcePolicy.supportsServerDocument(
-                sourcesStore.source(id: song.sourceID)?.type
-            ) {
-                runSourceDocumentRecheck(song: song, currentCache: cached, loadRevision: loadRevision)
-            }
-            return
-        }
 
         // Tier 2: Check local audio cache for a lyrics sidecar (filesystem only, zero network)
         if !readsPinnedDocument,

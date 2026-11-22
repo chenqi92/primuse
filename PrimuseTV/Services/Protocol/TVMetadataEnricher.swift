@@ -292,7 +292,7 @@ enum TVMetadataEnricher {
     private static let tailFormats: Set<String> = [
         "m4a", "mp4", "m4b", "alac", "aac", "m4v", "mov",
     ]
-    private static let apeTailTagFormats: Set<String> = ["ape", "wv", "mpc", "tta"]
+    private static let apeTailTagFormats: Set<String> = ["mp1", "mp2", "mp3", "ape", "wv", "mpc", "mpp", "mp+", "tta", "tak"]
     private static let id3ContainerTailFormats: Set<String> = ["dff", "aiff", "aif", "wav"]
 
     static func enrich(
@@ -427,6 +427,7 @@ enum TVMetadataEnricher {
             declaredFileExtension: song.fileFormat.rawValue,
             signature: AudioFileSignaturePolicy.inspect(head)
         )
+        var inspectedTagTail: Data?
         var metadataInput = head
         if RemoteMetadataInspectionPolicy.tailStrategy(fileExtension: ext, isExplicitReread: false) == .isoBaseMedia,
            let complete = try? await ISOBaseMediaRangeReader.read(
@@ -513,6 +514,7 @@ enum TVMetadataEnricher {
                         try Task.checkCancellation()
                         tail = larger
                     }
+                    inspectedTagTail = tail
                     let tailMetadata = await FileMetadataReader.read(
                         from: head,
                         fileExtension: ext,
@@ -596,6 +598,28 @@ enum TVMetadataEnricher {
         }
         try Task.checkCancellation()
 
+        let fileSize = song.fileSize > 0 ? song.fileSize : ((try? await reader.contentLength()) ?? 0)
+        if fileSize > 0 {
+            let fetch: (Int64, Int64) async throws -> Data = { try await reader.read(offset: $0, length: $1) }
+            let extraTags: Data?
+            switch ext {
+            case "mp1", "mp2", "mp3":
+                extraTags = try? await FileMetadataReader.id3LyricsBeyondHead(head, fileSize: fileSize, fetch: fetch)
+            case "flac":
+                extraTags = try? await FileMetadataReader.flacTagsBeyondHead(head, fileSize: fileSize, fetch: fetch)
+            default: extraTags = nil
+            }
+            if let extraTags {
+                var leading = await readMetadata(extraTags, ext: ext)
+                leading.fillMissing(from: metadata)
+                metadata.includeLyricTracks(leading.embeddedLyricFields)
+            }
+            if let fields = try? await FileMetadataReader.mediaLyricFields(extension: ext, head: head,
+                metadataFile: metadataInput, tail: inspectedTagTail, fileSize: fileSize, fetch: fetch) {
+                metadata.includeLyricTracks(fields)
+            }
+            try Task.checkCancellation()
+        }
         var duration = metadata.duration ?? 0
         if ext == "mp3" {
             duration = RemoteMetadataReadPolicy.correctedMP3Duration(

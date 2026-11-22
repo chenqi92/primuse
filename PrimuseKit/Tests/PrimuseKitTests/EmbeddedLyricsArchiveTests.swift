@@ -115,6 +115,186 @@ struct EmbeddedLyricsArchiveTests {
         }
     }
 
+    @Test(arguments: [2, 3, 4]) func commentsAttachmentsAndCustomFieldsUseTheSameScanAndArchiveRules(version: Int) throws {
+        func named(_ long: String, _ short: String) -> String { version == 2 ? short : long }
+        func text(_ label: String, _ value: String, language: String? = nil) -> Data {
+            Data([0]) + Data((language ?? "").utf8) + Data(label.utf8) + Data([0]) + Data(value.utf8)
+        }
+        let ttml = "<tt xmlns=\"http://www.w3.org/ns/ttml\"><body><div><p begin=\"1s\">A tin orchard opens</p></div></body></tt>"
+        let object = Data([0]) + Data("application/ttml+xml\0orchard.ttml\0\0".utf8) + Data(ttml.utf8)
+        let artwork = Data([0]) + Data("image/png\0card.png\0lyrics\0".utf8) + Data([0x89, 80, 78, 71, 13, 10, 26, 10])
+        let original = id3File(version, [
+            (named("COMM", "COM"), text("notes", "[00:01.20]Three silver hooks", language: "eng"), 0),
+            (named("COMM", "COM"), text("notes", "Take four, close microphone", language: "eng"), 0),
+            (named("GEOB", "GEO"), object, 0),
+            (named("GEOB", "GEO"), artwork, 0),
+            (named("USLT", "ULT"), text("pinyin", "zhi zhou", language: "zho"), 0),
+            (named("TXXX", "TXX"), text("TRANSLATION:de", "Kupferglas"), 0),
+            (named("TEXT", "TXT"), Data([0]) + Data("A. Beacon".utf8), 0),
+        ])
+        let scanned = ID3EmbeddedLyrics.fields(in: original)
+        let entries = try EmbeddedLyricsArchive.entries(in: original, fileExtension: "mp3")
+        #expect(entries.map(\.text) == ["[00:01.20]Three silver hooks", ttml, "zhi zhou", "Kupferglas"])
+        #expect(entries.map(\.text) == scanned.map(\.text))
+        #expect(entries.map(\.role) == [.original, .original, .romanization, .translation])
+        #expect(entries.map(\.languageCode) == ["en", nil, "zh", "de"])
+        let allWritable = entries.allSatisfy(\.isWritable)
+        #expect(allWritable)
+        let revised = ttml.replacingOccurrences(of: "tin orchard", with: "brass orchard")
+        let edited = try EmbeddedLyricsArchive.replacing(in: original, fileExtension: "mp3", edits: [entries[1].id: revised])
+        #expect(edited.range(of: Data("application/ttml+xml\0orchard.ttml\0\0".utf8)) != nil)
+        #expect(edited.range(of: artwork) != nil)
+        #expect(ID3EmbeddedLyrics.fields(in: edited).map(\.text) == [entries[0].text, revised, entries[2].text, entries[3].text])
+    }
+
+    @Test func repeatedUTF16ValuesKeepIndependentRowsAndSiblingBytes() throws {
+        let encoding = String.Encoding.utf16LittleEndian
+        let label = Data([1, 0xff, 0xfe]) + "LYRICS".data(using: encoding)! + Data([0, 0])
+        let first = Data([0xff, 0xfe]) + "Paper well".data(using: encoding)!
+        let second = "Tin leaf".data(using: encoding)!
+        let third = "Paper well".data(using: encoding)!
+        let unrelated = ("TXXX", Data([3]) + Data("studio\0west room".utf8), UInt16(0))
+        let original = id3File(4, [("TXXX", label + first + Data([0, 0]) + second + Data([0, 0]) + third, 0), unrelated])
+        let entries = try EmbeddedLyricsArchive.entries(in: original, fileExtension: "mp3")
+        #expect(entries.map(\.text) == ["Paper well", "Tin leaf", "Paper well"])
+        #expect(Set(entries.map(\.id)).count == 3)
+        let edited = try EmbeddedLyricsArchive.replacing(in: original, fileExtension: "mp3",
+                                                         edits: [entries[1].id: nil, entries[2].id: "Folded glass"])
+        #expect(ID3EmbeddedLyrics.fields(in: edited).map(\.text) == ["Paper well", "Folded glass"])
+        #expect(edited.range(of: label + first) != nil)
+        #expect(edited.range(of: unrelated.1) != nil)
+    }
+
+    @Test func oneUnreadableFrameDoesNotHideCompressedGroupedOrFollowingLyrics() throws {
+        let compressed = Data([120, 156, 99, 78, 205, 75, 103, 112, 84, 40, 203, 204, 207, 73, 45,
+                               81, 72, 42, 205, 175, 84, 40, 41, 45, 202, 43, 6, 0, 95, 98, 8, 109])
+        let opaque = ("USLT", Data([5, 0xfe, 0x85]), UInt16(0x04))
+        let grouped = ("USLT", Data([11]) + Data([3]) + Data("eng\0Orchard glass".utf8), UInt16(0x40))
+        let last = ("USLT", Data([3]) + Data("eng\0Tin sunset".utf8), UInt16(0))
+        let frames: [(String, Data, UInt16)] = [
+            ("USLT", Data([3]) + Data("engmissing delimiter".utf8), 0),
+            ("USLT", Data([0, 0, 0, 24]) + compressed, 0x09), opaque, grouped, last,
+        ]
+        let original = id3File(4, frames)
+        let rows = try EmbeddedLyricsArchive.entries(in: original, fileExtension: "mp3")
+        #expect(rows.map(\.text) == ["A violet buoy turns", "Orchard glass", "Tin sunset"])
+        #expect(rows.map(\.isWritable) == [false, false, true])
+        #expect(ID3EmbeddedLyrics.fields(in: original).map(\.text) == rows.map(\.text))
+        #expect(throws: (any Error).self) { try EmbeddedLyricsArchive.replacing(in: original, fileExtension: "mp3", edits: [rows[0].id: nil]) }
+        let changed = try EmbeddedLyricsArchive.replacing(in: original, fileExtension: "mp3", edits: [rows[2].id: "Tin sunrise"])
+        #expect(changed.range(of: compressed) != nil)
+        #expect(changed.range(of: opaque.1) != nil)
+        #expect(throws: (any Error).self) {
+            try EmbeddedLyricsArchive.preserving(from: original, in: id3File(4, [grouped, last]), fileExtension: "mp3")
+        }
+    }
+
+    @Test func extendedHeaderExposesCompleteFramesWithoutOfferingSourceWrites() throws {
+        let body = Data([3]) + Data("eng\0Past the lantern pier".utf8)
+        let file = id3File(4, [("USLT", body, 0)], tagFlags: 0x40, extended: Data([0, 0, 0, 6, 1, 0]))
+        let rows = try EmbeddedLyricsArchive.entries(in: file, fileExtension: "mp3")
+        #expect(rows.map(\.text) == ["Past the lantern pier"])
+        #expect(rows.map(\.isWritable) == [false])
+        #expect(ID3EmbeddedLyrics.fields(in: file).map(\.text) == rows.map(\.text))
+    }
+
+    @Test func lengthWrittenInPlainBytesDoesNotHideTheNextFrameInAV24Tag() throws {
+        let first = String(repeating: "tin ", count: 45) + "bell"
+        let body = Data([3]) + Data("eng\0".utf8) + Data(first.utf8)
+        var file = id3File(4, [("USLT", body, 0), ("USLT", Data([3]) + Data("eng\0Folded lamps".utf8), 0)])
+        file.replaceSubrange(14..<18, with: [0, 0, 0, UInt8(body.count)])
+        let rows = try EmbeddedLyricsArchive.entries(in: file, fileExtension: "mp3")
+        #expect(rows.map(\.text) == [first, "Folded lamps"])
+        #expect(rows.map(\.isWritable) == [false, false])
+        #expect(ID3EmbeddedLyrics.fields(in: file).map(\.text) == rows.map(\.text))
+    }
+
+    @Test func replacingThenClearingOriginalsKeepsPronunciationAndTranslationFrames() throws {
+        let primary = ("COMM", Data([3]) + Data("eng\0[00:01.00]A glass buoy spins".utf8), UInt16(0))
+        let reading = ("USLT", Data([3]) + Data("engpinyin\0bo li fu biao".utf8), UInt16(0))
+        let translated = ("TXXX", Data([3]) + Data("TRANSLATION:zh\0玻璃浮标旋转".utf8), UInt16(0))
+        let audio = Data([0xff, 0xfb, 0x94, 0])
+        let original = id3File(4, [reading, translated, primary]) + audio
+        let text = "[00:02.00]A painted buoy turns"
+        let changed = try #require(EmbeddedLyricsFieldEditor.editID3(original, .replace(text: text, anchor: "[00:01.00]A glass buoy spins")))
+        #expect(changed.data.suffix(audio.count) == audio)
+        #expect(ID3EmbeddedLyrics.fields(in: changed.data).map(\.text) == ["bo li fu biao", "玻璃浮标旋转", text])
+        let cleared = try #require(EmbeddedLyricsFieldEditor.editID3(changed.data, .removeAllOriginals))
+        #expect(ID3EmbeddedLyrics.fields(in: cleared.data).map(\.role) == [.romanization, .translation])
+        #expect(cleared.data.range(of: reading.1) != nil)
+        #expect(cleared.data.range(of: translated.1) != nil)
+    }
+
+    @Test func mpegFrameClocksUseTheBitstreamAndKeepWordsWhenOnlyTheTagIsAvailable() throws {
+        var cues = Data([3]) + Data("eng".utf8) + Data([1, 1, 0])
+        cues += Data("First lantern\0".utf8) + Data([0, 0, 0, 1])
+        cues += Data("\nSecond lantern\0".utf8) + Data([0, 0, 0, 100])
+        let tag = id3File(4, [("SYLT", cues, 0)])
+        let frame = Data([0xff, 0xfb, 0x94, 0x00]) + Data(count: 380) // MPEG-1 Layer III, 48 kHz, 1,152 samples
+        let timed = try EmbeddedLyricsArchive.entries(in: tag + frame + frame, fileExtension: "mp3")
+        #expect(timed.map(\.text) == ["[00:00.024]First lantern\n[00:02.400]Second lantern"])
+        let layerI = Data([0xff, 0xff, 0x54, 0x00]) + Data(count: 156)
+        #expect(ID3EmbeddedLyrics.fields(in: tag + layerI + layerI).map(\.text)
+            == ["[00:00.008]First lantern\n[00:00.800]Second lantern"])
+        #expect(ID3EmbeddedLyrics.fields(in: tag).map(\.text) == ["First lantern\nSecond lantern"])
+        #expect(try EmbeddedLyricsArchive.entries(in: tag, fileExtension: "mp3").map(\.id) == timed.map(\.id))
+    }
+
+    @Test func structuredValuesInAudioCommentsAndPrivateAttachmentsRetainTheirIdentity() throws {
+        let lyrics = "[00:01.00]A glass fin folds"
+        let owner = Data("net.example.lyrics".utf8) + Data([0])
+        let original = id3File(4, [("PRIV", owner + Data(lyrics.utf8), 0),
+                                    ("PRIV", Data("vendor.clock\0".utf8) + Data([0, 1, 0, 2]), 0)])
+        #expect(try EmbeddedLyricsArchive.entries(in: original, fileExtension: "mp3").map(\.text) == [lyrics])
+        let mixed = movie(box("©cmt", mp4Value("Recording note") + mp4Value(lyrics) + box("data", Data([0, 0, 0, 13, 0, 0, 0, 0, 0xff]))))
+        let rows = try EmbeddedLyricsArchive.entries(in: mixed, fileExtension: "m4a")
+        #expect(rows.map(\.text) == [lyrics])
+        let removed = try EmbeddedLyricsArchive.replacing(in: mixed, fileExtension: "m4a", edits: [rows[0].id: nil])
+        #expect(removed.range(of: mp4Value("Recording note")) != nil)
+        #expect(removed.range(of: Data([0, 0, 0, 13, 0, 0, 0, 0, 0xff])) != nil)
+        let newNote = movie(box("©cmt", mp4Value("Updated recording note")))
+        let restored = try EmbeddedLyricsArchive.preserving(from: mixed, in: newNote, fileExtension: "m4a")
+        #expect(try EmbeddedLyricsArchive.entries(in: restored, fileExtension: "m4a").map(\.text) == [lyrics])
+        #expect(restored.range(of: mp4Value("Updated recording note")) != nil)
+        #expect(restored.range(of: mp4Value("Recording note")) == nil)
+        let mixedValues = id3File(4, [("TXXX", Data([3]) + Data(("take notes\0Mic gain two\0" + lyrics).utf8), 0)])
+        let lostLyrics = id3File(4, [("TXXX", Data([3]) + Data("take notes\0Updated gain".utf8), 0)])
+        #expect(try EmbeddedLyricsArchive.entries(in: mixedValues, fileExtension: "mp3").map(\.text) == [lyrics])
+        #expect(throws: (any Error).self) {
+            try EmbeddedLyricsArchive.preserving(from: mixedValues, in: lostLyrics, fileExtension: "mp3")
+        }
+    }
+
+    @Test func adobePrivatePacketKeepsItsOtherMetadataWhenALyricIsRead() throws {
+        let xmp = """
+        <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description rdf:about="" xmlns:xmpDM="http://ns.adobe.com/xmp/1.0/DynamicMedia/"
+          xmpDM:lyrics="Reeds count the rain" xmpDM:artist="Weather notebook"/>
+        </rdf:RDF></x:xmpmeta>
+        """
+        let packet = Data("XMP\0".utf8) + Data(xmp.utf8)
+        let original = id3File(4, [("PRIV", packet, 0)])
+        let entry = try #require(EmbeddedLyricsArchive.entries(in: original, fileExtension: "mp3").first)
+        #expect(entry.text == "Reeds count the rain")
+        #expect(!entry.isWritable)
+        #expect(throws: (any Error).self) {
+            try EmbeddedLyricsArchive.replacing(in: original, fileExtension: "mp3", edits: [entry.id: "Different"])
+        }
+    }
+
+    private func id3File(_ version: Int, _ entries: [(String, Data, UInt16)], tagFlags: UInt8 = 0, extended: Data = Data()) -> Data {
+        func size(_ n: Int, count: Int, bits: Int) -> Data {
+            Data((0..<count).reversed().map { UInt8(n >> ($0 * bits) & ((1 << bits) - 1)) })
+        }
+        var body = extended
+        for (name, value, flags) in entries {
+            body += Data(name.utf8) + size(value.count, count: version == 2 ? 3 : 4, bits: version == 4 ? 7 : 8)
+            if version > 2 { body += size(Int(flags), count: 2, bits: 8) }
+            body += value
+        }
+        return Data("ID3".utf8) + Data([UInt8(version), 0, tagFlags]) + size(body.count, count: 4, bits: 7) + body
+    }
+
     private func vorbisBlock(_ fields: [String]) -> Data {
         func le(_ n: Int) -> Data { withUnsafeBytes(of: UInt32(n).littleEndian) { Data($0) } }
         var body = le(0) + le(fields.count)

@@ -323,6 +323,7 @@ final class TVPlaybackCoordinator {
     private var lyricsDirectoryListing: LyricsDirectoryListing?
     /// 这次运行里缓存命中后已经到源里核对过歌词文件的歌,每首只核对一次。
     private var sourceLyricsRecheckedSongIDs: Set<String> = []
+    private let serverLyricsRefresh = LyricsSourceRefreshCoordinator()
     /// 比时间轴时最多读这么多份歌词文件。
     private static let maximumComparedLyricsDocuments = 6
     /// 歌词文件读取上限:更大的不是正常的歌词文件,不读。
@@ -2801,7 +2802,8 @@ final class TVPlaybackCoordinator {
             if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID), !cached.isEmpty {
                 guard self.isCurrent(requestID, store: store) else { return }
                 applyLoadedLyrics(cached, duration: song.duration, forSongID: destinationID, store: store)
-                if TVLyricsLoadingPolicy.strategy(for: source.type) == .sourceFile {
+                switch TVLyricsLoadingPolicy.strategy(for: source.type) {
+                case .sourceFile:
                     await self.recheckSourceLyricsDocument(
                         song: song,
                         source: source,
@@ -2811,6 +2813,11 @@ final class TVPlaybackCoordinator {
                         destinationID: destinationID,
                         store: store
                     )
+                case .subsonicServer:
+                    await self.recheckSubsonicLyrics(song: song, source: source, credential: credential,
+                                                     cached: cached, requestID: requestID, destinationID: destinationID, store: store)
+                default:
+                    break
                 }
                 return
             }
@@ -2869,7 +2876,8 @@ final class TVPlaybackCoordinator {
                             requestID: requestID,
                             store: store,
                             destinationID: destinationID,
-                            logSource: source.type.displayName
+                            logSource: source.type.displayName,
+                            documentSource: .server(source.type.rawValue)
                         )
                     } catch is CancellationError {
                         return
@@ -3374,15 +3382,17 @@ final class TVPlaybackCoordinator {
         requestID: UUID,
         store: TVStore,
         destinationID: String,
-        logSource: String
+        logSource: String,
+        documentSource: LyricsDocumentSource? = nil
     ) async throws {
         let parsed = LyricsParser.parseText(TextEncodingRepair.repairedLyricsDocument(text) ?? text)
         guard !parsed.isEmpty else { return }
-        guard let lines = LossyDecodedLyricsRepair.usableDocument(parsed) else {
+        guard let usable = LossyDecodedLyricsRepair.usableDocument(parsed) else {
             lossilyDecodedServerLyrics = (song.id, parsed)
             plog("🎬 TV \(logSource) lyrics for '\(song.title)' are lossily decoded upstream; waiting for online lyrics")
             return
         }
+        let lines = documentSource?.stamped(usable) ?? usable
         let wrote = await MetadataAssetStore.shared.cacheLyrics(
             lines,
             forSongID: song.id,
@@ -3397,6 +3407,35 @@ final class TVPlaybackCoordinator {
             try ensureCurrent(requestID, store: store)
             applyLoadedLyrics(preserved, duration: song.duration, forSongID: destinationID, store: store)
         }
+    }
+
+    private func recheckSubsonicLyrics(
+        song: Song, source: MusicSource, credential: SourceCredential?, cached: [LyricLine],
+        requestID: UUID, destinationID: String, store: TVStore
+    ) async {
+        guard cached.first?.documentIsLocalOverride != true,
+              LyricsDocumentSource.of(cached).map({ $0.kind == .server }) ?? true else { return }
+        let fingerprint = LyricsDocumentFingerprint(lines: cached)
+        let result = await serverLyricsRefresh.refresh(
+            key: .init(sourceID: source.id, songID: song.id), currentDocument: cached, trigger: .automatic,
+            fetch: {
+                let response = await self.readSubsonicServerLyrics(for: song.filePath, source: source, credential: credential)
+                switch response {
+                case .content(let text):
+                    let parsed = LyricsContentParser.parseText(TextEncodingRepair.repairedLyricsDocument(text) ?? text)
+                    guard let usable = LossyDecodedLyricsRepair.usableDocument(parsed, references: [cached]) else { return nil }
+                    return LyricsDocumentSource.server(source.type.rawValue).stamped(usable)
+                case .absent: return nil
+                case .unavailable: throw URLError(.cannotLoadFromNetwork)
+                }
+            },
+            replace: { lines in
+                await MetadataAssetStore.shared.replaceLyricsIfUnchanged(lines, forSongID: song.id, expectedFingerprint: fingerprint,
+                                                                       force: false, preservingSelection: true, origin: .sourceDocument)
+            }
+        )
+        guard isCurrent(requestID, store: store), case .updated(let lines) = result else { return }
+        applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
     }
 
     private func readSubsonicServerLyrics(
@@ -3547,6 +3586,9 @@ final class TVPlaybackCoordinator {
                         },
                         translation: line.manualTranslation?.text ?? "",
                         romanization: line.romanization ?? "",
+                        romanizationSyllables: (line.romanizationSyllables ?? []).map {
+                            TVSyllable(w: $0.text, start: $0.start, end: $0.end, endTiming: $0.endTiming)
+                        },
                         writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(
                             for: line,
                             documentFallback: documentWritingDirection

@@ -6325,6 +6325,7 @@ final class MetadataBackfillService {
         // browsing. Playback already prewarms the current song and queue on
         // demand through SourceManager.
 
+        var inspectedTagTail: Data?
         var metadataInputData = headData
         let initialParserExtension = RemoteMetadataInspectionPolicy.parserFileExtension(
             declaredFileExtension: song.fileFormat.rawValue,
@@ -6404,7 +6405,7 @@ final class MetadataBackfillService {
                 declaredID3ByteCount: id3ByteCount,
                 metadataInsufficient: needsDurationExpansion && !hasTruncatedID3
             ).map { min($0, Self.maxMetadataHeadBytes) } ?? headData.count
-            if (needsDurationExpansion || needsArtworkExpansion || needsArtistExpansion),
+            if (hasTruncatedID3 || needsDurationExpansion || needsArtworkExpansion || needsArtistExpansion),
                expandedByteCount > headData.count {
                 do {
                     let expandedHead = try await RemoteMetadataReadPolicy.extendingHead(
@@ -6542,7 +6543,9 @@ final class MetadataBackfillService {
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         )
         completeFileFallbackAllowed = tailUsesCompleteFileFallback
+        let needsMP3LyricTail = tailStrategy == .mp3ID3 && (song.fileSize <= 0 || Int64(metadataInputData.count) < song.fileSize)
         if Self.metadataLooksMissing(metadata)
+            || needsMP3LyricTail
             || needsSecondaryArtistRange
             || needsSecondaryArtworkRange
             || needsSecondaryTagRange {
@@ -6580,7 +6583,13 @@ final class MetadataBackfillService {
                     if readContainerTail { boundedTailInspected = true }
                 } else if tailStrategy == .mp3ID3 {
                     do {
-                        let tailData = try await fetchRange(offset: -Self.fallbackTailBytes, length: Self.fallbackTailBytes)
+                        var tailData = try await fetchRange(offset: -Self.fallbackTailBytes, length: Self.fallbackTailBytes)
+                        if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
+                            fileSize: song.fileSize, currentData: tailData, fileExtension: parserExtension
+                        ), expanded > tailData.count {
+                            tailData = try await fetchRange(offset: -Int64(expanded), length: Int64(expanded))
+                        }
+                        inspectedTagTail = tailData
                         metadata = await extractMetadata(
                             from: metadataInputData,
                             id3TailData: tailData,
@@ -6603,6 +6612,7 @@ final class MetadataBackfillService {
                     ), expanded > tailData.count {
                         tailData = try await fetchRange(offset: -Int64(expanded), length: Int64(expanded))
                     }
+                    inspectedTagTail = tailData
                     metadata = await extractMetadata(
                         from: metadataInputData,
                         id3TailData: tailData,
@@ -6834,6 +6844,25 @@ final class MetadataBackfillService {
         }
 
         try Task.checkCancellation()
+        if !metadata.hasCompleteFileAccess {
+            let extraTags: Data?
+            switch parserExtension {
+            case "mp3", "mp2", "mp1": extraTags = try? await FileMetadataReader.id3LyricsBeyondHead(
+                metadataInputData, fileSize: song.fileSize, fetch: fetchRange)
+            case "flac": extraTags = try? await FileMetadataReader.flacTagsBeyondHead(
+                metadataInputData, fileSize: song.fileSize, fetch: fetchRange)
+            default: extraTags = nil
+            }
+            if let extraTags {
+                let extra = await FileMetadataReader.RangeReadSession().read(from: extraTags, fileExtension: parserExtension)
+                metadata.mergeEmbeddedFields(extra.embeddedLyricFields, prepend: true)
+            }
+            if let fields = try? await FileMetadataReader.mediaLyricFields(extension: parserExtension, head: headData,
+                metadataFile: metadataInputData, tail: inspectedTagTail, fileSize: song.fileSize, fetch: fetchRange) {
+                metadata.mergeEmbeddedFields(fields)
+            }
+            try Task.checkCancellation()
+        }
         metadata = await request.metadataService.storingEmbeddedAssets(
             in: metadata,
             cacheKey: song.id,
@@ -7336,10 +7365,10 @@ final class MetadataBackfillService {
         for song: Song
     ) async {
         guard Self.cachesImageLyrics(for: song),
-              !Self.cachesEmbeddedLyrics(for: song),
-              let lyrics = metadata.lyrics,
-              !lyrics.isEmpty else { return }
-        await MetadataAssetStore.shared.storeEmbeddedFallbackLyrics(lyrics, forSongID: song.id)
+              !Self.cachesEmbeddedLyrics(for: song) else { return }
+        if let lyrics = metadata.lyrics, !lyrics.isEmpty {
+            await MetadataAssetStore.shared.storeEmbeddedFallbackLyrics(lyrics, forSongID: song.id)
+        } else if metadata.embeddedLyricsAlternatives == nil { return }
         await MetadataAssetStore.shared.storeEmbeddedLyricsAlternatives(
             metadata.embeddedLyricsAlternatives,
             forSongID: song.id

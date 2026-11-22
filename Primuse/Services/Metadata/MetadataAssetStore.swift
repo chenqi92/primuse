@@ -1145,6 +1145,9 @@ actor MetadataAssetStore {
                 } ?? []
                 guard let first = matched.first else { return dropRecords() }
                 for index in matched.dropFirst().reversed() { alternatives.variants.remove(at: index) }
+                if let anchor, let index = alternatives.fields?.firstIndex(where: {
+                    $0.role == .original && EmbeddedLyricsFieldEditor.sameLyrics($0.text, anchor)
+                }) { alternatives.fields?[index].text = text }
                 alternatives.variants[first].text = text
                 let moved = alternatives.variants.remove(at: first)
                 alternatives.variants.removeAll { EmbeddedLyricsFieldEditor.sameLyrics($0.text, text) }
@@ -1166,6 +1169,9 @@ actor MetadataAssetStore {
                 let before = alternatives.variants.count
                 alternatives.variants.removeAll { EmbeddedLyricsFieldEditor.sameLyrics($0.text, anchor) }
                 if alternatives.variants.count == before { return dropRecords() }
+                if let index = alternatives.fields?.firstIndex(where: {
+                    $0.role == .original && EmbeddedLyricsFieldEditor.sameLyrics($0.text, anchor)
+                }) { alternatives.fields?.remove(at: index) }
                 if let inUse = alternatives.inUseText, EmbeddedLyricsFieldEditor.sameLyrics(inUse, anchor) {
                     alternatives.inUseText = nil
                 }
@@ -1270,7 +1276,23 @@ actor MetadataAssetStore {
         func stillInFile(_ candidate: [LyricLine]) -> Bool {
             originals.contains { EmbeddedLyricsPrecedencePolicy.sameDocument($0, candidate) }
         }
-        if let preferences, let selected = preferences.selectedID {
+        let matching = originals.first { EmbeddedLyricsPrecedencePolicy.sameDocument($0, cached) }
+        func hasLocalTranslation(_ line: LyricLine) -> Bool {
+            line.allManualTranslations.contains { $0.source == .localEditor }
+                || line.background?.contains(where: hasLocalTranslation) == true
+        }
+        if let matching, alternatives?.fields != nil,
+           Self.lyricsFingerprint(matching) != expected.rawValue, !cached.contains(where: hasLocalTranslation) {
+            if var selection = preferences, let idInFile = selection.selectedID {
+                guard (idInFile.hasPrefix("embedded:") || idInFile.hasPrefix("embedded-snapshot:")),
+                      selection.edits[idInFile] == nil else { return }
+                selection.selectedLines = matching
+                try? chooseLyricsVersion(selection, lines: matching, forSongID: id)
+            } else if !isUserPinned(forSongID: id) {
+                _ = replaceLyricsIfUnchanged(matching, forSongID: id, expectedFingerprint: expected,
+                                             preservingSelection: true, origin: .sourceDocument)
+            }
+        } else if let preferences, let selected = preferences.selectedID {
             // A physical field ID includes its bytes. Follow its sole successor after an external replacement.
             guard selected.hasPrefix("embedded:"), preferences.edits[selected] == nil,
                   alternatives?.offersChoice != true, !stillInFile(cached),
@@ -1292,8 +1314,11 @@ actor MetadataAssetStore {
                   replaceLyricsIfUnchanged(merged, forSongID: id, expectedFingerprint: expected,
                                            preservingSelection: true, origin: .sourceDocument) else { return }
         }
-        if let fallback = embeddedFallbackLyrics(forSongID: id), !stillInFile(fallback) {
-            storeEmbeddedFallbackLyrics(lines, forSongID: id)
+        if let fallback = embeddedFallbackLyrics(forSongID: id) {
+            let refreshed = originals.first { EmbeddedLyricsPrecedencePolicy.sameDocument($0, fallback) } ?? lines
+            if Self.lyricsFingerprint(refreshed) != Self.lyricsFingerprint(fallback) {
+                storeEmbeddedFallbackLyrics(refreshed, forSongID: id)
+            }
         }
         if embeddedLyricsAlternatives(forSongID: id) != alternatives {
             storeEmbeddedLyricsAlternatives(alternatives, forSongID: id)
@@ -1321,13 +1346,12 @@ actor MetadataAssetStore {
         try? data.write(to: fileURL, options: .atomic)
     }
 
-    /// 文件里同一首歌的原文歌词不止一份时读标签记下的全貌（见 `EmbeddedLyricsAlternatives`）：
-    /// 设置里改了挑哪一份，放歌时按它重挑，不用重读文件。只有一份时删掉旧的记录。
+    /// 保留物理字段及其顺序，供离线列出和按偏好重选。
     func storeEmbeddedLyricsAlternatives(_ alternatives: EmbeddedLyricsAlternatives?, forSongID songID: String) {
         let fileURL = lyricsDirectory.appendingPathComponent(
             hashedFileName(for: songID, pathExtension: "embedded-variants.json")
         )
-        guard let alternatives, alternatives.offersChoice,
+        guard let alternatives, alternatives.hasSourceFields,
               let data = try? encoder.encode(alternatives) else {
             try? FileManager.default.removeItem(at: fileURL)
             return
@@ -1341,7 +1365,7 @@ actor MetadataAssetStore {
         )
         guard let data = try? Data(contentsOf: fileURL),
               let alternatives = try? decoder.decode(EmbeddedLyricsAlternatives.self, from: data),
-              alternatives.offersChoice else { return nil }
+              alternatives.hasSourceFields else { return nil }
         return alternatives
     }
 
@@ -1473,6 +1497,7 @@ actor MetadataAssetStore {
                     EmbeddedLyricsPrecedencePolicy.sameDocument(LyricsContentParser.parseText(text), lines)
                 }
                 alternatives.variants.removeAll { matches($0.text) }
+                alternatives.fields?.removeAll { matches($0.text) }
                 if alternatives.translatedLyricsText.map(matches) == true { alternatives.translatedLyricsText = nil }
                 alternatives.languageTaggedLyrics = alternatives.languageTaggedLyrics.filter { !matches($0.value) }
                 alternatives.languageTaggedTranslations = alternatives.languageTaggedTranslations.filter { !matches($0.value) }

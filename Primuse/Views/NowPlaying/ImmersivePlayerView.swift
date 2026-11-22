@@ -1346,7 +1346,8 @@ struct ImmersivePlayerView: View {
                 ),
                 background: ImmersiveStageBackgroundLyric.rows(
                     for: line,
-                    documentFallback: lyricsWritingDirection
+                    documentFallback: lyricsWritingDirection,
+                    companions: lyricCompanions
                 ),
                 companions: lyricCompanions(line)
             )

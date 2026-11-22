@@ -258,6 +258,16 @@ public enum OrderedTagContainer {
         return try replacingGroup(in: data, format: .mp3, pathIndex: 0, replacements: bodies, appending: [], frameNames: names)
     }
 
+    static func promotingID3Frame(in data: Data, from ordinal: Int, before first: Int) throws -> Data {
+        let spans = try layout(data, format: .mp3).spans
+        guard spans.indices.contains(ordinal), spans.indices.contains(first) else { throw Failure.staleEntry }
+        guard first < ordinal else { return data }
+        let source = spans[ordinal]
+        let start = spans[first].start
+        return data[..<start] + data[source.start..<source.body.upperBound]
+            + data[start..<source.start] + data[source.body.upperBound...]
+    }
+
     private static func replacingGroup(in data: Data, format: AudioFormat, pathIndex: Int,
                                        replacements: [Int: Data?], appending: [Item], frameNames: [Int: String] = [:]) throws -> Data {
         let layout = try layout(data, format: format, pathIndex: pathIndex)

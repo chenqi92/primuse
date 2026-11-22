@@ -101,6 +101,7 @@ extension TVLyricLine {
         )
         let companion = decision.companion ?? ""
         let replacement = decision.replacementText
+        let authoredCues = romanization.trimmingCharacters(in: .whitespacesAndNewlines) == replacement ? romanizationSyllables : []
         let displayedBackground = background.map { $0.romanizedForDisplay(generated: generated, mode: mode) }
         guard replacement != nil || companion != romanization || displayedBackground != background else {
             return self
@@ -110,12 +111,14 @@ extension TVLyricLine {
             time: time,
             text: replacement ?? text,
             isSynchronized: isSynchronized,
-            syllables: replacement == nil ? syllables : [],
+            syllables: replacement == nil ? syllables : authoredCues,
             translation: translation,
             romanization: companion,
+            romanizationSyllables: companion == romanization ? romanizationSyllables : [],
             writingDirection: replacement == nil ? writingDirection : .leftToRight,
             voice: voice,
-            background: displayedBackground
+            background: displayedBackground,
+            endTimestamp: replacement == nil ? endTimestamp : endTime
         )
     }
 }
@@ -175,6 +178,7 @@ enum TVSimulatedWordLyrics {
                 TVSyllable(w: $0.text, start: $0.start, end: $0.end, endTiming: $0.endTiming)
             },
             translation: line.translation, romanization: line.romanization,
+            romanizationSyllables: line.romanizationSyllables,
             writingDirection: line.writingDirection, voice: line.voice,
             background: line.background, endTimestamp: line.endTimestamp
         )

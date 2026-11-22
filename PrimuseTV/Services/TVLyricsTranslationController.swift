@@ -83,10 +83,25 @@ final class TVLyricsTranslationController {
     /// and machine translation then covers every line. `lyricsDidLoad` keeps the
     /// file's own document so the switch can bring them back.
     static func presentedLines(_ lines: [LyricLine]) -> [LyricLine] {
-        LyricBundledTranslationPolicy.presentation(
+        let settings = LyricsTranslationSettingsStore.shared
+        let presented = LyricBundledTranslationPolicy.presentation(
             of: lines,
-            showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
+            showsBundledTranslations: settings.showsBundledTranslations
         ).lines
+        let target = LyricsTranslationSettingsStore.normalizedLanguageCode(settings.targetLanguageCode)
+        func selectLanguage(_ line: LyricLine) -> LyricLine {
+            var result = line
+            if !line.alternateManualTranslations.isEmpty,
+               let preferred = line.allManualTranslations.first(where: { translation in
+                   translation.languageCode.map { LyricTranslationGroupingPolicy.representsSameTranslationLanguage($0, target) } == true
+               }), preferred.id != line.manualTranslation?.id {
+                result.alternateManualTranslations = line.allManualTranslations.filter { $0.id != preferred.id }
+                result.manualTranslation = preferred
+            }
+            result.background = line.background?.map(selectLanguage)
+            return result
+        }
+        return presented.map(selectLanguage)
     }
 
     /// Called whenever lyrics were put on screen for `songID`.

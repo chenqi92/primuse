@@ -240,6 +240,159 @@ struct EmbeddedTagMetadataParserTests {
         ) == nil)
     }
 
+    @Test func extractsLyrics3VersionsAndStackedAPEInPhysicalOrder() {
+        let plain = "Copper leaves settle on the pier"
+        let timed = "[00:12][01:04]Paper boats return"
+        let v1 = Data(("LYRICSBEGIN" + plain + "LYRICSEND").utf8)
+        let v2 = makeLyrics3v2([("AUT", "An author"), ("LYR", timed), ("LYR", plain), ("LYR", plain)])
+        let apeText = "[00:24.500]The signal bends"
+        let ape = makeAPEv2Tag([apeTextItem("Lyrics", apeText)])
+        let audio = Data(repeating: 0xAE, count: 27)
+
+        for id3v1 in [Data(), makeID3v1Padding()] {
+            let v1Result = EmbeddedTagMetadataParser.parse(head: Data(), tail: audio + v1 + id3v1, fileExtension: "mp3")
+            #expect(v1Result?.lyricFields.map(\.text) == [plain])
+            let results = [(v2 + ape, [timed, plain, plain, apeText]), (ape + v2, [apeText, timed, plain, plain])]
+            for (tags, expected) in results {
+                let file = audio + tags + id3v1
+                let parsed = EmbeddedTagMetadataParser.parse(head: file, tail: file, fileExtension: "mp3")
+                #expect(parsed?.lyricFields.map(\.text) == expected)
+                #expect(EmbeddedTagMetadataParser.parse(head: file, fileExtension: "mp3")?.lyricFields == parsed?.lyricFields)
+            }
+        }
+    }
+
+    @Test func verifiesLyrics3BoundariesAndExpandsOnlyTheDeclaredSuffix() {
+        let tag = makeLyrics3v2([("LYR", "[00:01]The wire hums")])
+        let footer = Data(tag.suffix(15)) + makeID3v1Padding()
+        #expect(EmbeddedTagMetadataParser.expandedTailReadSize(
+            fileSize: 9_000, currentData: footer, fileExtension: "mp3"
+        ) == tag.count + 128)
+        let broken = Data("LYRICSBEGINLYR99999x000020LYRICS200".utf8)
+        for bytes in [broken, tag + Data([0x9a]), Data("LYRICSBEGINa\0bLYRICSEND".utf8)] {
+            #expect(EmbeddedTagMetadataParser.parse(head: bytes, fileExtension: "mp3") == nil)
+        }
+        #expect(EmbeddedTagMetadataParser.parse(head: tag, fileExtension: "flac") == nil)
+    }
+
+    @Test func readsLeadingAPEItemsWithAndWithoutFooterAndTextualBinaryAttachments() {
+        let original = "Lanterns carry the morning"
+        let timed = "[00:04.120]Swallows lift the fog"
+        let attachment = Data("performance.lrc\0".utf8) + Data([0xff, 0xfe]) + (timed.data(using: .utf16LittleEndian) ?? Data())
+        let items = [apeTextItem("Lyrics", original), apeBinaryItem("Score", attachment),
+                     apeBinaryItem("Unrelated", Data([7, 0, 48, 0xFF])), makeAPEItem(key: "Lyrics URL", value: Data("external.lrc".utf8), flags: 4)]
+        let footerTag = makeAPEv2Tag(items)
+        let body = Data(footerTag.dropLast(32))
+        let audio = Data(repeating: 0xA5, count: 37)
+        for hasFooter in [true, false] {
+            var header = Data("APETAGEX".utf8)
+            appendUInt32LE(2_000, to: &header)
+            appendUInt32LE(body.count + (hasFooter ? 32 : 0), to: &header)
+            appendUInt32LE(items.count, to: &header)
+            appendUInt32LE(hasFooter ? 0xa0000000 : 0xe0000000, to: &header)
+            header.append(Data(repeating: 0, count: 8))
+            let tag = header + (hasFooter ? footerTag : body)
+            #expect(EmbeddedTagMetadataParser.expandedHeadReadSize(
+                fileSize: 1_000_000, currentData: header, fileExtension: "mp3"
+            ) == tag.count)
+            let fromOnlyTag = EmbeddedTagMetadataParser.parse(head: tag, tail: tag, fileExtension: "mp3")?.lyricFields
+            #expect(fromOnlyTag?.map(\.name) == ["Lyrics", "performance.lrc"])
+            #expect(fromOnlyTag?.map(\.text) == [original, timed])
+            let duplicate = makeAPEv2Tag([apeTextItem("Lyrics", original)])
+            let file = tag + audio + duplicate
+            let fields = EmbeddedTagMetadataParser.parse(head: file, fileExtension: "mp3")?.lyricFields
+            #expect(fields?.map(\.text) == [original, timed, original])
+        }
+    }
+
+    @Test func readsIndependentLeadingAndTrailingID3BetweenOtherTags() {
+        let opening = id3Lyrics("Silver rails under rain")
+        let closing = id3Lyrics("Copper bells at dawn")
+        let ape = makeAPEv2Tag([apeTextItem("Lyrics", "Paper wings")])
+        let legacy = makeLyrics3v2([("LYR", "Tide charts")])
+        let audio = Data(repeating: 0xa5, count: 40)
+        var footerTag = closing
+        footerTag[5] |= 0x10
+        let footer = Data("3DI".utf8) + footerTag[3..<10]
+        footerTag.append(footer)
+        let expected = ["Silver rails under rain", "Paper wings", "Copper bells at dawn", "Tide charts"]
+        for tag in [footerTag, closing] {
+            let tail = ape + tag + legacy + makeID3v1Padding()
+            let file = opening + audio + tail
+            #expect(EmbeddedTagMetadataParser.parse(head: file, fileExtension: "mp3")?.lyricFields.map(\.text) == expected)
+            #expect(EmbeddedTagMetadataParser.parse(head: opening + audio, tail: tail, fileExtension: "mp3")?.lyricFields.map(\.text) == expected)
+        }
+        #expect(EmbeddedTagMetadataParser.expandedTailReadSize(
+            fileSize: 1_000_000, currentData: footer + legacy, fileExtension: "mp3"
+        ) == footerTag.count + legacy.count)
+        #expect(EmbeddedTagMetadataParser.parse(head: footerTag, tail: footerTag, fileExtension: "mp3")?.lyricFields.count == 1)
+    }
+
+    @Test(arguments: ["opus", "ogg"])
+    func readsLyricsAfterLargeOggArtworkUsingOnlyPageHeadersAndText(codec: String) async throws {
+        let identification = codec == "opus" ? Data("OpusHead".utf8) : Data([1]) + Data("vorbis".utf8)
+        let prefix = codec == "opus" ? Data("OpusTags".utf8) : Data([3]) + Data("vorbis".utf8)
+        let art = Data("METADATA_BLOCK_PICTURE=".utf8) + makeFLACPicture(largeBMPArtwork, mimeType: "image/bmp").base64EncodedData()
+        let packet = prefix + makeVorbisComments(raw: [
+            Data("LYRICS=Lanterns on the hill".utf8), art, Data("Translation:en=Light over reeds".utf8),
+            Data("Performance=[00:07.200]The morning rings".utf8),
+        ])
+        let file = makeOggPage(packets: [identification], sequence: 0) + makeOggPacketPages(packet, firstSequence: 1)
+        #expect(file.count > 4 * 1024 * 1024)
+        var transferred = 0
+        let fields = try await EmbeddedTagMetadataParser.rangedCommentLyrics(
+            head: file.prefix(256), tail: nil, fileSize: Int64(file.count), fileExtension: codec
+        ) { offset, length in
+            #expect(length <= 282)
+            let count = min(97, Int(length))
+            transferred += count
+            return file.subdata(in: Int(offset)..<(Int(offset) + count))
+        }
+        #expect(transferred < 64 * 1024)
+        #expect(fields.map(\.text) == ["Lanterns on the hill", "Light over reeds", "[00:07.200]The morning rings"])
+        #expect(fields.map(\.role) == [.original, .translation, .original])
+        #expect(EmbeddedTagMetadataParser.parse(head: file, fileExtension: codec)?.lyricFields == fields)
+    }
+
+    @Test func readsAPELyricsBeyondLargeArtFromEitherEndOfTheAudio() async throws {
+        let image = largeBMPArtwork
+        let items = [apeTextItem("Lyrics", "Silver mist"), apeBinaryItem("Cover Art (Front)", Data("cover.bmp\0".utf8) + image),
+                     apeTextItem("Translation:en", "A thread of silver"), apeTextItem("Lyrics", "Silver mist")]
+        let tag = makeAPEv2Tag(items)
+        var header = Data(tag.suffix(32))
+        header[23] = 0xa0
+        let audio = Data(repeating: 0x98, count: 500)
+        let stacked = makeLyrics3v2([("LYR", "The water wakes")]) + makeID3v1Padding()
+        let files = [header + tag + audio, audio + tag + stacked]
+        for file in files {
+            let tail = Data(file.suffix(160))
+            var transferred = 0
+            let fields = try await EmbeddedTagMetadataParser.rangedCommentLyrics(
+                head: file.prefix(64), tail: tail, fileSize: Int64(file.count), fileExtension: "mp3"
+            ) { offset, length in
+                #expect(length <= 264)
+                let count = min(Int(length), 51)
+                transferred += count
+                return file.subdata(in: Int(offset)..<(Int(offset) + count))
+            }
+            #expect(transferred < 2048)
+            #expect(fields.map(\.text) == ["Silver mist", "A thread of silver", "Silver mist"])
+            #expect(fields.map(\.role) == [.original, .translation, .original])
+            #expect(EmbeddedTagMetadataParser.parse(head: file, fileExtension: "mp3")?.lyricFields.filter { $0.name != "LYRICS3" } == fields)
+        }
+    }
+
+    private func makeLyrics3v2(_ fields: [(String, String)]) -> Data {
+        var body = Data("LYRICSBEGIN".utf8)
+        for (name, value) in fields {
+            let bytes = Data(value.utf8)
+            body.append(contentsOf: name.utf8)
+            body.append(contentsOf: String(format: "%05d", bytes.count).utf8)
+            body.append(bytes)
+        }
+        return body + Data(String(format: "%06dLYRICS200", body.count).utf8)
+    }
+
     @Test func parsesOggVorbisCommentsAcrossPagesWithPicture() {
         let picture = makeFLACPicture(pngFixture).base64EncodedString()
         let comments = makeVorbisComments([
@@ -288,6 +441,29 @@ struct EmbeddedTagMetadataParserTests {
             head: data,
             fileExtension: "opus"
         )?.title == "短标签")
+    }
+
+    @Test func combinesMultipleFLACBlocksAndOggFLACWithAnotherLogicalStream() {
+        let first = "[00:02]Copper window"
+        let second = "[00:05]Harbour glass"
+        func comment(_ value: String, last: Bool) -> Data {
+            let body = Data(makeVorbisComments(["LYRICS=" + value]).dropLast())
+            return Data([last ? 0x84 : 0x04, 0, 0, UInt8(body.count)]) + body
+        }
+        let flac = makeID3v23Title("Window") + Data("fLaC".utf8)
+            + comment(first, last: false) + comment(second, last: true)
+        #expect(EmbeddedTagMetadataParser.parse(head: flac, fileExtension: "flac")?.lyricFields.map(\.text) == [first, second])
+
+        let flacID = Data([0x7F]) + Data("FLAC".utf8) + Data([1, 0, 0, 1]) + Data("fLaC".utf8)
+            + Data([0, 0, 0, 34]) + Data(repeating: 0, count: 34)
+        let pages = makeOggPage(packets: [Data("OpusHead".utf8)], sequence: 0)
+            + makeOggPage(packets: [flacID], sequence: 0, serial: 9)
+            + makeOggPage(packets: [comment(first, last: true)], sequence: 1, serial: 9)
+        let truncated = Data(pages.dropLast(3))
+        #expect(EmbeddedTagMetadataParser.expandedHeadReadSize(fileSize: 2_000, currentData: truncated, fileExtension: "oga") != nil)
+        let both = pages + makeOggPage(packets: [Data("OpusTags".utf8) + makeVorbisComments(["LYRICS=" + second])], sequence: 1)
+        #expect(EmbeddedTagMetadataParser.parse(head: both, fileExtension: "oga")?.lyricFields.map(\.text) == [first, second])
+        #expect(EmbeddedTagMetadataParser.expandedHeadReadSize(fileSize: 2_000, currentData: both, fileExtension: "oga") == nil)
     }
 
     @Test func expandsTruncatedOggCommentButStopsAfterCompletePacket() {
@@ -393,6 +569,149 @@ struct EmbeddedTagMetadataParserTests {
         ) == asf.count)
     }
 
+    @Test func readsASFMetadataLibraryLanguagesAndSynchronizedWordTimes() throws {
+        let libraryGUID = Data([0x94,0x1c,0x23,0x44,0x98,0x94,0xd1,0x49,0xa1,0x41,0x1d,0x13,0x4e,0x45,0x70,0x54])
+        let languageGUID = Data([0xa9,0x46,0x43,0x7c,0xe0,0xef,0xfc,0x4b,0xb2,0x29,0x39,0x3e,0xde,0x41,0x5c,0x85])
+        let extensionGUID = Data([0xb5,0x03,0xbf,0x5f,0x2e,0xa9,0xcf,0x11,0x8e,0xe3,0x00,0xc0,0x0c,0x20,0x53,0x65])
+        let entries: [(String, Int, Int, Data)] = [
+            ("WM/Lyrics_Synchronised", 1, 0, asfSyncLyrics([("Slate", 800), (" bells", 1_150), ("\nWake", 3_404)])),
+            ("WM/Lyrics", 0, 0, utf16LE("A long " + String(repeating: "evening ", count: 5_000))),
+            ("WM/Text", 1, 1, utf16LE("TRANSLATION") + utf16LE("[00:00.80]铜铃响")),
+            ("ID3", 1, 1, id3Lyrics("singular lantern")),
+            ("WM/Lyrics_Synchronised", 1, 1, Data(asfSyncLyrics([("Broken", 4)]).dropLast())),
+        ]
+        var library = Data()
+        appendUInt16LE(entries.count, to: &library)
+        for (name, type, language, value) in entries {
+            let encodedName = utf16LE(name)
+            appendUInt16LE(language, to: &library)
+            appendUInt16LE(0, to: &library)
+            appendUInt16LE(encodedName.count, to: &library)
+            appendUInt16LE(type, to: &library)
+            appendUInt32LE(value.count, to: &library)
+            library += encodedName + value
+        }
+        var languages = Data([2, 0])
+        for language in ["en", "zh-Hans"] {
+            let bytes = utf16LE(language)
+            languages.append(UInt8(bytes.count))
+            languages.append(bytes)
+        }
+        let children = makeASFObject(guid: libraryGUID, payload: library)
+            + makeASFObject(guid: languageGUID, payload: languages)
+        var body = Data([0x11,0xd2,0xd3,0xab,0xba,0xa9,0xcf,0x11,0x8e,0xe6,0x00,0xc0,0x0c,0x20,0x53,0x65,6,0])
+        appendUInt32LE(children.count, to: &body)
+        body.append(children)
+        let bytes = makeASFHeader(objects: [makeASFObject(guid: extensionGUID, payload: body)])
+        let metadata = try #require(EmbeddedTagMetadataParser.parse(head: bytes, fileExtension: "wma"))
+        #expect(metadata.lyricFields.map(\.name) == ["WM/Lyrics_Synchronised", "WM/Lyrics", "TRANSLATION", "USLT"])
+        #expect(metadata.lyricFields.map(\.languageCode) == ["en", "en", "zh-Hans", "en"])
+        #expect(metadata.lyricFields[1].text.hasPrefix("A long evening"))
+        #expect(metadata.lyricFields[2].role == .translation)
+        #expect(metadata.lyricFields[3].text == "singular lantern")
+        let lines = LyricsContentParser.parseText(metadata.lyricFields[0].text)
+        #expect(lines.map(\.text) == ["Slate bells", "Wake"])
+        #expect(lines[0].syllables?.map(\.start) == [0.8, 1.15])
+        #expect(lines[1].timestamp == 3.404)
+    }
+
+    @Test func preservesTextForASFSynchronizedFrameCountersAndIgnoresOtherContentTypes() {
+        var frames = asfSyncLyrics([("North", 30), (" quay\n", 39), ("Open gates", 70)])
+        frames[0] = 1
+        var chords = asfSyncLyrics([("Dm", 500)])
+        chords[1] = 5
+        let file = makeASFHeader(objects: [makeASFExtendedContent([
+            asfBinaryAttribute("WM/Lyrics_Synchronised", frames),
+            asfBinaryAttribute("WM/Lyrics_Synchronised", chords),
+            asfStringAttribute("WM/Lyrics", "Second pier"),
+        ])])
+        let lyrics = EmbeddedTagMetadataParser.parse(head: file, fileExtension: "asf")?.lyricFields
+        #expect(lyrics?.map(\.text) == ["North quay\nOpen gates", "Second pier"])
+    }
+
+    private func asfSyncLyrics(_ entries: [(String, Int)]) -> Data {
+        var cues = Data()
+        for (text, time) in entries {
+            cues.append(utf16LE(text))
+            appendUInt32LE(time, to: &cues)
+        }
+        var result = Data([2, 1])
+        appendUInt32LE(cues.count, to: &result)
+        return result + utf16LE("Performance") + cues
+    }
+
+    private func id3Lyrics(_ text: String) -> Data {
+        let payload = Data([3]) + Data("eng\0".utf8) + Data(text.utf8)
+        let frame = Data("USLT".utf8) + syncSafe(payload.count) + Data([0, 0]) + payload
+        return Data("ID3".utf8) + Data([4, 0, 0]) + syncSafe(frame.count) + frame
+    }
+
+    @Test func readsEveryID3ChunkAndTimedCommentInWaveAndAIFF() {
+        let first = "Copper oars"
+        let middle = "[00:04.00]We fold the daylight"
+        let last = "Tin sails"
+        let wave = makeRIFFWave(chunks: [makeRIFFChunk("id3 ", id3Lyrics(first)), makeRIFFInfo([("ICMT", middle)]),
+                                         makeRIFFChunk("ID3 ", id3Lyrics(last))])
+        let fields = EmbeddedTagMetadataParser.parse(head: wave, fileExtension: "wav")?.lyricFields
+        #expect(fields?.map(\.text) == [first, middle, last])
+
+        let line = Data(middle.utf8)
+        let comment = Data([0, 1, 0, 0, 0, 0, 0, 0, 0, UInt8(line.count)]) + line + Data(repeating: 0, count: line.count % 2)
+        let payload = Data("AIFF".utf8) + makeIFFChunk("ID3 ", id3Lyrics(first))
+            + makeIFFChunk("COMT", comment) + makeIFFChunk("ID3 ", id3Lyrics(last))
+        let aiff = makeIFFChunk("FORM", payload)
+        #expect(EmbeddedTagMetadataParser.parse(head: aiff, fileExtension: "aif")?.lyricFields.map(\.text) == [first, middle, last])
+        #expect(EmbeddedTagMetadataParser.embeddedID3Data(head: aiff, fileExtension: "aif") == id3Lyrics(first))
+    }
+
+    private var dynamicMediaPacket: Data {
+        Data("""
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+            <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description rdf:about="" xmlns:custom="http://ns.adobe.com/xmp/1.0/DynamicMedia/"
+                xmlns:other="urn:primuse:other" other:lyrics="Unrelated property">
+                <custom:lyrics>Copper wings&#xA;Unfold</custom:lyrics>
+            </rdf:Description></rdf:RDF></x:xmpmeta>
+            """.utf8)
+    }
+
+    @Test func readsDynamicMediaXMPFromWaveAndSparseAIFF() async throws {
+        let packet = dynamicMediaPacket
+        let text = "Copper wings\nUnfold"
+        let wave = makeRIFFWave(chunks: [makeRIFFChunk("_PMX", packet)])
+        #expect(EmbeddedTagMetadataParser.parse(head: wave, fileExtension: "wav")?.lyricFields.map(\.text) == [text])
+        let sound = makeIFFChunk("SSND", Data(repeating: 0, count: 300_001))
+        let xmp = makeIFFChunk("APPL", Data("XMP ".utf8) + packet)
+        let performance = makeIFFChunk("ID3 ", id3Lyrics("Lanterns cross the bay"))
+        let aiff = makeIFFChunk("FORM", Data("AIFC".utf8) + sound + xmp + performance)
+        let reconstructed = try await EmbeddedTagMetadataParser.waveMetadataFile(head: aiff.prefix(64), fileSize: Int64(aiff.count)) {
+            offset, length in
+            #expect(offset >= 12 + sound.count)
+            #expect(length <= packet.count)
+            return aiff.subdata(in: Int(offset)..<Int(offset + min(length, 37)))
+        }
+        let result = try #require(reconstructed)
+        let fields = EmbeddedTagMetadataParser.parse(head: result, fileExtension: "aifc")?.lyricFields
+        #expect(fields?.map(\.text) == [text, "Lanterns cross the bay"])
+        #expect(fields == EmbeddedTagMetadataParser.parse(head: aiff, fileExtension: "aifc")?.lyricFields)
+    }
+
+    @Test func walksASFDataObjectToTopLevelXMPWithoutReadingAudio() async throws {
+        let header = makeASFHeader(objects: [makeASFExtendedContent([asfStringAttribute("WM/Lyrics", "Moonlit water")])])
+        let dataGUID = Data([0x36, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11, 0xa6, 0xd9, 0x00, 0xaa, 0x00, 0x62, 0xce, 0x6c])
+        let xmpGUID = Data([0xcb, 0xcf, 0x7a, 0xbe, 0xa9, 0x97, 0xe8, 0x42, 0x9c, 0x71, 0x99, 0x94, 0x91, 0xe3, 0xaf, 0xac])
+        let object = makeASFObject(guid: dataGUID, payload: Data(repeating: 0xa5, count: 800_000))
+        let audio = header + object
+        let file = audio + makeASFObject(guid: xmpGUID, payload: dynamicMediaPacket)
+        let fields = try await EmbeddedTagMetadataParser.topLevelASFXMP(head: file.prefix(header.count + 24), fileSize: Int64(file.count)) { offset, length in
+            #expect(offset >= audio.count)
+            return file.subdata(in: Int(offset)..<Int(offset + min(length, 31)))
+        }
+        #expect(fields.map(\.text) == ["Copper wings\nUnfold"])
+        #expect(EmbeddedTagMetadataParser.parse(head: file, fileExtension: "wma")?.lyricFields.map(\.text)
+            == ["Moonlit water", "Copper wings\nUnfold"])
+    }
+
     @Test func locatesDSFMetadataByAbsoluteOffsetAndExtractsID3() {
         let id3 = makeID3v23Title("DSF 标题")
         var header = Data("DSD ".utf8)
@@ -407,6 +726,31 @@ struct EmbeddedTagMetadataParserTests {
             fileExtension: "dsf"
         ) == id3)
         #expect(ID3TextMetadataParser.parse(id3)?.title == "DSF 标题")
+    }
+
+    @Test func readsNestedAndTrailingDSDIFFTagsAcrossA64BitAudioChunk() async throws {
+        func header(_ name: String, _ size: Int64) -> Data {
+            var length = UInt64(size).bigEndian
+            return Data(name.utf8) + withUnsafeBytes(of: &length) { Data($0) }
+        }
+        func chunk(_ name: String, _ body: Data) -> Data {
+            header(name, Int64(body.count)) + body + Data(repeating: 0, count: body.count % 2)
+        }
+        let first = id3Lyrics("Oars catch the daylight")
+        let nested = chunk("PROP", Data("SND ".utf8) + chunk("ID3 ", first))
+        let last = chunk("ID3 ", id3Lyrics("Stars over the jetty"))
+        let pcmSize: Int64 = 4_300_000_002
+        let tailOffset = Int64(16 + nested.count + 12) + pcmSize
+        let fileSize = tailOffset + Int64(last.count)
+        let prefix = header("FRM8", fileSize - 12) + Data("DSD ".utf8) + nested + header("DSD ", pcmSize) + Data(repeating: 0, count: 4)
+        let synthetic = try await EmbeddedTagMetadataParser.waveMetadataFile(head: prefix, fileSize: fileSize) { offset, length in
+            #expect(offset >= tailOffset)
+            return last.subdata(in: Int(offset - tailOffset)..<Int(offset - tailOffset + min(length, 9)))
+        }
+        let tail = try #require(synthetic)
+        let fields = EmbeddedTagMetadataParser.parse(head: prefix, tail: tail, fileExtension: "dff")?.lyricFields
+        #expect(fields?.map(\.text) == ["Oars catch the daylight", "Stars over the jetty"])
+        #expect(EmbeddedTagMetadataParser.embeddedID3Data(head: prefix, fileExtension: "dff") == first)
     }
 
     @Test func parsesRIFFInfoAndExtractsItsID3Chunk() {
@@ -571,7 +915,7 @@ struct EmbeddedTagMetadataParserTests {
         return data
     }
 
-    private func makeOggPage(packets: [Data], sequence: UInt32) -> Data {
+    private func makeOggPage(packets: [Data], sequence: UInt32, serial: Int = 1) -> Data {
         var lacing: [UInt8] = []
         for packet in packets {
             var remaining = packet.count
@@ -581,21 +925,54 @@ struct EmbeddedTagMetadataParserTests {
             }
             lacing.append(UInt8(remaining))
         }
+        return makeOggPage(lacing: lacing, bytes: packets.reduce(into: Data()) { $0.append($1) },
+                           sequence: sequence, serial: serial, flags: sequence == 0 ? 2 : 0)
+    }
+
+    private func makeOggPacketPages(_ packet: Data, firstSequence: UInt32) -> Data {
+        var pages = Data()
+        var offset = 0
+        var sequence = firstSequence
+        while true {
+            let size = min(255 * 255, packet.count - offset)
+            var lacing = [UInt8](repeating: 255, count: size / 255)
+            let final = lacing.count < 255
+            if final { lacing.append(UInt8(size % 255)) }
+            let bytes = packet.subdata(in: offset..<(offset + size))
+            pages.append(makeOggPage(lacing: lacing, bytes: bytes, sequence: sequence, serial: 1, flags: offset == 0 ? 0 : 1))
+            if final { return pages }
+            sequence += 1
+            offset += size
+        }
+    }
+
+    private func makeOggPage(lacing: [UInt8], bytes: Data, sequence: UInt32, serial: Int, flags: UInt8) -> Data {
         precondition(lacing.count <= 255)
         var data = Data("OggS".utf8)
-        data.append(contentsOf: [0, sequence == 0 ? 2 : 0])
+        data.append(contentsOf: [0, flags])
         data.append(Data(repeating: 0, count: 8))
-        appendUInt32LE(1, to: &data)
+        appendUInt32LE(serial, to: &data)
         appendUInt32LE(Int(sequence), to: &data)
         appendUInt32LE(0, to: &data)
         data.append(UInt8(lacing.count))
         data.append(contentsOf: lacing)
-        for packet in packets { data.append(packet) }
+        data.append(bytes)
         return data
     }
 
-    private func makeFLACPicture(_ image: Data) -> Data {
-        let mime = Data("image/png".utf8)
+    private var largeBMPArtwork: Data {
+        let pixelBytes = 1360 * 1050 * 3
+        var image = Data("BM".utf8)
+        appendUInt32LE(54 + pixelBytes, to: &image)
+        for value in [0, 54, 40, 1360, 1050] { appendUInt32LE(value, to: &image) }
+        appendUInt16LE(1, to: &image)
+        appendUInt16LE(24, to: &image)
+        for value in [0, pixelBytes, 0, 0, 0, 0] { appendUInt32LE(value, to: &image) }
+        return image + Data(repeating: 0x70, count: pixelBytes)
+    }
+
+    private func makeFLACPicture(_ image: Data, mimeType: String = "image/png") -> Data {
+        let mime = Data(mimeType.utf8)
         var data = Data()
         appendUInt32BE(3, to: &data)
         appendUInt32BE(mime.count, to: &data)
@@ -723,6 +1100,12 @@ struct EmbeddedTagMetadataParserTests {
         data.append(body)
         if !body.count.isMultiple(of: 2) { data.append(0) }
         return data
+    }
+
+    private func makeIFFChunk(_ name: String, _ body: Data) -> Data {
+        var bytes = Data(name.utf8)
+        appendUInt32BE(body.count, to: &bytes)
+        return bytes + body + Data(repeating: 0, count: body.count % 2)
     }
 
     private func makeRIFFWave(chunks: [Data]) -> Data {

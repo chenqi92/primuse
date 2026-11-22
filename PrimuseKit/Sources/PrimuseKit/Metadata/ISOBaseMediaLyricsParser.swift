@@ -17,6 +17,7 @@ public enum ISOBaseMediaLyricsParser {
         public var languageTaggedTranslations: [String: String]
         /// `©lyr` 和不带语言（或同一种语言）的原文字段按先后都记下，`lyrics` 按设置从里面挑。
         public var lyricsVariants: [EmbeddedLyricsVariant]
+        public var fields: [EmbeddedLyricField] = []
 
         public init(
             lyrics: String? = nil,
@@ -37,7 +38,7 @@ public enum ISOBaseMediaLyricsParser {
         }
 
         public var isEmpty: Bool {
-            lyrics == nil
+            fields.isEmpty && lyrics == nil
                 && translatedLyrics == nil
                 && languageTaggedLyrics.isEmpty
                 && languageTaggedTranslations.isEmpty
@@ -87,16 +88,26 @@ public enum ISOBaseMediaLyricsParser {
 
     public static func payload(in data: Data) -> LyricsPayload? {
         guard !data.isEmpty else { return nil }
-        var fields: [(text: String, role: LyricFieldRole)] = []
-        for moov in atoms(in: data, range: data.startIndex..<data.endIndex)
-            where moov.type == AtomType.moov {
-            for metadata in metadataAtoms(in: data, moov: moov) {
-                fields.append(contentsOf: lyricFields(in: data, metadata: metadata))
+        var fields: [EmbeddedLyricField] = []
+        let top = atoms(in: data, range: data.startIndex..<data.endIndex)
+        for atom in top {
+            if atom.type == AtomType.moov {
+                for child in atoms(in: data, range: atom.payload) {
+                    if child.type == AtomType.udta {
+                        for item in atoms(in: data, range: child.payload) {
+                            if item.type == AtomType.meta { fields += lyricFields(in: data, metadata: item) }
+                            else { fields += xmpLyrics(item, in: data) }
+                        }
+                    } else if child.type == AtomType.meta { fields += lyricFields(in: data, metadata: child) }
+                    else { fields += xmpLyrics(child, in: data) }
+                }
+            } else {
+                fields += xmpLyrics(atom, in: data)
             }
         }
         let originals = fields.compactMap { field -> EmbeddedLyricsVariant? in
-            guard case .original(let language) = field.role else { return nil }
-            return EmbeddedLyricsVariant(text: field.text, languageCode: language)
+            guard field.role == .original else { return nil }
+            return EmbeddedLyricsVariant(text: field.text, languageCode: field.languageCode)
         }
         // Untagged originals identify the source even if a language-specific alternate
         // occurs earlier. Without an untagged original, use the first original's language.
@@ -107,8 +118,9 @@ public enum ISOBaseMediaLyricsParser {
             primaryLanguage = originals.first?.languageCode
         }
         var result = LyricsPayload()
+        result.fields = fields
         for field in fields {
-            apply(text: field.text, role: field.role, primaryLanguage: primaryLanguage, to: &result)
+            apply(field, primaryLanguage: primaryLanguage, to: &result)
         }
         if let chosen = EmbeddedLyricsVariantPolicy.preferred(
             in: result.lyricsVariants, priority: EmbeddedLyricsVariantPriority.current()
@@ -117,6 +129,61 @@ public enum ISOBaseMediaLyricsParser {
             result.lyricsLanguageCode = chosen.languageCode ?? primaryLanguage
         }
         return result.isEmpty ? nil : result
+    }
+
+    private static let adobeXMPIdentifier: [UInt8] = [0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8,
+                                                       0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC]
+
+    private static func xmpLyrics(_ atom: Atom, in data: Data) -> [EmbeddedLyricField] {
+        var start = atom.payload.lowerBound
+        if atom.type == 0x75756964 {
+            guard atom.payload.count >= 16, data[start..<(start + 16)].elementsEqual(adobeXMPIdentifier) else { return [] }
+            start += 16
+        } else if atom.type != 0x584D505F { return [] }
+        return EmbeddedTagMetadataParser.xmpLyricFields(in: data.subdata(in: start..<atom.payload.upperBound))
+    }
+
+    /// A compact moov omits an Adobe UUID after mdat. Follow top-level sizes without reading the media.
+    public static func topLevelXMP(head: Data, fileSize: Int64,
+                                   fetch: (Int64, Int64) async throws -> Data) async throws -> [EmbeddedLyricField] {
+        func bytes(at offset: Int64, count: Int) async throws -> Data {
+            let cached = min(count, max(0, head.count - Int(offset)))
+            var data = cached > 0 ? head.subdata(in: Int(offset)..<(Int(offset) + cached)) : Data()
+            while data.count < count {
+                try Task.checkCancellation()
+                let missing = count - data.count
+                let part = try await fetch(offset + Int64(data.count), Int64(missing))
+                guard !part.isEmpty, part.count <= missing else { throw ISOBaseMediaRangeReader.ReadError.incompleteRange }
+                data.append(part)
+            }
+            return data
+        }
+        var fields: [EmbeddedLyricField] = []
+        var offset: Int64 = 0
+        while offset <= fileSize - 8 {
+            let header = try await bytes(at: offset, count: Int(min(32, fileSize - offset)))
+            guard let size32 = readUInt32BE(header, at: 0), let type = readUInt32BE(header, at: 4) else { break }
+            let wide = size32 == 1
+            let length: Int64
+            if wide {
+                guard let size64 = readUInt64BE(header, at: 8), let size = Int64(exactly: size64) else { break }
+                length = size
+            } else { length = size32 == 0 ? fileSize - offset : Int64(size32) }
+            let prefix = wide ? 16 : 8
+            guard length >= prefix, length <= fileSize - offset else { break }
+            let isUUID = type == 0x75756964 && length >= prefix + 16
+                && header[prefix..<(prefix + 16)].elementsEqual(adobeXMPIdentifier)
+            if isUUID || type == 0x584D505F {
+                let skip = isUUID ? prefix + 16 : prefix
+                let size = length - Int64(skip)
+                if size <= ISOBaseMediaRangeReader.maximumMetadataByteCount {
+                    let packet = try await bytes(at: offset + Int64(skip), count: Int(size))
+                    fields += EmbeddedTagMetadataParser.xmpLyricFields(in: packet)
+                }
+            }
+            offset += length
+        }
+        return fields
     }
 
     /// The iTunes-style `©lyr` and `©grp` items as the file itself stores them.
@@ -221,17 +288,15 @@ public enum ISOBaseMediaLyricsParser {
                     paths[list.start] = items
                     if keyTable == nil, defaultList == nil { defaultList = list }
                     for item in items {
-                        let role: LyricFieldRole?
-                        switch item.type {
-                        case AtomType.iTunesLyrics: role = .original(languageCode: nil)
-                        case AtomType.freeform: role = freeformName(in: data, item: item).flatMap(lyricFieldRole)
-                        default: role = keys[item.type].flatMap(lyricFieldRole)
-                        }
-                        guard case .original(let code) = role else { continue }
+                        guard let name = lyricItemName(in: data, item: item, keys: keys) else { continue }
                         let components = try children(item.payload)
                         paths[item.start] = components
                         for child in components where child.type == AtomType.data {
-                            guard let text = decodedDataAtom(child, in: data) else { return nil }
+                            guard let text = decodedDataAtom(child, in: data) else {
+                                if case .original = lyricFieldRole(name) { return nil }
+                                continue
+                            }
+                            guard case .original(let code) = lyricFieldRole(name, text: text) else { continue }
                             fields.append(Editor.Field(text: text, language: code))
                             dataAtoms.append(child)
                             valueItem[child.start] = item
@@ -472,29 +537,36 @@ public enum ISOBaseMediaLyricsParser {
         return result
     }
 
-    private static func lyricFields(in data: Data, metadata: Atom) -> [(text: String, role: LyricFieldRole)] {
+    private static func lyricFields(in data: Data, metadata: Atom) -> [EmbeddedLyricField] {
         guard metadata.payload.count >= 4 else { return [] }
         let childrenRange = (metadata.payload.lowerBound + 4)..<metadata.payload.upperBound
         let children = atoms(in: data, range: childrenRange)
         let keys = children.first(where: { $0.type == AtomType.keys })
             .map { metadataKeys(in: data, atom: $0) } ?? [:]
-        var fields: [(text: String, role: LyricFieldRole)] = []
+        var fields: [EmbeddedLyricField] = []
 
         for list in children where list.type == AtomType.ilst {
             for item in atoms(in: data, range: list.payload) {
-                let role: LyricFieldRole?
-                switch item.type {
-                case AtomType.iTunesLyrics: role = .original(languageCode: nil)
-                case AtomType.freeform: role = freeformName(in: data, item: item).flatMap(lyricFieldRole)
-                default: role = keys[item.type].flatMap(lyricFieldRole)
-                }
-                guard let role else { continue }
+                guard let name = lyricItemName(in: data, item: item, keys: keys) else { continue }
                 for child in atoms(in: data, range: item.payload) {
-                    if let text = decodedDataAtom(child, in: data) { fields.append((text, role)) }
+                    guard let text = decodedDataAtom(child, in: data),
+                          let role = lyricFieldRole(name, text: text) else { continue }
+                    fields.append(role.field(name: name, text: text))
                 }
             }
         }
         return fields
+    }
+
+    private static func lyricItemName(in data: Data, item: Atom, keys: [UInt32: String]) -> String? {
+        switch item.type {
+        case AtomType.iTunesLyrics: return "©lyr"
+        case 0xA9636D74: return "©cmt"
+        case 0x64657363: return "desc"
+        case 0x6C646573: return "ldes"
+        case AtomType.freeform: return freeformName(in: data, item: item)
+        default: return keys[item.type]
+        }
     }
 
     private static func metadataKeys(in data: Data, atom: Atom) -> [UInt32: String] {
@@ -588,23 +660,33 @@ public enum ISOBaseMediaLyricsParser {
     enum LyricFieldRole {
         case original(languageCode: String?)
         case translation(languageCode: String?)
+        case romanization(languageCode: String?)
+
+        func field(name: String, text: String) -> EmbeddedLyricField {
+            switch self {
+            case .original(let code): return .init(name: name, text: text, languageCode: code)
+            case .translation(let code): return .init(name: name, text: text, languageCode: code, role: .translation)
+            case .romanization(let code): return .init(name: name, text: text, languageCode: code, role: .romanization)
+            }
+        }
     }
 
     private static func apply(
-        text: String,
-        role: LyricFieldRole,
+        _ field: EmbeddedLyricField,
         primaryLanguage: String?,
         to payload: inout LyricsPayload
     ) {
-        switch role {
-        case .original(let languageCode):
+        let languageCode = field.languageCode
+        let text = field.text
+        switch field.role {
+        case .original:
             if let languageCode {
                 payload.languageTaggedLyrics[languageCode] = text
             }
             if languageCode == nil || languageCode == primaryLanguage {
                 EmbeddedLyricsVariantPolicy.append(text, languageCode: languageCode, to: &payload.lyricsVariants)
             }
-        case .translation(let languageCode):
+        case .translation:
             if let languageCode {
                 payload.languageTaggedTranslations[languageCode] = text
             }
@@ -615,67 +697,103 @@ public enum ISOBaseMediaLyricsParser {
                       payload.translatedLyricsLanguageCode == nil {
                 payload.translatedLyricsLanguageCode = languageCode
             }
+        case .romanization: break
         }
     }
 
-    static func lyricFieldRole(_ value: String) -> LyricFieldRole? {
-        lyricFieldRole(value, allowsNamespace: true)
+    private static let originalNames: Set<String> = [
+        "LYRIC", "LYRICS", "LYRIC3", "LYRICS3", "SONGLYRICS", "ORIGINALLYRICS", "LYRICSTEXT", "LYRICSORIGINAL", "LYRICSPLAIN",
+        "PLAINLYRICS", "LYRICSTIMED", "LYRICSUNSYNCED", "LYRICSSYNCED", "LYRICSKARAOKE",
+        "SYNCEDLYRICS", "UNSYNCEDLYRICS", "SYNCHRONIZEDLYRICS", "UNSYNCHRONIZEDLYRICS",
+        "SYNCHRONISEDLYRICS", "UNSYNCHRONISEDLYRICS", "LYRICSSYNCHRONISED", "LYRICSSYNCHRONIZED",
+        "TIMEDLYRICS", "UNSYNCHRONIZEDLYRIC", "UNSYNCHRONISEDLYRIC", "KARAOKELYRICS", "歌詞", "歌词",
+    ]
+    private static let formatNames: Set<String> = ["TTML", "LRC", "ELRC", "YRC", "QRC", "KRC", "LYS", "LYL", "SRT", "WEBVTT", "VTT", "ASS", "SSA"]
+    private static let translationNames: Set<String> = [
+        "TRANSLATION", "TRANSLATIONS", "TRANSLATED", "TRANSLATEDLYRICS", "LYRICSTRANSLATION", "LYRICTRANSLATION",
+        "LYRICSTRANSLATED", "LYRICSTRANSLATIONS", "TLYRIC", "TLYRICS", "翻译", "翻譯", "译文", "譯文",
+    ]
+    private static let readingNames: Set<String> = [
+        "ROMANIZATION", "ROMANISATION", "ROMANIZED", "ROMANISED", "TRANSLITERATION", "TRANSLITERATED",
+        "PRONUNCIATION", "PINYIN", "ROMAJI", "FURIGANA", "RLYRIC", "ROMALRC",
+        "拼音", "罗马音", "羅馬音", "读音", "讀音", "注音",
+    ]
+    private static let descriptiveNames: Set<String> = [
+        "LANGUAGE", "LANG", "URL", "URI", "LINK", "WEBSITE", "LICENSE", "COPYRIGHT", "LYRICIST",
+        "WRITER", "AUTHOR", "PROVIDER", "SOURCE", "OFFSET", "RATING", "LENGTH", "COUNT",
+        "METADATA", "PICTURE", "COVERART", "ENCODING", "ID", "TIMESTAMP", "SYNC", "SYNCHRONISATION",
+    ]
+    private static let unrelatedNames: Set<String> = [
+        "TITLE", "ARTIST", "ALBUM", "ALBUMARTIST", "GENRE", "DATE", "YEAR", "COMPOSER",
+        "TRACKNUMBER", "DISCNUMBER", "ISRC", "ENCODER", "REPLAYGAIN", "CHAPTER", "GROUPING",
+    ]
+
+    static func lyricFieldRole(_ value: String) -> LyricFieldRole? { lyricFieldRole(value, text: nil) }
+    static func id3UserTextRole(_ value: String) -> LyricFieldRole? { id3UserTextRole(value, text: nil) }
+
+    static func lyricFieldRole(_ value: String, text: String?) -> LyricFieldRole? {
+        classify(value, text: text, allowsNamespace: true)
     }
 
-    static func id3UserTextRole(_ value: String) -> LyricFieldRole? {
-        lyricFieldRole(value, allowsNamespace: false)
+    static func id3UserTextRole(_ value: String, text: String?) -> LyricFieldRole? {
+        // Dotted/slashed application namespaces are explicit. Under a loosely named
+        // TXXX field, a single untimed annotation is ambiguous.
+        let qualified = value.contains(".") || value.contains("/") || text?.contains(where: \.isNewline) == true
+        return classify(value, text: text, allowsNamespace: qualified)
     }
 
-    private static func lyricFieldRole(_ value: String, allowsNamespace: Bool) -> LyricFieldRole? {
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            .uppercased()
-        let translatedRoots = [
-            "TRANSLATEDLYRICS", "TRANSLATED LYRICS", "TRANSLATION",
-            "LYRICS TRANSLATION",
-        ]
-        let originalRoots = [
-            "UNSYNCEDLYRICS", "UNSYNCED LYRICS", "SYNCEDLYRICS",
-            "SYNCED LYRICS", "LYRICS",
-        ]
-
-        if let languageCode = matchedLyricKey(normalized, roots: translatedRoots, allowsNamespace: allowsNamespace) {
-            return .translation(languageCode: languageCode)
-        }
-        if let languageCode = matchedLyricKey(normalized, roots: originalRoots, allowsNamespace: allowsNamespace) {
-            return .original(languageCode: languageCode)
-        }
-        return nil
-    }
-
-    /// A nil outer optional means no lyric key matched. A non-nil outer
-    /// optional with a nil language is an untagged lyric key.
-    private static func matchedLyricKey(
-        _ key: String,
-        roots: [String],
-        allowsNamespace: Bool
-    ) -> String?? {
-        for root in roots.sorted(by: { $0.count > $1.count }) {
-            guard let range = key.range(of: root) else { continue }
-            let prefix = key[..<range.lowerBound]
-            guard prefix.isEmpty || (allowsNamespace && prefix.last.map({ ".:/_- ".contains($0) }) == true) else {
-                continue
+    private static func classify(_ name: String, text: String?, allowsNamespace: Bool) -> LyricFieldRole? {
+        if name == "©lyr" { return .original(languageCode: nil) }
+        let parts = name.uppercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        guard !parts.contains(where: descriptiveNames.contains) else { return nil }
+        if !parts.isEmpty {
+            // Names can be qualified by a container namespace, format, or BCP-47 language.
+            for start in parts.indices where start == 0 || allowsNamespace {
+                let first = parts[start]
+                guard isFieldWord(first) else { continue }
+                for end in stride(from: parts.endIndex, through: start + 1, by: -1) {
+                    let words = parts[start..<end]
+                    let joined = words.joined()
+                    let bare = words.filter { $0 != "LYRICS" && $0 != "LYRIC" && !formatNames.contains($0) }.joined()
+                    let role: EmbeddedLyricField.Role
+                    if readingNames.contains(joined) || readingNames.contains(bare)
+                        || readingNames.contains(where: { joined == $0 + "LYRICS" || joined == "LYRICS" + $0 }) {
+                        role = .romanization
+                    } else if translationNames.contains(joined) || translationNames.contains(bare) {
+                        role = .translation
+                    } else if originalNames.contains(joined) || formatNames.contains(joined) || bare.isEmpty
+                        || formatNames.contains(where: { joined == "LYRICS" + $0 || joined == $0 + "LYRICS" }) {
+                        role = .original
+                    } else { continue }
+                    let suffix = parts[end...]
+                    let language = suffix.isEmpty ? nil : LyricLanguageCodePolicy.canonicalIdentifier(suffix.joined(separator: "-"))
+                    guard suffix.isEmpty || language != nil || suffix.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { continue }
+                    switch role {
+                    case .original: return .original(languageCode: language)
+                    case .translation: return .translation(languageCode: language)
+                    case .romanization: return .romanization(languageCode: language)
+                    }
+                }
             }
-            let rawSuffix = key[range.upperBound...]
-            guard rawSuffix.isEmpty
-                    || rawSuffix.first.map({ " .:/_-[".contains($0) }) == true else {
-                continue
-            }
-            let suffix = rawSuffix
-                .trimmingCharacters(in: CharacterSet(charactersIn: " .:/_-[]()"))
-            guard !suffix.isEmpty else { return .some(nil) }
-            guard let languageCode = normalizedLanguageCode(String(suffix)) else { continue }
-            return .some(languageCode)
         }
-        return nil
+        guard !parts.contains(where: unrelatedNames.contains), let text,
+              let first = text.unicodeScalars.first(where: { !CharacterSet.whitespacesAndNewlines.contains($0) && $0.value != 0xFEFF }),
+              "[<0123456789WD".unicodeScalars.contains(first) else { return nil }
+        // An arbitrary user tag or comment needs a recognizable document, whereas a named
+        // lyric field can legitimately hold just one untimed word.
+        if LyricsContentParser.isTTML(text) {
+            return LyricsContentParser.parseText(text).contains { !$0.text.isEmpty } ? .original(languageCode: nil) : nil
+        }
+        guard LyricsFormat.detect(text) != .plain,
+              LyricsContentParser.parseText(text, options: .literal).contains(where: { $0.isSynchronized && !$0.text.isEmpty }) else { return nil }
+        return .original(languageCode: nil)
     }
 
-    private static func normalizedLanguageCode(_ value: String) -> String? {
-        LyricLanguageCodePolicy.canonicalIdentifier(value)
+    private static func isFieldWord(_ word: String) -> Bool {
+        originalNames.contains(word) || formatNames.contains(word) || translationNames.contains(word)
+            || readingNames.contains(word) || ["SYNCED", "UNSYNCED", "SYNCHRONIZED", "SYNCHRONISED",
+                "UNSYNCHRONIZED", "UNSYNCHRONISED", "TIMED", "TRANSLATED", "ORIGINAL", "SONG", "KARAOKE"].contains(word)
+            || word.hasPrefix("LYRICS") || word.hasSuffix("LYRICS")
     }
 
     private static func atoms(in data: Data, range: Range<Int>) -> [Atom] {

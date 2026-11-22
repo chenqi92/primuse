@@ -37,6 +37,16 @@ enum FileMetadataReader {
         /// 文件里同一首歌的原文歌词不止一份时按先后都记下，`lyricsText` 是按设置挑出来的那份
         /// （见 `EmbeddedLyricsVariantPolicy`）。只读到一份时可以是空的。
         var lyricsVariants: [EmbeddedLyricsVariant] = []
+        var embeddedLyricFields: [EmbeddedLyricField] = []
+
+        mutating func mergeLyricFields(_ fields: [EmbeddedLyricField]) {
+            EmbeddedLyricField.merge(fields, into: &embeddedLyricFields)
+        }
+
+        mutating func includeLyricTracks(_ fields: [EmbeddedLyricField]) {
+            guard !fields.isEmpty else { return }
+            FileMetadataReader.apply(EmbeddedTagMetadataParser.metadata(fromLyricFields: fields), to: &self)
+        }
 
         /// 原文不止一份时的全貌，存下来以后改了设置不用重读文件（见 `EmbeddedLyricsAlternatives`）。
         var embeddedLyricsAlternatives: EmbeddedLyricsAlternatives? {
@@ -46,9 +56,10 @@ enum FileMetadataReader {
                 translatedLyricsText: translatedLyricsText,
                 translatedLyricsLanguageCode: translatedLyricsLanguageCode,
                 languageTaggedLyrics: languageTaggedLyrics,
-                languageTaggedTranslations: languageTaggedTranslations
+                languageTaggedTranslations: languageTaggedTranslations,
+                fields: embeddedLyricFields.isEmpty ? nil : embeddedLyricFields
             )
-            return record.offersChoice ? record : nil
+            return record.hasSourceFields ? record : nil
         }
 
         /// 按记下的全貌、用这一档重挑原文，译文字段照旧。
@@ -67,6 +78,7 @@ enum FileMetadataReader {
             metadata.translatedLyricsLanguageCode = alternatives.translatedLyricsLanguageCode
             metadata.languageTaggedLyrics = alternatives.languageTaggedLyrics
             metadata.languageTaggedTranslations = alternatives.languageTaggedTranslations
+            metadata.embeddedLyricFields = alternatives.fields ?? []
             metadata.lyricsVariants = alternatives.variants
             return metadata
         }
@@ -76,19 +88,13 @@ enum FileMetadataReader {
         mutating func mergeEmbeddedLyrics(
             _ text: String?,
             languageCode: String?,
-            variants: [EmbeddedLyricsVariant]
+            variants: [EmbeddedLyricsVariant],
+            preferringIncomingOrder: Bool = true
         ) {
-            if let text, variants.count > 1,
-               variants.count > lyricsVariants.count || Set(variants.map(\.text)) == Set(lyricsVariants.map(\.text)) {
-                lyricsText = text
-                lyricsLanguageCode = languageCode
-                lyricsVariants = variants
-            } else if lyricsText == nil {
-                lyricsText = text
-                lyricsLanguageCode = languageCode
-                lyricsVariants = variants
-            } else if lyricsText == text, lyricsLanguageCode == nil {
-                lyricsLanguageCode = languageCode
+            if let chosen = EmbeddedLyricsVariantPolicy.merge(text, languageCode: languageCode, variants: variants,
+                current: lyricsText, currentLanguage: lyricsLanguageCode, into: &lyricsVariants, preferringIncomingOrder: preferringIncomingOrder) {
+                lyricsText = chosen.text
+                lyricsLanguageCode = chosen.languageCode ?? (text == chosen.text ? languageCode : lyricsLanguageCode)
             }
         }
 
@@ -129,6 +135,7 @@ enum FileMetadataReader {
                 || hasText(translatedLyricsText)
                 || !languageTaggedLyrics.isEmpty
                 || !languageTaggedTranslations.isEmpty
+                || !embeddedLyricFields.isEmpty
         }
 
         var hasTechnicalProperties: Bool {
@@ -138,7 +145,7 @@ enum FileMetadataReader {
                 || (bitDepth ?? 0) > 0
         }
 
-        mutating func fillMissing(from fallback: Metadata) {
+        mutating func fillMissing(from fallback: Metadata, preferringIncomingLyricOrder: Bool = true) {
             contentMetadata = contentMetadata?.fillingMissing(from: fallback.contentMetadata) ?? fallback.contentMetadata
             title = title ?? fallback.title
             artist = artist ?? fallback.artist
@@ -165,15 +172,14 @@ enum FileMetadataReader {
             replayGainTrackPeak = replayGainTrackPeak ?? fallback.replayGainTrackPeak
             replayGainAlbumGain = replayGainAlbumGain ?? fallback.replayGainAlbumGain
             replayGainAlbumPeak = replayGainAlbumPeak ?? fallback.replayGainAlbumPeak
-            let shouldReplaceLyrics = lyricsText == nil
-                || lyricsText.map(TextEncodingRepair.requiresRawByteVerification) == true
-                || fallback.lyricsVariants.count > max(1, lyricsVariants.count)
-            if shouldReplaceLyrics, let fallbackLyrics = fallback.lyricsText {
-                lyricsText = fallbackLyrics
+            mergeLyricFields(fallback.embeddedLyricFields)
+            if lyricsText.map(TextEncodingRepair.requiresRawByteVerification) == true, let verified = fallback.lyricsText {
+                lyricsText = verified
                 lyricsLanguageCode = fallback.lyricsLanguageCode
                 lyricsVariants = fallback.lyricsVariants
-            } else if lyricsText == fallback.lyricsText, lyricsLanguageCode == nil {
-                lyricsLanguageCode = fallback.lyricsLanguageCode
+            } else {
+                mergeEmbeddedLyrics(fallback.lyricsText, languageCode: fallback.lyricsLanguageCode, variants: fallback.lyricsVariants,
+                                    preferringIncomingOrder: preferringIncomingLyricOrder)
             }
             let shouldReplaceTranslation = translatedLyricsText == nil
                 || translatedLyricsText.map(TextEncodingRepair.requiresRawByteVerification) == true
@@ -299,6 +305,25 @@ enum FileMetadataReader {
                 makePreferred: document.makePreferred
             )
         }
+        let readings = embedded.embeddedLyricFields.filter { $0.role == .romanization }
+        let readingLanguage = sourceLanguageCode ?? LyricTranslationGroupingPolicy.declaredLanguageCode(in: lines.first?.metadataLines ?? [])
+        let primaryLanguage = readingLanguage?.split(separator: "-").first
+        func readingRank(_ field: EmbeddedLyricField) -> Int {
+            if field.languageCode == readingLanguage { return 0 }
+            if let primaryLanguage, field.languageCode?.split(separator: "-").first == primaryLanguage { return 1 }
+            return field.languageCode == nil ? 2 : 3
+        }
+        for field in embedded.embeddedLyricFields where field.role == .translation {
+            var field = field
+            if field.languageCode == nil, field.text == embedded.translatedLyricsText { field.languageCode = explicitTranslationLanguage }
+            lines = LyricManualTranslationPolicy.mergingEmbeddedField(field, into: lines)
+        }
+        let readingsByRank = Dictionary(grouping: readings, by: readingRank)
+        for rank in 0...3 {
+            for field in readingsByRank[rank] ?? [] {
+                lines = LyricManualTranslationPolicy.mergingEmbeddedField(field, into: lines)
+            }
+        }
         // 播放页的来源标签按这一笔写「内嵌歌词」(#357)。
         return LyricsDocumentSource.embedded.stamped(lines)
     }
@@ -313,10 +338,11 @@ enum FileMetadataReader {
             signature: AudioFileSignaturePolicy.inspect(signaturePrefix)
         )
 
-        if let metadataFile = readISOBaseMediaMetadataFile(
+        let metadataFile = readISOBaseMediaMetadataFile(
             from: url,
             fileExtension: fileExtension
-        ) {
+        )
+        if let metadataFile {
             applyISOBaseMediaLyricsFallback(
                 to: &metadata,
                 data: metadataFile,
@@ -329,12 +355,31 @@ enum FileMetadataReader {
             )
         }
 
-        applyID3Fallback(to: &metadata, data: readID3FallbackData(from: url))
-        applyFLACFallback(
-            to: &metadata,
-            data: readFLACMetadataPrefix(from: url, fileExtension: fileExtension),
-            fileExtension: fileExtension
-        )
+        let id3Head = readID3FallbackData(from: url)
+        applyID3Fallback(to: &metadata, data: id3Head)
+        var containerTail: Data?
+        let flacHead = readFLACMetadataPrefix(from: url, fileExtension: fileExtension)
+        applyFLACFallback(to: &metadata, data: flacHead, fileExtension: fileExtension)
+        if ["flac", "wav", "wave", "bwf", "aiff", "aif", "aifc", "dff"].contains(fileExtension)
+            || (id3TagByteCount(in: signaturePrefix) ?? 0) > ISOBaseMediaRangeReader.maximumMetadataByteCount,
+           let handle = try? FileHandle(forReadingFrom: url) {
+            defer { try? handle.close() }
+            if let size = try? handle.seekToEnd() {
+                let fetch: @Sendable (Int64, Int64) async throws -> Data = { offset, length in
+                    try handle.seek(toOffset: UInt64(offset))
+                    return try handle.read(upToCount: Int(length)) ?? Data()
+                }
+                if fileExtension == "flac", let tags = try? await flacTagsBeyondHead(flacHead, fileSize: Int64(clamping: size), fetch: fetch) {
+                    applyFLACFallback(to: &metadata, data: tags, fileExtension: fileExtension)
+                } else if let tag = try? await id3LyricsBeyondHead(signaturePrefix, fileSize: Int64(clamping: size), fetch: fetch) {
+                    applyID3Fallback(to: &metadata, data: tag)
+                } else if fileExtension != "flac", let chunks = try? await EmbeddedTagMetadataParser.waveMetadataFile(
+                    head: signaturePrefix, fileSize: Int64(clamping: size), fetch: fetch
+                ) {
+                    applyContainerTagFallback(to: &metadata, headData: signaturePrefix, tailData: chunks, fileExtension: fileExtension)
+                }
+            }
+        }
         applyWAVEFallback(
             to: &metadata,
             data: readPrefix(from: url, byteCount: waveHeaderReadLimit),
@@ -346,7 +391,23 @@ enum FileMetadataReader {
             fileExtension: fileExtension
         )
         applyADTSFileDuration(to: &metadata, url: url, fileExtension: fileExtension)
-        if boundedContainerTagExtensions.contains(fileExtension)
+        if fileExtension == "dsf", let offset = EmbeddedTagMetadataParser.dsfMetadataOffset(in: signaturePrefix),
+           let handle = try? FileHandle(forReadingFrom: url) {
+            defer { try? handle.close() }
+            if (try? handle.seek(toOffset: UInt64(offset))) != nil,
+               let header = try? handle.read(upToCount: 10), let length = id3TagByteCount(in: header),
+               length <= ISOBaseMediaRangeReader.maximumMetadataByteCount,
+               (try? handle.seek(toOffset: UInt64(offset))) != nil, let tag = try? handle.read(upToCount: length) {
+                applyID3Fallback(to: &metadata, data: tag)
+            }
+        } else if fileExtension == "mp3" {
+            let tail = readExpandableContainerTail(from: url, fileExtension: fileExtension)
+            containerTail = tail
+            let head = id3TagByteCount(in: id3Head) != nil ? id3Head : signaturePrefix
+            if let parsed = EmbeddedTagMetadataParser.parse(head: head, tail: tail, fileExtension: fileExtension) {
+                apply(parsed, to: &metadata)
+            }
+        } else if boundedContainerTagExtensions.contains(fileExtension)
             || id3ContainerTagExtensions.contains(fileExtension)
             || genericEOFTagExtensions.contains(fileExtension) {
             let head = readExpandableContainerHead(
@@ -361,6 +422,7 @@ enum FileMetadataReader {
                     fileExtension: fileExtension
                 )
                 : nil
+            containerTail = tail
             applyContainerTagFallback(
                 to: &metadata,
                 headData: head,
@@ -368,7 +430,7 @@ enum FileMetadataReader {
                 fileExtension: fileExtension
             )
         }
-        applySFBAudioFallback(to: &metadata, url: url)
+        applySFBAudioFallback(to: &metadata, url: url, fileExtension: fileExtension)
         if let container = AudioFormat.from(fileExtension: fileExtension),
            streamHeaderContainers.contains(container) {
             applyStreamHeaderFallback(
@@ -386,6 +448,15 @@ enum FileMetadataReader {
             url: url,
             fileExtension: fileExtension
         )
+        metadata.includeLyricTracks(await EmbeddedMediaLyricReader.local(at: url, fileExtension: fileExtension, metadataFile: metadataFile))
+        if metadataFile != nil || additionalTagExtensions.contains(fileExtension), let handle = try? FileHandle(forReadingFrom: url) {
+            defer { try? handle.close() }
+            if let size = try? handle.seekToEnd(), let fields = try? await additionalTagFields(
+                extension: fileExtension, head: signaturePrefix, tail: containerTail, fileSize: Int64(clamping: size), fetch: { offset, length in
+                    try handle.seek(toOffset: UInt64(offset))
+                    return try handle.read(upToCount: Int(length)) ?? Data()
+                }) { metadata.includeLyricTracks(fields) }
+        }
 
         // 注意: 不在这里用 url filename 兜底 title。
         // 调用方 (MetadataService) 自己决定 fallback 名 (走原始 NAS 文件名),
@@ -417,6 +488,224 @@ enum FileMetadataReader {
         let metadata = await readAssetMetadata(from: data, fileExtension: fileExtension)
         return applyingRangeFallbacks(to: metadata, data: data,
                                       fileExtension: fileExtension, id3TailData: id3TailData)
+    }
+
+    /// An on-demand source listing needs both the leading and trailing tags even if the first one has lyrics.
+    static func readLyricTags(fileSize: Int64, fileExtension: String, head supplied: Data?,
+                              fetch: @escaping (Int64, Int64) async throws -> Data) async throws -> Metadata {
+        let firstCount = Int64(RemoteMetadataReadPolicy.initialHeadByteCount)
+        var head: Data
+        if let supplied { head = supplied }
+        else { head = try await fetch(0, fileSize > 0 ? min(firstCount, fileSize) : firstCount) }
+        let ext = RemoteMetadataInspectionPolicy.parserFileExtension(
+            declaredFileExtension: fileExtension, signature: AudioFileSignaturePolicy.inspect(head)
+        )
+        let session = RangeReadSession()
+        if ext == "flac", let tags = try await flacTagsBeyondHead(head, fileSize: fileSize, fetch: fetch) {
+            return await session.read(from: tags, fileExtension: ext)
+        }
+        let strategy = RemoteMetadataInspectionPolicy.tailStrategy(fileExtension: ext, isExplicitReread: true)
+        if strategy == .isoBaseMedia, fileSize > 0 {
+            let tags: Data?
+            if supplied != nil { tags = head }
+            else { tags = try await ISOBaseMediaRangeReader.read(head: head, fileSize: fileSize, fetch: fetch) }
+            if let tags {
+                var metadata = await session.read(from: tags, fileExtension: ext)
+                let fields = try await mediaLyricFields(extension: ext, head: supplied == nil ? head : Data(),
+                                                        metadataFile: tags, fileSize: fileSize, fetch: fetch)
+                metadata.includeLyricTracks(fields)
+                return metadata
+            }
+        }
+        if ["mka", "mkv", "webm", "weba", "asf", "wma", "caf", "au", "snd", "rf64", "bw64", "w64"].contains(ext) {
+            var metadata = await session.read(from: head, fileExtension: ext)
+            let fields = try await mediaLyricFields(extension: ext, head: head, metadataFile: head, fileSize: fileSize, fetch: fetch)
+            metadata.includeLyricTracks(fields)
+            return metadata
+        }
+        var extraID3: Data?
+        if oggExtensions.contains(ext), fileSize > 0 {
+            var metadata = await session.read(from: head, fileExtension: ext)
+            let fields = try await additionalTagFields(extension: ext, head: head, tail: nil, fileSize: fileSize, fetch: fetch)
+            metadata.includeLyricTracks(fields)
+            return metadata
+        }
+        if let size = EmbeddedTagMetadataParser.id3TagByteCount(in: head), size > head.count {
+            extraID3 = try await id3LyricsBeyondHead(head, fileSize: fileSize, fetch: fetch)
+        }
+        if extraID3 == nil, let size = EmbeddedTagMetadataParser.id3TagByteCount(in: head), size >= head.count,
+           size <= ISOBaseMediaRangeReader.maximumMetadataByteCount {
+            let desired = size + (strategy == .mp3ID3 ? 8192 : 0)
+            let end = fileSize > 0 ? min(Int(clamping: fileSize), desired) : size
+            if end > head.count { head = try await RemoteMetadataReadPolicy.extendingHead(head, to: end, fetch: fetch) }
+        }
+        while let size = EmbeddedTagMetadataParser.expandedHeadReadSize(fileSize: fileSize, currentData: head, fileExtension: ext) {
+            let expanded = try await RemoteMetadataReadPolicy.extendingHead(head, to: size, fetch: fetch)
+            guard expanded.count > head.count else { throw URLError(.badServerResponse) }
+            head = expanded
+        }
+        if strategy == .dsfOffset, let offset = EmbeddedTagMetadataParser.dsfMetadataOffset(in: head),
+           fileSize >= 10, offset <= fileSize - 10 {
+            let header = try await fetch(offset, 10)
+            if let size = EmbeddedTagMetadataParser.id3TagByteCount(in: header), size <= ISOBaseMediaRangeReader.maximumMetadataByteCount,
+               Int64(size) <= fileSize - offset {
+                let tag = try await fetch(offset, Int64(size))
+                return await session.read(from: head, fileExtension: ext, id3TailData: tag)
+            }
+        }
+        if let chunks = try await EmbeddedTagMetadataParser.waveMetadataFile(head: head, fileSize: fileSize, fetch: fetch) {
+            return await session.read(from: head, fileExtension: ext, id3TailData: chunks)
+        }
+        guard fileSize <= 0 || Int64(head.count) < fileSize else {
+            var metadata = await session.read(from: head, fileExtension: ext, id3TailData: head)
+            metadata.includeLyricTracks(try await additionalTagFields(extension: ext, head: head, tail: head, fileSize: fileSize, fetch: fetch))
+            return metadata
+        }
+        let tailCount = Int64(RemoteMetadataReadPolicy.initialContainerTailByteCount)
+        let length = fileSize > 0 ? min(fileSize, tailCount) : tailCount
+        func suffix(_ count: Int64) async throws -> Data {
+            try await fetch(fileSize > 0 ? fileSize - count : -count, count)
+        }
+        var tail = try await suffix(length)
+        while let size = EmbeddedTagMetadataParser.expandedTailReadSize(fileSize: fileSize, currentData: tail, fileExtension: ext) {
+            let expanded = try await suffix(Int64(size))
+            guard expanded.count > tail.count else { throw URLError(.badServerResponse) }
+            tail = expanded
+        }
+        var metadata = await session.read(from: head, fileExtension: ext, id3TailData: tail)
+        metadata.includeLyricTracks(try await additionalTagFields(extension: ext, head: head, tail: tail, fileSize: fileSize, fetch: fetch))
+        if let extraID3 {
+            var leading = await session.read(from: extraID3, fileExtension: ext)
+            leading.fillMissing(from: metadata)
+            metadata = leading
+        }
+        return metadata
+    }
+
+    static func mediaLyricFields(extension ext: String, head: Data, metadataFile: Data, tail: Data? = nil, fileSize: Int64,
+                                 fetch: @escaping (Int64, Int64) async throws -> Data) async throws -> [EmbeddedLyricField] {
+        if ["mka", "mkv", "webm", "weba"].contains(ext) {
+            return try await EmbeddedMediaLyricReader.matroska(head: head, fileSize: fileSize, fetch: fetch)
+        }
+        guard fileSize > 0 else { return [] }
+        var fields: [EmbeddedLyricField] = []
+        if isoBaseMediaExtensions.contains(ext) {
+            fields = (try? await EmbeddedMediaLyricReader.isoTracks(metadataFile: metadataFile, fileSize: fileSize, fetch: fetch)) ?? []
+        }
+        fields += (try? await additionalTagFields(extension: ext, head: head, tail: tail, fileSize: fileSize, fetch: fetch)) ?? []
+        try Task.checkCancellation()
+        return fields
+    }
+
+    private static let oggExtensions: Set<String> = ["ogg", "oga", "opus", "spx", "speex"]
+    private static let additionalTagExtensions = oggExtensions.union([
+        "mp3", "mp1", "mp2", "mpa", "m2a", "ape", "wv", "mpc", "mpp", "tta", "tak", "dts", "ac3", "wma", "asf",
+        "caf", "au", "snd", "w64", "rf64", "bw64"
+    ])
+
+    private static func additionalTagFields(extension ext: String, head: Data, tail: Data?, fileSize: Int64,
+                                            fetch: @escaping (Int64, Int64) async throws -> Data) async throws -> [EmbeddedLyricField] {
+        if ["asf", "wma"].contains(ext) {
+            return try await EmbeddedTagMetadataParser.topLevelASFXMP(head: head, fileSize: fileSize, fetch: fetch)
+        }
+        if isoBaseMediaExtensions.contains(ext) {
+            return try await ISOBaseMediaLyricsParser.topLevelXMP(head: head, fileSize: fileSize, fetch: fetch)
+        }
+        guard additionalTagExtensions.contains(ext) else { return [] }
+        if let format = AudioFormat.from(fileExtension: ext), AudioChunkLyricReader.supports(format) {
+            return try await AudioChunkLyricReader.fields(head: head, fileSize: fileSize, fetch: fetch)
+        }
+        return try await EmbeddedTagMetadataParser.rangedCommentLyrics(head: head, tail: tail, fileSize: fileSize,
+                                                                       fileExtension: ext, fetch: fetch)
+    }
+
+    private struct TagRanges {
+        let head: Data
+        let fileSize: Int64
+        let fetch: (Int64, Int64) async throws -> Data
+
+        func read(_ offset: Int64, _ length: Int) async throws -> Data {
+            guard offset >= 0, offset <= fileSize - Int64(length) else { throw URLError(.cannotParseResponse) }
+            let cachedCount = min(length, max(0, head.count - Int(offset)))
+            var bytes = cachedCount == 0 ? Data() : head.subdata(in: Int(offset)..<(Int(offset) + cachedCount))
+            while bytes.count < length {
+                try Task.checkCancellation()
+                let missing = length - bytes.count
+                let part = try await fetch(offset + Int64(bytes.count), Int64(missing))
+                guard !part.isEmpty, part.count <= missing else { throw URLError(.badServerResponse) }
+                bytes.append(part)
+            }
+            return bytes
+        }
+    }
+
+    /// Rebuild a readable ID3 prefix from lyric-bearing frames beyond a large APIC. Its audio probe retains the MPEG clock for SYLT.
+    static func id3LyricsBeyondHead(_ head: Data, fileSize: Int64,
+                                    fetch: @escaping (Int64, Int64) async throws -> Data) async throws -> Data? {
+        guard let end = EmbeddedTagMetadataParser.id3TagByteCount(in: head), end > head.count, fileSize >= end,
+              head[5] == 0, (2...4).contains(head[3]) else { return nil }
+        let ranges = TagRanges(head: head, fileSize: fileSize, fetch: fetch)
+        let version = head[3]
+        let headerSize = version == 2 ? 6 : 10
+        let nameSize = version == 2 ? 3 : 4
+        let names: Set<String> = ["ULT", "SLT", "TXX", "COM", "GEO", "USLT", "SYLT", "TXXX", "COMM", "GEOB", "PRIV"]
+        var body = Data()
+        var offset = 10
+        while offset <= end - headerSize {
+            let header = try await ranges.read(Int64(offset), headerSize)
+            if header.first == 0 { break }
+            let lengthBytes = header[nameSize..<(version == 2 ? 6 : 8)]
+            if version == 4, lengthBytes.contains(where: { $0 >= 128 }) { return nil }
+            let length = lengthBytes.reduce(0) { ($0 << (version == 4 ? 7 : 8)) | Int($1) }
+            let start = offset + headerSize
+            guard length <= end - start else { return nil }
+            let name = String(decoding: header.prefix(nameSize), as: UTF8.self)
+            if names.contains(name), length <= ISOBaseMediaRangeReader.maximumMetadataByteCount - body.count - headerSize {
+                body += header
+                body += try await ranges.read(Int64(start), length)
+            }
+            offset = start + length
+        }
+        guard !body.isEmpty else { return nil }
+        var tag = Data(head.prefix(6))
+        tag += Data((0..<4).reversed().map { UInt8((body.count >> ($0 * 7)) & 127) })
+        tag += body
+        tag += try await ranges.read(Int64(end), min(8192, Int(clamping: fileSize - Int64(end))))
+        return tag
+    }
+
+    /// A large picture or padding can precede the lyrics. Walk block headers and fetch only comments and STREAMINFO.
+    static func flacTagsBeyondHead(_ head: Data, fileSize: Int64,
+                                   fetch: @escaping (Int64, Int64) async throws -> Data) async throws -> Data? {
+        guard fileSize > head.count else { return nil }
+        let ranges = TagRanges(head: head, fileSize: fileSize, fetch: fetch)
+        var offset = Int64(EmbeddedTagMetadataParser.id3TagByteCount(in: head) ?? 0)
+        let magic = Data("fLaC".utf8)
+        guard try await ranges.read(offset, 4) == magic else { return nil }
+        offset += 4
+        var blocks: [Data] = []
+        var foundNewComment = false
+        while offset <= fileSize - 4 {
+            let header = try await ranges.read(offset, 4)
+            let type = header[0] & 127
+            let length = Int(header[1]) << 16 | Int(header[2]) << 8 | Int(header[3])
+            let end = offset + 4 + Int64(length)
+            guard end <= fileSize, type < 127 else { return nil }
+            if type == 0 || type == 4 {
+                var block = header
+                block[0] = type
+                block += try await ranges.read(offset + 4, length)
+                blocks.append(block)
+                if type == 4, end > Int64(head.count) { foundNewComment = true }
+            }
+            if header[0] & 128 != 0 {
+                guard foundNewComment, !blocks.isEmpty else { return nil }
+                blocks[blocks.count - 1][0] |= 128
+                return blocks.reduce(into: magic) { $0 += $1 }
+            }
+            offset = end
+        }
+        return nil
     }
 
     /// Scoped to one song so a suffix probe can reuse AVFoundation's prefix
@@ -928,7 +1217,8 @@ enum FileMetadataReader {
                         let attributes = try? await item.load(.extraAttributes)
                         let descriptor = attributes?[.info] as? String ?? ""
                         let frame = ID3LyricsFrame(text: text, languageCode: language, description: descriptor)
-                        avLyrics.collect(frame, afterPrimaryFrames: false, at: index)
+                        avLyrics.collect(frame, afterPrimaryFrames: false, at: index,
+                                         fieldName: identifier == .iTunesMetadataLyrics ? "©lyr" : "USLT")
                     }
                 case .id3MetadataSynchronizedLyric:
                     if let data = try? await item.load(.dataValue),
@@ -956,7 +1246,20 @@ enum FileMetadataReader {
                         }
                     }
                 default:
-                    break
+                    guard let text = value as? String, !text.isEmpty else { continue }
+                    let name = item.key as? String ?? identifier.rawValue.components(separatedBy: "/").last ?? ""
+                    let field: EmbeddedLyricField?
+                    if identifier == .id3MetadataComments {
+                        let descriptor = (try? await item.load(.extraAttributes))?[.info] as? String ?? ""
+                        field = ID3EmbeddedLyrics.userField(name: descriptor, text: text).map {
+                            EmbeddedLyricField(name: "COMM", text: $0.text,
+                                languageCode: $0.languageCode ?? item.extendedLanguageTag.flatMap(LyricLanguageCodePolicy.canonicalIdentifier),
+                                role: $0.role)
+                        }
+                    } else {
+                        field = EmbeddedTagMetadataParser.metadata(fromOrderedTagValues: [(name, text)]).lyricFields.first
+                    }
+                    if let field { avLyrics.collect(field, afterPrimaryFrames: true, at: index) }
                 }
             }
             metadata.genre = metadata.genre ?? predefinedGenre
@@ -964,6 +1267,7 @@ enum FileMetadataReader {
                 from: titleCandidates
             )
             avLyrics.resolveLyrics()
+            metadata.mergeLyricFields(avLyrics.fields)
             metadata.lyricsVariants = avLyrics.lyricsVariants
             metadata.lyricsText = avLyrics.lyricsText
             metadata.lyricsLanguageCode = avLyrics.lyricsLanguageCode
@@ -1013,21 +1317,28 @@ enum FileMetadataReader {
     }
 
     private static func metadataItems(from asset: AVAsset) async -> [AVMetadataItem] {
-        var items = (try? await asset.load(.commonMetadata)) ?? []
+        var items: [AVMetadataItem] = []
+        var projected = Set<String>()
+        func addProjection(_ projection: [AVMetadataItem]) {
+            // AVAsset.metadata can repeat all frames already exposed by its format-specific projection.
+            // Take repeated values together from the same projection.
+            items += projection.filter { item in
+                guard let key = item.identifier?.rawValue else { return true }
+                return !projected.contains(key)
+            }
+            projected.formUnion(projection.compactMap { $0.identifier?.rawValue })
+        }
         if let formats = try? await asset.load(.availableMetadataFormats) {
             for format in formats {
-                if let formatItems = try? await asset.loadMetadata(for: format) {
-                    items.append(contentsOf: formatItems)
-                }
+                if let values = try? await asset.loadMetadata(for: format) { addProjection(values) }
             }
         }
-        if let fallbackItems = try? await asset.load(.metadata) {
-            items.append(contentsOf: fallbackItems)
-        }
+        if let values = try? await asset.load(.metadata) { addProjection(values) }
+        if let common = try? await asset.load(.commonMetadata) { addProjection(common) }
         return items
     }
 
-    private static let id3MetadataReadLimit = 4 * 1024 * 1024
+    private static let id3MetadataReadLimit = ISOBaseMediaRangeReader.maximumMetadataByteCount
     private static let waveHeaderReadLimit = 1024 * 1024
     private static let mpegHeaderReadLimit = 512 * 1024
     private static let isoBaseMediaExtensions: Set<String> = [
@@ -1042,7 +1353,7 @@ enum FileMetadataReader {
         "ape", "wv", "mpc", "mpp", "tta", "tak",
     ]
     private static let id3ContainerTagExtensions: Set<String> = [
-        "dff", "aiff", "aif", "wav", "wave",
+        "dff", "aiff", "aif", "aifc", "wav", "wave", "bwf",
     ]
     private static let genericEOFTagExtensions: Set<String> = [
         "aac", "dts", "dtshd", "dts-hd", "dtswav", "ac3", "eac3", "ec3",
@@ -1059,6 +1370,7 @@ enum FileMetadataReader {
               let payload = ISOBaseMediaLyricsParser.payload(in: data) else {
             return
         }
+        metadata.mergeLyricFields(payload.fields)
         if let lyrics = payload.lyrics {
             metadata.lyricsText = lyrics
             metadata.lyricsLanguageCode = payload.lyricsLanguageCode
@@ -1158,7 +1470,7 @@ enum FileMetadataReader {
     /// comments, ASF, DSF/DFF ID3, and several legacy lossless containers).
     /// Use it as a local-file fallback while preserving AVFoundation/native
     /// values that were decoded successfully.
-    private static func applySFBAudioFallback(to metadata: inout Metadata, url: URL) {
+    private static func applySFBAudioFallback(to metadata: inout Metadata, url: URL, fileExtension: String) {
         let needsCoverArt = metadata.coverArtData == nil
         let parsed: Metadata? = autoreleasepool {
             guard let audioFile = try? AudioFile(readingPropertiesAndMetadataFrom: url) else {
@@ -1193,6 +1505,31 @@ enum FileMetadataReader {
                 replayGainAlbumPeak: tags.replayGainAlbumPeak,
                 lyricsText: tags.lyrics
             )
+            if let additional = tags.additionalMetadata {
+                var values: [String: [String]] = [:]
+                for (key, item) in additional {
+                    guard let name = key as? String else { continue }
+                    if let strings = item as? [String] { values[name] = strings }
+                    else if let string = item as? String { values[name] = [string] }
+                }
+                var fields: [EmbeddedLyricField]
+                if ["mp3", "mp2", "mp1"].contains(fileExtension) {
+                    fields = values.keys.sorted().flatMap { name in
+                        (values[name] ?? []).compactMap { ID3EmbeddedLyrics.userField(name: name, text: $0) }
+                    }
+                } else {
+                    fields = EmbeddedTagMetadataParser.metadata(fromTagValues: values).lyricFields
+                }
+                // TagLib can uppercase the original keys. Keep the spelling and language from the file.
+                for index in fields.indices {
+                    let field = fields[index]
+                    if let native = metadata.embeddedLyricFields.first(where: {
+                        $0.name.caseInsensitiveCompare(field.name) == .orderedSame && $0.role == field.role && $0.text == field.text
+                            && (field.languageCode == nil || $0.languageCode == field.languageCode)
+                    }) { fields[index] = native }
+                }
+                fallback.includeLyricTracks(fields)
+            }
             fallback.applyAudioProperties(
                 sampleRate: properties.sampleRate,
                 bitRateKbps: properties.bitrate
@@ -1202,10 +1539,13 @@ enum FileMetadataReader {
         guard var fallback = parsed else { return }
         // TagLib can expose the first USLT as generic lyrics even when its descriptor marks it as a translation.
         if let lyrics = fallback.lyricsText, lyrics != metadata.lyricsText,
-           lyrics == metadata.translatedLyricsText || metadata.languageTaggedTranslations.values.contains(lyrics) {
+           lyrics == metadata.translatedLyricsText || metadata.languageTaggedTranslations.values.contains(lyrics)
+            || metadata.embeddedLyricFields.contains(where: { $0.role != .original && $0.text == lyrics }) {
             fallback.lyricsText = nil
+            fallback.lyricsVariants.removeAll { $0.text == lyrics }
         }
-        metadata.fillMissing(from: fallback)
+        // The dictionary adds fields but cannot recover their physical order.
+        metadata.fillMissing(from: fallback, preferringIncomingLyricOrder: false)
     }
 
     /// TagLib's module properties carry no length. DUMB works one out by
@@ -1247,7 +1587,7 @@ enum FileMetadataReader {
             container.tags,
             coverArtData: container.coverArtData
         ) {
-            apply(parsed, to: &metadata)
+            apply(parsed, to: &metadata, preferringIncomingLyricOrder: false)
         }
         var technical = Metadata()
         if container.info.duration.isFinite, container.info.duration > 0 {
@@ -1298,7 +1638,7 @@ enum FileMetadataReader {
         }
     }
 
-    private static func apply(_ parsed: EmbeddedTagMetadata, to metadata: inout Metadata) {
+    private static func apply(_ parsed: EmbeddedTagMetadata, to metadata: inout Metadata, preferringIncomingLyricOrder: Bool = true) {
         if let type = parsed.releaseType {
             var content = metadata.contentMetadata ?? SongContentMetadata()
             content.releaseType = content.releaseType ?? type
@@ -1327,10 +1667,11 @@ enum FileMetadataReader {
         metadata.genre = GenreTagValues.names(in: parsed.genre).count > 1
             ? parsed.genre
             : preferredMetadataText(current: metadata.genre, rawID3: parsed.genre)
+        metadata.mergeLyricFields(parsed.lyricFields)
         metadata.mergeEmbeddedLyrics(
             parsed.lyrics,
             languageCode: parsed.lyricsLanguageCode,
-            variants: parsed.lyricsVariants
+            variants: parsed.lyricsVariants, preferringIncomingOrder: preferringIncomingLyricOrder
         )
         if metadata.translatedLyricsText == nil {
             metadata.translatedLyricsText = parsed.translatedLyrics
@@ -1355,27 +1696,6 @@ enum FileMetadataReader {
         let digits = value.filter(\.isNumber)
         guard digits.count >= 4 else { return nil }
         return Int(digits.prefix(4))
-    }
-
-    private static func lyricTagLanguageCode(
-        in value: String,
-        roots: [String]
-    ) -> String? {
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        for root in roots.sorted(by: { $0.count > $1.count }) {
-            guard normalized.hasPrefix(root), normalized != root else { continue }
-            let rawSuffix = normalized.dropFirst(root.count)
-            guard rawSuffix.first.map({ " .:_-/[".contains($0) }) == true else {
-                continue
-            }
-            let suffix = rawSuffix
-                .trimmingCharacters(in: CharacterSet(charactersIn: " .:_-/[]()"))
-                .replacingOccurrences(of: "_", with: "-")
-            if let languageCode = LyricLanguageCodePolicy.canonicalIdentifier(suffix) {
-                return languageCode
-            }
-        }
-        return nil
     }
 
     private static func applyID3Fallback(
@@ -1444,6 +1764,7 @@ enum FileMetadataReader {
             metadata.translatedLyricsLanguageCode = artwork?.translatedLyricsLanguageCode
         }
         if let artwork {
+            metadata.mergeLyricFields(artwork.fields)
             metadata.languageTaggedLyrics.merge(artwork.languageTaggedLyrics) { current, _ in
                 current
             }
@@ -1545,7 +1866,8 @@ enum FileMetadataReader {
         var result = Data()
         if let header = try? handle.read(upToCount: 10),
            let tagByteCount = id3TagByteCount(in: header) {
-            let cappedByteCount = min(tagByteCount, id3MetadataReadLimit)
+            // Two MPEG audio headers after the tag supply the clock for frame-count SYLT.
+            let cappedByteCount = min(tagByteCount + 8 * 1024, id3MetadataReadLimit)
             try? handle.seek(toOffset: 0)
             result = (try? handle.read(upToCount: cappedByteCount)) ?? Data()
         }
@@ -1574,30 +1896,33 @@ enum FileMetadataReader {
         var replayGainAlbumGain: Double?
         var replayGainAlbumPeak: Double?
 
-        private var alternateFrames: [ID3LyricsFrame] = []
+        var fields: [EmbeddedLyricField] = []
+        private var alternateFrames: [EmbeddedLyricField] = []
         private var firstOffset: [String: Int] = [:]
 
-        mutating func collect(_ frame: ID3LyricsFrame, afterPrimaryFrames: Bool, at offset: Int) {
-            if !isExplicitID3Translation(frame.description), firstOffset[frame.text] == nil {
-                firstOffset[frame.text] = offset
+        mutating func collect(_ frame: ID3LyricsFrame, afterPrimaryFrames: Bool, at offset: Int, fieldName: String? = nil) {
+            let field = ID3EmbeddedLyrics.declaredField(name: fieldName ?? (afterPrimaryFrames ? "SYLT" : "USLT"),
+                                                        descriptor: frame.description, text: frame.text, languageCode: frame.languageCode)
+            collect(field, afterPrimaryFrames: afterPrimaryFrames, at: offset)
+        }
+
+        mutating func collect(_ field: EmbeddedLyricField, afterPrimaryFrames: Bool, at offset: Int) {
+            fields.append(field)
+            if field.role == .original {
+                if firstOffset[field.text] == nil { firstOffset[field.text] = offset }
+                if afterPrimaryFrames {
+                    alternateFrames.append(field)
+                    return
+                }
             }
-            if afterPrimaryFrames {
-                alternateFrames.append(frame)
-            } else {
-                applyID3LyricsFrame(frame, to: &self)
-            }
+            applyID3LyricsFrame(field, to: &self)
         }
 
         mutating func collectUserText(_ pair: (String, String), at offset: Int) {
-            let untaggedOriginals = ["lyrics", "syncedlyrics", "synced lyrics", "unsyncedlyrics", "unsynced lyrics"]
-            if untaggedOriginals.contains(pair.0.lowercased()) {
-                let frame = ID3LyricsFrame(text: pair.1, languageCode: nil, description: "")
-                collect(frame, afterPrimaryFrames: true, at: offset)
-                return
-            }
-            applyID3UserText(pair, to: &self)
-            if firstOffset[pair.1] == nil, lyricsText == pair.1 {
-                firstOffset[pair.1] = offset
+            if let field = ID3EmbeddedLyrics.userField(name: pair.0, text: pair.1) {
+                collect(field, afterPrimaryFrames: field.languageCode == nil, at: offset)
+            } else {
+                applyID3UserText(pair, to: &self)
             }
         }
 
@@ -1621,79 +1946,28 @@ enum FileMetadataReader {
     }
 
     private static func parseID3Metadata(from data: Data) -> ID3NativeMetadata? {
-        guard data.count >= 10,
-              data[0] == 0x49, data[1] == 0x44, data[2] == 0x33 else {
-            return nil
-        }
-        let majorVersion = Int(data[3])
-        guard (2...4).contains(majorVersion),
-              let tagByteCount = id3TagByteCount(in: data) else {
-            return nil
-        }
-
-        let tagEnd = min(data.count, tagByteCount)
-        guard tagEnd > 10 else { return nil }
-
-        var tag = data.subdata(in: 10..<tagEnd)
-        if (data[5] & 0x80) != 0 {
-            tag = removeID3Unsynchronization(from: tag)
-        }
-
-        var cursor = id3ExtendedHeaderLength(in: tag, version: majorVersion, flags: data[5])
         var pictures: [ID3Picture] = []
         var result = ID3NativeMetadata()
-
-        while cursor < tag.count {
-            if majorVersion == 2 {
-                guard cursor + 6 <= tag.count else { break }
-                guard let frameID = asciiString(tag, start: cursor, length: 3),
-                      !frameID.trimmingCharacters(in: CharacterSet(charactersIn: "\0")).isEmpty else {
-                    break
-                }
-                let frameSize = readUInt24BE(tag, at: cursor + 3)
-                cursor += 6
-                guard frameSize > 0, cursor + frameSize <= tag.count else { break }
-                let payload = tag.subdata(in: cursor..<(cursor + frameSize))
-                cursor += frameSize
-
-                if frameID == "PIC", let picture = parseID3PictureFrame(payload, isV22PIC: true) {
-                    pictures.append(picture)
-                } else if frameID == "ULT", let lyrics = parseID3LyricsFrame(payload) {
-                    result.collect(lyrics, afterPrimaryFrames: false, at: cursor)
-                } else if frameID == "SLT", let lyrics = parseID3SynchronizedLyricsFrame(payload) {
-                    result.collect(lyrics, afterPrimaryFrames: true, at: cursor)
-                } else if frameID == "TXX", let pair = parseID3UserTextFrame(payload) {
-                    result.collectUserText(pair, at: cursor)
-                }
-            } else {
-                guard cursor + 10 <= tag.count else { break }
-                guard let frameID = asciiString(tag, start: cursor, length: 4),
-                      !frameID.trimmingCharacters(in: CharacterSet(charactersIn: "\0")).isEmpty else {
-                    break
-                }
-                let frameSize = majorVersion == 4
-                    ? readSyncSafeInt(tag, at: cursor + 4)
-                    : readUInt32BE(tag, at: cursor + 4)
-                let formatFlags = tag[cursor + 9]
-                cursor += 10
-                guard frameSize > 0, cursor + frameSize <= tag.count else { break }
-
-                var payload = tag.subdata(in: cursor..<(cursor + frameSize))
-                cursor += frameSize
-
-                if majorVersion == 4, (formatFlags & 0x02) != 0 {
-                    payload = removeID3Unsynchronization(from: payload)
-                }
-
-                if frameID == "APIC", let picture = parseID3PictureFrame(payload, isV22PIC: false) {
-                    pictures.append(picture)
-                } else if frameID == "USLT", let lyrics = parseID3LyricsFrame(payload) {
-                    result.collect(lyrics, afterPrimaryFrames: false, at: cursor)
-                } else if frameID == "SYLT", let lyrics = parseID3SynchronizedLyricsFrame(payload) {
-                    result.collect(lyrics, afterPrimaryFrames: true, at: cursor)
-                } else if frameID == "TXXX", let pair = parseID3UserTextFrame(payload) {
-                    result.collectUserText(pair, at: cursor)
-                }
+        var ordinal = 0
+        lazy var duration = ID3EmbeddedLyrics.mpegFrameDuration(in: data)
+        ID3EmbeddedLyrics.visitFrames(in: data) { name, raw, flags, version in
+            defer { ordinal += 1 }
+            guard let body = ID3EmbeddedLyrics.decodedBody(raw, version: version, flags: flags) else { return }
+            if name == "APIC" || name == "PIC" {
+                if let picture = parseID3PictureFrame(body, isV22PIC: name == "PIC") { pictures.append(picture) }
+                return
+            }
+            let isSynchronized = name == "SYLT" || name == "SLT"
+            let isUserText = name == "TXXX" || name == "TXX"
+            let usesFrameClock = isSynchronized && body.count > 4 && body[4] == 1
+            let fields = ID3EmbeddedLyrics.fields(frame: name, body: body, mpegFrameDuration: usesFrameClock ? duration : nil)
+            for field in fields {
+                let isAlternate = isSynchronized || (name != "USLT" && name != "ULT" && field.languageCode == nil)
+                result.collect(field, afterPrimaryFrames: isAlternate, at: ordinal)
+                ordinal += 1
+            }
+            if isUserText, fields.isEmpty, let pair = parseID3UserTextFrame(body) {
+                applyID3UserText(pair, to: &result)
             }
         }
 
@@ -1701,6 +1975,7 @@ enum FileMetadataReader {
         let preferred = pictures.first(where: { $0.type == 3 }) ?? pictures.first
         result.coverArtData = preferred?.data
         return result.coverArtData != nil
+            || !result.fields.isEmpty
             || result.lyricsText != nil
             || result.translatedLyricsText != nil
             || !result.languageTaggedLyrics.isEmpty
@@ -1711,19 +1986,6 @@ enum FileMetadataReader {
             || result.replayGainAlbumPeak != nil
             ? result
             : nil
-    }
-
-    private static func id3ExtendedHeaderLength(in tag: Data, version: Int, flags: UInt8) -> Int {
-        guard (flags & 0x40) != 0 else { return 0 }
-        if version == 3 {
-            guard tag.count >= 4 else { return tag.count }
-            return min(tag.count, 4 + readUInt32BE(tag, at: 0))
-        }
-        if version == 4 {
-            guard tag.count >= 4 else { return tag.count }
-            return min(tag.count, readSyncSafeInt(tag, at: 0))
-        }
-        return 0
     }
 
     private static func parseID3PictureFrame(_ payload: Data, isV22PIC: Bool) -> ID3Picture? {
@@ -1758,47 +2020,6 @@ enum FileMetadataReader {
         let description: String
     }
 
-    private static func parseID3LyricsFrame(_ payload: Data) -> ID3LyricsFrame? {
-        guard payload.count >= 5 else { return nil }
-        let encoding = payload[0]
-        let descriptionStart = 4 // encoding + ISO-639-2 language
-        guard let lyricsStart = encodedStringTerminatorEnd(
-            in: payload,
-            from: descriptionStart,
-            encoding: encoding
-        ), lyricsStart < payload.count else {
-            return nil
-        }
-        let terminatorLength = (encoding == 1 || encoding == 2) ? 2 : 1
-        let descriptionEnd = lyricsStart - terminatorLength
-        let description = descriptionEnd > descriptionStart
-            ? TextEncodingRepair.decodeID3Text(
-                payload.subdata(in: descriptionStart..<descriptionEnd),
-                encodingByte: encoding
-            ) ?? ""
-            : ""
-        guard let text = TextEncodingRepair.decodeID3Text(
-            payload.subdata(in: lyricsStart..<payload.count),
-            encodingByte: encoding
-        ), !text.isEmpty else { return nil }
-        let rawLanguage = asciiString(payload, start: 1, length: 3)?.lowercased()
-        let languageCode = rawLanguage.flatMap { value -> String? in
-            guard value.utf8.count == 3,
-                  value.utf8.allSatisfy({ byte in
-                      (0x61...0x7A).contains(byte)
-                  }),
-                  !["und", "xxx", "zxx"].contains(value) else {
-                return nil
-            }
-            return LyricLanguageCodePolicy.canonicalIdentifier(value)
-        }
-        return ID3LyricsFrame(
-            text: text,
-            languageCode: languageCode,
-            description: description
-        )
-    }
-
     private static func parseID3SynchronizedLyricsFrame(_ payload: Data) -> ID3LyricsFrame? {
         guard let frame = ID3SynchronizedLyricsParser.parse(payload) else { return nil }
         return ID3LyricsFrame(
@@ -1812,11 +2033,10 @@ enum FileMetadataReader {
     /// 照默认填），USLT 本身也带时间轴时只有同一种语言（或没写语言）才算，另一种语言的照旧当译文候选。
     /// 哪一份显示由 `parseID3Metadata` 最后按设置挑（默认时间轴更细的胜出）。
     private static func applyID3SynchronizedLyricsFrame(
-        _ frame: ID3LyricsFrame,
+        _ frame: EmbeddedLyricField,
         to metadata: inout ID3NativeMetadata
     ) {
-        guard let existing = metadata.lyricsText,
-              !isExplicitID3Translation(frame.description) else {
+        guard let existing = metadata.lyricsText else {
             applyID3LyricsFrame(frame, to: &metadata)
             return
         }
@@ -1837,29 +2057,13 @@ enum FileMetadataReader {
         EmbeddedLyricsVariantPolicy.append(frame.text, languageCode: frame.languageCode, to: &metadata.lyricsVariants)
     }
 
-    private static func isExplicitID3Translation(_ description: String) -> Bool {
-        let descriptor = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedDescriptor = descriptor.lowercased()
-            .filter { $0.isLetter || $0.isNumber }
-        return [
-            "translation", "translated", "translatedlyrics", "lyricstranslation",
-        ].contains(normalizedDescriptor)
-            || lyricTagLanguageCode(
-                in: descriptor,
-                roots: ["translatedlyrics", "translated lyrics", "translation"]
-            ) != nil
-    }
-
     private static func applyID3LyricsFrame(
-        _ frame: ID3LyricsFrame,
+        _ frame: EmbeddedLyricField,
         to metadata: inout ID3NativeMetadata
     ) {
-        let descriptor = frame.description.trimmingCharacters(in: .whitespacesAndNewlines)
-        if isExplicitID3Translation(frame.description) {
-            let languageCode = lyricTagLanguageCode(
-                in: descriptor,
-                roots: ["translatedlyrics", "translated lyrics", "translation"]
-            ) ?? frame.languageCode
+        if frame.role == .romanization { return }
+        if frame.role == .translation {
+            let languageCode = frame.languageCode
             if metadata.translatedLyricsText == nil {
                 metadata.translatedLyricsText = frame.text
                 metadata.translatedLyricsLanguageCode = languageCode
@@ -1948,32 +2152,7 @@ enum FileMetadataReader {
             metadata.replayGainAlbumGain = metadata.replayGainAlbumGain ?? parseReplayGainDB(pair.1)
         case "replaygain_album_peak":
             metadata.replayGainAlbumPeak = metadata.replayGainAlbumPeak ?? Double(pair.1)
-        case "translatedlyrics", "translated lyrics", "translation", "lyrics translation":
-            metadata.translatedLyricsText = metadata.translatedLyricsText ?? pair.1
-        default:
-            if let languageCode = lyricTagLanguageCode(
-                in: description,
-                roots: ["translatedlyrics", "translated lyrics", "translation"]
-            ) {
-                if metadata.translatedLyricsText == nil {
-                    metadata.translatedLyricsText = pair.1
-                    metadata.translatedLyricsLanguageCode = languageCode
-                } else if metadata.translatedLyricsText == pair.1,
-                          metadata.translatedLyricsLanguageCode == nil {
-                    metadata.translatedLyricsLanguageCode = languageCode
-                }
-                metadata.languageTaggedTranslations[languageCode] = pair.1
-            } else if let languageCode = lyricTagLanguageCode(
-                in: description,
-                roots: ["lyrics", "syncedlyrics", "unsyncedlyrics"]
-            ) {
-                metadata.languageTaggedLyrics[languageCode] = pair.1
-                if metadata.lyricsText == nil {
-                    metadata.lyricsText = pair.1
-                    metadata.lyricsLanguageCode = languageCode
-                }
-            }
-            break
+        default: break
         }
     }
 
@@ -2037,21 +2216,6 @@ enum FileMetadataReader {
         return data[start..<data.count].firstIndex(of: 0)
     }
 
-    private static func removeID3Unsynchronization(from data: Data) -> Data {
-        var result = Data()
-        result.reserveCapacity(data.count)
-        var i = 0
-        while i < data.count {
-            let byte = data[i]
-            result.append(byte)
-            if byte == 0xFF, i + 1 < data.count, data[i + 1] == 0 {
-                i += 2
-            } else {
-                i += 1
-            }
-        }
-        return result
-    }
 
     private static func applyFLACFallback(
         to metadata: inout Metadata,
@@ -2096,6 +2260,7 @@ enum FileMetadataReader {
         metadata.genre = GenreTagValues.names(in: flac.genre).count > 1
             ? flac.genre
             : (metadata.genre ?? flac.genre)
+        metadata.mergeLyricFields(flac.fields)
         metadata.mergeEmbeddedLyrics(
             flac.lyricsText,
             languageCode: flac.lyricsLanguageCode,
@@ -2235,24 +2400,8 @@ enum FileMetadataReader {
         var languageTaggedTranslations: [String: String] = [:]
         var lyricsVariants: [EmbeddedLyricsVariant] = []
 
-        /// 同 `Metadata.mergeEmbeddedLyrics`：几个注释块各读到的原文并在一起。
-        mutating func mergeEmbeddedLyrics(
-            _ text: String?,
-            languageCode: String?,
-            variants: [EmbeddedLyricsVariant]
-        ) {
-            if let text, variants.count > max(1, lyricsVariants.count) {
-                lyricsText = text
-                lyricsLanguageCode = languageCode
-                lyricsVariants = variants
-            } else if lyricsText == nil {
-                lyricsText = text
-                lyricsLanguageCode = languageCode
-                lyricsVariants = variants
-            } else if lyricsText == text, lyricsLanguageCode == nil {
-                lyricsLanguageCode = languageCode
-            }
-        }
+        var fields: [EmbeddedLyricField] = []
+
     }
 
     private static func parseFLACMetadata(from data: Data) -> FLACNativeMetadata? {
@@ -2362,7 +2511,7 @@ enum FileMetadataReader {
         }
 
         var fields: [(key: String, value: Data)] = []
-        for _ in 0..<min(commentCount, 10_000) {
+        for _ in 0..<min(commentCount, (block.count - cursor) / 4) {
             guard let length = readUInt32LE(block, cursor: &cursor),
                   cursor + length <= block.count else {
                 break
@@ -2378,7 +2527,7 @@ enum FileMetadataReader {
             guard let value else { continue }
             let key = field.key.uppercased()
             comments[key, default: []].append(value)
-            orderedComments.append((key, repairLegacyChineseMojibake(value)))
+            orderedComments.append((field.key, repairLegacyChineseMojibake(value)))
         }
         let tagMetadata = EmbeddedTagMetadataParser.metadata(fromOrderedTagValues: orderedComments)
         result.releaseType = tagMetadata.releaseType
@@ -2429,11 +2578,13 @@ enum FileMetadataReader {
         result.discNumber = result.discNumber ?? leadingInt(first("DISCNUMBER", "DISC"))
         result.year = result.year ?? parseYear(first("DATE", "YEAR"))
         result.genre = result.genre ?? tagMetadata.genre
-        result.mergeEmbeddedLyrics(
-            tagMetadata.lyrics,
-            languageCode: tagMetadata.lyricsLanguageCode,
-            variants: tagMetadata.lyricsVariants
-        )
+        result.fields.append(contentsOf: tagMetadata.lyricFields)
+        if let chosen = EmbeddedLyricsVariantPolicy.merge(tagMetadata.lyrics, languageCode: tagMetadata.lyricsLanguageCode,
+            variants: tagMetadata.lyricsVariants, current: result.lyricsText, currentLanguage: result.lyricsLanguageCode,
+            into: &result.lyricsVariants, preferringIncomingOrder: false) {
+            result.lyricsText = chosen.text
+            result.lyricsLanguageCode = chosen.languageCode ?? result.lyricsLanguageCode
+        }
         if result.translatedLyricsText == nil {
             result.translatedLyricsText = tagMetadata.translatedLyrics
             result.translatedLyricsLanguageCode = tagMetadata.translatedLyricsLanguageCode

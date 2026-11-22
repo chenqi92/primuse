@@ -1149,6 +1149,33 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
     }
 }
 
+enum LyricAnnotationKind {
+    case translation, romanization
+
+    func attach(_ annotation: LyricLine, language: String?, to line: inout LyricLine) {
+        guard !annotation.text.isEmpty else { return }
+        switch self {
+        case .romanization:
+            if line.romanization == nil { line.romanization = annotation.text }
+            if line.romanization == annotation.text, line.romanizationSyllables == nil {
+                line.romanizationSyllables = annotation.syllables
+            }
+        case .translation:
+            var translations = line.allManualTranslations
+            if let index = translations.firstIndex(where: { $0.text == annotation.text && $0.languageCode == language }) {
+                if translations[index].syllables == nil { translations[index].syllables = annotation.syllables }
+            } else {
+                translations.append(LyricManualTranslation(
+                    id: annotation.id, text: annotation.text, languageCode: language, source: .embeddedField,
+                    syllables: annotation.syllables
+                ))
+            }
+            line.manualTranslation = translations.first
+            line.alternateManualTranslations = Array(translations.dropFirst())
+        }
+    }
+}
+
 /// 不同声部各走各的时间轴。TTML 里两个 `ttm:agent` 时间重叠时(对唱里一人还没唱完另一人
 /// 已经开口,或两人同时唱)各自仍是独立的一行,此刻谁在唱由
 /// `LyricConcurrentVoicePolicy` 判定;只有写在一句里面的和声(`x-bg`)才收进那一句的 `background`。
@@ -1524,6 +1551,10 @@ public enum LyricTextEntityPolicy {
     ]
 
     public static func decoded(_ text: String) -> String {
+        decoded(text, allowsLineBreaks: false)
+    }
+
+    static func decoded(_ text: String, allowsLineBreaks: Bool) -> String {
         guard text.contains("&") else { return text }
         var result = ""
         result.reserveCapacity(text.count)
@@ -1531,7 +1562,7 @@ public enum LyricTextEntityPolicy {
         while index < text.endIndex {
             let character = text[index]
             guard character == "&",
-                  let (replacement, next) = entity(in: text, at: index) else {
+                  let (replacement, next) = entity(in: text, at: index, allowsLineBreaks: allowsLineBreaks) else {
                 result.append(character)
                 index = text.index(after: index)
                 continue
@@ -1570,7 +1601,8 @@ public enum LyricTextEntityPolicy {
 
     private static func entity(
         in text: String,
-        at ampersand: String.Index
+        at ampersand: String.Index,
+        allowsLineBreaks: Bool
     ) -> (Character, String.Index)? {
         let nameStart = text.index(after: ampersand)
         guard let semicolon = text[nameStart...].prefix(9).firstIndex(of: ";") else {
@@ -1587,7 +1619,7 @@ public enum LyricTextEntityPolicy {
         } else {
             value = UInt32(digits, radix: 10)
         }
-        guard let value, value >= 0x20 || value == 0x09,
+        guard let value, value >= 0x20 || value == 0x09 || (allowsLineBreaks && (value == 10 || value == 13)),
               let scalar = Unicode.Scalar(value) else { return nil }
         return (Character(scalar), next)
     }
@@ -1604,6 +1636,7 @@ public enum LyricsContentParser {
         _ content: String,
         options: LyricsParsingOptions = .automatic
     ) -> [LyricLine] {
+        let content = removingByteOrderMark(content)
         if let lines = SourceLyricsDocument.decode(content) { return lines }
         if TTMLLyricsParser.looksLikeTTML(content) {
             return TTMLLyricsParser.parse(content)
@@ -1620,8 +1653,7 @@ public enum LyricsContentParser {
         // ELRC word markers, so the LRC reader would keep the cue timing lines
         // as lyric text.
         if SubtitleLyricsParser.detect(content) != nil {
-            let subtitleLines = SubtitleLyricsParser.parse(content, options: options)
-            if !subtitleLines.isEmpty { return subtitleLines }
+            return SubtitleLyricsParser.parse(content, options: options)
         }
 
         var lines: [LyricLine] = []
@@ -1630,7 +1662,7 @@ public enum LyricsContentParser {
         var companionRows: [(row: LRCWordTimingCompanion.Row, position: Int)] = []
 
         for raw in content.components(separatedBy: .newlines) {
-            if isLeadingMetadataRegion, raw.firstMatch(of: metadataPattern) != nil {
+            if raw.firstMatch(of: metadataPattern) != nil {
                 metadataLines.append(raw)
                 continue
             }
@@ -1782,6 +1814,7 @@ public enum LyricsContentParser {
         _ text: String,
         options: LyricsParsingOptions = .automatic
     ) -> [LyricLine] {
+        let text = removingByteOrderMark(text)
         if let lines = SourceLyricsDocument.decode(text) { return lines }
         if TTMLLyricsParser.looksLikeTTML(text) {
             // Malformed XML must not fall through and surface its tags as
@@ -1796,8 +1829,7 @@ public enum LyricsContentParser {
         }
         if SubtitleLyricsParser.detect(text) != nil {
             // Same for a subtitle document: its cue timing lines are not lyrics.
-            let subtitleLines = SubtitleLyricsParser.parse(text, options: options)
-            if !subtitleLines.isEmpty { return subtitleLines }
+            return SubtitleLyricsParser.parse(text, options: options)
         }
         let synchronized = parse(text, options: options)
         if !synchronized.isEmpty { return synchronized }
@@ -1807,6 +1839,11 @@ public enum LyricsContentParser {
             .filter { !$0.isEmpty }
             .enumerated()
             .map { LyricLine(timestamp: 0, text: $0.element, isSynchronized: false) }
+    }
+
+    private static func removingByteOrderMark(_ text: String) -> String {
+        guard text.unicodeScalars.first == "\u{FEFF}" else { return text }
+        return String(text.unicodeScalars.dropFirst())
     }
 
     /// Convert editable lyric models back to a text representation without
@@ -1873,7 +1910,7 @@ public enum LyricsContentParser {
     /// metadata and blank lines are kept in `normalizedContent`; malformed
     /// time markers are reported with their original 1-based line numbers.
     public static func validateEditableText(_ text: String) -> LyricsEditableValidation {
-        let normalized = text
+        let normalized = removingByteOrderMark(text)
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2083,21 +2120,18 @@ public enum LyricsContentParser {
         if TTMLLyricsParser.looksLikeTTML(content) { return false }
         guard LyricsFormat.detect(content) != .plain else { return true }
 
-        var isLeadingMetadataRegion = true
         var representedLineCount = 0
         for raw in content.components(separatedBy: "\n") {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { continue }
-            if isLeadingMetadataRegion, raw.firstMatch(of: metadataPattern) != nil {
+            if raw.firstMatch(of: metadataPattern) != nil {
                 continue
             }
             if LRCWordTimingCompanion.row(raw) != nil {
-                isLeadingMetadataRegion = false
                 continue
             }
 
             if usesSquareWordTimestamps(raw) {
-                isLeadingMetadataRegion = false
                 guard parseSquareWordLevelLine(raw) != nil,
                       squareWordTimestampIssue(raw) == nil else {
                     return false
@@ -2108,7 +2142,6 @@ public enum LyricsContentParser {
 
             let absoluteHeads = raw.matches(of: lineHeadPattern)
             if !absoluteHeads.isEmpty {
-                isLeadingMetadataRegion = false
                 guard let firstHead = absoluteHeads.first,
                       raw[..<firstHead.range.lowerBound].allSatisfy(\.isWhitespace) else {
                     return false
@@ -2129,7 +2162,6 @@ public enum LyricsContentParser {
                 continue
             }
             if raw.firstMatch(of: relativeLineHeadPattern) != nil {
-                isLeadingMetadataRegion = false
                 guard let head = raw.firstMatch(of: relativeLineHeadPattern),
                       isLyricBodyCompletelyRepresented(
                         String(raw[head.range.upperBound...])
@@ -2403,17 +2435,21 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         case romanization
 
         init?(rawValue: String) {
-            switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "x-bg":
-                self = .background
-            case "x-translation":
-                self = .translation
-            case "x-roman", "x-romaji", "x-romanization":
-                self = .romanization
-            default:
-                return nil
+            for token in rawValue.lowercased().split(whereSeparator: \.isWhitespace) {
+                switch token {
+                case "x-bg": self = .background
+                case "x-translation": self = .translation
+                case "x-roman", "x-romaji", "x-romanization": self = .romanization
+                default: continue
+                }
+                return
             }
+            return nil
         }
+    }
+
+    private enum RubyRole: String {
+        case container, textContainer, text, delimiter, base, baseContainer, none
     }
 
     private struct Reading {
@@ -2421,9 +2457,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         let syllables: [LyricSyllable]?
     }
 
-    private enum AnnotationKind {
-        case translation, romanization
-    }
+    private typealias AnnotationKind = LyricAnnotationKind
 
     private struct HeadAnnotation {
         let kind: AnnotationKind
@@ -2436,6 +2470,8 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         var segments: [SpanSegment] = []
         var translations: [LyricManualTranslation] = []
         var romanization: Reading?
+        var rubyText: [SpanSegment] = []
+        let ruby: RubyRole?
         let role: SpanRole?
         let begin: TimeInterval?
         let end: TimeInterval?
@@ -2448,40 +2484,60 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         let end: TimeInterval?
         let preservesWhitespace: Bool
         let languageCode: String?
+        var rubyReading: [SpanSegment]? = nil
 
         init(
             text: String,
             begin: TimeInterval?,
             end: TimeInterval?,
             preservesWhitespace: Bool = false,
-            languageCode: String? = nil
+            languageCode: String? = nil,
+            rubyReading: [SpanSegment]? = nil
         ) {
             self.text = text
             self.begin = begin
             self.end = end
             self.preservesWhitespace = preservesWhitespace
             self.languageCode = languageCode
+            self.rubyReading = rubyReading
         }
 
         var isTimed: Bool { begin != nil }
+    }
+
+    private struct Element {
+        let name: String
+        let language: String?
+        var begin: TimeInterval?
+        var end: TimeInterval?
+        var lastChildEnd: TimeInterval?
+        var startsCue = false
+        var usesRelativeChildren = false
+        var sequential = false
     }
 
     private var parsedLines: [(order: Int, line: LyricLine)] = []
     private var nextLineOrder = 0
     private var sawTTMLRoot = false
     private var documentLanguageCode: String?
-    private var elements: [(name: String, language: String?)] = []
+    private var elements: [Element] = []
     private var annotationsByKey: [String: [HeadAnnotation]] = [:]
+    private var rubyStyles: [String: (role: RubyRole?, references: [String])] = [:]
+    private var ignoredDepth = 0
+    private var timing = TimingParameters()
 
-    private var insideParagraph = false
+    private var paragraphDepth: Int?
+    private var insideParagraph: Bool { paragraphDepth != nil }
     private var currentKey: String?
     private var currentAnnotationKind: AnnotationKind?
     private var currentLineBegin: TimeInterval?
     private var currentLineEnd: TimeInterval?
+    private var inheritedLineBegin: TimeInterval?
+    private var inheritedLineEnd: TimeInterval?
     private var currentLineVoice: LyricVoice = .primary
     private var currentLineLanguageCode: String?
     private var primaryAgent: String?
-    private var currentTextFragments: [String] = []
+    private var currentSegments: [SpanSegment] = []
     private var currentDirectText = ""
     private var currentUntimedPrefix = ""
     private var currentSyllables: [PendingSyllable] = []
@@ -2491,19 +2547,39 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
     private var spanStack: [SpanContext] = []
 
     static func looksLikeTTML(_ content: String) -> Bool {
-        content.range(
-            of: #"<(?:[A-Za-z_][A-Za-z0-9_.-]*:)?tt(?:\s|>)"#,
-            options: [.regularExpression, .caseInsensitive]
-        ) != nil
+        var rest = content.drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" })
+        while rest.hasPrefix("<?") || rest.hasPrefix("<!--") {
+            let terminator = rest.hasPrefix("<?") ? "?>" : "-->"
+            guard let end = rest.range(of: terminator) else { return false }
+            rest = rest[end.upperBound...].drop(while: \.isWhitespace)
+        }
+        if rest.hasPrefix("<!DOCTYPE") { rest = rest.dropFirst(9).drop(while: \.isWhitespace) }
+        else if rest.first == "<" { rest = rest.dropFirst() }
+        else { return false }
+        let root = rest.prefix { !$0.isWhitespace && $0 != ">" && $0 != "/" }
+        return root.split(separator: ":").last?.lowercased() == "tt"
     }
 
     static func parse(_ content: String) -> [LyricLine] {
         guard looksLikeTTML(content),
               content.range(of: "<!DOCTYPE", options: .caseInsensitive) == nil,
-              content.range(of: "<!ENTITY", options: .caseInsensitive) == nil,
-              let data = content.data(using: .utf8) else { return [] }
+              content.range(of: "<!ENTITY", options: .caseInsensitive) == nil else { return [] }
 
         let delegate = TTMLLyricsParser()
+        // Tag readers have already decoded the bytes. Keep XMLParser from reinterpreting
+        // the UTF-8 buffer according to a declaration copied from the original file.
+        let xml = content.drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" })
+        var data: Data
+        if xml.hasPrefix("<?xml"), xml.dropFirst(5).first?.isWhitespace == true,
+           let end = xml.range(of: "?>") {
+            let declaration = String(xml[..<end.upperBound]).replacingOccurrences(
+                of: #"\s+encoding\s*=\s*(?:"[^"]*"|'[^']*')"#, with: "", options: [.regularExpression, .caseInsensitive]
+            )
+            data = Data(declaration.utf8)
+            data.append(contentsOf: xml[end.upperBound...].utf8)
+        } else {
+            data = Data(xml.utf8)
+        }
         let parser = XMLParser(data: data)
         parser.delegate = delegate
         parser.shouldProcessNamespaces = true
@@ -2561,6 +2637,10 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             let attributeText = attributes.isEmpty ? "" : " " + attributes.joined(separator: " ")
 
             let effectiveLineLanguage = line.languageCode ?? declaredLanguageCode
+            if line.isBackingVocal {
+                let backing = backgroundSpan(line, parentLanguageCode: effectiveLineLanguage, indent: "        ")
+                return "      <p\(attributeText)>\n\(backing)\n      </p>"
+            }
             var children = syllableSpans(
                 line.syllables,
                 lineLanguageCode: effectiveLineLanguage,
@@ -2650,6 +2730,11 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             if let languageCode = translation.languageCode,
                languageCode != lineLanguageCode {
                 attributes += " xml:lang=\"\(languageCode)\""
+            } else if translation.languageCode == nil, lineLanguageCode != nil {
+                attributes += " xml:lang=\"\""
+            }
+            if let last = translation.syllables?.last, last.endTiming == .inferred {
+                attributes += " end=\"\(formatTimestamp(last.end))\""
             }
             let content = annotationContent(text, syllables: translation.syllables, languageCode: translation.languageCode)
             return "\(indent)<span \(attributes)>\(content)</span>"
@@ -2660,7 +2745,10 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         let text = (line.romanization ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         let content = annotationContent(text, syllables: line.romanizationSyllables, languageCode: nil)
-        return "\(indent)<span ttm:role=\"x-roman\">\(content)</span>"
+        let endAttribute = line.romanizationSyllables?.last.flatMap { last in
+            last.endTiming == .inferred ? " end=\"\(formatTimestamp(last.end))\"" : nil
+        } ?? ""
+        return "\(indent)<span ttm:role=\"x-roman\"\(endAttribute)>\(content)</span>"
     }
 
     /// Backing vocals stay nested in their lead paragraph so a round trip
@@ -2717,18 +2805,32 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         attributes attributeDict: [String: String]
     ) {
         let name = Self.localName(qName ?? elementName)
-        let languageCode = Self.attribute("lang", in: attributeDict)
-            .flatMap(LyricLanguageCodePolicy.canonicalIdentifier)
-            ?? elements.last?.language
-        elements.append((name, languageCode))
+        if ignoredDepth > 0 { ignoredDepth += 1; return }
+        if insideParagraph && (namespaceURI == "http://www.w3.org/ns/ttml#metadata"
+            || ["metadata", "styling", "layout", "set", "animate", "resources", "image", "audio", "data"].contains(name))
+            || name == "metadata" && elements.contains(where: { $0.name == "body" }) {
+            ignoredDepth = 1
+            return
+        }
+        let languageAttribute = Self.attribute("lang", in: attributeDict)
+        // xml:lang="" explicitly clears an inherited language (e.g. an untagged translation).
+        let languageCode = languageAttribute == "" ? nil :
+            (languageAttribute.flatMap(LyricLanguageCodePolicy.canonicalIdentifier) ?? elements.last?.language)
+        elements.append(element(named: name, language: languageCode, attributes: attributeDict))
         switch name {
         case "tt":
             sawTTMLRoot = true
             documentLanguageCode = languageCode
-        case "p" where !elements.contains(where: { $0.name == "head" }):
+            timing = TimingParameters(attributes: attributeDict)
+        case "style" where elements.contains(where: { $0.name == "styling" }):
+            if let id = Self.attribute("id", in: attributeDict) {
+                rubyStyles[id] = (Self.attribute("ruby", in: attributeDict).flatMap(RubyRole.init(rawValue:)),
+                                  Self.styleReferences(in: attributeDict))
+            }
+        case "p" where !insideParagraph && elements.contains(where: { $0.name == "body" }):
             startParagraph(attributes: attributeDict, languageCode: languageCode)
             currentKey = Self.attribute("key", in: attributeDict)
-        case "text" where namespaceURI == "http://music.apple.com/lyric-ttml-internal":
+        case "text" where !insideParagraph:
             let path = elements.suffix(6).map(\.name)
             let kind: AnnotationKind
             switch path {
@@ -2753,7 +2855,11 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        appendText(string)
+        if ignoredDepth == 0 { appendText(string) }
+    }
+
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        if ignoredDepth == 0 { appendText(String(decoding: CDATABlock, as: UTF8.self)) }
     }
 
     func parser(
@@ -2762,17 +2868,46 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
-        switch Self.localName(qName ?? elementName) {
-        case "span":
+        if ignoredDepth > 0 { ignoredDepth -= 1; return }
+        if paragraphDepth == elements.count {
+            endParagraph()
+        } else if elements.last?.name == "span" {
             endSpan()
-        case "p":
-            endParagraph()
-        case "text" where currentAnnotationKind != nil:
-            endParagraph()
-        default:
-            break
         }
-        elements.removeLast()
+        let node = elements.removeLast()
+        if let end = node.end ?? node.lastChildEnd, !elements.isEmpty {
+            let last = elements.count - 1
+            elements[last].lastChildEnd = max(elements[last].lastChildEnd ?? end, end)
+        }
+    }
+
+    private func element(named name: String, language: String?, attributes: [String: String]) -> Element {
+        let parent = elements.last
+        var node = Element(name: name, language: language, begin: parent?.begin,
+                           usesRelativeChildren: parent?.usesRelativeChildren == true)
+        guard ["body", "div", "p", "span", "text"].contains(name) else { return node }
+        let sequentialParent = parent?.sequential == true
+        let reference = sequentialParent ? (parent?.lastChildEnd ?? parent?.begin ?? 0) : (parent?.begin ?? 0)
+        // Apple lyric documents use song-absolute cues at every level. Explicit TTML
+        // time containers use offsets from their parent or from the preceding sibling.
+        let origin = node.usesRelativeChildren ? reference : 0
+        let begin = timeAttribute("begin", in: attributes).map { origin + $0 }
+        let end = timeAttribute("end", in: attributes).map { origin + $0 }
+        let duration = timeAttribute("dur", in: attributes)
+        node.startsCue = begin != nil || sequentialParent || end != nil || duration != nil
+        node.begin = begin ?? (node.startsCue ? reference : parent?.begin)
+        node.end = end
+        if let duration {
+            let durationEnd = (node.begin ?? 0) + duration
+            node.end = min(end ?? durationEnd, durationEnd)
+        }
+        // A total song duration by itself does not turn static lyrics into timed lyrics.
+        if name == "body", begin == nil { node.begin = nil }
+        if let container = Self.attribute("timeContainer", in: attributes), container == "seq" || container == "par" {
+            node.usesRelativeChildren = true
+            node.sequential = container == "seq"
+        }
+        return node
     }
 
     private func startParagraph(
@@ -2782,13 +2917,14 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         // Malformed nested paragraphs should not leak the outer state into the
         // inner one. XMLParser will still ultimately report the document error.
         resetParagraph()
-        insideParagraph = true
-        currentLineBegin = Self.timeAttribute("begin", in: attributes)
-        currentLineEnd = Self.endTime(
-            in: attributes,
-            elementBegin: currentLineBegin,
-            inheritedBegin: nil
-        )
+        paragraphDepth = elements.count
+        let node = elements.last
+        currentLineBegin = node?.startsCue == true ? node?.begin : nil
+        currentLineEnd = node?.end
+        inheritedLineBegin = node?.begin
+        if inheritedLineBegin != nil {
+            inheritedLineEnd = elements.dropLast().last(where: { $0.name == "div" || $0.name == "body" })?.end
+        }
         currentLineLanguageCode = languageCode
 
         if let agent = Self.attribute("agent", in: attributes)?
@@ -2806,6 +2942,23 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         }
     }
 
+    private static func styleReferences(in attributes: [String: String]) -> [String] {
+        attribute("style", in: attributes)?.split(whereSeparator: \.isWhitespace).map(String.init) ?? []
+    }
+
+    private func rubyRole(in attributes: [String: String]) -> RubyRole? {
+        if let raw = Self.attribute("ruby", in: attributes), let role = RubyRole(rawValue: raw) { return role }
+        guard !rubyStyles.isEmpty else { return nil }
+        var references = Self.styleReferences(in: attributes)
+        var visited = Set<String>()
+        while let id = references.popLast() {
+            guard visited.insert(id).inserted, let style = rubyStyles[id] else { continue }
+            if let role = style.role { return role }
+            references.append(contentsOf: style.references)
+        }
+        return nil
+    }
+
     private func startSpan(
         attributes: [String: String],
         languageCode: String?
@@ -2816,20 +2969,12 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         } else {
             flushPendingSpanText(at: spanStack.count - 1)
         }
-        let inheritedBegin = spanStack.last?.begin ?? currentLineBegin
-        let explicitBegin = Self.timeAttribute("begin", in: attributes)
-        let carriesOwnTiming = explicitBegin != nil
-            || Self.timeAttribute("end", in: attributes) != nil
-            || Self.timeAttribute("dur", in: attributes) != nil
-        let begin = explicitBegin ?? (carriesOwnTiming ? inheritedBegin : nil)
+        let node = elements.last
         spanStack.append(SpanContext(
+            ruby: rubyRole(in: attributes),
             role: Self.attribute("role", in: attributes).flatMap(SpanRole.init(rawValue:)),
-            begin: begin,
-            end: Self.endTime(
-                in: attributes,
-                elementBegin: begin,
-                inheritedBegin: inheritedBegin
-            ),
+            begin: node?.startsCue == true ? node?.begin : nil,
+            end: node?.end,
             languageCode: languageCode
         ))
     }
@@ -2849,7 +2994,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             // Discard formatting indentation accumulated before `<br/>`, then
             // attach only the semantic break to the surrounding timed token.
             flushDirectText()
-            currentTextFragments.append("\n")
+            currentSegments.append(SpanSegment(text: "\n", begin: nil, end: nil))
             if currentSyllables.isEmpty {
                 currentUntimedPrefix += "\n"
             } else {
@@ -2881,7 +3026,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
 
         // A timed descendant is the more precise cue. An untimed/style-only
         // subtree inherits the enclosing span's timing as one cue instead.
-        let resolvedSegments: [SpanSegment]
+        var resolvedSegments: [SpanSegment]
         if segments.contains(where: \.isTimed) {
             resolvedSegments = segments.enumerated().map { index, segment in
                 guard !segment.isTimed,
@@ -2897,7 +3042,8 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                     begin: begin,
                     end: nextTimed == nil ? span.end : nil,
                     preservesWhitespace: segment.preservesWhitespace,
-                    languageCode: segment.languageCode
+                    languageCode: segment.languageCode,
+                    rubyReading: segment.rubyReading
                 )
             }
         } else {
@@ -2911,7 +3057,8 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                         begin: span.begin,
                         end: span.end,
                         preservesWhitespace: segment.preservesWhitespace,
-                        languageCode: segment.languageCode ?? span.languageCode
+                        languageCode: segment.languageCode ?? span.languageCode,
+                        rubyReading: segment.rubyReading
                     )
                 }
             } else {
@@ -2923,8 +3070,32 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                     begin: span.begin,
                     end: span.end,
                     preservesWhitespace: segments.contains(where: \.preservesWhitespace),
-                    languageCode: soleLanguage
+                    languageCode: soleLanguage,
+                    rubyReading: Self.rubySegments(in: segments)
                 )]
+            }
+        }
+
+        if span.ruby == .delimiter { return }
+        if span.ruby == .textContainer
+            || span.ruby == .text && !spanStack.contains(where: { $0.ruby == .textContainer }) {
+            if let base = spanStack.lastIndex(where: { $0.ruby == .container }) {
+                // For double-sided ruby the player uses the first reading group.
+                if span.ruby == .text || spanStack[base].rubyText.isEmpty {
+                    spanStack[base].rubyText.append(contentsOf: resolvedSegments)
+                }
+                return
+            }
+        }
+        if span.ruby == .container, !span.rubyText.isEmpty {
+            if !resolvedSegments.contains(where: \.isTimed),
+               let first = span.rubyText.first(where: \.isTimed) {
+                // Some files time the pronunciation alone. Its interval also locates the base word.
+                resolvedSegments = [SpanSegment(text: text, begin: first.begin,
+                    end: span.rubyText.last(where: \.isTimed)?.end, languageCode: span.languageCode)]
+            }
+            for index in resolvedSegments.indices {
+                resolvedSegments[index].rubyReading = index == 0 ? span.rubyText : []
             }
         }
 
@@ -2972,6 +3143,25 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         resolvedSegments.forEach(consumeSpanSegment)
     }
 
+    private static func rubySegments(in segments: [SpanSegment]) -> [SpanSegment]? {
+        guard segments.contains(where: { $0.rubyReading != nil }) else { return nil }
+        return segments.flatMap { segment -> [SpanSegment] in
+            guard let reading = segment.rubyReading else { return [segment] }
+            guard !reading.isEmpty, !reading.contains(where: \.isTimed), let begin = segment.begin else {
+                return reading
+            }
+            return [SpanSegment(text: reading.map(\.text).joined(), begin: begin, end: segment.end,
+                                languageCode: reading.first?.languageCode)]
+        }
+    }
+
+    private func rubyReading(in segments: [SpanSegment], lineEnd: TimeInterval?) -> Reading? {
+        guard let reading = Self.rubySegments(in: segments) else { return nil }
+        let text = reading.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        return Reading(text: text, syllables: timedSyllables(in: reading, language: nil, lineEnd: lineEnd))
+    }
+
     private func timedSyllables(
         in segments: [SpanSegment], language: String?, lineEnd: TimeInterval?
     ) -> [LyricSyllable]? {
@@ -3008,24 +3198,25 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
 
         let languageCode = span.languageCode ?? currentLineLanguageCode
         let syllables = timedSyllables(in: segments, language: languageCode, lineEnd: span.end)
+        let reading = span.romanization ?? rubyReading(in: segments, lineEnd: span.end)
         return LyricLine(
-            timestamp: span.begin ?? syllables?.first?.start ?? currentLineBegin ?? 0,
+            timestamp: span.begin ?? syllables?.first?.start ?? currentLineBegin ?? inheritedLineBegin ?? 0,
             text: text,
-            isSynchronized: span.begin != nil || syllables != nil,
+            isSynchronized: span.begin != nil || syllables != nil || currentLineBegin != nil || inheritedLineBegin != nil,
             syllables: syllables,
-            endTimestamp: span.end ?? syllables?.last?.end,
+            endTimestamp: span.end ?? syllables?.last?.end ?? currentLineEnd,
             voice: .secondary,
             languageCode: languageCode == documentLanguageCode ? nil : languageCode,
             manualTranslation: span.translations.first,
             alternateManualTranslations: Array(span.translations.dropFirst()),
-            romanization: span.romanization?.text,
-            romanizationSyllables: span.romanization?.syllables,
+            romanization: reading?.text,
+            romanizationSyllables: reading?.syllables,
             isBackingVocal: true
         )
     }
 
     private static func attach(_ annotation: HeadAnnotation, to line: inout LyricLine) {
-        attachText(annotation.line, kind: annotation.kind, language: annotation.languageCode, to: &line)
+        annotation.kind.attach(annotation.line, language: annotation.languageCode, to: &line)
         guard var backing = line.background, let tracks = annotation.line.background else { return }
         var assigned = Set<Int>()
         for (position, track) in tracks.enumerated() {
@@ -3035,32 +3226,10 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             }
             let index = matchingStart ?? (tracks.count == backing.count && !assigned.contains(position) ? position : nil)
             guard let index else { continue }
-            attachText(track, kind: annotation.kind, language: annotation.languageCode, to: &backing[index])
+            annotation.kind.attach(track, language: annotation.languageCode, to: &backing[index])
             assigned.insert(index)
         }
         line.background = backing
-    }
-
-    private static func attachText(_ track: LyricLine, kind: AnnotationKind, language: String?, to line: inout LyricLine) {
-        guard !track.text.isEmpty else { return }
-        switch kind {
-        case .romanization:
-            if line.romanization == nil { line.romanization = track.text }
-            if line.romanization == track.text, line.romanizationSyllables == nil {
-                line.romanizationSyllables = track.syllables
-            }
-        case .translation:
-            var translations = line.allManualTranslations
-            if let index = translations.firstIndex(where: { $0.text == track.text && $0.languageCode == language }) {
-                if translations[index].syllables == nil { translations[index].syllables = track.syllables }
-            } else {
-                translations.append(LyricManualTranslation(
-                    text: track.text, languageCode: language, source: .embeddedField, syllables: track.syllables
-                ))
-            }
-            line.manualTranslation = translations.first
-            line.alternateManualTranslations = Array(translations.dropFirst())
-        }
     }
 
     private func flushPendingSpanText(at index: Int) {
@@ -3080,7 +3249,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
     }
 
     private func consumeSpanSegment(_ segment: SpanSegment) {
-        currentTextFragments.append(segment.text)
+        currentSegments.append(segment)
         if let begin = segment.begin, !segment.text.isEmpty {
             currentSyllables.append(PendingSyllable(
                 text: currentUntimedPrefix + segment.text,
@@ -3109,18 +3278,18 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         spanStack.removeAll(keepingCapacity: true)
         flushDirectText()
 
-        let text = currentTextFragments
-            .joined()
+        let text = currentSegments.map(\.text).joined()
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty || !currentBackgroundLines.isEmpty {
             let syllables = normalizedSyllables(currentSyllables, lineEnd: currentLineEnd)
-            let timestamp = currentLineBegin ?? syllables.first?.start ?? 0
+            let timestamp = currentLineBegin ?? syllables.first?.start ?? inheritedLineBegin ?? 0
+            let reading = currentRomanization ?? rubyReading(in: currentSegments, lineEnd: currentLineEnd)
             var line = LyricLine(
                 timestamp: timestamp,
                 text: text,
-                isSynchronized: currentLineBegin != nil || !syllables.isEmpty,
+                isSynchronized: inheritedLineBegin != nil || !syllables.isEmpty,
                 syllables: syllables.isEmpty ? nil : syllables,
-                endTimestamp: currentLineEnd,
+                endTimestamp: currentLineEnd ?? (currentLineBegin == nil && syllables.isEmpty ? inheritedLineEnd : nil),
                 voice: currentLineVoice,
                 background: currentBackgroundLines.isEmpty ? nil : currentBackgroundLines,
                 languageCode: currentLineLanguageCode == documentLanguageCode
@@ -3128,8 +3297,8 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                     : currentLineLanguageCode,
                 manualTranslation: currentTranslations.first,
                 alternateManualTranslations: Array(currentTranslations.dropFirst()),
-                romanization: currentRomanization?.text,
-                romanizationSyllables: currentRomanization?.syllables
+                romanization: reading?.text,
+                romanizationSyllables: reading?.syllables
             )
             if let kind = currentAnnotationKind, let key = currentKey {
                 annotationsByKey[key, default: []].append(HeadAnnotation(
@@ -3171,7 +3340,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
            text.contains(where: { $0.isNewline }) {
             return
         }
-        currentTextFragments.append(text)
+        currentSegments.append(SpanSegment(text: text, begin: nil, end: nil))
         if currentSyllables.isEmpty {
             currentUntimedPrefix += text
         } else {
@@ -3186,14 +3355,16 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
     }
 
     private func resetParagraph() {
-        insideParagraph = false
+        paragraphDepth = nil
         currentKey = nil
         currentAnnotationKind = nil
         currentLineBegin = nil
         currentLineEnd = nil
+        inheritedLineBegin = nil
+        inheritedLineEnd = nil
         currentLineVoice = .primary
         currentLineLanguageCode = nil
-        currentTextFragments.removeAll(keepingCapacity: true)
+        currentSegments.removeAll(keepingCapacity: true)
         currentDirectText = ""
         currentUntimedPrefix = ""
         currentSyllables.removeAll(keepingCapacity: true)
@@ -3230,23 +3401,11 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         }
     }
 
-    private static func endTime(
-        in attributes: [String: String],
-        elementBegin: TimeInterval?,
-        inheritedBegin: TimeInterval?
-    ) -> TimeInterval? {
-        if let end = timeAttribute("end", in: attributes) { return end }
-        guard let begin = elementBegin ?? inheritedBegin,
-              let duration = timeAttribute("dur", in: attributes) else { return nil }
-        let end = begin + duration
-        return end.isFinite ? end : nil
-    }
-
-    private static func timeAttribute(
+    private func timeAttribute(
         _ name: String,
         in attributes: [String: String]
     ) -> TimeInterval? {
-        attribute(name, in: attributes).flatMap(parseTimestamp)
+        Self.attribute(name, in: attributes).flatMap(parseTimestamp)
     }
 
     private static func attribute(
@@ -3263,9 +3422,35 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             .lowercased() ?? qualifiedName.lowercased()
     }
 
-    /// Apple Music commonly emits `HH:MM:SS.fff`, while TTML also permits
-    /// offset times such as `1.5s`, `1500ms`, `2m`, and `1h`.
-    private static func parseTimestamp(_ rawValue: String) -> TimeInterval? {
+    private struct TimingParameters {
+        let nominalFrames: Double
+        let frames: Double
+        let subframes: Double
+        let ticks: Double
+
+        init(attributes: [String: String] = [:]) {
+            func positive(_ key: String) -> Double? {
+                guard let value = TTMLLyricsParser.attribute(key, in: attributes).flatMap(Int.init), value > 0 else { return nil }
+                return Double(value)
+            }
+            let specifiedFrames = positive("frameRate")
+            nominalFrames = specifiedFrames ?? 30
+            subframes = positive("subFrameRate") ?? 1
+            let multiplier = TTMLLyricsParser.attribute("frameRateMultiplier", in: attributes)?
+                .split(whereSeparator: \.isWhitespace)
+            if let multiplier, multiplier.count == 2,
+               let numerator = Int(multiplier[0]), numerator > 0,
+               let denominator = Int(multiplier[1]), denominator > 0 {
+                frames = nominalFrames * Double(numerator) / Double(denominator)
+            } else {
+                frames = nominalFrames
+            }
+            let defaultTicks = specifiedFrames != nil ? frames * subframes : 1
+            ticks = positive("tickRate") ?? defaultTicks
+        }
+    }
+
+    private func parseTimestamp(_ rawValue: String) -> TimeInterval? {
         let value = rawValue
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -3276,15 +3461,29 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             ("h", 3_600),
             ("m", 60),
             ("s", 1),
+            ("f", 1 / timing.frames),
+            ("t", 1 / timing.ticks),
         ]
         for unit in units where value.hasSuffix(unit.suffix) {
             guard let amount = Double(value.dropLast(unit.suffix.count)) else { return nil }
-            return validatedTime(amount * unit.multiplier)
+            return Self.validatedTime(amount * unit.multiplier)
         }
 
         let components = value
             .replacingOccurrences(of: ",", with: ".")
             .split(separator: ":", omittingEmptySubsequences: false)
+        if components.count == 4 {
+            let frameParts = components[3].split(separator: ".", omittingEmptySubsequences: false)
+            guard let hours = Int(components[0]), hours >= 0,
+                  let mins = Int(components[1]), (0..<60).contains(mins),
+                  let secs = Int(components[2]), (0..<60).contains(secs),
+                  (1...2).contains(frameParts.count),
+                  let frame = Int(frameParts[0]), (0..<timing.nominalFrames).contains(Double(frame)) else { return nil }
+            let subframe = frameParts.count == 2 ? Int(frameParts[1]) : 0
+            guard let subframe, (0..<timing.subframes).contains(Double(subframe)) else { return nil }
+            let seconds = Double(hours) * 3600 + Double(mins * 60 + secs)
+            return Self.validatedTime(seconds + (Double(frame) + Double(subframe) / timing.subframes) / timing.frames)
+        }
         guard (1...3).contains(components.count),
               let last = components.last.flatMap({ Double($0) }),
               last >= 0 else { return nil }
@@ -3304,7 +3503,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         default:
             return nil
         }
-        return validatedTime(result)
+        return Self.validatedTime(result)
     }
 
     private static func validatedTime(_ value: TimeInterval) -> TimeInterval? {

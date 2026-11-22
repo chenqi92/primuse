@@ -1849,6 +1849,24 @@ final class TVTrackNavigationAvailabilityTests: XCTestCase {
 }
 
 final class TVLyricSyllableTimingTests: XCTestCase {
+    func testPronunciationOnlyUsesAuthoredCuesAndKeepsBackingTiming() throws {
+        let source = LyricsContentParser.parseText("""
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>
+          <p begin="1s" end="3s">石灯<span ttm:role="x-roman"><span begin="1.2s" end="1.9s">shi deng</span></span>
+            <span ttm:role="x-bg" begin="1.5s" end="2s">雾<span ttm:role="x-roman"><span begin="1.6s" end="1.8s">wu</span></span></span></p>
+        </div></body></tt>
+        """)
+        let line = try XCTUnwrap(TVPlaybackCoordinator.toTVLyrics(source, duration: 5).first)
+        let displayed = line.romanizedForDisplay(generated: [:], mode: .romanizationOnly)
+        XCTAssertEqual(displayed.text, "shi deng")
+        XCTAssertEqual(displayed.syllables.map(\.start), [1.2])
+        XCTAssertEqual(displayed.endTimestamp, 3)
+        let backing = try XCTUnwrap(displayed.background.first)
+        XCTAssertEqual(backing.text, "wu")
+        XCTAssertEqual(backing.syllables.map(\.end), [1.8])
+        XCTAssertEqual(backing.endTimestamp, 2)
+    }
+
     func testConversionKeepsMixedPersianAndEnglishRowsInTheirOwnDirection() throws {
         let source = LyricsContentParser.parse("""
         [la:fa-IR]

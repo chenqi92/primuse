@@ -236,12 +236,10 @@ public enum ISOBaseMediaChapterParser {
     /// A text sample is a 16-bit byte count followed by the title. Trailing
     /// atoms (`encd`, style records) may follow and are ignored.
     private static func sampleTitle(at location: SampleLocation, in data: Data) -> String? {
+        guard location.offset >= 0, location.offset <= data.count,
+              location.size >= 2, location.size <= data.count - location.offset else { return nil }
         let start = data.startIndex + location.offset
-        guard location.offset >= 0,
-              location.size >= 2,
-              start >= data.startIndex,
-              start + location.size <= data.endIndex,
-              let declared = readUInt16BE(data, at: start) else { return nil }
+        guard let declared = readUInt16BE(data, at: start) else { return nil }
         let textStart = start + 2
         let available = min(Int(declared), start + location.size - textStart)
         guard available > 0 else { return nil }
@@ -282,7 +280,7 @@ public enum ISOBaseMediaChapterParser {
                     guard sampleIndex < sizes.count else { return result }
                     let size = Int(sizes[sampleIndex])
                     // An offset past the file cannot be trusted to be a sample.
-                    guard offset >= 0, offset <= Int64(Int.max) else { return result }
+                    guard offset >= 0, offset <= Int64(Int.max) - Int64(size) else { return result }
                     result.append(SampleLocation(offset: Int(offset), size: size))
                     offset += Int64(size)
                     sampleIndex += 1
@@ -359,7 +357,8 @@ public enum ISOBaseMediaChapterParser {
     private static func sampleStartTimes(
         stbl: Atom,
         in data: Data,
-        timescale: UInt32
+        timescale: UInt32,
+        includeEnd: Bool = false
     ) -> [TimeInterval] {
         guard let stts = atoms(in: data, range: stbl.payload)
             .first(where: { $0.type == "stts" }) else { return [] }
@@ -381,6 +380,7 @@ public enum ISOBaseMediaChapterParser {
                 if result.count >= maximumTableEntries { return result }
             }
         }
+        if includeEnd { result.append(TimeInterval(elapsed) / TimeInterval(timescale)) }
         return result
     }
 
@@ -542,5 +542,151 @@ public enum ChapterTimeFormatter {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+extension ISOBaseMediaChapterParser {
+    struct LyricTrack {
+        struct Sample {
+            var offset: Int64
+            var size: Int
+            var start: Double
+            var end: Double
+        }
+
+        var id: UInt32?
+        var hasFragments: Bool
+        var name: String
+        var language: String?
+        var codec: EmbeddedMediaLyricReader.Codec
+        var timescale: UInt32
+        var offset: Double
+        var samples: [Sample]
+    }
+
+    static func lyricTracks(in data: Data) -> [LyricTrack] {
+        func child(_ parent: Atom, _ type: String) -> Atom? {
+            atoms(in: data, range: parent.payload).first { $0.type == type }
+        }
+        func string(_ bounds: Range<Int>) -> String {
+            (String(data: data[bounds], encoding: .utf8) ?? "")
+                .trimmingCharacters(in: .controlCharacters.union(.whitespacesAndNewlines))
+        }
+        guard let movie = atoms(in: data, range: data.startIndex..<data.endIndex).first(where: { $0.type == "moov" })
+        else { return [] }
+        let tracks = atoms(in: data, range: movie.payload).filter { $0.type == "trak" }
+        let media = tracks.compactMap { track -> (track: Atom, mdia: Atom, handler: Atom, type: String)? in
+            guard let mdia = child(track, "mdia"), let handler = child(mdia, "hdlr"),
+                  handler.payload.count >= 12, let type = fourCC(in: data, at: handler.payload.lowerBound + 8)
+            else { return nil }
+            return (track, mdia, handler, type)
+        }
+        let candidates = media.filter { ["text", "sbtl", "subt", "clcp"].contains($0.type) }
+        guard !candidates.isEmpty else { return [] }
+        let audioOnly = media.contains { $0.type == "soun" } && !media.contains { $0.type == "vide" }
+        let fragmented = ISOBaseMediaLyricFragments.movieExtensions(in: data) != nil
+        let chapterOffsets = Set(chapterTracks(in: data, moov: movie).map { $0.full.lowerBound })
+        return candidates.compactMap { track, mdia, handler, type in
+            guard !chapterOffsets.contains(track.full.lowerBound),
+                  let mdhd = child(mdia, "mdhd"), let scale = mediaTimescale(mdia: mdia, in: data), scale > 0,
+                  let minf = child(mdia, "minf"), let stbl = child(minf, "stbl"), let stsd = child(stbl, "stsd"),
+                  stsd.payload.count >= 16, readUInt32BE(data, at: stsd.payload.lowerBound + 4) == 1,
+                  let entry = atom(in: data, startingAt: stsd.payload.lowerBound + 8, limit: stsd.payload.upperBound) else { return nil }
+            let codec: EmbeddedMediaLyricReader.Codec
+            switch entry.type {
+            case "tx3g", "text": codec = .timedText
+            case "wvtt": codec = .webVTTBoxes
+            case "stpp": codec = .xml
+            default: return nil
+            }
+
+            let udta = child(track, "udta")
+            var name = udta.flatMap { child($0, "name") }.map { string($0.payload) } ?? ""
+            if name.isEmpty, handler.payload.count > 24 { name = string((handler.payload.lowerBound + 24)..<handler.payload.upperBound) }
+            // An ISO track kind carries scheme and value as separate zero-terminated strings.
+            let kinds = udta.map { atoms(in: data, range: $0.payload).filter { $0.type == "kind" && $0.payload.count > 4 } } ?? []
+            if let kind = kinds.compactMap({ kind in
+                data[(kind.payload.lowerBound + 4)..<kind.payload.upperBound].split(separator: 0).last
+                    .flatMap { String(data: $0, encoding: .utf8) }
+            }).first(where: EmbeddedMediaLyricReader.isLyricName), !EmbeddedMediaLyricReader.isLyricName(name) { name = kind }
+            guard EmbeddedMediaLyricReader.acceptsTrack(name: name, audioOnly: audioOnly && type != "clcp") else { return nil }
+            if name.isEmpty { name = entry.type }
+
+            let languageOffset = data[mdhd.payload.lowerBound] == 1 ? 32 : 20
+            var language: String?
+            if let extended = child(mdia, "elng"), extended.payload.count > 4 {
+                language = string((extended.payload.lowerBound + 4)..<extended.payload.upperBound)
+            }
+            if language == nil, mdhd.payload.count >= languageOffset + 2,
+               let packed = readUInt16BE(data, at: mdhd.payload.lowerBound + languageOffset) {
+                let codes = [10, 5, 0].map { UInt8((packed >> $0) & 31) }
+                if codes.allSatisfy({ (1...26).contains($0) }) { language = String(decoding: codes.map { $0 + 96 }, as: UTF8.self) }
+            }
+            guard let stsz = child(stbl, "stsz"), stsz.payload.count >= 12,
+                  let count = readUInt32BE(data, at: stsz.payload.lowerBound + 8), count < maximumTableEntries,
+                  count > 0 || fragmented else { return nil }
+            let locations = sampleLocations(stbl: stbl, in: data)
+            let times = sampleStartTimes(stbl: stbl, in: data, timescale: scale, includeEnd: true)
+            guard locations.count == Int(count), count == 0 || times.count == locations.count + 1 else { return nil }
+            var offset = 0.0
+            if let edits = child(track, "edts").flatMap({ child($0, "elst") }) {
+                guard let movieHeader = child(movie, "mvhd"), !movieHeader.payload.isEmpty else { return nil }
+                let movieScaleOffset = data[movieHeader.payload.lowerBound] == 1 ? 20 : 12
+                guard movieHeader.payload.count >= movieScaleOffset + 4,
+                      let movieScale = readUInt32BE(data, at: movieHeader.payload.lowerBound + movieScaleOffset), movieScale > 0,
+                      let edit = linearEditOffset(edits, in: data, movieScale: movieScale, trackScale: scale) else { return nil }
+                offset = edit
+            }
+            let xmlSizes = codec == .xml ? xmlSubsampleSizes(child(stbl, "subs")?.payload, data: data, count: locations.count) : [:]
+            let samples = locations.enumerated().map { i, loc in
+                LyricTrack.Sample(offset: Int64(loc.offset), size: min(loc.size, xmlSizes[i] ?? loc.size), start: times[i], end: times[i + 1])
+            }
+            return LyricTrack(id: trackID(of: track, in: data), hasFragments: fragmented, name: name, language: language,
+                              codec: codec, timescale: scale, offset: offset, samples: samples)
+        }
+    }
+
+    /// In an XML subtitle sample with embedded resources, only the first subsample is the XML document.
+    static func xmlSubsampleSizes(_ bounds: Range<Int>?, data: Data, count: Int) -> [Int: Int] {
+        guard let bounds, bounds.count >= 8 else { return [:] }
+        let base = bounds.lowerBound
+        let sizeWidth = data[base] == 1 ? 4 : 2
+        let entryCount = OrderedTagContainer.value(data, base + 4, 4)
+        let entryWidth = sizeWidth + 6
+        var result: [Int: Int] = [:]
+        var cursor = base + 8
+        var sample = -1
+        for _ in 0..<min(entryCount, count) {
+            guard cursor <= bounds.upperBound - 6 else { break }
+            let delta = OrderedTagContainer.value(data, cursor, 4)
+            let subs = OrderedTagContainer.value(data, cursor + 4, 2)
+            cursor += 6
+            guard delta > 0, delta <= count - 1 - sample, subs <= (bounds.upperBound - cursor) / entryWidth else { break }
+            sample += delta
+            if subs > 0 { result[sample] = OrderedTagContainer.value(data, cursor, sizeWidth) }
+            cursor += subs * entryWidth
+        }
+        return result
+    }
+
+    /// A leading empty edit delays the track; the media edit trims its start.
+    private static func linearEditOffset(_ edits: Atom, in data: Data, movieScale: UInt32, trackScale: UInt32) -> Double? {
+        let base = edits.payload.lowerBound
+        guard edits.payload.count >= 8, let count = readUInt32BE(data, at: base + 4), (1...2).contains(count) else { return nil }
+        let long = data[base] == 1
+        let width = long ? 20 : 12
+        guard edits.payload.count >= 8 + Int(count) * width else { return nil }
+        var offset = 0.0
+        for index in 0..<Int(count) {
+            let cursor = base + 8 + index * width
+            let duration = long ? readUInt64BE(data, at: cursor) : readUInt32BE(data, at: cursor).map(UInt64.init)
+            let start = long ? readUInt64BE(data, at: cursor + 8).map(Int64.init(bitPattern:))
+                             : readUInt32BE(data, at: cursor + 4).map { Int64(Int32(bitPattern: $0)) }
+            guard let duration, let start, readUInt32BE(data, at: cursor + width - 4) == 0x00010000 else { return nil }
+            if start == -1, index == 0, count == 2 { offset = Double(duration) / Double(movieScale) }
+            else if start >= 0, index == Int(count) - 1 { offset -= Double(start) / Double(trackScale) }
+            else { return nil }
+        }
+        return offset
     }
 }

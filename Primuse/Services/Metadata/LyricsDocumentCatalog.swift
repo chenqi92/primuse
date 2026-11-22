@@ -19,6 +19,7 @@ enum LyricsDocumentCatalog {
         var isKeptVersion = false
         var embeddedID: String?
         var embeddedText: String?
+        var embeddedRole: EmbeddedLyricField.Role?
         var embeddedLanguage: String?
         var openedAudioFile: LyricsWriteback.OpenedAudioFile?
         var serverText: String?
@@ -186,72 +187,82 @@ enum LyricsDocumentCatalog {
         var choices = await MetadataAssetStore.shared.lyricsVersionPreferences(forSongID: song.id) ?? .init()
         var listingError: String?
         var enumeratedEmbedded = false
+        var snapshot = await store.embeddedLyricsAlternatives(forSongID: song.id)
         if shouldReadEmbedded(song, type: sourcesStore.source(id: song.sourceID)?.type) {
-            do {
-                let writable = await sourceManager.supportsEmbeddedTagWrite(for: song)
-                let openedFile = writable ? await LyricsWriteback.openedAudioFile(for: song, sourceManager: sourceManager) : nil
-                let bytes = try await sourceManager.editorEmbeddedFileData(for: song)
-                try Task.checkCancellation()
-                let ext = song.fileFormat.rawValue
-                let physical = try await Task.detached(priority: .userInitiated) {
-                    try EmbeddedLyricsArchive.entries(in: bytes, fileExtension: ext)
-                }.value
-                if let old = cached, LyricsDocumentSource.of(old)?.kind == .embedded,
-                   old.first?.documentIsLocalOverride != true,
-                   !physical.contains(where: { EmbeddedLyricsPrecedencePolicy.sameDocument(old, LyricsParser.parse($0.text)) }) {
-                    let metadata = await FileMetadataReader.RangeReadSession().read(from: bytes, fileExtension: ext)
-                    if let current = FileMetadataReader.parsedEmbeddedLyrics(from: metadata) {
-                        await store.reconcileEmbeddedSource(current, alternatives: metadata.embeddedLyricsAlternatives,
-                                                            forSongID: song.id, expected: LyricsDocumentFingerprint(lines: old))
-                        cached = await store.cachedLyrics(forSongID: song.id)
-                        choices = await store.lyricsVersionPreferences(forSongID: song.id) ?? .init()
-                        sources = await store.lyricsSourceCollection(forSongID: song.id)
+            var archiveBytes: Data?
+            if AudioMetadataWritebackPolicy.embeddedFormats.contains(song.fileFormat) || song.fileFormat == .alac {
+                do {
+                    let bytes = try await sourceManager.editorEmbeddedFileData(for: song)
+                    archiveBytes = bytes
+                    let ext = song.fileFormat.rawValue
+                    let physical = try await Task.detached(priority: .userInitiated) {
+                        try EmbeddedLyricsArchive.entries(in: bytes, fileExtension: ext)
+                    }.value
+                    let writable = await sourceManager.supportsEmbeddedTagWrite(for: song)
+                    let openedFile = writable ? await LyricsWriteback.openedAudioFile(for: song, sourceManager: sourceManager) : nil
+                    entries += physical.map { record in
+                        let format = Entry.formatName(record.text)
+                        return Entry(document: .init(name: record.fieldName, path: "embedded:" + record.id,
+                                                     size: Int64(record.text.utf8.count), modifiedDate: nil),
+                                     format: LyricsDocumentFormat(rawValue: format.lowercased()), isActive: false,
+                                     isEditable: writable && record.isWritable, translation: nil, embeddedID: record.id,
+                                     embeddedText: record.text, embeddedRole: record.role, embeddedLanguage: record.languageCode,
+                                     openedAudioFile: openedFile)
                     }
+                    enumeratedEmbedded = true
+                } catch { listingError = SourceErrorPresentation.userFacingDescription(error) }
+            }
+            do {
+                let metadata = try await embeddedMetadata(for: song, archiveBytes: archiveBytes, sourceManager: sourceManager)
+                try Task.checkCancellation()
+                var fresh = metadata.embeddedLyricsAlternatives
+                if let previous = snapshot?.inUseText, fresh?.variants.contains(where: { $0.text == previous }) == true {
+                    fresh?.inUseText = previous
                 }
-                enumeratedEmbedded = true
-                var foundActive = false
-                let embedded = physical.map { record in
-                    let formatName = Entry.formatName(record.text)
-                    let lines = LyricsParser.parse(record.text)
-                    let active = !foundActive && cached.map {
-                        LyricsDocumentSource.of($0)?.kind == .embedded && EmbeddedLyricsPrecedencePolicy.sameDocument($0, lines)
-                    } == true
-                    foundActive = foundActive || active
-                    return Entry(document: .init(name: record.fieldName, path: "embedded:" + record.id,
-                                                 size: Int64(record.text.utf8.count), modifiedDate: nil),
-                                 format: LyricsDocumentFormat(rawValue: formatName.lowercased()),
-                                 isActive: active, isEditable: writable, translation: nil,
-                                 embeddedID: record.id, embeddedText: record.text, embeddedLanguage: record.languageCode,
-                                 openedAudioFile: openedFile)
+                snapshot = fresh
+                if let old = cached, let current = FileMetadataReader.parsedEmbeddedLyrics(from: metadata),
+                   LyricsDocumentSource.of(old)?.kind == .embedded, old.first?.documentIsLocalOverride != true {
+                    await store.reconcileEmbeddedSource(current, alternatives: snapshot, forSongID: song.id,
+                                                        expected: LyricsDocumentFingerprint(lines: old))
+                    cached = await store.cachedLyrics(forSongID: song.id)
                 }
-                entries.append(contentsOf: embedded)
-            } catch { listingError = SourceErrorPresentation.userFacingDescription(error) }
+                await store.storeEmbeddedLyricsAlternatives(snapshot, forSongID: song.id)
+                enumeratedEmbedded = enumeratedEmbedded || snapshot != nil
+                if snapshot != nil { listingError = nil }
+            } catch {
+                if !enumeratedEmbedded { listingError = SourceErrorPresentation.userFacingDescription(error) }
+            }
         }
-        if !enumeratedEmbedded,
-           let snapshot = await MetadataAssetStore.shared.embeddedLyricsAlternatives(forSongID: song.id) {
-            var values = snapshot.variants.map { ($0.text, $0.languageCode) }
-            if let translation = snapshot.translatedLyricsText {
-                values.append((translation, snapshot.translatedLyricsLanguageCode))
-            }
-            for (language, text) in snapshot.languageTaggedLyrics.sorted(by: { $0.key < $1.key })
-                + snapshot.languageTaggedTranslations.sorted(by: { $0.key < $1.key }) {
-                values.append((text, language))
-            }
-            var seen = Set<String>()
-            for (text, language) in values {
-                let key = SHA256.hash(data: Data(((language ?? "") + "\u{0}" + text).utf8))
+        if let snapshot {
+            let fields = snapshot.fields ?? legacyFields(in: snapshot)
+            var physical = entries.filter { $0.embeddedID != nil }
+            var occurrences: [String: Int] = [:]
+            for field in fields {
+                if let index = physical.firstIndex(where: {
+                    $0.embeddedText == field.text && (snapshot.fields == nil || $0.name.caseInsensitiveCompare(field.name) == .orderedSame)
+                        && ($0.embeddedLanguage == field.languageCode || $0.embeddedLanguage == nil || field.languageCode == nil)
+                }) {
+                    physical.remove(at: index)
+                    continue
+                }
+                let digest = SHA256.hash(data: Data(((field.languageCode ?? "") + "\u{0}" + field.text).utf8))
                     .map { String(format: "%02x", $0) }.joined()
-                guard seen.insert(key).inserted else { continue }
-                let format = Entry.formatName(text)
-                entries.append(Entry(document: .init(name: format, path: "embedded-snapshot:" + key,
-                                                     size: Int64(text.utf8.count), modifiedDate: nil),
-                                     format: LyricsDocumentFormat(rawValue: format.lowercased()),
-                                     isActive: cached.map { LyricsDocumentSource.of($0)?.kind == .embedded
-                                        && EmbeddedLyricsPrecedencePolicy.sameDocument($0, LyricsParser.parse(text)) } == true,
-                                     isEditable: false, translation: nil, embeddedID: key,
-                                     embeddedText: text, embeddedLanguage: language))
+                let occurrence = occurrences[digest, default: 0]
+                occurrences[digest] = occurrence + 1
+                let key = occurrence == 0 ? digest : digest + "." + String(occurrence)
+                let format = Entry.formatName(field.text)
+                entries.append(Entry(document: .init(name: field.name, path: "embedded-snapshot:" + key,
+                                                     size: Int64(field.text.utf8.count), modifiedDate: nil),
+                                     format: LyricsDocumentFormat(rawValue: format.lowercased()), isActive: false,
+                                     isEditable: false, translation: nil, embeddedID: key, embeddedText: field.text,
+                                     embeddedRole: field.role, embeddedLanguage: field.languageCode))
             }
         }
+        if let cached, LyricsDocumentSource.of(cached)?.kind == .embedded,
+           let active = entries.firstIndex(where: { entry in
+               guard let text = entry.embeddedText else { return false }
+               return EmbeddedLyricsPrecedencePolicy.sameDocument(cached, LyricsParser.parse(text))
+           }) { entries[active].isActive = true }
         let current = sources.selected ?? sources.candidates.first(where: {
             guard let cached else { return false }
             return $0.source == LyricsDocumentSource.of(cached)
@@ -409,11 +420,51 @@ enum LyricsDocumentCatalog {
     // MARK: - Reading
 
     private static func shouldReadEmbedded(_ song: Song, type: MusicSourceType?) -> Bool {
-        guard AudioMetadataWritebackPolicy.embeddedFormats.contains(song.fileFormat) || song.fileFormat == .alac,
-              !song.isCueTrack, !song.isStreamDescriptor,
+        guard !song.isCueTrack, !song.isStreamDescriptor,
               song.sourceID != AppleMusicLibraryIdentity.sourceID, !PodcastPlaybackSong.isEpisode(song),
               let type else { return false }
         return type == .local || type.supportsEmbeddedMetadataBackfill
+    }
+
+    private static func legacyFields(in record: EmbeddedLyricsAlternatives) -> [EmbeddedLyricField] {
+        var fields: [EmbeddedLyricField] = []
+        func add(_ text: String, _ language: String?, role: EmbeddedLyricField.Role) {
+            guard !fields.contains(where: { $0.text == text && $0.languageCode == language }) else { return }
+            fields.append(.init(name: Entry.formatName(text), text: text, languageCode: language, role: role))
+        }
+        for item in record.variants { add(item.text, item.languageCode, role: .original) }
+        if let text = record.translatedLyricsText { add(text, record.translatedLyricsLanguageCode, role: .translation) }
+        for (language, text) in record.languageTaggedLyrics.sorted(by: { $0.key < $1.key }) { add(text, language, role: .original) }
+        for (language, text) in record.languageTaggedTranslations.sorted(by: { $0.key < $1.key }) { add(text, language, role: .translation) }
+        return fields
+    }
+
+    private static func embeddedMetadata(for song: Song, archiveBytes: Data?, sourceManager: SourceManager) async throws -> FileMetadataReader.Metadata {
+        let ext = song.fileFormat.rawValue
+        if let bytes = archiveBytes, song.fileFormat == .flac {
+            return await FileMetadataReader.RangeReadSession().read(from: bytes, fileExtension: ext)
+        }
+        if let url = await sourceManager.directLocalFileURL(for: song) {
+            return await FileMetadataReader.read(from: url)
+        }
+        if let url = await sourceManager.cachedURLForBackgroundRead(for: song) {
+            return await FileMetadataReader.read(from: url)
+        }
+        let reader = try await sourceManager.metadataRangeReader(for: song)
+        let fetch: @Sendable (Int64, Int64) async throws -> Data = { offset, length in
+            try await SpeculativeRangeRead.withBoundedResponses(requestedLength: length) {
+                try await reader.fetch(offset: offset, length: length, intent: .bulkBounded)
+            }
+        }
+        return try await FileMetadataReader.readLyricTags(fileSize: song.fileSize, fileExtension: ext, head: archiveBytes, fetch: fetch)
+    }
+
+    private static func embeddedLines(_ entry: Entry, text: String, snapshot: EmbeddedLyricsAlternatives?) -> [LyricLine] {
+        if entry.embeddedRole != .translation, entry.embeddedRole != .romanization, let snapshot {
+            let variant = EmbeddedLyricsVariant(text: text, languageCode: entry.embeddedLanguage)
+            if let lines = LyricsLoader.embeddedDocument(for: variant, in: snapshot) { return lines }
+        }
+        return LyricsDocumentSource.embedded.stamped(LyricsParser.parse(text))
     }
 
     private static func embeddedEntries(
@@ -554,7 +605,8 @@ enum LyricsDocumentCatalog {
         if let edit = entry.localEdit { return edit.lines }
         if let candidate = entry.candidate { return candidate.lines }
         if let text = entry.embeddedText {
-            return LyricsDocumentSource.embedded.stamped(LyricsParser.parse(text))
+            let snapshot = await MetadataAssetStore.shared.embeddedLyricsAlternatives(forSongID: song.id)
+            return embeddedLines(entry, text: text, snapshot: snapshot)
         }
         if let text = entry.serverText, let type = entry.serverType {
             return LyricsDocumentSource.server(type).stamped(LyricsParser.parse(text))

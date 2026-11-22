@@ -1257,10 +1257,12 @@ struct TVImmersivePlayerView: View {
                         text: text,
                         syllables: immersiveSyllables(for: background),
                         startTime: background.isSynchronized ? background.time : nil,
-                        endTime: background.syllables.last.map {
+                        endTime: background.endTimestamp ?? background.syllables.last.map {
                             LyricSyllablePlaybackTimingPolicy.effectiveEnd(for: $0.lyricSyllable)
                         },
-                        writingDirection: background.writingDirection
+                        writingDirection: background.writingDirection,
+                        companions: [background.romanization, background.translation]
+                            .filter { !$0.isEmpty }.map(LyricCompanionTextPolicy.displayText)
                     )
                 },
                 companions: [

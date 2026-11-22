@@ -262,7 +262,13 @@ func subsonicLyricsClientLoadsOpenSubsonicLyrics(sourceType: MusicSourceType) as
         case "ping.view":
             return (200, Data(#"{"subsonic-response":{"status":"ok","type":"navidrome","openSubsonic":true}}"#.utf8))
         case "getLyricsBySongId.view":
-            return (200, Data(#"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[{"kind":"main","synced":true,"line":[{"start":1000,"value":"Cold cache line"}]}]}}}"#.utf8))
+            return (200, Data(#"""
+                {"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[
+                  {"kind":"main","synced":true,"line":[{"start":1000,"value":"石灯"}]},
+                  {"kind":"translation","lang":"eng","synced":true,"line":[{"start":1000,"value":"Stone lamp"}]},
+                  {"kind":"pronunciation","synced":true,"line":[{"start":1000,"value":"shi deng"}]}
+                ]}}}
+                """#.utf8))
         default:
             return (404, Data())
         }
@@ -288,8 +294,10 @@ func subsonicLyricsClientLoadsOpenSubsonicLyrics(sourceType: MusicSourceType) as
         return
     }
     let line = try #require(LyricsContentParser.parseText(text).first)
-    #expect(line.text == "Cold cache line")
+    #expect(line.text == "石灯")
     #expect(line.timestamp == 1)
+    #expect(line.manualTranslation?.text == "Stone lamp")
+    #expect(line.romanization == "shi deng")
     let requests = SubsonicLyricsURLProtocol.requests(host: host)
     #expect(requests.map { $0.url?.lastPathComponent } == ["ping.view", "getLyricsBySongId.view"])
     let lyricsQuery = Dictionary(uniqueKeysWithValues:

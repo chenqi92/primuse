@@ -55,9 +55,12 @@ public enum WordTimedLyricsParser {
         var krcLines = 0
         var lrcLines = 0
 
-        for raw in body.components(separatedBy: .newlines).prefix(80) {
+        var inspected = 0
+        for raw in body.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty, !isDocumentMetadata(line) else { continue }
+            if inspected == 80 { break }
+            inspected += 1
             if lysProperty(in: line) != nil, !wordMarkers(in: line, fieldCount: 2).isEmpty {
                 lysLines += 1
             } else if lineHeader(in: line) != nil {
@@ -711,23 +714,16 @@ public enum WordTimedLyricsParser {
 
     /// QQ Music ships `.qrc` content inside a small XML envelope.
     private static func unwrappingQRCDocument(_ content: String) -> String? {
-        guard content.range(of: "LyricContent", options: .caseInsensitive) != nil,
-              let attribute = content.range(
-                  of: "LyricContent=\"",
-                  options: .caseInsensitive
-              ),
-              let close = content[attribute.upperBound...].firstIndex(of: "\"") else {
+        guard content.drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" }).first == "<",
+              let attribute = content.range(of: #"\bLyricContent\s*=\s*["']"#,
+                                            options: [.regularExpression, .caseInsensitive]),
+              let quote = content[attribute].last,
+              let close = content[attribute.upperBound...].firstIndex(of: quote) else {
             return nil
         }
-        let escaped = content[attribute.upperBound..<close]
-        return escaped
-            .replacingOccurrences(of: "&#10;", with: "\n")
-            .replacingOccurrences(of: "&#13;", with: "")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&apos;", with: "'")
-            .replacingOccurrences(of: "&amp;", with: "&")
+        // QRC writers use both literal newlines and character references inside this attribute.
+        // XML attribute normalization would turn the literal row breaks into spaces.
+        return LyricTextEntityPolicy.decoded(String(content[attribute.upperBound..<close]), allowsLineBreaks: true)
     }
 
     private static func seconds(_ milliseconds: Int) -> TimeInterval {

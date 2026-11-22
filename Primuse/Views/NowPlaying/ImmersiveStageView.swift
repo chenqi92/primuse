@@ -60,6 +60,7 @@ struct ImmersiveStageBackgroundLyric: Identifiable, Equatable {
     let startTime: TimeInterval?
     let endTime: TimeInterval?
     let writingDirection: LyricWritingDirection?
+    let companions: [String]
 
     init(
         id: String,
@@ -67,7 +68,8 @@ struct ImmersiveStageBackgroundLyric: Identifiable, Equatable {
         syllables: [LyricSyllable]? = nil,
         startTime: TimeInterval? = nil,
         endTime: TimeInterval? = nil,
-        writingDirection: LyricWritingDirection? = nil
+        writingDirection: LyricWritingDirection? = nil,
+        companions: [String] = []
     ) {
         self.id = id
         self.text = text
@@ -75,6 +77,7 @@ struct ImmersiveStageBackgroundLyric: Identifiable, Equatable {
         self.startTime = startTime
         self.endTime = endTime
         self.writingDirection = writingDirection
+        self.companions = companions
     }
 }
 
@@ -82,7 +85,8 @@ extension ImmersiveStageBackgroundLyric {
     /// Projects the backing groups of one lyric line onto the stage model.
     static func rows(
         for line: LyricLine,
-        documentFallback: LyricWritingDirection
+        documentFallback: LyricWritingDirection,
+        companions: (LyricLine) -> [String]
     ) -> [ImmersiveStageBackgroundLyric] {
         (line.background ?? []).compactMap { background in
             let text = background.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -96,7 +100,8 @@ extension ImmersiveStageBackgroundLyric {
                 writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(
                     for: background,
                     documentFallback: documentFallback
-                )
+                ),
+                companions: companions(background)
             )
         }
     }
@@ -1359,20 +1364,10 @@ struct ImmersiveStageView<Artwork: View>: View {
                     .opacity(0.78)
                     .accessibilityHidden(true)
                 }
+                kineticCompanions(background.companions, fontSize: fontSize * 0.7, appearance: companion)
             }
 
-            ForEach(line.companions.indices, id: \.self) { slot in
-                lyricsTypeface.text(line.companions[slot], size: fontSize * 0.42, weight: .medium)
-                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.72))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.72)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .opacity(companion.opacity)
-                    .offset(y: CGFloat(companion.offset) * fontSize * 0.5)
-                    .blur(radius: CGFloat(companion.blur) * fontSize * 0.5)
-                    .accessibilityHidden(true)
-            }
+            kineticCompanions(line.companions, fontSize: fontSize, appearance: companion)
         }
         .frame(width: width)
         .environment(\.layoutDirection, layoutDirection(for: line))
@@ -2113,6 +2108,22 @@ struct ImmersiveStageView<Artwork: View>: View {
     }
 
     @ViewBuilder
+    private func kineticCompanions(_ texts: [String], fontSize: CGFloat, appearance: ImmersiveKineticLyricsPolicy.Appearance) -> some View {
+        ForEach(texts.indices, id: \.self) { slot in
+            lyricsTypeface.text(texts[slot], size: fontSize * 0.42, weight: .medium)
+                .foregroundStyle(ImmersiveStagePalette.text.opacity(0.72))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.72)
+                .fixedSize(horizontal: false, vertical: true)
+                .opacity(appearance.opacity)
+                .offset(y: CGFloat(appearance.offset) * fontSize * 0.5)
+                .blur(radius: CGFloat(appearance.blur) * fontSize * 0.5)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
     /// `availableWidth` 是这一句能占多宽：逐字浪尖按它先把字号算到放得下（见 `ImmersiveSyllableCrestText`）。
     private func lyricLine(
         _ line: ImmersiveStageLyric,
@@ -2138,21 +2149,26 @@ struct ImmersiveStageView<Artwork: View>: View {
                     textAlignment: textAlignment,
                     availableWidth: availableWidth
                 )
+                stageCompanions(background.companions, fontSize: fontSize * 0.7, isActive: line.isActive,
+                                lineLimit: lineLimit, alignment: textAlignment)
             }
-            ForEach(line.companions.indices, id: \.self) { slot in
-                lyricsTypeface.text(line.companions[slot], size: fontSize * 0.55, weight: .medium)
-                    .foregroundStyle(
-                        ImmersiveStagePalette.text.opacity(line.isActive ? 0.62 : 0.34)
-                    )
-                    .multilineTextAlignment(textAlignment)
-                    .lineLimit(lineLimit)
-                    .minimumScaleFactor(0.72)
-                    .fixedSize(horizontal: false, vertical: true)
-                    // The lead row already announces the line.
-                    .accessibilityHidden(true)
-            }
+            stageCompanions(line.companions, fontSize: fontSize, isActive: line.isActive,
+                            lineLimit: lineLimit, alignment: textAlignment)
         }
         .environment(\.layoutDirection, layoutDirection(for: line))
+    }
+
+    private func stageCompanions(_ texts: [String], fontSize: CGFloat, isActive: Bool,
+                                 lineLimit: Int, alignment: TextAlignment) -> some View {
+        ForEach(texts.indices, id: \.self) { slot in
+            lyricsTypeface.text(texts[slot], size: fontSize * 0.55, weight: .medium)
+                .foregroundStyle(ImmersiveStagePalette.text.opacity(isActive ? 0.62 : 0.34))
+                .multilineTextAlignment(alignment)
+                .lineLimit(lineLimit)
+                .minimumScaleFactor(0.72)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityHidden(true)
+        }
     }
 
     private func lyricStackAlignment(for textAlignment: TextAlignment) -> HorizontalAlignment {

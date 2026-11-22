@@ -161,8 +161,8 @@ public enum EmbeddedLyricsFieldEditor {
     /// 明确标成译文的那一帧（描述是 translation / translated lyrics 之类）：清空和替换都不动它。
     public static func isTranslationUSLT(_ body: Data) -> Bool {
         guard let parts = usltParts(body) else { return false }
-        let descriptor = parts.descriptor.lowercased().filter { $0.isLetter || $0.isNumber }
-        return descriptor.hasPrefix("translat") || descriptor == "lyricstranslation"
+        if case .translation = ISOBaseMediaLyricsParser.id3UserTextRole(parts.descriptor) { return true }
+        return false
     }
 
     /// 换掉这一帧的正文，语言和描述照旧。统一写成带 BOM 的 UTF-16，ID3v2.3 和 2.4 都认。
@@ -178,7 +178,13 @@ public enum EmbeddedLyricsFieldEditor {
 
     /// 在这些 `USLT` 帧体里改歌词。定位不准时为 nil，什么都不改。
     public static func editUSLT(bodies: [Data], _ operation: Operation) -> USLTEdit? {
-        let originals = bodies.indices.filter { !isTranslationUSLT(bodies[$0]) }
+        let originals = bodies.indices.filter {
+            guard let parts = usltParts(bodies[$0]) else { return false }
+            switch ISOBaseMediaLyricsParser.id3UserTextRole(parts.descriptor) {
+            case .translation, .romanization: return false
+            default: return true
+            }
+        }
         func matches(_ index: Int, _ text: String) -> Bool {
             guard let decoded = usltText(bodies[index]) else { return false }
             if sameLyrics(decoded, text) { return true }
@@ -322,120 +328,40 @@ public enum EmbeddedLyricsFieldEditor {
         public let result: Result
     }
 
-    /// Edits plain ID3v2.3/2.4 frames. Other frames and the complete audio tail are copied verbatim.
+    /// Resolves an original against all the physical lyric fields, keeping companions and opaque media bytes intact.
     public static func editID3(_ data: Data, _ operation: Operation) -> FileEdit? {
         guard data.startIndex == 0 else { return nil }
-        let header: Data
-        let layout: (frames: [Range<Int>], audioOffset: Int)
-        if let existing = checkedID3Frames(data), data[5] == 0 {
-            header = Data(data.prefix(6))
-            layout = existing
-        } else {
-            // Only a complete, bare Layer III stream is known to contain no other lyric tags.
+        let tagged: Data
+        if data.starts(with: "ID3".utf8) { tagged = data }
+        else {
             guard consistsOfMPEGAudioFrames(data) else { return nil }
-            header = Data([0x49, 0x44, 0x33, 4, 0, 0])
-            layout = ([], 0)
+            tagged = Data([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0]) + data
         }
-        let version = header[3]
-        func lengthBytes(_ value: Int, sync: Bool) -> Data {
-            let bits = sync ? 7 : 8
-            let mask = (1 << bits) - 1
-            return Data((0..<4).reversed().map { UInt8((value >> ($0 * bits)) & mask) })
-        }
-        func makeFrame(_ name: String, _ body: Data) -> Data {
-            Data(name.utf8) + lengthBytes(body.count, sync: version == 4) + Data([0, 0]) + body
-        }
-        var raw: [Data] = []
-        var fields: [Field] = []
-        var slots: [Int] = []
-        var replacements: [(String) -> Data?] = []
-        var occupied = Set(layout.frames.compactMap { range -> USLTIdentity? in
-            guard data[range.prefix(4)].elementsEqual("USLT".utf8) else { return nil }
-            return usltIdentity(Data(data[range.dropFirst(10)]))
-        })
-        for range in layout.frames {
-            let start = range.lowerBound
-            let id = String(decoding: data[range.prefix(4)], as: UTF8.self)
-            let body = Data(data[range.dropFirst(10)])
-            let flags = data[(start + 8)..<(start + 10)]
-            raw.append(data.subdata(in: range))
-            guard ["USLT", "SYLT", "TXXX"].contains(id) else { continue }
-            // A compressed/encrypted user text frame can contain an unknown lyrics field.
-            guard flags.allSatisfy({ $0 == 0 }) else { return nil }
-            let text: String
-            let language: String?
-            let replacing: (String) -> Data?
-            if id == "TXXX" {
-                guard body.count > 1 else { return nil }
-                let tail = Data(body.dropFirst())
-                guard let ranges = descriptorAndTextRanges(tail, encoding: body[0]),
-                      let descriptor = decodedID3Text(tail.subdata(in: ranges.descriptor), encoding: body[0]) else { return nil }
-                guard case .original(let code) = ISOBaseMediaLyricsParser.id3UserTextRole(descriptor) else { continue }
-                guard let value = TextEncodingRepair.decodeID3Text(tail.subdata(in: ranges.text), encodingByte: body[0]) else { return nil }
-                text = value
-                language = code
-                replacing = { value in
-                    makeFrame(id, Data([1]) + utf16WithByteOrderMark(descriptor) + Data([0, 0]) + utf16WithByteOrderMark(value))
+        guard let rows = try? EmbeddedLyricsArchive.originalID3Entries(in: tagged),
+              let plan = targets(rows.map { Field(text: $0.entry.text, language: $0.entry.languageCode) }, operation: operation) else { return nil }
+        do {
+            var edits: [String: String?] = [:]
+            switch operation {
+            case .replace(let text, _):
+                guard !normalizedText(text).isEmpty else { return nil }
+                if plan.indices.isEmpty {
+                    let name = tagged[3] == 2 ? "ULT" : "USLT"
+                    let body = makeUSLTBody(language: Data("und".utf8), descriptor: "", text: text)
+                    let result = try OrderedTagContainer.replacing(in: tagged, format: .mp3, replacements: [:],
+                                                                   appending: [.init(ordinal: 0, key: name, payload: body)])
+                    return FileEdit(data: result, result: plan.result)
                 }
-            } else {
-                let descriptor: String
-                if id == "SYLT" {
-                    guard body.count > 6 else { return nil }
-                    guard [1, 2].contains(body[5]) else { continue }
-                    guard let parsed = ID3SynchronizedLyricsParser.parse(body) else { return nil }
-                    descriptor = parsed.descriptor
-                    text = parsed.text
-                } else {
-                    guard let parts = usltParts(body) else { return nil }
-                    descriptor = parts.descriptor
-                    text = parts.text
-                }
-                guard !isTranslationDescriptor(descriptor) else { continue }
-                let lang = body.subdata(in: 1..<4)
-                language = isUndeterminedLanguage(lang) ? nil : String(data: lang, encoding: .ascii)?.lowercased()
-                replacing = { value in
-                    if id == "SYLT", let payload = synchronizedBody(value, language: lang, descriptor: descriptor, contentType: body[5]) {
-                        return makeFrame("SYLT", payload)
-                    }
-                    // USLT can carry the exact LRC, TTML or untimed text when SYLT cannot represent it.
-                    let body = id == "SYLT"
-                        ? makeUSLTConvertingSYLT(language: lang, descriptor: descriptor, text: value, occupied: &occupied)
-                        : makeUSLTBody(language: lang, descriptor: descriptor, text: value)
-                    return makeFrame("USLT", body)
-                }
+                for index in plan.indices { edits[rows[index].entry.id] = text }
+            case .removeOne, .removeAllOriginals:
+                if plan.indices.isEmpty { return FileEdit(data: data, result: plan.result) }
+                for index in plan.indices { edits.updateValue(nil, forKey: rows[index].entry.id) }
             }
-            fields.append(Field(text: text, language: language))
-            slots.append(raw.count - 1)
-            replacements.append(replacing)
-        }
-        guard let plan = targets(fields, operation: operation) else { return nil }
-        switch operation {
-        case .replace(let text, _):
-            guard !normalizedText(text).isEmpty else { return nil }
-            if plan.indices.isEmpty {
-                raw.append(makeFrame("USLT", makeUSLTBody(language: Data("und".utf8), descriptor: "", text: text)))
-            } else {
-                for i in plan.indices {
-                    guard let frame = replacements[i](text) else { return nil }
-                    raw[slots[i]] = frame
-                }
-                if let first = plan.indices.first, let head = slots.first, head < slots[first] {
-                    let moved = raw.remove(at: slots[first])
-                    raw.insert(moved, at: head)
-                }
+            var result = try EmbeddedLyricsArchive.replacing(in: tagged, fileExtension: "mp3", edits: edits)
+            if case .replace = operation, let first = rows.first, let target = plan.indices.first {
+                result = try OrderedTagContainer.promotingID3Frame(in: result, from: rows[target].ordinal, before: first.ordinal)
             }
-        case .removeOne, .removeAllOriginals:
-            if plan.indices.isEmpty { return FileEdit(data: data, result: plan.result) }
-            for i in plan.indices.reversed() { raw.remove(at: slots[i]) }
-        }
-        let byteCount = raw.reduce(0) { $0 + $1.count }
-        let tagSize = max(layout.audioOffset - 10, byteCount)
-        guard tagSize <= 0x0fff_ffff else { return nil }
-        var result = header + lengthBytes(tagSize, sync: true)
-        for frame in raw { result.append(frame) }
-        result.append(Data(count: tagSize - byteCount))
-        result.append(data[layout.audioOffset...])
-        return FileEdit(data: result, result: plan.result)
+            return FileEdit(data: result, result: plan.result)
+        } catch { return nil }
     }
 
     private static func consistsOfMPEGAudioFrames(_ data: Data) -> Bool {
@@ -449,11 +375,6 @@ public enum EmbeddedLyricsFieldEditor {
             offset += frame.frameLength
         }
         return true
-    }
-
-    private static func isTranslationDescriptor(_ descriptor: String) -> Bool {
-        let normalized = descriptor.lowercased().filter { $0.isLetter || $0.isNumber }
-        return normalized.hasPrefix("translat") || normalized == "lyricstranslation"
     }
 
     static func synchronizedBody(
@@ -689,7 +610,8 @@ private struct FLACCommentLayout {
 
     func isOriginalLyric(_ index: Int) -> Bool {
         guard keys.indices.contains(index), let key = keys[index] else { return false }
-        return EmbeddedTagMetadataParser.isOriginalLyricKey(key)
+        if case .original = ISOBaseMediaLyricsParser.lyricFieldRole(key, text: decoded[index]) { return true }
+        return false
     }
 
     func matches(_ index: Int, _ text: String) -> Bool {

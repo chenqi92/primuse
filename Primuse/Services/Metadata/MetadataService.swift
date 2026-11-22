@@ -42,6 +42,26 @@ actor MetadataService {
         var lyrics: [LyricLine]? = nil
         /// 文件里同一首歌的原文歌词不止一份时的全貌，跟内嵌歌词一起存，改了设置按它重挑。
         var embeddedLyricsAlternatives: EmbeddedLyricsAlternatives? = nil
+
+        mutating func mergeEmbeddedFields(_ fields: [EmbeddedLyricField], prepend: Bool = false) {
+            guard !fields.isEmpty else { return }
+            var metadata = FileMetadataReader.Metadata()
+            if let record = embeddedLyricsAlternatives {
+                if let original = FileMetadataReader.Metadata.embeddedLyrics(from: record, priority: .current()) {
+                    metadata = original
+                } else {
+                    metadata.includeLyricTracks(record.fields ?? [])
+                }
+            }
+            if prepend {
+                var head = FileMetadataReader.Metadata()
+                head.includeLyricTracks(fields)
+                head.fillMissing(from: metadata)
+                metadata = head
+            } else { metadata.includeLyricTracks(fields) }
+            embeddedLyricsAlternatives = metadata.embeddedLyricsAlternatives
+            if let parsed = FileMetadataReader.parsedEmbeddedLyrics(from: metadata) { lyrics = parsed }
+        }
         var replayGainTrackGain: Double? = nil
         var replayGainTrackPeak: Double? = nil
         var replayGainAlbumGain: Double? = nil
@@ -247,18 +267,17 @@ actor MetadataService {
                     result.coverArtFileName = assetStore.expectedCoverFileName(for: cacheKey)
                 }
             }
-            if storesLyrics, trustedSource, sidecarSupersedesEmbeddedLyrics,
-               let embeddedLyrics = FileMetadataReader.parsedEmbeddedLyrics(from: embedded) {
-                // 歌词文件不在了再用。
-                await assetStore.storeEmbeddedFallbackLyrics(embeddedLyrics, forSongID: cacheKey)
+            if storesLyrics, trustedSource, sidecarSupersedesEmbeddedLyrics || result.lyrics == nil {
+                if let embeddedLyrics = FileMetadataReader.parsedEmbeddedLyrics(from: embedded) {
+                    await assetStore.storeEmbeddedFallbackLyrics(embeddedLyrics, forSongID: cacheKey)
+                }
                 await assetStore.storeEmbeddedLyricsAlternatives(result.embeddedLyricsAlternatives, forSongID: cacheKey)
             }
             if storesLyrics, let lyrics = result.lyrics {
                 if trustedSource {
-                    result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
-                    if LyricsDocumentSource.of(lyrics)?.kind == .embedded {
-                        await assetStore.storeEmbeddedLyricsAlternatives(result.embeddedLyricsAlternatives, forSongID: cacheKey)
-                    }
+                    result.lyricsFileName = await assetStore.storeLyricsFromTagRead(
+                        lyrics, alternatives: result.embeddedLyricsAlternatives, forSongID: cacheKey
+                    )
                 } else {
                     result.lyricsFileName = assetStore.expectedLyricsFileName(for: cacheKey)
                 }
@@ -350,10 +369,8 @@ actor MetadataService {
             detectedFileSignature: signature
         )
 
-        if let lyrics = FileMetadataReader.parsedEmbeddedLyrics(from: embedded) {
-            result.lyrics = lyrics
-            result.embeddedLyricsAlternatives = embedded.embeddedLyricsAlternatives
-        }
+        result.embeddedLyricsAlternatives = embedded.embeddedLyricsAlternatives
+        result.lyrics = FileMetadataReader.parsedEmbeddedLyrics(from: embedded)
 
         if let cacheKey {
             result = await storingEmbeddedAssets(in: result, cacheKey: cacheKey)
@@ -374,10 +391,11 @@ actor MetadataService {
             result.coverArtFileName = await assetStore.storeAttributedCover(coverArtData, songID: cacheKey, origin: .embedded)
         }
         if storesLyrics, result.lyricsFileName == nil, let lyrics = result.lyrics {
-            result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
-            if LyricsDocumentSource.of(lyrics)?.kind == .embedded {
-                await assetStore.storeEmbeddedLyricsAlternatives(result.embeddedLyricsAlternatives, forSongID: cacheKey)
-            }
+            result.lyricsFileName = await assetStore.storeLyricsFromTagRead(
+                lyrics, alternatives: result.embeddedLyricsAlternatives, forSongID: cacheKey
+            )
+        } else if storesLyrics, result.lyrics == nil, let record = result.embeddedLyricsAlternatives {
+            await assetStore.storeEmbeddedLyricsAlternatives(record, forSongID: cacheKey)
         }
         return result
     }
@@ -498,5 +516,23 @@ actor MetadataService {
         if let lyrics = scrapeResult.lyrics {
             result.lyrics = lyrics
         }
+    }
+}
+
+extension MetadataAssetStore {
+    func storeLyricsFromTagRead(_ lines: [LyricLine], alternatives: EmbeddedLyricsAlternatives?, forSongID id: String) -> String? {
+        guard LyricsDocumentSource.of(lines)?.kind == .embedded else { return storeLyrics(lines, for: id) }
+        storeEmbeddedLyricsAlternatives(alternatives, forSongID: id)
+        guard let alternatives, let preferred = preferredVariant(in: alternatives) else { return storeLyrics(lines, for: id) }
+        guard let cached = cachedLyrics(forSongID: id) else { return storeLyrics(preferred, for: id) }
+        if alternatives.fields != nil, lyricsVersionPreferences(forSongID: id)?.selectedID != nil {
+            reconcileEmbeddedSource(lines, alternatives: alternatives, forSongID: id, expected: LyricsDocumentFingerprint(lines: cached))
+        }
+        if isUserPinned(forSongID: id), LyricsLoader.embeddedVariant(matching: cached, in: alternatives) != nil {
+            return expectedLyricsFileName(for: id)
+        }
+        // The selected format can have coarser timing than an earlier automatic embedded choice.
+        let followsPriority = canReselectEmbeddedLyrics(cached, alternatives: alternatives, forSongID: id)
+        return storeLyrics(preferred, for: id, force: followsPriority)
     }
 }

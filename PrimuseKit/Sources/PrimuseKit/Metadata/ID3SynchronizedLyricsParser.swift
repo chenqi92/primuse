@@ -36,10 +36,19 @@ public enum ID3SynchronizedLyricsParser {
         parse(payload, decodeText: TextEncodingRepair.decodeID3Text)
     }
 
+    /// Reading a whole tag can supply the duration of an MPEG frame. When only the tag is
+    /// available, keep the words and line breaks without inventing an absolute timeline.
+    static func read(_ payload: Data, mpegFrameDuration: TimeInterval?) -> Frame? {
+        parse(payload, mpegFrameDuration: mpegFrameDuration, allowsUntimed: true,
+              decodeText: TextEncodingRepair.decodeID3Text)
+    }
+
     /// The decoder is injected so the binary layout can be exercised without
     /// the platform text-repair stack.
     static func parse(
         _ payload: Data,
+        mpegFrameDuration: TimeInterval? = nil,
+        allowsUntimed: Bool = false,
         decodeText: (Data, UInt8) -> String?
     ) -> Frame? {
         let bytes = [UInt8](payload)
@@ -48,8 +57,9 @@ public enum ID3SynchronizedLyricsParser {
         guard bytes.count > 7 else { return nil }
 
         let encoding = bytes[0]
-        guard bytes[4] == millisecondTimestampFormat,
-              lyricContentTypes.contains(bytes[5]) else { return nil }
+        let usesFrames = bytes[4] == 1
+        let frameClock = mpegFrameDuration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        guard encoding <= 3, bytes[4] == millisecondTimestampFormat || (usesFrames && allowsUntimed) else { return nil }
 
         let terminatorLength = (encoding == 1 || encoding == 2) ? 2 : 1
         guard let descriptorEnd = terminatorEnd(
@@ -61,8 +71,10 @@ public enum ID3SynchronizedLyricsParser {
             Data(bytes[6..<(descriptorEnd - terminatorLength)]),
             encoding
         ) ?? ""
+        guard lyricContentTypes.contains(bytes[5])
+                || (bytes[5] == 0 && ISOBaseMediaLyricsParser.id3UserTextRole(descriptor) != nil) else { return nil }
 
-        var cues: [Cue] = []
+        var entries: [(text: String, milliseconds: Int)] = []
         var cursor = descriptorEnd
         while cursor < bytes.count {
             guard let textEnd = terminatorEnd(
@@ -73,7 +85,7 @@ public enum ID3SynchronizedLyricsParser {
 
             let rawBytes = bytes[cursor..<(textEnd - terminatorLength)]
             let decoded = decodeText(Data(rawBytes), encoding) ?? ""
-            let milliseconds = bytes[textEnd..<(textEnd + 4)].reduce(0) { total, byte in
+            let time = bytes[textEnd..<(textEnd + 4)].reduce(0) { total, byte in
                 total << 8 | Int(byte)
             }
             cursor = textEnd + 4
@@ -86,32 +98,55 @@ public enum ID3SynchronizedLyricsParser {
             if raw.first?.isWhitespace != true { raw = edges.leading + raw }
             if raw.last?.isWhitespace != true { raw += edges.trailing }
 
-            // The spec starts every new lyric line with a newline inside the
-            // cue text, which is how word cues and line cues are told apart.
-            let startsLine = cues.isEmpty || raw.first?.isNewline == true
-            // Some writers put a line and its translation in one cue,
-            // separated by a newline: each becomes its own line at that time,
-            // where the lyric parser pairs them like bilingual LRC.
-            let parts = raw
-                .drop(while: \.isNewline)
-                .split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
-                .map(String.init)
-                .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-            for (index, part) in parts.enumerated() {
-                cues.append(Cue(
-                    text: index == 0 ? part : part.trimmingCharacters(in: .whitespaces),
-                    milliseconds: milliseconds,
-                    startsLine: index == 0 ? startsLine : true
-                ))
-            }
+            let milliseconds: Int
+            if usesFrames, let frameClock {
+                guard let converted = Int(exactly: (Double(time) * frameClock * 1000).rounded()) else { return nil }
+                milliseconds = converted
+            } else { milliseconds = time }
+            entries.append((raw, milliseconds))
         }
 
-        guard !cues.isEmpty else { return nil }
+        let timed = !usesFrames || frameClock != nil
+        guard let text = renderedCues(entries, timed: timed) else { return nil }
         return Frame(
-            text: render(cues),
+            text: text,
             languageCode: languageCode(in: bytes),
             descriptor: descriptor.trimmingCharacters(in: .whitespacesAndNewlines)
         )
+    }
+
+    /// Synchronized lyric events in ID3 and ASF carry line breaks in the text itself.
+    public static func renderedCues(_ entries: [(text: String, milliseconds: Int)]) -> String? {
+        renderedCues(entries, timed: true)
+    }
+
+    private static func renderedCues(_ entries: [(text: String, milliseconds: Int)], timed: Bool) -> String? {
+        var cues: [Cue] = []
+        var pendingLineBreak = false
+        var pendingSpaces = ""
+        for (text, milliseconds) in entries where milliseconds >= 0 {
+            let startsLine = cues.isEmpty || pendingLineBreak || text.first?.isNewline == true
+            let parts = text.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            if parts.isEmpty {
+                if text.contains(where: \.isNewline) { pendingLineBreak = true; pendingSpaces = "" }
+                else if !pendingLineBreak { pendingSpaces += text }
+                continue
+            }
+            for (index, part) in parts.enumerated() {
+                let value = index == 0 ? (startsLine ? "" : pendingSpaces) + String(part) : part.trimmingCharacters(in: .whitespaces)
+                cues.append(Cue(text: value,
+                                milliseconds: milliseconds, startsLine: startsLine || index > 0))
+            }
+            pendingLineBreak = text.last?.isNewline == true
+            pendingSpaces = ""
+        }
+        guard !cues.isEmpty else { return nil }
+        if timed { return render(cues) }
+        return cues.reduce(into: "") { text, cue in
+            if cue.startsLine && !text.isEmpty { text += "\n" }
+            text += cue.text
+        }
     }
 
     /// Whitespace at either end of a cue, read from its bytes.

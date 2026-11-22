@@ -309,6 +309,111 @@ struct LyricsContentParserTests {
         #expect(line.text == "Opening")
     }
 
+    @Test("Ruby readings stay separate from the sung words and keep their own timing")
+    func keepsTimedRubyReadingsOnEachVoice() throws {
+        let body = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling"
+            xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+          <head><styling><style xml:id="base" tts:ruby="base"/><style xml:id="reading" tts:ruby="text"/></styling></head>
+          <body><div><p begin="1" end="4"><span><span tts:ruby="container"><span style="base">灯</span><span tts:ruby="delimiter">(</span><span tts:ruby="textContainer"><span style="reading" begin="1" end="1.2">dēng</span></span><span tts:ruby="delimiter">)</span></span></span> <span begin="2" end="3" tts:ruby="container"><span tts:ruby="base">影</span><span tts:ruby="text">yǐng</span></span>!<span ttm:role="lyrics x-bg"><span tts:ruby="container"><span tts:ruby="base">波</span><span tts:ruby="text" begin="3" end="3.5">bō</span></span></span></p></div></body>
+        </tt>
+        """
+        let line = try #require(LyricsContentParser.parseText(body).first)
+        #expect(line.text == "灯 影!")
+        #expect(line.syllables?.map(\.start) == [1, 2])
+        #expect(line.romanization == "dēng yǐng!")
+        #expect(line.romanizationSyllables?.map(\.start) == [1, 2])
+        #expect(line.romanizationSyllables?.map(\.end) == [1.2, 3])
+        #expect(line.background?.first?.text == "波")
+        #expect(line.background?.first?.romanization == "bō")
+        #expect(line.background?.first?.romanizationSyllables?.first?.end == 3.5)
+        #expect(LyricsContentParser.areSemanticallyEquivalent([line], LyricsContentParser.parse(LyricsContentParser.serializeTTML([line]))))
+    }
+
+    @Test("A prefixed TTML document read from a UTF-16 tag keeps CDATA and omits paragraph metadata")
+    func readsTranscodedTTMLAndCharacterData() throws {
+        let content = "\u{FEFF}" + """
+        <?xml version="1.0" encoding='UTF-16'?>
+        <!-- source document -->
+        <t:tt xmlns:t="http://www.w3.org/ns/ttml" xmlns:m="http://www.w3.org/ns/ttml#metadata">
+          <t:body><t:div><t:p begin="2s"><t:metadata><m:desc>纸页注释</m:desc></t:metadata><t:span begin="2s"><![CDATA[风 & 雨]]></t:span><m:title>段落标题</m:title><t:span m:role="lyrics x-translation" xml:lang="en"><![CDATA[Rain & wind]]></t:span></t:p></t:div></t:body>
+        </t:tt>
+        """
+        #expect(LyricsContentParser.isTTML(content))
+        let line = try #require(LyricsContentParser.parseText(content).first)
+        #expect(line.text == "风 & 雨")
+        #expect(line.syllables?.map(\.text) == ["风 & 雨"])
+        #expect(line.manualTranslation?.text == "Rain & wind")
+        let literal = "[00:02.00]Fold <tt> into the margin"
+        #expect(!LyricsContentParser.isTTML(literal))
+        #expect(LyricsContentParser.parseText(literal).first?.text == "Fold <tt> into the margin")
+    }
+
+    @Test("TTML frame and tick clocks retain row and word timing")
+    func readsTTMLFrameAndTickClocks() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
+            ttp:frameRate="25" ttp:subFrameRate="2" ttp:tickRate="100">
+          <body><div><p begin="100t" end="75f"><span begin="00:00:01:12.1" dur="25t">楼顶</span></p></div></body>
+        </tt>
+        """
+        let line = try #require(LyricsContentParser.parse(content).first)
+        #expect(line.timestamp == 1 && line.endTimestamp == 3)
+        #expect(line.syllables?.first?.start == 1.5)
+        #expect(line.syllables?.first?.end == 1.75)
+        #expect(LyricsFormat.detect(content) == .wordLevel)
+    }
+
+    @Test("Sequential TTML containers and timed sections locate all their child lyrics")
+    func followsTTMLTimeContainers() {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml"><body dur="60s">
+          <div begin="10s" timeContainer="seq">
+            <p dur="2s"><span begin="0.5s" dur="1s">起航</span></p>
+            <p begin="1s" dur="2s">过桥</p>
+          </div>
+          <div begin="20s" end="24s"><p>远灯</p></div>
+          <div><p>尾注</p></div>
+        </body></tt>
+        """
+        let lines = LyricsContentParser.parse(content)
+        #expect(lines.map(\.text) == ["尾注", "起航", "过桥", "远灯"])
+        #expect(lines.map(\.timestamp) == [0, 10, 13, 20])
+        #expect(lines.map(\.endTimestamp) == [nil, 12, 15, 24])
+        #expect(lines.first?.isSynchronized == false)
+        #expect(lines.first(where: { $0.text == "起航" })?.syllables?.first?.start == 10.5)
+        #expect(LyricsContentParser.areSemanticallyEquivalent(lines, LyricsContentParser.parse(LyricsContentParser.serializeTTML(lines))))
+    }
+
+    @Test("An embedded byte-order mark and late LRC headers retain lyric metadata")
+    func readsBOMAndTrailingLRCMetadata() throws {
+        let text = "\u{FEFF}[la:en]\n[00:05.00]A kite at the pier\n[offset:500]\n[by:Harbor Choir]"
+        let line = try #require(LyricsContentParser.parseText(text).first)
+        #expect(line.timestamp == 4.5)
+        #expect(line.metadataLines == ["[la:en]", "[by:Harbor Choir]"])
+        #expect(LyricsContentParser.parseText("\u{FEFF}Glass by the pier").first?.text == "Glass by the pier")
+    }
+
+    @Test("QRC accepts XML attribute quoting, literal newlines and numeric line breaks after metadata")
+    func readsMultilineEmbeddedQRC() {
+        let headers = Array(repeating: "[by:Harbor Choir]", count: 80).joined(separator: "\n")
+        let content = """
+        <QrcInfos><LyricInfo LyricCount="1"><Lyric_1 LyricType="1" LyricContent = '\(headers)
+        [1000,500]潮(1000,500)&#xA;[2000,600]落(2000,600)'/></LyricInfo></QrcInfos>
+        """
+        #expect(WordTimedLyricsParser.detect(content) == .qrc)
+        let lines = LyricsContentParser.parseText(content)
+        #expect(lines.map(\.text) == ["潮", "落"])
+        #expect(lines.compactMap { $0.syllables?.first?.start } == [1, 2])
+    }
+
+    @Test("Subtitle metadata on its own is never a lyric")
+    func ignoresSubtitleMetadataWithoutCues() {
+        let source = "\u{FEFF}WEBVTT\n\nNOTE\nPage credits"
+        #expect(LyricsContentParser.parseText(source).isEmpty)
+        #expect(!LyricsContentParser.validateEditableText(source).isValid)
+    }
+
     @Test("Start-only TTML remains inferred after serialization")
     func startOnlyTTMLDoesNotInventExplicitEnds() throws {
         let content = """
@@ -724,6 +829,7 @@ struct LyricsContentParserTests {
         #expect(parsed[1].text == "(Ooh)")
         #expect(parsed[1].voice == .secondary)
         #expect(parsed[1].timestamp == 4)
+        #expect(LyricsContentParser.parseText(LyricsContentParser.serializeTTML(parsed)).last?.isBackingVocal == true)
     }
 
     @Test("A line-level TTML paragraph keeps its text next to a translation")

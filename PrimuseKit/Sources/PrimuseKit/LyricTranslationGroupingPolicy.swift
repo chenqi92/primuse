@@ -517,6 +517,65 @@ public struct LyricTranslationPreparationRequestGate: Sendable {
 /// uniquely in both directions; plain documents require an exact line-count
 /// match before index-based pairing is allowed.
 public enum LyricManualTranslationPolicy {
+    /// Pair a separate tag with its own voice and retain its word timings, including on backing rows.
+    public static func mergingEmbeddedField(_ field: EmbeddedLyricField, into lines: [LyricLine],
+                                            makePreferred: Bool = true) -> [LyricLine] {
+        guard field.role != .original, !lines.isEmpty else { return lines }
+        let annotations = LyricVoiceTimelinePolicy.flattenedLines(LyricsContentParser.parseText(field.text, options: .literal))
+            .filter { !$0.text.isEmpty }
+        guard !annotations.isEmpty else { return lines }
+        var targets: [(main: Int, child: Int?, line: LyricLine)] = []
+        for (index, line) in lines.enumerated() {
+            if !line.text.isEmpty { targets.append((index, nil, line)) }
+            for (child, backing) in (line.background ?? []).enumerated() where !backing.text.isEmpty {
+                targets.append((index, child, backing))
+            }
+        }
+        var matches: [Int: Int] = [:]
+        if annotations.allSatisfy({ !$0.isSynchronized }), annotations.count == targets.count {
+            for index in annotations.indices { matches[index] = index }
+        } else {
+            var starts: [Double: [Int]] = [:]
+            for (index, target) in targets.enumerated() where target.line.isSynchronized {
+                starts[(target.line.timestamp * 1000).rounded(), default: []].append(index)
+            }
+            let hasVoices = annotations.contains { $0.voice != .primary || $0.isBackingVocal }
+            var ambiguous = Set<Int>()
+            for (index, line) in annotations.enumerated() where line.isSynchronized {
+                let start = (line.timestamp * 1000).rounded()
+                var candidates = (-2...2).flatMap { starts[start + Double($0)] ?? [] }
+                    .filter { abs(targets[$0].line.timestamp - line.timestamp) <= 0.002001 }
+                if hasVoices {
+                    candidates = candidates.filter { targets[$0].line.voice == line.voice && (targets[$0].child != nil) == line.isBackingVocal }
+                }
+                guard candidates.count == 1, let target = candidates.first else { continue }
+                if matches.updateValue(index, forKey: target) != nil { ambiguous.insert(target) }
+            }
+            for target in ambiguous { matches.removeValue(forKey: target) }
+        }
+        var result = lines
+        for (target, index) in matches {
+            let (main, child, original) = targets[target]
+            var line = original
+            let annotation = annotations[index]
+            if field.role == .romanization {
+                LyricAnnotationKind.romanization.attach(annotation, language: field.languageCode, to: &line)
+            } else {
+                LyricAnnotationKind.translation.attach(annotation, language: field.languageCode, to: &line)
+                if !makePreferred, original.manualTranslation == nil, let first = line.manualTranslation {
+                    line.alternateManualTranslations.insert(first, at: 0)
+                    line.manualTranslation = nil
+                }
+            }
+            if let child { result[main].background?[child] = line }
+            else {
+                line.background = result[main].background
+                result[main] = line
+            }
+        }
+        return result
+    }
+
     public static func declaredLanguageCode(in metadataLines: [String]) -> String? {
         LyricTranslationGroupingPolicy.declaredLanguageCode(in: metadataLines)
     }
@@ -1316,7 +1375,8 @@ public enum LyricManualTranslationPolicy {
             id: translatedLine.id,
             text: text,
             languageCode: trimmedLanguageCode?.isEmpty == false ? trimmedLanguageCode : nil,
-            source: source
+            source: source,
+            syllables: translatedLine.syllables
         )
         var result = originalLine
 
@@ -1414,7 +1474,7 @@ public enum LyricCompanionTextPolicy {
                 companions.append(text)
             }
         }
-        guard let translated = normalized(translatedText),
+        guard let translated = normalized(translatedText) ?? normalized(line.manualTranslation?.text),
               translated != normalized(line.text),
               !companions.contains(translated) else {
             return companions

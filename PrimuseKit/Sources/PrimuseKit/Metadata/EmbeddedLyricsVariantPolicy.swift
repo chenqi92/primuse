@@ -81,6 +81,34 @@ public struct EmbeddedLyricsVariant: Codable, Hashable, Sendable {
     }
 }
 
+/// One decoded tag value, before choosing a display variant or pairing languages.
+public struct EmbeddedLyricField: Codable, Hashable, Sendable {
+    public enum Role: String, Codable, Sendable { case original, translation, romanization }
+
+    public var name: String
+    public var text: String
+    public var languageCode: String?
+    public var role: Role
+
+    public init(name: String, text: String, languageCode: String? = nil, role: Role = .original) {
+        self.name = name
+        self.text = text
+        self.languageCode = languageCode
+        self.role = role
+    }
+
+    /// Two readers can expose the same tag. Retain the greatest observed multiplicity of each field.
+    public static func merge(_ fields: [Self], into result: inout [Self]) {
+        guard !fields.isEmpty else { return }
+        if result.isEmpty { result = fields; return }
+        var remaining = result.reduce(into: [Self: Int]()) { $0[$1, default: 0] += 1 }
+        for field in fields {
+            if let count = remaining[field], count > 0 { remaining[field] = count - 1 }
+            else { result.append(field) }
+        }
+    }
+}
+
 public enum EmbeddedLyricsVariantPolicy {
     /// SYLT stores text and millisecond cue starts, not an LRC/ELRC serialization.
     public static func sameSynchronizedCues(_ original: String, _ readback: String) -> Bool {
@@ -158,10 +186,30 @@ public enum EmbeddedLyricsVariantPolicy {
     ) -> EmbeddedLyricsVariant? {
         preferredIndex(in: variants, priority: priority).map { variants[$0] }
     }
+
+    /// A native tag reader can see more than AVFoundation, or a different tag at the other end of the file.
+    public static func merge(_ text: String?, languageCode: String?, variants incoming: [EmbeddedLyricsVariant],
+                             current: String?, currentLanguage: String?, into variants: inout [EmbeddedLyricsVariant],
+                             preferringIncomingOrder: Bool = true) -> EmbeddedLyricsVariant? {
+        guard text != nil || !incoming.isEmpty else { return nil }
+        var observed = incoming
+        append(text, languageCode: languageCode, to: &observed)
+        var existing = variants
+        append(current, languageCode: currentLanguage, to: &existing)
+        let adoptsIncoming = existing.isEmpty || (preferringIncomingOrder && Set(existing.map(\.text)).isSubset(of: Set(observed.map(\.text))))
+        if adoptsIncoming {
+            variants = observed
+            for value in existing { append(value.text, languageCode: value.languageCode, to: &variants) }
+        } else {
+            variants = existing
+            for value in observed { append(value.text, languageCode: value.languageCode, to: &variants) }
+        }
+        if adoptsIncoming, let text { return variants.first { $0.text == text } }
+        return preferred(in: variants, priority: .current())
+    }
 }
 
-/// 读标签时记下的内嵌歌词全貌：几份原文和译文字段。只在原文不止一份时才存，
-/// 设置改了以后不用重读文件，按新的那一档重新挑一份。
+/// 原文候选用于按偏好选择，原始字段供列出、配对和离线重选。
 public struct EmbeddedLyricsAlternatives: Codable, Hashable, Sendable {
     public var variants: [EmbeddedLyricsVariant]
     public var lyricsLanguageCode: String?
@@ -169,6 +217,8 @@ public struct EmbeddedLyricsAlternatives: Codable, Hashable, Sendable {
     public var translatedLyricsLanguageCode: String?
     public var languageTaggedLyrics: [String: String]
     public var languageTaggedTranslations: [String: String]
+    /// Older caches have only the language dictionaries.
+    public var fields: [EmbeddedLyricField]?
     /// Primuse 上次写进文件、正在用的那一份原文（按字段替换之后记下）。读标签时记下的没有这一项。
     public var inUseText: String?
 
@@ -178,7 +228,8 @@ public struct EmbeddedLyricsAlternatives: Codable, Hashable, Sendable {
         translatedLyricsText: String? = nil,
         translatedLyricsLanguageCode: String? = nil,
         languageTaggedLyrics: [String: String] = [:],
-        languageTaggedTranslations: [String: String] = [:]
+        languageTaggedTranslations: [String: String] = [:],
+        fields: [EmbeddedLyricField]? = nil
     ) {
         self.variants = variants
         self.lyricsLanguageCode = lyricsLanguageCode
@@ -186,8 +237,11 @@ public struct EmbeddedLyricsAlternatives: Codable, Hashable, Sendable {
         self.translatedLyricsLanguageCode = translatedLyricsLanguageCode
         self.languageTaggedLyrics = languageTaggedLyrics
         self.languageTaggedTranslations = languageTaggedTranslations
+        self.fields = fields
     }
 
     /// 原文只有一份时没什么可挑的，不存。
     public var offersChoice: Bool { variants.count > 1 }
+
+    public var hasSourceFields: Bool { offersChoice || fields?.isEmpty == false }
 }
