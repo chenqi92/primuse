@@ -942,9 +942,11 @@ private struct LyricsCoverShadowSprite: ViewModifier {
     func body(content: Content) -> some View {
         // 封面重新出现(从文字稿回来)时是新的一层,先拿画过的那张,不用等一拍才有阴影。
         let matchingSprite = sprite.flatMap { $0.geometry.matchesShape(of: geometry) ? $0 : nil }
-        let shown = matchingSprite ?? LyricsCoverShadowSpriteCache.cachedImage(
+        let cachedSprite = LyricsCoverShadowSpriteCache.cachedImage(
             side: side, cornerRadius: cornerRadius, shadow: shadow, scale: renderScale
         ).map { (image: $0, geometry: geometry) }
+        // 圆角比例变了、新的那张还没画好时，先接着画手上这张，画好再换：不让阴影整个没了一阵再冒出来。
+        let shown = matchingSprite ?? cachedSprite ?? sprite
         content
             .background {
                 if let shown { spriteView(shown) }
@@ -1077,6 +1079,9 @@ private struct LyricsArtworkAnchor {
     /// 不落到竖栏底下。
     var chromeLeftInset: CGFloat = 0
     var chromeRightInset: CGFloat = 0
+    /// 圆角占边长的比例，按排版时给槽位的边长和圆角算。暂停缩小、恢复播放时槽位的边长逐帧在变，
+    /// 圆角却一下子就是终点值，拿量到的边长去除会算出一串忽大忽小的比例。nil 时按量到的边长算。
+    var cornerRadiusRatio: CGFloat? = nil
 }
 
 private extension CGRect {
@@ -9656,7 +9661,8 @@ struct NowPlayingView: View {
                     bounds: $0,
                     cornerRadius: cornerRadius,
                     shadow: shadow,
-                    showsVideoPreparation: showsVideoPreparation
+                    showsVideoPreparation: showsVideoPreparation,
+                    cornerRadiusRatio: size > 0 ? cornerRadius / size : nil
                 )]
             }
     }
@@ -9879,6 +9885,10 @@ struct NowPlayingView: View {
                 let placeholderIcon = currentItemIsPodcast ? "antenna.radiowaves.left.and.right" : "music.note"
                 let presentationRole: ArtworkPresentationRole = usesSpokenWordTransport ? .staticFirstFrame : .animatedHero
                 let isAnimVisible = isNowPlayingSurfaceExposed && !surfaceMotion.isHeld
+                // 阴影贴图的圆角按槽位排版时的比例算：暂停、恢复播放时槽位边长逐帧在变，拿量到的边长去除，
+                // 贴图形状对不上会整张撤掉，缩放那一下阴影就闪没了。取到 1/4 点，播放和暂停算出同一个值。
+                let shadowCornerRatio = anchor.cornerRadiusRatio ?? anchor.cornerRadius / max(rect.width, rect.height, 1)
+                let shadowCornerRadius = (shadowCornerRatio * renderSize * 4).rounded() / 4
                 // 换歌时按方向换(下一首从右边进、上一首从左边进,自己播完的更柔):只在大封面位、
                 // 封面⇄歌词没在飞、播放页露着时;其余时候照旧一层、原地交叉淡入。
                 NowPlayingArtworkSwapHost(
@@ -9960,7 +9970,7 @@ struct NowPlayingView: View {
                             trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
                             renderSize: renderSize,
                             usesShadowSprite: currentItemIsPodcast || !usesSpokenWordTransport,
-                            shadowCornerRadius: anchor.cornerRadius * renderSize / max(rect.width, rect.height, 1),
+                            shadowCornerRadius: shadowCornerRadius,
                             topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0,
                             contentFill: anchor.fillsSlot ? 1 : 0
                         ), usesCompositorTransform: false))
@@ -9990,7 +10000,7 @@ struct NowPlayingView: View {
                         trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
                         renderSize: renderSize,
                         usesShadowSprite: currentItemIsPodcast || !usesSpokenWordTransport,
-                        shadowCornerRadius: anchor.cornerRadius * renderSize / max(rect.width, rect.height, 1),
+                        shadowCornerRadius: shadowCornerRadius,
                         topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0,
                         contentFill: anchor.fillsSlot ? 1 : 0
                     ), usesCompositorTransform: usesCompositorTransform))
