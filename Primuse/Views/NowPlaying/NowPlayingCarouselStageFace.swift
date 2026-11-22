@@ -173,6 +173,8 @@ struct NowPlayingCarouselEffectShelfView: View {
     @Environment(ThemeService.self) private var theme
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    /// 横滑从缩略卡上起手时,松手那一下不算点(见 `NowPlayingCarouselTapGuard`)。
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
 
     /// 没用过几种时按这个顺序补:频谱、封面流、动态歌词这几种和转轮的几面最搭。
     private static let suggestions: [FullscreenPlayerEffect] = [
@@ -226,7 +228,7 @@ struct NowPlayingCarouselEffectShelfView: View {
     }
 
     private func chip(_ effect: FullscreenPlayerEffect, isSelected: Bool) -> some View {
-        Button { onPresent(effect) } label: {
+        Button { tapGuard.perform { onPresent(effect) } } label: {
             HStack(spacing: 6) {
                 Image(systemName: effect.symbolName)
                     .font(.system(size: 12, weight: .semibold))
@@ -257,7 +259,7 @@ struct NowPlayingCarouselEffectShelfView: View {
         width: CGFloat?
     ) -> some View {
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        return Button { onPresent(effect) } label: {
+        return Button { tapGuard.perform { onPresent(effect) } } label: {
             VStack(alignment: .leading, spacing: 6) {
                 ImmersiveEffectThumbnail(
                     effect: effect,

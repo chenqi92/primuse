@@ -6,9 +6,6 @@ struct QueueView: View {
     /// 嵌在播放页分栏的右栏里(iPhone Duo 内屏):不套导航栈、不带导航栏按钮 ——
     /// 分栏容器里不放导航容器,随机与循环就在旁边的播放器上。
     var isEmbedded = false
-    /// 由 false 变成 true 时把列表重新定位到正在播放:播放页「接下来」那一面一直挂着,
-    /// 每次翻到它都该停在正在播放,而不只是第一次出现时。
-    var currentRevealTrigger = false
     @Environment(MusicLibrary.self) private var library
     // 拖拽预览宿主要用: 行里的 CachedArtworkView 同时读 MusicLibrary 与
     // SourceManager, 两个都得显式带过去。见 queueRow 里的说明。
@@ -18,6 +15,8 @@ struct QueueView: View {
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:随机键带上标题、优先留在竖栏里。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(\.dismiss) private var dismiss
+    /// 嵌在播放页「接下来」那一面里时:横滑从行或按钮上起手,松手那一下不算点。别处为 nil。
+    @Environment(\.nowPlayingCarouselTapGuard) private var carouselTapGuard
     @State private var dropTarget: QueueReorderOccurrenceID?
     /// 已播放最多画几首(从最近的往前数),点「显示更早的」往上加一页。
     @State private var historyLimit = QueueHistoryLayout.pageSize
@@ -309,8 +308,8 @@ struct QueueView: View {
                 }
                 // 半屏队列(iPhone Duo 竖栏)里的行和拖动把手停在竖栏左侧;嵌在播放页右栏时竖栏那一条归播放页自己用。
                 .modifier(QueueVerticalBarFill(isEnabled: !isEmbedded))
-                // 打开时停在正在播放这一段,已播放留在上面、往上翻才看到。只在出现时(和播放页「接下来」
-                // 一面翻到时)定位,开着时切歌不去抢正在看的位置。
+                // 打开时停在正在播放这一段,已播放留在上面、往上翻才看到。只在出现时定位,
+                // 开着时切歌不去抢正在看的位置。播放页「接下来」那一面另见 `QueueParkingReposition`。
                 .onAppear {
                     if revealsCurrent { scrollToCurrent(proxy) }
                 }
@@ -320,8 +319,10 @@ struct QueueView: View {
                     await Task.yield()
                     scrollToCurrent(proxy)
                 }
-                .onChange(of: currentRevealTrigger) { _, reveals in
-                    if reveals, revealsCurrent { scrollToCurrent(proxy) }
+                .background {
+                    QueueParkingReposition(currentEntryID: currentEntry.id) {
+                        scrollToCurrent(proxy)
+                    }
                 }
             }
             // 空态与列表只让新的那块淡入: 两者不重叠, 交叉过渡期间会前后叠排。
@@ -371,8 +372,10 @@ struct QueueView: View {
             Spacer(minLength: 8)
             if player.canClearPlayedQueueEntries {
                 Button {
-                    pmWithAnimation(.list) {
-                        player.clearPlayedQueueEntries()
+                    carouselTapGuard.perform {
+                        pmWithAnimation(.list) {
+                            player.clearPlayedQueueEntries()
+                        }
                     }
                 } label: {
                     Text("clear")
@@ -393,7 +396,7 @@ struct QueueView: View {
     /// 往上再展开一页更早的已播放。不带动画:一下插进上百行,逐行动画只会晃。
     private func showEarlierButton(_ layout: QueueHistoryLayout) -> some View {
         Button {
-            historyLimit = layout.expandedHistoryLimit
+            carouselTapGuard.perform { historyLimit = layout.expandedHistoryLimit }
         } label: {
             Label("queue_show_earlier \(layout.nextRevealCount)", systemImage: "chevron.up")
                 .font(.subheadline)
@@ -566,8 +569,10 @@ struct QueueView: View {
                 QueueBookmarkButton(player: player)
             } else if let reorderID, allowsRemoval {
                 Button {
-                    pmWithAnimation(.list) {
-                        _ = player.removeUpcomingQueueEntry(reorderID)
+                    carouselTapGuard.perform {
+                        pmWithAnimation(.list) {
+                            _ = player.removeUpcomingQueueEntry(reorderID)
+                        }
                     }
                 } label: {
                     Image(systemName: "trash")
@@ -687,6 +692,8 @@ struct QueueView: View {
     }
 
     private func playEntry(_ entry: QueueEntry) {
+        // 行上是点按手势,挪过就不认;这里再挡一道,和这一面别的按钮一样。
+        if carouselTapGuard?.swallowsTap == true { return }
         guard let index = player.queueEntries.firstIndex(where: { $0.id == entry.id }) else { return }
         Task { await player.playFromQueue(at: index) }
     }
@@ -809,5 +816,39 @@ struct QueueSectionStack<Header: View, Rows: View>: View {
                 rows
             }
         }
+    }
+}
+
+private struct QueueParksAtCurrentKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// 播放页「接下来」那一面没停在跟前(在屏幕外,或正被拖进来)时为 true:队列这时随时回到正在播放。
+    /// 别处恒为 false。
+    var queueParksAtCurrent: Bool {
+        get { self[QueueParksAtCurrentKey.self] }
+        set { self[QueueParksAtCurrentKey.self] = newValue }
+    }
+}
+
+/// 播放页「接下来」那一面一直挂着。以前是翻到这一面、转到位以后才定位到正在播放,当着人跳一下;
+/// 横滑时列表又被带着滚过,每次翻过来几乎都要跳。现在这一面一离开(转到别的页停稳)就放回正在播放,
+/// 不在跟前时换了正在播放的歌也再放一次,翻进来时已经停在那儿。停在这一面时不动,不去抢正在看的位置。
+/// 单独一个小视图读这个环境值,换页时只有它跟着变,整张列表不重算。
+private struct QueueParkingReposition: View {
+    let currentEntryID: UUID
+    let reposition: () -> Void
+
+    @Environment(\.queueParksAtCurrent) private var parks
+
+    var body: some View {
+        Color.clear
+            .onChange(of: parks) { _, parks in
+                if parks { reposition() }
+            }
+            .onChange(of: currentEntryID) { _, _ in
+                if parks { reposition() }
+            }
     }
 }

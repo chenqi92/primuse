@@ -1213,12 +1213,15 @@ struct HomeSpotlightManagementView: View {
 struct QueueBookmarkButton: View {
     let player: AudioPlayerService
 
+    /// 在播放页「接下来」那一面里时:横滑从这颗键上起手,松手那一下不算点。别处为 nil。
+    @Environment(\.nowPlayingCarouselTapGuard) private var carouselTapGuard
+
     var body: some View {
         if player.canBookmarkCurrentQueue {
             let isSaved = player.isCurrentQueueBookmarked
             let title = Text(isSaved ? LocalizedStringKey("queue_bookmark_remove") : LocalizedStringKey("queue_bookmark_save"))
             PMScrollingButton {
-                Task { await player.toggleCurrentQueueBookmark() }
+                carouselTapGuard.perform { Task { await player.toggleCurrentQueueBookmark() } }
             } label: {
                 Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
                     #if os(macOS)

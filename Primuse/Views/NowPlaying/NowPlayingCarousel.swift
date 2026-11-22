@@ -14,6 +14,10 @@ private struct NowPlayingCarouselGestureRegionsKey: EnvironmentKey {
     static let defaultValue: NowPlayingCarouselGestureRegions? = nil
 }
 
+private struct NowPlayingCarouselTapGuardKey: EnvironmentKey {
+    static let defaultValue: NowPlayingCarouselTapGuard? = nil
+}
+
 extension EnvironmentValues {
     /// 嵌在播放页转轮里的横向滑杆、可拖的曲线按下 / 松开时调用,转轮在这期间不认横滑。
     /// 不在转轮里时是空操作(设置页、全屏卡拉 OK、macOS 都一样)。
@@ -27,6 +31,32 @@ extension EnvironmentValues {
     var nowPlayingCarouselGestureRegions: NowPlayingCarouselGestureRegions? {
         get { self[NowPlayingCarouselGestureRegionsKey.self] }
         set { self[NowPlayingCarouselGestureRegionsKey.self] = newValue }
+    }
+
+    /// 转轮面里的按钮动作先问它这一下算不算点(见 `NowPlayingCarouselTapGuard`)。不在转轮里时为 nil,照常执行。
+    var nowPlayingCarouselTapGuard: NowPlayingCarouselTapGuard? {
+        get { self[NowPlayingCarouselTapGuardKey.self] }
+        set { self[NowPlayingCarouselTapGuardKey.self] = newValue }
+    }
+}
+
+/// 横拖翻页带出来的松手不算点(规则见 `NowPlayingCarouselTapPolicy`)。面跟着手指整页平移,按钮在页里跟着走,
+/// 松手时还落在按钮里;点按手势挪过就不认了,按钮不会,所以面里按钮的动作都经 `perform` 过这一道。
+/// 只在动作里问,不进 body,不可观察。
+@MainActor
+final class NowPlayingCarouselTapGuard {
+    /// 转轮给:这一刻的松手是不是拖动带出来的。
+    fileprivate var swallowsCurrentTap: () -> Bool = { false }
+
+    var swallowsTap: Bool { swallowsCurrentTap() }
+}
+
+extension Optional where Wrapped == NowPlayingCarouselTapGuard {
+    /// 执行面里一颗按钮的动作;这一下是横拖翻页带出来的就不执行。不在转轮里(nil)时照常执行。
+    @MainActor
+    func perform(_ action: () -> Void) {
+        if self?.swallowsTap == true { return }
+        action()
     }
 }
 
@@ -185,6 +215,8 @@ final class NowPlayingCarouselState {
     /// 手指最近一次在转轮上挪动、横拖翻页起手或松手的时刻。转盘上的格子是按钮:横滑从它上面起手时，
     /// 松手那一下按钮也会触发、跳到那一面。拖过的这一下不算点。不参与界面刷新。
     @ObservationIgnored private var lastDragActivityAt: Date?
+    /// 最近一次横拖翻页起手或松手的时刻。面里的按钮只认这个:上下滚完列表马上点一行照常算点。
+    @ObservationIgnored private var lastPageDragAt: Date?
     /// 转到位的那一段在走(含拖回原处、首次回弹)。
     private(set) var isSettling = false
     /// 转到位途中刚离开的那一页;转到位清掉。途中它还露在外面,得挂着。
@@ -217,6 +249,8 @@ final class NowPlayingCarouselState {
     /// 减弱动态效果:松手不接手指的速度,两页交叉淡入淡出(容器给)。
     @ObservationIgnored var reducesMotion = false
     let gestureRegions = NowPlayingCarouselGestureRegions()
+    /// 面里的按钮问它这一下算不算点(经环境交给各面)。
+    let tapGuard = NowPlayingCarouselTapGuard()
     /// 相似歌曲按种子歌缓存的结果:来回翻面不再整库重算、也不再问一遍 Last.fm。
     @ObservationIgnored var similarResults: [String: [MusicDiscoveryResult]] = [:]
     @ObservationIgnored var lastFmSimilar: [String: [Song]] = [:]
@@ -229,6 +263,10 @@ final class NowPlayingCarouselState {
     /// 诊断模式下拖动、转到位各记一行实际帧率(链接回调次数与手势送来的位移次数),真机上看跟手那一段到没到高刷。
     @ObservationIgnored private var motionStats: NowPlayingCarouselMotionStats?
     #endif
+
+    init() {
+        tapGuard.swallowsCurrentTap = { [weak self] in self?.isFinishingPageDrag() ?? false }
+    }
 
     var isAwayFromPlayer: Bool { settledPage != .player }
 
@@ -253,6 +291,7 @@ final class NowPlayingCarouselState {
     /// 直接落到目标页(中间几页没挂,不能从半路接着拖)。
     func beginDrag() {
         lastDragActivityAt = Date()
+        lastPageDragAt = lastDragActivityAt
         let isJump = departingIndex.map { abs($0 - (settledIndex ?? $0)) > 1 } ?? false
         stopRun()
         withoutAnimation {
@@ -296,15 +335,20 @@ final class NowPlayingCarouselState {
         lastDragActivityAt = Date()
     }
 
-    /// 这一下是不是刚拖过:正在横拖，或手指挪动 / 松手不到 0.4 秒(按钮的松手和拖动的松手谁先到不一定)。
+    /// 这一下是不是刚拖过:正在横拖，或手指挪动 / 松手不久(见 `NowPlayingCarouselTapPolicy`)。
     func isFinishingDrag(now: Date = Date()) -> Bool {
-        if isDragging { return true }
-        guard let lastDragActivityAt else { return false }
-        return now.timeIntervalSince(lastDragActivityAt) < 0.4
+        NowPlayingCarouselTapPolicy.swallowsTap(isDragging: isDragging, lastDragActivity: lastDragActivityAt, now: now)
+    }
+
+    /// 两侧面里的按钮用:这一下松手是不是横拖翻页带出来的(正在横拖,或刚起手 / 松手不久)。
+    /// 面跟着手指整页平移,按钮被带着走,松手时还落在按钮里;只是上下滚过列表不算。
+    func isFinishingPageDrag(now: Date = Date()) -> Bool {
+        NowPlayingCarouselTapPolicy.swallowsTap(isDragging: isDragging, lastDragActivity: lastPageDragAt, now: now)
     }
 
     func endDrag(translation: Double, predictedEndTranslation: Double, velocity: Double, pageWidth: Double) {
         lastDragActivityAt = Date()
+        lastPageDragAt = lastDragActivityAt
         guard let index = settledIndex, pageWidth > 0 else {
             settle(on: settledPage)
             return
@@ -803,7 +847,8 @@ struct NowPlayingCarouselContainer<Center: View>: View {
                     width: width,
                     direction: Double(direction),
                     reducesMotion: reduceMotion,
-                    isActive: true
+                    isActive: true,
+                    freezesScrollingWhileDragging: true
                 ))
                 .allowsHitTesting(index == settledIndex)
                 .accessibilityHidden(index != settledIndex)
@@ -835,6 +880,7 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         .simultaneousGesture(carouselDrag(settledIndex: settledIndex, playerIndex: playerIndex), including: isActive ? .all : .subviews)
         .environment(\.nowPlayingCarouselControlEditing, controlEditingHandler)
         .environment(\.nowPlayingCarouselGestureRegions, state.gestureRegions)
+        .environment(\.nowPlayingCarouselTapGuard, state.tapGuard)
         .sensoryFeedback(.selection, trigger: state.settledPage)
         .onChange(of: isGestureActive) { _, active in
             // 手势被系统打断时没有 onEnded:弹回停着的那一页。
@@ -1060,6 +1106,9 @@ private struct NowPlayingCarouselPageMotion: ViewModifier {
     let reducesMotion: Bool
     /// 转轮不转时(只画播放器)不读偏移,也就不随它重画。
     let isActive: Bool
+    /// 两侧的面:横拖翻页时面里竖着滚的列表(接下来的队列、发现、调音)停住。手指难免带一点上下,
+    /// 列表本来会跟着挪、松手后还顺着惯性滑一段,翻回来时位置已经变了。只在拖动起手、松手时变。
+    var freezesScrollingWhileDragging = false
 
     func body(content: Content) -> some View {
         let progress = isActive ? NowPlayingCarouselPagingPolicy.progress(slot: slot, offset: state.offset) : 0
@@ -1075,6 +1124,7 @@ private struct NowPlayingCarouselPageMotion: ViewModifier {
                     ? NowPlayingCarouselPagingPolicy.crossfadeOpacity(progress: progress)
                     : (isOnScreen ? 1 : 0)
             )
+            .scrollDisabled(freezesScrollingWhileDragging && state.isDragging)
     }
 }
 
@@ -1388,8 +1438,12 @@ struct NowPlayingCarouselHeaderButton: View {
     let appearance: NowPlayingAppearance
     let action: () -> Void
 
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
+
     var body: some View {
-        Button(action: action) {
+        Button {
+            tapGuard.perform(action)
+        } label: {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(appearance.primary)
@@ -1582,6 +1636,7 @@ struct NowPlayingCarouselNowPlayingStrip: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
 
     var body: some View {
         let song = player.currentSong
@@ -1612,7 +1667,7 @@ struct NowPlayingCarouselNowPlayingStrip: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
-                player.togglePlayPause()
+                tapGuard.perform { player.togglePlayPause() }
             } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 20, weight: .semibold))
@@ -1625,7 +1680,7 @@ struct NowPlayingCarouselNowPlayingStrip: View {
             .accessibilityLabel(Text(player.isPlaying ? LocalizedStringKey("pause") : LocalizedStringKey("play")))
 
             Button {
-                Task { await player.next() }
+                tapGuard.perform { Task { await player.next() } }
             } label: {
                 Image(systemName: "forward.fill")
                     .font(.system(size: 17, weight: .semibold))
@@ -1652,7 +1707,7 @@ struct NowPlayingCarouselNowPlayingStrip: View {
                 )
         }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .onTapGesture(perform: onTap)
+        .onTapGesture { tapGuard.perform(onTap) }
     }
 }
 
@@ -1783,8 +1838,12 @@ struct NowPlayingCarouselCapsuleButton: View {
     let appearance: NowPlayingAppearance
     let action: () -> Void
 
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
+
     var body: some View {
-        Button(action: action) {
+        Button {
+            tapGuard.perform(action)
+        } label: {
             HStack(spacing: 6) {
                 if isBusy {
                     ProgressView().controlSize(.mini)
@@ -1875,6 +1934,8 @@ struct NowPlayingCarouselCardNotice: View {
     let appearance: NowPlayingAppearance
     var action: () -> Void = {}
 
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "info.circle")
@@ -1887,7 +1948,9 @@ struct NowPlayingCarouselCardNotice: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let actionTitle {
-                Button(action: action) {
+                Button {
+                    tapGuard.perform(action)
+                } label: {
                     Text(actionTitle)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(appearance.primary)

@@ -472,3 +472,28 @@ struct NowPlayingCarouselReleaseVelocityTests {
         #expect(abs(v - 2) < 0.0001)
     }
 }
+
+@Suite("转轮上拖过的松手不算点")
+struct NowPlayingCarouselTapPolicyTests {
+    private let now = Date(timeIntervalSinceReferenceDate: 1_000)
+
+    @Test("正在横拖翻页时松手不算点")
+    func swallowsWhileDragging() {
+        #expect(NowPlayingCarouselTapPolicy.swallowsTap(isDragging: true, lastDragActivity: nil, now: now))
+    }
+
+    @Test("拖动手势先松手、按钮后松手:刚拖过也不算点")
+    func swallowsRightAfterDrag() {
+        let justNow = now.addingTimeInterval(-0.1)
+        #expect(NowPlayingCarouselTapPolicy.swallowsTap(isDragging: false, lastDragActivity: justNow, now: now))
+    }
+
+    @Test("没拖过,或拖完过了一会儿再点,照常算点")
+    func allowsPlainTaps() {
+        #expect(!NowPlayingCarouselTapPolicy.swallowsTap(isDragging: false, lastDragActivity: nil, now: now))
+        let earlier = now.addingTimeInterval(-(NowPlayingCarouselTapPolicy.releaseWindow + 0.1))
+        #expect(!NowPlayingCarouselTapPolicy.swallowsTap(isDragging: false, lastDragActivity: earlier, now: now))
+        let longAgo = now.addingTimeInterval(-3)
+        #expect(!NowPlayingCarouselTapPolicy.swallowsTap(isDragging: false, lastDragActivity: longAgo, now: now))
+    }
+}

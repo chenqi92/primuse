@@ -26,8 +26,11 @@ struct NowPlayingCarouselUpNextFace: View {
                 .padding(.top, 4)
             }
             if showsQueue {
-                // 队列从上往下是已播放、正在播放、接下来;每次翻到这一面都停在正在播放。
-                QueueView(player: player, isEmbedded: true, currentRevealTrigger: context.isSettled)
+                // 队列从上往下是已播放、正在播放、接下来;每次翻到这一面都停在正在播放。没停在这一面时
+                // (在屏幕外)列表就放回正在播放,翻进来时已经在那儿,不等转到位再当着人跳一下。
+                // 经环境交给列表里一个小视图,换页时整张列表不重算。
+                QueueView(player: player, isEmbedded: true)
+                    .environment(\.queueParksAtCurrent, !context.isSettled)
                     .scrollContentBackground(.hidden)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -44,6 +47,8 @@ private struct NowPlayingCarouselPlaybackModesCard: View {
     let onShowABRepeatEditor: () -> Void
 
     @Environment(AudioPlayerService.self) private var player
+    /// 横滑从这几颗键上起手时,松手那一下不算点(见 `NowPlayingCarouselTapGuard`)。
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
 
     var body: some View {
         NowPlayingCarouselCardContainer(card: .playbackModes, appearance: appearance) {
@@ -62,8 +67,10 @@ private struct NowPlayingCarouselPlaybackModesCard: View {
         let isOn = player.shuffleEnabled
         let isEnabled = isOn || player.queueCount >= 2
         return Button {
-            PMHaptics.playbackModeToggled()
-            player.shuffleEnabled.toggle()
+            tapGuard.perform {
+                PMHaptics.playbackModeToggled()
+                player.shuffleEnabled.toggle()
+            }
         } label: {
             NowPlayingCarouselModeKeyFace(
                 symbol: "shuffle",
@@ -110,8 +117,10 @@ private struct NowPlayingCarouselPlaybackModesCard: View {
                 appearance: appearance
             )
         } primaryAction: {
-            PMHaptics.playbackModeToggled()
-            player.repeatBehavior = behavior.next
+            tapGuard.perform {
+                PMHaptics.playbackModeToggled()
+                player.repeatBehavior = behavior.next
+            }
         }
         .buttonStyle(.pmPressable)
         .accessibilityLabel(Text("repeat"))
@@ -151,8 +160,10 @@ private struct NowPlayingCarouselPlaybackModesCard: View {
                 appearance: appearance
             )
         } primaryAction: {
-            PMHaptics.playbackModeToggled()
-            player.advanceABRepeat()
+            tapGuard.perform {
+                PMHaptics.playbackModeToggled()
+                player.advanceABRepeat()
+            }
         }
         .buttonStyle(.pmPressable)
         .disabled(!isEnabled)
@@ -181,7 +192,9 @@ private struct NowPlayingCarouselPlaybackModesCard: View {
 
     private var sleepKey: some View {
         let isActive = player.isSleepTimerActive
-        return Button(action: onShowSleepTimer) {
+        return Button {
+            tapGuard.perform(onShowSleepTimer)
+        } label: {
             NowPlayingCarouselModeKeyFace(
                 symbol: isActive ? "moon.zzz.fill" : "moon.zzz",
                 caption: sleepCaption,

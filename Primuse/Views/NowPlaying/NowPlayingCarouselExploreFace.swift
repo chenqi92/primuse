@@ -60,10 +60,11 @@ private struct NowPlayingCarouselInsightExcerpt: View {
     let appearance: NowPlayingAppearance
 
     @State private var isExpanded = false
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
 
     var body: some View {
         Button {
-            pmWithAnimation(.list) { isExpanded.toggle() }
+            tapGuard.perform { pmWithAnimation(.list) { isExpanded.toggle() } }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(verbatim: text)
@@ -100,6 +101,8 @@ private struct NowPlayingCarouselAlbumCard: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    /// 横滑从这一面的按钮上起手时,松手那一下不算点(见 `NowPlayingCarouselTapGuard`)。
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
     @State private var showsAllTracks = false
 
     /// 曲目多时先列这么多首(以正在放的那首为中心),其余点「全部」展开。
@@ -137,7 +140,7 @@ private struct NowPlayingCarouselAlbumCard: View {
     }
 
     private func header(_ album: Album, trackCount: Int) -> some View {
-        Button { onOpenAlbum(album) } label: {
+        Button { tapGuard.perform { onOpenAlbum(album) } } label: {
             HStack(spacing: 14) {
                 // 和曲库的专辑格一样:专辑自己没缓存封面时用专辑里的歌的封面。
                 AlbumArtworkView(album: album, size: 72, cornerRadius: 10)
@@ -183,7 +186,7 @@ private struct NowPlayingCarouselAlbumCard: View {
         VStack(spacing: 0) {
             ForEach(Array(visible.enumerated()), id: \.element.id) { _, track in
                 let number = track.trackNumber ?? ((tracks.firstIndex { $0.id == track.id } ?? 0) + 1)
-                Button { play(tracks, startingAt: track) } label: {
+                Button { tapGuard.perform { play(tracks, startingAt: track) } } label: {
                     NowPlayingCarouselSongRow(
                         song: track,
                         detail: nil,
@@ -197,7 +200,7 @@ private struct NowPlayingCarouselAlbumCard: View {
             }
             if tracks.count > Self.collapsedTrackCount {
                 Button {
-                    pmWithAnimation(.list) { showsAllTracks.toggle() }
+                    tapGuard.perform { pmWithAnimation(.list) { showsAllTracks.toggle() } }
                 } label: {
                     HStack(spacing: 4) {
                         Text(showsAllTracks
@@ -250,6 +253,7 @@ private struct NowPlayingCarouselArtistCard: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
 
     private static let albumLimit = 12
     private static let songLimit = 5
@@ -274,7 +278,7 @@ private struct NowPlayingCarouselArtistCard: View {
                     if !catalog.otherSongs.isEmpty {
                         VStack(spacing: 0) {
                             ForEach(catalog.otherSongs) { track in
-                                Button { play(catalog.otherSongs, startingAt: track) } label: {
+                                Button { tapGuard.perform { play(catalog.otherSongs, startingAt: track) } } label: {
                                     NowPlayingCarouselSongRow(
                                         song: track,
                                         detail: track.albumTitle,
@@ -301,7 +305,7 @@ private struct NowPlayingCarouselArtistCard: View {
     }
 
     private func header(_ artist: Artist, catalog: Catalog) -> some View {
-        Button { onOpenArtist(artist) } label: {
+        Button { tapGuard.perform { onOpenArtist(artist) } } label: {
             HStack(spacing: 14) {
                 ArtistArtworkView(artist: artist, size: 60, cornerRadius: 30)
                     .frame(width: 60, height: 60)
@@ -333,7 +337,7 @@ private struct NowPlayingCarouselArtistCard: View {
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(albums) { album in
-                    Button { onOpenAlbum(album) } label: {
+                    Button { tapGuard.perform { onOpenAlbum(album) } } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             AlbumArtworkView(album: album, size: 96, cornerRadius: 10)
                             .frame(width: 96, height: 96)
@@ -417,6 +421,7 @@ private struct NowPlayingCarouselSimilarCard: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
     /// 这张卡挂上时的那首歌。在这里点歌播放后列表不跟着换,免得点到一半整列都变了。
     @State private var seed: Song?
     @State private var localResults: [MusicDiscoveryResult]?
@@ -435,7 +440,9 @@ private struct NowPlayingCarouselSimilarCard: View {
             contentPadding: false
         ) {
             if !mixed.isEmpty {
-                Button(action: onShowAll) {
+                Button {
+                    tapGuard.perform(onShowAll)
+                } label: {
                     Text("player_carousel_see_all")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(appearance.secondary)
@@ -477,7 +484,7 @@ private struct NowPlayingCarouselSimilarCard: View {
 
                         VStack(spacing: 0) {
                             ForEach(mixed.prefix(Self.visibleCount)) { result in
-                                Button { startQueue(queue(startingWith: result.song)) } label: {
+                                Button { tapGuard.perform { startQueue(queue(startingWith: result.song)) } } label: {
                                     NowPlayingCarouselSongRow(
                                         song: result.song,
                                         detail: detail(for: result),

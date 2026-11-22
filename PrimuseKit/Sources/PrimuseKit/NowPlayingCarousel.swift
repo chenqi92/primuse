@@ -426,6 +426,25 @@ public enum NowPlayingCarouselPolicy {
     }
 }
 
+/// 转轮上的点按算不算数。整页跟着手指平移,页里的按钮也跟着走:横滑从按钮上起手时,松手那一下还落在
+/// 按钮里,按钮照样触发(两侧面里点到歌就放、点到艺人就跳过去;转盘上的格子跳到那一面)。
+/// 点按手势挪过就不认了,按钮不会,所以按钮的动作先问这里。
+public enum NowPlayingCarouselTapPolicy {
+    /// 手指在转轮上挪过、横拖起手或松手之后这么久以内的松手,都算拖动带出来的:
+    /// 按钮的松手和拖动手势的松手谁先到不一定。
+    public static let releaseWindow: TimeInterval = 0.4
+
+    /// 这一下松手是不是拖动带出来的(是就不算点)。
+    /// - Parameters:
+    ///   - isDragging: 正在横拖翻页。
+    ///   - lastDragActivity: 手指最近一次在转轮上挪动、横拖起手或松手的时刻。
+    public static func swallowsTap(isDragging: Bool, lastDragActivity: Date?, now: Date) -> Bool {
+        if isDragging { return true }
+        guard let lastDragActivity else { return false }
+        return now.timeIntervalSince(lastDragActivity) < releaseWindow
+    }
+}
+
 /// 转轮翻页的排布:页与页并排,手指拖多少整条就挪多少,停稳时只露一页,不留上一页的边角。
 ///
 /// 位置分两半记:停着的那一页(换页那一刻就换)和整条相对它挪开的「偏移」(以页宽为单位,正数是往后一页那边去)。

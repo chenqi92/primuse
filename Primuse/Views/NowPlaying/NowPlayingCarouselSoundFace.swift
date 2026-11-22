@@ -758,6 +758,8 @@ private struct NowPlayingCarouselSpeedPitchCard: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
+    /// 横滑从这几颗键上起手时,松手那一下不算点(见 `NowPlayingCarouselTapGuard`)。
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
 
     var body: some View {
         let canChangeRate = playbackSettings.outputMode == .effects
@@ -775,9 +777,11 @@ private struct NowPlayingCarouselSpeedPitchCard: View {
 
         NowPlayingCarouselCardContainer(card: .speedAndPitch, appearance: appearance) {
             Button {
-                pmWithAnimation(.control) {
-                    playbackSettings.playbackRate = 1
-                    playbackSettings.pitchSemitones = 0
+                tapGuard.perform {
+                    pmWithAnimation(.control) {
+                        playbackSettings.playbackRate = 1
+                        playbackSettings.pitchSemitones = 0
+                    }
                 }
             } label: {
                 Label("player_carousel_reset_short", systemImage: "arrow.counterclockwise")
@@ -877,7 +881,7 @@ private struct NowPlayingCarouselSpeedPitchCard: View {
 
     private func stepButton(symbol: String, isEnabled: Bool, action: @escaping () -> Void) -> some View {
         Button {
-            pmWithAnimation(.control, action)
+            tapGuard.perform { pmWithAnimation(.control, action) }
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: 13, weight: .bold))
@@ -903,6 +907,7 @@ private struct NowPlayingCarouselOutputCard: View {
     let onShowCastPicker: () -> Void
 
     @Environment(AudioPlayerService.self) private var player
+    @Environment(\.nowPlayingCarouselTapGuard) private var tapGuard
 
     var body: some View {
         NowPlayingCarouselCardContainer(card: .outputAndQuality, appearance: appearance) {
@@ -942,7 +947,9 @@ private struct NowPlayingCarouselOutputCard: View {
                 .accessibilityLabel(Text("player_controls_action_airplay"))
 
             if !player.isAppleMusicMode {
-                Button(action: onShowCastPicker) {
+                Button {
+                    tapGuard.perform(onShowCastPicker)
+                } label: {
                     Image(systemName: "hifispeaker")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(appearance.primary.opacity(castingName != nil ? 1 : 0.6))
@@ -960,7 +967,9 @@ private struct NowPlayingCarouselOutputCard: View {
         if let song = player.currentSong {
             let quality = Self.quality(for: song, plan: player.activeTranscodePlan)
             let replayGain = player.replayGainPlaybackInfo
-            Button(action: onShowSongInfo) {
+            Button {
+                tapGuard.perform(onShowSongInfo)
+            } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "waveform.badge.magnifyingglass")
                         .font(.system(size: 16, weight: .semibold))
