@@ -19199,17 +19199,14 @@ struct LyricsScrollView: View, @MainActor Equatable {
         )
         .overlay(alignment: .top) {
             HStack(alignment: .top, spacing: 8) {
-                if showsSimulatedWordTiming || !companionTracks.isEmpty {
-                    LyricsInfoBadges(
-                        showsWordLevel: hasWordLevelLyrics,
-                        showsSimulatedWordTiming: showsSimulatedWordTiming,
-                        source: !companionTracks.isEmpty && showsLyricsSource ? LyricsSourceBadge.resolve(lyrics) : nil,
-                        foreground: appearance.secondary,
-                        fill: appearance.primary.opacity(0.10),
-                        companionTracks: companionTracks,
-                        onInteraction: { lastLyricRowTapAt = Date() }
-                    )
-                }
+                // 钉在顶上的只有随时要点得到的：译文 / 音译开关、评论、翻译进度。「逐字」「模拟逐字」
+                // 和来源这些说明都在歌词开头那一排（`lyricsInfoBadges`），跟着歌词滚走。
+                LyricsCompanionTrackButtons(
+                    tracks: companionTracks,
+                    foreground: appearance.secondary,
+                    fill: appearance.primary.opacity(0.10),
+                    onInteraction: { lastLyricRowTapAt = Date() }
+                )
                 Spacer(minLength: 8)
                 LyricCommentsListButton(songID: songID, present: presentComment)
                     .foregroundStyle(appearance.secondary)
@@ -19321,7 +19318,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
                         // reach the same visual anchor as every middle row.
                         Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
-                        if companionTracks.isEmpty { lyricsInfoBadges(showsWordLevel: false) }
+                        lyricsInfoBadges(showsWordLevel: false)
 
                         lyricRowCells(isDuet: isDuet, textWidth: textWidth) { index in
                             lineLevelRowVisualActivity(index: index)
@@ -19460,7 +19457,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
                     LyricsRowStack(isLazy: usesLazyRows, spacing: Self.lyricsRowSpacing) {
                         Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
-                        if companionTracks.isEmpty { lyricsInfoBadges(showsWordLevel: true) }
+                        lyricsInfoBadges(showsWordLevel: true)
 
                         lyricRowCells(isDuet: isDuet, textWidth: textWidth) { index in
                             rowVisualActivity(index: index)
@@ -20290,14 +20287,16 @@ struct LyricsScrollView: View, @MainActor Equatable {
         }
     }
 
-    /// 歌词最上面那一排小标签:逐字歌词标「逐字」,知道这份歌词从哪儿来时再标来源(#357)。
-    /// 文字稿不标来源:它来自节目源或本机转写,不是歌词源。
+    /// 歌词最上面那一排小标签:逐字歌词标「逐字」,按原文模拟出来的标「模拟逐字」,知道这份歌词从哪儿来时
+    /// 再标来源(#357)。文字稿不标来源:它来自节目源或本机转写,不是歌词源。
     @ViewBuilder
     private func lyricsInfoBadges(showsWordLevel: Bool) -> some View {
         let source = showsLyricsSource && !isSpokenWordTranscript ? LyricsSourceBadge.resolve(lyrics) : nil
-        if (showsWordLevel && !showsSimulatedWordTiming) || source != nil {
+        let showsRealWordLevel = showsWordLevel && !showsSimulatedWordTiming
+        if showsRealWordLevel || showsSimulatedWordTiming || source != nil {
             LyricsInfoBadges(
-                showsWordLevel: showsWordLevel && !showsSimulatedWordTiming,
+                showsWordLevel: showsRealWordLevel,
+                showsSimulatedWordTiming: showsSimulatedWordTiming,
                 source: source,
                 foreground: appearance.secondary,
                 fill: appearance.primary.opacity(0.10)

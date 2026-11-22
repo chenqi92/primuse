@@ -280,20 +280,17 @@ struct ImmersivePlayerView: View {
                         .transition(.opacity.combined(with: .offset(y: 8)))
                 }
 
-                // 顶上那排圆钮下面:没有实时频谱、临时降档时写明原因。
+                // 顶上那排圆钮下面:译文 / 音译开关(随控件出现);没有实时频谱、临时降档时写明原因。
+                // 「模拟逐字」在圆钮那一排里(`topChrome`)。
                 VStack(spacing: 8) {
                     let tracks = showsChrome && !presentsOnExternalDisplay ? companionTracks : []
-                    if (showsSimulatedWordTiming || !tracks.isEmpty) && !isAmbientRest && !showsEffectPicker {
-                        LyricsInfoBadges(
-                            showsWordLevel: false,
-                            showsSimulatedWordTiming: showsSimulatedWordTiming,
-                            source: nil,
+                    if !tracks.isEmpty && !isAmbientRest && !showsEffectPicker {
+                        LyricsCompanionTrackButtons(
+                            tracks: tracks,
                             foreground: presentationEffect.prefersLightContent ? pillInk.opacity(0.8) : .white.opacity(0.8),
                             fill: presentationEffect.prefersLightContent ? .white.opacity(0.45) : .black.opacity(0.25),
-                            companionTracks: tracks,
                             onInteraction: { registerInteraction(revealControls: true) }
                         )
-                        .allowsHitTesting(!tracks.isEmpty)
                     }
                     ImmersiveStageNotice(
                         items: stageNoticeItems,
@@ -678,6 +675,17 @@ struct ImmersivePlayerView: View {
     private func topChrome(metrics: ImmersiveStageMetrics) -> some View {
         HStack(spacing: 10) {
             dismissChromeButton
+            if showsSimulatedWordTiming {
+                // 是说明不是按钮:跟这排控件一起出现、一起收起,不漂在各种全屏效果的画面上。
+                LyricsInfoBadges(
+                    showsWordLevel: false,
+                    showsSimulatedWordTiming: true,
+                    source: nil,
+                    foreground: presentationEffect.prefersLightContent ? pillInk.opacity(0.8) : .white.opacity(0.8),
+                    fill: presentationEffect.prefersLightContent ? .white.opacity(0.45) : .black.opacity(0.25)
+                )
+                .allowsHitTesting(false)
+            }
             Spacer()
             effectChromeMenu(metrics: metrics)
             if presentationEffect.scene == .vinylDeck {

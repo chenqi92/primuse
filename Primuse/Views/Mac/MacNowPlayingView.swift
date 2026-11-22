@@ -1193,15 +1193,16 @@ struct MacNowPlayingView: View {
         .frame(width: width, alignment: frameAlignment)
     }
 
-    /// 歌词最上面的「逐字」与来源标签,和手机播放页同一套(#357)。来源看读到的原文档:
+    /// 歌词最上面的「逐字」「模拟逐字」与来源标签,和手机播放页同一套(#357)。来源看读到的原文档:
     /// 显示用的那份按设置去过译文、换过罗马音。文字稿不标来源。
     @ViewBuilder
     private var lyricsInfoBadges: some View {
-        let showsWordLevel = romanizedLyrics.contains(where: \.containsWordLevelContent)
+        let showsWordLevel = romanizedLyrics.contains(where: \.containsWordLevelContent) && !usesSimulatedWordTiming
         let source = showsLyricsSource && !isSpokenWord ? LyricsSourceBadge.resolve(loadedLyrics) : nil
-        if (showsWordLevel && !usesSimulatedWordTiming) || source != nil {
+        if showsWordLevel || usesSimulatedWordTiming || source != nil {
             LyricsInfoBadges(
-                showsWordLevel: showsWordLevel && !usesSimulatedWordTiming,
+                showsWordLevel: showsWordLevel,
+                showsSimulatedWordTiming: usesSimulatedWordTiming,
                 source: source,
                 foreground: playerSecondaryColor,
                 fill: playerGlassFill
@@ -1289,7 +1290,7 @@ struct MacNowPlayingView: View {
                             .padding(.top, lyricsRowSpacing)
                         }
                     } else {
-                        if availableCompanionTracks.isEmpty { lyricsInfoBadges }
+                        lyricsInfoBadges
                         let isDuet = lyricsDocument.isDuet
                         // 提示点各占一行、和歌词行同在一个 ForEach 里:惰性堆栈里还没建出来的行
                         // 也能按这个身份滚过去。没轮到的提示点收起,不显示也不占位置。
@@ -1370,15 +1371,13 @@ struct MacNowPlayingView: View {
             }
         }
         .overlay(alignment: .top) {
-            if usesSimulatedWordTiming || !availableCompanionTracks.isEmpty {
+            // 钉在顶上的只有译文 / 音译开关和翻译进度；「逐字」「模拟逐字」和来源在歌词开头那一排。
+            if !availableCompanionTracks.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
-                    LyricsInfoBadges(
-                        showsWordLevel: lyricsDocument.summary.isWordLevel,
-                        showsSimulatedWordTiming: usesSimulatedWordTiming,
-                        source: !availableCompanionTracks.isEmpty && showsLyricsSource ? LyricsSourceBadge.resolve(loadedLyrics) : nil,
+                    LyricsCompanionTrackButtons(
+                        tracks: availableCompanionTracks,
                         foreground: playerSecondaryColor,
-                        fill: playerGlassFill,
-                        companionTracks: availableCompanionTracks
+                        fill: playerGlassFill
                     )
                     Spacer(minLength: 8)
                     lyricsTranslationStatus

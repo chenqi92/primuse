@@ -240,18 +240,15 @@ struct MacImmersivePlayerView: View {
 
                 // 顶栏那排按钮下面:没有实时频谱、临时降档时写明原因。
                 VStack(spacing: 8) {
+                    // 「模拟逐字」在顶栏那一排里(`chrome`),跟控件一起出现、一起收起。
                     let tracks = showsChrome && isRenderingActive ? companionTracks : []
-                    if (showsSimulatedWordTiming || !tracks.isEmpty) && !isLowPower && !showsEffectPicker && !showsKaraoke {
-                        LyricsInfoBadges(
-                            showsWordLevel: false,
-                            showsSimulatedWordTiming: showsSimulatedWordTiming,
-                            source: nil,
+                    if !tracks.isEmpty && !isLowPower && !showsEffectPicker && !showsKaraoke {
+                        LyricsCompanionTrackButtons(
+                            tracks: tracks,
                             foreground: presentationEffect.prefersLightContent ? chromeInk.opacity(0.8) : .white.opacity(0.8),
                             fill: presentationEffect.prefersLightContent ? .white.opacity(0.45) : .black.opacity(0.25),
-                            companionTracks: tracks,
                             onInteraction: revealChrome
                         )
-                        .allowsHitTesting(!tracks.isEmpty)
                     }
                     ImmersiveStageNotice(
                         items: stageNoticeItems,
@@ -655,6 +652,17 @@ struct MacImmersivePlayerView: View {
                     .fixedSize()
                     .help(Text("immersive_disc_settings"))
                     .accessibilityLabel(Text("immersive_disc_settings"))
+                }
+                if showsSimulatedWordTiming {
+                    // 是说明不是按钮:跟这排控件一起出现、一起收起,不漂在各种全屏效果的画面上。
+                    LyricsInfoBadges(
+                        showsWordLevel: false,
+                        showsSimulatedWordTiming: true,
+                        source: nil,
+                        foreground: presentationEffect.prefersLightContent ? chromeInk.opacity(0.8) : .white.opacity(0.8),
+                        fill: presentationEffect.prefersLightContent ? .white.opacity(0.45) : .black.opacity(0.25)
+                    )
+                    .allowsHitTesting(false)
                 }
                 Spacer()
                 Button(action: beginExitFullScreen) {

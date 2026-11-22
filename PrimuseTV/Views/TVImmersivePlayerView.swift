@@ -377,7 +377,8 @@ struct TVImmersivePlayerView: View {
                 VStack(spacing: 8) {
                     if !isLowPower && !showsModePicker && !isKaraokeActive {
                         HStack(spacing: 12) {
-                            if showsSimulatedWordTiming {
+                            // 和这排键一起出现、一起收起：控件收起后不再单独挂在画面上。
+                            if showsSimulatedWordTiming && showsChrome {
                                 Text("lyrics_simulated_word_badge")
                                     .tvFont(.meta)
                                     .foregroundStyle(presentationEffect.prefersLightContent ? ImmersiveWatercolorInk.ink : Color.primary)
