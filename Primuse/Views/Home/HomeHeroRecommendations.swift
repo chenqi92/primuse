@@ -251,7 +251,7 @@ struct HomeHeroRecommendationSection: View {
                                 let songs = shownSongs(for: theme)
                                 NavigationLink(value: HomeHeroRecommendationDestination.songs(theme)) {
                                     HomeHeroRecommendationCard(
-                                        metrics: metrics, songs: Array(songs.prefix(4)), title: theme.title,
+                                        metrics: metrics, songs: CoverFlowArtwork.distinctArtworkSongs(songs, limit: 4), title: theme.title,
                                         subtitle: String(format: String(localized: "home_hero_song_count_format"), songs.count),
                                         isLoading: songs.isEmpty && catalog.collection(theme).revision == 0,
                                         appearance: appearance, theme: theme, medium: style == .medium,
@@ -357,61 +357,24 @@ struct HomeHeroRecommendationCard: View {
     }
 
     var body: some View {
-        let layout = metrics.isCompact ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
-        let coverSide = metrics.artworkSide * (theme == nil ? 0.87 : 0.68)
+        let compact = metrics.isCompact
+        let cardHeight: CGFloat = metrics.cardHeight(captionHeight: captionHeight)
+        let coverWidth: CGFloat = compact ? metrics.artworkSide : metrics.cardWidth
+        let captionMinHeight: CGFloat = compact ? cardHeight : captionHeight + HomeHeroFeaturedMetrics.captionScrimExtent
+        let captionAlignment: Alignment = compact ? .leading : .bottomLeading
+        // 竖屏封面铺满整张卡,标题、说明压在封面下沿的暗渐变上;横屏封面铺满左边一格,标题在右。
+        // 转屏只换摆法、不换视图。
+        let layout = compact ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(ZStackLayout(alignment: .bottomLeading))
         return layout {
-            Group {
-                if appearance.cover == .hidden {
-                    Color.clear
-                } else if appearance.cover == .photo, let photo = appearance.photo {
-                    Image(uiImage: photo.image).resizable().scaledToFill()
-                } else {
-                    HomeHeroRecommendationArtwork(
-                        songs: appearance.cover == .collage ? songs : Array(songs.prefix(1)),
-                        side: coverSide, showsPlaceholder: false
-                    )
-                }
-            }
-            .frame(width: coverSide, height: coverSide)
-            .clipShape(.rect(cornerRadius: 8))
-            .shadow(color: .black.opacity(0.24), radius: 7, y: 3)
-            .frame(width: metrics.artworkSide, height: metrics.artworkSide)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(verbatim: title).font(.headline).foregroundStyle(.white).lineLimit(2)
-                if isLoading {
-                    ProgressView().controlSize(.small).tint(.white)
-                } else {
-                    Text(verbatim: subtitle).font(.subheadline).foregroundStyle(.white).lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: metrics.isCompact ? max(metrics.artworkSide, captionHeight) : captionHeight)
+            cover(width: coverWidth, height: cardHeight)
+            caption
+                .padding(.horizontal, 14)
+                .padding(.vertical, compact ? 0 : 12)
+                .frame(maxWidth: .infinity, minHeight: captionMinHeight, alignment: captionAlignment)
+                .background { captionScrim }
         }
-        .frame(width: metrics.cardWidth)
-        .background {
-            Group {
-                if let flowPalettes = coverFlowPalettes {
-                    // 没有封面可看:拿里面几首歌的封面模糊了慢慢流动(像 Apple Music 的动态背景)。
-                    CoverFlowBackdrop(
-                        palettes: flowPalettes, songs: songs,
-                        isAnimating: focused && appearance.backdrop.resolved(medium: medium, album: theme == nil) != .gradient
-                    )
-                } else if appearance.backdrop.resolved(medium: medium, album: theme == nil) == .flow, followsArtwork {
-                    CoverFlowBackdrop(palettes: [palette], songs: songs, isAnimating: focused)
-                } else {
-                    HomeHeroCardBackdrop(style: appearance.backdrop.resolved(medium: medium, album: theme == nil),
-                                         palette: palette, focused: focused, reduceMotion: reduceMotion)
-                }
-            }
-                .overlay {
-                    LinearGradient(stops: [.init(color: .clear, location: 0.15),
-                                           .init(color: .black.opacity(0.60), location: metrics.isCompact ? 0.46 : 0.72),
-                                           .init(color: .black.opacity(0.67), location: 1)],
-                                   startPoint: metrics.isCompact ? .leading : .top,
-                                   endPoint: metrics.isCompact ? .trailing : .bottom)
-                }
-        }
+        .frame(width: metrics.cardWidth, height: cardHeight)
+        .background { backdrop }
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 18).stroke(.primary.opacity(0.06), lineWidth: 0.5) }
         .contentShape(RoundedRectangle(cornerRadius: 18))
@@ -422,22 +385,101 @@ struct HomeHeroRecommendationCard: View {
         }
     }
 
-    /// 卡片上没有封面可看的时候(封面设成不显示,或者第一首根本没有封面),底色改从里面几首歌的封面取。
-    /// 一首有颜色的封面都没有时返回 nil,照旧用这一类的预设色。自选颜色、自选照片时不管。
-    private var coverFlowPalettes: [ImmersiveArtworkPalette]? {
-        guard !appearance.customColors, !(appearance.cover == .photo && appearance.photo != nil) else { return nil }
-        let firstHasArtwork = songs.first.map { song in
-            tintProvider.palette(forSongID: song.id) != nil
-                || tintProvider.hasAnalyzedColorlessArtwork(forSongID: song.id)
-        } ?? false
-        guard appearance.cover == .hidden || !firstHasArtwork else { return nil }
-        let palettes = songs.compactMap { tintProvider.palette(forSongID: $0.id) }
-        return palettes.isEmpty ? nil : palettes
+    /// 封面铺满给它的那一格(竖屏整张卡,横屏左边一格),多出来的裁掉,四周不留边。
+    @ViewBuilder
+    private func cover(width: CGFloat, height: CGFloat) -> some View {
+        Group {
+            if appearance.cover == .hidden {
+                Color.clear
+            } else if appearance.cover == .photo, let photo = appearance.photo {
+                Image(uiImage: photo.image).resizable().scaledToFill()
+            } else {
+                HomeHeroRecommendationArtwork(songs: artworkSongs, side: max(width, height), showsPlaceholder: false)
+            }
+        }
+        .frame(width: width, height: height)
+        .clipped()
+    }
+
+    private var caption: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(verbatim: title).font(.headline).foregroundStyle(.white).lineLimit(2)
+            if isLoading {
+                ProgressView().controlSize(.small).tint(.white)
+            } else {
+                Text(verbatim: subtitle).font(.subheadline).foregroundStyle(.white.opacity(0.9)).lineLimit(1)
+            }
+        }
+    }
+
+    /// 竖屏从封面中段往下慢慢压暗,白字压在什么颜色的封面上都看得清;横屏只压右边标题那一格。
+    private var captionScrim: LinearGradient {
+        if metrics.isCompact {
+            return LinearGradient(colors: [.black.opacity(0.22), .black.opacity(0.5)],
+                                  startPoint: .leading, endPoint: .trailing)
+        }
+        let stops: [Gradient.Stop] = [
+            Gradient.Stop(color: .clear, location: 0),
+            Gradient.Stop(color: .black.opacity(0.5), location: 0.55),
+            Gradient.Stop(color: .black.opacity(0.66), location: 1),
+        ]
+        return LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+    }
+
+    @ViewBuilder
+    private var backdrop: some View {
+        let style = appearance.backdrop.resolved(medium: medium, album: theme == nil)
+        if coverFillsCard {
+            // 封面铺满整张卡时底下这层看不见,只在封面还没读出来的那一下垫着:不动,也不去取封面。
+            HomeHeroCardBackdrop(style: .gradient, palette: palette, focused: false, reduceMotion: true)
+        } else if let flowPalettes = coverFlowPalettes {
+            // 没有封面可看:拿里面几首歌的封面模糊了慢慢流动(像 Apple Music 的动态背景)。
+            CoverFlowBackdrop(palettes: flowPalettes, songs: songs, isAnimating: focused && style != .gradient)
+        } else if style == .flow, followsArtwork {
+            CoverFlowBackdrop(palettes: [palette], songs: songs, isAnimating: focused)
+        } else {
+            HomeHeroCardBackdrop(style: style, palette: palette, focused: focused, reduceMotion: reduceMotion)
+        }
+    }
+
+    /// 卡上铺哪几张封面:选了四格拼贴,或者歌曲集合卡「自动」时,凑得齐四张就无缝铺成 2×2;其余只铺第一张。
+    private var artworkSongs: [Song] {
+        let collage = appearance.cover == .collage || (appearance.cover == .automatic && theme != nil)
+        return collage ? songs : Array(songs.prefix(1))
+    }
+
+    /// 竖屏封面铺满整张卡、底下那层看不见的时候。没有封面文件名、也没读到取色的歌当作没有封面。
+    private var coverFillsCard: Bool {
+        guard !metrics.isCompact else { return false }
+        switch appearance.cover {
+        case .hidden:
+            return false
+        case .photo where appearance.photo != nil:
+            return true
+        case .automatic, .collage, .photo:
+            return firstHasArtwork || songs.first?.coverArtFileName?.isEmpty == false
+        }
     }
 
     /// 流动背景跟着封面走:自选颜色、自选照片时还是按选的颜色画渐变。
     private var followsArtwork: Bool {
         !appearance.customColors && !(appearance.cover == .photo && appearance.photo != nil)
+    }
+
+    private var firstHasArtwork: Bool {
+        songs.first.map { song in
+            tintProvider.palette(forSongID: song.id) != nil
+                || tintProvider.hasAnalyzedColorlessArtwork(forSongID: song.id)
+        } ?? false
+    }
+
+    /// 卡片上没有封面可看的时候(封面设成不显示,或者第一首根本没有封面),底色改从里面几首歌的封面取。
+    /// 一首有颜色的封面都没有时返回 nil,照旧用这一类的预设色。自选颜色、自选照片时不管。
+    private var coverFlowPalettes: [ImmersiveArtworkPalette]? {
+        guard !appearance.customColors, !(appearance.cover == .photo && appearance.photo != nil) else { return nil }
+        guard appearance.cover == .hidden || !firstHasArtwork else { return nil }
+        let palettes = songs.compactMap { tintProvider.palette(forSongID: $0.id) }
+        return palettes.isEmpty ? nil : palettes
     }
 
     private var tintSong: Song? {
@@ -479,10 +521,14 @@ private struct HomeHeroRecommendationArtwork: View {
     }
 
     private func artwork(_ song: Song, size: CGFloat) -> some View {
-        CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: size, cornerRadius: 0,
-                          sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat,
-                          showsPlaceholder: showsPlaceholder)
+        // 铺满整张卡的封面按「卡片」一档解码就够:3 倍屏上差几个像素看不出来,不必每张都解成最大一档。
+        CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: min(size, Self.maximumDecodeSide),
+                          cornerRadius: 0, sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat,
+                          showsPlaceholder: showsPlaceholder, fillsProposedSize: true)
+            .frame(width: size, height: size)
     }
+
+    private static let maximumDecodeSide: CGFloat = 256
 }
 
 struct HomeHeroRecommendationDetail: View {

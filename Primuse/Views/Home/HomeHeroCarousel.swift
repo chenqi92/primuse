@@ -35,9 +35,14 @@ struct HomeHeroFeaturedMetrics {
         }
     }
 
+    /// 竖屏时封面铺满整张卡,标题压在封面下沿,卡片就是封面那么高;字号很大、标题放不下时再长高。
+    /// 横屏封面在左一格、标题在右,和两者里高的那个一样高。
     func cardHeight(captionHeight: CGFloat) -> CGFloat {
-        isCompact ? max(artworkSide, captionHeight) : artworkSide + captionHeight
+        isCompact ? max(artworkSide, captionHeight) : max(artworkSide, captionHeight + Self.captionScrimExtent)
     }
+
+    /// 竖屏时标题底下那层暗渐变比标题区高出多少,渐变从封面中段慢慢压下来。
+    static let captionScrimExtent: CGFloat = 36
 }
 
 struct HomeHeroFeaturedSkeleton: View {
