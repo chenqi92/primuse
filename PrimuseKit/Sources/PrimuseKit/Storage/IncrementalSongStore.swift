@@ -229,12 +229,35 @@ public final class IncrementalSongStore: @unchecked Sendable {
     /// Applies a completed in-memory mutation atomically. Existing rows retain
     /// their stable order; genuinely new rows are appended in input order.
     @discardableResult
-    public func apply(upserts: [Song], deletingIDs: Set<String> = []) throws -> Int64 {
-        guard !upserts.isEmpty || !deletingIDs.isEmpty else {
+    /// `renaming`(旧 id → 新 id)先做:歌只是换了 id(改标签后身份变了),行留在原来的库内位置
+    /// (沿用 `orderKey`)。新 id 已在库里时不改名,旧行照常按 `deletingIDs` 删。之后才删、才写。
+    public func apply(upserts: [Song], deletingIDs: Set<String> = [], renaming: [String: String] = [:]) throws -> Int64 {
+        guard !upserts.isEmpty || !deletingIDs.isEmpty || !renaming.isEmpty else {
             return try startupState().contentRevision
         }
         return try database.write { db in
             var changed = false
+            if !renaming.isEmpty {
+                let renameDecoder = JSONDecoder()
+                renameDecoder.dateDecodingStrategy = .iso8601
+                for (oldID, newID) in renaming.sorted(by: { $0.key < $1.key }) where oldID != newID {
+                    let taken = try Bool.fetchOne(
+                        db, sql: "SELECT EXISTS (SELECT 1 FROM librarySongRecords WHERE id = ?)", arguments: [newID]
+                    ) ?? false
+                    guard !taken,
+                          let payload = try Data.fetchOne(
+                              db, sql: "SELECT payload FROM librarySongRecords WHERE id = ?", arguments: [oldID]
+                          ) else { continue }
+                    // 负载里也带着 id:一起改,读回来才是新 id(调用方不再 upsert 时也对)。
+                    var song = try renameDecoder.decode(Song.self, from: payload)
+                    song.id = newID
+                    try db.execute(
+                        sql: "UPDATE librarySongRecords SET id = ?, payload = ? WHERE id = ?",
+                        arguments: [newID, try encoder.encode(song), oldID]
+                    )
+                    changed = true
+                }
+            }
             if !deletingIDs.isEmpty {
                 let ids = Array(deletingIDs)
                 for chunkStart in stride(from: 0, to: ids.count, by: 500) {

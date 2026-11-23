@@ -26,7 +26,14 @@ extension LibraryCatalog {
     /// 新行按输入顺序追加到库尾,与 `IncrementalSongStore.apply` 的顺序语义一致。
     /// 分组派生按脏范围增量维护,工作量与改动同阶(`lastWriteWork` 记着读写了多少行)。
     @discardableResult
-    public func apply(upserts: [Song], deletingIDs: some Collection<String> = [String]()) throws -> LibraryCatalogChangeSummary {
+    /// `renaming`(旧 id → 新 id):歌只是换了 id,行号与库内位置不变(与旧库 `IncrementalSongStore.apply`
+    /// 的改名一致);新 id 已在目录里时不改名。改了名的行随后按新值整行重算派生(类别可能跟 id 有关),
+    /// 没在 `upserts` 里的就用库里存的值。
+    public func apply(
+        upserts: [Song],
+        deletingIDs: some Collection<String> = [String](),
+        renaming: [String: String] = [:]
+    ) throws -> LibraryCatalogChangeSummary {
         let configuration = groupingConfiguration
         let measures = measuresWriteWork
         let (summary, work) = try pool.write { db -> (LibraryCatalogChangeSummary, LibraryCatalogWriteWork) in
@@ -38,6 +45,15 @@ extension LibraryCatalog {
             var deleted = ContiguousArray<Int32>()
             var unchanged = 0
             var deletedIDs = Set<String>()
+            var renamedIDs = Set<String>()
+            let rowidByID = try db.cachedStatement(sql: "SELECT rowid FROM song WHERE id = ?")
+            for (oldID, newID) in renaming.sorted(by: { $0.key < $1.key }) where oldID != newID {
+                guard !newID.utf8.contains(0) else { throw LibraryCatalogError.invalidIdentifier(newID) }
+                guard try Int64.fetchOne(rowidByID, arguments: [newID]) == nil,
+                      let rowid = try Int64.fetchOne(rowidByID, arguments: [oldID]) else { continue }
+                try db.execute(sql: "UPDATE song SET id = ? WHERE rowid = ?", arguments: [newID, rowid])
+                renamedIDs.insert(newID)
+            }
 
             for id in deletingIDs where deletedIDs.insert(id).inserted {
                 guard let rowid = try Int64.fetchOne(
@@ -50,12 +66,22 @@ extension LibraryCatalog {
                 deleted.append(try Self.rowid32(rowid))
             }
 
+            var rows = upserts
+            if !renamedIDs.isEmpty {
+                let upsertIDs = Set(upserts.map(\.id))
+                for id in renamedIDs.sorted() where !upsertIDs.contains(id) {
+                    guard let stored = try Row.fetchOne(db, sql: """
+                        SELECT \(LibraryCatalogSongCodec.selectColumns) \(LibraryCatalogSongCodec.selectFrom) WHERE song.id = ?
+                        """, arguments: [id]) else { continue }
+                    rows.append(try LibraryCatalogSongCodec.decode(stored))
+                }
+            }
             let prepared = try LibraryCatalogImportProfile.measure("write.prepare") {
-                try context.prepare(upserts.map(\.withoutAppliedPlaybackRange), configuration: configuration)
+                try context.prepare(rows.map(\.withoutAppliedPlaybackRange), configuration: configuration)
             }
             try LibraryCatalogImportProfile.measure("write.rows") {
                 for row in prepared {
-                    switch try context.upsert(row, grouping: &grouping) {
+                    switch try context.upsert(row, grouping: &grouping, force: renamedIDs.contains(row.song.id)) {
                     case .inserted(let rowid): inserted.append(try Self.rowid32(rowid))
                     case .updated(let rowid): updated.append(try Self.rowid32(rowid))
                     case .unchanged: unchanged += 1
@@ -371,7 +397,8 @@ struct SongWriteContext {
     }
 
     /// 写一首歌:没有就追加到库尾,有就只改变了的列(变了的列所在的索引才会动)。
-    mutating func upsert(_ row: PreparedRow, grouping: inout GroupingMaintenance) throws -> UpsertOutcome {
+    /// `force`:值没变也按更新走一遍(改了 id 的行要重算派生)。
+    mutating func upsert(_ row: PreparedRow, grouping: inout GroupingMaintenance, force: Bool = false) throws -> UpsertOutcome {
         guard !row.song.id.utf8.contains(0) else { throw LibraryCatalogError.invalidIdentifier(row.song.id) }
         let existing = try Row.fetchOne(db.cachedStatement(sql: Self.existingSQL), arguments: [row.song.id])
         guard let existing else {
@@ -381,7 +408,7 @@ struct SongWriteContext {
         grouping.work.rowsRead += 1
         let previous = try LibraryCatalogSongCodec.decode(existing)
         // 按编码后的列比:浮点数的原始位也算在内(NaN 不等于自己,`Song ==` 判不出没变)。
-        if previous.sourceID == row.song.sourceID, LibraryCatalogSongCodec.encode(previous) == row.stored {
+        if !force, previous.sourceID == row.song.sourceID, LibraryCatalogSongCodec.encode(previous) == row.stored {
             return .unchanged
         }
         let rowid: Int64 = existing[LibraryCatalogSongCodec.Column.rowid]

@@ -5195,6 +5195,20 @@ final class MusicLibrary {
     /// `var` 而非 `let`: `.preparing` 构造的库在 `publish(_:)` 时装入
     /// 准备阶段已打开的存储句柄。同步路径下 init 后不再变化。
     @ObservationIgnored private var songStore: IncrementalSongStore?
+    /// 曲库目录(`library-catalog.sqlite`)。P1:跟着 `library-songs.sqlite` 双写、后台迁移与
+    /// 影子校验,内存模型仍是真相;P2 的页面经 `catalogHost.reader` / `LibraryListModel` 读它。
+    /// nil:这个库不带目录(测试注入的临时目录默认不带)。
+    @ObservationIgnored let catalogHost: LibraryCatalogHost?
+    @ObservationIgnored private var catalogStarted = false
+    /// 这一轮进程里扫描索引已经给过专辑艺人目录(之前目录里留着上一轮的,不先清掉)。
+    @ObservationIgnored private var catalogAlbumArtistFoldersReceived = false
+    @ObservationIgnored private var catalogSourceNames: [String: String]?
+    @ObservationIgnored private var catalogShadowTask: Task<Void, Never>?
+    @ObservationIgnored private var catalogLastShadowAt: [LibraryCatalogShadowRequest.Mode: ContinuousClock.Instant] = [:]
+    /// 扫描进行中(由 AppServices 接上):影子校验在扫描期间跳过。
+    @ObservationIgnored var catalogBusyCheck: (@MainActor () -> Bool)?
+    /// 测试与诊断:固定影子校验的模式并取消频率限制。
+    @ObservationIgnored var catalogShadowModeOverride: LibraryCatalogShadowRequest.Mode?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     @ObservationIgnored private var persistenceBlockedByCorruption = false
@@ -5675,6 +5689,7 @@ final class MusicLibrary {
     /// 这里只搬走两张续体表并逐个唤醒; `onReady` 回调不必再跑, 它们要看的
     /// 库已经没了。
     deinit {
+        catalogHost?.mirror.requestStop()
         if let genreSeparatorObserver { NotificationCenter.default.removeObserver(genreSeparatorObserver) }
         let unbounded = readinessContinuations
         readinessContinuations = []
@@ -5802,13 +5817,15 @@ final class MusicLibrary {
     static func makePreparing(
         storageDirectory: URL? = nil,
         disabledSourceIDs: Set<String> = [],
-        artistNameConfiguration: ArtistNameConfiguration? = nil
+        artistNameConfiguration: ArtistNameConfiguration? = nil,
+        catalogMirroring: LibraryCatalogMirroring = .automatic
     ) -> MusicLibrary {
         MusicLibrary(
             disabledSourceIDs: disabledSourceIDs,
             storageDirectory: storageDirectory,
             artistNameConfiguration: artistNameConfiguration,
-            startsPreparing: true
+            startsPreparing: true,
+            catalogMirroring: catalogMirroring
         )
     }
 
@@ -6292,6 +6309,7 @@ final class MusicLibrary {
             holder: displacedLookups,
             approximateElementCount: displacedLookupCount
         )
+        syncCatalogInputs()
     }
 
     /// O(专辑 + 歌手) 地比一遍"首选回退歌解析出来的封面引用"。映射本身不同时
@@ -6650,7 +6668,9 @@ final class MusicLibrary {
             @MainActor (_ songID: String, _ fallbackText: String?, _ generation: Int) -> Void
         )? = nil,
         /// 以 `.preparing` 构造: 不读盘、不发布, 等待 `publish(_:)`。
-        startsPreparing: Bool = false
+        startsPreparing: Bool = false,
+        /// 曲库目录双写。默认只在 App 自己的存储目录上开。
+        catalogMirroring: LibraryCatalogMirroring = .automatic
     ) {
         let observedGenreSeparators = OSAllocatedUnfairLock(initialState: GenreSplitPreference.current)
         self.searchIndexDefaults = searchIndexDefaults
@@ -6703,6 +6723,11 @@ final class MusicLibrary {
                 plog("⚠️ Incremental song store unavailable; using JSON fallback: \(error.localizedDescription)")
             }
         }
+        catalogHost = Self.makeCatalogHost(
+            mode: catalogMirroring,
+            directory: directory,
+            defaultDirectory: Self.defaultStorageDirectory(fileManager: fileManager)
+        )
         // G2: 准备结果自带禁用源集合, 且可见缓存就是用它算出来的。
         // 以准备结果为准, 避免已发布的可见缓存与禁用集合互相矛盾。
         assert(
@@ -6805,6 +6830,7 @@ final class MusicLibrary {
                 self.scheduleLyricsSearchInvalidation()
             }
         }
+        catalogHost?.link.owner = self
     }
 
     private static let pendingLyricsFlushDelay: TimeInterval = 0.5
@@ -10428,6 +10454,7 @@ final class MusicLibrary {
         requestLibraryIndexMaintenance(.immediate)
         invalidateSearchCaches()
         playlistCollectionRevision &+= 1
+        syncCatalogInputs()
     }
 
     func updateArtistNameConfiguration(_ value: ArtistNameConfiguration) {
@@ -10495,6 +10522,8 @@ final class MusicLibrary {
         }
         guard albumArtistFolders != value || startupFolderValidationSignature != nil else { return }
         albumArtistFolders = value
+        catalogAlbumArtistFoldersReceived = true
+        catalogHost?.mirror.updateFolderParents(value)
         startupFolderValidationGeneration &+= 1
         let validationGeneration = startupFolderValidationGeneration
         startupFolderValidationTask?.cancel()
@@ -15324,6 +15353,7 @@ final class MusicLibrary {
             persistDerivedIndexCache()
             applied = true
             migrateLegacyArtistIdentities(artists: computation.artists)
+            scheduleCatalogShadowVerification(reason: "rebuild")
             // 落地一次即结束当前的丢弃连击, 下一轮重叠可以再立即补发一次。
             didRequeueAfterDiscard = false
         }
@@ -15610,7 +15640,8 @@ final class MusicLibrary {
         } else {
             rebuildIndexSync()
         }
-        persistSongChanges(upserts: songs, deletingIDs: Set(replacements.keys))
+        // 只是换了 id:旧库与目录原地改名,这首歌留在原来的库内位置(与内存一致)。
+        persistSongChanges(upserts: songs, deletingIDs: Set(replacements.keys), renaming: replacements)
         persistPlaylistDurabilityLedger()
         persistNow()
         playlistCollectionRevision &+= 1
@@ -16555,13 +16586,15 @@ final class MusicLibrary {
                 case .none:
                     break
                 case .replaceAll(let importID):
-                    _ = try songStoreSnapshotWriter(songStore, storage.songs, importID)
+                    let revision = try songStoreSnapshotWriter(songStore, storage.songs, importID)
+                    catalogHost?.mirror.enqueueReplaceAll(storeRevision: revision)
                     songStoreRequiresReplacement = false
                     pendingSnapshotImportID = nil
                     // 整库换过了(别处导入的快照、或从兜底恢复), 兜底也跟着换。
                     songFallbackRefreshRequested = true
                 case .upserts(let changedSongs):
-                    try songStore.apply(upserts: changedSongs)
+                    let revision = try songStore.apply(upserts: changedSongs)
+                    catalogHost?.mirror.enqueueApply(upserts: changedSongs, deletingIDs: [], storeRevision: revision)
                 }
                 try songStore.markMigrationCompleted(version: migrationVersionToMark)
             } catch {
@@ -16606,6 +16639,7 @@ final class MusicLibrary {
         markPublish("replay")
         notifyReadinessObservers()
         markPublish("observers")
+        startCatalogIfNeeded()
         if preparedStartup != nil {
             var previous = publishStartedAt
             let steps = publishMarks.map { step, at in
@@ -16872,13 +16906,23 @@ final class MusicLibrary {
         private var songs: [String: Song] = [:]
         private var order: [String] = []
         private var deletingIDs: Set<String> = []
-        private var sealedChanges: (upserts: [Song], deletingIDs: Set<String>)?
+        /// 只换了 id 的歌(旧 id → 新 id):旧库与目录原地改名,库内位置不变。
+        private var renaming: [String: String] = [:]
+        private var sealedChanges: (upserts: [Song], deletingIDs: Set<String>, renaming: [String: String])?
         var isSealed: Bool { sealedChanges != nil }
 
         init(generation: Int) { self.generation = generation }
 
-        func merge(upserts: [Song], deletingIDs ids: Set<String>) {
+        func merge(upserts: [Song], deletingIDs ids: Set<String>, renaming renames: [String: String] = [:]) {
             precondition(!isSealed)
+            // 同一批里接连改名(a→b、b→c)合成一次(a→c)。
+            for (oldID, newID) in renames where oldID != newID {
+                if let origin = renaming.first(where: { $0.value == oldID })?.key {
+                    renaming[origin] = newID
+                } else {
+                    renaming[oldID] = newID
+                }
+            }
             // Keep a deletion even when the same ID is added again: SQLite
             // must append that row in its new position, not retain its old one.
             deletingIDs.formUnion(ids)
@@ -16896,13 +16940,14 @@ final class MusicLibrary {
         }
 
         @discardableResult
-        func seal() -> (upserts: [Song], deletingIDs: Set<String>) {
+        func seal() -> (upserts: [Song], deletingIDs: Set<String>, renaming: [String: String]) {
             if let sealedChanges { return sealedChanges }
-            let changes = (upserts: order.compactMap { songs[$0] }, deletingIDs: deletingIDs)
+            let changes = (upserts: order.compactMap { songs[$0] }, deletingIDs: deletingIDs, renaming: renaming)
             sealedChanges = changes
             songs.removeAll()
             order.removeAll()
             deletingIDs.removeAll()
+            renaming.removeAll()
             return changes
         }
     }
@@ -17021,6 +17066,7 @@ final class MusicLibrary {
     private func persistSongChanges(
         upserts: [Song] = [],
         deletingIDs: Set<String> = [],
+        renaming: [String: String] = [:],
         needsPromptCompatibilitySnapshot: Bool = false
     ) {
         guard !upserts.isEmpty || !deletingIDs.isEmpty else { return }
@@ -17034,18 +17080,19 @@ final class MusicLibrary {
         // start. A process exit can therefore leave extra recovery work, but
         // can never commit new songs while leaving the old index marked clean.
         if let batch = pendingSongPersistenceBatch, !batch.isSealed {
-            batch.merge(upserts: upserts, deletingIDs: deletingIDs)
+            batch.merge(upserts: upserts, deletingIDs: deletingIDs, renaming: renaming)
             if needsPromptCompatibilitySnapshot { batch.seal() }
         } else {
             let batch = PendingSongPersistenceBatch(
                 generation: LibrarySearchIndex.persistLibraryChangePending(defaults: searchIndexDefaults)
             )
-            batch.merge(upserts: upserts, deletingIDs: deletingIDs)
+            batch.merge(upserts: upserts, deletingIDs: deletingIDs, renaming: renaming)
             pendingSongPersistenceBatch = batch
             if needsPromptCompatibilitySnapshot { batch.seal() }
 
             if let songStore {
                 let previous = songStoreWriteTask
+                let catalogMirror = catalogHost?.mirror
                 songStoreWriteTask = Task.detached(priority: .utility) { [weak self] in
                     let previousSucceeded = await previous?.value != nil
                     let changes = await MainActor.run {
@@ -17068,7 +17115,15 @@ final class MusicLibrary {
                         return nil
                     }
                     do {
-                        return try songStore.apply(upserts: changes.upserts, deletingIDs: changes.deletingIDs)
+                        let revision = try songStore.apply(
+                            upserts: changes.upserts, deletingIDs: changes.deletingIDs, renaming: changes.renaming
+                        )
+                        // 目录按同样的顺序跟写(排队即返回,不等目录)。
+                        catalogMirror?.enqueueApply(
+                            upserts: changes.upserts, deletingIDs: changes.deletingIDs, renaming: changes.renaming,
+                            storeRevision: revision
+                        )
+                        return revision
                     } catch {
                         plog("⛔ Incremental song persistence failed: \(error.localizedDescription)")
                         return nil
@@ -17581,10 +17636,13 @@ final class MusicLibrary {
         // 既不会被更旧的恢复快照覆盖, 也不会因为 await 之后重新赋值链头而被
         // 挤出链外 (它们的成败也就再没人观察得到)。
         let previous = songStoreWriteTask
+        let catalogMirror = catalogHost?.mirror
         let recoveryTask = Task<Int64?, Never>.detached(priority: .utility) {
             _ = await previous?.value
             do {
-                return try writer(songStore, recoverySnapshot, importID)
+                let revision = try writer(songStore, recoverySnapshot, importID)
+                catalogMirror?.enqueueReplaceAll(storeRevision: revision)
+                return revision
             } catch {
                 plog("⛔ Incremental song recovery failed: \(error.localizedDescription)")
                 return nil
@@ -19656,5 +19714,221 @@ extension LibraryGroupingReference.DerivedIDMemo {
     /// App 里的「未知艺人」是本地化文本。
     convenience init() {
         self.init(unknownArtist: String(localized: "unknown_artist"))
+    }
+}
+
+// MARK: - Library catalog (P1: dual-write, background migration, shadow verification)
+
+extension MusicLibrary: LibraryCatalogOwner {
+    static let catalogDeepShadowDefaultsKey = "primuse.debug.catalogShadowDeep"
+
+    fileprivate static func makeCatalogHost(
+        mode: LibraryCatalogMirroring,
+        directory: URL,
+        defaultDirectory: URL
+    ) -> LibraryCatalogHost? {
+        let startDelay: Duration
+        switch mode {
+        case .disabled:
+            return nil
+        case .enabled(let delay):
+            startDelay = delay
+        case .automatic:
+            guard directory.standardizedFileURL.path == defaultDirectory.standardizedFileURL.path else { return nil }
+            startDelay = LibraryCatalogMirroring.defaultStartDelay
+        }
+        return LibraryCatalogHost(directory: directory, startDelay: startDelay, log: { plog($0) })
+    }
+
+    /// 目录的后台工作(迁移、整库分组、对账、跟写)此刻能不能做:与延后的曲库维护同一道闸
+    /// (前台、温度正常),外加没在滑动、没有转场。
+    func catalogWorkAllowed() -> Bool {
+        #if os(iOS) || os(macOS)
+        let now = Date()
+        guard LibraryPublishTimingPolicy.isSettled(UserScrollActivityMonitor.shared.activity(now: now), now: now) else {
+            return false
+        }
+        #endif
+        return deferredMaintenanceAllowed()
+    }
+
+    func catalogReadabilityDidChange(_ readable: Bool) {
+        if readable { scheduleCatalogShadowVerification(reason: "catalog-ready") }
+    }
+
+    /// 曲库就绪后启动目录(打开、迁移都在后台)。重载(电视装快照)时不重复启动。
+    fileprivate func startCatalogIfNeeded() {
+        guard let catalogHost, !catalogStarted, songStore != nil, !persistenceBlockedByCorruption else { return }
+        catalogStarted = true
+        syncCatalogInputs()
+        if catalogAlbumArtistFoldersReceived { catalogHost.mirror.updateFolderParents(albumArtistFolders) }
+        catalogHost.mirror.start()
+    }
+
+    fileprivate func catalogInputs() -> LibraryCatalogMirrorInputs {
+        LibraryCatalogMirrorInputs(
+            grouping: LibraryGroupingConfiguration(
+                artistNames: artistNameConfiguration,
+                unknownArtist: String(localized: "unknown_artist"),
+                classification: visibleContentClassification,
+                genreSeparators: GenreSplitPreference.current
+            ),
+            disabledSourceIDs: disabledSourceIDs,
+            sourceNames: catalogSourceNames
+        )
+    }
+
+    /// 内存模型用的分组输入、停用源、源名字交给目录(目录自己去重,没变不写)。
+    fileprivate func syncCatalogInputs() {
+        guard let catalogHost, !isPreparing else { return }
+        catalogHost.mirror.updateInputs(catalogInputs())
+    }
+
+    /// 音乐源的显示名(排序「按来源」用),由源列表驱动。
+    func updateCatalogSourceNames(_ names: [String: String]) {
+        guard catalogHost != nil, catalogSourceNames != names else { return }
+        catalogSourceNames = names
+        syncCatalogInputs()
+    }
+
+    /// 文件名排序用的扫描索引,只在内存排序也用它的平台(Mac)上给。
+    func updateCatalogFileNameIndexes(_ indexes: [String: SourceSyncIndex?]) {
+        catalogHost?.mirror.updateFileNameIndexes(indexes)
+    }
+
+    private var catalogShadowMode: LibraryCatalogShadowRequest.Mode {
+        if let catalogShadowModeOverride { return catalogShadowModeOverride }
+        if UserDefaults.standard.bool(forKey: Self.catalogDeepShadowDefaultsKey) { return .deep }
+        #if DEBUG
+        return songs.count <= 100_000 ? .deep : .cheap
+        #else
+        return .cheap
+        #endif
+    }
+
+    /// 后台整库重建落地、目录迁移做完之后排一次影子校验;发版只做便宜的那种,有频率上限。
+    fileprivate func scheduleCatalogShadowVerification(reason: String) {
+        guard catalogHost != nil, catalogStarted, isReady, catalogShadowTask == nil else { return }
+        let mode = catalogShadowMode
+        if catalogShadowModeOverride == nil, let last = catalogLastShadowAt[mode] {
+            let interval: Duration = mode == .deep ? .seconds(600) : .seconds(120)
+            guard ContinuousClock.now - last >= interval else { return }
+        }
+        catalogShadowTask = Task { @MainActor [weak self] in
+            _ = await self?.verifyCatalogShadow(reason: reason, mode: mode)
+            self?.catalogShadowTask = nil
+        }
+    }
+
+    /// 拿目录与内存模型比一次。目录要正好镜像到内存模型对应的旧库修订号才比;
+    /// 扫描、滑动、派生重建进行中,或者等待期间库又变了,都跳过(记一行日志)。
+    @discardableResult
+    func verifyCatalogShadow(reason: String, mode: LibraryCatalogShadowRequest.Mode) async -> LibraryCatalogShadowReport? {
+        guard let catalogHost, catalogStarted else { return nil }
+        func skip(_ why: String) -> LibraryCatalogShadowReport? {
+            plog("📚 catalog shadow skipped mode=\(mode.rawValue) reason=\(reason): \(why)")
+            return nil
+        }
+        if catalogBusyCheck?() == true { return skip("scanning") }
+        #if os(iOS) || os(macOS)
+        let now = Date()
+        if !LibraryPublishTimingPolicy.isSettled(UserScrollActivityMonitor.shared.activity(now: now), now: now) {
+            return skip("scrolling")
+        }
+        #endif
+        let generation = songMutationGeneration
+        pendingSongPersistenceBatch?.seal()
+        if let songStoreWriteTask, await songStoreWriteTask.value == nil { return skip("song store write failed") }
+        guard isReady, !isPreparing, generation == songMutationGeneration, !songStoreRequiresReplacement,
+              rebuildIndexTask == nil, startupFolderValidationTask == nil, !sourceRemovalInProgress,
+              let storeRevision = try? songStore?.startupState().contentRevision else {
+            return skip("library changed or not settled")
+        }
+        catalogLastShadowAt[mode] = .now
+        let request = LibraryCatalogShadowRequest(
+            mode: mode,
+            reason: reason,
+            storeRevision: storeRevision,
+            inputs: catalogInputs(),
+            memory: makeCatalogShadowMemorySnapshot(mode: mode)
+        )
+        return await catalogHost.mirror.verify(request)
+    }
+
+    /// 主线程上采样内存模型:计数、按源计数、流派,外加有限个专辑与艺人;深模式带上整份
+    /// (都是已经常驻的那几份数组与字典的引用)。
+    private func makeCatalogShadowMemorySnapshot(mode: LibraryCatalogShadowRequest.Mode) -> LibraryCatalogShadowMemorySnapshot {
+        let sampleLimit = 12
+        func positions(_ count: Int) -> [Int] {
+            guard count > sampleLimit else { return Array(0..<count) }
+            var picked = Set<Int>()
+            while picked.count < sampleLimit { picked.insert(Int.random(in: 0..<count)) }
+            return picked.sorted()
+        }
+        let visibleAlbums = self.visibleAlbums
+        let visibleArtists = self.visibleArtists
+        let albumSamples = positions(visibleAlbums.count).map { position in
+            LibraryCatalogShadowMemorySnapshot.AlbumSample(
+                position: position,
+                album: visibleAlbums[position],
+                songIDs: unobservedSongs(forAlbum: visibleAlbums[position].id).map(\.id)
+            )
+        }
+        let artistSamples = positions(visibleArtists.count).map { position in
+            LibraryCatalogShadowMemorySnapshot.ArtistSample(
+                position: position,
+                artist: visibleArtists[position],
+                songIDs: songs(forArtist: visibleArtists[position].id).map(\.id)
+            )
+        }
+        let deep: LibraryCatalogShadowMemorySnapshot.Deep? = mode == .deep
+            ? LibraryCatalogShadowMemorySnapshot.Deep(
+                albums: albums,
+                artists: artists,
+                visibleAlbums: visibleAlbums,
+                visibleArtists: visibleArtists,
+                songs: songs,
+                visibleSongs: visibleSongs,
+                songIDsByArtistID: visibleSongIDsByArtistID,
+                spokenWordSongIDs: spokenWordSongIDs,
+                ambientSongIDs: ambientSongIDs,
+                podcastSongIDs: Set(localPodcastSongs.map(\.id)),
+                bookIDBySongID: spokenWordBookIDs.merging(localPodcastBookIDs) { first, _ in first }
+            )
+            : nil
+        return LibraryCatalogShadowMemorySnapshot(
+            songCount: songs.count,
+            visibleCount: visibleSongs.count,
+            musicCount: musicSongs.count,
+            spokenWordCount: spokenWordSongIDs.count,
+            podcastCount: localPodcastSongs.count,
+            ambientCount: ambientSongIDs.count,
+            albumCount: albums.count,
+            visibleAlbumCount: visibleAlbums.count,
+            artistCount: artists.count,
+            visibleArtistCount: visibleArtists.count,
+            genres: visibleGenres,
+            countsBySource: songCountBySourceID,
+            visibleCountsBySource: visibleSongCountBySourceID,
+            albumSamples: albumSamples,
+            artistSamples: artistSamples,
+            deep: deep
+        )
+    }
+
+    /// 测试与诊断:等目录追上内存模型(派生重建、旧库写入、目录跟写都落完)。
+    func waitForCatalogMirror() async {
+        guard let catalogHost else { return }
+        flushPendingAssetReferencePatches()
+        await waitForPendingIndex()
+        pendingSongPersistenceBatch?.seal()
+        _ = await songStoreWriteTask?.value
+        syncCatalogInputs()
+        await catalogHost.mirror.waitUntilIdle()
+    }
+
+    /// 测试:删临时目录之前先停下目录。
+    func stopCatalogMirror() async {
+        await catalogHost?.mirror.stop()
     }
 }

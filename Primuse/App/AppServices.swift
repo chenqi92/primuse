@@ -1717,6 +1717,16 @@ final class AppServices {
                     rootNames: AppServices.spokenWordScanRootNames(store.allSources)
                 )
             )
+            #if os(macOS)
+            // 曲库目录的文件名排序:路径里不带文件名的源按扫描索引给的显示名,
+            // 与 Mac 歌曲列表的内存排序同一规则(iOS 的内存排序不看索引,也就不给)。
+            var fileNameIndexes: [String: SourceSyncIndex?] = [:]
+            for source in store.allSources where !source.type.itemPathsCarryFileNames {
+                fileNameIndexes[source.id] = source.type.usesOpaqueDirectoryIdentifiers || source.type == .fnMusic
+                    ? scanService.libraryFolderSyncIndex(for: source.id) : SourceSyncIndex()
+            }
+            library.updateCatalogFileNameIndexes(fileNameIndexes)
+            #endif
         }
         scanService.folderHierarchyChangeHandler = publishAlbumArtistFolders
         publishAlbumArtistFolders()
@@ -1866,6 +1876,11 @@ final class AppServices {
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))
         )
+        // 曲库目录:源的显示名(排序「按来源」),以及扫描期间不做影子校验。
+        library.updateCatalogSourceNames(Self.catalogSourceNames(store.sources))
+        library.catalogBusyCheck = { [weak scanService] in
+            !(scanService?.scanningSourceIDs.isEmpty ?? true)
+        }
         library.updateAppleMusicSourceInstalled(
             AppleMusicSourcePolicy.isInstalled(activeSourceIDs: Set(store.sources.map(\.id)))
         )
@@ -2257,6 +2272,11 @@ final class AppServices {
         playerService.autoplayRestoredSessionIfEnabled()
     }
 
+    /// 曲库目录要的源显示名(与 Mac 歌曲列表「按来源」排序用的同一份)。
+    private static func catalogSourceNames(_ sources: [MusicSource]) -> [String: String] {
+        Dictionary(sources.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// 网盘(按文件 ID 寻址)每个扫描根的名字:源 ID → 扫描目录 → 名字,不知道为空串。
     /// 扫描索引里没有扫描根这一行,用户直接勾了书的目录时,分书只能靠它认出这本书
     /// (`SpokenWordBookItemFolders.rootNames`)。和文件夹页一样,本机浏览时记下的名字优先,
@@ -2523,6 +2543,7 @@ final class AppServices {
         )
         let appleMusicWasInstalled = musicLibrary.appleMusicSourceInstalled
         musicLibrary.updateAppleMusicSourceInstalled(appleMusicInstalled)
+        musicLibrary.updateCatalogSourceNames(Self.catalogSourceNames(sourcesStore.sources))
         // 从回收站恢复、或者别的设备把这个源同步过来, 跟手动添加是同一件事:
         // 源一回来就重新拉一次资料库, 否则用户看到一个空的 Apple Music 源。
         if appleMusicInstalled, !appleMusicWasInstalled {

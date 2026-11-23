@@ -215,6 +215,60 @@ struct LibraryCatalogQueryTests {
         #expect(try songRows(pipelined) != songRows(unchanged))
     }
 
+    @Test("Renaming song IDs keeps rowids and library order; the result equals a fresh catalog of the same songs")
+    func renamingKeepsRowsInPlace() throws {
+        var rng = CatalogTestRandom(seed: 80)
+        let songs = (0..<40).map { CatalogSongFactory.randomSong(&rng, index: $0, exotic: false).withoutAppliedPlaybackRange }
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        _ = try catalog.apply(upserts: songs)
+        let before = try catalog.rowList(.everything).rowids
+        let rowid0 = try #require(try catalog.rowids(forIDs: [songs[0].id]).first ?? nil)
+        let rowid5 = try #require(try catalog.rowids(forIDs: [songs[5].id]).first ?? nil)
+
+        // 改标签换了身份:带着新值改名;只改名不带新值;新 id 已被占(退回删旧行、写到已有那行)。
+        var renamed0 = songs[0]
+        renamed0.id = songs[0].id + "-v2"
+        renamed0.title = "Edited"
+        var merged7 = songs[7]
+        merged7.id = songs[8].id
+        _ = try catalog.apply(
+            upserts: [renamed0, merged7],
+            deletingIDs: [songs[0].id, songs[7].id],
+            renaming: [songs[0].id: renamed0.id, songs[5].id: songs[5].id + "-v2", songs[7].id: songs[8].id]
+        )
+        #expect(try catalog.song(id: songs[0].id) == nil)
+        #expect(try catalog.song(id: songs[7].id) == nil)
+        #expect(try catalog.rowids(forIDs: [renamed0.id]) == [rowid0])
+        #expect(try catalog.rowids(forIDs: [songs[5].id + "-v2"]) == [rowid5])
+        #expect(try catalog.song(id: renamed0.id)?.title == "Edited")
+        #expect(try catalog.rowList(.everything).rowids.count == before.count - 1)
+
+        // 与一个按同样顺序写入同样最终歌曲的新目录逐项相同。
+        var final = songs
+        final[0] = renamed0
+        final[5].id = songs[5].id + "-v2"
+        final[8] = merged7
+        final.remove(at: 7)
+        let fresh = try TemporaryCatalog()
+        _ = try fresh.catalog.apply(upserts: final)
+        func ids(_ catalog: LibraryCatalog) throws -> [String] {
+            var result: [String] = []
+            try catalog.forEachSong(.everything) { _, song in
+                result.append(song.id)
+                return true
+            }
+            return result
+        }
+        func albums(_ catalog: LibraryCatalog) throws -> [String] {
+            try catalog.albums(keys: catalog.albumKeys(visibleOnly: false).keys, visibleCounts: false)
+                .map { "\($0.id)|\($0.title)|\($0.songCount)" }.sorted()
+        }
+        #expect(try ids(catalog) == ids(fresh.catalog))
+        #expect(try albums(catalog) == albums(fresh.catalog))
+        #expect(try catalog.songCountsBySource(.everything) == fresh.catalog.songCountsBySource(.everything))
+    }
+
     @Test("A store that changed between runs restarts the import")
     func importRestartsWhenStoreChanges() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("catalog-import-\(UUID().uuidString)")

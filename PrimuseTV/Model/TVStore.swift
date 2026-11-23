@@ -4725,6 +4725,10 @@ final class TVStore {
             plog("TV visibility ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
         }
         library.updateDisabledSourceIDs(hiddenSourceIDs())
+        // 曲库目录:源的显示名(排序「按来源」用),与手机端同一份规则。
+        library.updateCatalogSourceNames(Dictionary(
+            sourcesStore.sources.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }
+        ))
         rebuildLookupCaches()
         publishTopShelf()
     }

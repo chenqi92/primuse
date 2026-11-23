@@ -7,6 +7,28 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		69191EC7D431A5FD252F4AF1 /* LibraryCatalogDualWriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9B8D4E794F10EB7EB7EB718 /* LibraryCatalogDualWriteTests.swift */; };
+		67B07DFDAF5371F004CDE13D /* LibraryListModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8C172066D3CE84807996653 /* LibraryListModelTests.swift */; };
+		C38D7CEFF9064DABEE6FB40F /* LibraryCatalogMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618CB39436750496ECC9D96F /* LibraryCatalogMirrorTests.swift */; };
+		2A0B719C0288C23DCA9BC816 /* LibraryCatalogHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14622863F59BA10535F1F14 /* LibraryCatalogHosting.swift */; };
+		F77E1C6DA253E67057194ADF /* LibraryCatalogHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14622863F59BA10535F1F14 /* LibraryCatalogHosting.swift */; };
+		947A00F268C15E1DF48B0E49 /* LibraryCatalogHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14622863F59BA10535F1F14 /* LibraryCatalogHosting.swift */; };
+		9E6F8751767AA1A55B43BB27 /* LibraryListModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E1F8F450CFDA29E4725819 /* LibraryListModel.swift */; };
+		A3FEF265C9ECBE033E7CFECF /* LibraryListModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E1F8F450CFDA29E4725819 /* LibraryListModel.swift */; };
+		B75472B471EFE3FDDE13285F /* LibraryListModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E1F8F450CFDA29E4725819 /* LibraryListModel.swift */; };
+		36BB63777559A971492A1434 /* LibraryCatalogObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE2D5AA286163B5503BEDC4 /* LibraryCatalogObservation.swift */; };
+		CC8085EAC955B5AE9B2EC57A /* LibraryCatalogObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE2D5AA286163B5503BEDC4 /* LibraryCatalogObservation.swift */; };
+		F60E717427A4E59C7EA5A719 /* LibraryCatalogObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE2D5AA286163B5503BEDC4 /* LibraryCatalogObservation.swift */; };
+		E1BD2D8A917762F3A901015B /* LibraryCatalogReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE64C7EC6FBFA6219655A24 /* LibraryCatalogReader.swift */; };
+		AE6FECFDEF427D900A2C9C8B /* LibraryCatalogReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE64C7EC6FBFA6219655A24 /* LibraryCatalogReader.swift */; };
+		59610BE535657B29C2CD5D8B /* LibraryCatalogReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE64C7EC6FBFA6219655A24 /* LibraryCatalogReader.swift */; };
+		D746DEF990B85BF3B04EC2C9 /* LibraryCatalogShadowVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E3B6395C39441730516C60E /* LibraryCatalogShadowVerifier.swift */; };
+		A2B10F2D2AAD327AB2F554E8 /* LibraryCatalogShadowVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E3B6395C39441730516C60E /* LibraryCatalogShadowVerifier.swift */; };
+		790EFFF9DAABEBA5DA38BD6A /* LibraryCatalogShadowVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E3B6395C39441730516C60E /* LibraryCatalogShadowVerifier.swift */; };
+		4E41E8A80AC736928A00A46E /* LibraryCatalogMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FB492FE3BB57E3E10A7739 /* LibraryCatalogMirror.swift */; };
+		EF75AFF30E67AD9693F6974C /* LibraryCatalogMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FB492FE3BB57E3E10A7739 /* LibraryCatalogMirror.swift */; };
+		FD284EBA68B258C9137C311D /* LibraryCatalogMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FB492FE3BB57E3E10A7739 /* LibraryCatalogMirror.swift */; };
+		0E705534E08D2967843DB62E /* LibraryCatalogMirrorSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9584E43D34340B5C01E45B88 /* LibraryCatalogMirrorSupport.swift */; };
 		E877075D20ECE2F99C5B431B /* LibraryCatalogGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 066A393B790D5ACDCC16DED2 /* LibraryCatalogGrouping.swift */; };
 		0BD6E0AD694437345DFD3A58 /* LibraryCatalogAlbumArtistMaintenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 572A813AF080D582F02260C6 /* LibraryCatalogAlbumArtistMaintenance.swift */; };
 		B25A4028AD0E94F21D9F1C22 /* LibraryCatalogRawStatement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536815A9B5F52E02BB91493E /* LibraryCatalogRawStatement.swift */; };
@@ -2812,6 +2834,16 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		E9B8D4E794F10EB7EB7EB718 /* LibraryCatalogDualWriteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogDualWriteTests.swift; sourceTree = "<group>"; };
+		E8C172066D3CE84807996653 /* LibraryListModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryListModelTests.swift; sourceTree = "<group>"; };
+		618CB39436750496ECC9D96F /* LibraryCatalogMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogMirrorTests.swift; sourceTree = "<group>"; };
+		E14622863F59BA10535F1F14 /* LibraryCatalogHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogHosting.swift; sourceTree = "<group>"; };
+		20E1F8F450CFDA29E4725819 /* LibraryListModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryListModel.swift; sourceTree = "<group>"; };
+		AEE2D5AA286163B5503BEDC4 /* LibraryCatalogObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogObservation.swift; sourceTree = "<group>"; };
+		DDE64C7EC6FBFA6219655A24 /* LibraryCatalogReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogReader.swift; sourceTree = "<group>"; };
+		8E3B6395C39441730516C60E /* LibraryCatalogShadowVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogShadowVerifier.swift; sourceTree = "<group>"; };
+		F0FB492FE3BB57E3E10A7739 /* LibraryCatalogMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogMirror.swift; sourceTree = "<group>"; };
+		9584E43D34340B5C01E45B88 /* LibraryCatalogMirrorSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogMirrorSupport.swift; sourceTree = "<group>"; };
 		066A393B790D5ACDCC16DED2 /* LibraryCatalogGrouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogGrouping.swift; sourceTree = "<group>"; };
 		572A813AF080D582F02260C6 /* LibraryCatalogAlbumArtistMaintenance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogAlbumArtistMaintenance.swift; sourceTree = "<group>"; };
 		536815A9B5F52E02BB91493E /* LibraryCatalogRawStatement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogRawStatement.swift; sourceTree = "<group>"; };
@@ -4752,6 +4784,19 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		338AA162BB443B7A263E07F6 /* Catalog */ = {
+			isa = PBXGroup;
+			children = (
+				E14622863F59BA10535F1F14 /* LibraryCatalogHosting.swift */,
+				20E1F8F450CFDA29E4725819 /* LibraryListModel.swift */,
+				AEE2D5AA286163B5503BEDC4 /* LibraryCatalogObservation.swift */,
+				DDE64C7EC6FBFA6219655A24 /* LibraryCatalogReader.swift */,
+				8E3B6395C39441730516C60E /* LibraryCatalogShadowVerifier.swift */,
+				F0FB492FE3BB57E3E10A7739 /* LibraryCatalogMirror.swift */,
+			);
+			path = Catalog;
+			sourceTree = "<group>";
+		};
 		4B4F67F57E8415891D0A0AD5 /* Catalog */ = {
 			isa = PBXGroup;
 			children = (
@@ -6126,6 +6171,7 @@
 		A31263096AAF6D135B1C0084 /* Library */ = {
 			isa = PBXGroup;
 			children = (
+				338AA162BB443B7A263E07F6 /* Catalog */,
 				13A15DE9BA51C9AB93D6A5A9 /* AlbumRecommendationService.swift */,
 				2D20E7F75F96F9D732690062 /* ArtistNameSettingsStore.swift */,
 				89D9EF53EC9E4F2D38F2A7DE /* DuplicateCleanupService.swift */,
@@ -6556,6 +6602,7 @@
 		CC568C1F987228DD17220D96 /* Library */ = {
 			isa = PBXGroup;
 			children = (
+				9584E43D34340B5C01E45B88 /* LibraryCatalogMirrorSupport.swift */,
 				D3F5118298859B35A67F4604 /* AlbumArtistBrowsing.swift */,
 				01CC5112D13E4EE280836A6D /* CarriedSongMarks.swift */,
 				7901837A48E8B1B42DEEBA64 /* ExternalTrackMatchPolicy.swift */,
@@ -6801,6 +6848,9 @@
 		E02A6280EA74816DDAAA95F9 /* PrimuseTests */ = {
 			isa = PBXGroup;
 			children = (
+				E9B8D4E794F10EB7EB7EB718 /* LibraryCatalogDualWriteTests.swift */,
+				E8C172066D3CE84807996653 /* LibraryListModelTests.swift */,
+				618CB39436750496ECC9D96F /* LibraryCatalogMirrorTests.swift */,
 				059B8717F4BD77194FDB5F80 /* AIRequestQuotaTests.swift */,
 				3EC5C57A1C23EDA835C82C97 /* AISmartPlaylistEngineTests.swift */,
 				41755983E9DC7312DACA2DDA /* AlbumMetadataTests.swift */,
@@ -7728,6 +7778,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				69191EC7D431A5FD252F4AF1 /* LibraryCatalogDualWriteTests.swift in Sources */,
+				67B07DFDAF5371F004CDE13D /* LibraryListModelTests.swift in Sources */,
+				C38D7CEFF9064DABEE6FB40F /* LibraryCatalogMirrorTests.swift in Sources */,
 				86AA26C64AE2790C752F4645 /* AIRequestQuotaTests.swift in Sources */,
 				CD606731E71E796A7C3D0593 /* AISmartPlaylistEngineTests.swift in Sources */,
 				5F193CB416043B051E3D3B6C /* AlbumMetadataTests.swift in Sources */,
@@ -7874,6 +7927,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0E705534E08D2967843DB62E /* LibraryCatalogMirrorSupport.swift in Sources */,
 				F8D572F8EC30A3A3490030B8 /* ABRepeatPolicy.swift in Sources */,
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				A7815B97AB23C3B0112CF13D /* AIIntelligenceModels.swift in Sources */,
@@ -8576,6 +8630,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F77E1C6DA253E67057194ADF /* LibraryCatalogHosting.swift in Sources */,
+				A3FEF265C9ECBE033E7CFECF /* LibraryListModel.swift in Sources */,
+				CC8085EAC955B5AE9B2EC57A /* LibraryCatalogObservation.swift in Sources */,
+				AE6FECFDEF427D900A2C9C8B /* LibraryCatalogReader.swift in Sources */,
+				A2B10F2D2AAD327AB2F554E8 /* LibraryCatalogShadowVerifier.swift in Sources */,
+				EF75AFF30E67AD9693F6974C /* LibraryCatalogMirror.swift in Sources */,
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
 				FD44254364FA0DB15420FBA1 /* AIPlaylistEditorView.swift in Sources */,
 				B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */,
@@ -9235,6 +9295,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2A0B719C0288C23DCA9BC816 /* LibraryCatalogHosting.swift in Sources */,
+				9E6F8751767AA1A55B43BB27 /* LibraryListModel.swift in Sources */,
+				36BB63777559A971492A1434 /* LibraryCatalogObservation.swift in Sources */,
+				E1BD2D8A917762F3A901015B /* LibraryCatalogReader.swift in Sources */,
+				D746DEF990B85BF3B04EC2C9 /* LibraryCatalogShadowVerifier.swift in Sources */,
+				4E41E8A80AC736928A00A46E /* LibraryCatalogMirror.swift in Sources */,
 				09EE11D6ADFC5A50BF5744AE /* AICredentialStore.swift in Sources */,
 				790E6EC9BAD713E863742CA9 /* AISettingsStore.swift in Sources */,
 				B786B6AEA6CACEA58889EAA6 /* AISettingsView.swift in Sources */,
@@ -9495,6 +9561,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				947A00F268C15E1DF48B0E49 /* LibraryCatalogHosting.swift in Sources */,
+				B75472B471EFE3FDDE13285F /* LibraryListModel.swift in Sources */,
+				F60E717427A4E59C7EA5A719 /* LibraryCatalogObservation.swift in Sources */,
+				59610BE535657B29C2CD5D8B /* LibraryCatalogReader.swift in Sources */,
+				790EFFF9DAABEBA5DA38BD6A /* LibraryCatalogShadowVerifier.swift in Sources */,
+				FD284EBA68B258C9137C311D /* LibraryCatalogMirror.swift in Sources */,
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
 				BEDC249FC1AF38BC9516765B /* AIPlaylistEditorView.swift in Sources */,
 				FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */,

@@ -98,6 +98,39 @@ struct IncrementalSongStoreTests {
         }
     }
 
+    @Test("Renaming an ID keeps the row in place; a taken ID falls back to delete and append")
+    func renamingKeepsPosition() throws {
+        try withStore { store in
+            let first = makeSong(id: "first", path: "/a.mp3", title: "First")
+            let second = makeSong(id: "second", path: "/b.mp3", title: "Second")
+            let third = makeSong(id: "third", path: "/c.mp3", title: "Third")
+            try store.replaceAll(with: [first, second, third])
+
+            // 改标签后身份变了:与 App 一样带着新 id 的整首 upsert、删旧 id、再说明这是改名。
+            var renamed = first
+            renamed.id = "first-v2"
+            renamed.title = "First (edited)"
+            try store.apply(upserts: [renamed], deletingIDs: [first.id], renaming: [first.id: renamed.id])
+            var loaded = try store.loadSongs()
+            #expect(loaded.map(\.id) == ["first-v2", "second", "third"])
+            #expect(loaded[0].title == "First (edited)")
+
+            // 只改名、不带新值:负载里的 id 也跟着改。
+            try store.apply(upserts: [], renaming: ["second": "second-v2"])
+            loaded = try store.loadSongs()
+            #expect(loaded.map(\.id) == ["first-v2", "second-v2", "third"])
+            #expect(loaded[1].title == "Second")
+
+            // 新 id 已被占:不改名,旧行照常删,新值写到已有那行。
+            var merged = loaded[2]
+            merged.id = "first-v2"
+            try store.apply(upserts: [merged], deletingIDs: ["third"], renaming: ["third": "first-v2"])
+            loaded = try store.loadSongs()
+            #expect(loaded.map(\.id) == ["first-v2", "second-v2"])
+            #expect(loaded[0].title == "Third")
+        }
+    }
+
     @Test("Content revisions and launch migration markers are monotonic")
     func startupMetadata() throws {
         try withStore { store in
