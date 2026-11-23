@@ -29,14 +29,14 @@ extension LibraryCatalog {
             let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
             let filter = visibleOnly && splitsLibrary
                 ? """
-                  WHERE album.id IN (SELECT albumID FROM albumSourceStat
+                  WHERE album.key IN (SELECT albumKey FROM albumSourceStat
                       WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))
                   """
                 : ""
             var keys = ContiguousArray<Int32>()
             let cursor = try Int64.fetchCursor(db, sql: """
                 SELECT key FROM album \(filter)
-                ORDER BY title COLLATE \(LibraryCatalogSchema.localizedCollation), firstOrderKey
+                ORDER BY title COLLATE \(LibraryCatalogSchema.localizedCollation), firstRowid
                 """)
             while let key = try cursor.next() { keys.append(try Self.rowid32(key)) }
             return LibraryCatalogKeyList(keys: keys, revision: revision)
@@ -55,9 +55,9 @@ extension LibraryCatalog {
                     SELECT a.key, a.id, a.title, a.artistID, a.artistName, a.year, a.genre, a.songCount, a.duration,
                            a.sourceID,
                            (SELECT total(songCount) FROM albumSourceStat st
-                               WHERE st.albumID = a.id AND st.sourceKey IN (\(Self.enabledSourcesSQL))),
+                               WHERE st.albumKey = a.key AND st.sourceKey IN (\(Self.enabledSourcesSQL))),
                            (SELECT total(duration) FROM albumSourceStat st
-                               WHERE st.albumID = a.id AND st.sourceKey IN (\(Self.enabledSourcesSQL)))
+                               WHERE st.albumKey = a.key AND st.sourceKey IN (\(Self.enabledSourcesSQL)))
                     FROM album a WHERE a.key IN (\(Self.placeholders(chunk.count)))
                     """, arguments: StatementArguments(chunk.map(Int64.init)))
                 for row in rows {
@@ -79,7 +79,7 @@ extension LibraryCatalog {
     /// 专辑的可见歌曲,按碟号、曲号、标题(`AlbumTrackOrder`)。
     public func albumSongRowList(albumID: String) throws -> LibraryRowList {
         try rowList(orderBy: "s.discKey, s.trackKey, s.title COLLATE \(LibraryCatalogSchema.localizedStandardCollation), s.id") { _ in
-            ("s.effectiveAlbumID = ? AND s.sourceKey IN (\(Self.enabledSourcesSQL))", [albumID])
+            ("s.effectiveAlbumRef = (SELECT key FROM album WHERE id = ?) AND s.sourceKey IN (\(Self.enabledSourcesSQL))", [albumID])
         }
     }
 
@@ -87,7 +87,8 @@ extension LibraryCatalog {
     public func preferredArtworkSongID(albumID: String) throws -> String? {
         try pool.read { db in
             try String.fetchOne(db, sql: """
-                SELECT id FROM song WHERE effectiveAlbumID = ? AND sourceKey IN (\(Self.enabledSourcesSQL))
+                SELECT id FROM song WHERE effectiveAlbumRef = (SELECT key FROM album WHERE id = ?)
+                AND sourceKey IN (\(Self.enabledSourcesSQL))
                 ORDER BY \(Self.artworkFallbackOrder) LIMIT 1
                 """, arguments: [albumID])
         }
@@ -108,14 +109,14 @@ extension LibraryCatalog {
             let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
             let filter = visibleOnly && splitsLibrary
                 ? """
-                  WHERE artist.id IN (SELECT artistID FROM artistSourceStat
+                  WHERE artist.key IN (SELECT artistRef FROM artistSourceStat
                       WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))
                   """
                 : ""
             var keys = ContiguousArray<Int32>()
             let cursor = try Int64.fetchCursor(db, sql: """
                 SELECT key FROM artist \(filter)
-                ORDER BY name COLLATE \(LibraryCatalogSchema.localizedCollation), firstOrderKey, firstOrdinal
+                ORDER BY name COLLATE \(LibraryCatalogSchema.localizedCollation), firstRowid, firstOrdinal
                 """)
             while let key = try cursor.next() { keys.append(try Self.rowid32(key)) }
             return LibraryCatalogKeyList(keys: keys, revision: revision)
@@ -132,7 +133,7 @@ extension LibraryCatalog {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT a.key, a.id, a.name, a.albumCount, a.songCount, a.thumbnailPath,
                            (SELECT total(songCount) FROM artistSourceStat st
-                               WHERE st.artistID = a.id AND st.sourceKey IN (\(Self.enabledSourcesSQL)))
+                               WHERE st.artistRef = a.key AND st.sourceKey IN (\(Self.enabledSourcesSQL)))
                     FROM artist a WHERE a.key IN (\(Self.placeholders(chunk.count)))
                     """, arguments: StatementArguments(chunk.map(Int64.init)))
                 for row in rows {
@@ -151,7 +152,8 @@ extension LibraryCatalog {
     public func artistSongRowList(artistID: String) throws -> LibraryRowList {
         try rowList { _ in
             ("""
-             s.rowid IN (SELECT songRowid FROM songArtistLookup WHERE artistID = ?)
+             s.rowid IN (SELECT songRowid FROM songArtistLookup
+                 WHERE artistRef = (SELECT ref FROM artistRef WHERE id = ?))
              AND s.sourceKey IN (\(Self.enabledSourcesSQL))
              """, [artistID])
         }
@@ -160,7 +162,8 @@ extension LibraryCatalog {
     public func preferredArtworkSongID(artistID: String) throws -> String? {
         try pool.read { db in
             try String.fetchOne(db, sql: """
-                SELECT id FROM song WHERE rowid IN (SELECT songRowid FROM songArtistLookup WHERE artistID = ?)
+                SELECT id FROM song WHERE rowid IN (SELECT songRowid FROM songArtistLookup
+                    WHERE artistRef = (SELECT ref FROM artistRef WHERE id = ?))
                 AND sourceKey IN (\(Self.enabledSourcesSQL)) ORDER BY \(Self.artworkFallbackOrder) LIMIT 1
                 """, arguments: [artistID])
         }
@@ -194,19 +197,28 @@ extension LibraryCatalog {
 
     /// 可见音乐歌曲的流派,按流派 id 排。结果与流派个数同阶。代表歌曲(`representativeSongIDs`)
     /// 不在这里算,为空。
+    ///
+    /// 只扫一遍可见歌曲的流派行:计数的同时记下每个流派第一首可见歌曲的行号,写法再按这个行号
+    /// 走主键取(一首歌同一流派 id 只有一行,`ordinal` 只是兜底)。不要把写法写回按流派的
+    /// 关联子查询:那样每个流派都要把整库可见歌曲再扫一遍(10 万首 46 个流派约 1 s)。
     public func genres() throws -> [LibraryGenre] {
         try pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT g.genreID,
-                       (SELECT g2.name FROM songGenre g2 JOIN song s2 ON s2.rowid = g2.songRowid
-                         WHERE g2.genreID = g.genreID AND s2.kind = 0 AND s2.sourceKey IN (\(Self.enabledSourcesSQL))
-                         ORDER BY s2.orderKey, s2.id, g2.ordinal LIMIT 1),
-                       count(*),
-                       count(DISTINCT s.effectiveAlbumID)
-                FROM songGenre g JOIN song s ON s.rowid = g.songRowid
-                WHERE s.kind = 0 AND s.sourceKey IN (\(Self.enabledSourcesSQL))
-                GROUP BY g.genreID
-                ORDER BY g.genreID COLLATE \(DatabaseCollation.unicodeCompare.name)
+                WITH stat AS (
+                    SELECT n.genreID AS genreID, min(g.songRowid) AS firstRowid,
+                           count(*) AS songCount, count(DISTINCT s.effectiveAlbumRef) AS albumCount
+                    FROM songGenre g JOIN genreName n ON n.ref = g.genreRef JOIN song s ON s.rowid = g.songRowid
+                    WHERE s.kind = 0 AND s.sourceKey IN (\(Self.enabledSourcesSQL))
+                    GROUP BY n.genreID
+                )
+                SELECT stat.genreID,
+                       (SELECT n2.name FROM songGenre g2 CROSS JOIN genreName n2 ON n2.ref = g2.genreRef
+                         WHERE g2.songRowid = stat.firstRowid AND n2.genreID = stat.genreID
+                         ORDER BY g2.ordinal LIMIT 1),
+                       stat.songCount,
+                       stat.albumCount
+                FROM stat
+                ORDER BY stat.genreID COLLATE \(DatabaseCollation.unicodeCompare.name)
                 """)
             return rows.map { row in
                 LibraryGenre(id: row[0], name: row[1], songCount: row[2], albumCount: row[3], representativeSongIDs: [])

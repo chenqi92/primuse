@@ -1,15 +1,12 @@
 import Foundation
 import GRDB
 
-/// 每行的派生列(不依赖整库分组的部分)。
+/// 每行的派生列(不依赖整库分组的部分)。`kind` 与 `folderKey` 由分组维护按行算好后填进来,
+/// 与歌曲行一起写;`effectiveAlbumRef` 只由分组维护写。
 struct LibraryCatalogDerivedFields {
     var fileNameKey: String
     var fileNameOverride: String?
     var titleKey: Data
-    /// 排序用的非空文本:比较器把 nil 当 ""(`artistName ?? ""`)。单独存成非空列,
-    /// 覆盖索引才能直接读出来做降序时的组界判断。
-    var albumSortKey: String
-    var albumIDSortKey: String
     var sectionBucket: Int
     var durationKey: Double
     var discKey: Int
@@ -17,34 +14,37 @@ struct LibraryCatalogDerivedFields {
     var kind: Int
     var flags: Int
     var matchKey: String
-    var albumTitleKey: String?
+    /// 路径原文(列里存的文本)的 47 位哈希:精确路径查询走它的索引,查到后再比原文。
+    var pathHash: Int64
+    /// 去掉首尾空白的专辑标题的 47 位哈希;没有专辑标题时为 nil。专辑艺人推断与专辑都在同一个
+    /// 标题之内,增量维护按它取范围。
+    var titleHash: Int64?
     var inferenceDirectory: String?
-    var effectiveAlbumID: String?
-    var effectiveAlbumArtist: String?
+    var folderKey: Int64?
 
-    var databaseValues: [DatabaseValueConvertible?] {
-        [fileNameKey, fileNameOverride, titleKey, albumSortKey, albumIDSortKey, sectionBucket,
-         durationKey, discKey, trackKey, kind, flags, matchKey, albumTitleKey, inferenceDirectory,
-         effectiveAlbumID, effectiveAlbumArtist]
+    var values: [CatalogValue] {
+        [.text(fileNameKey), .optionalText(fileNameOverride), .blob(titleKey), .int(Int64(sectionBucket)),
+         .real(durationKey), .int(Int64(discKey)), .int(Int64(trackKey)), .int(Int64(kind)), .int(Int64(flags)),
+         .text(matchKey), .int(pathHash), titleHash.map(CatalogValue.int) ?? .null,
+         .optionalText(inferenceDirectory), folderKey.map(CatalogValue.int) ?? .null]
     }
 
     static let columnNames = [
-        "fileNameKey", "fileNameOverride", "titleKey", "albumSortKey", "albumIDSortKey",
-        "sectionBucket", "durationKey", "discKey", "trackKey", "kind", "flags", "matchKey",
-        "albumTitleKey", "inferenceDirectory", "effectiveAlbumID", "effectiveAlbumArtist",
+        "fileNameKey", "fileNameOverride", "titleKey", "sectionBucket", "durationKey", "discKey", "trackKey",
+        "kind", "flags", "matchKey", "pathHash", "titleHash", "inferenceDirectory", "folderKey",
     ]
 
     /// 音乐源层面的设置,决定文件名列与目录列怎么算。
-    struct SourceTraits {
+    struct SourceTraits: Sendable, Equatable {
         var fileNamesFromIndex = false
         var usesFolderParents = false
     }
 
+    /// 纯函数,可以多核并行算。`inferenceDirectory`、`kind`、`folderKey` 由调用方在写事务里补。
     static func make(
         for song: Song,
         source: SourceTraits,
-        fileNameOverride: String?,
-        folderParent: String?
+        fileNameOverride: String?
     ) -> LibraryCatalogDerivedFields {
         let duration = song.appliedPlaybackRange?.songDuration ?? song.duration
         // 读音键的首字母下标就是字母索引(与 `indexLetter(for:)` 同一个函数,空名字归 "#")。
@@ -54,31 +54,52 @@ struct LibraryCatalogDerivedFields {
         let titleBucket = titleKey.bucketIndex
         let artistBucket = artistKey.bucketIndex
         let albumBucket = albumKey.bucketIndex
-        let albumTitle = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         return LibraryCatalogDerivedFields(
-            fileNameKey: fileNameOverride ?? fileName(for: song, fromIndex: source.fileNamesFromIndex),
-            fileNameOverride: fileNameOverride,
+            fileNameKey: columnText(fileNameOverride ?? fileName(for: song, fromIndex: source.fileNamesFromIndex)),
+            fileNameOverride: fileNameOverride.map(columnText),
             titleKey: keyData(titleKey),
-            albumSortKey: columnText(song.albumTitle ?? ""),
-            albumIDSortKey: columnText(song.albumID ?? ""),
             sectionBucket: titleBucket | artistBucket << 5 | albumBucket << 10,
             durationKey: duration.isFinite ? max(0, duration) : 0,
             discKey: AlbumTrackOrder.discNumber(for: song),
             trackKey: AlbumTrackOrder.trackNumber(for: song) ?? Int.max,
             kind: LibraryCatalogContentKind.music.rawValue,
             flags: flags(for: song, duration: duration),
-            matchKey: ExternalTrackMatchPolicy.normalizedCoreTitle(song.title),
-            albumTitleKey: albumTitle?.isEmpty == false ? albumTitle : nil,
-            // 只有按条目 id 寻址、文件夹来自扫描索引的源才存;其余按所在文件夹(`folderKey`)判同目录。
-            inferenceDirectory: source.usesFolderParents ? folderParent : nil,
-            effectiveAlbumID: song.albumID,
-            effectiveAlbumArtist: nil
+            matchKey: columnText(ExternalTrackMatchPolicy.normalizedCoreTitle(song.title)),
+            pathHash: pathHash(song.filePath),
+            titleHash: titleHash(albumTitle: song.albumTitle),
+            inferenceDirectory: nil,
+            folderKey: nil
         )
     }
 
     /// 列里存的文本:与 `LibraryCatalogSongCodec` 一样把 NUL 换成 U+FFFD(GRDB 按 C 字符串绑定)。
     static func columnText(_ value: String) -> String {
         value.utf8.contains(0) ? value.replacingOccurrences(of: "\0", with: "\u{FFFD}") : value
+    }
+
+    /// 稳定的 47 位哈希(FNV-1a 64 取高位):跨进程、跨版本不变,存进库里当索引键;
+    /// 47 位以内的非负整数 SQLite 用 6 字节存。碰撞只多读几行,查询总会再比原文。
+    static func stableHash(_ text: String) -> Int64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return Int64(bitPattern: hash >> 17)
+    }
+
+    static func pathHash(_ filePath: String) -> Int64 {
+        stableHash(columnText(filePath))
+    }
+
+    /// 专辑艺人推断与专辑身份所用的标题(`AlbumArtistInferencePolicy` 的去空白标题)。
+    static func trimmedAlbumTitle(_ albumTitle: String?) -> String? {
+        guard let title = albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return nil }
+        return title
+    }
+
+    static func titleHash(albumTitle: String?) -> Int64? {
+        trimmedAlbumTitle(albumTitle).map(stableHash)
     }
 
     /// `LibraryCollationPolicy.Key` 的二进制形式:首字节是索引字母下标,后面是 NFC 规范化

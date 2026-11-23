@@ -219,6 +219,8 @@ struct LibraryCatalogSortParityTests {
             (.title, "song_sort_title"), (.titleDescending, "song_sort_title"),
             (.artist, "song_sort_artist"), (.artistDescending, "song_sort_artist"), (.album, "song_sort_album"),
             (.dateAdded, "song_sort_dateAdded"), (.dateAddedOldest, "song_sort_dateAdded"),
+            (.fileName, "song_sort_fileName"), (.fileNameDescending, "song_sort_fileName"),
+            (.albumDescending, "song_sort_album"),
         ]
         for (order, index) in expectations {
             let plan = LibraryCatalogSongSort.plan(for: order, sourceRank: "0")
@@ -229,7 +231,7 @@ struct LibraryCatalogSortParityTests {
                     ORDER BY \(plan.orderBy)
                     """).map { $0["detail"] as String }.joined(separator: " | ")
             }
-            #expect(detail.contains(index), "\(order.rawValue): \(detail)")
+            #expect(detail.contains("COVERING INDEX \(index)"), "\(order.rawValue): \(detail)")
             // 升降都直接扫索引(降序倒着扫),不要临时排序。
             #expect(!detail.contains("TEMP B-TREE"), "\(order.rawValue): \(detail)")
         }

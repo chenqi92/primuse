@@ -130,6 +130,11 @@ struct LibraryCatalogQueryTests {
         let oneShot = try LibraryCatalog(path: directory.appendingPathComponent("oneshot.sqlite").path)
         _ = try LibraryCatalogImporter.importIncrementalSongStore(at: storePath, into: oneShot)
 
+        func indexNames(_ catalog: LibraryCatalog) throws -> Set<String> {
+            try catalog.pool.read { db in
+                try Set(String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'index'"))
+            }
+        }
         for catalog in [resumedCatalog, oneShot] {
             var imported: [Song] = []
             try catalog.forEachSong(.everything) { _, song in
@@ -137,14 +142,77 @@ struct LibraryCatalogQueryTests {
                 return true
             }
             #expect(imported == expectedOrder)
-            #expect(try catalog.pool.read { db in
-                try Set(String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'index'"))
-            }.isSuperset(of: LibraryCatalogSchema.deferredIndexes.map(\.name)))
+            // 迁移只建必需的索引;本地化排序索引记成待建,打开时也不建。
+            #expect(try indexNames(catalog).isSuperset(of: LibraryCatalogSchema.migrationIndexes.map(\.name)))
+            #expect(try indexNames(catalog).isDisjoint(with: LibraryCatalogSchema.backgroundSortIndexNames))
+            #expect(try catalog.hasPendingSortIndexes())
         }
+        let reopened = try LibraryCatalog(path: resumedPath)
+        #expect(try indexNames(reopened).isDisjoint(with: LibraryCatalogSchema.backgroundSortIndexNames))
+        #expect(try reopened.hasPendingSortIndexes())
+        // 索引没建好时这几种排序整表排;建好后走索引,结果一样。
+        let orders: [LibrarySongSortOrder] = [.artist, .artistDescending, .album, .albumDescending, .fileName, .fileNameDescending]
+        let pendingLists = try orders.map { try reopened.songRowList(order: $0).rowids }
+        var asked = 0
+        #expect(try reopened.buildPendingSortIndexes(isCancelled: { asked += 1; return asked > 1 }) == false)
+        #expect(try reopened.hasPendingSortIndexes())
+        #expect(try reopened.buildPendingSortIndexes())
+        #expect(try orders.map { try reopened.songRowList(order: $0).rowids } == pendingLists)
+        #expect(try indexNames(reopened).isSuperset(of: LibraryCatalogSchema.deferredIndexes.map(\.name)))
+        #expect(try !reopened.hasPendingSortIndexes())
         // 已完成:再调一次什么也不做。
         let again = try LibraryCatalogImporter.importIncrementalSongStore(at: storePath, into: oneShot)
         #expect(again.isComplete)
         #expect(try oneShot.songCount(.everything) == expectedOrder.count)
+    }
+
+    @Test("Source traits changed mid-import apply from the next written batch, as in a sequential import")
+    func importRechecksSourceTraits() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("catalog-import-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var rng = CatalogTestRandom(seed: 79)
+        let songs = (0..<600).map { CatalogSongFactory.randomSong(&rng, index: $0, exotic: false).withoutAppliedPlaybackRange }
+        let storePath = directory.appendingPathComponent("library-songs.sqlite").path
+        _ = try Self.makeStore(at: storePath, songs: songs)
+        // 改特征要有可见效果:选一个按路径取文件名的源(Apple Music 本来就用标题)。
+        let target = try #require(songs.first {
+            $0.sourceID != AppleMusicLibraryIdentity.sourceID && !$0.filePath.isEmpty
+        }).sourceID
+        func flip(_ catalog: LibraryCatalog) throws {
+            try catalog.pool.write { db in
+                try db.execute(sql: "UPDATE source SET fileNamesFromIndex = 1 WHERE id = ?", arguments: [target])
+            }
+        }
+        func songRows(_ catalog: LibraryCatalog) throws -> [[DatabaseValue]] {
+            try catalog.pool.read { db in
+                try Row.fetchAll(db, sql: "SELECT * FROM song ORDER BY rowid").map { Array($0.databaseValues) }
+            }
+        }
+
+        // 下一批在写第一批时已按旧特征算好;第一批写完后改特征,写下一批前要发现并重算。
+        let pipelined = try LibraryCatalog(path: directory.appendingPathComponent("pipelined.sqlite").path)
+        var flipped = false
+        _ = try LibraryCatalogImporter.importIncrementalSongStore(
+            at: storePath, into: pipelined, batchSize: 100,
+            progress: { _ in
+                guard !flipped else { return }
+                flipped = true
+                usleep(200_000)
+                try? flip(pipelined)
+            }
+        )
+        // 参照:逐批导入时,第一批之后改特征,后面的批次按新特征写。
+        let reference = try LibraryCatalog(path: directory.appendingPathComponent("reference.sqlite").path)
+        _ = try LibraryCatalogImporter.importIncrementalSongStore(at: storePath, into: reference, batchSize: 100, maximumBatches: 1)
+        try flip(reference)
+        _ = try LibraryCatalogImporter.importIncrementalSongStore(at: storePath, into: reference, batchSize: 100)
+        let unchanged = try LibraryCatalog(path: directory.appendingPathComponent("unchanged.sqlite").path)
+        _ = try LibraryCatalogImporter.importIncrementalSongStore(at: storePath, into: unchanged, batchSize: 100)
+
+        #expect(flipped)
+        #expect(try songRows(pipelined) == songRows(reference))
+        #expect(try songRows(pipelined) != songRows(unchanged))
     }
 
     @Test("A store that changed between runs restarts the import")

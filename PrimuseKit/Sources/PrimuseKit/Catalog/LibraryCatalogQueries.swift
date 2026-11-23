@@ -229,27 +229,35 @@ extension LibraryCatalog {
         try rowList(aggregatesScope: includeAggregates ? scope : nil) { db in try scope.whereClause(in: db) }
     }
 
-    /// 源内某目录下的歌:`recursive` 为 false 时只要直接子项。
+    /// 源内某目录下的歌:`recursive` 为 false 时只要直接子项,为 true 时连同各级子文件夹(沿文件夹树)。
     public func rowList(sourceID: String, directory: String, recursive: Bool) throws -> LibraryRowList {
+        let directory = Self.normalizedDirectory(directory)
         if recursive {
-            let normalized = directory.hasSuffix("/") ? directory : directory + "/"
             if directory.isEmpty {
                 return try rowList(.source(sourceID))
             }
-            return try rowList(orderBy: "+s.orderKey, s.id") { db in
-                ("\(try Self.sourceKeyTerm(sourceID, in: db)) AND s.filePath >= ? AND s.filePath < ?",
-                 [normalized, LibraryCatalogPath.upperBound(forPrefix: normalized)])
+            return try rowList { db in
+                guard let folder = try Self.folderKey(sourceID: sourceID, path: directory, in: db) else { return ("0", []) }
+                return ("""
+                    s.folderKey IN (
+                        WITH RECURSIVE subtree(key) AS (
+                            SELECT ? UNION ALL
+                            SELECT f.key FROM folder f JOIN subtree ON f.parentKey = subtree.key
+                            WHERE f.sourceKey = (SELECT sourceKey FROM folder WHERE key = ?))
+                        SELECT key FROM subtree)
+                    """, [folder, folder])
             }
         }
-        return try rowList(orderBy: "+s.orderKey, s.id") { db in
-            ("\(try Self.sourceKeyTerm(sourceID, in: db)) AND s.folderKey = ?", [try Self.folderKey(sourceID: sourceID, path: directory, in: db) ?? -1])
+        return try rowList { db in
+            ("s.folderKey = ?", [try Self.folderKey(sourceID: sourceID, path: directory, in: db) ?? -1])
         }
     }
 
     /// 同一个文件的所有行(CUE 分轨共用一个文件)。
     public func rowList(sourceID: String, filePath: String) throws -> LibraryRowList {
-        try rowList(orderBy: "+s.orderKey, s.id") { db in
-            ("\(try Self.sourceKeyTerm(sourceID, in: db)) AND s.filePath = ?", [filePath])
+        try rowList { db in
+            ("\(try Self.sourceKeyTerm(sourceID, in: db)) AND s.pathHash = ? AND s.filePath = ?",
+             [LibraryCatalogDerivedFields.pathHash(filePath), LibraryCatalogDerivedFields.columnText(filePath)])
         }
     }
 
@@ -260,9 +268,10 @@ extension LibraryCatalog {
         sharing column: LibraryCatalogSidecarColumn,
         fileName: String
     ) throws -> LibraryRowList {
-        try rowList(orderBy: "+s.orderKey, s.id") { db in
-            ("\(try Self.sourceKeyTerm(sourceID, in: db)) AND s.folderKey = ? AND s.\(column.rawValue) = ?",
-             [try Self.folderKey(sourceID: sourceID, path: directory, in: db) ?? -1, fileName])
+        try rowList { db in
+            ("s.folderKey = ? AND s.\(column.rawValue) = ?",
+             [try Self.folderKey(sourceID: sourceID, path: Self.normalizedDirectory(directory), in: db) ?? -1,
+              LibraryCatalogDerivedFields.columnText(fileName)])
         }
     }
 
@@ -274,10 +283,9 @@ extension LibraryCatalog {
             let paths = try String.fetchCursor(
                 db,
                 sql: """
-                    SELECT DISTINCT s.filePath FROM song s
-                    WHERE \(try Self.sourceKeyTerm(sourceID, in: db)) AND s.folderKey = ? LIMIT ?
+                    SELECT DISTINCT s.filePath FROM song s WHERE s.folderKey = ? LIMIT ?
                     """,
-                arguments: [try Self.folderKey(sourceID: sourceID, path: directory, in: db) ?? -1, cap + 1]
+                arguments: [try Self.folderKey(sourceID: sourceID, path: Self.normalizedDirectory(directory), in: db) ?? -1, cap + 1]
             )
             while let path = try paths.next() {
                 stems.insert(((path as NSString).lastPathComponent as NSString).deletingPathExtension)
@@ -296,10 +304,11 @@ extension LibraryCatalog {
             try String.fetchOne(
                 db,
                 sql: """
-                    SELECT s.id FROM song s WHERE \(try Self.sourceKeyTerm(sourceID, in: db)) AND s.filePath = ?
-                    ORDER BY +s.orderKey, s.id LIMIT 1
+                    SELECT s.id FROM song s
+                    WHERE s.pathHash = ? AND \(try Self.sourceKeyTerm(sourceID, in: db)) AND s.filePath = ?
+                    ORDER BY s.rowid LIMIT 1
                     """,
-                arguments: [filePath]
+                arguments: [LibraryCatalogDerivedFields.pathHash(filePath), LibraryCatalogDerivedFields.columnText(filePath)]
             )
         }
     }
@@ -320,7 +329,7 @@ extension LibraryCatalog {
             let (sql, arguments) = try scope.whereClause(in: db)
             let rows = try Row.fetchCursor(
                 db,
-                sql: "SELECT s.rowid, s.id, s.filePath FROM song s WHERE \(sql) ORDER BY s.orderKey, s.id",
+                sql: "SELECT s.rowid, s.id, s.filePath FROM song s WHERE \(sql) ORDER BY s.rowid",
                 arguments: arguments
             )
             while let row = try rows.next() {
@@ -334,43 +343,41 @@ extension LibraryCatalog {
         _ scope: LibrarySongScope,
         _ body: (_ rowid: Int32, _ song: Song) throws -> Bool
     ) throws {
-        var lastOrderKey = Int64.min
-        var lastID = ""
+        var lastRowid: Int64 = 0
         while true {
-            var batch: [(Int32, Song, Int64)] = []
+            var batch: [(Int32, Song)] = []
             try pool.read { db in
                 let (sql, arguments) = try scope.whereClause(in: db)
                 var batchArguments = arguments
-                batchArguments += [lastOrderKey, lastOrderKey, lastID, LibraryScale.importBatchSize]
+                batchArguments += [lastRowid, LibraryScale.importBatchSize]
                 let rows = try Row.fetchCursor(
                     db,
                     sql: """
-                        SELECT \(LibraryCatalogSongCodec.selectColumns.replacingOccurrences(of: "song.", with: "s.")), s.orderKey
+                        SELECT \(LibraryCatalogSongCodec.selectColumns.replacingOccurrences(of: "song.", with: "s."))
                         FROM song s JOIN source ON source.key = s.sourceKey
-                        WHERE \(sql) AND (s.orderKey > ? OR (s.orderKey = ? AND s.id > ?))
-                        ORDER BY s.orderKey, s.id LIMIT ?
+                        WHERE \(sql) AND s.rowid > ? ORDER BY s.rowid LIMIT ?
                         """,
                     arguments: batchArguments
                 )
                 while let row = try rows.next() {
                     let rowid: Int64 = row[LibraryCatalogSongCodec.Column.rowid]
-                    batch.append((try Self.rowid32(rowid), try LibraryCatalogSongCodec.decode(row), row[LibraryCatalogSongCodec.Column.extra + 1]))
+                    batch.append((try Self.rowid32(rowid), try LibraryCatalogSongCodec.decode(row)))
                 }
             }
             guard let last = batch.last else { return }
-            for (rowid, song, _) in batch {
+            for (rowid, song) in batch {
                 guard try body(rowid, song) else { return }
             }
-            lastOrderKey = last.2
-            lastID = last.1.id
+            lastRowid = Int64(last.0)
             if batch.count < LibraryScale.importBatchSize { return }
         }
     }
 
     // MARK: - Helpers
 
+    /// 库内顺序就是行号顺序(导入按 (orderKey, id) 写入、新行追加到尾)。
     func rowList(
-        orderBy: String = "s.orderKey, s.id",
+        orderBy: String = "s.rowid",
         aggregatesScope: LibrarySongScope? = nil,
         limit: Int? = nil,
         where makeWhere: (Database) throws -> (String, StatementArguments)
@@ -389,6 +396,13 @@ extension LibraryCatalog {
             let aggregates = try aggregatesScope.map { try Self.fetchAggregates($0, in: db) }
             return LibraryRowList(rowids: rowids, revision: revision, aggregates: aggregates)
         }
+    }
+
+    /// 去掉目录参数末尾的斜杠("Music/X/" 与 "Music/X" 是同一个目录;根 "/" 不动)。
+    static func normalizedDirectory(_ directory: String) -> String {
+        var value = directory
+        while value.count > 1, value.hasSuffix("/") { value.removeLast() }
+        return value
     }
 
     /// 源内某个目录(与 `AlbumArtistInferencePolicy.directory(ofPath:)` 同一口径)的文件夹键。

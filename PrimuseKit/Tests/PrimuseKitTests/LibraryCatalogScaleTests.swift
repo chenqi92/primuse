@@ -116,6 +116,13 @@ struct LibraryCatalogScaleTests {
     }
 
     static func mib(_ bytes: UInt64) -> Double { Double(bytes) / 1_048_576 }
+
+    /// 默认 malloc 区的(在用, 已向系统要的)字节数:分得清「还活着的对象」与「放掉了但没还给系统的页」。
+    static func mallocBytes() -> (inUse: UInt64, allocated: UInt64) {
+        var stats = malloc_statistics_t()
+        malloc_zone_statistics(nil, &stats)
+        return (UInt64(stats.size_in_use), UInt64(stats.size_allocated))
+    }
     static func now() -> Double { ProcessInfo.processInfo.systemUptime }
 
     /// 后台每 2 ms 采一次 footprint,记最大值。
@@ -151,11 +158,13 @@ struct LibraryCatalogScaleTests {
     struct Report {
         var lines: [String] = []
         var failures: [String] = []
-        mutating func record(_ label: String, _ milliseconds: Double, budget: Double? = nil) {
+        mutating func record(_ label: String, _ milliseconds: Double, budget: Double? = nil, enforced: Bool = true) {
             var line = "📏 catalog-scale \(label)=\(String(format: "%.1f", milliseconds))ms"
             if let budget {
                 line += " (budget \(String(format: "%.0f", budget)))"
-                if milliseconds > budget { failures.append(line) }
+                if milliseconds > budget {
+                    if enforced { failures.append(line) } else { line += " over; not enforced in this build" }
+                }
             }
             lines.append(line)
             print(line)
@@ -225,7 +234,7 @@ struct LibraryCatalogScaleTests {
             let (songs, generateMs) = Self.time { (0..<sample).map(library.song(at:)) }
             let traits = LibraryCatalogDerivedFields.SourceTraits()
             let (_, derivedMs) = Self.time {
-                for song in songs { _ = LibraryCatalogDerivedFields.make(for: song, source: traits, fileNameOverride: nil, folderParent: nil) }
+                for song in songs { _ = LibraryCatalogDerivedFields.make(for: song, source: traits, fileNameOverride: nil) }
             }
             let (_, encodeMs) = Self.time { for song in songs { _ = LibraryCatalogSongCodec.encode(song) } }
             let (_, keysMs) = Self.time {
@@ -248,6 +257,8 @@ struct LibraryCatalogScaleTests {
             report.record("build.syntheticStore", storeMs)
             let catalog = try LibraryCatalog(path: catalogPath)
             LibraryCatalogImportProfile.reset()
+            let migrationBaseline = Self.footprint().current
+            let migrationSampler = PeakSampler()
             let (result, importMs) = try Self.time {
                 try LibraryCatalogImporter.importIncrementalSongStore(at: storePath, into: catalog)
             }
@@ -261,7 +272,23 @@ struct LibraryCatalogScaleTests {
             report.record("build.grouping", groupingMs)
             report.note("grouping.stages \(LibraryCatalogImportProfile.summary())")
             report.record("migration.total(import+indexes+grouping)", importMs + groupingMs,
-                          budget: scaled(LibraryCatalogScaleBudgets.migrationSeconds * 1_000, 3_000))
+                          budget: scaled(LibraryCatalogScaleBudgets.migrationSeconds * 1_000, 3_000),
+                          enforced: LibraryCatalogScaleBudgets.enforcesMigrationTime)
+            let migrationPeak = Self.mib(migrationSampler.stop()) - Self.mib(migrationBaseline)
+            report.note(String(format: "migration.peakGrowth=%.1fMiB", migrationPeak))
+            if migrationPeak > LibraryCatalogScaleBudgets.migrationPeakGrowthMiB {
+                report.failures.append("📏 catalog-scale migration.peakGrowth=\(Int(migrationPeak))MiB (budget \(Int(LibraryCatalogScaleBudgets.migrationPeakGrowthMiB)))")
+            }
+            // 迁移后:本地化排序索引还在后台补建时排一次(整表排序),再补建(不计入迁移时长)。
+            #expect(try catalog.hasPendingSortIndexes())
+            let (_, pendingSortMs) = try Self.time { try catalog.songRowList(order: .album, scope: .visibleMusic) }
+            report.record("sort.album(sortIndexesPending)", pendingSortMs)
+            LibraryCatalogImportProfile.reset()
+            let (built, sortIndexMs) = try Self.time { try catalog.buildPendingSortIndexes() }
+            #expect(built)
+            #expect(try !catalog.hasPendingSortIndexes())
+            report.record("build.backgroundSortIndexes", sortIndexMs)
+            report.note("sortIndexes.stages \(LibraryCatalogImportProfile.summary())")
         } else {
             let catalog = try LibraryCatalog(path: catalogPath)
             try catalog.beginBulkLoad()
@@ -299,14 +326,15 @@ struct LibraryCatalogScaleTests {
             report.failures.append("📏 catalog-scale db.bytesPerSong=\(bytesPerSong) (budget \(LibraryCatalogScaleBudgets.databaseBytesPerSong))")
         }
         if let breakdown = try? LibraryCatalog(path: catalogPath).pool.read({ db in
-            try Row.fetchAll(db, sql: "SELECT name, sum(pgsize) AS size FROM dbstat GROUP BY name ORDER BY size DESC LIMIT 14")
+            try Row.fetchAll(db, sql: "SELECT name, sum(pgsize) AS size FROM dbstat GROUP BY name ORDER BY size DESC")
         }) {
-            report.note("db.breakdown " + breakdown.map { "\($0[0] as String)=\(((($0[1] as Int64) / Int64(max(1, songCount)))))B" }
-                .joined(separator: " "))
+            let perSong = { (bytes: Int64) in String(format: "%.1f", Double(bytes) / Double(max(1, songCount))) }
+            report.note("db.breakdown " + breakdown.map { "\($0[0] as String)=\(perSong($0[1]))B" }.joined(separator: " "))
         }
 
         // 2. 走查。基线:建库连接已关、缓存已放。
         let baseline = Self.footprint().current
+        let mallocBaseline = Self.mallocBytes()
         let sampler = PeakSampler()
 
         var retainedLists: [LibraryRowList] = []
@@ -444,8 +472,40 @@ struct LibraryCatalogScaleTests {
             let (summary, writeMs) = try Self.time { try catalog.apply(upserts: edits + additions, deletingIDs: deletions) }
             report.note("write.stages \(LibraryCatalogImportProfile.summary())")
             report.record("write.incremental", writeMs, budget: LibraryCatalogScaleBudgets.incrementalWriteMilliseconds)
-            report.note("write.summary inserted=\(summary.insertedRowids.count) updated=\(summary.updatedRowids.count) deleted=\(summary.deletedRowids.count)")
+            report.note("write.summary inserted=\(summary.insertedRowids.count) updated=\(summary.updatedRowids.count) deleted=\(summary.deletedRowids.count) rowsRead=\(catalog.lastWriteWork.rowsRead) rowsWritten=\(catalog.lastWriteWork.rowsWritten)")
             cache.invalidate(summary)
+
+            // 扫描入库:一批 2000 首新歌(落在已有专辑的目录里)。
+            let ingest = (0..<2_000).map { library.song(at: songCount + 100 + $0) }
+            LibraryCatalogImportProfile.reset()
+            let (ingestSummary, ingestMs) = try Self.time { try catalog.apply(upserts: ingest) }
+            #expect(ingestSummary.insertedRowids.count == ingest.count)
+            report.note("write.ingest.stages \(LibraryCatalogImportProfile.summary())")
+            report.record("write.ingest2000", ingestMs, budget: LibraryCatalogScaleBudgets.ingestWriteMilliseconds)
+            report.note("write.ingest rowsRead=\(catalog.lastWriteWork.rowsRead) rowsWritten=\(catalog.lastWriteWork.rowsWritten)")
+
+            // 改一首歌的标签。
+            var tagged = library.song(at: (songCount / 3) | 1)
+            tagged.title += " (retagged)"
+            tagged.year = 2001
+            let (_, singleMs) = try Self.time { try catalog.apply(upserts: [tagged]) }
+            report.record("write.singleTagEdit", singleMs, budget: LibraryCatalogScaleBudgets.singleEditMilliseconds)
+
+            // 写完之后各处计数仍然对得上(增量维护没有漂移)。
+            let invariants = try catalog.pool.read { db in
+                try Row.fetchOne(db, sql: """
+                    SELECT (SELECT total(songCount) FROM album) - (SELECT count(*) FROM song WHERE effectiveAlbumRef IS NOT NULL),
+                           (SELECT count(*) FROM song WHERE titleHash IS NOT NULL AND effectiveAlbumRef IS NULL),
+                           (SELECT count(*) FROM album a WHERE NOT EXISTS (SELECT 1 FROM song s WHERE s.effectiveAlbumRef = a.key)),
+                           (SELECT total(songCount) FROM artist) - (SELECT count(*) FROM songArtist),
+                           (SELECT count(*) FROM artist) - (SELECT count(DISTINCT artistRef) FROM songArtist),
+                           (SELECT total(songCount) FROM folder) - (SELECT count(*) FROM song),
+                           (SELECT total(songCount) FROM artistSourceStat) - (SELECT count(*) FROM songArtistLookup)
+                    """)!
+            }
+            let drift = (0..<7).map { invariants[$0] as Double }
+            report.note("write.invariants \(drift.map { String(Int($0)) }.joined(separator: ","))")
+            #expect(drift.allSatisfy { $0 == 0 }, "catalog counts drifted after writes: \(drift)")
             let (_, resortMs) = try Self.time { try catalog.songRowList(order: .title, scope: .visibleMusic) }
             report.record("sort.title.afterWrite", resortMs, budget: scaled(LibraryCatalogScaleBudgets.indexedSortMilliseconds, 80))
             let greatestHits = try catalog.albumKeys(visibleOnly: true)
@@ -457,21 +517,19 @@ struct LibraryCatalogScaleTests {
         retainedLists.removeAll()
         let peak = sampler.stop()
         let after = Self.footprint().current
+        let mallocAfter = Self.mallocBytes()
         let retainedGrowth = Self.mib(after) - Self.mib(baseline)
         let peakGrowth = Self.mib(peak) - Self.mib(baseline)
         report.note(String(format: "footprint baseline=%.1fMiB after=%.1fMiB peak=%.1fMiB retainedGrowth=%.1fMiB peakGrowth=%.1fMiB",
                            Self.mib(baseline), Self.mib(after), Self.mib(peak), retainedGrowth, peakGrowth))
+        report.note(String(format: "malloc inUse %.1f→%.1fMiB allocated %.1f→%.1fMiB",
+                           Self.mib(mallocBaseline.inUse), Self.mib(mallocAfter.inUse),
+                           Self.mib(mallocBaseline.allocated), Self.mib(mallocAfter.allocated)))
         report.note(String(format: "total=%.1fs", Self.now() - testStart))
         #expect(retainedGrowth <= LibraryCatalogScaleBudgets.retainedGrowthMiB, "retained growth \(retainedGrowth) MiB")
         #expect(peakGrowth <= LibraryCatalogScaleBudgets.peakGrowthMiB, "peak growth \(peakGrowth) MiB")
-        // 已知尚未达标、在交付报告里单列的预算项:记为已知问题(照样打印、不让 CI 变红),其余超标照常失败。
-        let knownGaps = ["migration.total", "write.incremental", "sort.fileName", "db.bytesPerSong"]
         for failure in report.failures {
-            if knownGaps.contains(where: failure.contains) {
-                withKnownIssue("P0 目标尚未达到,见交付报告") { Issue.record("over budget: \(failure)") }
-            } else {
-                Issue.record("over budget: \(failure)")
-            }
+            Issue.record("over budget: \(failure)")
         }
     }
 

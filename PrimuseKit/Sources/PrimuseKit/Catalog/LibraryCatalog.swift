@@ -21,6 +21,10 @@ public final class LibraryCatalog: @unchecked Sendable {
     let pool: DatabasePool
     let songListCache = LibrarySongListCache()
     private let groupingState = OSAllocatedUnfairLock(initialState: LibraryGroupingConfiguration())
+    let writeWorkState = OSAllocatedUnfairLock(initialState: LibraryCatalogWriteWorkState())
+    /// `bulkInsert` 跨批复用的整数引用与艺人解析结果(写事务串行,不会并发用)。
+    let bulkLoadRefs = CatalogRefCache()
+    let bulkLoadMemo = GroupingMaintenance.RowValueMemo()
 
     /// 分组派生当前用的 App 输入。`setGroupingConfiguration` 换掉并按需整库重建。
     public var groupingConfiguration: LibraryGroupingConfiguration {
@@ -37,6 +41,8 @@ public final class LibraryCatalog: @unchecked Sendable {
         static let revision = "revision"
         static let generation = "generation"
         static let sortIndexesDeferred = "sortIndexesDeferred"
+        /// 迁移后留到后台补建的排序索引还没建完(`buildPendingSortIndexes`)。
+        static let sortIndexesPending = "sortIndexesPending"
         static let importState = "import.state"
         static let importCursorOrderKey = "import.cursor.orderKey"
         static let importCursorID = "import.cursor.id"
@@ -60,6 +66,7 @@ public final class LibraryCatalog: @unchecked Sendable {
                 PRAGMA cache_size = -\(LibraryScale.connectionCacheKiB);
                 PRAGMA temp_store = FILE;
                 PRAGMA mmap_size = \(LibraryScale.mmapSize);
+                PRAGMA threads = \(LibraryCatalogSchema.sorterThreads);
                 """)
         }
         pool = try DatabasePool(path: path, configuration: configuration)
@@ -87,8 +94,10 @@ public final class LibraryCatalog: @unchecked Sendable {
             }
             if try Self.metaValue(MetaKey.sortIndexesDeferred, in: db) == "1",
                try Self.metaValue(MetaKey.importState, in: db) != "running" {
-                try LibraryCatalogSchema.createDeferredIndexes(db)
+                // 打开要快:建索引慢的那几条排序索引不在这里建,记成待建,由后台补。
+                try LibraryCatalogSchema.createDeferredIndexes(db, includingBackgroundSortIndexes: false)
                 try Self.setMeta(MetaKey.sortIndexesDeferred, "0", in: db)
+                try Self.notePendingSortIndexes(in: db)
             }
         }
     }

@@ -164,7 +164,7 @@ struct LibraryGroupingDifferentialTests {
                 SELECT s.id, s.kind FROM song s JOIN source ON source.key = s.sourceKey WHERE source.enabled = 1
                 """) { kinds[row[0]] = row[1] }
             var effective: [String: String] = [:]
-            for row in try Row.fetchAll(db, sql: "SELECT id, effectiveAlbumID FROM song WHERE effectiveAlbumID IS NOT NULL") {
+            for row in try Row.fetchAll(db, sql: "SELECT s.id, a.id FROM song s JOIN album a ON a.key = s.effectiveAlbumRef") {
                 effective[row[0]] = row[1]
             }
             var books: [String: String] = [:]
@@ -180,21 +180,24 @@ struct LibraryGroupingDifferentialTests {
             }
             var albumArtwork: [String: String] = [:]
             for albumID in try String.fetchAll(db, sql: """
-                SELECT DISTINCT effectiveAlbumID FROM song WHERE effectiveAlbumID IS NOT NULL
-                AND sourceKey IN (SELECT key FROM source WHERE enabled = 1)
+                SELECT DISTINCT a.id FROM song s JOIN album a ON a.key = s.effectiveAlbumRef
+                WHERE s.sourceKey IN (SELECT key FROM source WHERE enabled = 1)
                 """) {
                 albumArtwork[albumID] = try String.fetchOne(db, sql: """
-                    SELECT id FROM song WHERE effectiveAlbumID = ? AND sourceKey IN (SELECT key FROM source WHERE enabled = 1)
+                    SELECT id FROM song WHERE effectiveAlbumRef = (SELECT key FROM album WHERE id = ?)
+                    AND sourceKey IN (SELECT key FROM source WHERE enabled = 1)
                     ORDER BY \(LibraryCatalog.artworkFallbackOrder) LIMIT 1
                     """, arguments: [albumID])
             }
             var artistArtwork: [String: String] = [:]
             for artistID in try String.fetchAll(db, sql: """
-                SELECT DISTINCT l.artistID FROM songArtistLookup l JOIN song s ON s.rowid = l.songRowid
+                SELECT DISTINCT r.id FROM songArtistLookup l JOIN artistRef r ON r.ref = l.artistRef
+                JOIN song s ON s.rowid = l.songRowid
                 WHERE s.sourceKey IN (SELECT key FROM source WHERE enabled = 1)
                 """) {
                 artistArtwork[artistID] = try String.fetchOne(db, sql: """
-                    SELECT id FROM song WHERE rowid IN (SELECT songRowid FROM songArtistLookup WHERE artistID = ?)
+                    SELECT id FROM song WHERE rowid IN (SELECT songRowid FROM songArtistLookup
+                        WHERE artistRef = (SELECT ref FROM artistRef WHERE id = ?))
                     AND sourceKey IN (SELECT key FROM source WHERE enabled = 1) ORDER BY \(LibraryCatalog.artworkFallbackOrder) LIMIT 1
                     """, arguments: [artistID])
             }
@@ -255,7 +258,20 @@ struct LibraryGroupingDifferentialTests {
     static let artistPool = [
         "周杰伦", "Taylor Swift", "RAF Camora", "RAF Camora feat. Bonez MC", "Bonez MC", "A & B", "A", "B",
         "陈奕迅;王菲", "王菲", "AC/DC", "Various Artists", "鸣潮先约电台", "Composer Y", "Label X", "Artist C", "",
+        // 同一个艺人(分组键相同)的不同写法:艺人名取首次署名的写法。
+        "taylor swift", "TAYLOR  SWIFT", "Ｂｏｎｅｚ MC", "Beyoncé", "Beyonce", "王菲 & 陈奕迅",
     ]
+
+    /// 艺人图:普通文件名,或扫描生成的「自动艺人图」(按艺人名给图;合唱曲给每个艺人各一张)。
+    static func artistArtwork(_ rng: inout CatalogTestRandom) -> String? {
+        guard rng.chance(25) else { return nil }
+        if rng.chance(40) { return "artist\(rng.int(0...2)).jpg" }
+        let names = (0..<rng.int(1...3)).map { _ in rng.pick(["Taylor Swift", "王菲", "Bonez MC", "A", "B", "Beyonce", "nobody"]) }
+        return AutomaticArtistArtworkReference.make(entries: names.map { name in
+            .init(normalizedArtistName: SourceArtistArtworkCatalog.normalizedArtistName(name),
+                  reference: "auto/\(name).jpg", cacheDiscriminator: "c\(rng.int(0...3))")
+        })
+    }
     static let genrePool = ["Pop", "Rock/Pop", "Jazz; Blues", "有声书", "Audiobook", "Podcast", "Ambient", "相声", "pop", "Ｐｏｐ"]
     static let directories = ["Music/OST", "Music/OST/CD 2", "Music/Pop", "Music/Hits", "有声书/三体", "有声书/Dune", "", "Music"]
 
@@ -286,13 +302,15 @@ struct LibraryGroupingDifferentialTests {
             year: rng.maybe(60) { $0.pick([1999, 2021, 2026]) },
             dateAdded: Date(timeIntervalSinceReferenceDate: Double(serial)),
             coverArtFileName: rng.chance(40) ? "cover\(rng.int(0...3)).jpg" : nil,
-            artistArtworkFileName: rng.chance(10) ? "artist\(rng.int(0...2)).jpg" : nil,
+            artistArtworkFileName: artistArtwork(&rng),
             cueSheetPath: isCue ? "\(directory)/album.cue" : nil,
             cueStartTime: isCue ? Double(rng.int(0...3_000)) : nil,
             cueEndTime: isCue ? Double(rng.int(3_001...6_000)) : nil,
             userMetadataEditedAt: rng.chance(5) ? Date(timeIntervalSinceReferenceDate: 1) : nil,
-            serverCatalogAlbum: source == "server" && rng.chance(70)
-                ? ServerCatalogAlbumReference(id: "al-\(rng.int(0...4))", taggedArtist: rng.maybe(40) { $0.pick(artistPool) })
+            // 服务器专辑主要在按条目寻址的源;有文件夹的源里偶尔也有(它们按标题、不按文件夹推断)。
+            serverCatalogAlbum: rng.chance(source == "server" ? 70 : 6)
+                ? ServerCatalogAlbumReference(id: rng.chance(10) ? " " : "al-\(rng.int(0...4))",
+                                              taggedArtist: rng.maybe(40) { $0.pick(artistPool) })
                 : nil
         )
         if rng.chance(15) { song.sourceArtistNames = [rng.pick(artistPool), rng.pick(artistPool)] }
@@ -340,13 +358,16 @@ struct LibraryGroupingDifferentialTests {
             var edited: [Song] = []
             for _ in 0..<rng.int(1...4) {
                 var song = rng.pick(model.songs)
-                switch rng.int(0...6) {
+                switch rng.int(0...9) {
                 case 0: song.albumTitle = rng.chance(85) ? rng.pick(albumTitles) : nil
                 case 1: song.artistName = rng.pick(artistPool)
                 case 2: song.albumArtistName = rng.chance(60) ? rng.pick(artistPool) : nil
                 case 3: song.year = rng.maybe(60) { $0.pick([1999, 2021, 2026]) }
                 case 4: song.genre = rng.maybe(70) { $0.pick(genrePool) }
                 case 5: song.trackNumber = rng.maybe(80) { $0.int(1...12) }
+                case 6: song.artistArtworkFileName = artistArtwork(&rng)
+                case 7: song.duration = rng.chance(10) ? -1 : Double(rng.int(0...600)) + Double(rng.int(0...999)) / 1_000
+                case 8: song.sourceArtistNames = rng.maybe(40) { [$0.pick(artistPool), $0.pick(artistPool)] }
                 default: song.coverArtFileName = rng.chance(50) ? "cover\(rng.int(0...3)).jpg" : nil
                 }
                 fill(&song, configuration: model.configuration)

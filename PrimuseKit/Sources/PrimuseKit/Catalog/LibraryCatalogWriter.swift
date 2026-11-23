@@ -1,5 +1,7 @@
 import Foundation
 import GRDB
+import os
+import SQLite3
 
 /// 一次 `apply` 改了什么。行号与键都只给受影响的那些,观察方据此精确失效。
 public struct LibraryCatalogChangeSummary: Sendable, Equatable {
@@ -22,10 +24,13 @@ enum LibraryCatalogChangeKind: Int {
 extension LibraryCatalog {
     /// 在一个写事务里 upsert 与删除。已有的行保持行号与库内顺序(`orderKey`),
     /// 新行按输入顺序追加到库尾,与 `IncrementalSongStore.apply` 的顺序语义一致。
+    /// 分组派生按脏范围增量维护,工作量与改动同阶(`lastWriteWork` 记着读写了多少行)。
     @discardableResult
     public func apply(upserts: [Song], deletingIDs: some Collection<String> = [String]()) throws -> LibraryCatalogChangeSummary {
         let configuration = groupingConfiguration
-        return try pool.write { db in
+        let measures = measuresWriteWork
+        let (summary, work) = try pool.write { db -> (LibraryCatalogChangeSummary, LibraryCatalogWriteWork) in
+            let meter = measures ? CatalogWorkMeter(db) : nil
             var context = try SongWriteContext(db: db)
             var grouping = GroupingMaintenance(db: db, configuration: configuration)
             var inserted = ContiguousArray<Int32>()
@@ -36,37 +41,50 @@ extension LibraryCatalog {
 
             for id in deletingIDs where deletedIDs.insert(id).inserted {
                 guard let rowid = try Int64.fetchOne(
-                    db, sql: "SELECT rowid FROM song WHERE id = ?", arguments: [id]
+                    db.cachedStatement(sql: "SELECT rowid FROM song WHERE id = ?"), arguments: [id]
                 ) else { continue }
                 try grouping.noteExisting(rowid: rowid)
                 try grouping.removeDerivedRows(rowid: rowid)
                 try context.deleteSong(rowid: rowid, id: id)
+                grouping.work.rowsWritten += 1
                 deleted.append(try Self.rowid32(rowid))
             }
 
-            for incoming in upserts {
-                let song = incoming.withoutAppliedPlaybackRange
-                let outcome = try context.upsert(song) { rowid in try grouping.noteExisting(rowid: rowid) }
-                switch outcome {
-                case .inserted(let rowid), .updated(let rowid):
-                    if case .inserted = outcome { inserted.append(try Self.rowid32(rowid)) } else { updated.append(try Self.rowid32(rowid)) }
-                    try grouping.deriveRow(rowid: rowid, song: song, sourceKey: try context.sourceKey(for: song.sourceID))
-                case .unchanged: unchanged += 1
+            let prepared = try LibraryCatalogImportProfile.measure("write.prepare") {
+                try context.prepare(upserts.map(\.withoutAppliedPlaybackRange), configuration: configuration)
+            }
+            try LibraryCatalogImportProfile.measure("write.rows") {
+                for row in prepared {
+                    switch try context.upsert(row, grouping: &grouping) {
+                    case .inserted(let rowid): inserted.append(try Self.rowid32(rowid))
+                    case .updated(let rowid): updated.append(try Self.rowid32(rowid))
+                    case .unchanged: unchanged += 1
+                    }
                 }
             }
-            try grouping.flush()
+            grouping.work.rowsWritten += inserted.count + updated.count
+            if try Self.metaValue(MetaKey.groupingRebuildPhase, in: db) != nil {
+                // 整库重建还没做完:逐行派生已随行写好,跨行的分组交给重建从「目录权威」阶段重来。
+                try Self.restartRebuildAfterWrite(in: db)
+            } else {
+                try grouping.flush()
+            }
 
             let revision = inserted.isEmpty && updated.isEmpty && deleted.isEmpty
                 ? try Self.revision(in: db)
                 : try Self.bumpRevision(in: db)
-            return LibraryCatalogChangeSummary(
+            var work = grouping.work
+            work.kiloInstructions = meter?.stop() ?? 0
+            return (LibraryCatalogChangeSummary(
                 revision: revision,
                 insertedRowids: inserted,
                 updatedRowids: updated,
                 deletedRowids: deleted,
                 unchangedCount: unchanged
-            )
+            ), work)
         }
+        recordWriteWork(work)
+        return summary
     }
 
     /// 音乐源的显示名(排序「按来源」与它的字母索引用)。nil 表示按 id 排。
@@ -90,7 +108,7 @@ extension LibraryCatalog {
                 sql: "UPDATE source SET fileNamesFromIndex = ? WHERE key = ?",
                 arguments: [index == nil ? 0 : 1, key]
             )
-            try db.execute(sql: "UPDATE song SET fileNameOverride = NULL WHERE sourceKey = ?", arguments: [key])
+            try db.execute(sql: "UPDATE song SET fileNameOverride = NULL WHERE sourceKey = ? AND fileNameOverride IS NOT NULL", arguments: [key])
             if let index {
                 let update = try db.makeStatement(sql: """
                     UPDATE song SET fileNameOverride = ? WHERE id = ? AND sourceKey = ? AND filePath = ?
@@ -98,7 +116,10 @@ extension LibraryCatalog {
                 for entry in index.values {
                     guard !entry.isDirectory, let name = entry.displayName, !name.isEmpty else { continue }
                     for songID in entry.songIDs {
-                        try update.execute(arguments: [name, songID, key, entry.path])
+                        try update.execute(arguments: [
+                            LibraryCatalogDerivedFields.columnText(name), songID, key,
+                            LibraryCatalogDerivedFields.columnText(entry.path),
+                        ])
                     }
                 }
                 try db.execute(
@@ -157,6 +178,48 @@ extension LibraryCatalog {
             try Self.bumpRevision(in: db)
         }
     }
+
+    // MARK: - Write work (tests and diagnostics)
+
+    /// 打开后,每次 `apply` 额外数 SQLite 执行的虚拟机指令(进度回调,有少量开销)。测试用。
+    var measuresWriteWork: Bool {
+        get { writeWorkState.withLock { $0.measures } }
+        set { writeWorkState.withLock { $0.measures = newValue } }
+    }
+
+    /// 上一次 `apply` 的工作量。
+    var lastWriteWork: LibraryCatalogWriteWork {
+        writeWorkState.withLock { $0.last }
+    }
+
+    func recordWriteWork(_ work: LibraryCatalogWriteWork) {
+        writeWorkState.withLock { $0.last = work }
+    }
+}
+
+struct LibraryCatalogWriteWorkState: Sendable {
+    var measures = false
+    var last = LibraryCatalogWriteWork()
+}
+
+/// SQLite 进度回调:每执行 1000 条虚拟机指令记一次。只在测试里打开(GRDB 不用这个回调)。
+final class CatalogWorkMeter {
+    private let db: Database
+    private var ticks = 0
+
+    init(_ db: Database) {
+        self.db = db
+        sqlite3_progress_handler(db.sqliteConnection, 1_000, { context in
+            guard let context else { return 0 }
+            Unmanaged<CatalogWorkMeter>.fromOpaque(context).takeUnretainedValue().ticks += 1
+            return 0
+        }, Unmanaged.passUnretained(self).toOpaque())
+    }
+
+    func stop() -> Int {
+        sqlite3_progress_handler(db.sqliteConnection, 0, nil, nil)
+        return ticks
+    }
 }
 
 public enum LibraryCatalogOfflineState: Int, Sendable {
@@ -176,6 +239,14 @@ struct SongWriteContext {
         let traits: LibraryCatalogDerivedFields.SourceTraits
     }
 
+    /// 一首要写的歌:存储列、派生列与逐行分组派生,都可以在写事务外多核先算好。
+    struct PreparedRow: @unchecked Sendable {
+        let song: Song
+        let stored: LibraryCatalogSongCodec.StoredValues
+        var derived: LibraryCatalogDerivedFields
+        let grouping: GroupingMaintenance.RowValues
+    }
+
     let db: Database
     private var sources: [String: SourceEntry] = [:]
     private var nextOrderKey: Int64?
@@ -185,31 +256,32 @@ struct SongWriteContext {
         self.db = db
     }
 
-    static let upsertSQL: String = {
-        let columns = ["id", "orderKey", "sourceKey"]
-            + LibraryCatalogSongCodec.StoredValues.columnNames
-            + LibraryCatalogDerivedFields.columnNames
-        // 类别由分组维护写(只在变了时才改,免得四条排序索引白白搬动),更新时不覆盖。
-        let updates = (["sourceKey"] + LibraryCatalogSongCodec.StoredValues.columnNames
-            + LibraryCatalogDerivedFields.columnNames.filter { $0 != "kind" })
-            .map { "\($0) = excluded.\($0)" }
-            .joined(separator: ", ")
+    /// 歌曲行写入的列(`id`、`orderKey` 之后),值顺序同 `values(sourceKey:prepared:)`。
+    static let writeColumns = ["sourceKey"] + LibraryCatalogSongCodec.StoredValues.columnNames
+        + LibraryCatalogDerivedFields.columnNames
+
+    static let insertSQL: String = {
+        let columns = ["id", "orderKey"] + writeColumns
         return """
             INSERT INTO song (\(columns.joined(separator: ", ")))
             VALUES (\(Array(repeating: "?", count: columns.count).joined(separator: ", ")))
-            ON CONFLICT(id) DO UPDATE SET \(updates)
             """
     }()
 
-    static let insertSQL: String = {
-        let columns = ["id", "orderKey", "sourceKey"]
-            + LibraryCatalogSongCodec.StoredValues.columnNames
-            + LibraryCatalogDerivedFields.columnNames
-        return """
-            INSERT INTO song (\(columns.joined(separator: ", ")))
-            VALUES (\(Array(repeating: "?", count: columns.count).joined(separator: ", ")))
-            """
-    }()
+    /// 已有行:物化用的列(`decode`)+ 源键 + 派生列 + 专辑归属。
+    static let existingSQL = """
+        SELECT \(LibraryCatalogSongCodec.selectColumns), song.sourceKey,
+               \(LibraryCatalogDerivedFields.columnNames.map { "song.\($0)" }.joined(separator: ", ")),
+               song.effectiveAlbumRef
+        \(LibraryCatalogSongCodec.selectFrom) WHERE song.id = ?
+        """
+    private static let existingSourceKeyColumn = LibraryCatalogSongCodec.Column.extra + 1
+    private static let existingDerivedColumn = existingSourceKeyColumn + 1
+    private static let existingAlbumColumn = existingDerivedColumn + LibraryCatalogDerivedFields.columnNames.count
+
+    static func values(sourceKey: Int64, stored: LibraryCatalogSongCodec.StoredValues, derived: LibraryCatalogDerivedFields) -> [CatalogValue] {
+        [.int(sourceKey)] + stored.catalogValues + derived.values
+    }
 
     mutating func sourceEntry(for sourceID: String) throws -> SourceEntry {
         if let entry = sources[sourceID] { return entry }
@@ -240,175 +312,185 @@ struct SongWriteContext {
         return nextOrderKey!
     }
 
-    private func folderParent(sourceKey: Int64, filePath: String, traits: LibraryCatalogDerivedFields.SourceTraits) throws -> String? {
-        guard traits.usesFolderParents else { return nil }
-        return try String.fetchOne(
-            db,
-            sql: "SELECT parent FROM fileParent WHERE sourceKey = ? AND filePath = ?",
-            arguments: [sourceKey, filePath]
-        )
+    private func folderParent(sourceKey: Int64, filePath: String) throws -> String? {
+        try String.fetchOne(
+            db.cachedStatement(sql: "SELECT parent FROM fileParent WHERE sourceKey = ? AND filePath = ?"),
+            arguments: [sourceKey, LibraryCatalogDerivedFields.columnText(filePath)]
+        ).map(LibraryCatalogDerivedFields.columnText)
     }
 
-    mutating func upsert(_ song: Song, beforeReplacing: (Int64) throws -> Void = { _ in }) throws -> UpsertOutcome {
-        guard !song.id.utf8.contains(0) else { throw LibraryCatalogError.invalidIdentifier(song.id) }
-        let source = try sourceEntry(for: song.sourceID)
-        let existing = try Row.fetchOne(
-            db,
-            sql: """
-                SELECT \(LibraryCatalogSongCodec.selectColumns), song.fileNameOverride
-                \(LibraryCatalogSongCodec.selectFrom) WHERE song.id = ?
-                """,
-            arguments: [song.id]
-        )
-        var fileNameOverride: String?
-        var rowid: Int64?
-        if let existing {
-            let previous = try LibraryCatalogSongCodec.decode(existing)
-            // 按编码后的列比:浮点数的原始位也算在内(NaN 不等于自己,`Song ==` 判不出没变)。
-            if previous.sourceID == song.sourceID,
-               LibraryCatalogSongCodec.encode(previous) == LibraryCatalogSongCodec.encode(song) {
-                return .unchanged
-            }
-            rowid = existing[LibraryCatalogSongCodec.Column.rowid]
-            try beforeReplacing(rowid!)
-            if previous.sourceID == song.sourceID, previous.filePath == song.filePath {
-                fileNameOverride = existing[LibraryCatalogSongCodec.Column.extra + 1]
-            }
-        }
-        let stored = LibraryCatalogSongCodec.encode(song)
-        let derived = LibraryCatalogDerivedFields.make(
-            for: song,
-            source: source.traits,
-            fileNameOverride: fileNameOverride,
-            folderParent: try folderParent(sourceKey: source.key, filePath: song.filePath, traits: source.traits)
-        )
-        let orderKey = rowid == nil ? try allocateOrderKey() : 0
-        var values: [DatabaseValueConvertible?] = [song.id, orderKey, source.key]
-        values.append(contentsOf: stored.databaseValues)
-        values.append(contentsOf: derived.databaseValues)
-        try db.cachedStatement(sql: Self.upsertSQL).execute(arguments: StatementArguments(values))
-        if let rowid {
-            try recordChange(.updated, rowid: rowid, id: song.id)
-            return .updated(rowid)
-        }
-        let newRowid = db.lastInsertedRowID
-        try recordChange(.inserted, rowid: newRowid, id: song.id)
-        return .inserted(newRowid)
-    }
-
-    /// 一首新歌要写的全部列值(存储列 + 派生列),可以在写事务外、多核上先算好。
-    struct PreparedRow: @unchecked Sendable {
-        let song: Song
-        let stored: LibraryCatalogSongCodec.StoredValues
-        let derived: LibraryCatalogDerivedFields
-    }
-
-    /// 批量导入:先在写事务里解析各音乐源,再把每首的列值分到多个核上算好。
-    mutating func prepareNew(_ songs: [Song]) throws -> [PreparedRow] {
+    /// 先在写事务里解析各音乐源,再把每首的列值与逐行分组派生分到多个核上算好。
+    mutating func prepare(
+        _ songs: [Song],
+        configuration: LibraryGroupingConfiguration,
+        memo: GroupingMaintenance.RowValueMemo = GroupingMaintenance.RowValueMemo()
+    ) throws -> [PreparedRow] {
+        guard !songs.isEmpty else { return [] }
         var traits: [String: LibraryCatalogDerivedFields.SourceTraits] = [:]
         for song in songs where traits[song.sourceID] == nil {
-            let entry = try sourceEntry(for: song.sourceID)
-            guard !entry.traits.usesFolderParents else {
-                // 用文件夹表的源要逐行查父目录,走串行路径。
-                return try songs.map { try prepareSerially($0) }
+            traits[song.sourceID] = try sourceEntry(for: song.sourceID).traits
+        }
+        return Self.prepareRows(songs, traits: traits, configuration: configuration, memo: memo)
+    }
+
+    /// `prepare` 里不碰数据库的部分:给定各音乐源的特征,把每首的列值与逐行分组派生分到多个核上算。
+    /// 不在 `traits` 里的源按默认特征算,与 `sourceEntry` 新建的源一致。导入时在另一个线程上
+    /// 提前算下一批(`memo` 同一时间只能有一个调用方)。
+    static func prepareRows(
+        _ songs: [Song],
+        traits: [String: LibraryCatalogDerivedFields.SourceTraits],
+        configuration: LibraryGroupingConfiguration,
+        memo: GroupingMaintenance.RowValueMemo
+    ) -> [PreparedRow] {
+        guard !songs.isEmpty else { return [] }
+        let grouping = LibraryCatalogImportProfile.measure("prepare.rowValues") {
+            GroupingMaintenance.rowValues(for: songs, configuration: configuration, memo: memo)
+        }
+        return LibraryCatalogImportProfile.measure("prepare.encodeDerive") {
+            ParallelSlots<PreparedRow>.map(count: songs.count, minimumSlice: 128) { range, out in
+                for index in range {
+                    let song = songs[index]
+                    out.set(index, PreparedRow(
+                        song: song,
+                        stored: LibraryCatalogSongCodec.encode(song),
+                        derived: LibraryCatalogDerivedFields.make(for: song, source: traits[song.sourceID] ?? .init(), fileNameOverride: nil),
+                        grouping: grouping[index]
+                    ))
+                }
             }
-            traits[song.sourceID] = entry.traits
-        }
-        let resolved = traits
-        let slices = min(max(1, ProcessInfo.processInfo.activeProcessorCount), max(1, songs.count / 128))
-        let sliceSize = (songs.count + slices - 1) / slices
-        let output = PreparedRowSlots(count: songs.count)
-        DispatchQueue.concurrentPerform(iterations: slices) { slice in
-            let start = slice * sliceSize
-            let end = min(songs.count, start + sliceSize)
-            guard start < end else { return }
-            for index in start..<end {
-                let song = songs[index].withoutAppliedPlaybackRange
-                output.slots[index] = PreparedRow(
-                    song: song,
-                    stored: LibraryCatalogSongCodec.encode(song),
-                    derived: LibraryCatalogDerivedFields.make(
-                        for: song, source: resolved[song.sourceID] ?? .init(), fileNameOverride: nil, folderParent: nil
-                    )
-                )
-            }
-        }
-        return output.slots.map { $0! }
-    }
-
-    /// 每个下标只由一个片写一次,`concurrentPerform` 返回后才读。
-    private final class PreparedRowSlots: @unchecked Sendable {
-        let slots: UnsafeMutableBufferPointer<PreparedRow?>
-
-        init(count: Int) {
-            slots = .allocate(capacity: count)
-            slots.initialize(repeating: nil)
-        }
-
-        deinit {
-            slots.deinitialize()
-            slots.deallocate()
         }
     }
 
-    private mutating func prepareSerially(_ song: Song) throws -> PreparedRow {
-        let source = try sourceEntry(for: song.sourceID)
-        let clean = song.withoutAppliedPlaybackRange
-        return PreparedRow(
-            song: clean,
-            stored: LibraryCatalogSongCodec.encode(clean),
-            derived: LibraryCatalogDerivedFields.make(
-                for: clean,
-                source: source.traits,
-                fileNameOverride: nil,
-                folderParent: try folderParent(sourceKey: source.key, filePath: clean.filePath, traits: source.traits)
-            )
-        )
+    /// 目录里已有的各音乐源的特征(按 id)。
+    static func sourceTraits(in db: Database) throws -> [String: LibraryCatalogDerivedFields.SourceTraits] {
+        var traits: [String: LibraryCatalogDerivedFields.SourceTraits] = [:]
+        for row in try Row.fetchAll(db, sql: "SELECT id, fileNamesFromIndex, usesFolderParents FROM source") {
+            traits[row[0]] = .init(fileNamesFromIndex: (row[1] as Int) != 0, usesFolderParents: (row[2] as Int) != 0)
+        }
+        return traits
     }
 
-    /// 写一行先算好的新歌;给了分组派生就一并写(类别直接进插入语句,不再事后更新)。
-    mutating func insertPrepared(_ row: PreparedRow, orderKey: Int64, grouping: GroupingMaintenance.RowValues? = nil) throws -> Int64 {
+    /// 写一首歌:没有就追加到库尾,有就只改变了的列(变了的列所在的索引才会动)。
+    mutating func upsert(_ row: PreparedRow, grouping: inout GroupingMaintenance) throws -> UpsertOutcome {
+        guard !row.song.id.utf8.contains(0) else { throw LibraryCatalogError.invalidIdentifier(row.song.id) }
+        let existing = try Row.fetchOne(db.cachedStatement(sql: Self.existingSQL), arguments: [row.song.id])
+        guard let existing else {
+            let orderKey = try allocateOrderKey()
+            return .inserted(try insertNew(row, orderKey: orderKey, grouping: &grouping))
+        }
+        grouping.work.rowsRead += 1
+        let previous = try LibraryCatalogSongCodec.decode(existing)
+        // 按编码后的列比:浮点数的原始位也算在内(NaN 不等于自己,`Song ==` 判不出没变)。
+        if previous.sourceID == row.song.sourceID, LibraryCatalogSongCodec.encode(previous) == row.stored {
+            return .unchanged
+        }
+        let rowid: Int64 = existing[LibraryCatalogSongCodec.Column.rowid]
+        try grouping.noteExisting(rowid: rowid)
+        try grouping.removeDerivedRows(rowid: rowid)
+        var derived = row.derived
+        if previous.sourceID == row.song.sourceID, previous.filePath == row.song.filePath,
+           let override: String = existing[Self.existingDerivedColumn + 1] {
+            derived.fileNameOverride = override
+            derived.fileNameKey = override
+        }
+        let source = try sourceEntry(for: row.song.sourceID)
+        let folderKey = try complete(&derived, row: row, source: source, grouping: grouping)
+
+        let newValues = Self.values(sourceKey: source.key, stored: row.stored, derived: derived)
+        var oldValues: [CatalogValue] = [CatalogValue(existing[Self.existingSourceKeyColumn] as DatabaseValue)]
+        for column in LibraryCatalogSongCodec.Column.title...LibraryCatalogSongCodec.Column.extra {
+            oldValues.append(CatalogValue(existing[column] as DatabaseValue))
+        }
+        for offset in 0..<LibraryCatalogDerivedFields.columnNames.count {
+            oldValues.append(CatalogValue(existing[Self.existingDerivedColumn + offset] as DatabaseValue))
+        }
+        var assignments: [String] = []
+        var values: [CatalogValue] = []
+        for index in newValues.indices where newValues[index] != oldValues[index] {
+            assignments.append("\(Self.writeColumns[index]) = ?")
+            values.append(newValues[index])
+        }
+        if derived.titleHash == nil, (existing[Self.existingAlbumColumn] as Int64?) != nil {
+            assignments.append("effectiveAlbumRef = NULL")
+        }
+        if !assignments.isEmpty {
+            let statement = try db.cachedStatement(sql: "UPDATE song SET \(assignments.joined(separator: ", ")) WHERE rowid = ?")
+            values.append(.int(rowid))
+            CatalogStatement.bind(values, to: statement)
+            try CatalogStatement.execute(statement, in: db)
+        }
+        try recordChange(.updated, rowid: rowid, id: row.song.id)
+        try writeGrouping(rowid: rowid, row: row, derived: derived, folderKey: folderKey, source: source, grouping: &grouping)
+        return .updated(rowid)
+    }
+
+    /// 写一行确定不在目录里的新歌(导入、追加),连同逐行分组派生。
+    mutating func insertNew(_ row: PreparedRow, orderKey: Int64, grouping: inout GroupingMaintenance) throws -> Int64 {
         guard !row.song.id.utf8.contains(0) else { throw LibraryCatalogError.invalidIdentifier(row.song.id) }
         let source = try sourceEntry(for: row.song.sourceID)
         var derived = row.derived
-        if let grouping { derived.kind = grouping.kind }
-        var values: [DatabaseValueConvertible?] = [row.song.id, orderKey, source.key]
-        values.append(contentsOf: row.stored.databaseValues)
-        values.append(contentsOf: derived.databaseValues)
-        try db.cachedStatement(sql: Self.insertSQL).execute(arguments: StatementArguments(values))
+        let folderKey = try complete(&derived, row: row, source: source, grouping: grouping)
+        let statement = try db.cachedStatement(sql: Self.insertSQL)
+        CatalogStatement.bind([.text(row.song.id), .int(orderKey)], to: statement)
+        CatalogStatement.bind(Self.values(sourceKey: source.key, stored: row.stored, derived: derived), to: statement, startingAt: 3)
+        try CatalogStatement.execute(statement, in: db)
         let rowid = db.lastInsertedRowID
         if recordsChanges { try recordChange(.inserted, rowid: rowid, id: row.song.id) }
+        try writeGrouping(rowid: rowid, row: row, derived: derived, folderKey: folderKey, source: source, grouping: &grouping)
         return rowid
     }
 
-    /// 批量导入:目标里确定没有这些 id,不查旧行。
-    mutating func insertNew(_ song: Song, orderKey: Int64) throws -> Int64 {
-        guard !song.id.utf8.contains(0) else { throw LibraryCatalogError.invalidIdentifier(song.id) }
-        let source = try sourceEntry(for: song.sourceID)
-        let stored = LibraryCatalogSongCodec.encode(song.withoutAppliedPlaybackRange)
-        let derived = LibraryCatalogDerivedFields.make(
-            for: song,
-            source: source.traits,
-            fileNameOverride: nil,
-            folderParent: try folderParent(sourceKey: source.key, filePath: song.filePath, traits: source.traits)
+    /// 补上要在写事务里才知道的派生列:扫描索引给的父文件夹、所在文件夹的键、类别。
+    private func complete(
+        _ derived: inout LibraryCatalogDerivedFields,
+        row: PreparedRow,
+        source: SourceEntry,
+        grouping: GroupingMaintenance
+    ) throws -> Int64 {
+        if source.traits.usesFolderParents {
+            derived.inferenceDirectory = try folderParent(sourceKey: source.key, filePath: row.song.filePath)
+        }
+        let folderKey = try grouping.folderKey(sourceKey: source.key, path: row.grouping.folderPath)
+        derived.kind = row.grouping.kind
+        derived.folderKey = folderKey
+        return folderKey
+    }
+
+    private func writeGrouping(
+        rowid: Int64,
+        row: PreparedRow,
+        derived: LibraryCatalogDerivedFields,
+        folderKey: Int64,
+        source: SourceEntry,
+        grouping: inout GroupingMaintenance
+    ) throws {
+        try grouping.writeRow(
+            rowid: rowid,
+            sourceKey: source.key,
+            kind: derived.kind,
+            folderKey: folderKey,
+            directory: GroupingDirectory(
+                usesFolderParents: source.traits.usesFolderParents, folderKey: folderKey,
+                inferenceDirectory: derived.inferenceDirectory
+            ),
+            titleHash: derived.titleHash,
+            mayBeInServerAlbum: row.song.serverCatalogAlbum != nil,
+            values: row.grouping
         )
-        var values: [DatabaseValueConvertible?] = [song.id, orderKey, source.key]
-        values.append(contentsOf: stored.databaseValues)
-        values.append(contentsOf: derived.databaseValues)
-        try db.cachedStatement(sql: Self.insertSQL).execute(arguments: StatementArguments(values))
-        let rowid = db.lastInsertedRowID
-        if recordsChanges { try recordChange(.inserted, rowid: rowid, id: song.id) }
-        return rowid
     }
 
     mutating func deleteSong(rowid: Int64, id: String) throws {
-        try db.execute(sql: "DELETE FROM song WHERE rowid = ?", arguments: [rowid])
-        try db.execute(sql: "DELETE FROM songStat WHERE songRowid = ?", arguments: [rowid])
-        try db.execute(sql: "DELETE FROM songOffline WHERE songRowid = ?", arguments: [rowid])
-        try db.execute(sql: "DELETE FROM songMaintenance WHERE songRowid = ?", arguments: [rowid])
-        try db.execute(sql: "UPDATE playlistEntry SET songRowid = NULL WHERE songRowid = ?", arguments: [rowid])
-        try db.execute(sql: "UPDATE likedSong SET songRowid = NULL WHERE songRowid = ?", arguments: [rowid])
-        try db.execute(sql: "UPDATE dislikedSong SET songRowid = NULL WHERE songRowid = ?", arguments: [rowid])
+        for sql in [
+            "DELETE FROM song WHERE rowid = ?",
+            "DELETE FROM songStat WHERE songRowid = ?",
+            "DELETE FROM songOffline WHERE songRowid = ?",
+            "DELETE FROM songMaintenance WHERE songRowid = ?",
+            "UPDATE playlistEntry SET songRowid = NULL WHERE songRowid = ?",
+            "UPDATE likedSong SET songRowid = NULL WHERE songRowid = ?",
+            "UPDATE dislikedSong SET songRowid = NULL WHERE songRowid = ?",
+        ] {
+            try db.cachedStatement(sql: sql).execute(arguments: [rowid])
+        }
         try recordChange(.deleted, rowid: rowid, id: id)
     }
 
@@ -435,7 +517,9 @@ struct SongWriteContext {
             for row in rows {
                 let song = try LibraryCatalogSongCodec.decode(row)
                 let rowid: Int64 = row[LibraryCatalogSongCodec.Column.rowid]
-                try update.execute(arguments: [LibraryCatalogDerivedFields.fileName(for: song, fromIndex: false), rowid])
+                try update.execute(arguments: [
+                    LibraryCatalogDerivedFields.columnText(LibraryCatalogDerivedFields.fileName(for: song, fromIndex: false)), rowid,
+                ])
                 lastRowid = rowid
             }
         }

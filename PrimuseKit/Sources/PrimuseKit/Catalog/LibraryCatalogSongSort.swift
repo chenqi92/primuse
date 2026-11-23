@@ -42,10 +42,11 @@ enum LibraryCatalogSongSort {
                 section: .bucket(shift: 5)
             )
         case .album:
-            // 组内顺序不随方向变;降序在 `songRowList` 里按组倒序。
+            // 组内顺序不随方向变;降序在 `songRowList` 里按组倒序。表达式与索引 `song_sort_album` 一字不差。
             return Plan(
                 orderBy: """
-                    s.albumSortKey COLLATE \(localized), s.albumIDSortKey COLLATE \(DatabaseCollation.unicodeCompare.name),
+                    \(LibraryCatalogSchema.albumSortExpression) COLLATE \(localized),
+                    \(LibraryCatalogSchema.albumIDSortExpression) COLLATE \(DatabaseCollation.unicodeCompare.name),
                     s.discKey, s.trackKey, s.title COLLATE \(standard), s.rowid
                     """,
                 section: .bucket(shift: 10)
@@ -86,7 +87,9 @@ enum LibraryCatalogSongSort {
     }
 
     /// 有覆盖索引的排序;其余的结果进 `LibraryCatalog` 的结果缓存。
-    static let indexedCriteria: Set<LibrarySongSortCriterion> = [.title, .artist, .album, .dateAdded]
+    static let indexedCriteria: Set<LibrarySongSortCriterion> = [.title, .artist, .album, .dateAdded, .fileName]
+    /// 索引在迁移后由后台补建的那几种(`LibraryCatalogSchema.backgroundSortIndexNames`)。
+    static let backgroundIndexedCriteria: Set<LibrarySongSortCriterion> = [.artist, .album, .fileName]
 
     /// 格式按 `displayName.compare` 的先后排名,显示名相同的同名次。
     static let formatRanks: [String: Int] = {
@@ -114,80 +117,6 @@ enum LibraryCatalogSongSort {
             ($0.rawValue, LibraryCollationPolicy.indexLetter(for: $0.displayName))
         }
     )
-
-    /// 文件名排序:`localizedStandardCompare` 交给 SQLite 排要对每次比较调一次排序规则
-    /// (50 万首约 1000 万次,单线程 6 秒)。这里取出名字后分片多核排序再两两归并,比较器相同。
-    static func sortByFileName(names: [NSString], rowids: [Int32]) -> [Int32] {
-        let count = rowids.count
-        guard count > 1 else { return rowids }
-        let box = NameBox(names)
-        let precedes: @Sendable (Int, Int) -> Bool = { lhs, rhs in
-            switch box.names[lhs].localizedStandardCompare(box.names[rhs] as String) {
-            case .orderedAscending: return true
-            case .orderedDescending: return false
-            case .orderedSame: return rowids[lhs] < rowids[rhs]
-            }
-        }
-        let slices = min(max(1, ProcessInfo.processInfo.activeProcessorCount), max(1, count / 4_096))
-        let sliceSize = (count + slices - 1) / slices
-        let sorted = SortedSlices(count: slices)
-        DispatchQueue.concurrentPerform(iterations: slices) { slice in
-            let start = slice * sliceSize
-            let end = min(count, start + sliceSize)
-            guard start < end else { return }
-            sorted.set(slice, Array(start..<end).sorted(by: precedes))
-        }
-        var runs = sorted.all.filter { !$0.isEmpty }
-        while runs.count > 1 {
-            let current = runs
-            let pairs = (current.count + 1) / 2
-            let merged = SortedSlices(count: pairs)
-            DispatchQueue.concurrentPerform(iterations: pairs) { pair in
-                let left = current[pair * 2]
-                guard pair * 2 + 1 < current.count else { return merged.set(pair, left) }
-                let right = current[pair * 2 + 1]
-                var output: [Int] = []
-                output.reserveCapacity(left.count + right.count)
-                var i = 0
-                var j = 0
-                while i < left.count, j < right.count {
-                    if precedes(right[j], left[i]) {
-                        output.append(right[j])
-                        j += 1
-                    } else {
-                        output.append(left[i])
-                        i += 1
-                    }
-                }
-                output.append(contentsOf: left[i...])
-                output.append(contentsOf: right[j...])
-                merged.set(pair, output)
-            }
-            runs = merged.all
-        }
-        return runs.first?.map { rowids[$0] } ?? []
-    }
-
-    /// 不可变的名字数组,只读地跨线程共享。
-    private final class NameBox: @unchecked Sendable {
-        let names: [NSString]
-        init(_ names: [NSString]) { self.names = names }
-    }
-
-    /// 每个槽只由一个片写一次,`concurrentPerform` 返回后才读。
-    private final class SortedSlices: @unchecked Sendable {
-        private let slots: UnsafeMutableBufferPointer<[Int]>
-        init(count: Int) {
-            slots = .allocate(capacity: count)
-            slots.initialize(repeating: [])
-        }
-        deinit {
-            slots.deinitialize()
-            slots.deallocate()
-        }
-        func set(_ index: Int, _ value: [Int]) { slots[index] = value }
-        var all: [[Int]] { Array(slots) }
-    }
 }
 
 /// 没有索引的排序结果按 (排序, 范围, 修订号) 缓存,总行数有上限,超出按最久未用淘汰。
@@ -244,7 +173,12 @@ extension LibraryCatalog {
         scope: LibrarySongScope = .visibleMusic,
         includeAggregates: Bool = false
     ) throws -> LibraryRowList {
-        guard !LibraryCatalogSongSort.indexedCriteria.contains(order.criterion) else {
+        // 有索引的排序直接扫索引,不缓存;迁移后排序索引还在后台补建时,这几种也要整表排序,先缓存。
+        var indexed = LibraryCatalogSongSort.indexedCriteria.contains(order.criterion)
+        if indexed, LibraryCatalogSongSort.backgroundIndexedCriteria.contains(order.criterion), try hasPendingSortIndexes() {
+            indexed = false
+        }
+        guard !indexed else {
             return try buildSongRowList(order: order, scope: scope, includeAggregates: includeAggregates)
         }
         let revision = try self.revision()
@@ -269,19 +203,7 @@ extension LibraryCatalog {
             var rowids = ContiguousArray<Int32>()
             var sectionOffsets: [String: Int] = [:]
 
-            if order.criterion == .fileName {
-                var names: [NSString] = []
-                var ids: [Int32] = []
-                let cursor = try Row.fetchCursor(
-                    db, sql: "SELECT s.rowid, s.fileNameKey FROM song AS s WHERE \(whereSQL)", arguments: arguments
-                )
-                while let row = try cursor.next() {
-                    ids.append(try Self.rowid32(row[0]))
-                    names.append((row[1] as String) as NSString)
-                }
-                let ascending = LibraryCatalogSongSort.sortByFileName(names: names, rowids: ids)
-                rowids = ContiguousArray(order.isAscending ? ascending : ascending.reversed())
-            } else {
+            do {
                 let plan = LibraryCatalogSongSort.plan(
                     for: order, sourceRank: Self.sourceRankExpression(sources.map { ($0.key, $0.label) })
                 )
@@ -293,8 +215,15 @@ extension LibraryCatalog {
                 case .format: sectionColumn = "s.fileFormat"
                 case .source: sectionColumn = "s.sourceKey"
                 }
+                // 组键连 COLLATE 也要与索引 `song_sort_album` 的列一字不差:SQLite 只有在表达式完全
+                // 相同时才直接读索引里存的值,少了 COLLATE 就逐行回表取 albumTitle、albumID
+                // (10 万首多 40–50 ms)。COLLATE 不改变取出的值。
                 let groupColumns = reversesAlbumGroups
-                    ? ", CAST(s.albumSortKey AS BLOB), CAST(s.albumIDSortKey AS BLOB)" : ""
+                    ? """
+                      , \(LibraryCatalogSchema.albumSortExpression) COLLATE \(LibraryCatalogSchema.localizedCollation), \
+                      \(LibraryCatalogSchema.albumIDSortExpression) COLLATE \(DatabaseCollation.unicodeCompare.name)
+                      """
+                    : ""
                 let cursor = try Row.fetchCursor(
                     db,
                     sql: """

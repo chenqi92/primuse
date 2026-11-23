@@ -72,6 +72,19 @@ enum LibraryCatalogSongCodec {
              serverPlayCount, coverArtFileName, artistArtworkFileName, lyricsFileName, revision, lyricsText, extra]
         }
 
+        /// 原始绑定用的列值(顺序同 `columnNames`)。
+        var catalogValues: [CatalogValue] {
+            [.text(title), .optionalText(artistName), .optionalText(albumTitle), .optionalText(albumArtistName),
+             .optionalText(albumID), .optionalText(artistID), .optionalInt(trackNumber), .optionalInt(discNumber),
+             .optionalInt(year), .real(duration ?? 0), .text(fileFormat), .optionalText(audioCodec), .text(filePath),
+             .optionalText(serverFilePath.map(LibraryCatalogDerivedFields.columnText)), .int(fileSize),
+             .optionalInt(bitRate), .optionalInt(sampleRate), .optionalInt(bitDepth), .optionalInt(effectiveBitDepth),
+             .optionalText(genre), .real(dateAdded ?? 0), .optionalReal(serverDateAdded), .optionalReal(lastModified),
+             .optionalInt(serverPlayCount), .optionalText(coverArtFileName), .optionalText(artistArtworkFileName),
+             .optionalText(lyricsFileName), .optionalText(revision), .optionalText(lyricsText),
+             extra.map(CatalogValue.blob) ?? .null]
+        }
+
         static let columnNames = [
             "title", "artistName", "albumTitle", "albumArtistName", "albumID", "artistID", "trackNumber",
             "discNumber", "year", "duration", "fileFormat", "audioCodec", "filePath", "serverFilePath",
@@ -284,7 +297,7 @@ enum LibraryCatalogSongCodec {
         return song
     }
 
-    private struct RareFields {
+    struct RareFields {
         var sourceArtistNames: [String]?
         var mvPath: String?
         var cueSheetPath: String?
@@ -308,7 +321,7 @@ enum LibraryCatalogSongCodec {
         var replayGainAlbumPeak: Double?
     }
 
-    private static func decodeRareFields(
+    static func decodeRareFields(
         _ reader: inout ExtraReader,
         into rare: inout RareFields,
         strings: inout [Int: String],
@@ -357,6 +370,91 @@ enum LibraryCatalogSongCodec {
                 throw LibraryCatalogError.corruptRow
             }
         }
+    }
+
+    // MARK: - Grouping fields
+
+    /// 分组维护读的几列(不解整首):专辑艺人推断的 `Track` 与专辑统计要用的字段。
+    struct GroupingFields {
+        let rowid: Int64
+        let sourceKey: Int64
+        let artistName: String?
+        let albumTitle: String?
+        let albumArtistName: String?
+        let year: Int?
+        let discNumber: Int?
+        let trackNumber: Int?
+        let serverCatalogAlbum: ServerCatalogAlbumReference?
+        let userEdited: Bool
+        let folderKey: Int64?
+        let inferenceDirectory: String?
+        let kind: Int
+        let durationKey: Double
+        let dateAdded: Double
+        let titleHash: Int64?
+        let effectiveAlbumRef: Int64?
+        let genre: String?
+
+        /// `AlbumArtistInferencePolicy.Track(song:directory:)` 的同一套取值;id 用行号。
+        func track(sourceID: String, directory: String?) -> AlbumArtistInferencePolicy.Track {
+            AlbumArtistInferencePolicy.Track(
+                id: String(rowid),
+                sourceID: sourceID,
+                directory: directory,
+                albumTitle: albumTitle,
+                albumArtistName: albumArtistName,
+                trackArtistName: artistName,
+                year: year,
+                discNumber: discNumber,
+                trackNumber: trackNumber,
+                serverAlbumID: serverCatalogAlbum?.id,
+                taggedAlbumArtistName: serverCatalogAlbum.flatMap { userEdited ? albumArtistName : $0.taggedArtist }
+            )
+        }
+
+        /// 不在服务器专辑里(推断按文件夹分)。与 `Track.serverAlbumID == nil` 同一口径(id 去空白后为空也算不在)。
+        var isOutsideServerAlbum: Bool {
+            guard let id = serverCatalogAlbum?.id else { return true }
+            return id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// `decodeGroupingFields` 读的列,顺序即下标。
+    static let groupingColumns = """
+        s.rowid, s.sourceKey, s.artistName, s.albumTitle, s.albumArtistName, s.year, s.discNumber, s.trackNumber,
+        s.extra, s.folderKey, s.inferenceDirectory, s.kind, s.durationKey, s.dateAdded, s.titleHash, s.effectiveAlbumRef,
+        s.genre
+        """
+    static let groupingColumnCount = 17
+
+    static func decodeGroupingFields(_ row: Row) throws -> GroupingFields {
+        var strings: [Int: String] = [:]
+        var rare = RareFields()
+        if let blob = row.dataNoCopy(atIndex: 8) {
+            var reader = ExtraReader(blob)
+            var doubles: [Int: UInt64] = [:]
+            try decodeRareFields(&reader, into: &rare, strings: &strings, doubles: &doubles)
+        }
+        return GroupingFields(
+            rowid: row[0],
+            sourceKey: row[1],
+            artistName: strings[Column.artistName] ?? row[2],
+            albumTitle: strings[Column.albumTitle] ?? row[3],
+            albumArtistName: strings[Column.albumArtistName] ?? row[4],
+            year: row[5],
+            discNumber: row[6],
+            trackNumber: row[7],
+            serverCatalogAlbum: rare.serverCatalogAlbum,
+            userEdited: rare.userMetadataEditedAt != nil,
+            folderKey: row[9],
+            inferenceDirectory: row[10],
+            kind: row[11],
+            durationKey: row[12],
+            dateAdded: row[13],
+            titleHash: row[14],
+            effectiveAlbumRef: row[15],
+            genre: strings[Column.genre] ?? row[16]
+        )
     }
 
     private static func decodeContentMetadata(_ data: Data) throws -> SongContentMetadata {
