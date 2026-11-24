@@ -172,13 +172,21 @@ private final class NasSessionProtocol: URLProtocol, @unchecked Sendable {
     private var loading: Task<Void, Never>?
     override func startLoading() {
         let server = Self.lock.withLock { Self.server! }
+        let request = request
+        // 优化编译下的区域检查把 Task 里直接捕获的 `self` 当成与当前上下文共享:经可发送的盒子传进去。
+        let target = LoadingTarget(protocolInstance: self)
         loading = Task {
             let (headers, body) = await server.reply(request)
             guard !Task.isCancelled else { return }
-            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: headers)!, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: body)
-            client?.urlProtocolDidFinishLoading(self)
+            let instance = target.protocolInstance
+            instance.client?.urlProtocol(instance, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: headers)!, cacheStoragePolicy: .notAllowed)
+            instance.client?.urlProtocol(instance, didLoad: body)
+            instance.client?.urlProtocolDidFinishLoading(instance)
         }
+    }
+
+    private struct LoadingTarget: @unchecked Sendable {
+        let protocolInstance: NasSessionProtocol
     }
     override func stopLoading() { loading?.cancel() }
 }
