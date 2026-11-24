@@ -699,3 +699,11 @@ extension SynologyAudioStationSource: ServerRatingObservingConnector {
         return observedServerRatings
     }
 }
+
+extension SynologyAudioStationSource: ServerSongPathProvidingConnector {
+    func fetchServerFilePath(for path: String) async throws -> String? {
+        guard let id = SynologyAudioStationAPI.songID(fromTrackPath: path) else { return nil }
+        try await connect()
+        return try await perform { try await $0.songPath(id: id) }
+    }
+}

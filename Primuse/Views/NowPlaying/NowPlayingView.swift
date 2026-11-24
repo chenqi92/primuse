@@ -15769,6 +15769,7 @@ struct SongInfoSheet: View {
     @Environment(MetadataBackfillService.self) private var metadataBackfill
     @Environment(SourcesStore.self) private var sourcesStore
     @State private var showSimilarSongs = false
+    @State private var resolvedServerFilePath: String?
     private let history = PlayHistoryStore.shared
 
     private var playbackStats: PlayHistoryStore.SongPlaybackStats {
@@ -15780,7 +15781,13 @@ struct SongInfoSheet: View {
     }
 
     private var displayPath: String? {
-        let current = catalogSong
+        var current = catalogSong
+        if let resolved = SongPathPresentationPolicy.resolvedServerFilePath(
+            existing: current.serverFilePath,
+            fetched: resolvedServerFilePath
+        ) {
+            current.serverFilePath = resolved
+        }
         return SongPathPresentationPolicy.displayPath(for: current, sourceType: sourcesStore.source(id: current.sourceID)?.type)
     }
 
@@ -15797,6 +15804,15 @@ struct SongInfoSheet: View {
         }
         .task(id: song.id) {
             await sourceManager.refreshArtworkForFocusedSong(library.song(id: song.id) ?? song)
+        }
+        .task(id: song.id) {
+            resolvedServerFilePath = nil
+            let current = library.song(id: song.id) ?? song
+            let source = sourcesStore.source(id: current.sourceID)
+            guard SongPathPresentationPolicy.needsServerFilePathRefresh(for: current, sourceType: source?.type) else { return }
+            let fetched = await sourceManager.refreshServerFilePath(for: current, in: library, source: source)
+            guard !Task.isCancelled else { return }
+            resolvedServerFilePath = fetched
         }
     }
 

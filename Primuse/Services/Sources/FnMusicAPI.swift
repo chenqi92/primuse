@@ -955,6 +955,54 @@ extension FnMusicAPI {
         return track
     }
 
+    func trackServerFilePath(guid: String) async throws -> String? {
+        let payload = try await requestJSON(
+            method: "GET",
+            path: "/track/metadata",
+            queryItems: [URLQueryItem(name: "guid", value: guid)]
+        )
+        return Self.extractTrackServerFilePath(from: payload, expectedGUID: guid)
+    }
+
+    static func extractTrackServerFilePath(from payload: Any, expectedGUID: String) -> String? {
+        guard let data = payload as? [String: Any] else { return nil }
+        let track = data["track"] as? [String: Any]
+        if let trackGUID = stringValue(track?["guid"]), trackGUID != expectedGUID {
+            return nil
+        }
+        if isOnlineTrackFlag(track?["is_online"]) || isOnlineTrackFlag(data["is_online"]) {
+            return nil
+        }
+        let topAudioSpec = data["audioSpec"] as? [String: Any]
+        let trackAudioSpec = track?["audioSpec"] as? [String: Any]
+        let candidates: [String?] = [
+            stringValue(topAudioSpec?["path"]),
+            stringValue(trackAudioSpec?["path"]),
+            stringValue(track?["path"]),
+            stringValue(data["path"]),
+            stringValue(track?["filename"]),
+            stringValue(data["filename"]),
+        ]
+        for candidate in candidates {
+            if let cleaned = SongPathPresentationPolicy.providerPath(candidate) {
+                return cleaned
+            }
+        }
+        return nil
+    }
+
+    private static func isOnlineTrackFlag(_ value: Any?) -> Bool {
+        if let flag = value as? Bool { return flag }
+        if let number = value as? NSNumber { return number.boolValue }
+        if let text = value as? String {
+            switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true": return true
+            default: return false
+            }
+        }
+        return false
+    }
+
     /// 网页端的封面上传：multipart 只有一个 `file` 字段，响应给 `coverId`（或 `guid`），
     /// 拿到的 id 随同一次 /track/metadata 保存写进 coverId/coverGUID。
     func uploadTrackCover(_ data: Data) async throws -> String {

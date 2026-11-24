@@ -2460,6 +2460,26 @@ extension RoutedServerAdminForwarding {
 extension RoutedSubsonicConnector: RoutedServerAdminForwarding {}
 extension RoutedMediaServerConnector: RoutedServerAdminForwarding {}
 
+protocol RoutedServerSongPathForwarding: RoutedConnectorProxy, ServerSongPathProvidingConnector {}
+
+extension RoutedServerSongPathForwarding {
+    func fetchServerFilePath(for path: String) async throws -> String? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerSongPathProvidingConnector else { return nil }
+            return try await provider.fetchServerFilePath(for: path)
+        }
+    }
+}
+
+extension RoutedSubsonicConnector: RoutedServerSongPathForwarding {}
+extension RoutedMediaServerConnector: RoutedServerSongPathForwarding {}
+extension RoutedFnMusicConnector: RoutedServerSongPathForwarding {}
+extension RoutedDaoLiYuConnector: RoutedServerSongPathForwarding {}
+extension RoutedAudiobookshelfConnector: RoutedServerSongPathForwarding {}
+extension RoutedTingReaderConnector: RoutedServerSongPathForwarding {}
+extension RoutedSongloftConnector: RoutedServerSongPathForwarding {}
+extension RoutedSynologyAudioStationConnector: RoutedServerSongPathForwarding {}
+
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTranscodingConnector,
     RefreshingMetadataSongConnector, TemporaryAudioProcessingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
@@ -5626,6 +5646,39 @@ final class SourceManager {
             duration: song.duration,
             transcodeFormat: format
         )
+    }
+
+    static func isCellularStreamQualityActive() -> Bool {
+        let monitor = NetworkMonitor.shared
+        return monitor.isExpensive
+            || monitor.isConstrained
+            || monitor.routePathCondition.underlyingCellularOnly
+    }
+
+    func supportsUserAdaptiveStreamQuality(for song: Song, source: MusicSource) -> Bool {
+        guard Self.supportsAdaptiveTranscoding(source.type) else { return false }
+        if source.type.isMediaServer, requiresConnectorBackedHTTPTransport(for: source) {
+            return false
+        }
+        if source.type.isSubsonicFamily,
+           SubsonicSource.requiresServerTranscode(song.fileFormat) {
+            return false
+        }
+        guard song.duration.isFinite, song.duration > 0,
+              !song.isCueTrack,
+              !song.isDiscImageTrack,
+              !FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) else {
+            return false
+        }
+        return true
+    }
+
+    func transcodePlan(for song: Song) async -> SourceTranscodePlan {
+        guard let source = (try? await sourcesProvider())?
+            .first(where: { $0.id == song.sourceID && !$0.isDeleted }) else {
+            return .original
+        }
+        return transcodePlan(for: song, source: source)
     }
 
     /// 服务端转码产物的落盘位置。
@@ -17100,6 +17153,51 @@ final class SourceManager {
             await CachedArtworkView.loadFromSource(ref: reference, songID: song.id, sourceID: song.sourceID,
                 filePath: nil, fileFormat: nil, sourceManager: self, purpose: .fullResolution, priority: .foreground)
         }
+    }
+
+    func refreshServerFilePath(
+        for song: Song,
+        in library: MusicLibrary,
+        source explicitSource: MusicSource? = nil,
+        connectorOverride: (any MusicSourceConnector)? = nil
+    ) async -> String? {
+        let current = library.storedSong(id: song.id) ?? song
+        let resolvedSource: MusicSource?
+        if let explicitSource {
+            resolvedSource = explicitSource
+        } else {
+            resolvedSource = (try? await sourcesProvider())?
+                .first(where: { $0.id == current.sourceID && !$0.isDeleted })
+        }
+        guard let source = resolvedSource, source.type.isServerLibrary else {
+            return SongPathPresentationPolicy.providerPath(current.serverFilePath)
+        }
+        let existing = SongPathPresentationPolicy.providerPath(current.serverFilePath)
+        guard SongPathPresentationPolicy.needsServerFilePathRefresh(for: current, sourceType: source.type) else {
+            return existing
+        }
+        let targetConnector = connectorOverride ?? connector(for: source)
+        guard let provider = targetConnector as? any ServerSongPathProvidingConnector else {
+            return existing
+        }
+        let rawFetched: String?
+        do {
+            rawFetched = try await provider.fetchServerFilePath(for: current.filePath)
+        } catch {
+            return existing
+        }
+        guard !Task.isCancelled else { return existing }
+        let resolved = SongPathPresentationPolicy.resolvedServerFilePath(
+            existing: current.serverFilePath,
+            fetched: rawFetched
+        )
+        if let resolved,
+           var stored = library.storedSong(id: current.id),
+           stored.serverFilePath != resolved {
+            stored.serverFilePath = resolved
+            library.replaceSong(stored)
+        }
+        return resolved
     }
 
     private func playbackArtworkCachePaths(for song: Song) -> [String] {

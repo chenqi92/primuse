@@ -603,3 +603,12 @@ extension AudiobookshelfSource: ServerTranscriptFileConnector {
         return Date().timeIntervalSince(fetchedAt) >= Self.transcriptRecheckInterval
     }
 }
+
+extension AudiobookshelfSource: ServerSongPathProvidingConnector {
+    func fetchServerFilePath(for path: String) async throws -> String? {
+        guard let reference = AudiobookshelfAPIProtocol.trackReference(from: path) else { return nil }
+        try await connect()
+        guard let item = try await catalogItem(id: reference.itemID) else { return nil }
+        return SongPathPresentationPolicy.providerPath(item.audioFile(for: reference.kind)?.serverFilePath)
+    }
+}

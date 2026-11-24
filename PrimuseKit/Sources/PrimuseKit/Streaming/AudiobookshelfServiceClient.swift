@@ -75,7 +75,7 @@ public struct AudiobookshelfAudioFile: Sendable, Equatable {
     public let fileName: String?
     /// 相对条目文件夹的路径(书分了 `CD1/`、`CD2/` 这类子文件夹时带着它);旧版本不给。
     public let relPath: String?
-    fileprivate let serverFilePath: String?
+    public let serverFilePath: String?
     public let tagTitle: String?
     public let trackNumber: Int?
     public let discNumber: Int?

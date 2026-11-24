@@ -697,6 +697,14 @@ public actor SynologyAudioStationClient {
 
     // MARK: - 评分与歌词
 
+    /// 单曲在服务器上的文件路径（`SYNO.AudioStation.Song method=getinfo`）。
+    public func songPath(id: String) async throws -> String? {
+        guard SynologyAudioStationAPI.isCatalogSongID(id) else { return nil }
+        let info: SynologyAudioStationSongInfo = try await perform(SynologyAudioStationAPI.songInfoCall(id: id))
+        guard let song = info.songs.first(where: { $0.id == id }) else { return nil }
+        return SongPathPresentationPolicy.providerPath(song.path)
+    }
+
     /// nil 表示没评分(服务端的 0)。
     public func rating(id: String) async throws -> Int? {
         guard SynologyAudioStationAPI.isCatalogSongID(id) else { throw SynologyAudioStationError.invalidResponse }

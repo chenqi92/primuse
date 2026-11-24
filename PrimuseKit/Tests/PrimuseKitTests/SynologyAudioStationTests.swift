@@ -844,6 +844,8 @@ struct SynologyAudioStationTests {
         let fixture = AudioStationFixture()
         let client = fixture.client()
         #expect(try await client.rating(id: "music_6906") == nil)
+        #expect(try await client.songPath(id: "music_6906") == "/music/王菲/1990-《You're the only one》/王菲 - 美丽的震荡.flac")
+        #expect(try await client.songPath(id: "not-a-catalog-id") == nil)
         #expect(try await client.setRating(id: "music_6906", rating: 5) == 5)
         #expect(try await client.rating(id: "music_6906") == 5)
         #expect(try await client.setRating(id: "music_6906", rating: nil) == nil)
@@ -1087,7 +1089,10 @@ private actor AudioStationFixture {
             return json(url, body)
         case "getinfo":
             let id = params["id"] ?? ""
-            return json(url, #"{"data":{"songs":[{"id":"\#(id)","additional":{"song_rating":{"rating":\#(ratings[id] ?? 0)}}}]},"success":true}"#)
+            let path = id == "music_6906"
+                ? #","path":"/music/王菲/1990-《You're the only one》/王菲 - 美丽的震荡.flac""#
+                : ""
+            return json(url, #"{"data":{"songs":[{"id":"\#(id)"\#(path),"additional":{"song_rating":{"rating":\#(ratings[id] ?? 0)}}}]},"success":true}"#)
         case "setrating":
             if mode != .ratingIgnored, let id = params["id"], let rating = Int(params["rating"] ?? "") { ratings[id] = rating }
             return json(url, #"{"success":true}"#)

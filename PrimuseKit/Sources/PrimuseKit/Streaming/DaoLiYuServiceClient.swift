@@ -57,7 +57,7 @@ public struct DaoLiYuCatalogTrack: Sendable {
     public let discNumber: Int?
     public let durationSeconds: Double
     public let fileExtension: String?
-    private let serverFilePath: String?
+    public let serverFilePath: String?
     public let fileSize: Int64
     public let bitRate: Int?
     public let sampleRate: Int?

@@ -359,6 +359,32 @@ final class TVLibraryStateTests: XCTestCase {
         store.engine.stop()
     }
 
+    func testFinishScanPruningRemovesDeletedSongsFromTVQueueAndClearsWhenEmpty() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let first = fixture.song("first")
+        let second = fixture.song("second")
+        let third = fixture.song("third")
+        fixture.library.addSongs([first, second, third])
+        await fixture.library.waitForPendingIndex()
+        let store = fixture.store()
+        store.reload()
+        XCTAssertTrue(store.playResolvedQueue(songIDs: ["first", "second", "third"], shuffled: false, startingAt: "first"))
+        XCTAssertEqual(store.nowPlaying.songID, "first")
+
+        let partialPrune = fixture.library.beginScanPruning([third], sourceID: fixture.source.id)
+        fixture.library.finishScanPruning(partialPrune)
+        XCTAssertEqual(store.nowPlaying.songID, "third")
+        XCTAssertTrue(store.queueUpNextIDs.isEmpty)
+
+        let fullPrune = fixture.library.beginScanPruning([], sourceID: fixture.source.id)
+        fixture.library.finishScanPruning(fullPrune)
+        XCTAssertFalse(store.hasNowPlaying)
+        XCTAssertTrue(store.nowPlaying.songID.isEmpty)
+        XCTAssertTrue(store.queueUpNextIDs.isEmpty)
+        store.engine.stop()
+    }
+
     func testSearchListsEveryMatchingAlbumIncludingCompilationsByTrackArtist() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

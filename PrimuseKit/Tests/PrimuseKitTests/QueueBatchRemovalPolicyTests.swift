@@ -155,4 +155,29 @@ struct QueueBatchRemovalPolicyTests {
             action: .replaceQueue(startAt: 1)
         ))
     }
+
+    @Test("Removing a standalone active song outside the queue stops or advances")
+    func removedCurrentSongOutsideQueueStopsOrAdvances() {
+        let stopPlan = QueueBatchRemovalPolicy.plan(
+            queueSongIDs: [],
+            currentIndex: 0,
+            currentSongID: "solo",
+            removingSongIDs: ["solo"]
+        )
+        #expect(stopPlan == QueueBatchRemovalPlan(
+            retainedIndices: [],
+            action: .stopAndClearQueue
+        ))
+
+        let advancePlan = QueueBatchRemovalPolicy.plan(
+            queueSongIDs: ["keep-1", "keep-2"],
+            currentIndex: 0,
+            currentSongID: "solo",
+            removingSongIDs: ["solo"]
+        )
+        #expect(advancePlan == QueueBatchRemovalPlan(
+            retainedIndices: [0, 1],
+            action: .playReplacement(startAt: 1)
+        ))
+    }
 }

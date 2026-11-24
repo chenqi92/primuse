@@ -429,3 +429,12 @@ extension DaoLiYuSource: CatalogDriftReportingConnector {
         plog("↻ daoliyu: catalogue moved during the walk")
     }
 }
+
+extension DaoLiYuSource: ServerSongPathProvidingConnector {
+    func fetchServerFilePath(for path: String) async throws -> String? {
+        guard let id = DaoLiYuAPIProtocol.trackID(from: path) else { return nil }
+        try await connect()
+        let track = try await client.track(id: id)
+        return SongPathPresentationPolicy.providerPath(track.serverFilePath)
+    }
+}

@@ -2060,6 +2060,11 @@ protocol ServerCatalogChangeDetectingConnector: MusicSourceConnector {
     func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus
 }
 
+/// 按需读取媒体服务器单曲的真实服务端文件路径。
+protocol ServerSongPathProvidingConnector: MusicSourceConnector {
+    func fetchServerFilePath(for path: String) async throws -> String?
+}
+
 /// Explicit, opt-in server mutation used only by Navidrome's launch refresh.
 /// Unsupported implementations and non-admin accounts return a capability
 /// result so local catalogue refresh can continue without surfacing a false

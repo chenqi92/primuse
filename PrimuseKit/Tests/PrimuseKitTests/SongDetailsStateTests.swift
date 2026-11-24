@@ -181,6 +181,36 @@ struct SongPathPresentationPolicyTests {
         #expect(SongPathPresentationPolicy.displayPathMayContain(filePath: "/Music/Track.flac", query: "c/T"))
     }
 
+    @Test("Server file path refresh detects missing or bare filename paths and upgrades safely")
+    func serverFilePathRefreshAndUpgradePolicy() {
+        var song = Song(id: "s1", title: "Track", fileFormat: .flac, filePath: "/songs/42.flac", sourceID: "srv")
+        #expect(SongPathPresentationPolicy.needsServerFilePathRefresh(for: song, sourceType: .navidrome))
+        #expect(!SongPathPresentationPolicy.needsServerFilePathRefresh(for: song, sourceType: .smb))
+
+        song.serverFilePath = "01 - Track.flac"
+        #expect(SongPathPresentationPolicy.needsServerFilePathRefresh(for: song, sourceType: .fnMusic))
+
+        song.serverFilePath = "/vol1/Music/Album/01 - Track.flac"
+        #expect(!SongPathPresentationPolicy.needsServerFilePathRefresh(for: song, sourceType: .fnMusic))
+
+        #expect(SongPathPresentationPolicy.resolvedServerFilePath(
+            existing: nil,
+            fetched: #"C:\Music\Album\01.flac"#
+        ) == "C:/Music/Album/01.flac")
+        #expect(SongPathPresentationPolicy.resolvedServerFilePath(
+            existing: "01.flac",
+            fetched: "/vol1/Music/Album/01.flac"
+        ) == "/vol1/Music/Album/01.flac")
+        #expect(SongPathPresentationPolicy.resolvedServerFilePath(
+            existing: "/vol1/Music/Album/01.flac",
+            fetched: "01.flac"
+        ) == "/vol1/Music/Album/01.flac")
+        #expect(SongPathPresentationPolicy.resolvedServerFilePath(
+            existing: "01.flac",
+            fetched: "https://server/stream?token=secret"
+        ) == "01.flac")
+    }
+
     private func base64URL(_ value: String) -> String {
         Data(value.utf8)
             .base64EncodedString()

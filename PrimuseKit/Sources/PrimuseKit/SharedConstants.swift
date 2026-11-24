@@ -2166,6 +2166,23 @@ public enum SongPathPresentationPolicy {
         return path
     }
 
+    public static func needsServerFilePathRefresh(for song: Song, sourceType: MusicSourceType?) -> Bool {
+        guard sourceType?.isServerLibrary == true else { return false }
+        guard let existing = providerPath(song.serverFilePath) else { return true }
+        return !existing.contains("/")
+    }
+
+    public static func resolvedServerFilePath(existing rawExisting: String?, fetched rawFetched: String?) -> String? {
+        let existing = providerPath(rawExisting)
+        let fetched = providerPath(rawFetched)
+        guard let fetched else { return existing }
+        guard let existing else { return fetched }
+        if !existing.contains("/"), fetched.contains("/") {
+            return fetched
+        }
+        return existing
+    }
+
     private static let credentialMarkers = [
         "access_token=", "authorization=", "credential=", "password=", "signature=",
         "token=", "api_key=", "api-key=", "apikey=", "x-amz-credential=", "x-amz-signature=",

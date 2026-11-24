@@ -138,6 +138,26 @@ struct QueueContinuationTests {
         #expect(continuation.takeNext(maxCount: 10, repeatsAll: true).isEmpty)
     }
 
+    @Test("Removing deleted songs strips them from leading, window, and trailing segments")
+    func removeDeletedSongsShiftsAllSegments() {
+        var continuation = QueueContinuation(
+            requestedIDs: ["a", "b", "c", "d", "e"],
+            window: 1..<3
+        )
+        continuation.removeSongs(withIDs: ["a", "c", "d"])
+        #expect(continuation.requestedIDs == ["b", "e"])
+        #expect(continuation.leadingOffset == 0)
+        #expect(continuation.leadingEnd == 0)
+        #expect(continuation.nextOffset == 1)
+        #expect(continuation.takeNext(maxCount: 10, repeatsAll: true) == ["e"])
+        #expect(continuation.isExhausted)
+
+        var empty = QueueContinuation(requestedIDs: ["x", "y"], window: 0..<1)
+        empty.removeSongs(withIDs: ["x", "y"])
+        #expect(empty.requestedIDs.isEmpty)
+        #expect(empty.isExhausted)
+    }
+
     @Test("A continuation survives the store round trip")
     func storeRoundTrip() throws {
         let directory = FileManager.default.temporaryDirectory

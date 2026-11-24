@@ -881,6 +881,40 @@ final class TVStore {
                 if self.pendingDeepLink?.host == "podcast" { self.flushPendingDeepLink() }
             }
         }
+        songsRemovedObserver = NotificationCenter.default.addObserver(
+            forName: .primuseSongsRemoved, object: nil, queue: .main
+        ) { [weak self] note in
+            let senderID = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            let songIDs = (note.userInfo?["songIDs"] as? Set<String>) ?? {
+                let songs = (note.userInfo?["songs"] as? [Song]) ?? []
+                return Set(songs.map(\.id))
+            }()
+            guard !songIDs.isEmpty else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let senderID, senderID != ObjectIdentifier(self.library) { return }
+                self.removeTransferredSongsFromQueue(songIDs)
+            }
+        }
+        sourceCatalogPrunedObserver = NotificationCenter.default.addObserver(
+            forName: .primuseSourceCatalogPruned, object: nil, queue: .main
+        ) { [weak self] note in
+            let senderID = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            let sourceIDs: Set<String>
+            if let set = note.userInfo?["sourceIDs"] as? Set<String> {
+                sourceIDs = set
+            } else if let list = note.userInfo?["sourceIDs"] as? [String] {
+                sourceIDs = Set(list)
+            } else {
+                return
+            }
+            guard !sourceIDs.isEmpty else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let senderID, senderID != ObjectIdentifier(self.library) { return }
+                self.reconcileQueueAfterSourcePrune(sourceIDs: sourceIDs)
+            }
+        }
         if library == nil {
             let target = self.library
             let knownSourceIDs = Set(initialSources.allSources.map(\.id))
@@ -1284,6 +1318,8 @@ final class TVStore {
     @ObservationIgnored private var spokenWordIntroOutroObserver: NSObjectProtocol?
     @ObservationIgnored private var spokenWordTopShelfObserver: NSObjectProtocol?
     @ObservationIgnored private var podcastTopShelfObserver: NSObjectProtocol?
+    @ObservationIgnored private var songsRemovedObserver: NSObjectProtocol?
+    @ObservationIgnored private var sourceCatalogPrunedObserver: NSObjectProtocol?
     @ObservationIgnored private var topShelfPlaybackRequestID: UUID?
     @ObservationIgnored private var playbackRangeObserver: NSObjectProtocol?
     @ObservationIgnored private var playbackRangeRefreshTask: Task<Void, Never>?
@@ -5229,7 +5265,18 @@ final class TVStore {
         case .replaceQueue(let index): queueIndex = index
         case .playReplacement(let index):
             queueIndex = index
-            if queue.indices.contains(index), let next = song(queue[index]) { startPlaying(next, autoPlay: wasPlaying) }
+            if queue.indices.contains(index), let next = song(queue[index]) {
+                startPlaying(next, autoPlay: wasPlaying)
+            } else {
+                endMedley()
+                leaveSpokenWordItem()
+                queue = []
+                canonicalQueue = []
+                queueCanonicalIndices = []
+                queueIndex = 0
+                nowPlaying = .none
+                hasNowPlaying = false
+            }
         case .stopAndClearQueue:
             endMedley()
             leaveSpokenWordItem()
@@ -5246,6 +5293,20 @@ final class TVStore {
                 try? storage.clear()
             }
         } else { persistPlaybackSession() }
+    }
+
+    func reconcileQueueAfterSourcePrune(sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty, !isLiveRadio, appleMusicSelection == nil, library.isReady else { return }
+        var candidates = Set(queue)
+        candidates.formUnion(canonicalQueue)
+        if let currentSongID { candidates.insert(currentSongID) }
+        let staleIDs = candidates.filter { id in
+            guard !id.hasPrefix(RadioStation.playbackSongIDPrefix),
+                  !PodcastIdentity.isEpisodeID(id) else { return false }
+            return library.storedSong(id: id) == nil
+        }
+        guard !staleIDs.isEmpty else { return }
+        removeTransferredSongsFromQueue(staleIDs)
     }
 
     /// TV 上新增源:写入 sources + 存本地凭据 + 回传快照。

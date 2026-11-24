@@ -71,6 +71,7 @@ struct TagEditorView: View {
     @State private var writebackNoticeMessage: String?
     @State private var savedSongPendingNotice: Song?
     @State private var isSaving = false
+    @State private var resolvedServerFilePath: String?
     @State private var coverImportID = UUID()
     @State private var isLoadingCover = false
     @State private var showLyricsDeleteConfirm = false
@@ -157,6 +158,15 @@ struct TagEditorView: View {
         }
         #endif
         .task(id: song.id) { await loadEmbeddedPictures(for: library.visibleSong(id: song.id) ?? song) }
+        .task(id: song.id) {
+            resolvedServerFilePath = nil
+            let current = library.song(id: song.id) ?? song
+            let source = sourcesStore.source(id: current.sourceID)
+            guard SongPathPresentationPolicy.needsServerFilePathRefresh(for: current, sourceType: source?.type) else { return }
+            let fetched = await sourceManager.refreshServerFilePath(for: current, in: library, source: source)
+            guard !Task.isCancelled else { return }
+            resolvedServerFilePath = fetched
+        }
         .task(id: song.id) {
             let requestedSongID = song.id
             if initialSong.id != requestedSongID {
@@ -464,7 +474,14 @@ struct TagEditorView: View {
 
     private var locationSong: Song {
         guard sourcesStore.source(id: initialSong.sourceID)?.type.isServerLibrary == true else { return initialSong }
-        return library.song(id: initialSong.id) ?? initialSong
+        var current = library.song(id: initialSong.id) ?? initialSong
+        if let resolved = SongPathPresentationPolicy.resolvedServerFilePath(
+            existing: current.serverFilePath,
+            fetched: resolvedServerFilePath
+        ) {
+            current.serverFilePath = resolved
+        }
+        return current
     }
 
     private static func filenamePath(for song: Song, sourceType: MusicSourceType?) -> String? {

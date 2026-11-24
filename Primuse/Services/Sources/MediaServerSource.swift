@@ -6146,3 +6146,22 @@ extension MediaServerSource: ServerAdminConnector {
         _ = try await adminRequest("/Users/\(id)/Policy", method: "POST", body: body)
     }
 }
+
+extension MediaServerSource: ServerSongPathProvidingConnector {
+    func fetchServerFilePath(for path: String) async throws -> String? {
+        guard let itemID = itemID(from: path) else { return nil }
+        try await connect()
+        if kind == .plex {
+            let item = try await fetchPlexTrack(ratingKey: itemID)
+            return SongPathPresentationPolicy.providerPath(item.media?.first?.parts?.first?.file)
+        }
+        guard let userID else { throw SourceError.authenticationFailed }
+        let data = try await performRequest(
+            path: "/Users/\(userID)/Items/\(itemID)",
+            queryItems: [URLQueryItem(name: "Fields", value: "Path,MediaSources")]
+        )
+        let item = try decoder.decode(AudioItem.self, from: data)
+        return SongPathPresentationPolicy.providerPath(item.path)
+            ?? SongPathPresentationPolicy.providerPath(item.mediaSources?.first?.path)
+    }
+}

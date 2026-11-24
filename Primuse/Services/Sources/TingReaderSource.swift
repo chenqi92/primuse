@@ -575,3 +575,19 @@ extension TingReaderSource: ServerSpokenWordIntroOutroConnector {
         return book.skip
     }
 }
+
+extension TingReaderSource: ServerSongPathProvidingConnector {
+    func fetchServerFilePath(for path: String) async throws -> String? {
+        guard let reference = TingReaderAPIProtocol.trackReference(from: path) else { return nil }
+        try await connect()
+        let chapters: [TingReaderChapter]
+        if let snapshot = chapterSnapshots[reference.bookID],
+           Date().timeIntervalSince(snapshot.fetchedAt) < Self.chapterSnapshotLifetime {
+            chapters = snapshot.chapters
+        } else {
+            chapters = try await client.chapters(bookID: reference.bookID)
+            chapterSnapshots[reference.bookID] = (Date(), chapters)
+        }
+        return SongPathPresentationPolicy.providerPath(chapters.first { $0.id == reference.chapterID }?.path)
+    }
+}

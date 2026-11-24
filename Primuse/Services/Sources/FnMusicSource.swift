@@ -825,3 +825,16 @@ extension FnMusicSource: CatalogDriftReportingConnector {
         plog("↻ fnMusic: catalogue moved during the walk")
     }
 }
+
+extension FnMusicSource: ServerSongPathProvidingConnector {
+    func fetchServerFilePath(for path: String) async throws -> String? {
+        guard let guid = FnMusicAPIProtocol.trackGUID(from: path) else { return nil }
+        try await connect()
+        do {
+            return try await api.trackServerFilePath(guid: guid)
+        } catch SourceError.authenticationFailed {
+            try await connect()
+            return try await api.trackServerFilePath(guid: guid)
+        }
+    }
+}

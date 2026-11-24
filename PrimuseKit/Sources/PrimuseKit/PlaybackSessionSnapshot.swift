@@ -767,6 +767,19 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
         requestedIDs = requestedIDs.indices.filter { !dropped.contains($0) }.map { requestedIDs[$0] }
     }
 
+    /// Removes deleted songs from every segment of the continuation (leading,
+    /// active window, and trailing) while keeping cursor offsets aligned.
+    public mutating func removeSongs(withIDs songIDs: Set<String>) {
+        guard !songIDs.isEmpty else { return }
+        let dropped = IndexSet(requestedIDs.indices.filter { songIDs.contains(requestedIDs[$0]) })
+        guard !dropped.isEmpty else { return }
+        func shifted(_ offset: Int) -> Int { offset - dropped.count(in: 0..<offset) }
+        nextOffset = shifted(nextOffset)
+        leadingOffset = shifted(leadingOffset)
+        leadingEnd = shifted(leadingEnd)
+        requestedIDs = requestedIDs.indices.filter { !dropped.contains($0) }.map { requestedIDs[$0] }
+    }
+
     /// Up to `maxCount` IDs in playback order. The leading part is only used
     /// under repeat-all, after the trailing part has run out.
     public mutating func takeNext(maxCount: Int, repeatsAll: Bool) -> [String] {

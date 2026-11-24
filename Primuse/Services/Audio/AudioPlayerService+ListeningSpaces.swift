@@ -126,6 +126,120 @@ final class MusicSessionMemoryStore {
         enqueueWrite(nil)
     }
 
+    /// Removes deleted songs from the remembered music queue (including its continuation).
+    /// Clears the saved memory if no surviving songs remain.
+    func removeSongs(withIDs songIDs: Set<String>, resolveSong: (String) -> Song? = { _ in nil }) {
+        guard !songIDs.isEmpty, var current = memory else { return }
+        let previousContinuation = current.continuation
+        if var continuation = current.continuation {
+            continuation.removeSongs(withIDs: songIDs)
+            current.continuation = (continuation.isExhausted || continuation.requestedIDs.isEmpty) ? nil : continuation
+        }
+        let currentSongID = current.snapshot.currentSongID.isEmpty ? current.songID : current.snapshot.currentSongID
+        let plan = QueueBatchRemovalPolicy.plan(
+            queueSongIDs: current.snapshot.queueSongIDs,
+            currentIndex: current.snapshot.currentIndex,
+            currentSongID: currentSongID,
+            removingSongIDs: songIDs
+        )
+        if plan.action == .unchanged {
+            if current.continuation != previousContinuation {
+                current.snapshot.queueContinuationToken = current.continuation?.token
+                save(current)
+            }
+            return
+        }
+
+        var retainedIDs = plan.retainedIndices.map { current.snapshot.queueSongIDs[$0] }
+        var startIndex: Int
+        var replacedCurrent: Bool
+        switch plan.action {
+        case .unchanged:
+            return
+        case .replaceQueue(let index):
+            startIndex = index
+            replacedCurrent = false
+        case .playReplacement(let index):
+            startIndex = index
+            replacedCurrent = true
+        case .stopAndClearQueue:
+            startIndex = 0
+            replacedCurrent = true
+        }
+
+        if retainedIDs.isEmpty, var continuation = current.continuation {
+            var pulled: [String] = []
+            while pulled.count < QueueWindowPolicy.refillBatch {
+                let batch = continuation.takeNext(
+                    maxCount: QueueWindowPolicy.refillBatch,
+                    repeatsAll: current.snapshot.repeatMode == .all
+                )
+                if batch.isEmpty { break }
+                pulled.append(contentsOf: batch.filter { !songIDs.contains($0) })
+            }
+            current.continuation = (continuation.isExhausted || continuation.requestedIDs.isEmpty) ? nil : continuation
+            retainedIDs = pulled
+            startIndex = 0
+            replacedCurrent = true
+        }
+
+        guard !retainedIDs.isEmpty else {
+            clear()
+            return
+        }
+
+        let boundedIndex = min(max(0, startIndex), retainedIDs.count - 1)
+        current.snapshot.queueSongIDs = retainedIDs
+        current.snapshot.currentIndex = boundedIndex
+        current.snapshot.shuffledIndices = []
+        current.snapshot.shufflePosition = 0
+        current.snapshot.pendingNextShuffleIndices = nil
+        current.snapshot.queueContinuationToken = current.continuation?.token
+        if replacedCurrent {
+            let nextID = retainedIDs[boundedIndex]
+            current.snapshot.currentSongID = nextID
+            current.snapshot.currentTime = 0
+            current.snapshot.isAtTrackEnd = false
+            current.songID = nextID
+            if let song = resolveSong(nextID) {
+                current.title = song.title
+                current.subtitle = song.artistName
+                current.coverRef = song.coverArtFileName
+                current.sourceID = song.sourceID
+                current.snapshot.duration = song.duration
+            }
+        }
+        save(current)
+    }
+
+    /// Sweeps songs that no longer exist in `library` after an authoritative full-scan prune.
+    func pruneStaleSongs(forSourceIDs sourceIDs: Set<String>, library: MusicLibrary) {
+        guard !sourceIDs.isEmpty, library.isReady, let current = memory else { return }
+        if current.sourceID == AppleMusicLibraryIdentity.sourceID,
+           !sourceIDs.contains(AppleMusicLibraryIdentity.sourceID) {
+            return
+        }
+        var candidates = Set(current.snapshot.queueSongIDs)
+        if !current.snapshot.currentSongID.isEmpty {
+            candidates.insert(current.snapshot.currentSongID)
+        }
+        if !current.songID.isEmpty {
+            candidates.insert(current.songID)
+        }
+        if let continuation = current.continuation {
+            candidates.formUnion(continuation.requestedIDs)
+        }
+        let stale = candidates.filter { id in
+            guard !id.hasPrefix(RadioStation.playbackSongIDPrefix),
+                  !PodcastIdentity.isEpisodeID(id) else {
+                return false
+            }
+            return library.storedSong(id: id) == nil
+        }
+        guard !stale.isEmpty else { return }
+        removeSongs(withIDs: stale, resolveSong: { library.storedSong(id: $0) })
+    }
+
     private func enqueueWrite(_ memory: Memory?) {
         pendingWrite = memory
         hasPendingWrite = true

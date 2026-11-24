@@ -79,7 +79,8 @@ public enum QueueBatchRemovalPolicy {
         let retainedIndices = queueSongIDs.indices.filter {
             !removingSongIDs.contains(queueSongIDs[$0])
         }
-        guard retainedIndices.count != queueSongIDs.count else {
+        let currentRemoved = currentSongID.map(removingSongIDs.contains) ?? false
+        guard retainedIndices.count != queueSongIDs.count || currentRemoved else {
             return QueueBatchRemovalPlan(
                 retainedIndices: retainedIndices,
                 action: .unchanged

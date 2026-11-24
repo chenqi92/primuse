@@ -223,9 +223,59 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         XCTAssertEqual(CPNowPlayingTemplate.shared.upNextTitle, "MP3 · 192k")
         let streamImage = try XCTUnwrap((delegate.makeNowPlayingButton(.audioBitRate) as? CPNowPlayingImageButton)?.image?.pngData())
         XCTAssertNotEqual(originalImage, streamImage)
-        let sections = delegate.audioInfoSections()
-        XCTAssertEqual((sections[0].items[0] as? CPListItem)?.detailText, "MP3 · 192kbps")
-        XCTAssertEqual((sections[0].items[1] as? CPListItem)?.detailText, "FLAC · 24bit/96kHz · 2304kbps")
+        let popup = delegate.audioQualityPopupTemplate(for: song, maximumActionCount: 3)
+        XCTAssertEqual(popup.userInfo as? CarPlaySceneDelegate.AudioQualityPopupContext, .init(songID: song.id))
+        XCTAssertTrue(popup.titleVariants.contains { $0.contains("MP3 · 192kbps") && $0.contains("FLAC · 24bit/96kHz · 2304kbps") })
+        XCTAssertEqual(popup.actions.map(\.title), [String(localized: "carplay_ok")])
+
+        let suite = "CarPlayPopupSwitchingTests.\(UUID().uuidString)"
+        let popupDefaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let popupDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(suite, isDirectory: true)
+        try FileManager.default.createDirectory(at: popupDirectory, withIntermediateDirectories: true)
+        defer {
+            popupDefaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: popupDirectory)
+        }
+        let popupSources = SourcesStore(storageDirectoryURL: popupDirectory)
+        let navidrome = MusicSource(
+            id: "navidrome-popup-test",
+            name: "Navidrome",
+            type: .navidrome,
+            host: "music.example.com",
+            port: 443,
+            useSsl: true,
+            username: "tester"
+        )
+        popupSources.add(navidrome)
+        let navidromeSong = Song(
+            id: "carplay-popup-navidrome",
+            title: "Lossless Track",
+            duration: 240,
+            fileFormat: .flac,
+            filePath: "/songs/42.flac",
+            sourceID: navidrome.id,
+            bitRate: 1_411,
+            sampleRate: 44_100,
+            bitDepth: 16
+        )
+        let popupSettings = PlaybackSettingsStore(defaults: popupDefaults)
+        popupSettings.wifiStreamQuality = .kbps320
+        popupSettings.cellularStreamQuality = .kbps320
+        let popupPlayer = AudioPlayerService(playbackSettings: popupSettings, activateAudioSession: { _ in })
+        popupPlayer.currentSong = navidromeSong
+        popupPlayer.activeTranscodePlan = .transcode(bitRateKbps: 320, format: .mp3)
+        let switchingPopup = delegate.audioQualityPopupTemplate(
+            for: navidromeSong,
+            sourcesStore: popupSources,
+            player: popupPlayer,
+            maximumActionCount: 3
+        )
+        XCTAssertEqual(switchingPopup.actions.map(\.title), [
+            StreamQualityPreference.original.displayName,
+            "✓ \(StreamQualityPreference.kbps320.displayName)",
+            StreamQualityPreference.kbps128.displayName,
+        ])
+        XCTAssertEqual(switchingPopup.actions.map(\.style), [.default, .cancel, .default])
         song.id = "carplay-spec-next"
         song.sampleRate = 44_100
         song.bitDepth = 16

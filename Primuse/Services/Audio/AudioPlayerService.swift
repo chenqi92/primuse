@@ -1885,6 +1885,17 @@ final class AudioPlayerService {
 
     let playbackSettings: PlaybackSettingsStore
     @ObservationIgnored private let activateAudioSession: @MainActor (Bool) throws -> Void
+    @ObservationIgnored nonisolated(unsafe) var libraryRemovalObservers: [NSObjectProtocol] = []
+    @ObservationIgnored var pendingLibraryRemovalIDs: Set<String> = []
+    @ObservationIgnored var pendingPrunedSourceIDs: Set<String> = []
+    @ObservationIgnored var isReconcilingLibraryRemovals = false
+    @ObservationIgnored var libraryReconciliationTask: Task<Void, Never>?
+
+    deinit {
+        for observer in libraryRemovalObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
 
     init(
         sourceManager: SourceManager? = nil,
@@ -1926,6 +1937,7 @@ final class AudioPlayerService {
         observeSpokenWordClassification()
         observeSpokenWordListeningAids()
         observeNowPlayingArtworkCache()
+        observeLibrarySongRemovals()
         NotificationCenter.default.addObserver(
             forName: .primuseArtistNameConfigurationDidChange,
             object: nil,
@@ -3895,6 +3907,61 @@ final class AudioPlayerService {
         let deadline = clock.now.advanced(by: maxWait)
         while isLoading, clock.now < deadline {
             try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    var activeStreamQualityPreference: StreamQualityPreference {
+        SourceManager.isCellularStreamQualityActive()
+            ? playbackSettings.cellularStreamQuality
+            : playbackSettings.wifiStreamQuality
+    }
+
+    func applyStreamQualityPreference(_ preference: StreamQualityPreference) async {
+        if SourceManager.isCellularStreamQualityActive() {
+            if playbackSettings.cellularStreamQuality != preference {
+                playbackSettings.cellularStreamQuality = preference
+            }
+        } else if playbackSettings.wifiStreamQuality != preference {
+            playbackSettings.wifiStreamQuality = preference
+        }
+        invalidatePreparedQueueSuccessor()
+        guard let song = currentSong,
+              !isLiveRadio,
+              !isSystemAudioPlaybackActive,
+              !isCastingMode,
+              let sourceManager else {
+            return
+        }
+        let newPlan = await sourceManager.transcodePlan(for: song)
+        guard currentSong?.id == song.id else { return }
+        if newPlan == activeTranscodePlan {
+            if isPlaying { prefetchNextSong() }
+            return
+        }
+        let resumeTime = currentTime
+        let shouldPlay = isPlaying || isLoading
+        if !shouldPlay {
+            decodingTask?.cancel()
+            decodingTask = nil
+            audioEngine.stopPlayback()
+            hasPreparedLocalPlayback = false
+            activeTranscodePlan = newPlan
+            currentTime = resumeTime
+            pendingRecoveryTime = resumeTime
+            needsPlaybackRecovery = true
+            isLoading = false
+            isPlaying = false
+            isAtTrackEnd = false
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
+        await play(song: song)
+        guard currentSong?.id == song.id else { return }
+        if resumeTime > 0 {
+            await waitForPlaybackPipelineSettled(maxWait: .seconds(15))
+            guard currentSong?.id == song.id else { return }
+            seek(to: resumeTime, startPlaying: true)
         }
     }
 

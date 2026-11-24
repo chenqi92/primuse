@@ -302,3 +302,13 @@ extension SongloftSource: CatalogDriftReportingConnector {
         await client.takeCatalogDriftObservation()
     }
 }
+
+extension SongloftSource: ServerSongPathProvidingConnector {
+    func fetchServerFilePath(for path: String) async throws -> String? {
+        guard let id = SongloftAPIProtocol.trackID(from: path) else { return nil }
+        try await connect()
+        let track = try await client.track(id: id)
+        guard track.type == "local" else { return nil }
+        return SongPathPresentationPolicy.providerPath(track.filePath)
+    }
+}

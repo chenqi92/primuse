@@ -496,3 +496,172 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
         return values.filter { seen.insert($0).inserted }
     }
 }
+
+/// Pure presentation and bitrate-selection policy for the CarPlay Now Playing
+/// audio-quality modal popup (`CPAlertTemplate`).
+public enum CarPlayAudioQualityPopupPolicy {
+    public struct Labels: Sendable, Equatable {
+        public let original: String
+        public let kbps320: String
+        public let kbps256: String
+        public let kbps192: String
+        public let kbps128: String
+        public let ok: String
+        public let originalFilePrefix: String
+        public let outputPrefix: String
+        public let fallbackTitle: String
+
+        public init(
+            original: String,
+            kbps320: String,
+            kbps256: String,
+            kbps192: String,
+            kbps128: String,
+            ok: String,
+            originalFilePrefix: String,
+            outputPrefix: String,
+            fallbackTitle: String
+        ) {
+            self.original = original
+            self.kbps320 = kbps320
+            self.kbps256 = kbps256
+            self.kbps192 = kbps192
+            self.kbps128 = kbps128
+            self.ok = ok
+            self.originalFilePrefix = originalFilePrefix
+            self.outputPrefix = outputPrefix
+            self.fallbackTitle = fallbackTitle
+        }
+
+        public func title(for preference: StreamQualityPreference) -> String {
+            switch preference {
+            case .original: original
+            case .kbps320: kbps320
+            case .kbps256: kbps256
+            case .kbps192: kbps192
+            case .kbps128: kbps128
+            }
+        }
+    }
+
+    public enum ActionKind: Sendable, Equatable {
+        case selectQuality(StreamQualityPreference)
+        case dismiss
+    }
+
+    public struct Action: Sendable, Equatable {
+        public let title: String
+        public let kind: ActionKind
+        public let isSelected: Bool
+        public let isCancelStyle: Bool
+
+        public init(title: String, kind: ActionKind, isSelected: Bool, isCancelStyle: Bool) {
+            self.title = title
+            self.kind = kind
+            self.isSelected = isSelected
+            self.isCancelStyle = isCancelStyle
+        }
+    }
+
+    public struct Presentation: Sendable, Equatable {
+        public let titleVariants: [String]
+        public let actions: [Action]
+    }
+
+    public static func presentation(
+        quality: CarPlayAudioQualityText,
+        outputSampleRateText: String?,
+        supportsBitrateSwitching: Bool,
+        activePreference: StreamQualityPreference,
+        maximumActionCount: Int,
+        labels: Labels
+    ) -> Presentation {
+        let titles = titleVariants(
+            quality: quality,
+            outputSampleRateText: outputSampleRateText,
+            labels: labels
+        )
+        let limit = max(1, maximumActionCount)
+        let actions: [Action]
+        if supportsBitrateSwitching, limit >= 2 {
+            let presets = horizontalPresets(activePreference: activePreference, limit: limit)
+            actions = presets.map { preset in
+                let selected = preset == activePreference
+                let baseTitle = labels.title(for: preset)
+                return Action(
+                    title: selected ? "✓ \(baseTitle)" : baseTitle,
+                    kind: selected ? .dismiss : .selectQuality(preset),
+                    isSelected: selected,
+                    isCancelStyle: selected
+                )
+            }
+        } else {
+            actions = [
+                Action(title: labels.ok, kind: .dismiss, isSelected: false, isCancelStyle: true)
+            ]
+        }
+        return Presentation(titleVariants: titles, actions: actions)
+    }
+
+    public static func horizontalPresets(
+        activePreference: StreamQualityPreference,
+        limit: Int
+    ) -> [StreamQualityPreference] {
+        switch max(1, limit) {
+        case 1:
+            return [activePreference]
+        case 2:
+            return activePreference == .original ? [.original, .kbps320] : [.original, activePreference]
+        case 3:
+            let middle: StreamQualityPreference
+            switch activePreference {
+            case .kbps256, .kbps192:
+                middle = activePreference
+            case .original, .kbps320, .kbps128:
+                middle = .kbps320
+            }
+            return [.original, middle, .kbps128]
+        case 4:
+            let third: StreamQualityPreference = activePreference == .kbps192 ? .kbps192 : .kbps256
+            return [.original, .kbps320, third, .kbps128]
+        default:
+            return StreamQualityPreference.allCases
+        }
+    }
+
+    private static func titleVariants(
+        quality: CarPlayAudioQualityText,
+        outputSampleRateText: String?,
+        labels: Labels
+    ) -> [String] {
+        let details = quality.details.trimmingCharacters(in: .whitespacesAndNewlines)
+        let summary = quality.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceDetails = quality.sourceDetails?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let output = outputSampleRateText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let primary = details.isEmpty ? summary : details
+
+        var candidates: [String] = []
+        if let sourceDetails, !sourceDetails.isEmpty {
+            if let output, !output.isEmpty {
+                candidates.append("\(primary) · \(labels.outputPrefix) \(output)\n\(labels.originalFilePrefix): \(sourceDetails)")
+            }
+            candidates.append("\(primary)\n\(labels.originalFilePrefix): \(sourceDetails)")
+        } else if let output, !output.isEmpty {
+            candidates.append("\(primary)\n\(labels.outputPrefix): \(output)")
+        }
+        candidates.append(primary)
+        candidates.append(summary)
+
+        var result: [String] = []
+        var seen = Set<String>()
+        for item in candidates where !item.isEmpty {
+            if seen.insert(item).inserted {
+                result.append(item)
+            }
+        }
+        if result.isEmpty {
+            result.append(labels.fallbackTitle)
+        }
+        return result
+    }
+}

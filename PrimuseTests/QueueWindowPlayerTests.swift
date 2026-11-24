@@ -1080,4 +1080,190 @@ final class QueueWindowPlayerTests: XCTestCase {
             "the first card on the left is where previous goes"
         )
     }
+
+    @MainActor
+    func testFullScanPruneRemovesStaleSongsFromQueueContinuationAndRememberedMemory() async throws {
+        let catalog = songs(5)
+        let otherSong = Song(
+            id: "other-1",
+            title: "Other Source Track",
+            duration: 180,
+            fileFormat: .flac,
+            filePath: "/other/1.flac",
+            sourceID: "other-source"
+        )
+        let player = try await makePlayer(librarySongs: catalog)
+        let library = try XCTUnwrap(player.library)
+        library.addSongs([otherSong], affectedSourceIDs: ["other-source"])
+        await library.waitForPendingIndex()
+
+        // Save a remembered music queue containing songs that will later disappear.
+        player.setQueue([catalog[0], catalog[1], catalog[2]], startAt: 0)
+        player.currentSong = catalog[0]
+        player.currentTime = 24
+        player.rememberCurrentMusicQueue()
+        XCTAssertEqual(player.musicSessionMemoryStore.memory?.snapshot.queueSongIDs, ["s0", "s1", "s2"])
+
+        // Install an active queue with a stale pre-existing song + continuation + other-source song.
+        let preExistingStale = Song(
+            id: "stale-ghost",
+            title: "Ghost",
+            duration: 180,
+            fileFormat: .flac,
+            filePath: "/music/ghost.flac",
+            sourceID: "local-source"
+        )
+        player.setQueue([preExistingStale, catalog[0], catalog[3], otherSong], startAt: 1)
+        player.stagePausedHandoff(song: catalog[0], at: 15)
+        player.setQueueContinuation(QueueContinuation(
+            requestedIDs: ["s0", "s1", "s3", "s4", "stale-ghost"],
+            window: 0..<2
+        ))
+
+        // Full scan of local-source keeps only s3 and s4 (prunes s0, s1, s2, plus sweeps stale-ghost).
+        library.addSongs(
+            [catalog[3], catalog[4]],
+            affectedSourceIDs: ["local-source"],
+            notifyRemovals: true,
+            pruneMissingSongs: true
+        )
+        await player.waitForLibraryReconciliation()
+
+        XCTAssertEqual(player.queue.map(\.id), ["s3", "other-1"])
+        XCTAssertEqual(player.currentSong?.id, "s3")
+        XCTAssertEqual(player.queueContinuation?.requestedIDs, ["s3", "s4"])
+        XCTAssertNil(player.musicSessionMemoryStore.memory, "Remembered queue whose songs were all removed must be cleared")
+
+        // Now prune all remaining local-source songs when only local-source songs remain in the queue:
+        // queue must stop and clear WITHOUT re-saving deleted songs into musicSessionMemoryStore.
+        player.setQueue([catalog[3], catalog[4]], startAt: 0)
+        player.stagePausedHandoff(song: catalog[3], at: 10)
+        library.addSongs(
+            [],
+            affectedSourceIDs: ["local-source"],
+            notifyRemovals: true,
+            pruneMissingSongs: true
+        )
+        await player.waitForLibraryReconciliation()
+
+        XCTAssertTrue(player.queue.isEmpty)
+        XCTAssertNil(player.currentSong)
+        XCTAssertNil(player.queueContinuation)
+        XCTAssertNil(player.musicSessionMemoryStore.memory)
+    }
+
+    @MainActor
+    func testServerFilePathRefreshPersistsPathAndBareMergePreservesServerPath() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ServerFilePathTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        cleanups.append { try? FileManager.default.removeItem(at: directory) }
+
+        let library = MusicLibrary(storageDirectory: directory)
+        await library.whenReady()
+        let source = MusicSource(
+            id: "srv-path-source",
+            name: "Navidrome",
+            type: .navidrome,
+            host: "music.example.com",
+            port: 443,
+            useSsl: true,
+            username: "tester"
+        )
+        let existing = Song(
+            id: "srv-song-1",
+            title: "Track One",
+            duration: 215,
+            fileFormat: .flac,
+            filePath: "/songs/42.flac",
+            sourceID: source.id,
+            bitRate: 1_024
+        )
+        library.addSongs([existing], affectedSourceIDs: [source.id])
+        await library.waitForPendingIndex()
+        XCTAssertNil(SongPathPresentationPolicy.displayPath(for: try XCTUnwrap(library.storedSong(id: existing.id)), sourceType: .navidrome))
+
+        // Bare-row merge with mergeServerCatalogRows: false must still adopt incoming serverFilePath.
+        let bareWithPath = Song(
+            id: existing.id,
+            title: existing.title,
+            duration: 0,
+            fileFormat: .flac,
+            filePath: existing.filePath,
+            sourceID: source.id,
+            serverFilePath: "42.flac"
+        )
+        library.addSongs([bareWithPath], affectedSourceIDs: [source.id], mergeServerCatalogRows: false)
+        XCTAssertEqual(library.storedSong(id: existing.id)?.serverFilePath, "42.flac")
+
+        // On-demand server path refresh upgrades bare filename to full server path and persists into MusicLibrary.
+        let manager = SourceManager(sourcesProvider: { [source] })
+        let stub = StubServerSongPathConnector(sourceID: source.id, resolvedPath: "/music/Artist/Album/01 - Track One.flac")
+        let resolved = await manager.refreshServerFilePath(
+            for: try XCTUnwrap(library.storedSong(id: existing.id)),
+            in: library,
+            source: source,
+            connectorOverride: stub
+        )
+        XCTAssertEqual(resolved, "/music/Artist/Album/01 - Track One.flac")
+        XCTAssertEqual(library.storedSong(id: existing.id)?.serverFilePath, "/music/Artist/Album/01 - Track One.flac")
+        let fetchCount = await stub.fetchCount
+        XCTAssertEqual(fetchCount, 1)
+
+        // Second call sees full path with "/" and skips network.
+        let cached = await manager.refreshServerFilePath(
+            for: try XCTUnwrap(library.storedSong(id: existing.id)),
+            in: library,
+            source: source,
+            connectorOverride: stub
+        )
+        XCTAssertEqual(cached, "/music/Artist/Album/01 - Track One.flac")
+        let fetchCountAfter = await stub.fetchCount
+        XCTAssertEqual(fetchCountAfter, 1)
+
+        // FnMusic /track/metadata extraction prefers audioSpec.path and rejects online tracks.
+        let fnPayload: [String: Any] = [
+            "track": ["guid": "g1", "filename": "01.flac", "is_online": false],
+            "audioSpec": ["path": "/vol1/1000/Music/Album/01.flac"],
+        ]
+        XCTAssertEqual(
+            FnMusicAPI.extractTrackServerFilePath(from: fnPayload, expectedGUID: "g1"),
+            "/vol1/1000/Music/Album/01.flac"
+        )
+        let fnOnlinePayload: [String: Any] = [
+            "track": ["guid": "g2", "is_online": true],
+            "audioSpec": ["path": "/vol1/1000/Music/Online.flac"],
+        ]
+        XCTAssertNil(FnMusicAPI.extractTrackServerFilePath(from: fnOnlinePayload, expectedGUID: "g2"))
+    }
+}
+
+private actor StubServerSongPathConnector: ServerSongPathProvidingConnector {
+    let sourceID: String
+    let resolvedPath: String?
+    private(set) var fetchCount = 0
+
+    init(sourceID: String, resolvedPath: String?) {
+        self.sourceID = sourceID
+        self.resolvedPath = resolvedPath
+    }
+
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+    func streamingURL(for path: String) async throws -> URL? { nil }
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data { Data() }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+    func imageURL(for path: String) async throws -> URL? { nil }
+
+    func fetchServerFilePath(for path: String) async throws -> String? {
+        fetchCount += 1
+        return resolvedPath
+    }
 }

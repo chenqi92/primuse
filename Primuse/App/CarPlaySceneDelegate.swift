@@ -264,7 +264,6 @@ final class CarPlaySceneDelegate: UIResponder {
     /// Currently visible queue page (if any). When the player advances, we
     /// patch its sections in place so the user sees the next track highlighted.
     private weak var openQueueTemplate: CPListTemplate?
-    private weak var openAudioInfoTemplate: CPListTemplate?
     private weak var openNowPlayingMoreTemplate: CPListTemplate?
 
     /// In-flight artwork-load tasks, keyed so each removes itself on completion.
@@ -436,7 +435,6 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             self.isNowPlayingTransitionInFlight = false
             self.navigationTransitionInFlight = false
             self.openQueueTemplate = nil
-            self.openAudioInfoTemplate = nil
             self.openNowPlayingMoreTemplate = nil
             self.cancelArtworkTasks()
             self.artworkUpdates.removeAll()
@@ -2365,7 +2363,11 @@ extension CarPlaySceneDelegate {
            songID != player.currentSong?.id || player.isLiveRadio || player.currentItemIsSpokenWord {
             controller.dismissTemplate(animated: true, completion: nil)
         }
-        openAudioInfoTemplate?.updateSections(audioInfoSections())
+        if let controller = interfaceController, let alert = controller.presentedTemplate as? CPAlertTemplate,
+           let context = alert.userInfo as? AudioQualityPopupContext,
+           context.songID != player.currentSong?.id || player.isLiveRadio {
+            controller.dismissTemplate(animated: true, completion: nil)
+        }
         openNowPlayingMoreTemplate?.updateSections(nowPlayingMoreSections())
     }
 
@@ -2611,32 +2613,86 @@ extension CarPlaySceneDelegate {
         }
     }
 
-    private func showAudioQuality() {
-        guard AppServices.shared.playerService.currentSong != nil else { return }
-        let template = CPListTemplate(title: String(localized: "carplay_top_audioInfo"), sections: audioInfoSections())
-        openAudioInfoTemplate = template
-        safePush(template, label: "AudioInfo")
+    struct AudioQualityPopupContext: Equatable {
+        let songID: String
     }
 
-    func audioInfoSections() -> [CPListSection] {
+    private func showAudioQuality() {
         let player = AppServices.shared.playerService
-        guard let song = player.currentSong else { return [] }
+        guard let song = player.currentSong,
+              !player.isLiveRadio,
+              let controller = interfaceController,
+              controller.presentedTemplate == nil else { return }
+        controller.presentTemplate(audioQualityPopupTemplate(for: song), animated: true, completion: nil)
+    }
+
+    func audioQualityPopupTemplate(
+        for song: Song,
+        sourcesStore: SourcesStore = AppServices.shared.sourcesStore,
+        sourceManager: SourceManager = AppServices.shared.sourceManager,
+        player: AudioPlayerService = AppServices.shared.playerService,
+        maximumActionCount: Int = Int(CPAlertTemplate.maximumActionCount)
+    ) -> CPAlertTemplate {
         let quality = CarPlayAudioQualityText(song: song, transcodePlan: player.activeTranscodePlan)
-        var specs = [CPListItem(text: String(localized: "carplay_audio_playing"), detailText: quality.details)]
-        if let original = quality.sourceDetails {
-            specs.append(CPListItem(text: String(localized: "carplay_audio_original"), detailText: original))
+        let outputRate: String?
+        if !player.isSystemAudioPlaybackActive, !player.isCastingMode {
+            outputRate = NowPlayingAudioInfoTextPolicy.output(
+                sourceSampleRate: nil,
+                outputSampleRate: player.audioEngine.observedOutputSampleRate
+            )?.rateText
+        } else {
+            outputRate = nil
         }
-        if !player.isSystemAudioPlaybackActive, !player.isCastingMode,
-           let output = NowPlayingAudioInfoTextPolicy.output(sourceSampleRate: nil, outputSampleRate: player.audioEngine.observedOutputSampleRate) {
-            specs.append(CPListItem(text: String(localized: "audio_output"), detailText: output.rateText))
+        let supportsSwitching: Bool
+        if !player.isLiveRadio,
+           !player.isSystemAudioPlaybackActive,
+           !player.isCastingMode,
+           let source = sourcesStore.source(id: song.sourceID) {
+            supportsSwitching = sourceManager.supportsUserAdaptiveStreamQuality(for: song, source: source)
+        } else {
+            supportsSwitching = false
         }
-        var track = [CPListItem(text: String(localized: "title_label"), detailText: song.title)]
-        for (key, value) in [("artist_label", song.artistName), ("album_label", song.albumTitle)] {
-            if let value, !value.isEmpty {
-                track.append(CPListItem(text: NSLocalizedString(key, comment: ""), detailText: value))
+        let labels = CarPlayAudioQualityPopupPolicy.Labels(
+            original: StreamQualityPreference.original.displayName,
+            kbps320: StreamQualityPreference.kbps320.displayName,
+            kbps256: StreamQualityPreference.kbps256.displayName,
+            kbps192: StreamQualityPreference.kbps192.displayName,
+            kbps128: StreamQualityPreference.kbps128.displayName,
+            ok: String(localized: "carplay_ok"),
+            originalFilePrefix: String(localized: "carplay_audio_original"),
+            outputPrefix: String(localized: "audio_output"),
+            fallbackTitle: String(localized: "carplay_top_audioInfo")
+        )
+        let presentation = CarPlayAudioQualityPopupPolicy.presentation(
+            quality: quality,
+            outputSampleRateText: outputRate,
+            supportsBitrateSwitching: supportsSwitching,
+            activePreference: player.activeStreamQualityPreference,
+            maximumActionCount: maximumActionCount,
+            labels: labels
+        )
+        let context = AudioQualityPopupContext(songID: song.id)
+        let actions = presentation.actions.map { spec in
+            CPAlertAction(title: spec.title, style: spec.isCancelStyle ? .cancel : .default) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, let controller = self.interfaceController else { return }
+                    if let presented = controller.presentedTemplate {
+                        guard let alert = presented as? CPAlertTemplate,
+                              alert.userInfo as? AudioQualityPopupContext == context else { return }
+                        do { try await controller.dismissTemplate(animated: true) } catch { return }
+                    }
+                    guard case .selectQuality(let preference) = spec.kind,
+                          self.interfaceController === controller,
+                          player.currentSong?.id == song.id,
+                          !player.isLiveRadio else { return }
+                    await player.applyStreamQualityPreference(preference)
+                    self.refreshNowPlayingButtons()
+                }
             }
         }
-        return [CPListSection(items: specs), CPListSection(items: track)]
+        let template = CPAlertTemplate(titleVariants: presentation.titleVariants, actions: actions)
+        template.userInfo = context
+        return template
     }
 
     private func performTopRightAction() {

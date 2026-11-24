@@ -2549,11 +2549,145 @@ extension AudioPlayerService {
         else { synchronizeAppleMusicQueue() }
         return insertionIndex
     }
+    func observeLibrarySongRemovals() {
+        let removedObserver = NotificationCenter.default.addObserver(
+            forName: .primuseSongsRemoved,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let senderID = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            let songIDs = (note.userInfo?["songIDs"] as? Set<String>) ?? {
+                let songs = (note.userInfo?["songs"] as? [Song]) ?? []
+                return Set(songs.map(\.id))
+            }()
+            guard !songIDs.isEmpty else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let senderID, let library = self.library, senderID != ObjectIdentifier(library) { return }
+                self.enqueueLibraryRemovalReconciliation(songIDs: songIDs)
+            }
+        }
+        let prunedObserver = NotificationCenter.default.addObserver(
+            forName: .primuseSourceCatalogPruned,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let senderID = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            let sourceIDs: Set<String>
+            if let set = note.userInfo?["sourceIDs"] as? Set<String> {
+                sourceIDs = set
+            } else if let list = note.userInfo?["sourceIDs"] as? [String] {
+                sourceIDs = Set(list)
+            } else {
+                return
+            }
+            guard !sourceIDs.isEmpty else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let senderID, let library = self.library, senderID != ObjectIdentifier(library) { return }
+                self.enqueueSourceCatalogPruneReconciliation(sourceIDs: sourceIDs)
+            }
+        }
+        libraryRemovalObservers.append(contentsOf: [removedObserver, prunedObserver])
+    }
+
+    func enqueueLibraryRemovalReconciliation(songIDs: Set<String>) {
+        guard !songIDs.isEmpty else { return }
+        pendingLibraryRemovalIDs.formUnion(songIDs)
+        scheduleLibraryReconciliationIfNeeded()
+    }
+
+    func enqueueSourceCatalogPruneReconciliation(sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        pendingPrunedSourceIDs.formUnion(sourceIDs)
+        scheduleLibraryReconciliationIfNeeded()
+    }
+
+    func waitForLibraryReconciliation() async {
+        while let task = libraryReconciliationTask {
+            await task.value
+        }
+    }
+
+    private func scheduleLibraryReconciliationIfNeeded() {
+        guard !isReconcilingLibraryRemovals else { return }
+        isReconcilingLibraryRemovals = true
+        libraryReconciliationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.isReconcilingLibraryRemovals = false
+                self.libraryReconciliationTask = nil
+                if !self.pendingLibraryRemovalIDs.isEmpty || !self.pendingPrunedSourceIDs.isEmpty {
+                    self.scheduleLibraryReconciliationIfNeeded()
+                }
+            }
+            while !self.pendingLibraryRemovalIDs.isEmpty || !self.pendingPrunedSourceIDs.isEmpty {
+                if !self.pendingLibraryRemovalIDs.isEmpty {
+                    let ids = self.pendingLibraryRemovalIDs
+                    self.pendingLibraryRemovalIDs.removeAll(keepingCapacity: true)
+                    await self.prepareQueueForRemovingSongs(withIDs: ids)
+                }
+                if !self.pendingPrunedSourceIDs.isEmpty {
+                    let sourceIDs = self.pendingPrunedSourceIDs
+                    self.pendingPrunedSourceIDs.removeAll(keepingCapacity: true)
+                    await self.reconcileQueueAfterSourcePrune(sourceIDs: sourceIDs)
+                }
+            }
+        }
+    }
+
+    /// Sweeps stale songs belonging to `sourceIDs` that no longer exist in `library`
+    /// after an authoritative full scan completes pruning.
+    func reconcileQueueAfterSourcePrune(sourceIDs: Set<String>) async {
+        guard !sourceIDs.isEmpty, let library, library.isReady else { return }
+        musicSessionMemoryStore.pruneStaleSongs(forSourceIDs: sourceIDs, library: library)
+        guard !isLiveRadio else { return }
+
+        func isStaleInPrunedSource(_ song: Song) -> Bool {
+            guard sourceIDs.contains(song.sourceID),
+                  !PodcastPlaybackSong.isEpisode(song),
+                  !isRadioPlaybackSong(song),
+                  !(song.sourceID == AppleMusicLibraryIdentity.sourceID
+                    && AppleMusicLibraryService.isCatalogItemID(song.filePath)) else {
+                return false
+            }
+            return library.storedSong(id: song.id) == nil
+        }
+
+        var staleIDs = Set(queueEntries.map(\.song).filter(isStaleInPrunedSource).map(\.id))
+        if let currentSong, isStaleInPrunedSource(currentSong) {
+            staleIDs.insert(currentSong.id)
+        }
+        if let continuation = queueContinuation,
+           currentSong.map(PodcastPlaybackSong.isEpisode) != true,
+           queueEntries.first.map({ PodcastPlaybackSong.isEpisode($0.song) }) != true,
+           continuation.musicSourceIDs == nil || !continuation.musicSourceIDs!.isDisjoint(with: sourceIDs) {
+            for id in continuation.requestedIDs where !id.hasPrefix(RadioStation.playbackSongIDPrefix)
+                && !PodcastIdentity.isEpisodeID(id)
+                && library.storedSong(id: id) == nil {
+                staleIDs.insert(id)
+            }
+        }
+        guard !staleIDs.isEmpty else { return }
+        await prepareQueueForRemovingSongs(withIDs: staleIDs)
+    }
+
     /// Remove every occurrence of the target songs from the canonical queue
     /// before their library records or source files disappear. If the active
     /// song is part of the batch, playback moves directly to a retained row;
     /// advancing only once can land on another song in the same deletion batch.
     func prepareQueueForRemovingSongs(withIDs songIDs: Set<String>) async {
+        guard !songIDs.isEmpty else { return }
+        musicSessionMemoryStore.removeSongs(withIDs: songIDs, resolveSong: { library?.storedSong(id: $0) })
+        if var continuation = queueContinuation {
+            let original = continuation
+            continuation.removeSongs(withIDs: songIDs)
+            if continuation != original {
+                setQueueContinuation(continuation.isExhausted || continuation.requestedIDs.isEmpty ? nil : continuation)
+            }
+        }
+        guard !isLiveRadio else { return }
+
         let plan = QueueBatchRemovalPolicy.plan(
             queueSongIDs: queueEntries.map(\.song.id),
             currentIndex: currentIndex,
@@ -2562,20 +2696,46 @@ extension AudioPlayerService {
         )
         guard plan.action != .unchanged else { return }
 
-        let retainedSongs = plan.retainedIndices.compactMap { index in
+        var retainedSongs = plan.retainedIndices.compactMap { index in
             queueEntries.indices.contains(index) ? queueEntries[index].song : nil
         }
-        switch plan.action {
+        var effectiveAction = plan.action
+        if retainedSongs.isEmpty, var continuation = queueContinuation, let library {
+            var refilled: [Song] = []
+            while refilled.count < QueueWindowPolicy.refillBatch {
+                let batch = continuation.takeNext(
+                    maxCount: QueueWindowPolicy.refillBatch,
+                    repeatsAll: repeatMode == .all
+                )
+                if batch.isEmpty { break }
+                for id in batch where !songIDs.contains(id) {
+                    if let song = library.storedSong(id: id) {
+                        refilled.append(song)
+                    }
+                }
+            }
+            setQueueContinuation(continuation.isExhausted || continuation.requestedIDs.isEmpty ? nil : continuation)
+            if !refilled.isEmpty {
+                retainedSongs = refilled
+                if case .stopAndClearQueue = effectiveAction {
+                    effectiveAction = .playReplacement(startAt: 0)
+                }
+            }
+        }
+
+        switch effectiveAction {
         case .unchanged:
             return
         case let .replaceQueue(startAt):
             if retainedSongs.isEmpty {
+                remembersMusicQueue = false
                 clearQueue()
             } else {
                 setQueue(retainedSongs, startAt: startAt, keepsContinuation: true)
             }
         case let .playReplacement(startAt):
             guard retainedSongs.indices.contains(startAt) else {
+                remembersMusicQueue = false
                 stop()
                 clearQueue()
                 return
@@ -2584,12 +2744,16 @@ extension AudioPlayerService {
                 setQueue(retainedSongs, startAt: startAt, keepsContinuation: true)
                 await play(song: retainedSongs[startAt])
             } else {
+                let wasRemembering = remembersMusicQueue
+                remembersMusicQueue = false
                 stop()
+                remembersMusicQueue = wasRemembering && retainedSongs.count > 1
                 setQueue(retainedSongs, startAt: startAt, keepsContinuation: true)
                 stagePausedHandoff(song: retainedSongs[startAt], at: 0)
                 persistPlaybackSession()
             }
         case .stopAndClearQueue:
+            remembersMusicQueue = false
             stop()
             clearQueue()
         }

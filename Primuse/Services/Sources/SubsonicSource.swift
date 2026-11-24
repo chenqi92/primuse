@@ -4352,3 +4352,14 @@ extension SubsonicSource: ServerAdminConnector {
         }
     }
 }
+
+extension SubsonicSource: ServerSongPathProvidingConnector {
+    func fetchServerFilePath(for path: String) async throws -> String? {
+        guard let id = songID(from: path) else { return nil }
+        try await connect()
+        let response: GetSongContainer = try await requestJSON("getSong", query: [
+            URLQueryItem(name: "id", value: id)
+        ])
+        return SongPathPresentationPolicy.providerPath(response.song?.path)
+    }
+}

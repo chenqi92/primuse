@@ -7679,7 +7679,11 @@ final class MusicLibrary {
                         merged.dateAdded = newSong.dateAdded
                     }
                     merged.serverPlayCount = newSong.serverPlayCount
-                    if mergeServerCatalogRows { merged.serverFilePath = newSong.serverFilePath }
+                    if mergeServerCatalogRows {
+                        merged.serverFilePath = newSong.serverFilePath
+                    } else if let serverFilePath = newSong.serverFilePath {
+                        merged.serverFilePath = serverFilePath
+                    }
                     if let libraryID = newSong.serverLibraryID { merged.serverLibraryID = libraryID }
                     // Always refresh revision — when the connector starts
                     // surfacing a fingerprint that wasn't there before
@@ -7815,14 +7819,26 @@ final class MusicLibrary {
         if notifyRemovals && !removedSongs.isEmpty {
             NotificationCenter.default.post(
                 name: .primuseSongsRemoved,
-                object: nil,
-                userInfo: ["songs": removedSongs]
+                object: self,
+                userInfo: [
+                    "songs": removedSongs,
+                    "songIDs": Set(removedSongs.map(\.id)),
+                    "sourceIDs": Array(sourceIDs),
+                ]
+            )
+        }
+        if notifyRemovals && pruneMissingSongs && !sourceIDs.isEmpty {
+            NotificationCenter.default.post(
+                name: .primuseSourceCatalogPruned,
+                object: self,
+                userInfo: ["sourceIDs": sourceIDs]
             )
         }
     }
 
     #if os(tvOS)
     struct ScanPruningRecovery {
+        fileprivate let sourceID: String
         fileprivate let songs: [Song]
         fileprivate let memberships: [String: [String]]
         fileprivate let playlistDates: [String: Date]
@@ -7847,6 +7863,7 @@ final class MusicLibrary {
             )
         }
         var recovery = ScanPruningRecovery(
+            sourceID: sourceID,
             songs: removed, memberships: playlistSongIDs,
             playlistDates: Dictionary(allPlaylists.map { ($0.id, $0.updatedAt) }, uniquingKeysWith: { first, _ in first }),
             recentIDs: recentPlaybackSongIDs, removedLocalSegments: removedLocalSegments
@@ -7949,9 +7966,22 @@ final class MusicLibrary {
     }
 
     func finishScanPruning(_ recovery: ScanPruningRecovery) {
-        guard !recovery.songs.isEmpty else { return }
-        NotificationCenter.default.post(name: .primuseSongsRemoved, object: nil,
-                                        userInfo: ["songs": recovery.songs])
+        if !recovery.songs.isEmpty {
+            NotificationCenter.default.post(
+                name: .primuseSongsRemoved,
+                object: self,
+                userInfo: [
+                    "songs": recovery.songs,
+                    "songIDs": Set(recovery.songs.map(\.id)),
+                    "sourceIDs": [recovery.sourceID],
+                ]
+            )
+        }
+        NotificationCenter.default.post(
+            name: .primuseSourceCatalogPruned,
+            object: self,
+            userInfo: ["sourceIDs": Set([recovery.sourceID])]
+        )
     }
     #endif
 
@@ -8586,7 +8616,7 @@ final class MusicLibrary {
         }
         NotificationCenter.default.post(
             name: .primuseSongsRemoved,
-            object: nil,
+            object: self,
             userInfo: userInfo
         )
     }
@@ -19456,6 +19486,9 @@ extension Notification.Name {
     /// complete re-scan no longer sees their source files. `userInfo["songs"]`
     /// is the removed `[Song]`; listeners drop audio/artwork/lyrics caches.
     static let primuseSongsRemoved = Notification.Name("primuse.songsRemoved")
+    /// Posted when an authoritative full scan completes pruning for one or more sources.
+    /// `userInfo["sourceIDs"]` is the `Set<String>` of pruned source IDs.
+    static let primuseSourceCatalogPruned = Notification.Name("primuse.sourceCatalogPruned")
     /// Posted in addition to `primuseSourcesDidChange` when a source is
     /// soft-deleted locally. CloudKitSyncService persists a tombstone payload
     /// so a reset cursor or fresh device cannot interpret absence as restore.

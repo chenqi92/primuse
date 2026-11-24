@@ -1532,8 +1532,6 @@ struct ContentView: View {
     @State private var nowPlayingPresentationID = UUID()
     @State private var batchSelectionActive = false
     @State private var carPlayEditorActive = false
-    @State private var pendingPlaybackRemovalIDs: Set<String> = []
-    @State private var isReconcilingPlaybackRemovals = false
     @State private var libraryDeepLink: LibraryDeepLink?
     @State private var minimalLibrarySection: LibrarySection?
     @State private var minimalDetailLedger =
@@ -2388,12 +2386,9 @@ struct ContentView: View {
         .serverCatalogRefreshFeedback()
         .smartNudges()
         .appleMusicSubscriptionOffer()
-        // Visibility and search revisions are presentation signals, not proof
-        // that a song was durably removed. Only the library's authoritative
-        // removal event is allowed to mutate active playback.
-        .background {
-            AuthoritativeSongRemovalObserver { songIDs in
-                enqueuePlaybackReconciliation(removing: songIDs)
+        .onChange(of: player.currentSong?.id) { oldID, newID in
+            if oldID != nil, newID == nil {
+                showNowPlaying = false
             }
         }
         // 播放页背景选了图时，没展开前先备好，点迷你条拉起来就是那张图，不先露出底色。
@@ -2800,47 +2795,6 @@ struct ContentView: View {
         showNowPlaying = true
     }
 
-    /// Serialize authoritative removal bursts so an awaited replacement start
-    /// cannot race a second library deletion. Partial scans and visibility
-    /// rebuilds never enter this path.
-    @MainActor
-    private func enqueuePlaybackReconciliation(removing songIDs: Set<String>) {
-        let action = PlaybackLibraryMutationPolicy.action(
-            queueSongIDs: player.queue.map(\.id),
-            currentSongID: player.currentSong?.id,
-            isLiveRadio: player.isLiveRadio,
-            event: .songsRemoved(songIDs)
-        )
-        guard case let .removeSongs(relevantSongIDs) = action else { return }
-
-        pendingPlaybackRemovalIDs.formUnion(relevantSongIDs)
-        guard !isReconcilingPlaybackRemovals else { return }
-        isReconcilingPlaybackRemovals = true
-
-        Task { @MainActor in
-            defer { isReconcilingPlaybackRemovals = false }
-            while !pendingPlaybackRemovalIDs.isEmpty {
-                let pendingIDs = pendingPlaybackRemovalIDs
-                pendingPlaybackRemovalIDs.removeAll(keepingCapacity: true)
-
-                let refreshedAction = PlaybackLibraryMutationPolicy.action(
-                    queueSongIDs: player.queue.map(\.id),
-                    currentSongID: player.currentSong?.id,
-                    isLiveRadio: player.isLiveRadio,
-                    event: .songsRemoved(pendingIDs)
-                )
-                guard case let .removeSongs(stillRelevantIDs) = refreshedAction else {
-                    continue
-                }
-                await player.prepareQueueForRemovingSongs(withIDs: stillRelevantIDs)
-            }
-
-            if player.currentSong == nil {
-                showNowPlaying = false
-            }
-        }
-    }
-
     private func openLibraryDeepLink(_ link: LibraryDeepLink) {
         selectTab(1)
         if navigationMode == .minimal,
@@ -2954,25 +2908,6 @@ private struct MinimalNavigationChromeLayout: Layout {
 
     private var clampedVisibility: CGFloat {
         min(max(visibility, 0), 1)
-    }
-}
-
-/// Bridges the library's durable removal contract into playback without
-/// observing transient visible-library snapshots.
-private struct AuthoritativeSongRemovalObserver: View {
-    let onSongsRemoved: @MainActor (Set<String>) -> Void
-
-    var body: some View {
-        Color.clear
-            .frame(width: 0, height: 0)
-            .onReceive(NotificationCenter.default.publisher(for: .primuseSongsRemoved)) { note in
-                let removedSongIDs = (note.userInfo?["songIDs"] as? Set<String>) ?? {
-                    let removedSongs = (note.userInfo?["songs"] as? [PrimuseKit.Song]) ?? []
-                    return Set(removedSongs.map(\.id))
-                }()
-                guard !removedSongIDs.isEmpty else { return }
-                onSongsRemoved(removedSongIDs)
-            }
     }
 }
 
