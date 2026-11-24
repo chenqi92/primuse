@@ -13,6 +13,7 @@
     scripts/check-crash-patterns.py --list       列出规则
     scripts/check-crash-patterns.py --self-test  用内置样例自检规则
     scripts/check-crash-patterns.py --binary PATH... 检查 Mach-O 的已知不兼容导入
+    scripts/check-crash-patterns.py --update-baseline 重写大曲库规则的棘轮基线(只应该变少)
 
 编译机的排队编译(primuse-ci)每次编译前跑一遍;仓库里没有这个脚本的老提交跳过。
 """
@@ -41,11 +42,18 @@ def strip_comment(line):
 # 规则
 
 RULES = {}
+RULE_PATHS = {}
+RATCHET_RULES = set()
 
 
-def rule(rule_id, summary, incident):
+def rule(rule_id, summary, incident, paths=None, ratchet=False):
+    """`paths`:只查这些文件(按仓库相对路径判断);`ratchet`:按文件记基线,超过基线才算命中。"""
     def register(function):
         RULES[rule_id] = (summary, incident, function)
+        if paths:
+            RULE_PATHS[rule_id] = paths
+        if ratchet:
+            RATCHET_RULES.add(rule_id)
         return function
     return register
 
@@ -214,6 +222,221 @@ def defaults_observer_main_queue(lines):
 
 
 # ---------------------------------------------------------------------------
+# 大曲库内存纪律(Docs/AGENTS.md「大曲库内存纪律」;PM-WSYJPC 方案 §6)。
+# 这四条在迁移期间是棘轮:现有命中按文件记在 scripts/library-scale-baseline.tsv,
+# 某个文件的命中数超过基线才算失败;降下来时提示收紧基线(--update-baseline)。
+# 只查产品代码,测试目录不查。
+
+TEST_PREFIXES = ("PrimuseTests/", "PrimuseTVTests/", "PrimuseMacTests/", "CarPlayEditorUITests/",
+                 "PrimuseKit/Tests/")
+CATALOG_PREFIX = "PrimuseKit/Sources/PrimuseKit/Catalog/"
+BASELINE_PATH = os.path.join(ROOT, "scripts", "library-scale-baseline.tsv")
+
+
+def product_code(path):
+    return not path.startswith(TEST_PREFIXES)
+
+
+STRING_LITERAL_RE = re.compile(r'"(?:[^"\\\n]|\\.)*"')
+
+
+_MEMO = {}
+
+
+def memoized(function):
+    """同一个文件的几条规则共用一次预处理(按 lines 对象认,只留最近一个文件)。"""
+    def wrapper(lines):
+        key = (function.__name__, id(lines))
+        cached = _MEMO.get(key)
+        if cached is None or cached[0] is not lines:
+            if len(_MEMO) > 8:
+                _MEMO.clear()
+            cached = (lines, list(function(lines)))
+            _MEMO[key] = cached
+        return cached[1]
+    return wrapper
+
+
+@memoized
+def code_only(lines):
+    """每行去掉字符串内容与注释;多行字符串整行置空。"""
+    result, in_multiline, in_block = [], False, False
+    for line in lines:
+        text = line
+        if in_multiline:
+            end = text.find('"""')
+            if end < 0:
+                result.append("")
+                continue
+            text, in_multiline = text[end + 3:], False
+        if in_block:
+            end = text.find("*/")
+            if end < 0:
+                result.append("")
+                continue
+            text, in_block = text[end + 2:], False
+        start = text.find('"""')
+        if start >= 0 and text.find('"""', start + 3) < 0:
+            text, in_multiline = text[:start], True
+        text = STRING_LITERAL_RE.sub('""', text)
+        text = strip_comment(text)
+        block = text.find("/*")
+        if block >= 0:
+            if text.find("*/", block) < 0:
+                in_block = True
+            text = text[:block]
+        result.append(text)
+    return result
+
+
+TYPE_HEADER_RE = re.compile(r"\b(class|struct|enum|actor|extension|protocol)\s+[A-Za-z_]")
+NOT_TYPE_HEADER_RE = re.compile(r"\b(func|init|deinit|var|let|subscript|get|set|didSet|willSet|return|in)\b|=")
+
+
+def scope_at_line_start(code):
+    """每行开头所在的作用域:'type'(类型体或文件顶层)或 'block'(函数、闭包、计算属性)。"""
+    kinds, stack, previous = [], [], ""
+    for line in code:
+        kinds.append(stack[-1] if stack else "type")
+        if "{" not in line and "}" not in line:
+            if line.strip():
+                previous = line
+            continue
+        segment_start = 0
+        for index, char in enumerate(line):
+            if char == "{":
+                header = line[segment_start:index]
+                if not header.strip() or re.match(r"^\s*(where\b|:|,)", header):
+                    header = previous + " " + header
+                if TYPE_HEADER_RE.search(header) and not NOT_TYPE_HEADER_RE.search(header):
+                    stack.append("type")
+                else:
+                    stack.append("block")
+                segment_start = index + 1
+            elif char == "}":
+                if stack:
+                    stack.pop()
+                segment_start = index + 1
+        if line.strip():
+            previous = line
+    return kinds
+
+
+DECLARATION_RE = re.compile(
+    r"^\s*(?:@[\w.]+(?:\([^)]*\))?\s+)*"
+    r"(?:(?:private|fileprivate|internal|public|open|package|static|class|final|nonisolated|lazy|weak|"
+    r"unowned|override|dynamic)(?:\([^)]*\))?\s+)*(?:var|let)\s+(\w+)\s*(:\s*[^=]+?)?\s*(=.*)?$")
+
+
+@memoized
+def stored_properties(lines):
+    """(行号, 名字, 类型文本, 初始值文本):类型体或顶层里的存储属性(计算属性不算)。"""
+    code = code_only(lines)
+    kinds = scope_at_line_start(code)
+    for index, line in enumerate(code):
+        if kinds[index] != "type":
+            continue
+        match = DECLARATION_RE.match(line)
+        if not match:
+            continue
+        name, annotation, initializer = match.group(1), (match.group(2) or ""), (match.group(3) or "")
+        type_text = annotation.lstrip(":").strip()
+        if "{" in type_text and not initializer:
+            # `var x: T { ... }` 是计算属性,除非块里是 didSet/willSet。
+            window = " ".join(code[index:index + 4])
+            if not re.search(r"\b(didSet|willSet)\b", window):
+                continue
+            type_text = type_text.split("{")[0].strip()
+        yield index + 1, name, type_text, initializer
+
+
+SONG = r"(?:PrimuseKit\.)?Song"
+SONG_COLLECTION_RE = re.compile(
+    r"^(?:\[" + SONG + r"\]|ContiguousArray<" + SONG + r">|Array<" + SONG + r">|Set<" + SONG + r">|"
+    r"\[String\s*:\s*" + SONG + r"\]|Dictionary<String,\s*" + SONG + r">)\??$")
+SONG_COLLECTION_INIT_RE = re.compile(
+    r"^=\s*(?:\[" + SONG + r"\]|ContiguousArray<" + SONG + r">|\[String\s*:\s*" + SONG + r"\])\(\)")
+
+
+SONG_TYPE_HINT_RE = re.compile(r"(?:\[|<|:\s*)(?:PrimuseKit\.)?Song\s*(?:\]|>)")
+
+
+@rule("library-array-property",
+      "存储属性握着整库规模的歌曲集合([Song]、[String: Song]、Set<Song>);曲库数据只能住在目录里,"
+      "内存里只留有界的窗口。确有上界的写 `// crash-pattern: allow library-array-property <上界与理由>`",
+      "PM-WSYJPC 50 万首挂起 617 MiB,曲库模型 394 MiB",
+      paths=product_code, ratchet=True)
+def library_array_property(lines):
+    if not SONG_TYPE_HINT_RE.search("\n".join(lines)):
+        return
+    for number, _, type_text, initializer in stored_properties(lines):
+        if SONG_COLLECTION_RE.match(type_text) or (not type_text and SONG_COLLECTION_INIT_RE.match(initializer)):
+            yield number
+
+
+SONG_ID_NAME_RE = re.compile(r"(?:songIDs|SongIDs|songIDSet|SongIDSet)")
+STRING_COLLECTION_RE = re.compile(r"^(?:Set<String>|\[String\]|ContiguousArray<String>|Array<String>|"
+                                  r"\[String\s*:|Dictionary<String,)")
+
+
+@rule("song-id-collection-property",
+      "名字带 songIDs 的存储属性是 id 集合或字典,容易长成整库规模;写明上界与理由:"
+      "`// crash-pattern: allow song-id-collection-property <上界与理由>`,整库范围改用目录行号列表",
+      "PM-WSYJPC 补全 9 套 ID 集合、TVStore 整库 id 缓存",
+      paths=product_code, ratchet=True)
+def song_id_collection_property(lines):
+    if not SONG_ID_NAME_RE.search("\n".join(lines)):
+        return
+    for number, name, type_text, _ in stored_properties(lines):
+        if SONG_ID_NAME_RE.search(name) and STRING_COLLECTION_RE.match(type_text):
+            yield number
+
+
+CATALOG_TABLES = ("song", "source", "album", "albumSourceStat", "artist", "songArtist", "songArtistLookup",
+                  "artistSourceStat", "albumArtistCredit", "genreName", "songGenre", "folder", "fileParent",
+                  "book", "songBook", "likedSong", "dislikedSong", "shuffleLink", "playlistEntry", "songStat",
+                  "songOffline", "songMaintenance", "catalogChange", "catalogMeta", "librarySongRecords")
+CATALOG_SQL_RE = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+(?:" + "|".join(CATALOG_TABLES) + r")\b")
+SQL_HINTS = ("FROM ", "JOIN ", "INTO ", "UPDATE ", "TABLE ")
+
+
+@rule("catalog-sql-outside-catalog",
+      "曲库目录(及旧歌曲库 librarySongRecords)的表只能由 PrimuseKit/Catalog 里的代码直接查;"
+      "别处经 LibraryCatalog / LibraryCatalogReader 的接口读写",
+      "PM-WSYJPC 方案 §6.2",
+      paths=lambda path: product_code(path) and not path.startswith(CATALOG_PREFIX), ratchet=True)
+def catalog_sql_outside_catalog(lines):
+    text = "\n".join(lines)
+    if not any(hint in text for hint in SQL_HINTS):
+        return
+    for number, line in enumerate(lines, 1):
+        if any(hint in line for hint in SQL_HINTS) and CATALOG_SQL_RE.search(strip_comment(line)):
+            yield number
+
+
+LEGACY_LIBRARY_NAMES = ("visibleSongs", "musicSongs", "spokenWordSongs", "ambientSongs", "musicVideoSongs",
+                        "localPodcastSongs", "visibleAlbums", "visibleArtists", "visibleAlbumArtists",
+                        "visibleGenres", "visibleSongLookup", "historySongLookup")
+LEGACY_LIBRARY_RE = re.compile(r"(?<![\w$])(?:" + "|".join(LEGACY_LIBRARY_NAMES) + r")(?![\w])"
+                               r"|\b(?:library|musicLibrary)\??\.songs\b")
+LEGACY_HINTS = LEGACY_LIBRARY_NAMES + (".songs",)
+
+
+@rule("legacy-library-api",
+      "整库数组接口(visibleSongs、musicSongs、library.songs、visibleSongLookup……)是要删掉的旧接口;"
+      "新代码经目录读(LibraryCatalogReader、LibraryListModel、按 id 取、计数)",
+      "PM-WSYJPC 方案 §6.2",
+      paths=product_code, ratchet=True)
+def legacy_library_api(lines):
+    text = "\n".join(lines)
+    if not any(hint in text for hint in LEGACY_HINTS):
+        return
+    for number, line in enumerate(code_only(lines), 1):
+        if any(hint in line for hint in LEGACY_HINTS) and LEGACY_LIBRARY_RE.search(line):
+            yield number
+
+
+# ---------------------------------------------------------------------------
 
 def allowed(rule_id, lines, number):
     for candidate in (lines[number - 1], lines[number - 2] if number >= 2 else ""):
@@ -227,6 +450,9 @@ def scan_text(path, text):
     lines = text.split("\n")
     findings = []
     for rule_id, (_, _, function) in RULES.items():
+        applies = RULE_PATHS.get(rule_id)
+        if applies and not applies(path):
+            continue
         for number in sorted(set(function(lines))):
             if not allowed(rule_id, lines, number):
                 findings.append(Finding(rule_id, path, number, lines[number - 1].strip()))
@@ -239,27 +465,92 @@ def tracked_swift_files():
     return [p for p in output.split("\0") if p and not p.startswith(SKIP_PREFIXES)]
 
 
-def run(paths):
+def repo_relative(path):
+    full = path if os.path.isabs(path) else os.path.join(ROOT, path)
+    return os.path.relpath(os.path.abspath(full), ROOT)
+
+
+def load_baseline():
+    baseline = {}
+    try:
+        with open(BASELINE_PATH, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.rstrip("\n")
+                if not line or line.startswith("#"):
+                    continue
+                rule_id, path, count = line.split("\t")
+                baseline[(rule_id, path)] = int(count)
+    except FileNotFoundError:
+        pass
+    return baseline
+
+
+def scan_paths(paths):
     findings = []
     for path in paths:
-        full = path if os.path.isabs(path) else os.path.join(ROOT, path)
+        relative = repo_relative(path)
         try:
-            with open(full, encoding="utf-8", errors="replace") as handle:
+            with open(os.path.join(ROOT, relative), encoding="utf-8", errors="replace") as handle:
                 text = handle.read()
         except OSError as error:
             print("读不了 %s: %s" % (path, error), file=sys.stderr)
-            return 2
-        findings.extend(scan_text(path, text))
+            return None
+        findings.extend(scan_text(relative, text))
+    return findings
+
+
+def ratchet_counts(findings):
+    counts = {}
     for finding in findings:
+        if finding.rule in RATCHET_RULES:
+            key = (finding.rule, finding.path)
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def run(paths):
+    findings = scan_paths(paths)
+    if findings is None:
+        return 2
+    baseline = load_baseline()
+    counts = ratchet_counts(findings)
+    over = {key for key, count in counts.items() if count > baseline.get(key, 0)}
+    reported = [f for f in findings if f.rule not in RATCHET_RULES or (f.rule, f.path) in over]
+    scanned = {repo_relative(p) for p in paths}
+    tighten = sorted(key for key, count in baseline.items()
+                     if key[1] in scanned and counts.get(key, 0) < count)
+    within = sum(count for key, count in counts.items() if key not in over)
+    for key in sorted(over):
+        print("%s: [%s] 基线 %d 处,现在 %d 处(新加的那几处改走目录接口;确有上界的写豁免理由)"
+              % (key[1], key[0], baseline.get(key, 0), counts[key]))
+    for finding in reported:
         print("%s:%d: [%s] %s" % (finding.path, finding.line, finding.rule, finding.text[:160]))
-    if findings:
+    if tighten:
+        print("可以收紧的棘轮基线 %d 项(scripts/check-crash-patterns.py --update-baseline):" % len(tighten))
+        for rule_id, path in tighten[:20]:
+            print("  %s %s %d → %d" % (rule_id, path, baseline[(rule_id, path)], counts.get((rule_id, path), 0)))
+    if reported:
         print()
-        for rule_id in sorted({f.rule for f in findings}):
+        for rule_id in sorted({f.rule for f in reported}):
             summary, incident, _ = RULES[rule_id]
             print("[%s] %s(来源:%s)" % (rule_id, summary, incident))
-        print("\n共 %d 处。确认安全的在同一行或上一行写 `// crash-pattern: allow <规则> <理由>`。" % len(findings))
+        print("\n共 %d 处。确认安全的在同一行或上一行写 `// crash-pattern: allow <规则> <理由>`。" % len(reported))
         return 1
-    print("check-crash-patterns: %d 个文件,没有命中" % len(paths))
+    print("check-crash-patterns: %d 个文件,没有命中(棘轮基线内 %d 处)" % (len(paths), within))
+    return 0
+
+
+def update_baseline():
+    findings = scan_paths(tracked_swift_files())
+    if findings is None:
+        return 2
+    counts = ratchet_counts(findings)
+    with open(BASELINE_PATH, "w", encoding="utf-8") as handle:
+        handle.write("# 大曲库内存纪律的棘轮基线:规则\t文件\t现有命中数。只许变少;"
+                     "由 scripts/check-crash-patterns.py --update-baseline 生成。\n")
+        for (rule_id, path), count in sorted(counts.items()):
+            handle.write("%s\t%s\t%d\n" % (rule_id, path, count))
+    print("写入 %s:%d 项,共 %d 处" % (os.path.relpath(BASELINE_PATH, ROOT), len(counts), sum(counts.values())))
     return 0
 
 
@@ -352,6 +643,30 @@ SELF_TEST = [
      "    center.addObserver(forName: name, object: nil, queue: nil) { _ in }", False),
     ("defaults-observer-main-queue", "addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: nil) { _ in }\n"
      "addObserver(forName: other, object: nil, queue: .main) { _ in }", False),
+    ("library-array-property", "final class Store {\n    private var songs: [Song] = []\n}", True),
+    ("library-array-property", "final class Store {\n    var cache: [String: Song] = [:]\n}", True),
+    ("library-array-property", "struct Page {\n    let songs: [Song]\n}", True),
+    ("library-array-property", "final class Store {\n    static var shared = [Song]()\n}", True),
+    ("library-array-property", "final class Store {\n    var songs: [Song] = [] {\n        didSet { refresh() }\n    }\n}", True),
+    ("library-array-property", "final class Store {\n    let sql = \"{\"\n    var songs: [Song] = []\n}", True),
+    ("library-array-property", "final class Store {\n    var songs: [Song] { library.window }\n}", False),
+    ("library-array-property", "func load() {\n    var songs: [Song] = []\n}", False),
+    ("library-array-property", "final class Store {\n    func make() -> [Song] {\n        let songs: [Song] = []\n"
+                               "        return songs\n    }\n}", False),
+    ("library-array-property", "final class Store {\n    // crash-pattern: allow library-array-property 至多 1000 首的播放窗口\n"
+                               "    var window: [Song] = []\n}", False),
+    ("song-id-collection-property", "final class Store {\n    private var likedSongIDs: Set<String> = []\n}", True),
+    ("song-id-collection-property", "final class Store {\n    var songIDsByAlbum: [String: [String]] = [:]\n}", True),
+    ("song-id-collection-property", "final class Store {\n    var songIDCount: Int = 0\n}", False),
+    ("song-id-collection-property", "func f() {\n    var songIDs: [String] = []\n}", False),
+    ("catalog-sql-outside-catalog", "let sql = \"SELECT id FROM song WHERE rowid = ?\"", True),
+    ("catalog-sql-outside-catalog", "let sql = \"SELECT payload FROM librarySongRecords\"", True),
+    ("catalog-sql-outside-catalog", "let sql = \"SELECT id FROM songMetadata\"", False),
+    ("legacy-library-api", "let count = library.musicSongs.count", True),
+    ("legacy-library-api", "let all = musicLibrary.songs", True),
+    ("legacy-library-api", "let version = library.visibleSongsVersion", False),
+    ("legacy-library-api", "let text = \"visibleSongs\"", False),
+    ("legacy-library-api", "// library.visibleSongs is gone", False),
     ("filehandle-legacy", "// crash-pattern: allow filehandle-legacy 只在测试里造异常\n"
                           "handle.closeFile()", False),
     ("filehandle-legacy", "handle.closeFile() // crash-pattern: allow filehandle-legacy", True),
@@ -365,6 +680,14 @@ def self_test():
         if bool(hits) != expected:
             failures += 1
             print("自检失败 [%s] 期望%s命中:\n%s\n" % (rule_id, "" if expected else "不", snippet))
+    scoped = [
+        ("catalog-sql-outside-catalog", "PrimuseKit/Sources/PrimuseKit/Catalog/Queries.swift", "let s = \"SELECT id FROM song\""),
+        ("legacy-library-api", "PrimuseTests/LibraryTests.swift", "let all = library.songs"),
+    ]
+    for rule_id, scoped_path, snippet in scoped:
+        if [f for f in scan_text(scoped_path, snippet) if f.rule == rule_id]:
+            failures += 1
+            print("自检失败 [%s] %s 不该查:\n%s\n" % (rule_id, scoped_path, snippet))
     import_cases = [
         ("0x0001 _$s10Foundation4DateV2leoiySbAC_ACtFZ (from Foundation) [weak-import]",
          ["$s10Foundation4DateV2leoiySbAC_ACtFZ"]),
@@ -377,7 +700,7 @@ def self_test():
         if incompatible_imports(output) != expected:
             failures += 1
             print("自检失败 [date-comparison-backdeployment]: %s" % output)
-    print("自检 %d 条,失败 %d 条" % (len(SELF_TEST) + len(import_cases), failures))
+    print("自检 %d 条,失败 %d 条" % (len(SELF_TEST) + len(scoped) + len(import_cases), failures))
     return 1 if failures else 0
 
 
@@ -390,6 +713,8 @@ def main(argv):
         return self_test()
     if argv[:1] == ["--binary"]:
         return check_binaries(argv[1:])
+    if argv[:1] == ["--update-baseline"]:
+        return update_baseline()
     return run(argv or tracked_swift_files())
 
 
