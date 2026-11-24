@@ -36,7 +36,8 @@ struct LibraryCatalogMirrorStatistics: Sendable, Equatable {
 struct LibraryCatalogMirrorEnvironment: Sendable {
     var catalogURL: URL
     var storeURL: URL
-    /// 启动后等这么久再开始(不跟冷启动抢资源)。有没做完的导入时用 `resumeDelay`。
+    /// 还没有目录文件(第一次迁移)时,启动后等这么久再开始(不跟冷启动抢资源)。已有目录直接打开;
+    /// 打开后发现上次没导完时等 `resumeDelay` 再续。
     var startDelay: Duration = .seconds(3)
     var resumeDelay: Duration = .seconds(1)
     var importBatchSize = LibraryScale.importBatchSize
@@ -46,7 +47,13 @@ struct LibraryCatalogMirrorEnvironment: Sendable {
     /// 校验请求最多等这么久(目录追上内存模型那一刻)。
     var verificationTimeout: Duration = .seconds(120)
     /// 主线程上问一次:此刻能不能做后台目录工作(没在滑、没有转场、App 在前台、温度正常、没在扫描)。
+    /// 只管整库的活:打开、迁移、对账、整库分组重建、补建排序索引。
     var interactionGate: @Sendable () async -> Bool = { true }
+    /// 增量写入(一次突变、一批扫描结果)只在用户正在滑的时候让一让,后台、扫描中、温度高时照样写,
+    /// 目录才跟得上内存模型(读目录的地方不读到旧值)。
+    var incrementalApplyGate: @Sendable () async -> Bool = { true }
+    /// 增量写入为滑动让路最多让这么久,之后照写(一批的耗时以 `applyChunkSize` 为界)。
+    var incrementalApplyMaximumPause: Duration = .seconds(1)
     var log: @Sendable (String) -> Void = { _ in }
     /// 测试:导入每写完一批调一次,返回 false 模拟进程在这里被杀。
     var importBatchHook: (@Sendable (LibraryCatalogImportProgress) -> Bool)?
@@ -57,7 +64,8 @@ struct LibraryCatalogMirrorEnvironment: Sendable {
 /// - 打开、首次迁移(从 `library-songs.sqlite` 可续导入 + 整库分组)、按需对账,都在后台串行队列上做,
 ///   滑动、转场时原地停下;
 /// - 每次写进 `library-songs.sqlite` 的增量按同样的顺序排进来,合并成有界的批写进目录,
-///   写完记下镜像到的旧库修订号(`mirror.storeRevision`),下次启动据此发现漂移;
+///   写完记下镜像到的旧库修订号(`mirror.storeRevision`),下次启动据此发现漂移。
+///   增量写入不等整库那道门(后台、扫描中照写),只为正在进行的滑动短暂让路;
 /// - 写失败只记日志,本次不再写,下次启动对账。永远不影响旧路径。
 final class LibraryCatalogMirror: @unchecked Sendable {
     enum Operation: Sendable {
@@ -109,6 +117,8 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     /// 目录的读写都在这条串行队列上同步执行(阻塞的 SQLite 工作不占 Swift 并发线程池)。
     private let workQueue = DispatchQueue(label: "com.primuse.library-catalog.mirror", qos: .utility)
     private let interaction = InteractionFlag()
+    /// 增量写入要不要让路(只看滑动)。
+    private let applyInteraction = InteractionFlag()
     /// 只在工作线程上(经 `perform` 串行)读写。
     private var progress = Progress()
 
@@ -299,7 +309,10 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     }
 
     private func run() async {
-        if environment.startDelay > .zero { try? await Task.sleep(for: environment.startDelay) }
+        // 迁移过的目录打开只要几十毫秒:直接开,读目录的地方从启动那一刻起就能用。
+        // 还没有目录(第一次迁移)才先等 `startDelay`,不跟冷启动抢资源;续导等 `resumeDelay`(见下)。
+        let catalogExisted = FileManager.default.fileExists(atPath: environment.catalogURL.path)
+        if !catalogExisted, environment.startDelay > .zero { try? await Task.sleep(for: environment.startDelay) }
         guard !isStopped else { return finishWorker() }
         await waitForGate()
         guard !isStopped else { return finishWorker() }
@@ -321,6 +334,11 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             state.catalog = catalog
             state.mirroredRevision = summary.2
         }
+        if catalogExisted, summary.0, environment.resumeDelay > .zero {
+            // 上次没导完:稍等再续,不跟冷启动抢资源。
+            try? await Task.sleep(for: environment.resumeDelay)
+            guard !isStopped else { return finishWorker() }
+        }
         environment.log(String(
             format: "📚 catalog open ms=%.0f import=%@ resync=%@ mirrored=%@",
             (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000,
@@ -329,10 +347,12 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             summary.2.map(String.init) ?? "none"
         ))
 
-        let watcher = Task.detached(priority: .utility) { [environment, interaction] in
+        let watcher = Task.detached(priority: .utility) { [environment, interaction, applyInteraction] in
             while !Task.isCancelled {
                 let allowed = await environment.interactionGate()
                 interaction.set(!allowed)
+                let applyAllowed = await environment.incrementalApplyGate()
+                applyInteraction.set(!applyAllowed)
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
@@ -531,6 +551,28 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         if isStopped { throw LibraryCatalogError.cancelled }
     }
 
+    /// 在工作队列上、可读期间的整库活两步之间调用:排着增量、或者已经停止时返回 true(先停下);
+    /// 整库那道门关着时原地等,其间来了增量也停下。
+    private func bulkWorkShouldYield() -> Bool {
+        while true {
+            if isStopped { return true }
+            if lock.withLock({ !state.operations.isEmpty || state.overflowed }) { return true }
+            if !interaction.isSet { return false }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+    }
+
+    /// 在工作队列上调用:增量写入前,用户正在滑就等一等,最多等 `incrementalApplyMaximumPause`。
+    /// 停止时抛 `cancelled`。
+    private func pauseForIncrementalApply() throws {
+        let deadline = ContinuousClock.now.advanced(by: environment.incrementalApplyMaximumPause)
+        while applyInteraction.isSet, ContinuousClock.now < deadline {
+            if isStopped { throw LibraryCatalogError.cancelled }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if isStopped { throw LibraryCatalogError.cancelled }
+    }
+
     private func perform<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             workQueue.async {
@@ -612,12 +654,13 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     }
 
     /// 补建迁移后留到后台的排序索引。每条一个写事务,用户在滑动时停在两条之间等;
+    /// 排进了增量就先停下,让循环先把增量写进目录,下次空闲再接着建。
     /// 建好返回 true,停下或目录拒绝(导入还没收尾)返回 false。
     private func runPendingSortIndexes(catalog: LibraryCatalog) throws -> Bool {
         let startedAt = ProcessInfo.processInfo.systemUptime
         environment.log("📚 catalog sortIndexes stage=begin")
         let done = try catalog.buildPendingSortIndexes(isCancelled: { [self] in
-            (try? pauseWhileInteracting()) == nil
+            bulkWorkShouldYield()
         })
         environment.log(String(
             format: "📚 catalog sortIndexes stage=%@ ms=%.0f", done ? "done" : "deferred",
@@ -787,7 +830,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         for group in groups {
             if !group.renaming.isEmpty {
                 // 先原地改名(与旧库同序:改名、删除、写入),改了名的行目录自己按新值重算派生。
-                try pauseWhileInteracting()
+                try pauseForIncrementalApply()
                 let summary = try catalog.apply(upserts: [], renaming: group.renaming)
                 if !summary.isEmpty { events(.applied(summary, touchedSourceIDs: [])) }
             }
@@ -795,7 +838,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             let upserts = group.orderedIDs.compactMap { group.songsByID[$0] }
             var deletionStart = 0
             while deletionStart < deletions.count {
-                try pauseWhileInteracting()
+                try pauseForIncrementalApply()
                 let end = min(deletions.count, deletionStart + environment.applyChunkSize)
                 let summary = try catalog.apply(upserts: [], deletingIDs: deletions[deletionStart..<end])
                 if !summary.isEmpty { events(.applied(summary, touchedSourceIDs: [])) }
@@ -803,7 +846,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             }
             var upsertStart = 0
             while upsertStart < upserts.count {
-                try pauseWhileInteracting()
+                try pauseForIncrementalApply()
                 let end = min(upserts.count, upsertStart + environment.applyChunkSize)
                 let chunk = Array(upserts[upsertStart..<end])
                 let summary = try catalog.apply(upserts: chunk)

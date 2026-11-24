@@ -14,7 +14,10 @@ enum LibraryCatalogMirroring: Sendable, Equatable {
 /// 目录的持有方(`MusicLibrary`):后台工作此刻能不能做、目录可读状态变了。
 @MainActor
 protocol LibraryCatalogOwner: AnyObject {
+    /// 整库的活(迁移、对账、整库重建)此刻能不能做。
     func catalogWorkAllowed() -> Bool
+    /// 增量写入此刻要不要为用户的滑动让一让(只看滑动)。
+    func catalogIncrementalApplyAllowed() -> Bool
     func catalogReadabilityDidChange(_ readable: Bool)
 }
 
@@ -27,6 +30,10 @@ final class LibraryCatalogOwnerLink {
 
     func workAllowed() -> Bool {
         owner?.catalogWorkAllowed() ?? false
+    }
+
+    func incrementalApplyAllowed() -> Bool {
+        owner?.catalogIncrementalApplyAllowed() ?? true
     }
 
     func readabilityDidChange(_ readable: Bool) {
@@ -58,6 +65,7 @@ final class LibraryCatalogHost {
         environment.resumeDelay = min(startDelay, .seconds(1))
         environment.log = log
         environment.interactionGate = { await link.workAllowed() }
+        environment.incrementalApplyGate = { await link.incrementalApplyAllowed() }
         let mirror = LibraryCatalogMirror(environment: environment) { relay.handle($0) }
         self.mirror = mirror
         self.reader = LibraryCatalogReader(catalog: { [weak mirror] in mirror?.readableCatalog }, rowCache: rowCache)

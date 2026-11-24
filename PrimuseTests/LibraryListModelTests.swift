@@ -14,6 +14,7 @@ final class LibraryListModelTests: XCTestCase {
     private final class AlwaysAllowedOwner: LibraryCatalogOwner {
         var readableChanges: [Bool] = []
         func catalogWorkAllowed() -> Bool { true }
+        func catalogIncrementalApplyAllowed() -> Bool { true }
         func catalogReadabilityDidChange(_ readable: Bool) { readableChanges.append(readable) }
     }
 

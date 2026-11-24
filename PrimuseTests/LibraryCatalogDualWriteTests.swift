@@ -26,13 +26,14 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
 
     private func makeLibrary(
         catalog: LibraryCatalogMirroring = .enabled(startDelay: .zero),
-        disabledSourceIDs: Set<String> = []
+        disabledSourceIDs: Set<String> = [],
+        maintenanceAllowed: @escaping @MainActor () -> Bool = { true }
     ) -> MusicLibrary {
         let library = MusicLibrary(
             disabledSourceIDs: disabledSourceIDs,
             storageDirectory: directory,
             artistNameConfiguration: .defaultValue,
-            deferredMaintenanceAllowed: { true },
+            deferredMaintenanceAllowed: maintenanceAllowed,
             catalogMirroring: catalog
         )
         library.catalogShadowModeOverride = .deep
@@ -125,6 +126,38 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         let catalog = try XCTUnwrap(library.catalogHost?.mirror.readableCatalog)
         XCTAssertEqual(try catalog.song(id: songs[1].id)?.lyricsText, "la la la")
         XCTAssertEqual(try catalog.song(id: songs[2].id)?.coverArtFileName, "blue-alt.jpg")
+    }
+
+    /// 迁移做完后,整库维护那道门关着(App 在后台、温度高)时,突变照样很快写进目录:
+    /// 读目录的地方不会读到旧值。
+    func testMutationsReachTheCatalogWhileBackgroundMaintenanceIsHeld() async throws {
+        let held = InteractionFlag()
+        let library = makeLibrary(maintenanceAllowed: { !held.isSet })
+        var songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "addSongs")
+
+        held.set()
+        // 让镜像的巡检读到关上的门(每 250 ms 问一次)。
+        try await Task.sleep(for: .milliseconds(600))
+        songs[0].title = "Edited While Held"
+        library.replaceSong(songs[0])
+        let fresh = Song(id: "held-fresh", title: "Added While Held", albumTitle: "Held", artistName: "Held Artist",
+                         fileFormat: .flac, filePath: "/Music/Held/01 Added.flac", sourceID: Self.sourceA)
+        library.addSongs([fresh], affectedSourceIDs: [Self.sourceA], notifyRemovals: false, pruneMissingSongs: false)
+        let catalog = try XCTUnwrap(library.catalogHost?.mirror.readableCatalog)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        var caughtUp = false
+        while ContinuousClock.now < deadline {
+            if try catalog.song(id: songs[0].id)?.title == "Edited While Held", try catalog.song(id: fresh.id) != nil {
+                caughtUp = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(caughtUp, "incremental writes must not wait for the background-maintenance gate")
+        held.set(false)
+        await assertShadowMatches(library, "after the held writes")
     }
 
     func testDeletesLocalRemovalsAndRestoresAreMirrored() async throws {

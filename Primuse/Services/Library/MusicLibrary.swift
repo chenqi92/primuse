@@ -19803,17 +19803,22 @@ extension MusicLibrary: LibraryCatalogOwner {
     /// 目录的后台工作(迁移、整库分组、对账、跟写)此刻能不能做:与延后的曲库维护同一道闸
     /// (前台、温度正常),外加没在滑动、没有转场。
     func catalogWorkAllowed() -> Bool {
+        catalogIncrementalApplyAllowed() && deferredMaintenanceAllowed()
+    }
+
+    /// 增量写入只为正在进行的滑动让路:后台、扫描中、温度高时照写,目录才跟得上内存模型。
+    func catalogIncrementalApplyAllowed() -> Bool {
         #if os(iOS) || os(macOS)
         let now = Date()
-        guard LibraryPublishTimingPolicy.isSettled(UserScrollActivityMonitor.shared.activity(now: now), now: now) else {
-            return false
-        }
+        return LibraryPublishTimingPolicy.isSettled(UserScrollActivityMonitor.shared.activity(now: now), now: now)
+        #else
+        return true
         #endif
-        return deferredMaintenanceAllowed()
     }
 
     func catalogReadabilityDidChange(_ readable: Bool) {
-        if readable { scheduleCatalogShadowVerification(reason: "catalog-ready") }
+        // 迁移过的目录在启动后一百来毫秒就可读:影子校验错开冷启动再做。
+        if readable { scheduleCatalogShadowVerification(reason: "catalog-ready", after: .seconds(5)) }
     }
 
     /// 曲库就绪后启动目录(打开、迁移都在后台)。重载(电视装快照)时不重复启动。
@@ -19867,14 +19872,17 @@ extension MusicLibrary: LibraryCatalogOwner {
     }
 
     /// 后台整库重建落地、目录迁移做完之后排一次影子校验;发版只做便宜的那种,有频率上限。
-    fileprivate func scheduleCatalogShadowVerification(reason: String) {
+    fileprivate func scheduleCatalogShadowVerification(reason: String, after delay: Duration = .zero) {
         guard catalogHost != nil, catalogStarted, isReady, catalogShadowTask == nil else { return }
         let mode = catalogShadowMode
         if catalogShadowModeOverride == nil, let last = catalogLastShadowAt[mode] {
             let interval: Duration = mode == .deep ? .seconds(600) : .seconds(120)
             guard ContinuousClock.now - last >= interval else { return }
         }
+        // 测试指定了校验方式时不等(测试自己等镜像空闲再比)。
+        let wait = catalogShadowModeOverride == nil ? delay : .zero
         catalogShadowTask = Task { @MainActor [weak self] in
+            if wait > .zero { try? await Task.sleep(for: wait) }
             _ = await self?.verifyCatalogShadow(reason: reason, mode: mode)
             self?.catalogShadowTask = nil
         }

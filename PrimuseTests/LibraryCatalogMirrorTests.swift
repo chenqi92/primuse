@@ -51,10 +51,17 @@ final class LibraryCatalogMirrorTests: XCTestCase {
         batchSize: Int = LibraryScale.importBatchSize,
         maximumQueuedSongs: Int = 50_000,
         hook: (@Sendable (LibraryCatalogImportProgress) -> Bool)? = nil,
+        bulkWorkBlocked: InteractionFlag? = nil,
+        scrolling: InteractionFlag? = nil,
+        maximumApplyPause: Duration = .seconds(1),
+        startDelay: Duration = .zero,
         events: @escaping @Sendable (LibraryCatalogMirrorEvent) -> Void = { _ in }
     ) -> LibraryCatalogMirror {
         var environment = LibraryCatalogMirrorEnvironment(catalogURL: catalogURL, storeURL: storeURL)
-        environment.startDelay = .zero
+        if let bulkWorkBlocked { environment.interactionGate = { !bulkWorkBlocked.isSet } }
+        if let scrolling { environment.incrementalApplyGate = { !scrolling.isSet } }
+        environment.incrementalApplyMaximumPause = maximumApplyPause
+        environment.startDelay = startDelay
         environment.resumeDelay = .zero
         environment.importBatchSize = batchSize
         environment.applyChunkSize = max(2, batchSize)
@@ -197,6 +204,87 @@ final class LibraryCatalogMirrorTests: XCTestCase {
     }
 
     // MARK: - Dual-write
+
+    /// 已经迁移过的目录不等启动延迟,打开就可读;只有第一次迁移才等。
+    func testMigratedCatalogOpensWithoutTheStartDelay() async throws {
+        let store = try IncrementalSongStore(path: storeURL.path)
+        try store.replaceAll(with: Self.makeSongs(6))
+        do {
+            let first = makeMirror(batchSize: 4)
+            first.start()
+            await first.waitUntilIdle()
+            XCTAssertNotNil(first.readableCatalog)
+            await first.stop()
+        }
+        let second = makeMirror(batchSize: 4, startDelay: .seconds(30))
+        second.start()
+        let startedAt = ContinuousClock.now
+        while second.readableCatalog == nil, ContinuousClock.now - startedAt < .seconds(5) {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertNotNil(second.readableCatalog, "a migrated catalog must not wait for the first-migration start delay")
+        await second.stop()
+    }
+
+    /// 迁移做完以后,整库那道门关着(App 在后台、温度高、扫描中)时增量照样写进目录。
+    func testIncrementalWritesDoNotWaitForTheBulkWorkGate() async throws {
+        let store = try IncrementalSongStore(path: storeURL.path)
+        try store.replaceAll(with: Self.makeSongs(6))
+        let blocked = InteractionFlag()
+        let mirror = makeMirror(batchSize: 4, bulkWorkBlocked: blocked)
+        mirror.start()
+        await mirror.waitUntilIdle()
+        XCTAssertNotNil(mirror.readableCatalog)
+
+        blocked.set()
+        // 让巡检读到新的门(每 250 ms 问一次)。
+        try await Task.sleep(for: .milliseconds(600))
+        var added = Self.makeSongs(1, prefix: "bg")[0]
+        added.title = "Written in the background"
+        let revision = try store.apply(upserts: [added], deletingIDs: [])
+        mirror.enqueueApply(upserts: [added], deletingIDs: [], storeRevision: revision)
+        let found = try await Self.waitForCatalog(mirror, timeout: .seconds(5)) { try $0.song(id: added.id) != nil }
+        XCTAssertTrue(found, "an incremental write must not wait for the bulk-work gate")
+        XCTAssertEqual(mirror.mirroredStoreRevision, revision)
+        await mirror.stop()
+    }
+
+    /// 用户正在滑时增量写入让一让,但最多让 `incrementalApplyMaximumPause`,之后照写。
+    func testIncrementalWritesYieldToScrollingOnlyUpToTheCap() async throws {
+        let store = try IncrementalSongStore(path: storeURL.path)
+        try store.replaceAll(with: Self.makeSongs(6))
+        let scrolling = InteractionFlag()
+        let mirror = makeMirror(batchSize: 4, scrolling: scrolling, maximumApplyPause: .milliseconds(1_500))
+        mirror.start()
+        await mirror.waitUntilIdle()
+
+        scrolling.set()
+        try await Task.sleep(for: .milliseconds(600))
+        let added = Self.makeSongs(1, prefix: "scroll")[0]
+        let revision = try store.apply(upserts: [added], deletingIDs: [])
+        let startedAt = ContinuousClock.now
+        mirror.enqueueApply(upserts: [added], deletingIDs: [], storeRevision: revision)
+        let early = try await Self.waitForCatalog(mirror, timeout: .milliseconds(700)) { try $0.song(id: added.id) != nil }
+        XCTAssertFalse(early, "the write waits while the user scrolls")
+        let found = try await Self.waitForCatalog(mirror, timeout: .seconds(5)) { try $0.song(id: added.id) != nil }
+        XCTAssertTrue(found, "the write lands after the pause cap even if scrolling continues")
+        XCTAssertLessThan(ContinuousClock.now - startedAt, .seconds(4))
+        await mirror.stop()
+    }
+
+    /// 轮询目录直到条件成立或超时。
+    private static func waitForCatalog(
+        _ mirror: LibraryCatalogMirror,
+        timeout: Duration,
+        _ condition: (LibraryCatalog) throws -> Bool
+    ) async throws -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if let catalog = mirror.readableCatalog, try condition(catalog) { return true }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
 
     func testIncrementalWritesKeepTheStoreOrderAcrossDeleteAndReinsert() async throws {
         let store = try IncrementalSongStore(path: storeURL.path)
