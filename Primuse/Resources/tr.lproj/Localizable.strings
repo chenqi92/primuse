@@ -5928,7 +5928,9 @@
 "podcast_episode_number_format" = "%lld. bölüm";
 "podcast_episode_order" = "Bölüm sırası";
 "podcast_error_empty" = "Sunucu hiçbir şey döndürmedi.";
+"podcast_error_feed_access_denied" = "Podcast barındırma hizmeti şu anda bu akışa erişim isteklerini reddediyor.";
 "podcast_error_http %lld" = "Sunucu bir hata döndürdü (HTTP %lld).";
+"podcast_error_malformed_feed" = "Podcast akışının biçimi geçersiz olduğu için akış okunamadı.";
 "podcast_error_not_a_feed" = "Bu adres bir podcast RSS akışı değil.";
 "podcast_error_not_in_directory" = "Bu program podcast dizininde bulunamadı.";
 "podcast_export_opml" = "Abonelikleri dışa aktar (OPML)";

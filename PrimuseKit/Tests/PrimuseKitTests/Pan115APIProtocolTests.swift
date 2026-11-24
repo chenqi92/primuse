@@ -174,6 +174,10 @@ struct Pan115FileUploadTests {
         #expect(request.url?.absoluteString == "https://fixture-bucket.oss-cn-shenzhen.aliyuncs.com/a%20b/key")
         #expect(request.value(forHTTPHeaderField: "Authorization") ==
             "OSS4-HMAC-SHA256 Credential=fixture-id/20240101/cn-shenzhen/oss/aliyun_v4_request,Signature=3c1d5b1b4d168e2c4fd2c14375d2b020e50a500241f7afa47a535c390ad9870b")
+        let sequentialInit = signer.request("POST", query: [("uploads", ""), ("sequential", "")], date: Date(timeIntervalSince1970: 1704067200))
+        #expect(sequentialInit.url?.query == "sequential&uploads")
+        let keyOrdered = signer.request("GET", query: [("a-b", "1"), ("a", "2")], date: Date(timeIntervalSince1970: 1704067200))
+        #expect(keyOrdered.url?.query == "a=2&a-b=1")
         var otherHost = credentials
         otherHost["endpoint"] = "https://oss-cn-shenzhen.aliyuncs.com.example.org"
         #expect(throws: (any Error).self) { try Pan115FileUpload.OSS(bucket: "fixture-bucket", key: "key", credentials: otherHost) }
@@ -201,7 +205,8 @@ struct Pan115FileUploadTests {
             let part = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "partNumber" }?.value
             var data = Data()
             var headers: [String: String] = [:]
-            if url.query == "uploads" {
+            if url.query == "sequential&uploads" {
+                #expect(request.httpMethod == "POST")
                 data = Data("<InitiateMultipartUploadResult><UploadId>abc</UploadId></InitiateMultipartUploadResult>".utf8)
             } else if let part, case .bytes(let bytes) = body {
                 await trace.part(Int(part)!, size: bytes.count)
@@ -225,9 +230,87 @@ struct Pan115FileUploadTests {
         }
     }
 
+    @Test func callbackResponsesSurface203AndProviderErrorsInsteadOfOpaqueBadServerResponse() throws {
+        let callbackFailedXML = Data("<Error><Code>CallbackFailed</Code><Message>timeout</Message></Error>".utf8)
+        do {
+            try Pan115FileUpload.validateCallbackResponse(callbackFailedXML, statusCode: 203)
+            Issue.record("HTTP 203 CallbackFailed must fail")
+        } catch let error as Pan115FileUpload.CallbackError {
+            #expect(error == .unexpectedResponse(
+                statusCode: 203,
+                ossCode: "CallbackFailed",
+                bodyPreview: "<Error><Code>CallbackFailed</Code><Message>timeout</Message></Error>"
+            ))
+            #expect(error.isRetryable)
+        }
+
+        let rateLimited = Data(#"{"state":false,"code":40140117,"message":"请求过于频繁"}"#.utf8)
+        do {
+            try Pan115FileUpload.validateCallbackResponse(rateLimited, statusCode: 200)
+            Issue.record("Rate-limited callback must fail")
+        } catch let error as Pan115FileUpload.CallbackError {
+            #expect(error == .rateLimited)
+            #expect(error.isRetryable)
+        }
+
+        let businessError = Data(#"{"state":false,"code":10002,"message":"校验文件失败"}"#.utf8)
+        do {
+            try Pan115FileUpload.validateCallbackResponse(businessError, statusCode: 200)
+            Issue.record("Provider callback error must fail")
+        } catch let error as Pan115FileUpload.CallbackError {
+            #expect(error == .providerFailure(code: 10002, message: "校验文件失败"))
+            #expect(!error.isRetryable)
+        }
+
+        let code200Payload = Data(#"{"code":200,"data":{"pick_code":"pc1","file_id":"1"}}"#.utf8)
+        try Pan115FileUpload.validateCallbackResponse(code200Payload, statusCode: 200)
+    }
+
+    @Test func arrayWrappedCallbackAndMultipartSTSRefreshSucceed() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("data".utf8).write(to: file)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.truncate(atOffset: 65 * 1024 * 1024)
+        try handle.close()
+        let fingerprint = try Pan115FileUpload.Fingerprint(file: file)
+        let trace = UploadTrace()
+        try await Pan115FileUpload.upload(file: file, fingerprint: fingerprint, parent: "0", name: "stage") { _ in
+            Data(#"{"status":1,"bucket":"fixture","object":"a/b","callback":[{"callback":"call","callback_var":"vars"}]}"#.utf8)
+        } credentials: {
+            let gen = await trace.nextCredentialGeneration()
+            return Data(#"[{"endpoint":"OSS-CN-SHENZHEN.ALIYUNCS.COM","AccessKeyId":"id","AccessKeySecret":"secret","SecurityToken":"sts-\#(gen)"}]"#.utf8)
+        } transfer: { request, body in
+            let url = try #require(request.url)
+            let part = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "partNumber" }?.value
+            if url.query == "sequential&uploads" {
+                #expect(request.httpMethod == "POST")
+                return (Data("<InitiateMultipartUploadResult><UploadId>abc</UploadId></InitiateMultipartUploadResult>".utf8),
+                        HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            if part == "2", request.value(forHTTPHeaderField: "x-oss-security-token") == "sts-1" {
+                let expired = Data("<Error><Code>SecurityTokenExpired</Code></Error>".utf8)
+                return (expired, HTTPURLResponse(url: url, statusCode: 403, httpVersion: nil, headerFields: nil)!)
+            }
+            if let part, case .bytes(let bytes) = body {
+                await trace.part(Int(part)!, size: bytes.count)
+                return (Data(), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                                                headerFields: ["ETag": "\"0123456789ABCDEF0123456789ABCDEF\""])!)
+            }
+            #expect(request.value(forHTTPHeaderField: "x-oss-security-token") == "sts-2")
+            await trace.complete()
+            return (Data(#"{"state":true}"#.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        #expect(await trace.completed)
+        #expect(await trace.credentialGenerations == 2)
+        #expect(await trace.parts == Array(1...9))
+    }
+
     private actor UploadTrace {
         var attempts = 0
         func nextAttempt() -> Int { attempts += 1; return attempts }
+        var credentialGenerations = 0
+        func nextCredentialGeneration() -> Int { credentialGenerations += 1; return credentialGenerations }
         var parts: [Int] = []
         var size = 0
         var completed = false

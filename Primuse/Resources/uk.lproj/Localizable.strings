@@ -5928,7 +5928,9 @@
 "podcast_episode_number_format" = "Вип. %lld";
 "podcast_episode_order" = "Порядок випусків";
 "podcast_error_empty" = "Сервер нічого не повернув.";
+"podcast_error_feed_access_denied" = "Сервер подкасту наразі відхиляє запити на доступ до цієї стрічки.";
 "podcast_error_http %lld" = "Сервер повернув помилку (HTTP %lld).";
+"podcast_error_malformed_feed" = "Не вдалося прочитати стрічку подкасту через помилку в її форматі.";
 "podcast_error_not_a_feed" = "Ця адреса — не RSS-стрічка подкасту.";
 "podcast_error_not_in_directory" = "Цей подкаст не знайдено в каталозі.";
 "podcast_export_opml" = "Експорт підписок (OPML)";

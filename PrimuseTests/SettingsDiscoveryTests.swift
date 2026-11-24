@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import PrimuseKit
 @testable import Primuse
 
@@ -93,6 +94,23 @@ private final class LyricsSettingsProbeCalls: @unchecked Sendable {
 }
 
 final class SettingsDiscoveryTests: XCTestCase {
+    @MainActor
+    func testHelpTextWrapsWhenThePopoverIsNarrowerThanItsPreferredWidth() throws {
+        let bubble = SettingsInfoBubble {
+            Text(verbatim: String(repeating: "跟着封面颜色流动的色场。", count: 8))
+        }
+        func renderedSize(width: CGFloat) throws -> CGSize {
+            let renderer = ImageRenderer(content: bubble)
+            renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+            return try XCTUnwrap(renderer.uiImage).size
+        }
+
+        let wide = try renderedSize(width: 320)
+        let narrow = try renderedSize(width: 240)
+        XCTAssertLessThanOrEqual(narrow.width, 240)
+        XCTAssertGreaterThan(narrow.height, wide.height)
+    }
+
     @MainActor
     func testStreamTranscodeFormatPersistsAndIsDiscoverable() throws {
         try withService { _, playback, defaults in

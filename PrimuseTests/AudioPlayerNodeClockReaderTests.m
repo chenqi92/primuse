@@ -137,4 +137,64 @@
     XCTAssertNotNil(error);
 }
 
+- (void)testRemovingTapOnUnattachedNodeIsContained {
+    AVAudioMixerNode *node = [[AVAudioMixerNode alloc] init];
+
+    XCTAssertFalse(PrimuseRemoveNodeTap(node, 0));
+}
+
+- (void)testRemovingTapAfterEngineDeallocationIsContained {
+    AVAudioMixerNode *orphanedNode = [[AVAudioMixerNode alloc] init];
+    @autoreleasepool {
+        AVAudioEngine *engine = [[AVAudioEngine alloc] init];
+        [engine attachNode:orphanedNode];
+        AVAudioFormat *format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:48000 channels:2];
+        [engine connect:orphanedNode to:engine.mainMixerNode format:format];
+        NSError *error = nil;
+        XCTAssertTrue(PrimuseInstallNodeTap(orphanedNode, 0, 1024, format, ^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
+            (void)buffer;
+            (void)when;
+        }, &error));
+        XCTAssertNil(error);
+    }
+
+    XCTAssertNil(orphanedNode.engine);
+    XCTAssertFalse(PrimuseRemoveNodeTap(orphanedNode, 0));
+}
+
+- (void)testInstallingTapOnUnattachedNodeIsContained {
+    AVAudioMixerNode *node = [[AVAudioMixerNode alloc] init];
+    AVAudioFormat *format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:48000 channels:2];
+    NSError *error = nil;
+
+    XCTAssertFalse(PrimuseInstallNodeTap(node, 0, 1024, format, ^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
+        (void)buffer;
+        (void)when;
+    }, &error));
+    XCTAssertNotNil(error);
+}
+
+- (void)testInstallingAndRemovingTapOnAttachedNodeSucceeds {
+    AVAudioEngine *engine = [[AVAudioEngine alloc] init];
+    AVAudioMixerNode *node = [[AVAudioMixerNode alloc] init];
+    [engine attachNode:node];
+    AVAudioFormat *format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:48000 channels:2];
+    [engine connect:node to:engine.mainMixerNode format:format];
+    NSError *error = nil;
+
+    XCTAssertTrue(PrimuseInstallNodeTap(node, 0, 1024, format, ^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
+        (void)buffer;
+        (void)when;
+    }, &error));
+    XCTAssertNil(error);
+
+    XCTAssertFalse(PrimuseInstallNodeTap(node, 0, 1024, format, ^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
+        (void)buffer;
+        (void)when;
+    }, &error));
+    XCTAssertNotNil(error);
+
+    XCTAssertTrue(PrimuseRemoveNodeTap(node, 0));
+}
+
 @end

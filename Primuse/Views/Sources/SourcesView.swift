@@ -135,23 +135,16 @@ struct SourceConnectionRouteStrip: View {
                 }
             }
             // 地址放得下就并排；放不下改成一条一行，长地址折行，不从中间截掉。
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 7) {
-                    ForEach(candidates) { candidate in
-                        routeSegment(candidate, wrapsAddress: false)
-                    }
-                }
-                VStack(spacing: 7) {
-                    ForEach(candidates) { candidate in
-                        routeSegment(candidate, wrapsAddress: true)
-                    }
+            SourceRouteCandidatesLayout(spacing: 7) {
+                ForEach(candidates) { candidate in
+                    routeSegment(candidate)
                 }
             }
         }
         .accessibilityElement(children: .contain)
     }
 
-    private func routeSegment(_ candidate: SourceConnectionCandidate, wrapsAddress: Bool) -> some View {
+    private func routeSegment(_ candidate: SourceConnectionCandidate) -> some View {
         let presentation = SourceConnectionRoutePresentationState.resolve(
             candidate: candidate.kind,
             active: activeKind,
@@ -187,9 +180,8 @@ struct SourceConnectionRouteStrip: View {
             Text(address(for: candidate))
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .lineLimit(wrapsAddress ? 3 : 1)
+                .lineLimit(3)
                 .truncationMode(.middle)
-                .fixedSize(horizontal: !wrapsAddress, vertical: false)
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 7)
@@ -211,6 +203,74 @@ struct SourceConnectionRouteStrip: View {
 
     private func address(for candidate: SourceConnectionCandidate) -> String {
         SourceConnectionRouteText.address(for: candidate, sourceType: source.type)
+    }
+}
+
+private struct SourceRouteCandidatesLayout: Layout {
+    var spacing: CGFloat = 7
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let availableWidth = proposal.width ?? .infinity
+        if let widths = horizontalWidths(for: subviews, availableWidth: availableWidth) {
+            let totalSpacing = spacing * CGFloat(max(0, subviews.count - 1))
+            var maxHeight: CGFloat = 0
+            for (subview, width) in zip(subviews, widths) {
+                let size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+                maxHeight = max(maxHeight, size.height)
+            }
+            let totalWidth = availableWidth.isFinite ? availableWidth : widths.reduce(0, +) + totalSpacing
+            return CGSize(width: totalWidth, height: maxHeight)
+        }
+        let cellProposal = ProposedViewSize(width: availableWidth.isFinite ? availableWidth : nil, height: nil)
+        var maxWidth: CGFloat = 0
+        var totalHeight = spacing * CGFloat(max(0, subviews.count - 1))
+        for subview in subviews {
+            let size = subview.sizeThatFits(cellProposal)
+            maxWidth = max(maxWidth, size.width)
+            totalHeight += size.height
+        }
+        return CGSize(width: availableWidth.isFinite ? availableWidth : maxWidth, height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        if let widths = horizontalWidths(for: subviews, availableWidth: bounds.width) {
+            var x = bounds.minX
+            for (subview, width) in zip(subviews, widths) {
+                subview.place(
+                    at: CGPoint(x: x, y: bounds.minY),
+                    proposal: ProposedViewSize(width: width, height: bounds.height)
+                )
+                x += width + spacing
+            }
+            return
+        }
+        let cellProposal = ProposedViewSize(width: bounds.width, height: nil)
+        var y = bounds.minY
+        for subview in subviews {
+            let size = subview.sizeThatFits(cellProposal)
+            subview.place(
+                at: CGPoint(x: bounds.minX, y: y),
+                proposal: ProposedViewSize(width: bounds.width, height: size.height)
+            )
+            y += size.height + spacing
+        }
+    }
+
+    private func horizontalWidths(for subviews: Subviews, availableWidth: CGFloat) -> [CGFloat]? {
+        let idealWidths = subviews.map { $0.sizeThatFits(.unspecified).width }
+        let totalSpacing = spacing * CGFloat(max(0, subviews.count - 1))
+        guard availableWidth.isFinite else { return idealWidths }
+        if subviews.count == 1 { return [availableWidth] }
+        let totalIdeal = idealWidths.reduce(0, +) + totalSpacing
+        guard totalIdeal <= availableWidth + 0.5 else { return nil }
+        let equalWidth = (availableWidth - totalSpacing) / CGFloat(subviews.count)
+        if idealWidths.allSatisfy({ $0 <= equalWidth + 0.5 }) {
+            return Array(repeating: equalWidth, count: subviews.count)
+        }
+        let extraPerCell = max(0, availableWidth - totalIdeal) / CGFloat(subviews.count)
+        return idealWidths.map { $0 + extraPerCell }
     }
 }
 

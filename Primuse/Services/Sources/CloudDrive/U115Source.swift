@@ -15,6 +15,7 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
     private var parentByPickCode: [String: String] = [:]
     private let helper: CloudDriveHelper
     private let tokenSession: URLSession
+    private let sleep: @Sendable (TimeInterval) async throws -> Void
 
     /// The playback identity is 115's pick_code, while recycle-bin deletion
     /// requires the numeric file id. Listing/downurl responses contain both;
@@ -32,11 +33,20 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
     /// 115 直链对 UA 敏感:换链(downurl)与下载必须是同一个 UA。
     private static let userAgent = Pan115APIProtocol.userAgent
 
-    init(sourceID: String, session: URLSession = .shared, requests: CloudRequestScheduler = .shared) {
+    init(
+        sourceID: String,
+        session: URLSession = .shared,
+        requests: CloudRequestScheduler = .shared,
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { interval in
+            guard interval > 0 else { return }
+            try await Task.sleep(for: .seconds(interval))
+        }
+    ) {
         self.sourceID = sourceID
         self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests, session: session,
                                       validateResponse: Self.checkForBlockedRequest)
         self.tokenSession = session
+        self.sleep = sleep
     }
 
     /// 115 的请求拦截页会返回 405。让同账号的请求一起等待，扫描可保留未读目录。
@@ -154,11 +164,14 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
         at path: String,
         confirmingPreviouslyObservedPaths paths: Set<String>
     ) async throws -> [RemoteFileItem] {
-        let first = try await listFiles(at: path)
+        func visible(_ items: [RemoteFileItem]) -> [RemoteFileItem] {
+            items.filter { $0.isDirectory || paths.contains($0.path) || !Self.isInternalStagingName($0.name) }
+        }
+        let first = visible(try await listFiles(at: path))
         let firstMissing = paths.subtracting(first.map(\.path))
         guard !firstMissing.isEmpty else { return first }
         try Task.checkCancellation()
-        let second = try await listFiles(at: path)
+        let second = visible(try await listFiles(at: path))
         let secondMissing = paths.subtracting(second.map(\.path))
         guard secondMissing.isEmpty || secondMissing == firstMissing else {
             throw SourceError.connectionFailed("115 directory changed while confirming removed files")
@@ -185,7 +198,9 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
     }
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
-        helper.scanAudioFiles(from: path) { [self] p in try await listFiles(at: p) }
+        helper.scanAudioFiles(from: path) { [self] p in
+            try await listFiles(at: p).filter { $0.isDirectory || !Self.isInternalStagingName($0.name) }
+        }
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
@@ -575,10 +590,17 @@ extension U115Source {
         return try await publish(file, name: context.file.name, parent: context.parent, original: context.file).path
     }
 
+    private static let uploadVisibilityDelays: [TimeInterval] = [0.5, 1.0, 2.0]
+    private static let callbackRecoveryDelays: [TimeInterval] = [1.0, 2.0]
+    private static let uploadRetryDelays: [TimeInterval] = [1.5, 3.0]
+    private static let renameVisibilityDelays: [TimeInterval] = [0.5, 1.0]
+
     private func uploadPayload(_ endpoint: String, form: [URLQueryItem]? = nil, parent: String) async throws -> Data {
         let json = try await apiRequest(URL(string: Self.apiBase + endpoint)!, method: form == nil ? "GET" : "POST",
                                         form: form, replay: form == nil ? .idempotent : .never, missingPath: parent)
-        guard let payload = json["data"] as? [String: Any] else { throw CloudDriveError.invalidResponse }
+        guard let payload = json["data"] as? [String: Any] ?? (json["data"] as? [[String: Any]])?.first else {
+            throw CloudDriveError.invalidResponse
+        }
         return try JSONSerialization.data(withJSONObject: payload)
     }
 
@@ -600,6 +622,67 @@ extension U115Source {
         }
     }
 
+    private static func classifyUploadFailure(
+        _ error: Error,
+        parent: String
+    ) -> (surfaced: Error, isRetryable: Bool, mayHaveCommitted: Bool, summary: String) {
+        if let callbackError = error as? Pan115FileUpload.CallbackError {
+            switch callbackError {
+            case .tokenExpired:
+                return (CloudDriveError.tokenExpired, false, false, "callback tokenExpired")
+            case .rateLimited:
+                return (HTTPResponseFailure(statusCode: 429, isRateLimited: true, isRetryable: true),
+                        true, false, "callback rateLimited")
+            case .notFound:
+                return (CloudDriveError.fileNotFound(parent), false, false, "callback notFound")
+            case .providerFailure(let code, let message):
+                let surfaced = CloudDriveError.apiError(code, message.isEmpty ? "115 upload callback failed" : message)
+                return (surfaced, callbackError.isRetryable, false,
+                        "callback code=\(code) message=\(message.prefix(120))")
+            case .unexpectedResponse(let statusCode, let ossCode, let bodyPreview):
+                let surfaced: Error
+                if statusCode != 200 {
+                    surfaced = HTTPResponseFailure(statusCode: statusCode, isRetryable: true)
+                } else if let ossCode, !ossCode.isEmpty {
+                    surfaced = CloudDriveError.apiError(statusCode, ossCode)
+                } else {
+                    surfaced = CloudDriveError.invalidResponse
+                }
+                return (surfaced, true, true,
+                        "callback unexpected status=\(statusCode) ossCode=\(ossCode ?? "-") body=\(bodyPreview.prefix(160))")
+            }
+        }
+        if let failure = error as? HTTPResponseFailure {
+            let retryable = failure.isRateLimitFailure
+                || failure.isRetryable == true
+                || CloudHTTPRetryPolicy.shouldRetry(statusCode: failure.statusCode)
+            let mayHaveCommitted = failure.statusCode == 203 || failure.statusCode == 408 || failure.statusCode >= 500
+            return (failure, retryable, mayHaveCommitted, "http status=\(failure.statusCode)")
+        }
+        if let urlError = error as? URLError {
+            let transient = CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: urlError.errorCode)
+                || urlError.code == .badServerResponse
+            return (urlError, transient, transient, "urlError code=\(urlError.errorCode)")
+        }
+        if case CloudDriveError.apiError(let code, let message) = error {
+            let lowered = message.lowercased()
+            let transient = code == 408 || code == 425 || code == 429 || (500...599).contains(code)
+                || ["繁忙", "超时", "重试", "稍后", "busy", "timeout", "try again", "temporarily"]
+                    .contains { lowered.contains($0) }
+            return (error, transient, false, "apiError code=\(code)")
+        }
+        return (error, false, false, String(describing: type(of: error)))
+    }
+
+    private static func uploadRetryDelay(for error: Error, defaultDelay: TimeInterval) -> TimeInterval {
+        if let failure = error as? HTTPResponseFailure,
+           let retryAfter = failure.retryAfter,
+           retryAfter.isFinite, retryAfter > 0 {
+            return min(retryAfter, 10)
+        }
+        return defaultDelay
+    }
+
     private func sameOriginal(_ candidates: [RemoteFileItem], as original: RemoteFileItem?) throws {
         if let original {
             guard candidates.count == 1, let found = candidates.first, found.path == original.path,
@@ -616,6 +699,34 @@ extension U115Source {
         return (old, new)
     }
 
+    private func renameFile(fileID: String, to newName: String, missingPath: String) async throws {
+        _ = try await apiRequest(
+            URL(string: Self.apiBase + "/ufile/update")!,
+            method: "POST",
+            form: [.init(name: "file_id", value: fileID), .init(name: "file_name", value: newName)],
+            replay: .never,
+            missingPath: missingPath
+        )
+    }
+
+    private func confirmListing(
+        at parent: String,
+        allowLagRetry: Bool,
+        matches: ([RemoteFileItem]) -> Bool
+    ) async throws -> [RemoteFileItem] {
+        let delays = allowLagRetry ? Self.renameVisibilityDelays : []
+        var latest: [RemoteFileItem] = []
+        for index in 0...delays.count {
+            if index > 0 {
+                try await sleep(delays[index - 1])
+                try Task.checkCancellation()
+            }
+            latest = try await listFiles(at: parent)
+            if matches(latest) { return latest }
+        }
+        return latest
+    }
+
     private func recycle(_ item: RemoteFileItem, parent: String) async throws {
         guard item.parentPath == parent, let id = item.providerID else { throw CloudDriveError.invalidResponse }
         _ = try await apiRequest(URL(string: Self.apiBase + "/ufile/delete")!, method: "POST",
@@ -626,18 +737,136 @@ extension U115Source {
         parentByPickCode[item.path] = nil
     }
 
-    /// 115 can keep multiple files with the same name. Publish a verified new ID alongside
-    /// the old one, then retire only the original ID after checking its revision again.
+    private func recycleLeftoverStages(
+        in items: [RemoteFileItem],
+        names: [String],
+        excludingPath: String?,
+        original: RemoteFileItem?,
+        parent: String,
+        fingerprint: Pan115FileUpload.Fingerprint
+    ) async {
+        let nameSet = Set(names)
+        for item in items where !item.isDirectory && nameSet.contains(item.name) &&
+            item.path != excludingPath && item.path != original?.path && item.providerID != original?.providerID &&
+            item.size == fingerprint.size && item.revision?.uppercased() == fingerprint.sha1 {
+            try? await recycle(item, parent: parent)
+        }
+    }
+
+    private func rollbackPublish(
+        parent: String,
+        name: String,
+        stage: RemoteFileItem,
+        stageID: String,
+        stageName: String,
+        attemptedStageNames: [String],
+        original: RemoteFileItem?,
+        backupName: String,
+        fingerprint: Pan115FileUpload.Fingerprint
+    ) async -> RemoteFileItem? {
+        func matchesBytes(_ item: RemoteFileItem) -> Bool {
+            !item.isDirectory && item.size == fingerprint.size && item.revision?.uppercased() == fingerprint.sha1
+        }
+        guard let current = try? await listFiles(at: parent) else { return nil }
+        let ownStage = current.first(where: {
+            $0.providerID == stageID && $0.path == stage.path &&
+            ($0.name == stageName || $0.name == name) && matchesBytes($0)
+        })
+
+        if let original, let originalID = original.providerID {
+            let currentOriginal = current.first(where: { $0.providerID == originalID && $0.path == original.path })
+            if let currentOriginal, currentOriginal.name == backupName {
+                if let ownStage, ownStage.name == name {
+                    // Free the target name before restoring the original (115 rejects duplicate names on rename).
+                    try? await renameFile(fileID: stageID, to: stageName, missingPath: stage.path)
+                }
+                try? await renameFile(fileID: originalID, to: name, missingPath: original.path)
+                guard let after = try? await listFiles(at: parent) else { return nil }
+                if after.contains(where: { $0.providerID == originalID && $0.path == original.path && $0.name == name }) {
+                    await recycleLeftoverStages(in: after, names: attemptedStageNames, excludingPath: nil,
+                                                original: original, parent: parent, fingerprint: fingerprint)
+                    return nil
+                }
+                // Keep the verified replacement reachable if the original could not be moved back.
+                if let published = after.first(where: {
+                    $0.providerID == stageID && $0.path == stage.path && $0.name == name && matchesBytes($0)
+                }) {
+                    return published
+                }
+                return nil
+            }
+            if currentOriginal?.name == name {
+                await recycleLeftoverStages(in: current, names: attemptedStageNames, excludingPath: nil,
+                                            original: original, parent: parent, fingerprint: fingerprint)
+                if let ownStage, ownStage.name != name, !attemptedStageNames.contains(ownStage.name) {
+                    try? await recycle(ownStage, parent: parent)
+                }
+            }
+            return nil
+        }
+
+        await recycleLeftoverStages(in: current, names: attemptedStageNames, excludingPath: nil,
+                                    original: nil, parent: parent, fingerprint: fingerprint)
+        if let ownStage, !attemptedStageNames.contains(ownStage.name) {
+            try? await recycle(ownStage, parent: parent)
+        }
+        return nil
+    }
+
+    private static let stageNamePrefix = "primuse-stage-"
+    private static let backupNamePrefix = "primuse-old-"
+
+    /// 115's `/open/ufile/update` silently keeps a file's original extension even when
+    /// `file_name` specifies a different one. Temporary stage and backup names must preserve
+    /// the target file's exact extension so renames into place and rollbacks keep the real suffix.
+    static func temporarySiblingName(
+        prefix: String,
+        matching targetName: String,
+        token: String = UUID().uuidString
+    ) -> String {
+        let ext = (targetName as NSString).pathExtension
+        guard !ext.isEmpty else { return prefix + token }
+        return prefix + token + "." + ext
+    }
+
+    static func isInternalStagingName(_ name: String) -> Bool {
+        let base = (name as NSString).deletingPathExtension
+        let uuidText: Substring
+        if base.hasPrefix(stageNamePrefix) {
+            uuidText = base.dropFirst(stageNamePrefix.count)
+        } else if base.hasPrefix(backupNamePrefix) {
+            uuidText = base.dropFirst(backupNamePrefix.count)
+        } else {
+            return false
+        }
+        return UUID(uuidString: String(uuidText)) != nil
+    }
+
+    /// 115's `/open/ufile/update` rejects renaming onto an existing sibling name with code 20004
+    /// and silently ignores extension changes. Stage and verify the replacement under a unique
+    /// same-extension name, move the original aside to a same-extension backup name, rename the
+    /// replacement into place, and only then recycle the original.
     private func publish(_ file: URL, name: String, parent: String, original: RemoteFileItem?,
                          verifyBytes: Data? = nil) async throws -> RemoteFileItem {
         let fingerprint = try await Task.detached(priority: .utility) { try Pan115FileUpload.Fingerprint(file: file) }.value
-        let stageName = "primuse-" + UUID().uuidString + ".tmp"
+        let backupName = Self.temporarySiblingName(prefix: Self.backupNamePrefix, matching: original?.name ?? name)
         func matchesBytes(_ item: RemoteFileItem) -> Bool {
             !item.isDirectory && item.size == fingerprint.size && item.revision?.uppercased() == fingerprint.sha1
         }
         func named(_ items: [RemoteFileItem]) -> [RemoteFileItem] {
             items.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
         }
+        func findStaged(in items: [RemoteFileItem], names: [String]) -> (item: RemoteFileItem, name: String)? {
+            for candidate in names.reversed() {
+                let matches = items.filter { $0.name == candidate && matchesBytes($0) }
+                if matches.count == 1, let item = matches.first, let id = item.providerID,
+                   !id.isEmpty, item.path != original?.path, id != original?.providerID {
+                    return (item, candidate)
+                }
+            }
+            return nil
+        }
+
         try sameOriginal(named(try await listFiles(at: parent)), as: original)
         if let original, matchesBytes(original) {
             if let verifyBytes {
@@ -647,17 +876,69 @@ extension U115Source {
             return original
         }
 
-        // A lost callback can follow a successful upload. The unique stage name and
-        // exact digest let us recover it without submitting the upload a second time.
-        var uploadFailure: Error?
-        do { try await upload(file, fingerprint: fingerprint, name: stageName, parent: parent) }
-        catch { uploadFailure = error }
-        var listing = try await listFiles(at: parent)
-        let staged = listing.filter { $0.name == stageName && matchesBytes($0) }
-        guard staged.count == 1, let stage = staged.first, let stageID = stage.providerID,
-              stage.path != original?.path, stageID != original?.providerID else {
-            throw uploadFailure ?? EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        // A lost/timed-out OSS callback (HTTP 203) or post-upload listing lag can follow an
+        // upload that 115 still commits. Poll the unique stage name before retrying the upload.
+        var attemptedStageNames: [String] = []
+        var foundStage: (item: RemoteFileItem, name: String)?
+        var listing: [RemoteFileItem] = []
+        let maxUploadAttempts = 1 + Self.uploadRetryDelays.count
+
+        uploadLoop: for attempt in 0..<maxUploadAttempts {
+            try Task.checkCancellation()
+            let candidateName = Self.temporarySiblingName(prefix: Self.stageNamePrefix, matching: name)
+            attemptedStageNames.append(candidateName)
+            var rawFailure: Error?
+            do {
+                try await upload(file, fingerprint: fingerprint, name: candidateName, parent: parent)
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) { throw error }
+                rawFailure = error
+            }
+
+            let classified = rawFailure.map { Self.classifyUploadFailure($0, parent: parent) }
+            let pollDelays: [TimeInterval]
+            if classified == nil {
+                pollDelays = Self.uploadVisibilityDelays
+            } else if classified?.mayHaveCommitted == true {
+                pollDelays = Self.callbackRecoveryDelays
+            } else {
+                pollDelays = []
+            }
+
+            for pollIndex in 0...pollDelays.count {
+                if pollIndex > 0 {
+                    try await sleep(pollDelays[pollIndex - 1])
+                    try Task.checkCancellation()
+                }
+                listing = try await listFiles(at: parent)
+                if let matched = findStaged(in: listing, names: attemptedStageNames) {
+                    foundStage = matched
+                    break uploadLoop
+                }
+            }
+
+            if let classified {
+                plog("⚠️ 115 upload attempt \(attempt + 1)/\(maxUploadAttempts) failed retryable=\(classified.isRetryable): \(classified.summary)")
+                if classified.isRetryable, attempt < Self.uploadRetryDelays.count {
+                    let delay = Self.uploadRetryDelay(for: classified.surfaced, defaultDelay: Self.uploadRetryDelays[attempt])
+                    try await sleep(delay)
+                    continue
+                }
+                throw classified.surfaced
+            } else if attempt < Self.uploadRetryDelays.count {
+                plog("⚠️ 115 uploaded stage missing from directory listing after polling; retrying upload \(attempt + 2)/\(maxUploadAttempts)")
+                try await sleep(Self.uploadRetryDelays[attempt])
+                continue
+            } else {
+                throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+            }
         }
+
+        guard let foundStage, let stageID = foundStage.item.providerID else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        let stage = foundStage.item
+        let stageName = foundStage.name
         var retirementStarted = false
         do {
             if let verifyBytes {
@@ -666,18 +947,47 @@ extension U115Source {
             }
             try sameOriginal(named(listing), as: original)
             try Task.checkCancellation()
+
+            if let original {
+                guard let originalID = original.providerID, !originalID.isEmpty else {
+                    throw CloudDriveError.invalidResponse
+                }
+                var backupFailure: Error?
+                do {
+                    try await renameFile(fileID: originalID, to: backupName, missingPath: original.path)
+                } catch { backupFailure = error }
+                listing = try await confirmListing(at: parent, allowLagRetry: backupFailure == nil) { items in
+                    items.contains(where: { $0.providerID == originalID && $0.path == original.path && $0.name == backupName })
+                }
+                guard listing.contains(where: {
+                    $0.providerID == originalID && $0.path == original.path && $0.name == backupName
+                }) else {
+                    throw backupFailure ?? EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+                }
+                guard named(listing).isEmpty else {
+                    throw EmbeddedMetadataWritebackSourceError.conflict
+                }
+            }
+
+            try Task.checkCancellation()
             var renameFailure: Error?
             do {
-                _ = try await apiRequest(URL(string: Self.apiBase + "/ufile/update")!, method: "POST",
-                                         form: [.init(name: "file_id", value: stageID), .init(name: "file_name", value: name)],
-                                         replay: .never, missingPath: stage.path)
+                try await renameFile(fileID: stageID, to: name, missingPath: stage.path)
             } catch { renameFailure = error }
-            listing = try await listFiles(at: parent)
-            guard let result = listing.first(where: { $0.providerID == stageID && $0.path == stage.path &&
-                $0.name == name && matchesBytes($0) }) else {
+            listing = try await confirmListing(at: parent, allowLagRetry: renameFailure == nil) { items in
+                items.contains(where: {
+                    $0.providerID == stageID && $0.path == stage.path && $0.name == name && matchesBytes($0)
+                })
+            }
+            guard let result = listing.first(where: {
+                $0.providerID == stageID && $0.path == stage.path && $0.name == name && matchesBytes($0)
+            }) else {
                 throw renameFailure ?? EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
             }
-            try sameOriginal(named(listing).filter { $0.path != result.path }, as: original)
+            guard named(listing).count == 1 else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+
             if let original {
                 try Task.checkCancellation()
                 retirementStarted = true
@@ -686,7 +996,10 @@ extension U115Source {
                 catch { removalFailure = error }
                 let remaining: [RemoteFileItem]
                 do {
-                    remaining = try await listFiles(at: parent, confirmingPreviouslyObservedPaths: removalFailure == nil ? [result.path] : [result.path, original.path])
+                    remaining = try await listFiles(
+                        at: parent,
+                        confirmingPreviouslyObservedPaths: removalFailure == nil ? [result.path] : [result.path, original.path]
+                    )
                 } catch {
                     throw EmbeddedMetadataReplacementReadbackError(filePath: result.path, fileSize: result.size,
                                                                   detail: error.localizedDescription)
@@ -701,14 +1014,38 @@ extension U115Source {
                     throw EmbeddedMetadataReplacementReadbackError(filePath: result.path, fileSize: result.size,
                         detail: EmbeddedMetadataWritebackSourceError.remoteVerificationFailed.localizedDescription)
                 }
+                if attemptedStageNames.count > 1 {
+                    await recycleLeftoverStages(in: remaining, names: attemptedStageNames, excludingPath: result.path,
+                                                original: original, parent: parent, fingerprint: fingerprint)
+                }
+            } else if attemptedStageNames.count > 1 {
+                await recycleLeftoverStages(in: listing, names: attemptedStageNames, excludingPath: result.path,
+                                            original: nil, parent: parent, fingerprint: fingerprint)
             }
             return result
         } catch {
-            if !retirementStarted, let current = try? await listFiles(at: parent),
-               let own = current.first(where: { $0.providerID == stageID && $0.path == stage.path &&
-                   ($0.name == stageName || $0.name == name) && matchesBytes($0) }),
-               original == nil || current.contains(where: { $0.path == original?.path }) {
-                try? await recycle(own, parent: parent)
+            guard !(error is EmbeddedMetadataReplacementReadbackError) else { throw error }
+            if !retirementStarted {
+                let publishedReplacement = await Task { [self] () -> RemoteFileItem? in
+                    await self.rollbackPublish(
+                        parent: parent,
+                        name: name,
+                        stage: stage,
+                        stageID: stageID,
+                        stageName: stageName,
+                        attemptedStageNames: attemptedStageNames,
+                        original: original,
+                        backupName: backupName,
+                        fingerprint: fingerprint
+                    )
+                }.value
+                if let publishedReplacement {
+                    throw EmbeddedMetadataReplacementReadbackError(
+                        filePath: publishedReplacement.path,
+                        fileSize: publishedReplacement.size,
+                        detail: error.localizedDescription
+                    )
+                }
             }
             throw error
         }

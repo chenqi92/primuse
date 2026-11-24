@@ -945,7 +945,7 @@ private enum OfflineDownloadTransferResult: Sendable {
 private struct OfflineDownloadTaskRecord {
     let id: UUID
     let task: Task<OfflineDownloadTransferResult, Never>
-    var requesterIDs: Set<UUID>
+    var requestsOfflineCopy: [UUID: Bool]
     let refreshDisposition: AutomaticOfflineRefreshDisposition
     let artifactSignature: String?
 }
@@ -3644,7 +3644,7 @@ final class SourceManager {
         let modified: Date?
         let bytes: Int64
     }
-    @ObservationIgnored private var editorTagRead: (key: EditorTagReadKey, task: Task<Data, Error>, started: Date)?
+    @ObservationIgnored private var editorTagRead: (key: EditorTagReadKey, id: UUID, task: Task<Data, Error>, expires: Date?)?
 
     private enum PlaybackAudioCacheReservationMode: Equatable {
         case readOnly
@@ -7988,7 +7988,6 @@ final class SourceManager {
         if song.isDiscImageTrack { return try? await resolveURL(for: song) }
         if let cached = cachedURL(for: song) { return cached }
 
-        let wasPinned = offlineAudioSnapshot(for: song).state == .pinned
         let target = cacheURL(for: song)
         let partialPath = target.path + ".partial"
         let streamEpoch = CloudPlaybackSource.streamEpochTicket(
@@ -8003,19 +8002,10 @@ final class SourceManager {
             ticket: streamEpoch
         ) else { return nil }
 
-        // 拖动要的是原文件, 这次临时下载不转精简副本。
-        let result = await downloadForOfflineBatch(songs: [song], compactsAfterPin: false)
-        guard result.succeeded else { return nil }
-
-        // Seeking is normal playback cache behavior, not an explicit offline
-        // pin. Preserve a user's pre-existing pin, otherwise return the file
-        // to the ordinary LRU-managed cache after the shared downloader exits.
-        if !wasPinned {
-            let relativePath = audioCacheRelativePath(for: song)
-            await AudioCacheManager.shared.unpin(path: relativePath)
-            await refreshOfflineAudioSnapshot(for: song)
-        }
-        // 取消临时固定会移除 Downloads 路径，必须重新解析普通缓存中的文件。
+        guard song.isPlayable, song.sourceID != AppleMusicLibraryIdentity.sourceID,
+              await waitForReachableNetwork(), !Task.isCancelled else { return nil }
+        let result = await downloadOfflineBatchSong(song, pinIntent: nil, compactsAfterPin: false)
+        guard !Task.isCancelled, result.snapshot.isAvailableLocally else { return nil }
         return cachedURL(for: song)
     }
 
@@ -9024,13 +9014,14 @@ final class SourceManager {
     /// 不算一次尝试, 等网络回来从断点接着下。
     private func downloadOfflineBatchSong(
         _ song: Song,
+        pinIntent: OfflineDownloadPinIntent? = .manual,
         compactsAfterPin: Bool
     ) async -> OfflineDownloadSongResult {
         var attempt = 1
         var networkRetries = 0
         var result = await waitForOfflineDownload(
             song,
-            pinIntent: .manual,
+            pinIntent: pinIntent,
             compactsAfterPin: compactsAfterPin
         )
         while case .failed(let kind, _, let category) = result, !Task.isCancelled {
@@ -9062,7 +9053,7 @@ final class SourceManager {
             }
             result = await waitForOfflineDownload(
                 song,
-                pinIntent: .manual,
+                pinIntent: pinIntent,
                 compactsAfterPin: compactsAfterPin
             )
         }
@@ -9483,11 +9474,10 @@ final class SourceManager {
         }
     }
 
-    /// - Parameter compactsAfterPin: 固定之后按「离线缓存音质」转成精简副本。
-    ///   只有拖动时临时整曲物化(随后就取消固定)传 false。
+    /// 播放恢复只需要普通缓存，不请求离线副本；同时加入的离线请求仍可独立固定文件。
     private func waitForOfflineDownload(
         _ song: Song,
-        pinIntent: OfflineDownloadPinIntent,
+        pinIntent: OfflineDownloadPinIntent?,
         refreshDisposition: AutomaticOfflineRefreshDisposition = .none,
         artifactSignature: String? = nil,
         compactsAfterPin: Bool = true
@@ -9506,13 +9496,14 @@ final class SourceManager {
         }
         let handle = offlineDownloadTask(
             for: song,
+            requestsOfflineCopy: pinIntent != nil,
             refreshDisposition: refreshDisposition,
             artifactSignature: artifactSignature
         )
         return await withTaskCancellationHandler {
             let result = await handle.task.value
             guard !Task.isCancelled else { return .cancelled }
-            if case .completed(let byteCount) = result {
+            if let pinIntent, case .completed(let byteCount) = result {
                 guard await applyOfflinePin(
                     pinIntent,
                     song: song,
@@ -9538,6 +9529,7 @@ final class SourceManager {
 
     private func offlineDownloadTask(
         for song: Song,
+        requestsOfflineCopy: Bool,
         refreshDisposition: AutomaticOfflineRefreshDisposition = .none,
         artifactSignature: String? = nil
     ) -> OfflineDownloadTaskHandle {
@@ -9576,7 +9568,7 @@ final class SourceManager {
                     taskKey: taskKey
                 )
             }
-            record.requesterIDs.insert(requesterID)
+            record.requestsOfflineCopy[requesterID] = requestsOfflineCopy
             offlineDownloadTasks[taskKey] = record
             plog("↩️ Offline: join existing download '\(song.title)'")
             return OfflineDownloadTaskHandle(
@@ -9591,10 +9583,12 @@ final class SourceManager {
             guard let self else { return .cancelled }
             let result = await self.performOfflineDownload(
                 song,
-                refreshDisposition: refreshDisposition
+                refreshDisposition: refreshDisposition,
+                offlineRunID: runID
             )
+            let requestedOffline = self.hasOfflineCopyRequest(path: taskKey, runID: runID)
             self.finishOfflineDownloadTask(taskKey: taskKey, runID: runID)
-            if case .completed = result {
+            if requestedOffline, case .completed = result {
                 self.cacheOfflineCompanions(for: song)
             }
             return result
@@ -9602,7 +9596,7 @@ final class SourceManager {
         offlineDownloadTasks[taskKey] = OfflineDownloadTaskRecord(
             id: runID,
             task: task,
-            requesterIDs: [requesterID],
+            requestsOfflineCopy: [requesterID: requestsOfflineCopy],
             refreshDisposition: refreshDisposition,
             artifactSignature: artifactSignature
         )
@@ -9618,13 +9612,18 @@ final class SourceManager {
         requesterID: UUID
     ) {
         guard var record = offlineDownloadTasks[taskKey] else { return }
-        record.requesterIDs.remove(requesterID)
-        guard !record.requesterIDs.isEmpty else {
+        record.requestsOfflineCopy.removeValue(forKey: requesterID)
+        guard !record.requestsOfflineCopy.isEmpty else {
             record.task.cancel()
             offlineDownloadTasks[taskKey] = nil
             return
         }
         offlineDownloadTasks[taskKey] = record
+    }
+
+    private func hasOfflineCopyRequest(path: String, runID: UUID?) -> Bool {
+        guard let runID, let record = offlineDownloadTasks[path], record.id == runID else { return false }
+        return record.requestsOfflineCopy.values.contains(true)
     }
 
     private func applyOfflinePin(
@@ -10476,7 +10475,8 @@ final class SourceManager {
     /// 离线下载单独存放、不计入缓存上限, 这里的传输只受手机剩余空间约束。
     private func performOfflineDownload(
         _ song: Song,
-        refreshDisposition: AutomaticOfflineRefreshDisposition = .none
+        refreshDisposition: AutomaticOfflineRefreshDisposition = .none,
+        offlineRunID: UUID? = nil
     ) async -> OfflineDownloadTransferResult {
         let startedAt = Date()
         let relativePath = audioCacheRelativePath(for: song)
@@ -10524,6 +10524,8 @@ final class SourceManager {
             }
         }
 
+        let previousSnapshot = offlineAudioSnapshots[song.id]
+        let previousFailure = previousSnapshot.flatMap { $0.state == .failed ? $0 : nil } ?? .notCached
         setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
             state: .downloading,
             progress: 0,
@@ -10779,19 +10781,27 @@ final class SourceManager {
                     song: song,
                     canonicalTarget: canonicalTarget,
                     refreshDisposition: refreshDisposition,
-                    errorMessage: nil
+                    fallback: previousFailure
                 )
                 plog(String(format: "↩️ Offline download cancelled for '%@' after %.1fs", song.title, Date().timeIntervalSince(startedAt)))
                 return .cancelled
             }
             let partial = URL(fileURLWithPath: target.path + ".offline")
             let partialSize = byteSize(at: partial)
+            let failureSnapshot: OfflineAudioCacheSnapshot
+            if hasOfflineCopyRequest(path: relativePath, runID: offlineRunID) {
+                failureSnapshot = OfflineAudioCacheSnapshot(
+                    state: .failed, progress: nil, byteCount: partialSize > 0 ? partialSize : nil,
+                    errorMessage: error.localizedDescription
+                )
+            } else {
+                failureSnapshot = previousFailure
+            }
             await restoreUsableSnapshotAfterRefreshFailure(
                 song: song,
                 canonicalTarget: canonicalTarget,
                 refreshDisposition: refreshDisposition,
-                errorMessage: error.localizedDescription,
-                partialSize: partialSize
+                fallback: failureSnapshot
             )
             plog(String(format: "⚠️ Offline download failed for '%@' after %.1fs partial=%lldKB: %@", song.title, Date().timeIntervalSince(startedAt), partialSize / 1024, error.localizedDescription))
             let failureKind = AutomaticOfflineFailureClassifier.classify(error)
@@ -10811,35 +10821,30 @@ final class SourceManager {
         song: Song,
         canonicalTarget: URL,
         refreshDisposition: AutomaticOfflineRefreshDisposition,
-        errorMessage: String?,
-        partialSize: Int64 = 0
+        fallback: OfflineAudioCacheSnapshot
     ) async {
+        guard offlineAudioSnapshots[song.id]?.isDownloading == true else { return }
         let relativePath = audioCacheRelativePath(for: song)
-        if refreshDisposition == .preserveExisting,
+        if refreshDisposition == .preserveExisting || (refreshDisposition == .none && fallback.state == .notCached),
            let existing = Self.usableCacheArtifactURL(
                at: canonicalTarget,
-               expectedSize: 0,
-               preservesExisting: true
+               expectedSize: song.fileSize,
+               preservesExisting: refreshDisposition == .preserveExisting
            ) {
+            let version = offlineAudioSnapshotVersions[song.id]
             let size = fileSize(at: existing)
             let snapshot = await AudioCacheManager.shared.snapshot(
                 path: relativePath,
                 fileExists: true,
                 byteCount: size
             )
-            setOfflineAudioSnapshot(snapshot, for: song.id)
-            return
+            guard offlineAudioSnapshotVersions[song.id] == version else { return }
+            if snapshot.isAvailableLocally {
+                setOfflineAudioSnapshot(snapshot, for: song.id)
+                return
+            }
         }
-        if errorMessage == nil {
-            setOfflineAudioSnapshot(.notCached, for: song.id)
-        } else {
-            setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
-                state: .failed,
-                progress: nil,
-                byteCount: partialSize > 0 ? partialSize : nil,
-                errorMessage: errorMessage
-            ), for: song.id)
-        }
+        setOfflineAudioSnapshot(fallback, for: song.id)
     }
 
     private func downloadOfflineByRanges(
@@ -14998,7 +15003,7 @@ final class SourceManager {
     /// canonical cache and the temporary files used with caching off.
     private func streamingSessionPartialPaths(for song: Song) -> [String] {
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
-        return [cacheURL(for: song).path + ".partial"]
+        return [audioCacheTargetURL(for: song).path + ".partial"]
             + ["primuse-stream", "primuse-http"].map {
                 tempDir.appendingPathComponent("\($0)-\(song.id)").path + ".partial"
             }
@@ -16792,53 +16797,97 @@ final class SourceManager {
     /// Returns the original media locally, or just its complete tags from a file source.
     /// The editor uses these bytes for inspection; replacements always reopen the guarded source.
     func editorEmbeddedFileData(for song: Song) async throws -> Data {
+        try await editorEmbeddedFile(for: song, refreshFromSource: false).data
+    }
+
+    func editorEmbeddedPictures(
+        for song: Song, in library: MusicLibrary, store: MetadataAssetStore = .shared
+    ) async throws -> [EmbeddedPictureArchive.Picture] {
+        let epoch = CloudPlaybackSource.streamEpochTicket(sourceID: song.sourceID)
+        let file = try await editorEmbeddedFile(for: song, refreshFromSource: true)
+        try Task.checkCancellation()
+        let pictures = try await Task.detached(priority: .utility) {
+            try EmbeddedPictureArchive.pictures(in: file.data, format: song.fileFormat)
+        }.value
+        try Task.checkCancellation()
+        guard CloudPlaybackSource.isStreamEpochTicketCurrent(sourceID: song.sourceID, ticket: epoch) else {
+            throw CancellationError()
+        }
+        if let front = pictures.first(where: { $0.role == 3 }) ?? pictures.first {
+            await library.installEmbeddedCover(front.data, for: song, refreshingEmbedded: file.fromSource, store: store)
+        }
+        return pictures
+    }
+
+    private func editorEmbeddedFile(for song: Song, refreshFromSource: Bool) async throws -> (data: Data, fromSource: Bool) {
         guard !song.isCueTrack, !song.isStreamDescriptor, [.mp3, .flac, .m4a, .alac].contains(song.fileFormat),
               let source = try await sourcesProvider().first(where: { $0.id == song.sourceID && $0.isEnabled && !$0.isDeleted }),
               source.type == .local || source.type.supportsEmbeddedMetadataBackfill else {
             throw EmbeddedMetadataWritebackSourceError.unsupported
         }
-        var localURL = await directLocalFileURL(for: song)
-        if localURL == nil { localURL = await cachedURLForBackgroundRead(for: song) }
-        if let localURL {
-            return try await Task.detached(priority: .utility) { try Data(contentsOf: localURL, options: .mappedIfSafe) }.value
+        func mapped(_ url: URL) async throws -> Data {
+            try await Task.detached(priority: .utility) { try Data(contentsOf: url, options: .mappedIfSafe) }.value
         }
+        if let original = await directLocalFileURL(for: song) { return (try await mapped(original), true) }
+        let cached = await cachedURLForBackgroundRead(for: song)
+        if let cached, !refreshFromSource || deviceIsOffline { return (try await mapped(cached), false) }
+        do {
+            return (try await remoteEditorTagData(for: song, source: source, refreshFromSource: refreshFromSource), true)
+        } catch {
+            try Task.checkCancellation()
+            guard let cached else { throw error }
+            return (try await mapped(cached), false)
+        }
+    }
+
+    private func remoteEditorTagData(for song: Song, source: MusicSource, refreshFromSource: Bool) async throws -> Data {
         let key = EditorTagReadKey(songID: song.id, path: song.filePath, scope: MusicSourceSecurityRevision.scopedFingerprint(for: source),
                                    revision: song.revision, modified: song.lastModified, bytes: song.fileSize)
-        if let previous = editorTagRead, previous.key == key, Date().timeIntervalSince(previous.started) < 10 {
+        if let previous = editorTagRead, previous.key == key,
+           previous.expires.map({ !refreshFromSource && Date() < $0 }) ?? true {
             return try await previous.task.value
         }
-        let connector = try await auxiliaryConnector(for: song)
-        if let previous = editorTagRead, previous.key == key, Date().timeIntervalSince(previous.started) < 10 {
-            return try await previous.task.value
-        }
-        let task = Task.detached(priority: .utility) {
-            try await Self.readEditorTags(for: song) { offset, length in
-                try await connector.fetchRange(path: song.filePath, offset: offset, length: length, priority: .background)
+        let task = Task.detached(priority: .utility) { [self] in
+            let reader = try await metadataRangeReader(for: song)
+            return try await Self.readEditorTags(for: song) { offset, length in
+                try await SpeculativeRangeRead.withBoundedResponses(requestedLength: length) {
+                    try await reader.fetch(offset: offset, length: length, intent: .bulkBounded)
+                }
             }
         }
-        editorTagRead = (key, task, Date())
-        defer {
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(10))
-                if self?.editorTagRead?.key == key { self?.editorTagRead = nil }
+        let id = UUID()
+        editorTagRead = (key, id, task, nil)
+        do {
+            let data = try await task.value
+            if editorTagRead?.id == id {
+                editorTagRead?.expires = Date().addingTimeInterval(10)
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(10))
+                    if self?.editorTagRead?.id == id { self?.editorTagRead = nil }
+                }
             }
+            return data
+        } catch {
+            if editorTagRead?.id == id { editorTagRead = nil }
+            throw error
         }
-        return try await task.value
     }
 
     private nonisolated static func readEditorTags(for song: Song, fetch: @Sendable (Int64, Int64) async throws -> Data) async throws -> Data {
-        guard song.fileSize > 0 else { throw EmbeddedMetadataWritebackSourceError.unsupported }
-        let head = Data(try await fetch(0, min(song.fileSize, 16 * 1024)))
+        let headLength: Int64 = 16 * 1024
+        let head = Data(try await fetch(0, song.fileSize > 0 ? min(song.fileSize, headLength) : headLength))
         if song.fileFormat == .m4a || song.fileFormat == .alac {
+            guard song.fileSize > 0 else { throw EmbeddedMetadataWritebackSourceError.unsupported }
             guard let tags = try await ISOBaseMediaRangeReader.read(head: head, fileSize: song.fileSize, fetch: fetch) else {
                 throw EmbeddedMetadataWritebackSourceError.unsupported
             }
             return tags
         }
         var data = head
-        let limit = min(song.fileSize, Int64(ISOBaseMediaRangeReader.maximumMetadataByteCount))
+        // 网盘上的文件可能已换过封面，库里的旧文件大小不能截断新标签。
+        let limit = ISOBaseMediaRangeReader.maximumMetadataByteCount
         func extend(to count: Int) async throws {
-            guard Int64(count) <= limit else { throw EmbeddedMetadataWritebackSourceError.unsupported }
+            guard count <= limit else { throw EmbeddedMetadataWritebackSourceError.unsupported }
             while data.count < count {
                 let length = min(count - data.count, ISOBaseMediaRangeReader.chunkByteCount)
                 let bytes = try await fetch(Int64(data.count), Int64(length))
@@ -17053,6 +17102,58 @@ final class SourceManager {
         }
     }
 
+    private func playbackArtworkCachePaths(for song: Song) -> [String] {
+        guard audioCacheReadsAreAllowed(for: song.sourceID),
+              !blockedUntrustedAudioCachePaths.contains(audioCacheRelativePath(for: song)) else { return [] }
+        return streamingSessionPartialPaths(for: song)
+    }
+
+    /// Snapshot committed playback bytes after the initial read-ahead. The
+    /// range parser consumes each cached span and asks the connector only for gaps.
+    nonisolated func embeddedFLACCoverDuringPlayback(for song: Song, headerOffset: Int?, allowsNetwork: Bool) async throws -> Data? {
+        let epoch = CloudPlaybackSource.streamEpochTicket(sourceID: song.sourceID)
+        if CloudPlaybackSource.playbackNetworkFetchesInFlight() > 0 {
+            await CloudPlaybackSource.waitForPlaybackNetworkQuiet(maximumWait: .seconds(2))
+        }
+        try Task.checkCancellation()
+        if let url = await cachedURLForBackgroundRead(for: song) {
+            let image = try await ArtworkFetchService.embeddedAlbumCover(for: song, at: url)
+            guard CloudPlaybackSource.isStreamEpochTicketCurrent(sourceID: song.sourceID, ticket: epoch)
+            else { throw CancellationError() }
+            return image
+        }
+        try Task.checkCancellation()
+        let cache = await CloudPlaybackSource.cachedAudioRanges(
+            partialPaths: playbackArtworkCachePaths(for: song), sourceID: song.sourceID, fileSize: song.fileSize
+        )
+        var reader: MetadataRangeReader?
+        func fetchMissing(_ offset: Int64, _ length: Int64) async throws -> Data {
+            try Task.checkCancellation()
+            guard allowsNetwork else { throw MetadataRangeReadError.suffixRangeUnsupported }
+            if reader == nil {
+                reader = try await metadataRangeReader(for: song)
+            }
+            guard let reader else { throw URLError(.resourceUnavailable) }
+            return try await SpeculativeRangeRead.withBoundedResponses(requestedLength: length) {
+                try await reader.fetch(offset: offset, length: length, intent: .bulkBounded)
+            }
+        }
+        let cover = try await RemoteMetadataReadPolicy.readFLACArtwork(
+            head: Data(), fileSize: song.fileSize, frontPictureHeaderOffset: headerOffset,
+            maximumFetchedBytes: 32 * 1024 * 1024, fetch: { offset, length in
+                try Task.checkCancellation()
+                guard CloudPlaybackSource.isStreamEpochTicketCurrent(sourceID: song.sourceID, ticket: epoch)
+                else { throw CancellationError() }
+                if let cache { return try await cache.read(offset: offset, length: length, fetchMissing: fetchMissing) }
+                return try await fetchMissing(offset, length)
+            }, decodePicture: FileMetadataReader.completeFLACPicture
+        )
+        try Task.checkCancellation()
+        guard CloudPlaybackSource.isStreamEpochTicketCurrent(sourceID: song.sourceID, ticket: epoch)
+        else { throw CancellationError() }
+        return cover
+    }
+
     func rereadAlbumCover(albumID: String, in library: MusicLibrary) async throws -> Bool {
         let found = try await ArtworkFetchService.shared.rereadAlbumCover(
             albumID: albumID, songs: library.songs(forAlbum: albumID),
@@ -17100,6 +17201,9 @@ final class SourceManager {
                         try await reader.fetch(offset: offset, length: length, intent: .bulkBounded)
                     }
                 }
+            },
+            installEmbeddedSongCover: { song, data in
+                await library.installEmbeddedCover(data, for: song)
             }
         )
         if found { CachedArtworkView.invalidateAlbumCover(albumID) }

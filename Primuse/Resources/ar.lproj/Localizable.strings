@@ -5928,7 +5928,9 @@
 "podcast_episode_number_format" = "الحلقة %lld";
 "podcast_episode_order" = "ترتيب الحلقات";
 "podcast_error_empty" = "لم يُرجع الخادم أي شيء.";
+"podcast_error_feed_access_denied" = "يرفض مستضيف البودكاست حاليًا طلبات الوصول إلى هذه الخلاصة.";
 "podcast_error_http %lld" = "أرجع الخادم خطأً (HTTP %lld).";
+"podcast_error_malformed_feed" = "تعذّرت قراءة خلاصة البودكاست لأن تنسيقها غير صالح.";
 "podcast_error_not_a_feed" = "هذا العنوان ليس موجز RSS لبودكاست.";
 "podcast_error_not_in_directory" = "تعذّر العثور على هذا البرنامج في دليل البودكاست.";
 "podcast_export_opml" = "تصدير الاشتراكات (OPML)";

@@ -5928,7 +5928,9 @@
 "podcast_episode_number_format" = "Odc. %lld";
 "podcast_episode_order" = "Kolejność odcinków";
 "podcast_error_empty" = "Serwer niczego nie zwrócił.";
+"podcast_error_feed_access_denied" = "Serwer podcastu odrzuca obecnie żądania dostępu do tego kanału.";
 "podcast_error_http %lld" = "Serwer zwrócił błąd (HTTP %lld).";
+"podcast_error_malformed_feed" = "Nie można odczytać kanału podcastu z powodu błędnego formatu.";
 "podcast_error_not_a_feed" = "Ten adres nie jest kanałem RSS podcastu.";
 "podcast_error_not_in_directory" = "Nie znaleziono tego podcastu w katalogu.";
 "podcast_export_opml" = "Eksportuj subskrypcje (OPML)";

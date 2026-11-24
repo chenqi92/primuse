@@ -6022,7 +6022,9 @@
 "podcast_episode_number_format" = "Folge %lld";
 "podcast_episode_order" = "Reihenfolge der Folgen";
 "podcast_error_empty" = "Der Server hat nichts zurückgegeben.";
+"podcast_error_feed_access_denied" = "Der Podcast-Host lehnt Anfragen für diesen Feed derzeit ab.";
 "podcast_error_http %lld" = "Der Server hat einen Fehler gemeldet (HTTP %lld).";
+"podcast_error_malformed_feed" = "Der Podcast-Feed konnte wegen eines Formatfehlers nicht gelesen werden.";
 "podcast_error_not_a_feed" = "Diese Adresse ist kein Podcast-RSS-Feed.";
 "podcast_error_not_in_directory" = "Diese Sendung wurde im Podcast-Verzeichnis nicht gefunden.";
 "podcast_export_opml" = "Abos exportieren (OPML)";

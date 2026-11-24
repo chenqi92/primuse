@@ -251,7 +251,7 @@ struct PlayerBackdropSettingsSections: View {
                         Text(verbatim: PlayerBackdropSettingsText.title(source))
                             .fontWeight(.semibold)
                         Text(verbatim: PlayerBackdropSettingsText.hint(source))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color(uiColor: .secondaryLabel))
                     }
                 }
                 Text("player_backdrop_footer")

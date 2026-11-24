@@ -270,9 +270,8 @@ struct ListeningStatsView: View {
             if let years = snapshot.years, years.years.count > 1, let shown = snapshot.report?.year {
                 let selection = Binding(get: { shown }, set: { selectedYear = $0 })
                 // 年份多到一行放不下时横着滑，否则居中。
-                ViewThatFits(in: .horizontal) {
-                    RecapPillPicker(options: years.years, selection: selection) { Text(verbatim: String($0)) }
-                    RecapPillPicker(options: years.years, selection: selection, scrolls: true) { Text(verbatim: String($0)) }
+                RecapPillPicker(options: years.years, selection: selection, scrolls: true, centersWhenFitting: true) {
+                    Text(verbatim: String($0))
                 }
             }
             if let note = thisYearNote(snapshot) {

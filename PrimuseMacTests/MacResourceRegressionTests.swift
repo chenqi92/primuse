@@ -542,15 +542,44 @@ final class AlbumCoverRereadTests: XCTestCase {
         func record(_ path: String) { paths.append(path) }
     }
 
+    private actor FLACRangeConnector: MusicSourceConnector {
+        let sourceID: String
+        private var file: Data
+        private(set) var reads: [Range<Int64>] = []
+        private var paused = false
+        init(sourceID: String, file: Data) {
+            self.sourceID = sourceID
+            self.file = file
+        }
+        func pause() { paused = true }
+        func resume() { paused = false }
+        func replaceFile(_ replacement: Data) { file = replacement }
+        func connect() async throws {}
+        func disconnect() async {}
+        func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+        func localURL(for path: String) async throws -> URL { throw URLError(.unsupportedURL) }
+        func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { throw URLError(.unsupportedURL) }
+        func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+        func fetchRange(path: String, offset: Int64, length: Int64, priority: RangeFetchPriority) async throws -> Data {
+            guard SpeculativeRangeRead.isActive, offset >= 0, length > 0, offset + length <= file.count else {
+                throw URLError(.badServerResponse)
+            }
+            reads.append(offset..<(offset + length))
+            while paused { try await Task.sleep(for: .milliseconds(10)) }
+            try Task.checkCancellation()
+            return file.subdata(in: Int(offset)..<Int(offset + length))
+        }
+    }
+
     private func song(_ id: String, album: String = "selected", source: String = "drive",
                       path: String? = nil, reference: String? = nil) -> Song {
         Song(id: id, title: id, albumID: album, fileFormat: .flac, filePath: path ?? id,
              sourceID: source, coverArtFileName: reference)
     }
 
-    private func png() throws -> Data {
+    private func png(_ color: NSColor = .systemBlue) throws -> Data {
         let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
-            NSColor.systemBlue.setFill()
+            color.setFill()
             rect.fill()
             return true
         }
@@ -564,6 +593,7 @@ final class AlbumCoverRereadTests: XCTestCase {
         let service = ArtworkFetchService(assetStore: store)
         let image = try png()
         let requests = Requests()
+        let installed = Requests()
         let songs = [song("unrelated", album: "other"), song("first", path: "disc1"),
                      song("cue", path: "disc1"), song("cover", path: "disc2"), song("later")]
         for _ in 0..<2 {
@@ -573,12 +603,17 @@ final class AlbumCoverRereadTests: XCTestCase {
                 readRemoteFile: { song in
                     await requests.record(song.filePath)
                     return song.filePath == "disc2" ? image : nil
+                }, installEmbeddedSongCover: { song, data in
+                    XCTAssertEqual(data, image)
+                    await installed.record(song.id)
                 }
             )
             XCTAssertTrue(found)
         }
         let paths = await requests.paths
         XCTAssertEqual(paths, ["disc1", "disc2"])
+        let songIDs = await installed.paths
+        XCTAssertEqual(songIDs, ["cover"])
         let saved = await store.cachedAlbumCover(forAlbumID: "selected")
         XCTAssertTrue(ArtworkImageCompatibility.isCompleteImage(try XCTUnwrap(saved)))
         XCTAssertFalse(store.hasAlbumCover(forAlbumID: "other"))
@@ -627,6 +662,187 @@ final class AlbumCoverRereadTests: XCTestCase {
             return contents.subdata(in: start..<(start + Int(length)))
         }
         XCTAssertEqual(found, image)
+    }
+
+    func testCachedSingleTrackAlbumRepairsOnlyAnEmbeddedSongCover() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = MetadataAssetStore(storageDirectory: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ArtworkFetchService(assetStore: store)
+        let image = try png()
+        let track = song("only-track")
+        _ = await store.storeAlbumCover(image, forAlbumID: "selected")
+        let updates = Requests()
+        for embedded in [false, true] {
+            let found = try await service.rereadAlbumCover(
+                albumID: "selected", songs: [track], isCurrent: { _ in true },
+                readLocalFile: { _ in .unavailable }, readReference: { _, _ in nil },
+                readRemoteFile: { _ in embedded ? image : nil },
+                installEmbeddedSongCover: { song, data in
+                    XCTAssertEqual(image, data)
+                    await updates.record(song.id)
+                }
+            )
+            XCTAssertTrue(found)
+            let published = await updates.paths
+            XCTAssertEqual(published, embedded ? [track.id] : [])
+        }
+    }
+
+    private func largeCoverFLAC() throws -> Data {
+        if let path = ProcessInfo.processInfo.environment["PRIMUSE_QA_LARGE_FRONT_COVER_FLAC"] {
+            return try Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe)
+        }
+        let image = try png()
+        func be32(_ n: Int) -> Data { withUnsafeBytes(of: UInt32(n).bigEndian) { Data($0) } }
+        let descriptionSize = 6 * 1024 * 1024
+        var block = be32(3) + be32(0) + be32(descriptionSize)
+        block.append(Data(repeating: 0x20, count: descriptionSize))
+        block.append(Data(repeating: 0, count: 16))
+        block.append(be32(image.count) + image)
+        var file = Data("fLaC".utf8) + Data([0, 0, 0, 34]) + Data(repeating: 0, count: 34)
+        file.append(0x86)
+        file.append(be32(block.count).suffix(3))
+        file.append(block)
+        file.append(Data(repeating: 0, count: 8192))
+        return file
+    }
+
+    func testPlayingCloudFLACUsesCachedPrefixAndPublishesSongArtwork() async throws {
+        let file = try largeCoverFLAC()
+        let size = Int64(file.count)
+        let head = Data(file.prefix(RemoteMetadataReadPolicy.initialHeadByteCount))
+        guard case .deferredFrontPicture(let offset) = RemoteMetadataReadPolicy.nextFLACHeadRead(fileSize: size, currentData: head)
+        else { return XCTFail("The scan should defer this front cover at its block header") }
+        let blockSize = file[(offset + 1)..<(offset + 4)].reduce(0) { $0 << 8 | Int($1) }
+        let end = offset + 4 + blockSize
+        let expected = try XCTUnwrap(FileMetadataReader.completeFLACPicture(file.subdata(in: (offset + 4)..<end)))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = MetadataAssetStore(storageDirectory: root.appendingPathComponent("assets"))
+        let source = MusicSource(id: UUID().uuidString, name: "Artwork fixture", type: .baiduPan)
+        let connector = FLACRangeConnector(sourceID: source.id, file: file)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        addTeardownBlock { @MainActor in
+            defer { try? FileManager.default.removeItem(at: root) }
+            try await library.persistNowAndWait(materializePortableSnapshot: false).get()
+        }
+        await library.whenReady()
+        var track = song(UUID().uuidString, source: source.id, path: "/track.flac")
+        track.fileSize = size
+        library.addSongs([track])
+        await library.waitForPendingIndex()
+        let backfill = MetadataBackfillService(library: library, sourceManager: manager,
+            backfillableSourceIDs: { [source.id] }, offlineReadableSourceIDs: { [source.id] },
+            storageDirectory: root.appendingPathComponent("backfill"), artworkStore: store)
+        defer { backfill.stop() }
+        _ = await manager.cachedURLForBackgroundRead(for: track)
+        let partial = manager.cacheURL(for: track).appendingPathExtension("partial")
+        defer { try? FileManager.default.removeItem(at: partial.deletingLastPathComponent()) }
+        let prefixSize = RemoteMetadataReadPolicy.maximumHeadByteCount
+        try file.prefix(prefixSize).write(to: partial)
+        let marker = CloudPlaybackSource.PrewarmMarker(v: 1, ranges: [[0, Int64(prefixSize)]])
+        try marker.write(to: URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix))
+
+        let player = AudioPlayerService(sourceManager: manager, library: library)
+        player.configurePlaybackMetadataBackfill(backfill, sourceType: { _ in source.type })
+        await connector.pause()
+        player.isLoading = true
+        player.currentSong = track
+        player.isPlaying = true
+        defer {
+            player.isPlaying = false
+            player.currentSong = nil
+        }
+        let beforeStart = await connector.reads
+        XCTAssertTrue(beforeStart.isEmpty)
+        player.isLoading = false
+        let waiting = ContinuousClock.now + .seconds(10)
+        while await connector.reads.isEmpty, ContinuousClock.now < waiting {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let interrupted = await connector.reads
+        XCTAssertEqual(interrupted, [Int64(prefixSize)..<Int64(end)])
+        player.currentSong = nil
+        await connector.resume()
+        XCTAssertNil(library.storedSong(id: track.id)?.coverArtFileName)
+        player.isPlaying = false
+        player.currentSong = track
+        player.isPlaying = true
+        let deadline = ContinuousClock.now + .seconds(10)
+        while library.storedSong(id: track.id)?.coverArtFileName == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let ref = try XCTUnwrap(library.storedSong(id: track.id)?.coverArtFileName)
+        XCTAssertEqual(StoredArtworkOrigin.resolve(ref), .embedded)
+        XCTAssertEqual(store.displayCoverData(songID: track.id, reference: ref), expected)
+        let reads = await connector.reads
+        XCTAssertEqual(Array(reads.dropFirst(interrupted.count)), [Int64(prefixSize)..<Int64(end)])
+        print("FLAC artwork: image=\(expected.count), cached=\(prefixSize), fetched=\(end - prefixSize)")
+    }
+
+    func testTagEditorReadsTheCurrentFileCoverWithAnOlderPlaybackCopy() async throws {
+        let file = try largeCoverFLAC()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = MetadataAssetStore(storageDirectory: root.appendingPathComponent("art"))
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        addTeardownBlock { @MainActor in
+            defer { try? FileManager.default.removeItem(at: root) }
+            try await library.persistNowAndWait(materializePortableSnapshot: false).get()
+        }
+        await library.whenReady()
+        let source = MusicSource(id: UUID().uuidString, name: "Editor fixture", type: .baiduPan)
+        let connector = FLACRangeConnector(sourceID: source.id, file: file)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        var track = song(UUID().uuidString, source: source.id, path: "/edit.flac")
+        track.fileSize = Int64(file.count)
+        library.addSongs([track])
+        await library.waitForPendingIndex()
+
+        let pictures = try await manager.editorEmbeddedPictures(for: track, in: library, store: store)
+        XCTAssertEqual(pictures.count, 1)
+        let picture = try XCTUnwrap(pictures.first)
+        let first = try XCTUnwrap(library.storedSong(id: track.id))
+        XCTAssertEqual(StoredArtworkOrigin.resolve(first.coverArtFileName), .embedded)
+        XCTAssertEqual(store.displayCoverData(songID: first.id, reference: first.coverArtFileName), picture.data)
+        let reads = await connector.reads
+        let tagEnd = try XCTUnwrap(reads.last?.upperBound)
+        XCTAssertLessThan(tagEnd, track.fileSize)
+        XCTAssertEqual(reads.reduce(Int64(0)) { $0 + $1.upperBound - $1.lowerBound }, tagEnd)
+        print("Editor FLAC artwork: image=\(picture.data.count), tags=\(tagEnd), file=\(track.fileSize)")
+
+        let cached = manager.cacheURL(for: track)
+        defer { try? FileManager.default.removeItem(at: cached.deletingLastPathComponent()) }
+        try file.write(to: cached)
+        let hit = await manager.cachedURLForBackgroundRead(for: track)
+        XCTAssertEqual(hit, cached)
+        let newCover = try png(.systemRed)
+        var replacement = try EmbeddedPictureArchive.replacing(in: Data(file.prefix(Int(tagEnd))), format: .flac,
+                                                              edits: [picture.id: newCover])
+        replacement.append(Data(repeating: 0, count: 16 * 1024))
+        await connector.replaceFile(replacement)
+        let fresh = try await manager.editorEmbeddedPictures(for: first, in: library, store: store)
+        XCTAssertEqual(fresh.map(\.data), [newCover])
+        let refreshed = try XCTUnwrap(library.storedSong(id: track.id))
+        XCTAssertNotEqual(refreshed.coverArtFileName, first.coverArtFileName)
+        XCTAssertEqual(store.displayCoverData(songID: track.id, reference: refreshed.coverArtFileName), newCover)
+
+        let reference = try XCTUnwrap(refreshed.coverArtFileName)
+        let digest = try XCTUnwrap(StoredArtworkOrigin.contentID(reference))
+        try FileManager.default.removeItem(at: store.artworkContentDirectoryURL.appendingPathComponent(digest + ".jpg"))
+        let restored = expectation(forNotification: .primuseArtworkDidCache, object: nil) { note in
+            note.object as? String == refreshed.id
+        }
+        _ = try await manager.editorEmbeddedPictures(for: refreshed, in: library, store: store)
+        await fulfillment(of: [restored], timeout: 2)
+        XCTAssertEqual(store.displayCoverData(songID: track.id, reference: reference), newCover)
+
+        let selected = await store.storeAttributedCover(try png(.systemGreen), songID: track.id, origin: .selected)
+        var custom = refreshed
+        custom.coverArtFileName = try XCTUnwrap(selected)
+        library.replaceSong(custom, choosingCover: selected)
+        _ = try await manager.editorEmbeddedPictures(for: custom, in: library, store: store)
+        XCTAssertEqual(library.storedSong(id: track.id)?.coverArtFileName, selected)
     }
 }
 

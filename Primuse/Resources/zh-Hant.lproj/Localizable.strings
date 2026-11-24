@@ -5999,7 +5999,9 @@
 "podcast_episode_number_format" = "第 %lld 集";
 "podcast_episode_order" = "單集順序";
 "podcast_error_empty" = "伺服器沒有傳回任何內容。";
+"podcast_error_feed_access_denied" = "節目託管服務暫時拒絕了訂閱要求。";
 "podcast_error_http %lld" = "伺服器傳回了錯誤（HTTP %lld）。";
+"podcast_error_malformed_feed" = "節目訂閱來源的格式有誤，無法讀取。";
 "podcast_error_not_a_feed" = "這個位址不是播客的 RSS。";
 "podcast_error_not_in_directory" = "播客目錄裡找不到這個節目。";
 "podcast_export_opml" = "匯出訂閱（OPML）";

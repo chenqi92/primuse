@@ -61,4 +61,23 @@ FOUNDATION_EXPORT BOOL PrimuseConnectNodeToPoints(
     NSError * _Nullable * _Nullable error
 );
 
+/// Installs an audio tap on `node` without letting an AVFAudio Objective-C
+/// exception (e.g. detached node, duplicate tap, or invalid format) crash Swift.
+FOUNDATION_EXPORT BOOL PrimuseInstallNodeTap(
+    AVAudioNode *node,
+    NSInteger bus,
+    AVAudioFrameCount bufferSize,
+    AVAudioFormat * _Nullable format,
+    AVAudioNodeTapBlock tapBlock,
+    NSError * _Nullable * _Nullable error
+);
+
+/// Removes an audio tap from `node` without letting an AVFAudio Objective-C
+/// exception crash Swift when the engine was already torn down or the node
+/// detached (`_AVAE_Check` in `-[AVAudioNode removeTapOnBus:]`).
+FOUNDATION_EXPORT BOOL PrimuseRemoveNodeTap(
+    AVAudioNode *node,
+    NSInteger bus
+);
+
 NS_ASSUME_NONNULL_END

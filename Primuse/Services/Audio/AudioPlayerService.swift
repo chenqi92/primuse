@@ -711,6 +711,8 @@ final class AudioPlayerService {
     /// 系统音乐库里没订阅放不了的歌(只在云端、带版权保护)。由 AppServices 接上 Apple Music 资料库。
     @ObservationIgnored var appleMusicPlaybackRestrictionProvider: ((Song) -> AppleMusicPlaybackRestriction?)?
     @ObservationIgnored private var playbackMetadataTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackFLACArtworkTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackFLACArtworkIdentity: PlaybackMetadataIdentity?
     @ObservationIgnored private var embeddedMediaInspection: (song: Song, task: Task<Void, Never>)?
     @ObservationIgnored private var playbackMetadataTaskIdentity: PlaybackMetadataIdentity?
     @ObservationIgnored private var playbackMetadataTaskToken: UUID?
@@ -2049,6 +2051,11 @@ final class AudioPlayerService {
         }
         let oldIdentity = oldSong.map(PlaybackMetadataIdentity.init)
         let newIdentity = newSong.map(PlaybackMetadataIdentity.init)
+        if playbackFLACArtworkIdentity != newIdentity {
+            playbackFLACArtworkTask?.cancel()
+            playbackFLACArtworkTask = nil
+            playbackFLACArtworkIdentity = nil
+        }
         if oldIdentity != newIdentity, let oldIdentity {
             playbackMetadataFailureCounts[oldIdentity] = nil
         }
@@ -2063,6 +2070,9 @@ final class AudioPlayerService {
         if currentSong.map(PlaybackMetadataIdentity.init) != identity
             || (!isPlaying && !isLoading) {
             playbackMetadataFailureCounts[identity] = nil
+            playbackFLACArtworkTask?.cancel()
+            playbackFLACArtworkTask = nil
+            playbackFLACArtworkIdentity = nil
         }
         if playbackMetadataTaskIdentity != nil,
            playbackMetadataTaskIdentity != identity {
@@ -2077,6 +2087,22 @@ final class AudioPlayerService {
         playbackMetadataTaskToken = nil
     }
 
+    func schedulePlaybackFLACArtworkIfNeeded() {
+        guard isPlaying, !isLoading, let song = currentSong, song.fileFormat == .flac,
+              song.coverArtFileName?.isEmpty ?? true, !song.isCueTrack, !song.isStreamDescriptor,
+              let service = playbackMetadataBackfill,
+              playbackMetadataSourceType?(song.sourceID)?.supportsEmbeddedMetadataBackfill == true else { return }
+        let identity = PlaybackMetadataIdentity(song)
+        guard playbackFLACArtworkIdentity != identity else { return }
+        playbackFLACArtworkIdentity = identity
+        let tagRead = playbackMetadataTask
+        playbackFLACArtworkTask = Task(priority: .utility) {
+            await tagRead?.value
+            guard !Task.isCancelled else { return }
+            await service.loadFLACArtworkForPlayback(for: song)
+        }
+    }
+
     private func schedulePlaybackMetadataReadIfNeeded() {
         defer { inspectPlaybackMediaTracksIfNeeded() }
         guard let song = currentSong,
@@ -2085,6 +2111,8 @@ final class AudioPlayerService {
             return
         }
         let identity = PlaybackMetadataIdentity(song)
+        // 普通播放标签检查只用于 WebDAV。网盘文件也能按 FLAC 块头恢复当前歌曲封面。
+        defer { schedulePlaybackFLACArtworkIfNeeded() }
         let isAlreadyReading = playbackMetadataTaskIdentity == identity
             || service.isRereadingTags(songID: song.id)
         let hasMissingMetadata = service.needsPlaybackTagRead(
@@ -2171,7 +2199,8 @@ final class AudioPlayerService {
             }
             let result = await service.rereadTagsForPlayback(
                 songID: identity.songID,
-                expectedSourceID: identity.sourceID
+                expectedSourceID: identity.sourceID,
+                awaitsCachedArtwork: currentSong?.fileFormat != .flac
             )
             guard !Task.isCancelled,
                   playbackMetadataTaskToken == token,

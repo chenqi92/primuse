@@ -1459,8 +1459,6 @@ struct TVPodcastShowDetailView: View {
             } else {
                 loadError = PodcastNetwork.Failure.insecureHTTP(host: endpoint).localizedDescription
             }
-        } catch is PodcastFeedError {
-            loadError = String(localized: "podcast_error_not_a_feed")
         } catch {
             loadError = error.localizedDescription
         }

@@ -604,6 +604,19 @@ public enum RemoteMetadataReadPolicy {
         fileSize: Int64,
         currentData data: Data
     ) -> Int? {
+        switch nextFLACHeadRead(fileSize: fileSize, currentData: data) {
+        case .extend(let size): return size
+        case .deferredFrontPicture: return maximumHeadByteCount
+        case nil: return nil
+        }
+    }
+
+    public enum FLACHeadRead: Equatable, Sendable {
+        case extend(Int)
+        case deferredFrontPicture(headerOffset: Int)
+    }
+
+    public static func nextFLACHeadRead(fileSize: Int64, currentData data: Data) -> FLACHeadRead? {
         guard let signatureOffset = flacSignatureOffset(in: data) else { return nil }
 
         let fileLimit = fileSize > 0
@@ -616,7 +629,7 @@ public enum RemoteMetadataReadPolicy {
             guard cursor <= fileLimit else { return nil }
             guard cursor + 4 <= data.count else {
                 let requested = min(fileLimit, cursor + 4)
-                return requested > data.count ? requested : nil
+                return requested > data.count ? .extend(requested) : nil
             }
 
             let header = data[cursor]
@@ -630,12 +643,16 @@ public enum RemoteMetadataReadPolicy {
             guard !overflow, bodyEnd >= bodyStart else { return nil }
 
             if bodyEnd > data.count {
+                if blockType == 6, bodyEnd > maximumHeadByteCount, fileSize <= 0 || Int64(bodyEnd) <= fileSize,
+                   bodyStart + 4 <= data.count, data[bodyStart..<(bodyStart + 4)].elementsEqual([0, 0, 0, 3]) {
+                    return .deferredFrontPicture(headerOffset: cursor)
+                }
                 // Padding carries no metadata. If it is the final block, the
                 // headers already prove that there is nothing useful after it.
                 if blockType == 1, isLastBlock { return nil }
                 let nextHeaderEnd = isLastBlock ? bodyEnd : bodyEnd + 4
                 let requested = min(fileLimit, nextHeaderEnd)
-                return requested > data.count ? requested : nil
+                return requested > data.count ? .extend(requested) : nil
             }
 
             cursor = bodyEnd
@@ -646,6 +663,7 @@ public enum RemoteMetadataReadPolicy {
     /// 按 FLAC 块头定位图片。展示时的预算只计新增的读取，文件头里已有的字节直接复用。
     public static func readFLACArtwork(
         head: Data, fileSize: Int64,
+        frontPictureHeaderOffset: Int? = nil,
         maximumFetchedBytes: Int = .max, maximumRequests: Int = 128,
         fetch: (Int64, Int64) async throws -> Data,
         decodePicture: (Data) -> Data?
@@ -681,11 +699,20 @@ public enum RemoteMetadataReadPolicy {
             return result
         }
 
-        let signatureOffset = Int64(EmbeddedTagMetadataParser.id3TagByteCount(in: window) ?? 0)
+        // 旧曲库里只记了待读状态。没有扫描首段时，也从文件本身识别 ID3 前缀。
+        let prefix = window.isEmpty ? try await bytes(at: 0, count: Int(min(10, limit)), readAhead: true) : window
+        let signatureOffset = Int64(prefix.flatMap { EmbeddedTagMetadataParser.id3TagByteCount(in: $0) } ?? 0)
         guard limit >= 4, signatureOffset <= limit - 4,
               try await bytes(at: signatureOffset, count: 4, readAhead: true) == Data("fLaC".utf8)
         else { return nil }
         var offset = signatureOffset + 4
+        // 文件可能在两次读取之间被改写。提示仍指向正面图片才从这里开始。
+        if let hint = frontPictureHeaderOffset.map(Int64.init), hint >= offset, hint <= limit - 8,
+           let header = try await bytes(at: hint, count: 8, readAhead: true),
+           header[0] & 0x7f == 6, header.suffix(4).elementsEqual([0, 0, 0, 3]) {
+            let length = Int64(header[1]) << 16 | Int64(header[2]) << 8 | Int64(header[3])
+            if length >= 32, length <= limit - hint - 4 { offset = hint }
+        }
         var fallback: Data?
         // 块长是 24 位。限制畸形文件能触发的读取次数和累计图片字节数。
         var remainingPictureBytes = 32 * 1024 * 1024

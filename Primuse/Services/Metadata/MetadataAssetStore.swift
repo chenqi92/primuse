@@ -751,7 +751,7 @@ actor MetadataAssetStore {
         return readCoverData(named: expectedCoverFileName(for: songID))
     }
 
-    func storeAttributedCover(_ data: Data, songID: String, origin: StoredArtworkOrigin) -> String? {
+    func storeAttributedCover(_ data: Data, songID: String?, origin: StoredArtworkOrigin) -> String? {
         guard ArtworkImageCompatibility.isCompleteImage(data),
               !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else { return nil }
         let contentID = Self.sha256Hex(data)
@@ -762,8 +762,10 @@ actor MetadataAssetStore {
             do { try writeContentAddressed(data, refURL: artworkDirectoryURL.appendingPathComponent(reference)) }
             catch { return nil }
         }
-        artworkSelections[songID] = "local:" + reference
-        cacheCover(data, forSongID: songID)
+        if let songID {
+            artworkSelections[songID] = "local:" + reference
+            cacheCover(data, forSongID: songID)
+        }
         return reference
     }
 

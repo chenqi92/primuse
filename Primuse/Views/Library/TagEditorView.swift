@@ -89,7 +89,7 @@ struct TagEditorView: View {
         let slotID: String?
     }
     private var coverImportTarget: CoverImportTarget {
-        let id = coverSlots.indices.contains(visibleCoverIndex) ? coverSlots[visibleCoverIndex].picture.id : nil
+        let id = coverSlots.count > 1 && coverSlots.indices.contains(visibleCoverIndex) ? coverSlots[visibleCoverIndex].picture.id : nil
         return CoverImportTarget(songID: initialSong.id, slotID: id)
     }
     @State private var coverSlots: [CoverSlot] = []
@@ -156,7 +156,7 @@ struct TagEditorView: View {
             }
         }
         #endif
-        .task(id: song.id) { await loadEmbeddedPictures(for: song) }
+        .task(id: song.id) { await loadEmbeddedPictures(for: library.visibleSong(id: song.id) ?? song) }
         .task(id: song.id) {
             let requestedSongID = song.id
             if initialSong.id != requestedSongID {
@@ -395,7 +395,7 @@ struct TagEditorView: View {
                 if coverSlots.count > 1 {
                     stackedCovers(size: 76)
                 } else {
-                    coverPreview
+                    coverPreview(size: 84, cornerRadius: 8)
                         .frame(width: 76, height: 76)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
@@ -1104,7 +1104,8 @@ struct TagEditorView: View {
                 if coverSlots.count > 1 {
                     stackedCovers(size: 56)
                 } else {
-                    macCoverPreview(size: 56)
+                    coverPreview(size: 56, cornerRadius: 6)
+                        .frame(width: 56, height: 56)
                         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -1286,27 +1287,6 @@ struct TagEditorView: View {
             Button(String(localized: "cancel"), role: .cancel) {}
         }
         .task(id: coverPickerItem) { await loadPickedCover(coverPickerItem) }
-    }
-
-    @ViewBuilder
-    private func macCoverPreview(size: CGFloat) -> some View {
-        if let data = pickedCoverData, let img = PlatformImage(data: data) {
-            UploadedArtworkAnimation(previewData: data, presentationRole: .animatedHero) {
-                Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
-            }
-            .frame(width: size, height: size)
-        } else {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: size,
-                cornerRadius: 6,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat,
-                presentationRole: .animatedHero
-            )
-        }
     }
 
     private func macField(_ label: String, text: Binding<String>, original: String) -> some View {
@@ -1650,11 +1630,9 @@ struct TagEditorView: View {
         inspectingPictures = true
         defer { if !Task.isCancelled && song.id == target.id { inspectingPictures = false } }
         do {
-            let data = try await sourceManager.editorEmbeddedFileData(for: target)
-            let slots = try await Task.detached(priority: .utility) {
-                let pictures = try EmbeddedPictureArchive.pictures(in: data, format: target.fileFormat)
-                guard pictures.count > 1 else { return [CoverSlot]() }
-                return pictures.map { picture in
+            let pictures = try await sourceManager.editorEmbeddedPictures(for: target, in: library)
+            let slots = await Task.detached(priority: .utility) {
+                pictures.map { picture in
                     CoverSlot(picture: picture, thumbnail: ArtworkImageCompatibility.staticFirstFrameJPEG(
                         from: picture.data, maximumPixelSize: 256))
                 }
@@ -1725,17 +1703,21 @@ struct TagEditorView: View {
     }
 
     @ViewBuilder
-    private var coverPreview: some View {
+    private func coverPreview(size: CGFloat, cornerRadius: CGFloat) -> some View {
+        let reference = (library.song(id: song.id) ?? song).coverArtFileName
         if let data = pickedCoverData, let img = PlatformImage(data: data) {
             UploadedArtworkAnimation(previewData: data, presentationRole: .animatedHero) {
                 Image(platformImage: img).resizable().aspectRatio(contentMode: .fill)
             }
+        } else if reference?.isEmpty ?? true, coverSlots.count == 1,
+                  let thumbnail = coverSlots.first?.thumbnail, let image = PlatformImage(data: thumbnail) {
+            Image(platformImage: image).resizable().scaledToFill()
         } else {
             CachedArtworkView(
-                coverRef: song.coverArtFileName,
+                coverRef: reference,
                 songID: song.id,
-                size: 84,
-                cornerRadius: 8,
+                size: size,
+                cornerRadius: cornerRadius,
                 sourceID: song.sourceID,
                 filePath: song.filePath,
                 fileFormat: song.fileFormat,

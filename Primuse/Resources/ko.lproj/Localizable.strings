@@ -6022,7 +6022,9 @@
 "podcast_episode_number_format" = "%lld화";
 "podcast_episode_order" = "에피소드 순서";
 "podcast_error_empty" = "서버가 아무것도 반환하지 않았습니다.";
+"podcast_error_feed_access_denied" = "팟캐스트 호스팅 서비스가 현재 이 피드에 대한 요청을 거부하고 있습니다.";
 "podcast_error_http %lld" = "서버가 오류를 반환했습니다(HTTP %lld).";
+"podcast_error_malformed_feed" = "팟캐스트 피드의 형식이 올바르지 않아 읽을 수 없습니다.";
 "podcast_error_not_a_feed" = "이 주소는 팟캐스트 RSS 피드가 아닙니다.";
 "podcast_error_not_in_directory" = "팟캐스트 디렉터리에서 이 프로그램을 찾을 수 없습니다.";
 "podcast_export_opml" = "구독 내보내기(OPML)";

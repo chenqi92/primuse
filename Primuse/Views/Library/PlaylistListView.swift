@@ -49,6 +49,10 @@ struct PlaylistListView: View {
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
     @AppStorage(PlaylistListOrder.storageKey) private var listOrderRawValue = PlaylistListOrder.custom.rawValue
+    /// 顶栏排序菜单绑定到稳定 `@State` 存储，避免闭包 `Binding` 在 iOS 18 导航栏反复失效触发主线程卡死。
+    @State private var listOrder: PlaylistListOrder = .resolved(
+        UserDefaults.standard.string(forKey: PlaylistListOrder.storageKey) ?? PlaylistListOrder.custom.rawValue
+    )
     /// 「在本页里找」。只按名字筛三类歌单、顺序不变；管理、排序仍对整份列表。
     @State private var findText = ""
 
@@ -76,12 +80,6 @@ struct PlaylistListView: View {
     private func shown<Item>(_ items: [Item], name: (Item) -> String) -> [Item] {
         guard let query = findQuery else { return items }
         return items.filter { LibraryFindPolicy.matches(query, fields: [name($0)]) }
-    }
-
-    private var listOrder: PlaylistListOrder { .resolved(listOrderRawValue) }
-
-    private var listOrderBinding: Binding<PlaylistListOrder> {
-        Binding(get: { listOrder }, set: { listOrderRawValue = $0.rawValue })
     }
 
     /// 按页面选的排序方式摆好的歌单;「自定义顺序」就是 `playlists` 本身。
@@ -172,6 +170,13 @@ struct PlaylistListView: View {
             } else {
                 expandedSearchGroupID = nil
             }
+        }
+        .onChange(of: listOrderRawValue, initial: true) { _, rawValue in
+            let resolved = PlaylistListOrder.resolved(rawValue)
+            if listOrder != resolved { listOrder = resolved }
+        }
+        .onChange(of: listOrder) { _, order in
+            if listOrderRawValue != order.rawValue { listOrderRawValue = order.rawValue }
         }
         .onDisappear {
             if isOrderingPlaylists { finishPlaylistOrder(save: false) }
@@ -265,6 +270,7 @@ struct PlaylistListView: View {
                 ordered(playlists).map(\.id), listedOrder: playlistOrderDraft
             )
             library.reorderPlaylists(merged)
+            listOrder = .custom
             listOrderRawValue = PlaylistListOrder.custom.rawValue
         }
         isOrderingPlaylists = false
@@ -703,7 +709,7 @@ struct PlaylistListView: View {
     private var playlistMoreItems: some View {
         if canReorderPlaylists {
             Menu {
-                PlaylistListSortMenuItems(order: listOrderBinding)
+                PlaylistListSortMenuItems(order: $listOrder)
             } label: {
                 Label("sort_by", systemImage: "arrow.up.arrow.down")
             }
@@ -1135,7 +1141,7 @@ struct PlaylistListView: View {
     /// 排序方式和「调整歌单顺序」收在一颗键里, 键上写着当前怎么排。
     private var macSortMenu: some View {
         Menu {
-            PlaylistListSortMenuItems(order: listOrderBinding)
+            PlaylistListSortMenuItems(order: $listOrder)
             Section {
                 Button {
                     beginPlaylistOrder()

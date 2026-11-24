@@ -1216,7 +1216,7 @@ final class KaraokeSession {
             let format = node.outputFormat(forBus: 0)
             let writer = try KaraokeTakeWriter(url: accompanimentURL, format: format)
             try microphone.startTake(url: voiceURL)
-            KaraokeTap.installWriter(on: node, format: format, writer: writer)
+            try KaraokeTap.installWriter(on: node, format: format, writer: writer)
             accompanimentWriter = writer
             accompanimentTapNode = node
             isRecording = true
@@ -1234,7 +1234,7 @@ final class KaraokeSession {
     private func finishRecording() {
         guard isRecording else { return }
         isRecording = false
-        accompanimentTapNode?.removeTap(onBus: 0)
+        if let node = accompanimentTapNode { _ = PrimuseRemoveNodeTap(node, 0) }
         accompanimentTapNode = nil
         let accompanimentFirst = accompanimentWriter?.finish()
         let accompanimentURL = accompanimentWriter?.url

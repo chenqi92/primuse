@@ -576,8 +576,6 @@ struct PodcastAddFeedView: View {
                 pendingInsecureHost = host
             } catch is PodcastOPML.Failure {
                 errorMessage = String(localized: "podcast_opml_invalid")
-            } catch is PodcastFeedError {
-                errorMessage = String(localized: "podcast_error_not_a_feed")
             } catch {
                 errorMessage = error.localizedDescription
             }

@@ -5928,7 +5928,9 @@
 "podcast_episode_number_format" = "एपिसोड %lld";
 "podcast_episode_order" = "एपिसोड का क्रम";
 "podcast_error_empty" = "सर्वर ने कुछ नहीं लौटाया।";
+"podcast_error_feed_access_denied" = "पॉडकास्ट होस्ट फ़िलहाल इस फ़ीड के अनुरोध अस्वीकार कर रहा है।";
 "podcast_error_http %lld" = "सर्वर ने त्रुटि लौटाई (HTTP %lld)।";
+"podcast_error_malformed_feed" = "पॉडकास्ट फ़ीड का फ़ॉर्मैट अमान्य होने के कारण उसे पढ़ा नहीं जा सका।";
 "podcast_error_not_a_feed" = "यह पता पॉडकास्ट की RSS फ़ीड नहीं है।";
 "podcast_error_not_in_directory" = "यह शो पॉडकास्ट डायरेक्टरी में नहीं मिला।";
 "podcast_export_opml" = "सदस्यताएँ निर्यात करें (OPML)";

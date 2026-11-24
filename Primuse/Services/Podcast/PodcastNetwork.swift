@@ -2,6 +2,15 @@ import Foundation
 import PrimuseKit
 import StoreKit
 
+extension PodcastFeedError: @retroactive LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notAFeed: String(localized: "podcast_error_not_a_feed")
+        case .malformed: String(localized: "podcast_error_malformed_feed")
+        }
+    }
+}
+
 /// 播客用到的网络请求:取 feed、问 Apple 目录、取章节、探音频文件。
 ///
 /// 明文 http 的公网地址和 App 里其他地方一样要用户逐个主机放行(`TrustedHTTPTransport`)。
@@ -12,7 +21,7 @@ enum PodcastNetwork {
         /// 只有明文 http,而用户还没放行这台主机。界面据此弹确认框。
         case insecureHTTP(host: String)
         case httpStatus(Int, retryAfter: TimeInterval? = nil)
-        case notAFeed
+        case feedAccessDenied
         case emptyResponse
 
         var errorDescription: String? {
@@ -21,8 +30,8 @@ enum PodcastNetwork {
                 return String(format: String(localized: "insecure_http_permission_required %@"), host)
             case .httpStatus(let code, _):
                 return String(format: String(localized: "podcast_error_http %lld"), code)
-            case .notAFeed:
-                return String(localized: "podcast_error_not_a_feed")
+            case .feedAccessDenied:
+                return String(localized: "podcast_error_feed_access_denied")
             case .emptyResponse:
                 return String(localized: "podcast_error_empty")
             }
@@ -65,15 +74,27 @@ enum PodcastNetwork {
         request.setValue("application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5", forHTTPHeaderField: "Accept")
         if let etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
         if let lastModified { request.setValue(lastModified, forHTTPHeaderField: "If-Modified-Since") }
-        let (data, http) = try await read(request, session: session, quotaRegistry: quotaRegistry, maxBytes: feedByteLimit, allowedStatuses: [304])
+        let data: Data
+        let http: HTTPURLResponse
+        do {
+            (data, http) = try await read(request, session: session, quotaRegistry: quotaRegistry, maxBytes: feedByteLimit, allowedStatuses: [304])
+        } catch Failure.httpStatus(403, _) {
+            throw Failure.feedAccessDenied
+        }
         if http.statusCode == 304 { return .notModified }
         guard (200...299).contains(http.statusCode) else { throw Failure.httpStatus(http.statusCode) }
         guard !data.isEmpty else { throw Failure.emptyResponse }
         let finalURL = http.url ?? target
-        if discoveryDepth < 2, let text = MediaImportText.decode(data),
-           MediaImportText.fileExtension(for: text) == "html",
-           let discovered = PodcastFeedDiscovery.feedURLs(in: text, baseURL: finalURL).first(where: { $0 != finalURL }) {
-            return try await fetchFeed(discovered, session: session, quotaRegistry: quotaRegistry, discoveryDepth: discoveryDepth + 1)
+        if let text = MediaImportText.decode(data), MediaImportText.fileExtension(for: text) == "html" {
+            // 有些托管方会跳转到 HTTP 200 的拒绝访问页，状态码只写在页面标题里。
+            let deniedTitle = #"(?i)<title\b[^>]*>\s*403[\s·:–—-]+(?:无法访问|拒绝访问|forbidden|access denied)\s*</title\s*>"#
+            if text.prefix(8192).range(of: deniedTitle, options: .regularExpression) != nil {
+                throw Failure.feedAccessDenied
+            }
+            if discoveryDepth < 2,
+               let discovered = PodcastFeedDiscovery.feedURLs(in: text, baseURL: finalURL).first(where: { $0 != finalURL }) {
+                return try await fetchFeed(discovered, session: session, quotaRegistry: quotaRegistry, discoveryDepth: discoveryDepth + 1)
+            }
         }
         return .fetched(
             data,

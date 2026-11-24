@@ -722,6 +722,7 @@ extension AudioPlayerService {
                 applyQueueTraversalTarget(target)
             }
             currentSong = activatedSong
+            schedulePlaybackFLACArtworkIfNeeded()
             currentTime = activatedSong.appliedPlaybackRange?.start ?? 0
             duration = activatedSong.duration.sanitizedDuration
             // A range's end is not the song's length; the queue keeps the whole song.

@@ -6022,7 +6022,9 @@
 "podcast_episode_number_format" = "Ép. %lld";
 "podcast_episode_order" = "Ordre des épisodes";
 "podcast_error_empty" = "Le serveur n'a rien renvoyé.";
+"podcast_error_feed_access_denied" = "L’hébergeur du podcast refuse actuellement les demandes d’accès à ce flux.";
 "podcast_error_http %lld" = "Le serveur a renvoyé une erreur (HTTP %lld).";
+"podcast_error_malformed_feed" = "Le format du flux du podcast est invalide. Impossible de le lire.";
 "podcast_error_not_a_feed" = "Cette adresse n'est pas un flux RSS de podcast.";
 "podcast_error_not_in_directory" = "Cette émission est introuvable dans l'annuaire des podcasts.";
 "podcast_export_opml" = "Exporter les abonnements (OPML)";

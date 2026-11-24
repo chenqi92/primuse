@@ -715,13 +715,22 @@ private struct ScrapeWritebackCard: View {
     let center: ScrapeWritebackCenter
     let onDismiss: () -> Void
 
+    @State private var contentHeight: CGFloat?
+
     var body: some View {
         let jobs = Array(center.jobs.suffix(3))
         VStack(spacing: 0) {
-            ViewThatFits(in: .vertical) {
+            // 不用 ViewThatFits 包 ForEach：Swift 6 下异步 DisplayLink 排版测量候选分支时会在后台线程调
+            // ForEach 闭包，触发 MainActor 断言闪退。改用单份 ScrollView 按内容实测高度收紧。
+            ScrollView {
                 jobList(jobs)
-                ScrollView { jobList(jobs) }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        guard height > 0, abs((contentHeight ?? -1) - height) > 0.5 else { return }
+                        contentHeight = height
+                    }
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: contentHeight)
             footer(jobs)
         }
         .frame(maxWidth: 380)

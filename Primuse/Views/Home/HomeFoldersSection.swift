@@ -447,6 +447,8 @@ struct HomeFolderBrowser: View {
     @State private var macSearchText = ""
     @State private var macSearchScope: LibrarySearchScope?
     @State private var macSearchContext: LibrarySearchScope?
+    @State private var macBreadcrumbAvailableWidth: CGFloat = 0
+    @State private var macBreadcrumbFullTextWidth: CGFloat = 0
     @FocusState private var macSearchFocused: Bool
     #endif
     @Environment(HomeDiscoveryModel.self) private var model
@@ -1089,10 +1091,7 @@ struct HomeFolderBrowser: View {
                 isSource: node.kind == .source
             ) {
                 macBackButton
-                ViewThatFits(in: .horizontal) {
-                    macBreadcrumbTrail(compact: false)
-                    macBreadcrumbTrail(compact: true)
-                }
+                macAdaptiveBreadcrumbTrail
             } tools: {
                 if let context = macSearchContext {
                     macSearchControls(context: context)
@@ -1295,10 +1294,40 @@ struct HomeFolderBrowser: View {
         macSearchScope = nil
     }
 
+    @ViewBuilder
+    private var macAdaptiveBreadcrumbTrail: some View {
+        let ancestors = Array(macBreadcrumbs.dropLast())
+        if ancestors.count <= 1 {
+            macBreadcrumbTrail(compact: false)
+        } else {
+            let fullWidth = macBreadcrumbFullTextWidth + CGFloat(ancestors.count) * 20
+            let compact = macBreadcrumbAvailableWidth > 0 && fullWidth > macBreadcrumbAvailableWidth
+            let measureText = ([HomeDiscoveryText.string("folders")] + ancestors.map(HomeDiscoveryText.folderTitle)).joined()
+            macBreadcrumbTrail(compact: compact)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                    guard abs(macBreadcrumbAvailableWidth - width) > 0.5 else { return }
+                    macBreadcrumbAvailableWidth = width
+                }
+                .background(alignment: .leading) {
+                    Text(verbatim: measureText)
+                        .font(.system(size: 12))
+                        .fixedSize()
+                        .hidden()
+                        .accessibilityHidden(true)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                            guard abs(macBreadcrumbFullTextWidth - width) > 0.5 else { return }
+                            macBreadcrumbFullTextWidth = width
+                        }
+                }
+        }
+    }
+
     private func macBreadcrumbTrail(compact: Bool) -> some View {
         let ancestors = Array(macBreadcrumbs.dropLast())
         return HStack(spacing: 7) {
             Button(HomeDiscoveryText.string("folders")) { navigateMacBreadcrumb(to: nil) }
+                .lineLimit(1)
             if compact, ancestors.count > 1 {
                 Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold))
                 Menu {
@@ -1319,7 +1348,7 @@ struct HomeFolderBrowser: View {
         .font(.system(size: 12))
         .foregroundStyle(PMColor.textMuted)
         .buttonStyle(.plain)
-        .fixedSize(horizontal: !compact, vertical: true)
+        .fixedSize(horizontal: false, vertical: true)
     }
     #endif
 

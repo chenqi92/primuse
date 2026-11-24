@@ -7036,6 +7036,31 @@ final class MusicLibrary {
         )
     }
 
+    /// 文件读取和存图都可能跨过换源、重扫或手动换图。先存图片内容，核对当前行后才关联歌曲。
+    @discardableResult
+    func installEmbeddedCover(_ data: Data, for song: Song, refreshingEmbedded: Bool = false, store: MetadataAssetStore = .shared) async -> Bool {
+        let original = song.coverArtFileName
+        guard (original?.isEmpty ?? true) || (refreshingEmbedded && StoredArtworkOrigin.resolve(original) == .embedded) else { return false }
+        func matchingSong() -> Song? {
+            guard !Task.isCancelled, let live = visibleSong(id: song.id),
+                  live.sourceID == song.sourceID, live.filePath == song.filePath,
+                  live.fileSize == song.fileSize, live.revision == song.revision, live.lastModified == song.lastModified,
+                  live.coverArtFileName == original else { return nil }
+            return live
+        }
+        guard matchingSong() != nil,
+              let reference = await store.storeAttributedCover(data, songID: nil, origin: .embedded),
+              var live = matchingSong() else { return false }
+        if live.coverArtFileName != reference {
+            live.coverArtFileName = reference
+            replaceSong(live)
+        } else {
+            // 同一引用的图片可能刚从文件恢复。已经显示了图片的视图会忽略这条通知。
+            NotificationCenter.default.post(name: .primuseArtworkDidCache, object: live.id)
+        }
+        return true
+    }
+
     /// Update cached artwork / lyrics references without rebuilding album,
     /// artist, playlist, and history indexes. Scraped sidecar assets only
     /// change where UI loaders read media from; they don't affect grouping.

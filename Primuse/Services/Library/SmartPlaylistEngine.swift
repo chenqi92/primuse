@@ -96,6 +96,60 @@ enum SmartPlaylistEngine {
         return Array(songs.shuffled().prefix(safeLimit))
     }
 
+    /// macOS 规则编辑器实时预览的只读摘要，在后台线程算出后回填，不污染主缓存。
+    struct PreviewSummary: Equatable, Sendable {
+        let count: Int
+        let totalDuration: TimeInterval
+        let sourceCount: Int
+        // crash-pattern: allow library-array-property 最多 4 首用于编辑器预览叠放封面
+        let previewCovers: [Song]
+
+        static let empty = PreviewSummary(count: 0, totalDuration: 0, sourceCount: 0, previewCovers: [])
+    }
+
+    /// 供规则匹配与排序复用的已编译计划，只保存预解析后的规则和按需播放统计。
+    struct EvaluationPlan: Sendable {
+        fileprivate let activeGroups: [CompiledRuleGroup]
+        fileprivate let groupCombinator: SmartPlaylistCombinator
+        fileprivate let sortField: SmartPlaylistSortField
+        fileprivate let sortDirection: SmartPlaylistSortDirection
+        fileprivate let limit: Int?
+        fileprivate let artistConfiguration: ArtistNameConfiguration
+        fileprivate let stats: PlayStats?
+    }
+
+    /// 采集规则编辑器预览所需的候选快照与编译计划，不写入 `library.smartPlaylistMatchCache`。
+    static func makePreviewInputs(
+        for smart: SmartPlaylist,
+        in library: MusicLibrary,
+        history: PlayHistoryStore
+    ) -> (songs: [Song], plan: EvaluationPlan) {
+        (
+            candidateSongs(in: library),
+            makeEvaluationPlan(for: smart, in: library, history: history)
+        )
+    }
+
+    /// 在任意线程上按已编译规则算出编辑器实时预览摘要。
+    nonisolated static func evaluatePreview(
+        songs: [Song],
+        plan: EvaluationPlan
+    ) -> PreviewSummary {
+        let matched = execute(songs, plan: plan, finalizeRandom: true)
+        var totalDuration: TimeInterval = 0
+        var sourceIDs = Set<String>()
+        for song in matched {
+            totalDuration += song.duration
+            sourceIDs.insert(song.sourceID)
+        }
+        return PreviewSummary(
+            count: matched.count,
+            totalDuration: totalDuration,
+            sourceCount: sourceIDs.count,
+            previewCovers: Array(matched.prefix(4))
+        )
+    }
+
     private static func computeMatch(
         _ smart: SmartPlaylist,
         in library: MusicLibrary,
@@ -108,48 +162,86 @@ enum SmartPlaylistEngine {
 
         let startedAt = Date()
         let songs = candidateSongs(in: library)
+        let plan = makeEvaluationPlan(for: smart, in: library, history: history)
         let totalSongs = songs.count
 
-        let ruleGroups = smart.effectiveRuleGroups
-
         // 空规则集合: 命中 library 全部 (用户可能新建后还没编辑规则就先看个全量)
-        guard !ruleGroups.isEmpty else {
-            let result = sortAndLimit(
-                songs,
-                smart: smart,
-                history: history,
-                artistConfiguration: library.artistNameConfiguration
-            )
+        guard !plan.activeGroups.isEmpty else {
+            let result = sortAndLimit(songs, plan: plan, finalizeRandom: false)
             let elapsed = Date().timeIntervalSince(startedAt)
             plog(String(format: "🎯 SmartPlaylist '%@' match: 0 rules → matched=%d/%d in %.0fms",
                         smart.name, result.count, totalSongs, elapsed * 1000))
             return result
         }
 
-        let stats = PlayStats(history: history)
-
-        let groupCombinator = smart.effectiveGroupCombinator
-        let matched = songs.filter { song in
-            evaluate(groups: ruleGroups, groupCombinator: groupCombinator,
-                     song: song, stats: stats, library: library)
-        }
-        let result = sortAndLimit(
-            matched,
-            smart: smart,
-            history: history,
-            artistConfiguration: library.artistNameConfiguration
-        )
+        let matched = filterSongs(songs, plan: plan)
+        let result = sortAndLimit(matched, plan: plan, finalizeRandom: false)
         let elapsed = Date().timeIntervalSince(startedAt)
-        let ruleCount = ruleGroups.reduce(0) { $0 + $1.rules.count }
+        let ruleCount = plan.activeGroups.reduce(0) { $0 + $1.rules.count }
         plog(String(format: "🎯 SmartPlaylist '%@' match: groups=%d rules=%d sortBy=%@ limit=%@ → matched=%d/%d (truncated to %d) in %.0fms",
                     smart.name,
-                    ruleGroups.count,
+                    plan.activeGroups.count,
                     ruleCount,
                     smart.sortField.rawValue,
                     smart.limit.map(String.init) ?? "none",
                     matched.count, totalSongs, result.count,
                     elapsed * 1000))
         return result
+    }
+
+    private static func makeEvaluationPlan(
+        for smart: SmartPlaylist,
+        in library: MusicLibrary,
+        history: PlayHistoryStore
+    ) -> EvaluationPlan {
+        let now = Date()
+        let calendar = Calendar.current
+        // 空组 (无规则) 不参与组合 —— 在循环前一次性剔除并预编译所有规则值，避免逐首重复解析日期与分配格式化器。
+        let activeGroups = smart.effectiveRuleGroups.compactMap { group -> CompiledRuleGroup? in
+            guard !group.rules.isEmpty else { return nil }
+            let compiledRules = group.rules.map { compile($0, in: library, now: now, calendar: calendar) }
+            return CompiledRuleGroup(
+                rules: compiledRules,
+                combinator: group.combinator,
+                isExcluded: group.isExcluded
+            )
+        }
+        let usesPlayStats = smart.sortField == .playCount
+            || smart.sortField == .lastPlayedAt
+            || activeGroups.contains { group in
+                group.rules.contains { $0.field == .playCount || $0.field == .lastPlayedAt }
+            }
+        let stats = usesPlayStats ? PlayStats(history: history) : nil
+        return EvaluationPlan(
+            activeGroups: activeGroups,
+            groupCombinator: smart.effectiveGroupCombinator,
+            sortField: smart.sortField,
+            sortDirection: smart.sortDirection,
+            limit: smart.limit,
+            artistConfiguration: library.artistNameConfiguration,
+            stats: stats
+        )
+    }
+
+    nonisolated private static func execute(
+        _ songs: [Song],
+        plan: EvaluationPlan,
+        finalizeRandom: Bool
+    ) -> [Song] {
+        let matched = plan.activeGroups.isEmpty ? songs : filterSongs(songs, plan: plan)
+        return sortAndLimit(matched, plan: plan, finalizeRandom: finalizeRandom)
+    }
+
+    nonisolated private static func filterSongs(_ songs: [Song], plan: EvaluationPlan) -> [Song] {
+        songs.filter { song in
+            evaluate(
+                groups: plan.activeGroups,
+                groupCombinator: plan.groupCombinator,
+                song: song,
+                stats: plan.stats,
+                artistConfiguration: plan.artistConfiguration
+            )
+        }
     }
 
     private static func candidateSongs(in library: MusicLibrary) -> [Song] {
@@ -163,69 +255,161 @@ enum SmartPlaylistEngine {
         #endif
     }
 
-    // MARK: - Rule evaluation
+    // MARK: - Rule compilation & evaluation
 
-    private static func evaluate(
-        groups: [SmartPlaylistRuleGroup],
+    private static func compile(
+        _ rule: SmartPlaylistRule,
+        in library: MusicLibrary,
+        now: Date,
+        calendar: Calendar
+    ) -> CompiledRule {
+        let matcher: CompiledMatcher
+        switch rule.field {
+        case .title, .artistName, .albumTitle, .genre, .fileFormat, .sourceID:
+            matcher = .string(rule.value.lowercased())
+        case .year, .fileSize, .bitRate, .playCount:
+            if rule.op == .between {
+                let parts = rule.value.split(separator: "|")
+                if parts.count == 2, let lo = Int(parts[0]), let hi = Int(parts[1]) {
+                    matcher = .intRange(lo, hi)
+                } else {
+                    matcher = .never
+                }
+            } else if let target = Int(rule.value) {
+                matcher = .intValue(target)
+            } else {
+                matcher = .never
+            }
+        case .durationSec:
+            if rule.op == .between {
+                let parts = rule.value.split(separator: "|")
+                if parts.count == 2, let lo = Double(parts[0]), let hi = Double(parts[1]) {
+                    matcher = .doubleRange(lo, hi)
+                } else {
+                    matcher = .never
+                }
+            } else if let target = Double(rule.value) {
+                matcher = .doubleValue(target)
+            } else {
+                matcher = .never
+            }
+        case .dateAdded, .lastPlayedAt:
+            matcher = .date(compileDateMatcher(value: rule.value, op: rule.op, now: now, calendar: calendar))
+        case .isInPlaylist:
+            if rule.op == .equals || rule.op == .notEquals {
+                let members = Set(library.songIDs(forPlaylist: rule.value))
+                    .subtracting(library.locallyRemovedMirrorSongs(in: rule.value))
+                matcher = .playlistMembers(members)
+            } else {
+                matcher = .never
+            }
+        }
+        return CompiledRule(field: rule.field, op: rule.op, matcher: matcher)
+    }
+
+    private static func compileDateMatcher(
+        value: String,
+        op: SmartPlaylistOperator,
+        now: Date,
+        calendar: Calendar
+    ) -> CompiledDateMatcher {
+        if value.hasPrefix("days:"),
+           let threshold = parseDate(value, now: now, calendar: calendar) {
+            switch op {
+            case .equals, .greaterThan:
+                return .atOrAfter(threshold)
+            case .notEquals, .lessThan:
+                return .before(threshold)
+            default:
+                return .never
+            }
+        }
+
+        switch op {
+        case .equals:
+            guard let target = parseDate(value, now: now, calendar: calendar),
+                  let dayInterval = calendar.dateInterval(of: .day, for: target) else { return .never }
+            return .inDay(dayInterval.start, dayInterval.end)
+        case .notEquals:
+            guard let target = parseDate(value, now: now, calendar: calendar),
+                  let dayInterval = calendar.dateInterval(of: .day, for: target) else { return .never }
+            return .notInDay(dayInterval.start, dayInterval.end)
+        case .greaterThan:
+            guard let target = parseDate(value, now: now, calendar: calendar) else { return .never }
+            return .after(target)
+        case .lessThan:
+            guard let target = parseDate(value, now: now, calendar: calendar) else { return .never }
+            return .before(target)
+        case .between:
+            let parts = value.split(separator: "|")
+            guard parts.count == 2,
+                  let lo = parseDate(String(parts[0]), now: now, calendar: calendar),
+                  let hi = parseDate(String(parts[1]), now: now, calendar: calendar) else { return .never }
+            return .between(lo, hi)
+        default:
+            return .never
+        }
+    }
+
+    nonisolated private static func evaluate(
+        groups: [CompiledRuleGroup],
         groupCombinator: SmartPlaylistCombinator,
         song: Song,
-        stats: PlayStats,
-        library: MusicLibrary
+        stats: PlayStats?,
+        artistConfiguration: ArtistNameConfiguration
     ) -> Bool {
-        // 空组 (无规则) 不参与组合 —— AND 下它是中性的, OR 下让它返回 true 会
-        // 把全部命中, 语义都不对, 直接剔除。剔完没组了 = 没有有效规则 = 命中全部。
-        let activeGroups = groups.filter { !$0.rules.isEmpty }
-        guard !activeGroups.isEmpty else { return true }
-
-        let matches: (SmartPlaylistRuleGroup) -> Bool = { group in
+        let matches: (CompiledRuleGroup) -> Bool = { group in
             let matched = evaluate(
                 rules: group.rules,
                 combinator: group.combinator,
                 song: song,
                 stats: stats,
-                library: library
+                artistConfiguration: artistConfiguration
             )
             return group.isExcluded ? !matched : matched
         }
 
         switch groupCombinator {
         case .and:
-            return activeGroups.allSatisfy(matches)
+            return groups.allSatisfy(matches)
         case .or:
-            return activeGroups.contains(where: matches)
+            return groups.contains(where: matches)
         }
     }
 
-    private static func evaluate(
-        rules: [SmartPlaylistRule],
+    nonisolated private static func evaluate(
+        rules: [CompiledRule],
         combinator: SmartPlaylistCombinator,
         song: Song,
-        stats: PlayStats,
-        library: MusicLibrary
+        stats: PlayStats?,
+        artistConfiguration: ArtistNameConfiguration
     ) -> Bool {
         switch combinator {
         case .and:
             return rules.allSatisfy {
-                evaluate($0, song: song, stats: stats, library: library)
+                evaluate($0, song: song, stats: stats, artistConfiguration: artistConfiguration)
             }
         case .or:
             return rules.contains {
-                evaluate($0, song: song, stats: stats, library: library)
+                evaluate($0, song: song, stats: stats, artistConfiguration: artistConfiguration)
             }
         }
     }
 
-    private static func evaluate(
-        _ rule: SmartPlaylistRule,
+    nonisolated private static func evaluate(
+        _ rule: CompiledRule,
         song: Song,
-        stats: PlayStats,
-        library: MusicLibrary
+        stats: PlayStats?,
+        artistConfiguration: ArtistNameConfiguration
     ) -> Bool {
         switch rule.field {
         case .title:
             return compareString(song.title, rule)
         case .artistName:
-            return compareStrings(library.artistNames(for: song), rule)
+            return compareStrings(
+                MusicLibrary.resolvedArtistNames(for: song, configuration: artistConfiguration),
+                rule
+            )
         case .albumTitle:
             return compareString(song.albumTitle ?? "", rule)
         case .genre:
@@ -250,38 +434,37 @@ enum SmartPlaylistEngine {
         case .dateAdded:
             return compareDate(song.dateAdded, rule)
         case .playCount:
-            let count = stats.countBySongID[song.id] ?? 0
+            let count = stats?.countBySongID[song.id] ?? 0
             return compareInt(count, rule)
         case .lastPlayedAt:
-            return compareDate(stats.lastPlayedBySongID[song.id], rule)
+            return compareDate(stats?.lastPlayedBySongID[song.id], rule)
         case .isInPlaylist:
-            // value 是 playlist.id; equals = 在该歌单里, notEquals = 不在
-            let inSet = library.contains(songID: song.id, inPlaylist: rule.value)
+            guard case .playlistMembers(let members) = rule.matcher else { return false }
+            let inSet = members.contains(song.id)
             switch rule.op {
             case .equals: return inSet
             case .notEquals: return !inSet
-            default: return false  // 其他 op 对 isInPlaylist 没意义
+            default: return false
             }
         }
     }
 
     // MARK: - Comparators
 
-    private static func compareString(_ value: String, _ rule: SmartPlaylistRule) -> Bool {
-        let target = rule.value
+    nonisolated private static func compareString(_ value: String, _ rule: CompiledRule) -> Bool {
+        guard case .string(let target) = rule.matcher else { return false }
         // 大小写不敏感, 配合用户随手输入。
         let v = value.lowercased()
-        let t = target.lowercased()
         switch rule.op {
-        case .equals: return v == t
-        case .notEquals: return v != t
-        case .contains: return v.contains(t)
-        case .notContains: return !v.contains(t)
+        case .equals: return v == target
+        case .notEquals: return v != target
+        case .contains: return v.contains(target)
+        case .notContains: return !v.contains(target)
         default: return false
         }
     }
 
-    private static func compareStrings(_ values: [String], _ rule: SmartPlaylistRule) -> Bool {
+    nonisolated private static func compareStrings(_ values: [String], _ rule: CompiledRule) -> Bool {
         let values = values.isEmpty ? [""] : values
         switch rule.op {
         case .notEquals, .notContains:
@@ -291,86 +474,59 @@ enum SmartPlaylistEngine {
         }
     }
 
-    private static func compareInt(_ value: Int?, _ rule: SmartPlaylistRule) -> Bool {
+    nonisolated private static func compareInt(_ value: Int?, _ rule: CompiledRule) -> Bool {
         let v = value ?? 0
-        switch rule.op {
-        case .equals:
-            return Int(rule.value).map { $0 == v } ?? false
-        case .notEquals:
-            return Int(rule.value).map { $0 != v } ?? false
-        case .greaterThan:
-            return Int(rule.value).map { v > $0 } ?? false
-        case .lessThan:
-            return Int(rule.value).map { v < $0 } ?? false
-        case .between:
-            let parts = rule.value.split(separator: "|")
-            guard parts.count == 2,
-                  let lo = Int(parts[0]),
-                  let hi = Int(parts[1]) else { return false }
+        switch (rule.op, rule.matcher) {
+        case (.equals, .intValue(let target)):
+            return target == v
+        case (.notEquals, .intValue(let target)):
+            return target != v
+        case (.greaterThan, .intValue(let target)):
+            return v > target
+        case (.lessThan, .intValue(let target)):
+            return v < target
+        case (.between, .intRange(let lo, let hi)):
             return v >= lo && v <= hi
-        default: return false
+        default:
+            return false
         }
     }
 
-    private static func compareDouble(_ value: Double, _ rule: SmartPlaylistRule) -> Bool {
-        switch rule.op {
-        case .equals:
-            return Double(rule.value).map { abs($0 - value) < 0.0001 } ?? false
-        case .notEquals:
-            return Double(rule.value).map { abs($0 - value) >= 0.0001 } ?? false
-        case .greaterThan:
-            return Double(rule.value).map { value > $0 } ?? false
-        case .lessThan:
-            return Double(rule.value).map { value < $0 } ?? false
-        case .between:
-            let parts = rule.value.split(separator: "|")
-            guard parts.count == 2,
-                  let lo = Double(parts[0]),
-                  let hi = Double(parts[1]) else { return false }
+    nonisolated private static func compareDouble(_ value: Double, _ rule: CompiledRule) -> Bool {
+        switch (rule.op, rule.matcher) {
+        case (.equals, .doubleValue(let target)):
+            return abs(target - value) < 0.0001
+        case (.notEquals, .doubleValue(let target)):
+            return abs(target - value) >= 0.0001
+        case (.greaterThan, .doubleValue(let target)):
+            return value > target
+        case (.lessThan, .doubleValue(let target)):
+            return value < target
+        case (.between, .doubleRange(let lo, let hi)):
             return value >= lo && value <= hi
-        default: return false
+        default:
+            return false
         }
     }
 
-    private static func compareDate(_ value: Date?, _ rule: SmartPlaylistRule) -> Bool {
-        // value 是 ISO8601 字符串。greaterThan = "晚于", lessThan = "早于"。
-        // between 用 "iso1|iso2"。
-        // 还支持相对天数: "days:7" 表示"最近 7 天内", greaterThan/equals/lessThan
-        // 都把它解释成"now - days"作比较时间。这是最常用场景: 最近一周播过的。
-        guard let value else { return false }
-
-        if rule.value.hasPrefix("days:"),
-           let threshold = parseDate(rule.value) {
-            switch rule.op {
-            case .equals, .greaterThan:
-                return value.timeIntervalSinceReferenceDate >= threshold.timeIntervalSinceReferenceDate
-            case .notEquals, .lessThan:
-                return value < threshold
-            default:
-                return false
-            }
-        }
-
-        let target = parseDate(rule.value)
-        switch rule.op {
-        case .equals:
-            guard let t = target else { return false }
-            // 同一天视为 equals (Date 精度对用户没意义)
-            return Calendar.current.isDate(value, inSameDayAs: t)
-        case .notEquals:
-            guard let t = target else { return false }
-            return !Calendar.current.isDate(value, inSameDayAs: t)
-        case .greaterThan:
-            return target.map { value > $0 } ?? false
-        case .lessThan:
-            return target.map { value < $0 } ?? false
-        case .between:
-            let parts = rule.value.split(separator: "|")
-            guard parts.count == 2,
-                  let lo = parseDate(String(parts[0])),
-                  let hi = parseDate(String(parts[1])) else { return false }
-            return value.timeIntervalSinceReferenceDate >= lo.timeIntervalSinceReferenceDate && value.timeIntervalSinceReferenceDate <= hi.timeIntervalSinceReferenceDate
-        default: return false
+    nonisolated private static func compareDate(_ value: Date?, _ rule: CompiledRule) -> Bool {
+        guard let value, case .date(let matcher) = rule.matcher else { return false }
+        switch matcher {
+        case .atOrAfter(let threshold):
+            return value.timeIntervalSinceReferenceDate >= threshold.timeIntervalSinceReferenceDate
+        case .after(let threshold):
+            return value > threshold
+        case .before(let threshold):
+            return value < threshold
+        case .inDay(let start, let end):
+            return value >= start && value < end
+        case .notInDay(let start, let end):
+            return value < start || value >= end
+        case .between(let lo, let hi):
+            return value.timeIntervalSinceReferenceDate >= lo.timeIntervalSinceReferenceDate
+                && value.timeIntervalSinceReferenceDate <= hi.timeIntervalSinceReferenceDate
+        case .never:
+            return false
         }
     }
 
@@ -380,32 +536,34 @@ enum SmartPlaylistEngine {
         return f
     }()
 
-    private static func parseDate(_ text: String) -> Date? {
+    private static let plainISOFormatter: ISO8601DateFormatter = {
+        ISO8601DateFormatter()
+    }()
+
+    private static func parseDate(_ text: String, now: Date, calendar: Calendar) -> Date? {
         if text.hasPrefix("days:"),
            let days = Int(text.dropFirst("days:".count)),
            days >= 0 {
-            return Calendar.current.date(byAdding: .day, value: -days, to: Date())
+            return calendar.date(byAdding: .day, value: -days, to: now)
         }
         if let d = isoFormatter.date(from: text) { return d }
-        // fallback: 常规 ISO8601 (无 fractional)
-        let plain = ISO8601DateFormatter()
-        return plain.date(from: text)
+        return plainISOFormatter.date(from: text)
     }
 
     // MARK: - Sort + Limit
 
-    private static func sortAndLimit(
+    nonisolated private static func sortAndLimit(
         _ songs: [Song],
-        smart: SmartPlaylist,
-        history: PlayHistoryStore,
-        artistConfiguration: ArtistNameConfiguration
+        plan: EvaluationPlan,
+        finalizeRandom: Bool
     ) -> [Song] {
-        let safeLimit = max(0, smart.limit ?? Int.max)
+        let safeLimit = max(0, plan.limit ?? Int.max)
         let sorted: [Song]
-        switch smart.sortField {
+        switch plan.sortField {
         case .title:
             sorted = songs.sorted { ($0.title) < ($1.title) }
         case .artistName:
+            let artistConfiguration = plan.artistConfiguration
             sorted = songs.sorted {
                 ($0.displayArtistName(configuration: artistConfiguration) ?? "")
                     < ($1.displayArtistName(configuration: artistConfiguration) ?? "")
@@ -425,18 +583,21 @@ enum SmartPlaylistEngine {
         case .duration:
             sorted = songs.sorted { $0.duration < $1.duration }
         case .lastPlayedAt:
-            let lookup = PlayStats(history: history).lastPlayedBySongID
+            let lookup = plan.stats?.lastPlayedBySongID ?? [:]
             sorted = songs.sorted { (lookup[$0.id] ?? .distantPast) < (lookup[$1.id] ?? .distantPast) }
         case .playCount:
-            let lookup = PlayStats(history: history).countBySongID
+            let lookup = plan.stats?.countBySongID ?? [:]
             sorted = songs.sorted { (lookup[$0.id] ?? 0) < (lookup[$1.id] ?? 0) }
         case .random:
             // random 模式忽略 direction (用户既然要随机就别再纠结升降序)。
-            // 洗牌与截断留到取用时做(见 `finalized`), 缓存的是筛完的整份。
+            // 缓存模式下洗牌与截断留到取用时做(见 `finalized`), 预览模式下直接按上限截断。
+            if finalizeRandom {
+                return Array(songs.shuffled().prefix(safeLimit))
+            }
             return songs
         }
 
-        let directional = smart.sortDirection == .descending ? Array(sorted.reversed()) : sorted
+        let directional = plan.sortDirection == .descending ? Array(sorted.reversed()) : sorted
         if directional.count > safeLimit {
             return Array(directional.prefix(safeLimit))
         }
@@ -444,15 +605,48 @@ enum SmartPlaylistEngine {
     }
 }
 
+private struct CompiledRuleGroup: Sendable {
+    let rules: [CompiledRule]
+    let combinator: SmartPlaylistCombinator
+    let isExcluded: Bool
+}
+
+private struct CompiledRule: Sendable {
+    let field: SmartPlaylistField
+    let op: SmartPlaylistOperator
+    let matcher: CompiledMatcher
+}
+
+private enum CompiledMatcher: Sendable {
+    case string(String)
+    case intValue(Int)
+    case intRange(Int, Int)
+    case doubleValue(Double)
+    case doubleRange(Double, Double)
+    case date(CompiledDateMatcher)
+    case playlistMembers(Set<String>)
+    case never
+}
+
+private enum CompiledDateMatcher: Sendable {
+    case atOrAfter(Date)
+    case after(Date)
+    case before(Date)
+    case inDay(Date, Date)
+    case notInDay(Date, Date)
+    case between(Date, Date)
+    case never
+}
+
 // MARK: - Aggregated stats
 
 /// 一次性把 PlayHistoryStore.entries 聚合成两个字典, 给规则评估和排序复用。
 /// O(n) 一次扫描, library 几千首歌 / history 几千条都 ok。
-@MainActor
-private struct PlayStats {
+private struct PlayStats: Sendable {
     let countBySongID: [String: Int]
     let lastPlayedBySongID: [String: Date]
 
+    @MainActor
     init(history: PlayHistoryStore) {
         var count: [String: Int] = [:]
         var last: [String: Date] = [:]

@@ -477,10 +477,7 @@ struct YearlyChipRow: View {
     var isEmphasized = true
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) { chips }
-            RecapFlowLayout(spacing: 6) { chips }
-        }
+        RecapFlowLayout(spacing: 6, centersSingleRow: true) { chips }
     }
 
     @ViewBuilder

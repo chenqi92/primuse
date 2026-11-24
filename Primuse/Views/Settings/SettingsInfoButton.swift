@@ -85,7 +85,7 @@ struct SettingsInfoLabel<Message: View>: View {
     }
 }
 
-private struct SettingsInfoBubble<Message: View>: View {
+struct SettingsInfoBubble<Message: View>: View {
     @ViewBuilder let message: Message
 
     var body: some View {
@@ -96,7 +96,7 @@ private struct SettingsInfoBubble<Message: View>: View {
             ScrollView { text }
                 .scrollBounceBehavior(.basedOnSize)
         }
-        .frame(width: 320)
+        .frame(minWidth: 0, idealWidth: 320, maxWidth: 320)
         // 系统默认的玻璃底会透出后面的开关和文字,长段说明读起来发花;换成厚一点的材质。
         .presentationBackground(.thickMaterial)
     }
@@ -106,6 +106,7 @@ private struct SettingsInfoBubble<Message: View>: View {
             message
         }
         .font(.subheadline)
+        .foregroundStyle(Color.primary)
         .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)

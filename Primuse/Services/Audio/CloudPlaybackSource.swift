@@ -830,6 +830,57 @@ enum CloudPlaybackSource {
         activeState(key: partialPath)?.resumeReadAhead()
     }
 
+    /// A read-only descriptor pins the same file if playback promotes or unlinks it.
+    /// Only ranges committed by that owner (or its seed marker) contain audio bytes.
+    struct CachedAudioRanges: Sendable {
+        let handle: FileHandle
+        let ranges: [Range<Int64>]
+
+        func read(offset: Int64, length: Int64,
+                  fetchMissing: (Int64, Int64) async throws -> Data) async throws -> Data {
+            let next = ranges.first { $0.upperBound > offset }
+            if let next, next.contains(offset) {
+                let count = Int(min(length, next.upperBound - offset))
+                try handle.seek(toOffset: UInt64(offset))
+                guard let data = try handle.read(upToCount: count), data.count == count else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                return data
+            }
+            let missing = next.map { min(length, $0.lowerBound - offset) } ?? length
+            return try await fetchMissing(offset, missing)
+        }
+    }
+
+    @concurrent
+    static func cachedAudioRanges(partialPaths: [String], sourceID: String, fileSize: Int64) async -> CachedAudioRanges? {
+        for path in partialPaths {
+            if let snapshot = openCachedAudioRanges(path: path, sourceID: sourceID, fileSize: fileSize) { return snapshot }
+        }
+        return nil
+    }
+
+    private static func openCachedAudioRanges(path: String, sourceID: String, fileSize: Int64) -> CachedAudioRanges? {
+        let reservation = reservePathMutation(partialPath: path)
+        reservation.coordinator.lock.lock()
+        defer {
+            reservation.coordinator.lock.unlock()
+            releasePathMutation(reservation)
+        }
+        if let state = activeState(key: path) {
+            guard state.sourceID == sourceID, state.totalLength == fileSize,
+                  isCurrentStreamEpoch(sourceID: sourceID, epoch: state.streamEpoch) else { return nil }
+            return state.openCachedAudioRanges()
+        }
+        let marker = URL(fileURLWithPath: path + prewarmMarkerSuffix)
+        guard let seed = PrewarmMarker.read(from: marker) else { return nil }
+        let ranges = State.coalescedRanges(seed.swiftRanges)
+        guard let first = ranges.first, first.lowerBound >= 0, let last = ranges.last,
+              last.upperBound <= fileSize, let handle = FileHandle(forReadingAtPath: path),
+              let size = try? handle.seekToEnd(), size >= UInt64(last.upperBound) else { return nil }
+        return CachedAudioRanges(handle: handle, ranges: ranges)
+    }
+
     /// Ends a session opened ahead of playback that was never played (another
     /// song was started instead). Its bytes stay where they are and become a
     /// seed again, as though the session had never claimed them; ending it
@@ -2596,6 +2647,14 @@ private final class State: @unchecked Sendable {
     /// completely covers `[offset, endOffset)`.
     private func isRangeCovered(offset: Int64, endOffset: Int64) -> Bool {
         cachedRanges.contains { $0.lowerBound <= offset && $0.upperBound >= endOffset }
+    }
+
+    fileprivate func openCachedAudioRanges() -> CloudPlaybackSource.CachedAudioRanges? {
+        lock.withLock {
+            guard !closed, detachedURL == nil, !cachedRanges.isEmpty,
+                  let handle = try? FileHandle(forReadingFrom: activeURL) else { return nil }
+            return CloudPlaybackSource.CachedAudioRanges(handle: handle, ranges: cachedRanges)
+        }
     }
 
     private func readFromCacheIfAvailable(offset: Int64, endOffset: Int64) -> Data? {

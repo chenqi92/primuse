@@ -6115,7 +6115,9 @@
 "podcast_episode_number_format" = "第 %lld 集";
 "podcast_episode_order" = "单集顺序";
 "podcast_error_empty" = "服务器什么也没返回。";
+"podcast_error_feed_access_denied" = "节目托管方暂时拒绝了订阅请求。";
 "podcast_error_http %lld" = "服务器返回了错误（HTTP %lld）。";
+"podcast_error_malformed_feed" = "节目订阅源的格式有误，无法读取。";
 "podcast_error_not_a_feed" = "这个地址不是播客的 RSS。";
 "podcast_error_not_in_directory" = "播客目录里找不到这档节目。";
 "podcast_export_opml" = "导出订阅（OPML）";

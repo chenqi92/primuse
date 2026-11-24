@@ -51,14 +51,15 @@ actor ArtworkFetchService {
         case inspected(Data?)
     }
 
-    /// 仅补这张专辑的自动封面。先找本机已有的曲目图片，再读源里已知的图片，
+    /// 补这张专辑的自动封面。先找本机已有的曲目图片，再读源里已知的图片，
     /// 最后按实际音频文件读内嵌封面。多碟/CUE 的重复引用和同一文件只读一次。
     func rereadAlbumCover(
         albumID: String, songs: [PrimuseKit.Song],
         isCurrent: @MainActor @Sendable (PrimuseKit.Song) -> Bool,
         readLocalFile: @Sendable (PrimuseKit.Song) async throws -> LocalCoverRead,
         readReference: @Sendable (PrimuseKit.Song, String) async throws -> Data?,
-        readRemoteFile: @Sendable (PrimuseKit.Song) async throws -> Data?
+        readRemoteFile: @Sendable (PrimuseKit.Song) async throws -> Data?,
+        installEmbeddedSongCover: (@Sendable (PrimuseKit.Song, Data) async -> Void)? = nil
     ) async throws -> Bool {
         guard albumsReadingFromSource.insert(albumID).inserted else { throw CancellationError() }
         defer { albumsReadingFromSource.remove(albumID) }
@@ -75,9 +76,15 @@ actor ArtworkFetchService {
             return true
         }
 
-        if let cached = await assetStore.cachedAlbumCover(forAlbumID: albumID),
-           ArtworkImageCompatibility.isCompleteImage(cached) { return true }
-        for song in candidates {
+        let existingAlbumCover = await assetStore.cachedAlbumCover(forAlbumID: albumID)
+            .map(ArtworkImageCompatibility.isCompleteImage) == true
+        // 旧版本可能只留下专辑图。单曲专辑再次补读时，以歌曲原文件确认它自己的图。
+        if existingAlbumCover {
+            guard installEmbeddedSongCover != nil, candidates.count == 1, let song = candidates.first,
+                  song.sourceID != AppleMusicLibraryIdentity.sourceID,
+                  song.coverArtFileName?.isEmpty ?? true else { return true }
+        }
+        for song in candidates where !existingAlbumCover {
             try Task.checkCancellation()
             guard !SourceArtworkPolicy.shouldIgnoreGenericFolderCover(ref: song.coverArtFileName, filePath: song.filePath)
             else { continue }
@@ -117,9 +124,20 @@ actor ArtworkFetchService {
                     if location != .localFile, Self.blocksAlbumReads(error) { blockedSources.insert(song.sourceID) }
                     continue
                 }
-                if try await install(data, from: song) { return true }
+                guard let data else { continue }
+                if existingAlbumCover {
+                    guard ArtworkImageCompatibility.isCompleteImage(data), await isCurrent(song) else { continue }
+                } else {
+                    guard try await install(data, from: song) else { continue }
+                }
+                if location != .reference, song.sourceID != AppleMusicLibraryIdentity.sourceID,
+                   song.coverArtFileName?.isEmpty ?? true {
+                    await installEmbeddedSongCover?(song, data)
+                }
+                return true
             }
         }
+        if existingAlbumCover { return true }
         if let lastError { throw lastError }
         return false
     }

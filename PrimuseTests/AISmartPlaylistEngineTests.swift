@@ -356,6 +356,216 @@ final class SmartPlaylistEngineCacheTests: XCTestCase {
         }
     }
 
+    func testCompiledDateRulesPlayStatsSortAndOffMainPreviewWithoutCachePollution() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseSmartPlaylistCompiled-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let library = MusicLibrary(storageDirectory: storageDirectory)
+        let history = PlayHistoryStore(storeURL: storageDirectory.appendingPathComponent("history.json"))
+        let now = Date()
+        let recentDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: now))
+        let olderDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -20, to: now))
+        let fixedDayStart = Calendar.current.startOfDay(for: try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -40, to: now)))
+        let fixedDay = try XCTUnwrap(Calendar.current.date(byAdding: .hour, value: 9, to: fixedDayStart))
+        let fixedDayLaterText = ISO8601DateFormatter().string(
+            from: try XCTUnwrap(Calendar.current.date(byAdding: .hour, value: 14, to: fixedDayStart))
+        )
+
+        let recentSong = Song(
+            id: "recent", title: "Recent", artistName: "Artist", duration: 120,
+            fileFormat: .flac, filePath: "/recent.flac", sourceID: "source-a", dateAdded: recentDate
+        )
+        let olderSong = Song(
+            id: "older", title: "Older", artistName: "Artist", duration: 240,
+            fileFormat: .flac, filePath: "/older.flac", sourceID: "source-b", dateAdded: olderDate
+        )
+        let fixedSong = Song(
+            id: "fixed", title: "Fixed", artistName: "Artist", duration: 180,
+            fileFormat: .flac, filePath: "/fixed.flac", sourceID: "source-a", dateAdded: fixedDay
+        )
+        library.addSongs([recentSong, olderSong, fixedSong])
+        for _ in 0..<100 where library.visibleSongs.count != 3 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.visibleSongs.count, 3)
+
+        history.record(song: olderSong, startedAt: now.addingTimeInterval(-600), listenedSec: 200)
+        history.record(song: olderSong, startedAt: now.addingTimeInterval(-300), listenedSec: 200)
+        history.record(song: recentSong, startedAt: now.addingTimeInterval(-100), listenedSec: 120)
+
+        let withinWeek = SmartPlaylist(
+            name: "Within 7 days",
+            rules: [.init(field: .dateAdded, op: .greaterThan, value: "days:7")]
+        )
+        XCTAssertEqual(SmartPlaylistEngine.match(withinWeek, in: library, history: history).map(\.id), ["recent"])
+
+        let beforeWeek = SmartPlaylist(
+            name: "Before 7 days",
+            rules: [.init(field: .dateAdded, op: .lessThan, value: "days:7")]
+        )
+        XCTAssertEqual(Set(SmartPlaylistEngine.match(beforeWeek, in: library, history: history).map(\.id)), ["older", "fixed"])
+
+        let sameDayPlainISO = SmartPlaylist(
+            name: "Fixed day",
+            rules: [.init(field: .dateAdded, op: .equals, value: fixedDayLaterText)]
+        )
+        XCTAssertEqual(SmartPlaylistEngine.match(sameDayPlainISO, in: library, history: history).map(\.id), ["fixed"])
+
+        let invalidDate = SmartPlaylist(
+            name: "Invalid date",
+            rules: [.init(field: .dateAdded, op: .equals, value: "not-a-date")]
+        )
+        XCTAssertTrue(SmartPlaylistEngine.match(invalidDate, in: library, history: history).isEmpty)
+
+        let byPlayCount = SmartPlaylist(name: "Most played", sortField: .playCount, sortDirection: .descending)
+        XCTAssertEqual(
+            SmartPlaylistEngine.match(byPlayCount, in: library, history: history).map(\.id),
+            ["older", "recent", "fixed"]
+        )
+
+        let byLastPlayed = SmartPlaylist(name: "Last played", sortField: .lastPlayedAt, sortDirection: .descending)
+        XCTAssertEqual(
+            SmartPlaylistEngine.match(byLastPlayed, in: library, history: history).map(\.id),
+            ["recent", "older", "fixed"]
+        )
+
+        library.smartPlaylistMatchCache.removeAll()
+        let draft = SmartPlaylist(
+            id: "draft-preview",
+            name: "Draft",
+            rules: [.init(field: .dateAdded, op: .lessThan, value: "days:7")],
+            sortField: .playCount,
+            sortDirection: .descending
+        )
+        let inputs = SmartPlaylistEngine.makePreviewInputs(for: draft, in: library, history: history)
+        let summary = await Task.detached(priority: .userInitiated) {
+            SmartPlaylistEngine.evaluatePreview(songs: inputs.songs, plan: inputs.plan)
+        }.value
+        XCTAssertEqual(summary.count, 2)
+        XCTAssertEqual(summary.totalDuration, 420)
+        XCTAssertEqual(summary.sourceCount, 2)
+        XCTAssertEqual(summary.previewCovers.map(\.id), ["older", "fixed"])
+        XCTAssertTrue(library.smartPlaylistMatchCache.isEmpty)
+    }
+
+    func testCoverFlowBackdropWithArtworkLayersStaysBoundedWithoutLayoutLoop() async throws {
+        let side = 32
+        let pixels = Data(repeating: 140, count: side * side)
+        let provider = try XCTUnwrap(CGDataProvider(data: pixels as CFData))
+        let cgImage = try XCTUnwrap(CGImage(
+            width: side,
+            height: side,
+            bitsPerComponent: 8,
+            bitsPerPixel: 8,
+            bytesPerRow: side,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        ))
+
+        let coverSong = Song(
+            id: "coverflow-loop-\(UUID().uuidString)",
+            title: "Cover Track",
+            artistName: "Artist",
+            duration: 180,
+            fileFormat: .flac,
+            filePath: "/coverflow.flac",
+            sourceID: "local-source",
+            coverArtFileName: "coverflow-test.jpg"
+        )
+        CoverFlowArtworkCache.shared.insert(
+            cgImage,
+            source: cgImage,
+            forKey: CoverFlowArtwork.cacheKey(for: coverSong)
+        )
+
+        var reportedSizes: [CGSize] = []
+        let probeView = VStack(alignment: .leading, spacing: 12) {
+            Text(verbatim: "为你挑选").font(.title)
+            Text(verbatim: "36 首歌曲")
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            CoverFlowBackdrop(palettes: [.fallback], songs: [coverSong], isAnimating: true)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { newSize in
+                    reportedSizes.append(newSize)
+                }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .frame(width: 360)
+        .environment(AppServices.shared.sourceManager)
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let host = UIHostingController(rootView: probeView)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            originalWindow?.makeKeyAndVisible()
+        }
+
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertFalse(reportedSizes.isEmpty)
+        XCTAssertLessThanOrEqual(reportedSizes.count, 6)
+        for measured in reportedSizes {
+            XCTAssertTrue(measured.width.isFinite && measured.height.isFinite)
+            XCTAssertLessThanOrEqual(measured.width, 361)
+            XCTAssertLessThanOrEqual(measured.height, 220)
+        }
+    }
+
+    func testPlaylistListViewWithMultiplePlaylistsSettlesCleanly() async throws {
+        let suite = "PlaylistListSort-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        _ = library.createPlaylist(name: "Beta")
+        _ = library.createPlaylist(name: "Alpha")
+        _ = library.createPlaylist(name: "Gamma")
+
+        let services = AppServices.shared
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let host = UIHostingController(
+            rootView: NavigationStack { PlaylistListView() }
+                .environment(library)
+                .environment(services.playerService)
+                .environment(services.sourcesStore)
+                .environment(services.scraperService)
+                .environment(services.scraperSettingsStore)
+                .environment(services.appleMusic)
+                .environment(services.sourceManager)
+                .environment(\.appNavigationMode, .standard)
+                .defaultAppStorage(defaults)
+        )
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            originalWindow?.makeKeyAndVisible()
+        }
+
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(library.playlists.filter { $0.id != MusicLibrary.likedSongsPlaylistID }.count, 3)
+    }
+
     private func song(id: String, title: String) -> Song {
         Song(id: id, title: title, artistName: "Artist", duration: 180,
              fileFormat: .flac, filePath: "/\(id).flac", sourceID: "local-source")

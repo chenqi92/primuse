@@ -504,6 +504,162 @@ final class CloudRequestTests: XCTestCase {
         }
     }
 
+    func testPan115RecoversFromOSSCallback203AndListingLagAndSurfacesRealErrors() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("edited oss file".utf8).write(to: file)
+
+        // 1. OSS returns HTTP 203 CallbackFailed, but 115 commits the staged file on the second listing poll.
+        do {
+            let drive = Pan115WriteFixture(.oss203LateCommit)
+            let fixture = CloudHTTPFixture(responses: [], responder: drive.respond)
+            try await withPan115Connector(fixture) { source in
+                _ = try await source.listFiles(at: "42")
+                let before = try await source.metadataWritebackState(for: "old")
+                let path = try await source.replaceMetadataFileReturningPath(at: "old", with: file, expected: before)
+                XCTAssertEqual(path, "new")
+                XCTAssertEqual(fixture.requests.filter { $0.url?.path == "/open/upload/init" }.count, 1)
+                let remaining = try await source.listFiles(at: "42")
+                XCTAssertEqual(remaining.map(\.path), ["new"])
+                XCTAssertEqual(remaining.first?.name, "Ballad.flac")
+            }
+        }
+
+        // 2. OSS returns HTTP 203 CallbackFailed and never commits; retry uploads a fresh stage and succeeds.
+        do {
+            let drive = Pan115WriteFixture(.oss203ThenSucceed)
+            let fixture = CloudHTTPFixture(responses: [], responder: drive.respond)
+            try await withPan115Connector(fixture) { source in
+                _ = try await source.listFiles(at: "42")
+                let before = try await source.metadataWritebackState(for: "old")
+                let path = try await source.replaceMetadataFileReturningPath(at: "old", with: file, expected: before)
+                XCTAssertEqual(path, "new")
+                XCTAssertEqual(fixture.requests.filter { $0.url?.path == "/open/upload/init" }.count, 2)
+                let remaining = try await source.listFiles(at: "42")
+                XCTAssertEqual(remaining.map(\.path), ["new"])
+                XCTAssertEqual(remaining.first?.name, "Ballad.flac")
+            }
+        }
+
+        // 3. Upload succeeds (instant upload) with transient directory listing lag; polling finds stage without re-uploading.
+        do {
+            let drive = Pan115WriteFixture(.listingLag)
+            let fixture = CloudHTTPFixture(responses: [], responder: drive.respond)
+            try await withPan115Connector(fixture) { source in
+                _ = try await source.listFiles(at: "42")
+                let before = try await source.metadataWritebackState(for: "old")
+                let path = try await source.replaceMetadataFileReturningPath(at: "old", with: file, expected: before)
+                XCTAssertEqual(path, "new")
+                XCTAssertEqual(fixture.requests.filter { $0.url?.path == "/open/upload/init" }.count, 1)
+            }
+        }
+
+        // 4. Persistent HTTP 203 surfaces transient HTTPResponseFailure(203) instead of opaque URLError(-1011).
+        do {
+            let drive = Pan115WriteFixture(.oss203Persistent)
+            let fixture = CloudHTTPFixture(responses: [], responder: drive.respond)
+            try await withPan115Connector(fixture) { source in
+                _ = try await source.listFiles(at: "42")
+                let before = try await source.metadataWritebackState(for: "old")
+                do {
+                    _ = try await source.replaceMetadataFileReturningPath(at: "old", with: file, expected: before)
+                    XCTFail("Persistent 203 must fail")
+                } catch let failure as HTTPResponseFailure {
+                    XCTAssertEqual(failure.statusCode, 203)
+                    XCTAssertTrue(MetadataWriteFailurePolicy.isTransient(failure))
+                }
+                let remaining = try await source.listFiles(at: "42")
+                XCTAssertEqual(remaining.map(\.path), ["old"])
+                XCTAssertEqual(remaining.first?.name, "Ballad.flac")
+            }
+        }
+
+        // 5. Provider JSON failure in OSS callback surfaces CloudDriveError.apiError instead of URLError(-1011).
+        do {
+            let drive = Pan115WriteFixture(.ossCallbackProviderError)
+            let fixture = CloudHTTPFixture(responses: [], responder: drive.respond)
+            try await withPan115Connector(fixture) { source in
+                _ = try await source.listFiles(at: "42")
+                let before = try await source.metadataWritebackState(for: "old")
+                do {
+                    _ = try await source.replaceMetadataFileReturningPath(at: "old", with: file, expected: before)
+                    XCTFail("Callback business error must fail")
+                } catch CloudDriveError.apiError(let code, let message) {
+                    XCTAssertEqual(code, 10002)
+                    XCTAssertEqual(message, "校验文件失败")
+                }
+                XCTAssertEqual(fixture.requests.filter { $0.url?.path == "/open/upload/init" }.count, 1)
+                let remaining = try await source.listFiles(at: "42")
+                XCTAssertEqual(remaining.map(\.path), ["old"])
+                XCTAssertEqual(remaining.first?.name, "Ballad.flac")
+            }
+        }
+
+        // 6. Staging and backup names preserve the exact target extension and are hidden from concurrent scans.
+        let token = "11111111-2222-3333-4444-555555555555"
+        XCTAssertEqual(
+            U115Source.temporarySiblingName(prefix: "primuse-stage-", matching: "Ballad.FLAC", token: token),
+            "primuse-stage-\(token).FLAC"
+        )
+        XCTAssertEqual(
+            U115Source.temporarySiblingName(prefix: "primuse-old-", matching: "Ballad.en.vtt", token: token),
+            "primuse-old-\(token).vtt"
+        )
+        XCTAssertEqual(
+            U115Source.temporarySiblingName(prefix: "primuse-stage-", matching: "NoExtension", token: token),
+            "primuse-stage-\(token)"
+        )
+        XCTAssertTrue(U115Source.isInternalStagingName("primuse-stage-\(token).flac"))
+        XCTAssertTrue(U115Source.isInternalStagingName("primuse-old-\(token).FLAC"))
+        XCTAssertTrue(U115Source.isInternalStagingName("primuse-stage-\(token)"))
+        XCTAssertFalse(U115Source.isInternalStagingName("primuse-stage-demo.flac"))
+        XCTAssertFalse(U115Source.isInternalStagingName("Ballad.flac"))
+
+        do {
+            let listingFixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(
+                #"{"state":true,"count":3,"data":[{"fn":"Ballad.flac","fc":"1","fs":"10","pc":"pc1","fid":"71"},{"fn":"primuse-stage-\#(token).flac","fc":"1","fs":"10","pc":"stage1","fid":"81"},{"fn":"primuse-old-\#(token).flac","fc":"1","fs":"10","pc":"old1","fid":"82"}]}"#.utf8
+            ))])
+            try await withPan115Connector(listingFixture) { source in
+                let scanned = try await source.listFiles(at: "42", confirmingPreviouslyObservedPaths: ["pc1"])
+                XCTAssertEqual(scanned.map(\.path), ["pc1"])
+            }
+        }
+    }
+
+    func testPan115LargeMultipartReplacementEnforcesSequentialInitOSSV4AndSameExtensionSwap() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".flac")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let expectedSize: Int64 = 65 * 1024 * 1024 + 123
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.write(contentsOf: Data("fLaC-large-header".utf8))
+        try handle.truncate(atOffset: UInt64(expectedSize))
+        try handle.close()
+
+        let expectedFingerprint = try Pan115FileUpload.Fingerprint(file: file)
+        let drive = Pan115WriteFixture(.multipart)
+        let fixture = CloudHTTPFixture(responses: [], responder: drive.respond)
+        try await withPan115Connector(fixture) { source in
+            _ = try await source.listFiles(at: "42")
+            let before = try await source.metadataWritebackState(for: "old")
+            let path = try await source.replaceMetadataFileReturningPath(at: "old", with: file, expected: before)
+            XCTAssertEqual(path, "new")
+            let keys = await source.replacementIndexKeys(from: "old", to: path)
+            XCTAssertEqual(keys?.old, "71")
+            XCTAssertEqual(keys?.new, "81")
+            let after = try await source.metadataWritebackState(for: path)
+            XCTAssertEqual(after.fileSize, expectedSize)
+            XCTAssertEqual(after.revision, expectedFingerprint.sha1)
+            let remaining = try await source.listFiles(at: "42")
+            XCTAssertEqual(remaining.map(\.path), ["new"])
+            XCTAssertEqual(remaining.first?.name, "Ballad.flac")
+        }
+        XCTAssertTrue(drive.multipartSequentialEnabled)
+        XCTAssertEqual(drive.multipartPartNumbers, Array(1...9))
+        XCTAssertEqual(drive.multipartTotalBytes, expectedSize)
+        XCTAssertTrue(drive.multipartCompleted)
+    }
+
     func testPan115LyricsAndCoverUseRealNamesAndVerifyReturnedPickCodes() async throws {
         let lyrics = Data("[00:01.00]窗外的灯正亮".utf8)
         let cover = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x02, 0xFF, 0xD9])
@@ -592,7 +748,8 @@ final class CloudRequestTests: XCTestCase {
         )
         XCTAssertTrue(saved)
         try await run(U115Source(sourceID: fixture.id, session: session,
-                                 requests: CloudRequestScheduler(timing: clock.timing)))
+                                 requests: CloudRequestScheduler(timing: clock.timing),
+                                 sleep: { _ in }))
     }
 
     func testPan115ConcurrentReadsShareOneLinkLookupWithTheSameUserAgent() async throws {
@@ -1500,13 +1657,42 @@ private final class CloudHTTPFixture: @unchecked Sendable {
 
 /// CloudHTTPFixture serializes calls to this in-memory provider.
 private final class Pan115WriteFixture: @unchecked Sendable {
-    enum Outcome: CaseIterable { case success, duplicate, originalChanged, denied, lostDeleteReply, uploadDenied }
+    enum Outcome: CaseIterable {
+        case success, duplicate, originalChanged, stageRenameFailed, denied, lostDeleteReply, uploadDenied
+    }
+    enum UploadMode {
+        case instant, multipart, oss203LateCommit, oss203ThenSucceed, oss203Persistent, ossCallbackProviderError, listingLag
+    }
     let outcome: Outcome
+    let uploadMode: UploadMode
     let cdn: URL?
     private var files: [[String: String]]
+    private var pendingUpload: [String: String]?
+    private var pendingStageCommitPolls = 0
+    private var uploadInitCount = 0
+    private(set) var multipartSequentialEnabled = false
+    private(set) var multipartPartNumbers: [Int] = []
+    private(set) var multipartTotalBytes: Int64 = 0
+    private(set) var multipartCompleted = false
+
+    private static func requestBody(of request: URLRequest) -> Data {
+        if let body = request.httpBody, !body.isEmpty { return body }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count > 0 else { break }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+        return data
+    }
 
     init(_ outcome: Outcome, cdn: URL? = nil, sidecar: String? = nil) {
         self.outcome = outcome
+        self.uploadMode = .instant
         self.cdn = cdn
         let old = ["fn": "Ballad.flac", "fc": "1", "fid": "71", "pc": "old", "fs": "8",
                    "sha1": String(repeating: "A", count: 40)]
@@ -1519,27 +1705,156 @@ private final class Pan115WriteFixture: @unchecked Sendable {
         }
     }
 
+    init(_ uploadMode: UploadMode) {
+        self.outcome = .success
+        self.uploadMode = uploadMode
+        self.cdn = nil
+        let old = ["fn": "Ballad.flac", "fc": "1", "fid": "71", "pc": "old", "fs": "8",
+                   "sha1": String(repeating: "A", count: 40)]
+        files = [old]
+    }
+
     func respond(_ request: URLRequest, _ count: Int) -> CloudHTTPFixture.Response {
+        if request.url?.host == "fixture.oss-cn-shenzhen.aliyuncs.com" {
+            if uploadMode == .multipart {
+                guard request.value(forHTTPHeaderField: "Authorization")?.hasPrefix("OSS4-HMAC-SHA256 ") == true,
+                      request.value(forHTTPHeaderField: "x-oss-security-token") == "sts",
+                      request.value(forHTTPHeaderField: "x-oss-content-sha256") == "UNSIGNED-PAYLOAD" else {
+                    return .init(status: 403, body: Data("<Error><Code>SignatureDoesNotMatch</Code></Error>".utf8))
+                }
+                let query = request.url?.query ?? ""
+                if request.httpMethod == "POST", query == "sequential&uploads" {
+                    multipartSequentialEnabled = true
+                    return .init(status: 200, body: Data("<InitiateMultipartUploadResult><UploadId>up-115</UploadId></InitiateMultipartUploadResult>".utf8))
+                }
+                if request.httpMethod == "POST", query == "uploads" {
+                    multipartSequentialEnabled = false
+                    return .init(status: 200, body: Data("<InitiateMultipartUploadResult><UploadId>up-115</UploadId></InitiateMultipartUploadResult>".utf8))
+                }
+                let queryItems = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? []
+                if request.httpMethod == "PUT",
+                   let partString = queryItems.first(where: { $0.name == "partNumber" })?.value,
+                   let partNumber = Int(partString),
+                   queryItems.first(where: { $0.name == "uploadId" })?.value == "up-115" {
+                    let body = Self.requestBody(of: request)
+                    multipartPartNumbers.append(partNumber)
+                    multipartTotalBytes += Int64(body.count)
+                    return .init(status: 200, headers: ["ETag": "\"0123456789ABCDEF0123456789ABCDEF\""])
+                }
+                if request.httpMethod == "POST", query == "uploadId=up-115" {
+                    let xml = String(decoding: Self.requestBody(of: request), as: UTF8.self)
+                    guard request.value(forHTTPHeaderField: "x-oss-callback") != nil,
+                          request.value(forHTTPHeaderField: "x-oss-callback-var") != nil,
+                          xml.contains("<PartNumber>1</PartNumber>"),
+                          xml.contains("<PartNumber>9</PartNumber>") else {
+                        return .init(status: 400)
+                    }
+                    guard multipartSequentialEnabled else {
+                        return .init(status: 200, body: Data(#"{"state":false,"message":"校验文件失败，请重新上传。","code":10002}"#.utf8))
+                    }
+                    multipartCompleted = true
+                    if let staged = pendingUpload {
+                        files.append(staged)
+                        pendingUpload = nil
+                    }
+                    return .init(status: 200, body: Data(#"{"state":true,"code":0,"data":{"pick_code":"new","file_id":"81"}}"#.utf8))
+                }
+                return .init(status: 400)
+            }
+            let staged = pendingUpload
+            pendingUpload = nil
+            switch uploadMode {
+            case .oss203LateCommit:
+                if let staged {
+                    pendingUpload = staged
+                    pendingStageCommitPolls = 1
+                }
+                return .init(status: 203, body: Data("<Error><Code>CallbackFailed</Code><Message>timeout</Message></Error>".utf8))
+            case .oss203ThenSucceed:
+                if uploadInitCount == 1 {
+                    return .init(status: 203, body: Data("<Error><Code>CallbackFailed</Code><Message>timeout</Message></Error>".utf8))
+                }
+                if let staged { files.append(staged) }
+                return .init(status: 200, body: Data(#"{"state":true,"code":0,"data":{"pick_code":"new","file_id":"81"}}"#.utf8))
+            case .oss203Persistent:
+                return .init(status: 203, body: Data("<Error><Code>CallbackFailed</Code><Message>timeout</Message></Error>".utf8))
+            case .ossCallbackProviderError:
+                return .init(status: 200, body: Data(#"{"state":false,"code":10002,"message":"校验文件失败"}"#.utf8))
+            case .instant, .listingLag, .multipart:
+                if let staged { files.append(staged) }
+                return .init(status: 200, body: Data(#"{"state":true}"#.utf8))
+            }
+        }
         let fields = CloudHTTPFixture.formFields(of: request)
         var payload: [String: Any] = ["state": true]
         switch request.url?.path {
         case "/open/ufile/files":
+            if let delayed = pendingUpload, pendingStageCommitPolls > 0 {
+                pendingStageCommitPolls -= 1
+                if pendingStageCommitPolls == 0 {
+                    files.append(delayed)
+                    pendingUpload = nil
+                }
+            }
             payload["count"] = files.count
             payload["data"] = files
         case "/open/upload/init":
             if outcome == .uploadDenied { return .init(status: 403) }
             guard let name = fields["file_name"], let hash = fields["fileid"], let size = fields["file_size"],
                   fields["target"] == "U_1_42" else { return .init(status: 400) }
-            files.append(["fn": name, "fc": "1", "fid": "81", "pc": "new", "fs": size, "sha1": hash])
-            if outcome == .originalChanged { files[0]["sha1"] = String(repeating: "B", count: 40) }
-            payload["data"] = ["status": 2, "pick_code": "new"]
+            uploadInitCount += 1
+            let staged = ["fn": name, "fc": "1", "fid": "81", "pc": "new", "fs": size, "sha1": hash]
+            switch uploadMode {
+            case .instant:
+                files.append(staged)
+                if outcome == .originalChanged { files[0]["sha1"] = String(repeating: "B", count: 40) }
+                payload["data"] = ["status": 2, "pick_code": "new"]
+            case .listingLag:
+                pendingUpload = staged
+                pendingStageCommitPolls = 2
+                payload["data"] = ["status": 2, "pick_code": "new"]
+            case .multipart, .oss203LateCommit, .oss203ThenSucceed, .oss203Persistent, .ossCallbackProviderError:
+                pendingUpload = staged
+                payload["data"] = [
+                    "status": 1,
+                    "bucket": "fixture",
+                    "object": "a/b",
+                    "callback": ["callback": "{\"callbackUrl\":\"https://115.example/cb\"}", "callback_var": "{\"x:k\":\"v\"}"]
+                ]
+            }
+        case "/open/upload/get_token":
+            payload["data"] = [
+                "endpoint": "https://oss-cn-shenzhen.aliyuncs.com",
+                "AccessKeyId": "id",
+                "AccessKeySecret": "secret",
+                "SecurityToken": "sts"
+            ]
         case "/open/ufile/downurl":
             guard fields["pick_code"] == "new", let cdn else { return .init(status: 404) }
             payload["data"] = ["81": ["url": ["url": cdn.absoluteString]]]
         case "/open/ufile/update":
-            guard fields["file_id"] == "81", let i = files.firstIndex(where: { $0["fid"] == "81" }),
-                  let name = fields["file_name"] else { return .init(status: 400) }
-            files[i]["fn"] = name
+            guard let id = fields["file_id"], let i = files.firstIndex(where: { $0["fid"] == id }),
+                  let name = fields["file_name"], !name.isEmpty else { return .init(status: 400) }
+            if outcome == .stageRenameFailed && id == "81" && name == "Ballad.flac" {
+                payload = ["state": false, "code": 50000, "message": "rename failed"]
+                break
+            }
+            // Real 115 `/open/ufile/update` silently keeps the file's original extension even when
+            // `file_name` requests another extension, returning state=true with the requested name.
+            let existingName = files[i]["fn"] ?? ""
+            let existingExt = (existingName as NSString).pathExtension
+            let effectiveName: String
+            if !existingExt.isEmpty && (name as NSString).pathExtension != existingExt {
+                effectiveName = (name as NSString).deletingPathExtension + "." + existingExt
+            } else {
+                effectiveName = name
+            }
+            // Real 115 `/open/ufile/update` rejects renaming onto an existing sibling name with 20004.
+            if files.contains(where: { $0["fid"] != id && $0["fn"]?.caseInsensitiveCompare(effectiveName) == .orderedSame }) {
+                payload = ["state": false, "code": 20004, "message": "很抱歉，该目录名称已存在。"]
+                break
+            }
+            files[i]["fn"] = effectiveName
         case "/open/ufile/delete":
             guard fields["parent_id"] == "42", let id = fields["file_ids"] else { return .init(status: 400) }
             if outcome == .denied && id == "71" { return .init(status: 403) }

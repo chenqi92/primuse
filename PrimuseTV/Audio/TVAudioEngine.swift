@@ -1631,18 +1631,21 @@ final class TVAudioEngine {
             startSpectrumPolling()
             return
         }
-        if let tappedMixer { tappedMixer.removeTap(onBus: 0) }
+        if let tappedMixer { _ = PrimuseRemoveNodeTap(tappedMixer, 0) }
+        tappedMixer = nil
         let format = mixer.outputFormat(forBus: 0)
         guard format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else {
             return
         }
         spectrumPipeline.setSampleRate(format.sampleRate)
-        TVMixerSpectrumTap.install(
+        guard TVMixerSpectrumTap.install(
             on: mixer,
             bufferSize: AVAudioFrameCount(spectrumPipeline.windowSize),
             format: format,
             pipeline: spectrumPipeline
-        )
+        ) else {
+            return
+        }
         tappedMixer = mixer
         startSpectrumPolling()
     }
@@ -1692,7 +1695,7 @@ final class TVAudioEngine {
         spectrumTask?.cancel()
         spectrumTask = nil
         if let tappedMixer {
-            tappedMixer.removeTap(onBus: 0)
+            _ = PrimuseRemoveNodeTap(tappedMixer, 0)
         }
         tappedMixer = nil
         if player.currentItem?.audioMix != nil {
@@ -2720,10 +2723,11 @@ private enum TVMixerSpectrumTap {
         bufferSize: AVAudioFrameCount,
         format: AVAudioFormat,
         pipeline: TVRealtimeSpectrumPipeline
-    ) {
-        node.installTap(onBus: 0, bufferSize: bufferSize, format: format) { buffer, _ in
+    ) -> Bool {
+        var error: NSError?
+        return PrimuseInstallNodeTap(node, 0, bufferSize, format, { buffer, _ in
             pipeline.fill(from: buffer)
-        }
+        }, &error)
     }
 }
 

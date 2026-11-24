@@ -12,6 +12,7 @@ struct ServerListeningStatsView: View {
     @State private var manualRefreshTask: Task<Void, Never>?
     #if os(macOS)
     @State private var expandedRanks: Set<RankTab> = []
+    @State private var rankingWidth: CGFloat = 0
     #endif
 
     private struct HeatmapDay {
@@ -502,20 +503,28 @@ struct ServerListeningStatsView: View {
     private func macRankingCard(
         _ presentation: ServerListeningStatsPresentation
     ) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 14) {
-                macRankColumn(title: "stats_top_songs", tab: .tracks, items: presentation.topTracks)
-                    .frame(minWidth: 260)
-                macRankColumn(title: "stats_top_artists", tab: .artists, items: presentation.topArtists)
-                    .frame(minWidth: 260)
-                macRankColumn(title: "stats_top_albums", tab: .albums, items: presentation.topAlbums)
-                    .frame(minWidth: 260)
+        Group {
+            if rankingWidth == 0 || rankingWidth >= 260 * 3 + 14 * 2 {
+                HStack(alignment: .top, spacing: 14) {
+                    macRankColumn(title: "stats_top_songs", tab: .tracks, items: presentation.topTracks)
+                        .frame(minWidth: 260)
+                    macRankColumn(title: "stats_top_artists", tab: .artists, items: presentation.topArtists)
+                        .frame(minWidth: 260)
+                    macRankColumn(title: "stats_top_albums", tab: .albums, items: presentation.topAlbums)
+                        .frame(minWidth: 260)
+                }
+            } else {
+                VStack(spacing: 14) {
+                    macRankColumn(title: "stats_top_songs", tab: .tracks, items: presentation.topTracks)
+                    macRankColumn(title: "stats_top_artists", tab: .artists, items: presentation.topArtists)
+                    macRankColumn(title: "stats_top_albums", tab: .albums, items: presentation.topAlbums)
+                }
             }
-            VStack(spacing: 14) {
-                macRankColumn(title: "stats_top_songs", tab: .tracks, items: presentation.topTracks)
-                macRankColumn(title: "stats_top_artists", tab: .artists, items: presentation.topArtists)
-                macRankColumn(title: "stats_top_albums", tab: .albums, items: presentation.topAlbums)
-            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            guard abs(rankingWidth - width) > 0.5 else { return }
+            rankingWidth = width
         }
     }
 

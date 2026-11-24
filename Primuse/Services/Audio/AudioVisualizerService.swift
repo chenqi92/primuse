@@ -38,7 +38,7 @@ final class AudioVisualizerService {
     private(set) var bassPulse = PlayerBackdropBassPulse()
 
     private weak var engine: AVAudioEngine?
-    private var tappedNode: AVAudioNode?
+    private weak var tappedNode: AVAudioNode?
     private var ring: SpectrumSampleRing?
     private var sampleRate: Double = 0
     private var pacing = ImmersiveFrameRateMode.defaultValue
@@ -66,7 +66,7 @@ final class AudioVisualizerService {
 
     @discardableResult
     func acquire(owner: UUID, engine: AVAudioEngine, on node: AVAudioNode, feed: Feed = .spectrum) -> Bool {
-        guard engine.isRunning else { return false }
+        guard engine.isRunning, node.engine === engine else { return false }
 
         if let currentEngine = self.engine,
            currentEngine === engine,
@@ -88,19 +88,22 @@ final class AudioVisualizerService {
             return false
         }
 
-        owners[owner] = feed
         stopPipeline()
-        self.engine = engine
+        guard engine.isRunning, node.engine === engine else { return false }
         let activeRing = SpectrumSampleRing()
-        ring = activeRing
 
         // tap 闭包只 memcpy + trylock, 完全不 alloc 不 hop actor。
-        AudioVisualizerTap.install(
+        guard AudioVisualizerTap.install(
             on: node,
             bufferSize: AVAudioFrameCount(1 << Self.spectrumFFTExponent),
             format: format,
             ring: activeRing
-        )
+        ) else {
+            return false
+        }
+        owners[owner] = feed
+        self.engine = engine
+        ring = activeRing
         self.tappedNode = node
         sampleRate = format.sampleRate
         startPolling()
@@ -184,7 +187,7 @@ final class AudioVisualizerService {
         pollTask?.cancel()
         pollTask = nil
         if let node = tappedNode {
-            node.removeTap(onBus: 0)
+            _ = PrimuseRemoveNodeTap(node, 0)
         }
         tappedNode = nil
         engine = nil
@@ -204,12 +207,13 @@ private enum AudioVisualizerTap {
         bufferSize: AVAudioFrameCount,
         format: AVAudioFormat,
         ring: SpectrumSampleRing
-    ) {
-        node.installTap(onBus: 0, bufferSize: bufferSize, format: format) { audioBuffer, _ in
+    ) -> Bool {
+        var error: NSError?
+        return PrimuseInstallNodeTap(node, 0, bufferSize, format, { audioBuffer, _ in
             // 第 0 声道整批写进采样环；锁忙就丢这一批, 不在音频线程上等。
             guard let channels = audioBuffer.floatChannelData else { return }
             ring.write(channels[0], frameCount: Int(audioBuffer.frameLength), stride: audioBuffer.stride)
-        }
+        }, &error)
     }
 }
 

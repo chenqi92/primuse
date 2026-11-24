@@ -5928,7 +5928,9 @@
 "podcast_episode_number_format" = "ตอนที่ %lld";
 "podcast_episode_order" = "ลำดับตอน";
 "podcast_error_empty" = "เซิร์ฟเวอร์ไม่ได้ส่งข้อมูลกลับมา";
+"podcast_error_feed_access_denied" = "ผู้ให้บริการโฮสต์พอดแคสต์ปฏิเสธคำขอเข้าถึงฟีดนี้ในขณะนี้";
 "podcast_error_http %lld" = "เซิร์ฟเวอร์ส่งข้อผิดพลาดกลับมา (HTTP %lld)";
+"podcast_error_malformed_feed" = "อ่านฟีดพอดแคสต์ไม่ได้เนื่องจากรูปแบบไม่ถูกต้อง";
 "podcast_error_not_a_feed" = "ที่อยู่นี้ไม่ใช่ฟีด RSS ของพอดแคสต์";
 "podcast_error_not_in_directory" = "ไม่พบรายการนี้ในไดเรกทอรีพอดแคสต์";
 "podcast_export_opml" = "ส่งออกการติดตาม (OPML)";

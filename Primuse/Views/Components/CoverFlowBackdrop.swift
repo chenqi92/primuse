@@ -19,7 +19,6 @@ struct CoverFlowBackdrop: View {
     @State private var elapsed: TimeInterval = 0
     @State private var started: TimeInterval?
     @State private var loaded: CoverFlowArtworkSet?
-    @State private var size: CGSize = .zero
 
     var body: some View {
         let artworkSongs = CoverFlowArtwork.distinctArtworkSongs(songs, limit: CoverFlowArtwork.maximumLayers)
@@ -31,7 +30,6 @@ struct CoverFlowBackdrop: View {
         let colors = Self.meshColors(palettes)
         let base = palettes.first?.secondary ?? Color(white: 0.16)
         let moving = isAnimating && !reduceMotion && scenePhase == .active
-        let measured = size
         // 取色变了多半是封面换了或刚读到:重新对一遍,封面没变时都是内存里现成的。
         let loadKey: String = signature + "#" + colors.map(\.description).joined(separator: ",")
         TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !moving)) { context in
@@ -44,16 +42,11 @@ struct CoverFlowBackdrop: View {
                     colors: colors
                 )
             } else {
-                CoverFlowArtworkLayers(layers: layers, base: base, size: measured, time: time)
+                CoverFlowArtworkLayers(layers: layers, base: base, time: time)
             }
         }
         .overlay {
             if !layers.isEmpty { CoverFlowGrain() }
-        }
-        .onGeometryChange(for: CGSize.self) { proxy in
-            proxy.size
-        } action: { newSize in
-            self.size = newSize
         }
         .onChange(of: moving, initial: true) { _, active in
             let now = Date().timeIntervalSinceReferenceDate
@@ -119,30 +112,37 @@ struct CoverFlowArtworkSet: Equatable {
 private struct CoverFlowArtworkLayers: View {
     let layers: [CoverFlowArtworkLayer]
     let base: Color
-    let size: CGSize
     let time: TimeInterval
 
     var body: some View {
-        let diagonal: CGFloat = max(1, (size.width * size.width + size.height * size.height).squareRoot())
-        ZStack {
-            base
-            ForEach(CoverFlowArtwork.motions.indices, id: \.self) { index in
-                let motion = CoverFlowArtwork.motions[index]
-                let turn: Double = time / motion.period * 2 * Double.pi
-                let angle: Double = motion.spin * turn + motion.phase
-                let orbitAngle: Double = motion.phase - motion.spin * turn
-                let radius: CGFloat = motion.orbit * diagonal
-                let side: CGFloat = diagonal * motion.scale
-                Image(decorative: layers[index % layers.count].image, scale: 1)
-                    .resizable()
-                    .frame(width: side, height: side)
-                    .rotationEffect(.radians(angle))
-                    .offset(x: radius * CGFloat(cos(orbitAngle)), y: radius * CGFloat(sin(orbitAngle)))
-                    .opacity(motion.opacity)
+        // 旋转放大的模糊图层不能直接放在 ZStack 里撑大自身尺寸，否则会触发父容器与几何回调循环。
+        base
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay {
+                GeometryReader { proxy in
+                    let width = proxy.size.width.isFinite ? max(0, proxy.size.width) : 0
+                    let height = proxy.size.height.isFinite ? max(0, proxy.size.height) : 0
+                    let diagonal: CGFloat = max(1, (width * width + height * height).squareRoot())
+                    ZStack {
+                        ForEach(CoverFlowArtwork.motions.indices, id: \.self) { index in
+                            let motion = CoverFlowArtwork.motions[index]
+                            let turn: Double = time / motion.period * 2 * Double.pi
+                            let angle: Double = motion.spin * turn + motion.phase
+                            let orbitAngle: Double = motion.phase - motion.spin * turn
+                            let radius: CGFloat = motion.orbit * diagonal
+                            let side: CGFloat = diagonal * motion.scale
+                            Image(decorative: layers[index % layers.count].image, scale: 1)
+                                .resizable()
+                                .frame(width: side, height: side)
+                                .rotationEffect(.radians(angle))
+                                .offset(x: radius * CGFloat(cos(orbitAngle)), y: radius * CGFloat(sin(orbitAngle)))
+                                .opacity(motion.opacity)
+                        }
+                    }
+                    .frame(width: width, height: height)
+                }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
+            .clipped()
     }
 }
 

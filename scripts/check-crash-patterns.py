@@ -221,6 +221,43 @@ def defaults_observer_main_queue(lines):
             yield index + 1
 
 
+@rule("avaudionode-tap",
+      "AVAudioNode.installTap/removeTap 在节点已脱离引擎或总线状态异常时抛 Objective-C 异常,Swift 接不住;"
+      "改走 PrimuseInstallNodeTap / PrimuseRemoveNodeTap",
+      "1.15.0(138) iOS AudioVisualizerService.stopPipeline removeTapOnBus 闪退")
+def avaudionode_tap(lines):
+    pattern = re.compile(r"\.(?:installTap|removeTap)\(\s*onBus:")
+    for number, line in enumerate(lines, 1):
+        if pattern.search(strip_comment(line)):
+            yield number
+
+
+@rule("viewthatfits-foreach",
+      "ViewThatFits 内嵌 ForEach 在 Swift 6 异步 DisplayLink 排版测量候选分支时会在后台线程调 ForEach 闭包,"
+      "触发 MainActor 断言闪退;改用单份 ScrollView + onGeometryChange 或自定义 Layout",
+      "1.15.0(138) macOS ScrapeWritebackCard.jobList 闪退")
+def viewthatfits_foreach(lines):
+    text = [strip_comment(line) for line in lines]
+    for index, code in enumerate(text):
+        if not re.search(r"\bViewThatFits\b", code):
+            continue
+        depth = 0
+        started = False
+        for offset in range(index, len(text)):
+            segment = text[offset]
+            if not started:
+                brace = segment.find("{")
+                if brace < 0:
+                    continue
+                started = True
+                segment = segment[brace:]
+            depth += segment.count("{") - segment.count("}")
+            if re.search(r"\bForEach\s*\(", segment):
+                yield offset + 1
+            if started and depth <= 0:
+                break
+
+
 # ---------------------------------------------------------------------------
 # 大曲库内存纪律(Docs/AGENTS.md「大曲库内存纪律」;PM-WSYJPC 方案 §6)。
 # 这四条在迁移期间是棘轮:现有命中按文件记在 scripts/library-scale-baseline.tsv,
@@ -670,6 +707,11 @@ SELF_TEST = [
     ("filehandle-legacy", "// crash-pattern: allow filehandle-legacy 只在测试里造异常\n"
                           "handle.closeFile()", False),
     ("filehandle-legacy", "handle.closeFile() // crash-pattern: allow filehandle-legacy", True),
+    ("avaudionode-tap", "node.removeTap(onBus: 0)", True),
+    ("avaudionode-tap", "node.installTap(onBus: 0, bufferSize: 1024, format: fmt) { _, _ in }", True),
+    ("avaudionode-tap", "_ = PrimuseRemoveNodeTap(node, 0)", False),
+    ("viewthatfits-foreach", "ViewThatFits(in: .horizontal) {\n  HStack { ForEach(items) { Text($0) } }\n}", True),
+    ("viewthatfits-foreach", "ViewThatFits(in: .horizontal) {\n  HStack { Text(\"a\") }\n}\nForEach(items) { Text($0) }", False),
 ]
 
 

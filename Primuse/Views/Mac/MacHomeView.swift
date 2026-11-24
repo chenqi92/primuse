@@ -2427,6 +2427,7 @@ private struct MacHomeResumeShelf: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(RadioStationsStore.self) private var radioStationsStore
+    @State private var bandWidth: CGFloat = 0
 
     private enum Card: Identifiable {
         case music(MusicSessionMemoryStore.Memory)
@@ -2460,11 +2461,15 @@ private struct MacHomeResumeShelf: View {
                     ForEach(cards) { tile(for: $0) }
                         .frame(width: width)
                 case .band:
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: PMSpace.s10) {
-                            ForEach(cards) { bandTile($0) }
-                        }
-                        if cards.count > 2 {
+                    let singleRowRequired = CGFloat(cards.count) * Self.bandTileWidth
+                        + CGFloat(max(cards.count - 1, 0)) * PMSpace.s10
+                    let twoColumnRequired = 2 * Self.bandTileWidth + PMSpace.s10
+                    Group {
+                        if bandWidth == 0 || bandWidth >= singleRowRequired {
+                            HStack(spacing: PMSpace.s10) {
+                                ForEach(cards) { bandTile($0) }
+                            }
+                        } else if cards.count > 2, bandWidth >= twoColumnRequired {
                             // 两张一行; 落单的最后一张占满整行, 不缩在左半边。
                             VStack(spacing: PMSpace.s8) {
                                 ForEach(Array(stride(from: 0, to: cards.count, by: 2)), id: \.self) { start in
@@ -2473,10 +2478,16 @@ private struct MacHomeResumeShelf: View {
                                     }
                                 }
                             }
+                        } else {
+                            VStack(spacing: PMSpace.s8) {
+                                ForEach(cards) { tile(for: $0) }
+                            }
                         }
-                        VStack(spacing: PMSpace.s8) {
-                            ForEach(cards) { tile(for: $0) }
-                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                        guard abs(bandWidth - width) > 0.5 else { return }
+                        bandWidth = width
                     }
                 }
             }

@@ -79,11 +79,14 @@ enum KaraokeTap {
         on node: AVAudioNode,
         format: AVAudioFormat,
         ring: KaraokeSampleRing
-    ) {
+    ) throws {
         ring.prepareStorage()
-        node.installTap(onBus: 0, bufferSize: 1_024, format: format) { buffer, _ in
+        var error: NSError?
+        guard PrimuseInstallNodeTap(node, 0, 1_024, format, { buffer, _ in
             guard let channel = buffer.floatChannelData?[0] else { return }
             ring.write(channel, count: Int(buffer.frameLength))
+        }, &error) else {
+            throw error ?? NSError(domain: "PrimuseAudioEngine", code: 2)
         }
     }
 
@@ -91,9 +94,12 @@ enum KaraokeTap {
         on node: AVAudioNode,
         format: AVAudioFormat,
         writer: KaraokeTakeWriter
-    ) {
-        node.installTap(onBus: 0, bufferSize: 4_096, format: format) { buffer, time in
+    ) throws {
+        var error: NSError?
+        guard PrimuseInstallNodeTap(node, 0, 4_096, format, { buffer, time in
             writer.append(buffer, at: time)
+        }, &error) else {
+            throw error ?? NSError(domain: "PrimuseAudioEngine", code: 2)
         }
     }
 }
@@ -226,12 +232,17 @@ final class KaraokeMicrophone {
         }
         monitor.outputVolume = monitorVolume
 
-        KaraokeTap.installRing(on: input, format: inputFormat, ring: ring)
+        do {
+            try KaraokeTap.installRing(on: input, format: inputFormat, ring: ring)
+        } catch {
+            try? AudioSessionManager.shared.setMicrophoneCaptureActive(false)
+            throw error
+        }
         engine.prepare()
         do {
             try engine.start()
         } catch {
-            input.removeTap(onBus: 0)
+            _ = PrimuseRemoveNodeTap(input, 0)
             try? AudioSessionManager.shared.setMicrophoneCaptureActive(false)
             throw error
         }
@@ -245,7 +256,7 @@ final class KaraokeMicrophone {
     func stop() {
         guard let engine else { return }
         _ = finishTake()
-        if !usesLiveInput { engine.inputNode.removeTap(onBus: 0) }
+        if !usesLiveInput { _ = PrimuseRemoveNodeTap(engine.inputNode, 0) }
         engine.stop()
         self.engine = nil
         reverb = nil
@@ -277,14 +288,14 @@ final class KaraokeMicrophone {
         guard let reverb, takeWriter == nil else { return }
         let format = reverb.outputFormat(forBus: 0)
         let writer = try KaraokeTakeWriter(url: url, format: format)
-        KaraokeTap.installWriter(on: reverb, format: format, writer: writer)
+        try KaraokeTap.installWriter(on: reverb, format: format, writer: writer)
         takeWriter = writer
     }
 
     /// Stops the take; returns the file and the host time of its first frame.
     func finishTake() -> (url: URL, firstHostSeconds: Double)? {
         guard let writer = takeWriter else { return nil }
-        reverb?.removeTap(onBus: 0)
+        if let reverb { _ = PrimuseRemoveNodeTap(reverb, 0) }
         takeWriter = nil
         guard let first = writer.finish() else { return nil }
         return (writer.url, first)

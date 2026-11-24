@@ -2,6 +2,7 @@ import AVFoundation
 import CryptoKit
 import Foundation
 import Network
+import Observation
 import PrimuseKit
 import UIKit
 import XCTest
@@ -9,7 +10,52 @@ import XCTest
 
 final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     @MainActor
-    func testMaterializationReturnsReadableCacheAfterTemporaryDownloadIsUnpinned() async throws {
+    func testEmbyQueuePrefetchFailureOnlyShowsAWarningAfterAnOfflineRequest() async {
+        let source = MusicSource(id: UUID().uuidString, name: "Emby fixture", type: .emby)
+        let connector = FixtureRangeConnector(sourceID: source.id, payload: Data(repeating: 42, count: 1024))
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let song = Song(id: UUID().uuidString, title: "Next song", fileFormat: .mp3,
+                        filePath: "/next.mp3", sourceID: source.id, fileSize: 0)
+        defer { manager.deleteSourceCaches(sourceID: source.id) }
+        await manager.ensureOfflineAudioSnapshot(for: song)
+        let row = manager.offlineAudioSnapshotEntry(for: song)
+        let transferStarted = expectation(description: "Unknown-size queue entry attempted a full transfer")
+        withObservationTracking {
+            _ = row.state
+        } onChange: {
+            transferStarted.fulfill()
+        }
+
+        await manager.cacheForUpcomingPlayback(song: song, queueRank: 0)
+        await fulfillment(of: [transferStarted], timeout: 2)
+        XCTAssertEqual(row.snapshot, .notCached)
+
+        let offline = await manager.downloadForOfflineBatch(songs: [song])
+        XCTAssertEqual(offline.failedCount, 1)
+        let failure = row.snapshot
+        XCTAssertEqual(failure.state, .failed)
+        XCTAssertNotNil(failure.errorMessage)
+
+        await manager.cacheForUpcomingPlayback(song: song, queueRank: 0)
+        XCTAssertEqual(row.snapshot, failure)
+    }
+
+    @MainActor
+    func testFailedEmbyPlaybackMaterializationLeavesSongWithoutAnOfflineWarning() async {
+        let source = MusicSource(id: UUID().uuidString, name: "Emby fixture", type: .emby)
+        let connector = FixtureRangeConnector(sourceID: source.id, payload: Data())
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let song = Song(id: UUID().uuidString, title: "Recovery", fileFormat: .mp3,
+                        filePath: "/recovery.mp3", sourceID: source.id, fileSize: 0)
+        defer { manager.deleteSourceCaches(sourceID: source.id) }
+
+        let recovered = await manager.materializeCachedURLForSeeking(for: song)
+        XCTAssertNil(recovered)
+        XCTAssertEqual(manager.offlineAudioSnapshotEntry(for: song).snapshot, .notCached)
+    }
+
+    @MainActor
+    func testMaterializationReturnsReadableCacheWithoutAnOfflineDownload() async throws {
         let source = MusicSource(id: UUID().uuidString, name: "Materialization fixture", type: .baiduPan)
         let payload = Data(repeating: 0x42, count: 65_536)
         let connector = FixtureRangeConnector(sourceID: source.id, payload: payload)

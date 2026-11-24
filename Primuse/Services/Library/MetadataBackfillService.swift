@@ -294,10 +294,9 @@ final class MetadataBackfillService {
     /// 同时在 `artworkGivenUpIDs` 里, 后台队列不为封面排它们。
     @ObservationIgnored private var deferredArtworkIDs: Set<String> = []
     @ObservationIgnored private var inspectedArtworkDeferralTask: Task<Void, Never>?
-    /// 远端源有界首尾段没看全、内嵌封面可能在窗口外的歌: 只等它整首进了播放缓存再从缓存里取,
-    /// 不再为封面发网络请求(见 `DeferredEmbeddedArtworkState.awaitingPlayback`)。也在
-    /// `artworkGivenUpIDs` 里。和 `deferredArtworkIDs` 一起存在 peer seed 状态文件里。
+    /// 有界首尾段没看全的歌。播放 FLAC 时可按块补图，其他格式等完整播放缓存。
     @ObservationIgnored private var playbackArtworkIDs: Set<String> = []
+    @ObservationIgnored private var deferredFLACPictureHeaders: [String: Int] = [:]
     /// 这次启动里露面读取已经读过的歌(不论结果), 滑来滑去不再读。
     @ObservationIgnored private var displayArtworkAttemptedIDs: Set<String> = []
     @ObservationIgnored private var displayArtworkReadingIDs: Set<String> = []
@@ -328,6 +327,7 @@ final class MetadataBackfillService {
         var lyricsPending: [String]
         var deferredArtwork: [String]?
         var playbackArtwork: [String]?
+        var flacPictureHeaders: [String: Int]?
     }
 
     /// Consecutive transient failure count per song ID. Counts are persisted so
@@ -3639,7 +3639,10 @@ final class MetadataBackfillService {
         albumArtistCheckedIDs.subtract(retryIDs)
         albumArtistRecheckedIDs.subtract(retryIDs)
         artistCheckedIDs.subtract(retryIDs)
-        for id in retryIDs { diagnosticRecords[id] = nil }
+        for id in retryIDs {
+            deferredFLACPictureHeaders[id] = nil
+            diagnosticRecords[id] = nil
+        }
         for id in retryIDs { transientFailureCounts[id] = nil }
         for sourceID in sourceIDs {
             sourceTransientFailureCounts[sourceID] = nil
@@ -3789,7 +3792,8 @@ final class MetadataBackfillService {
     /// a neutral outcome.
     func rereadTagsForPlayback(
         songID: String,
-        expectedSourceID: String
+        expectedSourceID: String,
+        awaitsCachedArtwork: Bool = true
     ) async -> PlaybackSingleSongTagReadResult {
         guard let song = library.storedSong(id: songID),
               song.sourceID == expectedSourceID,
@@ -3806,7 +3810,7 @@ final class MetadataBackfillService {
         // 只差内嵌封面、而封面只能等播放缓存的歌: 不再发网络请求。登记下来, 这首歌整首
         // 进了播放缓存就从缓存文件里取。
         guard needsNetworkPlaybackTagRead(song) else {
-            awaitPlaybackCacheArtwork(for: song)
+            if awaitsCachedArtwork { awaitPlaybackCacheArtwork(for: song) }
             return .notNeeded
         }
         guard !activeReadSongIDs.contains(songID) else {
@@ -3821,7 +3825,7 @@ final class MetadataBackfillService {
         if outcome.cancelled { return .cancelled }
         let result = await applySingleSongTagReadOutcome(outcome, original: song)
         // 有界读取还是没找到、封面可能在窗口外: 接着等这次播放的缓存。
-        if let live = library.storedSong(id: songID) {
+        if awaitsCachedArtwork, let live = library.storedSong(id: songID) {
             awaitPlaybackCacheArtwork(for: live)
         }
         let identity = PlaybackTagReadIdentity(song)
@@ -3844,6 +3848,35 @@ final class MetadataBackfillService {
 
     // MARK: - 延后的内嵌封面
 
+    func loadFLACArtworkForPlayback(for original: Song) async {
+        let id = original.id
+        while isRereadingTags(songID: id) {
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+        }
+        guard !Task.isCancelled, let song = library.visibleSong(id: id),
+              PlaybackTagReadIdentity(song) == PlaybackTagReadIdentity(original),
+              song.fileFormat == .flac, song.coverArtFileName?.isEmpty ?? true,
+              sourceDefersEmbeddedArtwork(song), deferredArtworkState(for: song) != .checkedNone else { return }
+        let allowsNetwork = readingMode.readsAutomatically && canDispatchUnderCurrentNetworkPolicy(song)
+            && !rangeIgnoringSourceIDs.contains(song.sourceID)
+        let header = deferredFLACPictureHeaders[id]
+        let manager = sourceManager
+        do {
+            let data = try await Self.withHardTimeout(seconds: Self.explicitRereadTimeout) {
+                try await manager.embeddedFLACCoverDuringPlayback(for: song, headerOffset: header, allowsNetwork: allowsNetwork)
+            }
+            if let data, await library.installEmbeddedCover(data, for: song, store: artworkStore) {
+                finishDeferredArtwork(songID: id)
+                if peerCoverKeyBySongID[id] != nil { schedulePeerCoverSweep() }
+                return
+            }
+        } catch {
+            guard !Task.isCancelled, !(error is CancellationError) else { return }
+            if allowsNetwork, Self.indicatesRangeUnsupported(error) { noteRangeIgnoringSource(song) }
+        }
+        if !Task.isCancelled { awaitPlaybackCacheArtwork(for: song) }
+    }
+
     /// 这首歌的内嵌封面眼下在等什么, 见 `DeferredEmbeddedArtworkState`。
     private func deferredArtworkState(for song: Song) -> DeferredEmbeddedArtworkState {
         DeferredEmbeddedArtworkPolicy.state(
@@ -3865,12 +3898,14 @@ final class MetadataBackfillService {
     }
 
     /// 有界读取没找到封面: 记下是等播放缓存, 还是看全了没有。
-    private func noteArtworkMissDisposition(songID: String, awaitsPlayback: Bool) {
+    private func noteArtworkMissDisposition(songID: String, awaitsPlayback: Bool, flacPictureHeader: Int? = nil) {
         deferredArtworkIDs.remove(songID)
         if awaitsPlayback {
             playbackArtworkIDs.insert(songID)
+            if let flacPictureHeader { deferredFLACPictureHeaders[songID] = flacPictureHeader }
         } else {
             playbackArtworkIDs.remove(songID)
+            deferredFLACPictureHeaders[songID] = nil
             artworkAwaitingCacheIDs.remove(songID)
         }
         scheduleStatePersistence()
@@ -4069,12 +4104,16 @@ final class MetadataBackfillService {
         )
     }
 
+    private func canExtractPlaybackCacheArtwork(for song: Song) -> Bool {
+        let state = deferredArtworkState(for: song)
+        if song.fileFormat == .flac, song.coverArtFileName?.isEmpty ?? true { return state != .checkedNone }
+        return DeferredEmbeddedArtworkPolicy.extractsFromPlaybackCache(state: state)
+    }
+
     /// 放这首歌时: 封面在等的, 播放缓存里已经有整首就马上取, 没有就登记下来, 缓存文件
     /// 一变再看。只读本机的缓存文件, 不发网络请求。
     private func awaitPlaybackCacheArtwork(for song: Song) {
-        guard DeferredEmbeddedArtworkPolicy.extractsFromPlaybackCache(
-                state: deferredArtworkState(for: song)
-              ),
+        guard canExtractPlaybackCacheArtwork(for: song),
               sourceDefersEmbeddedArtwork(song),
               // 已经登记过的歌交给缓存变动通知, 播放状态反复变化时不再一遍遍去看缓存。
               artworkAwaitingCacheIDs.insert(song.id).inserted else { return }
@@ -4111,10 +4150,7 @@ final class MetadataBackfillService {
         while playbackCacheArtworkRecheck, !Task.isCancelled {
             playbackCacheArtworkRecheck = false
             for songID in Array(artworkAwaitingCacheIDs) {
-                guard let song = library.storedSong(id: songID),
-                      DeferredEmbeddedArtworkPolicy.extractsFromPlaybackCache(
-                        state: deferredArtworkState(for: song)
-                      ) else {
+                guard let song = library.storedSong(id: songID), canExtractPlaybackCacheArtwork(for: song) else {
                     artworkAwaitingCacheIDs.remove(songID)
                     continue
                 }
@@ -4150,25 +4186,26 @@ final class MetadataBackfillService {
 
     /// 把露面读取或播放缓存读到的结果记下: 有封面就写进这一行; 没有就按看全没看全记去向。
     private func applyDeferredEmbeddedArtwork(_ result: DeferredArtworkReadResult, to song: Song) async {
+        guard var live = library.storedSong(id: song.id),
+              PlaybackTagReadIdentity(live) == PlaybackTagReadIdentity(song),
+              live.coverArtFileName?.isEmpty ?? true else { return }
         guard let reference = result.coverReference else {
             artworkGivenUpIDs.insert(song.id)
             noteArtworkMissDisposition(songID: song.id, awaitsPlayback: result.awaitsPlayback)
             return
         }
-        deferredArtworkIDs.remove(song.id)
-        playbackArtworkIDs.remove(song.id)
-        artworkAwaitingCacheIDs.remove(song.id)
-        scheduleStatePersistence()
-        // 读的这段时间里文件换了、或者别处已经给了封面(扫描找到了同名图片、用户自己选了),
-        // 就不写。
-        guard var live = library.storedSong(id: song.id),
-              live.sourceID == song.sourceID,
-              live.filePath == song.filePath,
-              live.fileSize == song.fileSize,
-              live.coverArtFileName?.isEmpty ?? true else { return }
+        finishDeferredArtwork(songID: song.id)
         live.coverArtFileName = reference
         library.replaceSongs([live])
         if peerCoverKeyBySongID[song.id] != nil { schedulePeerCoverSweep() }
+    }
+
+    private func finishDeferredArtwork(songID: String) {
+        deferredArtworkIDs.remove(songID)
+        playbackArtworkIDs.remove(songID)
+        deferredFLACPictureHeaders[songID] = nil
+        artworkAwaitingCacheIDs.remove(songID)
+        scheduleStatePersistence()
     }
 
     /// 别的设备恢复了文件标签:这些歌的标记已经撤掉,逐首按文件重读。返回读完了的,以及读不了
@@ -4755,6 +4792,7 @@ final class MetadataBackfillService {
         deferredArtworkIDs.remove(songID)
         playbackArtworkIDs.remove(songID)
         displayArtworkAttemptedIDs.remove(songID)
+        deferredFLACPictureHeaders[songID] = nil
         titleCheckedIDs.remove(songID)
         albumArtistCheckedIDs.remove(songID)
         albumArtistRecheckedIDs.remove(songID)
@@ -4827,7 +4865,8 @@ final class MetadataBackfillService {
         }
         if outcome.artworkGivenUp {
             artworkGivenUpIDs.insert(songID)
-            noteArtworkMissDisposition(songID: songID, awaitsPlayback: outcome.artworkAwaitsPlayback)
+            noteArtworkMissDisposition(songID: songID, awaitsPlayback: outcome.artworkAwaitsPlayback,
+                                       flacPictureHeader: outcome.flacPictureHeader)
         }
         if outcome.titleInspected {
             markMetadataInspected(songID: songID)
@@ -5209,7 +5248,8 @@ final class MetadataBackfillService {
                     // Stop re-fetching this song for artwork, but DON'T fail it —
                     // its duration update below still flushes and it stays playable.
                     artworkGivenUpIDs.insert(songID)
-                    noteArtworkMissDisposition(songID: songID, awaitsPlayback: result.outcome.artworkAwaitsPlayback)
+                    noteArtworkMissDisposition(songID: songID, awaitsPlayback: result.outcome.artworkAwaitsPlayback,
+                                               flacPictureHeader: result.outcome.flacPictureHeader)
                     saveArtworkGivenUp()
                 }
                 if result.outcome.titleInspected, canRecordOutcome {
@@ -5709,9 +5749,9 @@ final class MetadataBackfillService {
         /// permanently failed — its duration update is still saved and it stays
         /// playable & recoverable.
         var artworkGivenUp: Bool = false
-        /// 和 `artworkGivenUp` 一起设: 远端有界窗口没看全, 内嵌封面可能在窗口外。不再为封面
-        /// 发网络请求, 等歌整首进了播放缓存再从缓存文件里取。
+        /// 远端有界窗口没看全，播放时再取封面。
         var artworkAwaitsPlayback: Bool = false
+        var flacPictureHeader: Int?
         /// 文件还没在这台设备上（iCloud 云盘里没下载、放在网络卷上），而网络策略眼下不让读。
         /// 不算失败、不耗重试次数，先停到能用的网络回来。
         var awaitingNetwork: Bool = false
@@ -6342,6 +6382,7 @@ final class MetadataBackfillService {
 
         var inspectedTagTail: Data?
         var metadataInputData = headData
+        var flacPictureHeader: Int?
         let initialParserExtension = RemoteMetadataInspectionPolicy.parserFileExtension(
             declaredFileExtension: song.fileFormat.rawValue,
             signature: AudioFileSignaturePolicy.inspect(headData)
@@ -6450,11 +6491,17 @@ final class MetadataBackfillService {
                 && metadata.coverArtFileName == nil && metadata.coverArtData == nil
             var needsArtistExpansion = needsArtistInspection
                 && metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-            while needsFullTagInspection || needsArtworkExpansion || needsArtistExpansion,
-                  let expandedByteCount = RemoteMetadataReadPolicy.expandedFLACReadSize(
-                    fileSize: song.fileSize,
-                    currentData: metadataInputData
-                  ) {
+            flacBlocks: while needsFullTagInspection || needsArtworkExpansion || needsArtistExpansion,
+                  let step = RemoteMetadataReadPolicy.nextFLACHeadRead(fileSize: song.fileSize, currentData: metadataInputData) {
+                let expandedByteCount: Int
+                switch step {
+                case .extend(let count): expandedByteCount = count
+                case .deferredFrontPicture(let headerOffset):
+                    // 截到 4 MiB 仍是半张图，块后的标签也读不到。
+                    flacPictureHeader = headerOffset
+                    if !request.directFile { break flacBlocks }
+                    expandedByteCount = Self.maxMetadataHeadBytes
+                }
                 let expandedHead = try await RemoteMetadataReadPolicy.extendingHead(
                     metadataInputData, to: expandedByteCount, fetch: fetchRange
                 )
@@ -6892,8 +6939,7 @@ final class MetadataBackfillService {
         )
         await Self.storeEmbeddedFallbackLyrics(from: metadata, for: song)
 
-        // 没读到内嵌封面时: 有界窗口把标签区看全了就是没有; 没看全的不再为封面发请求,
-        // 等歌放过、整首进了播放缓存再从缓存文件里取。
+        // 标签区没看全时保留播放补读资格，不能把半张图片记成没有。
         let artworkMissAwaitsPlayback = Self.boundedArtworkMissAwaitsPlayback(
             song: song,
             parserExtension: parserExtension,
@@ -6940,7 +6986,8 @@ final class MetadataBackfillService {
                     titleInspected: true,
                     artistInspected: artistInspectionCompleted,
                     artworkGivenUp: artworkGivenUp,
-                    artworkAwaitsPlayback: artworkAwaitsPlayback
+                    artworkAwaitsPlayback: artworkAwaitsPlayback,
+                    flacPictureHeader: flacPictureHeader
                 )
             }
             if song.isStreamDescriptor || song.fileFormat.requiresFFmpeg {
@@ -6956,7 +7003,8 @@ final class MetadataBackfillService {
                     titleInspected: true,
                     artistInspected: artistInspectionCompleted,
                     artworkGivenUp: artworkGivenUp,
-                    artworkAwaitsPlayback: artworkAwaitsPlayback
+                    artworkAwaitsPlayback: artworkAwaitsPlayback,
+                    flacPictureHeader: flacPictureHeader
                 )
             }
             plog("⚠️ Backfill: '\(song.title)' bytes were read but details parsing failed")
@@ -7044,7 +7092,8 @@ final class MetadataBackfillService {
             titleInspected: true,
             artistInspected: artistInspectionCompleted,
             artworkGivenUp: artworkStillMissing,
-            artworkAwaitsPlayback: artworkAwaitsPlayback
+            artworkAwaitsPlayback: artworkAwaitsPlayback,
+            flacPictureHeader: flacPictureHeader
         )
     }
 
@@ -8304,7 +8353,8 @@ final class MetadataBackfillService {
                     coverGroups: self.peerCoverGroups,
                     lyricsPending: Array(self.peerLyricsPendingIDs),
                     deferredArtwork: Array(self.deferredArtworkIDs),
-                    playbackArtwork: Array(self.playbackArtworkIDs)
+                    playbackArtwork: Array(self.playbackArtworkIDs),
+                    flacPictureHeaders: self.deferredFLACPictureHeaders
                 )
                 let peerSeedStateURL = self.peerSeedStateURL
                 let failedURL = self.failedURL
@@ -8726,6 +8776,7 @@ final class MetadataBackfillService {
     private func forgetPeerSeedState(for ids: Set<String>) {
         deferredArtworkIDs.subtract(ids)
         playbackArtworkIDs.subtract(ids)
+        for id in ids { deferredFLACPictureHeaders[id] = nil }
         displayArtworkAttemptedIDs.subtract(ids)
         artworkAwaitingCacheIDs.subtract(ids)
         peerLyricsPendingIDs.subtract(ids)
@@ -8741,6 +8792,7 @@ final class MetadataBackfillService {
         peerLyricsPendingIDs = Set(state.lyricsPending)
         deferredArtworkIDs = Set(state.deferredArtwork ?? [])
         playbackArtworkIDs = Set(state.playbackArtwork ?? [])
+        deferredFLACPictureHeaders = (state.flacPictureHeaders ?? [:]).filter { playbackArtworkIDs.contains($0.key) }
         deferredArtworkIDs.subtract(playbackArtworkIDs)
         artworkGivenUpIDs.formUnion(deferredArtworkIDs)
         artworkGivenUpIDs.formUnion(playbackArtworkIDs)

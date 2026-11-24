@@ -8,6 +8,41 @@ import PrimuseKit
 #endif
 
 final class PodcastRequestQuotaTests: XCTestCase {
+    func testDeniedFeedShowsHostRefusalForHTTP403AndHTMLBlockPage() async throws {
+        let blockPage = "<html><head><title>403 · 无法访问</title></head><body>你的请求未被允许。</body></html>"
+        for fixture in [PodcastRequestFixture(status: 403), PodcastRequestFixture(status: 200, body: Data(blockPage.utf8))] {
+            do {
+                _ = try await PodcastNetwork.fetchFeed(fixture.url(), session: fixture.session)
+                XCTFail("Expected the podcast host to refuse access")
+            } catch let error as PodcastNetwork.Failure {
+                XCTAssertEqual(error, .feedAccessDenied)
+                XCTAssertEqual(error.localizedDescription, String(localized: "podcast_error_feed_access_denied"))
+            }
+        }
+    }
+
+    func testEpisodeTitleAndOrdinaryWebpageAreNotHostRefusals() async throws {
+        let rss = "<rss><channel><title>沿岸电波</title><item><title>403 Forbidden</title><enclosure url='https://example.com/episode.mp3'/></item></channel></rss>"
+        let page = "<html><head><title>沿岸电波</title></head><body>第 403 期：403 Forbidden</body></html>"
+        let broken = "<rss><channel><title>沿岸电波</mismatch></channel></rss>"
+        let cases: [(String, PodcastFeedError?)] = [(rss, nil), (page, .notAFeed), (broken, .malformed)]
+        for (content, expectedError) in cases {
+            let fixture = PodcastRequestFixture(status: 200, body: Data(content.utf8))
+            guard case let .fetched(data, url, _, _) = try await PodcastNetwork.fetchFeed(fixture.url(), session: fixture.session) else {
+                return XCTFail("Expected a feed response")
+            }
+            do {
+                let feed = try PodcastFeedParser.parse(data, feedURL: url)
+                XCTAssertNil(expectedError)
+                XCTAssertEqual(feed.items.first?.title, "403 Forbidden")
+            } catch let error as PodcastFeedError {
+                XCTAssertEqual(error, expectedError)
+                let message = error == .notAFeed ? String(localized: "podcast_error_not_a_feed") : String(localized: "podcast_error_malformed_feed")
+                XCTAssertEqual(error.localizedDescription, message)
+            }
+        }
+    }
+
     func testEnclosureRecoversOnceFromTransientNetworkFailure() async throws {
         for code in [URLError.Code.timedOut, .networkConnectionLost, .notConnectedToInternet] {
             let fixture = PodcastRequestFixture(status: 206,

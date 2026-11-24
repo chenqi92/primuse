@@ -537,15 +537,14 @@ public enum MetadataIdentityFallbackPolicy {
 /// 首尾段。在那里没找到内嵌封面时不再整首下载, 而是按看到的情况分开:
 /// - 标签区看全了(ID3 声明的长度、FLAC 的元数据块链、MP4 的 moov 都在读到的字节里):
 ///   文件里就是没有, 之后不再为封面读它。
-/// - 标签区可能伸到窗口外(声明比读到的长、读满了上限、尾部读不了): 等歌放过一遍、整首进了
-///   播放缓存, 从缓存文件里取, 不多下载一个字节。
+/// - 标签区可能伸到窗口外：播放 FLAC 时可定位图片块并补齐缓存缺口，其他格式等完整播放缓存。
 /// - 以前读到过、后来被清掉的封面: 等这首歌出现在列表、网格或播放页上时读一次首段。
 public enum DeferredEmbeddedArtworkState: String, Sendable, Equatable {
     /// 没有在等: 已有封面、格式不带内嵌封面, 或者还在后台读取队列里。
     case none
     /// 露面时读一次首段(最多 `DeferredEmbeddedArtworkPolicy.displayMaximumHeadByteCount`)。
     case awaitingDisplay
-    /// 只等播放缓存: 有界窗口没看全, 再读一次首段也是白读。
+    /// 有界窗口没看全，留到播放时处理。
     case awaitingPlayback
     /// 标签区看全了, 文件里没有内嵌封面。
     case checkedNone

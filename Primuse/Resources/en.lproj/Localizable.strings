@@ -5786,7 +5786,9 @@
 "podcast_episode_number_format" = "Ep. %lld";
 "podcast_episode_order" = "Episode Order";
 "podcast_error_empty" = "The server returned nothing.";
+"podcast_error_feed_access_denied" = "The podcast host is currently refusing requests for this feed.";
 "podcast_error_http %lld" = "The server returned an error (HTTP %lld).";
+"podcast_error_malformed_feed" = "The podcast feed could not be read because its format is invalid.";
 "podcast_error_not_a_feed" = "This address isn't a podcast RSS feed.";
 "podcast_error_not_in_directory" = "This show couldn't be found in the podcast directory.";
 "podcast_export_opml" = "Export Subscriptions (OPML)";

@@ -27,6 +27,7 @@ private final class RepeatPlaybackAudioProbe: @unchecked Sendable {
     private var sampleRate = 1.0
 
     func install(on node: AVAudioNode) {
+        // crash-pattern: allow avaudionode-tap 测试探针仅在当前运行中的测试引擎上临时挂载。
         node.installTap(onBus: 0, bufferSize: 512, format: nil) { [self] buffer, _ in
             append(buffer)
         }
@@ -407,6 +408,7 @@ final class DeviceMusicPlaybackTests: XCTestCase {
             let node = try XCTUnwrap(player.audioEngine.visualizerTapNode)
             let probe = RepeatPlaybackAudioProbe()
             probe.install(on: node)
+            // crash-pattern: allow avaudionode-tap 与上方测试探针配对卸载。
             defer { node.removeTap(onBus: 0) }
             if delayedCompletion {
                 // Deliver the render-clock watchdog before the output completion,
@@ -522,6 +524,7 @@ final class DeviceMusicPlaybackTests: XCTestCase {
             let probe = RepeatPlaybackAudioProbe()
             probe.install(on: node)
             do {
+                // crash-pattern: allow avaudionode-tap 与上方测试探针配对卸载。
                 defer { node.removeTap(onBus: 0) }
                 var ticket = player.playbackAdvancePolicy.activeTicket?.id
                 var boundaries = 0

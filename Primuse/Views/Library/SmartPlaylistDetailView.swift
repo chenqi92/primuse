@@ -49,6 +49,14 @@ struct SmartPlaylistDetailView: View {
     #elseif os(macOS)
     /// 歌曲右键菜单里的刮削数据、编辑标签、编辑歌词、重新读取文件标签，交给 `macSongActionHost`。
     @State private var macSongAction: SongRowActionRequest?
+    /// 歌曲表手工分窗：页面滚到的首行（按 `SongListScrollWindow.rowStride` 取整）和表格行在滚动内容里的起点。
+    @State private var macTableFirstVisibleRow = 0
+    @State private var macTableRowsTop: CGFloat = 0
+
+    private static let macScrollContentSpace = "smartPlaylistMacScrollContent"
+    private static let macSongRowHeight: CGFloat = 44
+    private static let macRowSpacing: CGFloat = 1
+    private static var macRowStride: CGFloat { macSongRowHeight + macRowSpacing }
     #endif
 
     /// 手机横屏 (纵向紧凑) 才把头部换成矮横带。Mac 没有纵向尺寸等级, 恒为 false。
@@ -126,8 +134,8 @@ struct SmartPlaylistDetailView: View {
         // 这里取一次快照向下传递, 把每帧的全库扫描收敛成 1 次。
         let matched = self.matched
         #if os(macOS)
-        return AnyView(macBody(matched)
-            .songLocationReader(songLocation, revision: shownRows(matched).map(\.id))
+        let rows = shownRows(matched)
+        return AnyView(macBody(matched, rows: rows)
             .onDisappear { songLocation.cancel() }
             .playlistRemovalAlert($pendingRemoval) { _ in
                 NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
@@ -572,40 +580,63 @@ struct SmartPlaylistDetailView: View {
     }
 
     #if os(macOS)
-    private func macBody(_ matched: [Song]) -> some View {
+    private func macBody(_ matched: [Song], rows: [ShownRow]) -> some View {
         Group {
             if let smart {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        macHeader(smart, matched: matched)
+                GeometryReader { geometry in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            macHeader(smart, matched: matched)
 
-                        VStack(alignment: .leading, spacing: PMSpace.l) {
-                            macDefinitionCard(smart)
-                            LibraryReviewSection(subject: .playlist(smart.id))
-                            macToolbar(smart, matched: matched)
+                            VStack(alignment: .leading, spacing: PMSpace.l) {
+                                macDefinitionCard(smart)
+                                LibraryReviewSection(subject: .playlist(smart.id))
+                                macToolbar(smart, matched: matched)
 
-                            if matched.isEmpty {
-                                EmptyStateView(
-                                    titleKey: "smart_playlist_no_matches",
-                                    descriptionKey: emptyDescriptionKey(for: smart),
-                                    systemImage: "magnifyingglass"
-                                )
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 48)
-                                .pmAppearFade(.contentAppear)
-                            } else if shownRows(matched).isEmpty {
-                                ContentUnavailableView.search(text: findText)
+                                if matched.isEmpty {
+                                    EmptyStateView(
+                                        titleKey: "smart_playlist_no_matches",
+                                        descriptionKey: emptyDescriptionKey(for: smart),
+                                        systemImage: "magnifyingglass"
+                                    )
                                     .frame(maxWidth: .infinity)
-                                    .padding(.top, 32)
-                            } else {
-                                macSongTable(matched)
+                                    .padding(.top, 48)
                                     .pmAppearFade(.contentAppear)
+                                } else if rows.isEmpty {
+                                    ContentUnavailableView.search(text: findText)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.top, 32)
+                                } else {
+                                    macSongTable(matched, rows: rows, viewportHeight: geometry.size.height)
+                                        .pmAppearFade(.contentAppear)
+                                }
                             }
+                            .padding(.horizontal, PMSpace.xxxl)
+                            .padding(.top, PMSpace.l)
                         }
-                        .padding(.horizontal, PMSpace.xxxl)
-                        .padding(.top, PMSpace.l)
+                        .padding(.bottom, 112)
+                        .coordinateSpace(.named(Self.macScrollContentSpace))
                     }
-                    .padding(.bottom, 112)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .songLocationScrollPosition(
+                        songLocation,
+                        revision: [AnyHashable(rows.map(\.id)), AnyHashable(macTableRowsTop)]
+                    ) { songID, viewportHeight in
+                        guard let index = rows.firstIndex(where: { $0.id == songID }) else { return nil }
+                        return macTableRowsTop + CGFloat(index) * Self.macRowStride
+                            + Self.macSongRowHeight / 2 - viewportHeight / 2
+                    }
+                    .onScrollGeometryChange(for: Int.self) { scroll in
+                        let offset = max(0, scroll.visibleRect.minY - macTableRowsTop)
+                        let row = Int(floor(offset / Self.macRowStride))
+                        return row / SongListScrollWindow.rowStride * SongListScrollWindow.rowStride
+                    } action: { _, row in
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            macTableFirstVisibleRow = row
+                        }
+                    }
                 }
                 .background(PMColor.bg.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
@@ -763,9 +794,15 @@ struct SmartPlaylistDetailView: View {
         .padding(.top, -2)
     }
 
-    private func macSongTable(_ matched: [Song]) -> some View {
+    private func macSongTable(_ matched: [Song], rows: [ShownRow], viewportHeight: CGFloat) -> some View {
         let ordinalWidth = MacOrdinalColumn.width(
             for: matched.count, minimum: 28, fontSize: 11, locale: locale, showsNumbers: showsRowNumbers
+        )
+        let window = SongListScrollWindow.range(
+            totalCount: rows.count,
+            firstVisibleRow: macTableFirstVisibleRow,
+            viewportHeight: Double(viewportHeight),
+            rowHeight: Double(Self.macRowStride)
         )
         return VStack(spacing: 0) {
             HStack(spacing: PMSpace.s10) {
@@ -785,9 +822,13 @@ struct SmartPlaylistDetailView: View {
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
-            LazyVStack(spacing: 1) {
-                ForEach(Array(shownRows(matched).enumerated()), id: \.element.id) { index, row in
-                    macSongRow(row.song, index: index, ordinalWidth: ordinalWidth)
+            VStack(spacing: 0) {
+                Color.clear
+                    .frame(height: CGFloat(window.lowerBound) * Self.macRowStride)
+                    .accessibilityHidden(true)
+
+                ForEach(Array(rows[window].enumerated()), id: \.element.id) { offset, row in
+                    macSongRow(row.song, index: window.lowerBound + offset, ordinalWidth: ordinalWidth)
                         // 和 iPhone 长按「编辑」里同样的几项：刮削数据、编辑标签、编辑歌词、重新读取文件标签。
                         .contextMenu {
                             MacSongMetadataMenuItems(song: row.song) { action in
@@ -795,7 +836,19 @@ struct SmartPlaylistDetailView: View {
                             }
                         }
                         .songLocationRow(row.song.id)
+                        .frame(height: Self.macSongRowHeight)
+                        .padding(.bottom, Self.macRowSpacing)
                 }
+
+                Color.clear
+                    .frame(height: CGFloat(rows.count - window.upperBound) * Self.macRowStride)
+                    .accessibilityHidden(true)
+            }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .named(Self.macScrollContentSpace)).minY
+            } action: { top in
+                guard abs(macTableRowsTop - top) > 0.5 else { return }
+                macTableRowsTop = top
             }
             .padding(.vertical, 4)
         }

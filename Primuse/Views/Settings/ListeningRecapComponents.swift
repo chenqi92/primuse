@@ -24,12 +24,22 @@ struct RecapPillPicker<Value: Hashable>: View {
     var compact = false
     /// 放不下一行时可以横着滑，并铺到页面左右边缘（「本周 / 本月……」在波兰语、俄语里很长）。
     var scrolls = false
+    /// 放得下一行时居中显示（配合 `scrolls: true` 替代 `ViewThatFits`）。
+    var centersWhenFitting = false
     let label: (Value) -> Text
+
+    @State private var scrollViewportWidth: CGFloat = 0
 
     var body: some View {
         if scrolls {
             ScrollView(.horizontal, showsIndicators: false) {
-                pills.padding(.horizontal, RecapStyle.horizontalPadding)
+                pills
+                    .padding(.horizontal, RecapStyle.horizontalPadding)
+                    .frame(minWidth: centersWhenFitting && scrollViewportWidth > 0 ? scrollViewportWidth : nil)
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                guard centersWhenFitting, abs(scrollViewportWidth - width) > 0.5 else { return }
+                scrollViewportWidth = width
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .padding(.horizontal, -RecapStyle.horizontalPadding)
@@ -191,6 +201,7 @@ struct RecapChip: View {
 /// 标签放不下一行时折到下一行。
 struct RecapFlowLayout: Layout {
     var spacing: CGFloat = 6
+    var centersSingleRow = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
@@ -200,9 +211,13 @@ struct RecapFlowLayout: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = arrange(width: bounds.width, subviews: subviews)
         var y = bounds.minY
-        for row in arrange(width: bounds.width, subviews: subviews) {
-            var x = bounds.minX
+        for row in rows {
+            let leadingOffset = (centersSingleRow && rows.count == 1)
+                ? max(0, (bounds.width - row.width) / 2)
+                : 0
+            var x = bounds.minX + leadingOffset
             for index in row.indices {
                 let size = subviews[index].sizeThatFits(.unspecified)
                 // 同一排里矮的那几个上下居中(没有底色的文字和带底色的小标签排在一起时对齐)。

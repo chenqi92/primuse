@@ -81,8 +81,6 @@ struct PodcastShowDetailView: View {
             if let showID { store.markNewEpisodesSeen(showID: showID) }
         } catch PodcastNetwork.Failure.insecureHTTP(let host) {
             pendingInsecureHost = host
-        } catch is PodcastFeedError {
-            loadError = String(localized: "podcast_error_not_a_feed")
         } catch {
             loadError = error.localizedDescription
         }

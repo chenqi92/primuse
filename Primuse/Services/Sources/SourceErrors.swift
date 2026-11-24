@@ -130,6 +130,10 @@ enum MetadataWriteFailurePolicy {
             case .replyFailure(_, let code, _): return code == 421 || code == 425 || code == 426
             case .activeModeUnavailable, .invalidReply, .cancelled: return false
             }
+        case let failure as HTTPResponseFailure:
+            return failure.isRateLimitFailure
+                || failure.isRetryable == true
+                || CloudHTTPRetryPolicy.shouldRetry(statusCode: failure.statusCode)
         case CloudDriveError.apiError(let status, _):
             return CloudHTTPRetryPolicy.shouldRetry(statusCode: status)
         default:

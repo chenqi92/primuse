@@ -35,15 +35,41 @@ struct SmartPlaylistEditorView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
 
-    @State private var name: String = ""
-    @State private var ruleGroups: [SmartPlaylistRuleGroup] = []
-    @State private var sortField: SmartPlaylistSortField = .dateAdded
-    @State private var sortDirection: SmartPlaylistSortDirection = .descending
-    @State private var limitText: String = ""
+    @State private var name: String
+    @State private var ruleGroups: [SmartPlaylistRuleGroup]
+    @State private var sortField: SmartPlaylistSortField
+    @State private var sortDirection: SmartPlaylistSortDirection
+    @State private var limitText: String
     /// 多个规则组之间的组合方式 (AND = 所有组都满足 / OR = 任一组满足)。
-    @State private var groupCombinator: SmartPlaylistCombinator = .and
+    @State private var groupCombinator: SmartPlaylistCombinator
 
     @State private var showDeleteConfirm = false
+    #if os(macOS)
+    @State private var macPreview = SmartPlaylistEngine.PreviewSummary.empty
+    @State private var hasLoadedMacPreview = false
+    #endif
+
+    init(existing: SmartPlaylist?) {
+        self.existing = existing
+        if let existing {
+            let initialGroups = existing.effectiveRuleGroups
+            _name = State(initialValue: existing.name)
+            _ruleGroups = State(initialValue: initialGroups.isEmpty ? [Self.defaultGroup()] : initialGroups)
+            _groupCombinator = State(initialValue: existing.effectiveGroupCombinator)
+            _sortField = State(initialValue: existing.sortField)
+            _sortDirection = State(initialValue: existing.sortDirection)
+            _limitText = State(initialValue: existing.limit.map(String.init) ?? "")
+        } else {
+            // 新建从一条空规则开始 (空值规则在保存/预览时会被过滤掉, 等于"匹配全部"),
+            // 不再预填 "70s Classic Rock" 示例模板 —— 那个模板在真实库里几乎匹配不到。
+            _name = State(initialValue: "")
+            _ruleGroups = State(initialValue: [Self.defaultGroup()])
+            _groupCombinator = State(initialValue: .and)
+            _sortField = State(initialValue: .dateAdded)
+            _sortDirection = State(initialValue: .descending)
+            _limitText = State(initialValue: "")
+        }
+    }
 
     private var isEditing: Bool { existing != nil }
 
@@ -148,7 +174,6 @@ struct SmartPlaylistEditorView: View {
                     dismiss()
                 }
             }
-            .onAppear(perform: loadInitialState)
         }
     }
 
@@ -198,7 +223,27 @@ struct SmartPlaylistEditorView: View {
         }
         .frame(width: 820, height: 620)
         .background(PMColor.bg)
-        .onAppear(perform: loadInitialState)
+        .task(id: macPreviewKey) {
+            if hasLoadedMacPreview {
+                do {
+                    try await Task.sleep(for: .milliseconds(180))
+                } catch {
+                    return
+                }
+            }
+            guard !Task.isCancelled else { return }
+            let inputs = SmartPlaylistEngine.makePreviewInputs(
+                for: macDraftSmartPlaylist,
+                in: library,
+                history: PlayHistoryStore.shared
+            )
+            let summary = await Task.detached(priority: .userInitiated) {
+                SmartPlaylistEngine.evaluatePreview(songs: inputs.songs, plan: inputs.plan)
+            }.value
+            guard !Task.isCancelled else { return }
+            macPreview = summary
+            hasLoadedMacPreview = true
+        }
     }
 
     private var macHeader: some View {
@@ -376,10 +421,9 @@ struct SmartPlaylistEditorView: View {
     }
 
     private var macLivePreviewCard: some View {
-        let songs = macPreviewSongs
-        let previewCovers = Array(songs.prefix(4))
-        let durationText = songs.reduce(TimeInterval(0)) { $0 + $1.duration }.formattedShort
-        let sourceCount = Set(songs.map(\.sourceID)).count
+        let previewCovers = macPreview.previewCovers
+        let durationText = macPreview.totalDuration.formattedShort
+        let sourceCount = macPreview.sourceCount
         return HStack(spacing: 12) {
             Image(systemName: "sparkles")
                 .font(.system(size: 16, weight: .semibold))
@@ -389,7 +433,7 @@ struct SmartPlaylistEditorView: View {
                 HStack(spacing: 3) {
                     Text(String(localized: "smart_mac_current_match"))
                         .foregroundStyle(PMColor.text)
-                    Text(verbatim: "\(songs.count)")
+                    Text(verbatim: "\(macPreview.count)")
                         .font(.system(size: 13, weight: .semibold, design: .monospaced))
                         .foregroundStyle(PMColor.brand)
                     Text(String(localized: "smart_mac_songs_unit"))
@@ -433,13 +477,46 @@ struct SmartPlaylistEditorView: View {
         .padding(.top, 20)
     }
 
-    private var macPreviewSongs: [Song] {
-        SmartPlaylistEngine.match(macDraftSmartPlaylist, in: library, history: PlayHistoryStore.shared)
+    private struct MacPreviewKey: Equatable {
+        let ruleGroups: [SmartPlaylistRuleGroup]
+        let groupCombinator: SmartPlaylistCombinator
+        let sortField: SmartPlaylistSortField
+        let sortDirection: SmartPlaylistSortDirection
+        let limit: Int?
+        let collectionRevision: Int
+        let replacementToken: UUID
+        let librarySongs: UInt64
+        let playlists: MusicLibrary.PlaylistContentVersion?
+        let historyVersion: UInt64?
+        let artistNameConfiguration: ArtistNameConfiguration
+        let includesAppleMusicLibrary: Bool
+    }
+
+    private var macPreviewKey: MacPreviewKey {
+        let cleaned = macCleanedGroups
+        let rules = cleaned.flatMap(\.rules)
+        let usesPlaylists = rules.contains { $0.field == .isInPlaylist }
+        let usesPlayStats = rules.contains { $0.field == .playCount || $0.field == .lastPlayedAt }
+            || sortField == .playCount || sortField == .lastPlayedAt
+        return MacPreviewKey(
+            ruleGroups: cleaned,
+            groupCombinator: groupCombinator,
+            sortField: sortField,
+            sortDirection: sortDirection,
+            limit: Int(limitText.trimmingCharacters(in: .whitespaces)),
+            collectionRevision: library.visibleSongCollectionRevision,
+            replacementToken: library.songReplacementToken,
+            librarySongs: library.songMutationGenerationForMaintenance,
+            playlists: usesPlaylists ? library.playlistContentVersion : nil,
+            historyVersion: usesPlayStats ? PlayHistoryStore.shared.playCountsVersion : nil,
+            artistNameConfiguration: library.artistNameConfiguration,
+            includesAppleMusicLibrary: AppleMusicFeatureSettings.autoAddToSmartPlaylistsEnabled
+        )
     }
 
     private var macDraftSmartPlaylist: SmartPlaylist {
         let fallbackName = String(localized: "smart_mac_default_name")
-        var smart = existing ?? SmartPlaylist(name: name.trimmingCharacters(in: .whitespaces).isEmpty ? fallbackName : name)
+        var smart = existing ?? SmartPlaylist(id: "draft-preview", name: fallbackName)
         smart.name = name.trimmingCharacters(in: .whitespaces).isEmpty ? fallbackName : name
         smart.ruleGroups = macCleanedGroups
         smart.rules = macCleanedGroups.first?.rules ?? []
@@ -528,25 +605,6 @@ struct SmartPlaylistEditorView: View {
             ],
             combinator: combinator
         )
-    }
-
-    private func loadInitialState() {
-        if let existing {
-            name = existing.name
-            ruleGroups = existing.effectiveRuleGroups
-            if ruleGroups.isEmpty {
-                ruleGroups = [Self.defaultGroup()]
-            }
-            groupCombinator = existing.effectiveGroupCombinator
-            sortField = existing.sortField
-            sortDirection = existing.sortDirection
-            limitText = existing.limit.map(String.init) ?? ""
-        } else if ruleGroups.isEmpty {
-            // 新建从一条空规则开始 (空值规则在保存/预览时会被过滤掉, 等于"匹配全部"),
-            // 不再预填 "70s Classic Rock" 示例模板 —— 那个模板在真实库里几乎匹配不到。
-            ruleGroups = [Self.defaultGroup()]
-            groupCombinator = .and
-        }
     }
 
     private func sortFieldLabel(_ f: SmartPlaylistSortField) -> String {

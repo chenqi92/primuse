@@ -6023,7 +6023,9 @@
 "podcast_episode_number_format" = "第%lld話";
 "podcast_episode_order" = "エピソードの順序";
 "podcast_error_empty" = "サーバから何も返ってきませんでした。";
+"podcast_error_feed_access_denied" = "配信元が現在、この番組の購読リクエストを拒否しています。";
 "podcast_error_http %lld" = "サーバがエラーを返しました（HTTP %lld）。";
+"podcast_error_malformed_feed" = "番組のフィードの形式が正しくないため、読み込めませんでした。";
 "podcast_error_not_a_feed" = "このアドレスはポッドキャストのRSSフィードではありません。";
 "podcast_error_not_in_directory" = "この番組はポッドキャストのディレクトリで見つかりませんでした。";
 "podcast_export_opml" = "登録を書き出す（OPML）";

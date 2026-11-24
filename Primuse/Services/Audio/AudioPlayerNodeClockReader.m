@@ -156,3 +156,56 @@ BOOL PrimuseConnectNodeToPoints(
         return PrimuseReportConnectException(exception, error);
     }
 }
+
+BOOL PrimuseInstallNodeTap(
+    AVAudioNode *node,
+    NSInteger bus,
+    AVAudioFrameCount bufferSize,
+    AVAudioFormat * _Nullable format,
+    AVAudioNodeTapBlock tapBlock,
+    NSError * _Nullable * _Nullable error
+) {
+    @try {
+        if (node.engine == nil) {
+            if (error != NULL) {
+                *error = [NSError errorWithDomain:@"PrimuseAudioEngine"
+                                             code:2
+                                         userInfo:@{
+                    NSLocalizedDescriptionKey: @"AVAudioNode is not attached to an engine",
+                }];
+            }
+            return NO;
+        }
+        [node installTapOnBus:(AVAudioNodeBus)bus
+                   bufferSize:bufferSize
+                       format:format
+                        block:tapBlock];
+        return YES;
+    } @catch (NSException *exception) {
+        NSLog(@"⚠️ AVAudioNode installTapOnBus raised %@: %@", exception.name, exception.reason);
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:@"PrimuseAudioEngine"
+                                         code:2
+                                     userInfo:@{
+                NSLocalizedDescriptionKey: exception.reason ?: exception.name,
+            }];
+        }
+        return NO;
+    }
+}
+
+BOOL PrimuseRemoveNodeTap(
+    AVAudioNode *node,
+    NSInteger bus
+) {
+    @try {
+        if (node.engine == nil) {
+            return NO;
+        }
+        [node removeTapOnBus:(AVAudioNodeBus)bus];
+        return YES;
+    } @catch (NSException *exception) {
+        NSLog(@"⚠️ AVAudioNode removeTapOnBus raised %@: %@", exception.name, exception.reason);
+        return NO;
+    }
+}
