@@ -111,8 +111,36 @@ struct ArtistListView: View {
     @State private var orderedArtists: ArtistBrowseOrdered?
 
     private var orderRequest: ArtistBrowseOrderRequest? {
-        guard browsesLibrary else { return nil }
+        // 目录路径(P3)不用内存里排好的那一份。
+        guard browsesLibrary, iosCatalogKey == nil else { return nil }
         return ArtistBrowseOrderRequest(mode: browseMode, artists: library.browsableArtists(browseMode))
+    }
+
+    // MARK: Catalog path (P3)
+
+    @State private var catalogArtists = ArtistCatalogList()
+
+    /// 资料库「全部艺术家」、不只看喜欢、目录可读时读目录(带页内搜索);读失败的那组条件改走内存。
+    private var iosCatalogKey: ArtistCatalogKey? {
+        guard browsesLibrary, browseMode == .allArtists, !showsLikedOnly,
+              library.catalogHost?.revisions.isReadable == true else { return nil }
+        let key = ArtistCatalogKey(search: searchText.trimmingCharacters(in: .whitespacesAndNewlines))
+        return catalogArtists.failedKey == key ? nil : key
+    }
+
+    /// 正在显示的目录列表;条件刚变时先留着上一份。
+    private var iosCatalogModel: LibraryListModel<LibraryArtistBrowseQuery>? {
+        iosCatalogKey == nil ? nil : catalogArtists.model
+    }
+
+    private func updateIOSCatalogArtists() {
+        guard let key = iosCatalogKey, let host = library.catalogHost else {
+            catalogArtists.reset()
+            return
+        }
+        catalogArtists.update(key, host: host, query: LibraryArtistBrowseQuery(
+            unknownArtistName: String(localized: "unknown_artist"), search: key.search
+        ))
     }
 
     private var currentOrder: ArtistBrowseOrdered? {
@@ -123,6 +151,7 @@ struct ArtistListView: View {
     /// 右缘字母条。搜索和只看喜欢（按喜欢的先后排）时收起。
     private var railModel: LibraryIndexRailModel? {
         guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !showsLikedOnly else { return nil }
+        if iosCatalogKey != nil { return catalogArtists.railModel(offers: true) }
         return currentOrder?.railModel
     }
 
@@ -149,6 +178,7 @@ struct ArtistListView: View {
     /// 资料库艺人页第一次排序还没排好。
     private var isPreparingOrder: Bool {
         #if os(iOS)
+        if iosCatalogKey != nil { return iosCatalogModel == nil }
         return browsesLibrary && currentOrder == nil
         #else
         return false
@@ -163,7 +193,34 @@ struct ArtistListView: View {
 
     /// 列表空了而且不是搜索 / 只看喜欢造成的。
     private var showsEmptyBrowseList: Bool {
-        browsesLibrary && !isPreparingOrder && artists.isEmpty
+        #if os(iOS)
+        if iosCatalogKey != nil {
+            // 目录路径:整页没有艺人(搜索之前)。目录计数还没数出来时先不出空状态。
+            let total = LibraryHubCatalogCountsModel.shared(for: library)?.readableCounts?.artists ?? 1
+            return !isPreparingOrder && total == 0
+        }
+        #endif
+        return browsesLibrary && !isPreparingOrder && artists.isEmpty
+    }
+
+    /// 页面上显示的艺人数。
+    private var displayedArtistCount: Int {
+        #if os(iOS)
+        if iosCatalogKey != nil { return iosCatalogModel?.count ?? 0 }
+        #endif
+        return filteredArtists.count
+    }
+
+    /// 「补全缺少的简介」要的艺人:目录路径下按同样的条件从内存曲库筛(P3 删内存曲库前改成按键分批取)。
+    private func batchFillArtists() -> [Artist] {
+        #if os(iOS)
+        if let key = iosCatalogKey {
+            // 和内存路径同一份艺人(「全部艺术家」),按同样的名字条件筛。
+            let all = library.browsableArtists(.allArtists)
+            return key.search.isEmpty ? all : all.filter { $0.name.localizedCaseInsensitiveContains(key.search) }
+        }
+        #endif
+        return filteredArtists
     }
 
     /// 只看喜欢的艺人。有喜欢的艺人时才给这个开关。
@@ -231,12 +288,13 @@ struct ArtistListView: View {
             #else
             iosBody
                 .libraryInsightBatchFill(kind: .artist, request: $requestsIntroFill) {
-                    filteredArtists.map(LibraryInsightBatchItem.artist)
+                    batchFillArtists().map(LibraryInsightBatchItem.artist)
                 }
                 .task(id: orderRequest) {
                     guard let orderRequest else { return }
                     await prepareOrder(orderRequest)
                 }
+                .task(id: iosCatalogKey) { updateIOSCatalogArtists() }
             #endif
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -342,7 +400,7 @@ struct ArtistListView: View {
                     ProgressView()
                 } else if showsEmptyBrowseList {
                     emptyBrowseList
-                } else if filteredArtists.isEmpty {
+                } else if displayedArtistCount == 0 {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
@@ -371,7 +429,7 @@ struct ArtistListView: View {
             .minimalPageHeader {
                 HStack(spacing: 4) {
                     MinimalHeaderCount(
-                        text: "\(filteredArtists.count.formatted()) \(String(localized: "artists_count"))"
+                        text: "\(displayedArtistCount.formatted()) \(String(localized: "artists_count"))"
                     )
                     Spacer(minLength: 8)
                     MinimalHeaderActions {
@@ -399,7 +457,9 @@ struct ArtistListView: View {
     /// 圆形头像网格：和专辑网格同一套断点（iPhone 两列、iPad 摊开更多列，手机横屏下限收到 100），
     /// 按行摆成懒加载栈。资料库里的艺人页右缘有字母条：拖动跳到那个字母，卡片里是这一段的前几位头像。
     private var artistGrid: some View {
-        let artists = filteredArtists
+        let artists = iosCatalogKey == nil ? filteredArtists : []
+        let catalog = iosCatalogModel
+        let count = iosCatalogKey == nil ? artists.count : (catalog?.count ?? 0)
         let minimumWidth = heightClass.value(150, compact: 100)
         return LibraryIndexedScrollView(
             model: railModel,
@@ -407,16 +467,31 @@ struct ArtistListView: View {
             extendsUnderVerticalBar: true,
             countText: Self.artistCountText,
             preview: { entry in
-                LibraryIndexArtistStack(artists: entry.previewItems(in: artists))
+                LibraryIndexArtistStack(artists: catalog.map { model in
+                    (0..<min(entry.count, 3)).compactMap { model.item(at: entry.target + $0) }
+                } ?? entry.previewItems(in: artists))
             }
         ) { layout in
             LazyVStack(alignment: .leading, spacing: heightClass.value(24, compact: 16)) {
-                ForEach(0..<layout.rowCount(itemCount: artists.count), id: \.self) { @Sendable row in
+                ForEach(0..<layout.rowCount(itemCount: count), id: \.self) { @Sendable row in
                     LazyItemCell {
                         HStack(alignment: .top, spacing: layout.columnSpacing) {
-                            ForEach(artists[layout.items(inRow: row, itemCount: artists.count)]) { artist in
-                                artistGridItem(artist)
-                                    .frame(width: layout.cellWidth)
+                            if let catalog {
+                                // 目录路径(P3):按下标取,还没物化到的格子先画占位。
+                                ForEach(Array(layout.items(inRow: row, itemCount: count)), id: \.self) { index in
+                                    if let artist = catalog.item(at: index) {
+                                        artistGridItem(artist)
+                                            .frame(width: layout.cellWidth)
+                                    } else {
+                                        ArtistGridCellPlaceholder()
+                                            .frame(width: layout.cellWidth)
+                                    }
+                                }
+                            } else {
+                                ForEach(artists[layout.items(inRow: row, itemCount: count)]) { artist in
+                                    artistGridItem(artist)
+                                        .frame(width: layout.cellWidth)
+                                }
                             }
                         }
                     }
@@ -463,19 +538,32 @@ struct ArtistListView: View {
 
     /// 列表版式也是懒加载栈（系统 List 没法按行跳转、也报不出露出了哪几行），右缘同样有字母条。
     private var artistList: some View {
-        let artists = filteredArtists
+        let artists = iosCatalogKey == nil ? filteredArtists : []
+        let catalog = iosCatalogModel
+        let count = iosCatalogKey == nil ? artists.count : (catalog?.count ?? 0)
         return LibraryIndexedScrollView(
             model: railModel,
             countText: Self.artistCountText,
             preview: { entry in
-                LibraryIndexArtistStack(artists: entry.previewItems(in: artists))
+                LibraryIndexArtistStack(artists: catalog.map { model in
+                    (0..<min(entry.count, 3)).compactMap { model.item(at: entry.target + $0) }
+                } ?? entry.previewItems(in: artists))
             }
         ) { layout in
             LazyVStack(spacing: 0) {
                 // 一位歌手一格（分隔线在格子里）：懒加载栈按行号直接找到远处的目标。
-                ForEach(0..<artists.count, id: \.self) { @Sendable row in
+                ForEach(0..<count, id: \.self) { @Sendable row in
                     LazyItemCell {
-                        artistListRow(artists[row], trailingPadding: layout.trailingPadding)
+                        if let catalog {
+                            // 目录路径(P3):还没物化到的行先画占位。
+                            if let artist = catalog.item(at: row) {
+                                artistListRow(artist, trailingPadding: layout.trailingPadding)
+                            } else {
+                                ArtistListRowPlaceholder(trailingPadding: layout.trailingPadding)
+                            }
+                        } else {
+                            artistListRow(artists[row], trailingPadding: layout.trailingPadding)
+                        }
                     }
                 }
             }

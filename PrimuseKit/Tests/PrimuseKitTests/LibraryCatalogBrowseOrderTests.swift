@@ -65,6 +65,39 @@ struct LibraryCatalogBrowseOrderTests {
         }
     }
 
+    @Test("Genre representative songs match LibraryGenreIndexBuilder", arguments: [UInt64(2), 13, 77])
+    func genreRepresentatives(seed: UInt64) throws {
+        for separators in [GenreSeparatorOptions(), [.slash, .comma]] {
+            let temporary = try TemporaryCatalog()
+            let catalog = temporary.catalog
+            try catalog.setGroupingConfiguration(LibraryGroupingConfiguration(
+                unknownArtist: Self.unknownArtist, genreSeparators: separators
+            ))
+            var rng = CatalogTestRandom(seed: seed)
+            var songs = (0..<500).map { CatalogSongFactory.randomSong(&rng, index: $0, exotic: false) }
+            // 同一流派里有封面、没封面、年份相同、没有专辑的都要有。
+            for index in songs.indices where index % 3 == 0 {
+                songs[index].genre = rng.pick(["Rock", "Jazz; Blues", "Pop/Rock", "流行"])
+                songs[index].coverArtFileName = rng.chance(50) ? "cover-\(index % 7).jpg" : nil
+                songs[index].year = rng.pick([nil, 1999, 2005, 2005])
+                if rng.chance(20) { songs[index].albumID = rng.chance(50) ? nil : "  " }
+            }
+            try catalog.apply(upserts: songs)
+            try catalog.setSourceEnabled(false, sourceID: "src-webdav")
+            let music = try catalog.songs(rowids: catalog.rowList(.visibleMusic).rowids)
+            let expected = LibraryGenreIndexBuilder.build(from: music, alsoSplitting: separators).genres
+            let actual = try catalog.genreRepresentativeSongIDs()
+            #expect(expected.count > 3, "seed \(seed): the fixture needs several genres")
+            for genre in expected {
+                #expect(actual[genre.id] ?? [] == genre.representativeSongIDs,
+                        "seed \(seed) separators \(separators.rawValue) genre \(genre.id)")
+            }
+            #expect(Set(actual.keys) == Set(expected.map(\.id)))
+            let subset = Set(expected.prefix(2).map(\.id))
+            #expect(try catalog.genreRepresentativeSongIDs(genreIDs: subset).keys.sorted() == subset.sorted())
+        }
+    }
+
     @Test("Orders the catalog does not sort here return nil")
     func unsupportedOrders() throws {
         let temporary = try Self.makeCatalog(seed: 5, count: 40, disabled: [])

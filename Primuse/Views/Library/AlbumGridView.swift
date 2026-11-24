@@ -15,6 +15,8 @@ struct AlbumGridView: View {
     @AppStorage(AlbumGridOrder.storageKey) private var albumOrderRawValue = AlbumGridOrder.defaultOrder.rawValue
     /// 后台准备好的筛选结果。
     @State private var displayedAlbums: AlbumGridFilteredAlbums?
+    /// 目录路径的列表(P3)。
+    @State private var catalogList = AlbumGridCatalogList()
     private let favorites = LibraryFavoritesStore.shared
 
     private var showsLikedFilter: Bool { showsLikedOnly || favorites.hasLikedAlbums }
@@ -62,6 +64,66 @@ struct AlbumGridView: View {
 
     private var displayedResult: AlbumGridFilteredAlbums? {
         AlbumGridFilterCache.shared.entry(for: filterRequest) ?? displayedAlbums
+    }
+
+    // MARK: Catalog path (P3)
+
+    /// 目录可读、按艺术家/标题/年份排、没有按发行类别筛时读目录;其余照旧排内存里的专辑。
+    /// 读目录失败的那组条件改走内存路径。
+    private var catalogKey: AlbumGridCatalogKey? {
+        guard library.catalogHost?.revisions.isReadable == true,
+              let order = albumOrder.browseOrder, order == .artist || order == .title || order == .year,
+              releaseCategory.isEmpty else { return nil }
+        let key = AlbumGridCatalogKey(
+            order: order, query: albumFilter.trimmingCharacters(in: .whitespacesAndNewlines),
+            likedOnly: showsLikedOnly, hidesSingleSongAlbums: hidesSingleSongAlbums,
+            favoritesRevision: showsLikedOnly ? favorites.revision : 0
+        )
+        return catalogList.failedKey == key ? nil : key
+    }
+
+    /// 正在显示的目录列表;条件刚变时先留着上一份,新的取好再换。
+    private var catalogModel: LibraryListModel<LibraryAlbumBrowseQuery>? {
+        catalogKey == nil ? nil : catalogList.model
+    }
+
+    private func updateCatalogList() {
+        guard let key = catalogKey, let host = library.catalogHost else {
+            catalogList.reset()
+            return
+        }
+        let unknownArtistName = String(localized: "unknown_artist")
+        let predicate = AlbumGridAlbumPredicate(
+            query: key.query, likedOnly: key.likedOnly, hidesSingleSongAlbums: key.hidesSingleSongAlbums,
+            favorites: favorites.ledger, unknownArtistName: unknownArtistName
+        )
+        catalogList.update(key, host: host, query: LibraryAlbumBrowseQuery(
+            order: key.order, unknownArtistName: unknownArtistName,
+            currentYear: Calendar.current.component(.year, from: Date()),
+            predicate: predicate.isEmpty ? nil : predicate
+        ))
+    }
+
+    /// 页面上显示的专辑数。
+    private var displayedAlbumCount: Int {
+        if catalogKey != nil { return catalogModel?.count ?? 0 }
+        return filteredAlbums.count
+    }
+
+    /// 曲库里的可见专辑数(目录可读时数目录)。
+    private var totalAlbumCount: Int {
+        if let counts = LibraryHubCatalogCountsModel.shared(for: library)?.readableCounts { return counts.albums }
+        return library.visibleAlbums.count
+    }
+
+    /// 「补全缺少的简介」要的专辑:目录路径下按同样的条件从内存曲库筛(P3 删内存曲库前改成按键分批取)。
+    private func batchFillAlbums() -> [Album] {
+        guard let key = catalogKey else { return filteredAlbums }
+        let predicate = AlbumGridAlbumPredicate(
+            query: key.query, likedOnly: key.likedOnly, hidesSingleSongAlbums: key.hidesSingleSongAlbums,
+            favorites: favorites.ledger, unknownArtistName: String(localized: "unknown_artist")
+        )
+        return library.visibleAlbums.filter(predicate.matches)
     }
 
     private var filteredAlbums: [Album] {
@@ -121,7 +183,7 @@ struct AlbumGridView: View {
     #endif
 
     var body: some View {
-        if library.visibleAlbums.isEmpty {
+        if totalAlbumCount == 0 {
             EmptyStateView(
                 titleKey: "no_albums",
                 descriptionKey: "no_albums_desc",
@@ -136,12 +198,21 @@ struct AlbumGridView: View {
                     albumFilter = ""
                     openAlbum(album)
                 }
-                .task(id: filterRequest) { await prepareAlbums(filterRequest) }
+                .task(id: catalogKey == nil ? filterRequest : nil) {
+                    if catalogKey == nil { await prepareAlbums(filterRequest) }
+                }
+                .task(id: catalogKey) { updateCatalogList() }
                 .libraryInsightBatchFill(kind: .album, request: $requestsIntroFill) {
-                    filteredAlbums.map(LibraryInsightBatchItem.album)
+                    batchFillAlbums().map(LibraryInsightBatchItem.album)
                 }
             #else
-            iosGrid(displayedResult, isPreparing: isPreparing)
+            Group {
+                if catalogKey != nil {
+                    iosCatalogGrid(catalogModel)
+                } else {
+                    iosGrid(displayedResult, isPreparing: isPreparing)
+                }
+            }
                 .safeAreaInset(edge: .top, spacing: 0) {
                     LibraryInsightBatchStatusCard(
                         kind: .album,
@@ -169,7 +240,7 @@ struct AlbumGridView: View {
                 .minimalPageHeader {
                     HStack(spacing: 4) {
                         MinimalHeaderCount(
-                            text: "\(filteredAlbums.count.formatted()) \(String(localized: "albums_count"))"
+                            text: "\(displayedAlbumCount.formatted()) \(String(localized: "albums_count"))"
                         )
                         Spacer(minLength: 8)
                         MinimalHeaderActions {
@@ -186,9 +257,12 @@ struct AlbumGridView: View {
                         }
                     }
                 }
-                .task(id: filterRequest) { await prepareAlbums(filterRequest) }
+                .task(id: catalogKey == nil ? filterRequest : nil) {
+                    if catalogKey == nil { await prepareAlbums(filterRequest) }
+                }
+                .task(id: catalogKey) { updateCatalogList() }
                 .libraryInsightBatchFill(kind: .album, request: $requestsIntroFill) {
-                    filteredAlbums.map(LibraryInsightBatchItem.album)
+                    batchFillAlbums().map(LibraryInsightBatchItem.album)
                 }
             #endif
         }
@@ -226,6 +300,51 @@ struct AlbumGridView: View {
                             ForEach(albums[layout.items(inRow: row, itemCount: albums.count)]) { album in
                                 albumCell(album)
                                     .frame(width: layout.cellWidth)
+                            }
+                        }
+                    }
+                }
+            }
+            .scrollTargetLayout()
+            .padding(.vertical, 16)
+            .padding(.leading, layout.leadingPadding)
+            .padding(.trailing, layout.trailingPadding)
+        }
+    }
+
+    /// 目录路径的网格:与 `iosGrid` 同样的行排法,还没物化到的格子先画占位。
+    private func iosCatalogGrid(_ model: LibraryListModel<LibraryAlbumBrowseQuery>?) -> some View {
+        let count = model?.count ?? 0
+        let minimumWidth = heightClass.value(150, compact: 100)
+        let rowSpacing = heightClass.value(20, compact: 14)
+        let offersRail = filterRequest.offersIndexRail(albumCount: count)
+        return LibraryIndexedScrollView(
+            model: model == nil ? nil : catalogList.railModel(offers: offersRail),
+            columns: { LibraryIndexedGridColumns.count(rowWidth: $0, minimumWidth: minimumWidth, spacing: 16) },
+            extendsUnderVerticalBar: true,
+            countText: { "\($0.formatted()) \(String(localized: "albums_count"))" },
+            preview: { entry in
+                LibraryIndexAlbumStack(albums: (0..<min(entry.count, 3)).compactMap { model?.item(at: entry.target + $0) })
+            }
+        ) { layout in
+            if model == nil {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 240)
+            } else if count == 0 {
+                ContentUnavailableView.search(text: albumFilter)
+            }
+            LazyVStack(alignment: .leading, spacing: rowSpacing) {
+                ForEach(0..<layout.rowCount(itemCount: count), id: \.self) { @Sendable row in
+                    LazyItemCell {
+                        HStack(alignment: .top, spacing: layout.columnSpacing) {
+                            ForEach(Array(layout.items(inRow: row, itemCount: count)), id: \.self) { index in
+                                if let album = model?.item(at: index) {
+                                    albumCell(album)
+                                        .frame(width: layout.cellWidth)
+                                } else {
+                                    AlbumCardPlaceholder()
+                                        .frame(width: layout.cellWidth)
+                                }
                             }
                         }
                     }
@@ -304,10 +423,15 @@ struct AlbumGridView: View {
 
     private var macAlbumOverview: some View {
         let albums = filteredAlbums
+        // 目录路径(P3):按下标取,还没物化到的格子先画占位。
+        let usesCatalog = catalogKey != nil
+        let catalog = catalogModel
+        let count = usesCatalog ? (catalog?.count ?? 0) : albums.count
+        let preparing = usesCatalog ? catalog == nil : isPreparing
         return GeometryReader { proxy in
             let metrics = MacAlbumGridMetrics(viewportWidth: proxy.size.width)
             VStack(spacing: 18) {
-                albumsHeader(displayedCount: albums.count)
+                albumsHeader(displayedCount: count)
                     .padding(.top, 28)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 18) {
@@ -316,11 +440,11 @@ struct AlbumGridView: View {
                             outerPadding: EdgeInsets(top: 0, leading: PMSpace.xxxl, bottom: 0, trailing: PMSpace.xxxl)
                         )
 
-                        if isPreparing {
+                        if preparing {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(maxWidth: .infinity, minHeight: 280)
-                        } else if albums.isEmpty {
+                        } else if count == 0 {
                             ContentUnavailableView.search(text: albumFilter)
                                 .frame(maxWidth: .infinity, minHeight: 280)
                                 .padding(.horizontal, PMSpace.xxxl)
@@ -330,27 +454,36 @@ struct AlbumGridView: View {
                                 alignment: .leading,
                                 spacing: 24
                             ) {
-                                ForEach(albums) { album in
-                                    PMScrollingButton {
-                                        openAlbum(album)
-                                    } label: {
-                                        macAlbumTile(album, artworkSize: metrics.artworkSize)
+                                if usesCatalog {
+                                    ForEach(0..<count, id: \.self) { index in
+                                        if let album = catalog?.item(at: index) {
+                                            macAlbumGridButton(album, artworkSize: metrics.artworkSize)
+                                        } else {
+                                            macAlbumTilePlaceholder(artworkSize: metrics.artworkSize)
+                                        }
                                     }
-                                    .contextMenu { albumMenu(album) }
-                                    .pmHoverLift()
+                                } else {
+                                    ForEach(albums) { album in
+                                        macAlbumGridButton(album, artworkSize: metrics.artworkSize)
+                                    }
                                 }
                             }
                             .padding(.horizontal, PMSpace.xxxl)
                             .pmAppearFade()
                         } else {
                             LazyVStack(spacing: 1) {
-                                ForEach(albums) { album in
-                                    PMScrollingButton {
-                                        openAlbum(album)
-                                    } label: {
-                                        macAlbumListRow(album)
+                                if usesCatalog {
+                                    ForEach(0..<count, id: \.self) { index in
+                                        if let album = catalog?.item(at: index) {
+                                            macAlbumListButton(album)
+                                        } else {
+                                            macAlbumListRowPlaceholder
+                                        }
                                     }
-                                    .contextMenu { albumMenu(album) }
+                                } else {
+                                    ForEach(albums) { album in
+                                        macAlbumListButton(album)
+                                    }
                                 }
                             }
                             .padding(.horizontal, PMSpace.xxxl)
@@ -362,6 +495,67 @@ struct AlbumGridView: View {
             }
         }
         .background(PMColor.bg.ignoresSafeArea())
+    }
+
+    private func macAlbumGridButton(_ album: Album, artworkSize: CGFloat) -> some View {
+        PMScrollingButton {
+            openAlbum(album)
+        } label: {
+            macAlbumTile(album, artworkSize: artworkSize)
+        }
+        .contextMenu { albumMenu(album) }
+        .pmHoverLift()
+    }
+
+    private func macAlbumListButton(_ album: Album) -> some View {
+        PMScrollingButton {
+            openAlbum(album)
+        } label: {
+            macAlbumListRow(album)
+        }
+        .contextMenu { albumMenu(album) }
+    }
+
+    /// 还没物化到的网格格子:与 `macAlbumTile` 同样的尺寸。
+    private func macAlbumTilePlaceholder(artworkSize: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                .fill(.quaternary)
+                .frame(width: artworkSize, height: artworkSize)
+            Text(verbatim: "Album title")
+                .font(.system(size: 12.5, weight: .semibold))
+                .lineLimit(2, reservesSpace: true)
+                .padding(.top, 10)
+            Text(verbatim: "Artist")
+                .font(.system(size: 11.5))
+                .lineLimit(1)
+                .padding(.top, 1)
+            Text(verbatim: "2000 · 10")
+                .font(.system(size: 10.5))
+                .lineLimit(1)
+                .padding(.top, 2)
+        }
+        .redacted(reason: .placeholder)
+        .frame(width: artworkSize, alignment: .leading)
+        .accessibilityHidden(true)
+    }
+
+    /// 还没物化到的列表行:与 `macAlbumListRow` 同样的高度。
+    private var macAlbumListRowPlaceholder: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(.quaternary)
+                .frame(width: 44, height: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: "Album title").font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                Text(verbatim: "Artist · 2000").font(.system(size: 10.5)).lineLimit(1)
+            }
+            .redacted(reason: .placeholder)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .accessibilityHidden(true)
     }
 
     private func openAlbum(_ album: Album) {
@@ -407,7 +601,7 @@ struct AlbumGridView: View {
             Text(verbatim: String(
                 format: String(localized: "album_grid_count_sort_format"),
                 displayedCount,
-                library.visibleAlbums.count,
+                totalAlbumCount,
                 albumOrder.label
             ))
             .font(.system(size: 13))
@@ -745,24 +939,45 @@ struct AlbumGridFilterRequest: Hashable, Sendable {
         unknownArtistName: String, isCancelled: () -> Bool = { false }
     ) -> [Album]? {
         guard !isCancelled() else { return nil }
-        guard category != nil || likedOnly || hidesSingleSongAlbums || !query.isEmpty else { return albums }
+        let predicate = AlbumGridAlbumPredicate(
+            query: query, likedOnly: likedOnly, hidesSingleSongAlbums: hidesSingleSongAlbums,
+            favorites: favorites, unknownArtistName: unknownArtistName
+        )
+        guard category != nil || !predicate.isEmpty else { return albums }
         var result: [Album] = []
         for index in albums.indices {
             if index.isMultiple(of: 256), isCancelled() { return nil }
             let album = albums[index]
-            if hidesSingleSongAlbums && album.songCount == 1 { continue }
             if let category,
                !(overrides[album.id] ?? categories?.categories(albumID: album.id) ?? [.album]).contains(category) { continue }
-            if likedOnly && !favorites.isLiked(LibraryFavoriteKey.id(
-                kind: .album, albumTitle: album.title, artistName: album.artistName ?? "",
-                unknownArtistName: unknownArtistName
-            )) { continue }
-            if !query.isEmpty && !album.title.localizedCaseInsensitiveContains(query)
-                && !(album.artistName?.localizedCaseInsensitiveContains(query) ?? false)
-                && !(album.year.map(String.init)?.contains(query) ?? false) { continue }
+            guard predicate.matches(album) else { continue }
             result.append(album)
         }
         return isCancelled() ? nil : result
+    }
+}
+
+/// 专辑页筛选里与发行类别无关的几项(隐藏单曲专辑、只看喜欢、页内搜索)。内存路径和目录路径共用,
+/// 两边筛出来的专辑一样。
+struct AlbumGridAlbumPredicate: Sendable {
+    let query: String
+    let likedOnly: Bool
+    let hidesSingleSongAlbums: Bool
+    let favorites: LibraryFavoriteLedger
+    let unknownArtistName: String
+
+    var isEmpty: Bool { query.isEmpty && !likedOnly && !hidesSingleSongAlbums }
+
+    func matches(_ album: Album) -> Bool {
+        if hidesSingleSongAlbums && album.songCount == 1 { return false }
+        if likedOnly && !favorites.isLiked(LibraryFavoriteKey.id(
+            kind: .album, albumTitle: album.title, artistName: album.artistName ?? "",
+            unknownArtistName: unknownArtistName
+        )) { return false }
+        if !query.isEmpty && !album.title.localizedCaseInsensitiveContains(query)
+            && !(album.artistName?.localizedCaseInsensitiveContains(query) ?? false)
+            && !(album.year.map(String.init)?.contains(query) ?? false) { return false }
+        return true
     }
 }
 

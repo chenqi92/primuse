@@ -263,22 +263,9 @@ extension LibraryCatalogReader {
             return selected
         }
     }
-
-    /// 首页、Mac 队列面板、主屏快捷操作要的几个计数(只问「有没有」与签名里的数)。
-    func playbackSurfaceCounts() async throws -> PlaybackSurfaceCatalogCounts {
-        try await read { catalog in
-            PlaybackSurfaceCatalogCounts(
-                visibleSongs: try catalog.songCount(.visible),
-                music: try catalog.songCount(.visibleMusic),
-                hasPlayableVisibleSong: try catalog.containsSongs(LibrarySongScope(playableOnly: true)),
-                albums: try catalog.albumKeys(visibleOnly: true).count,
-                artists: try catalog.artistKeys(visibleOnly: true).count
-            )
-        }
-    }
 }
 
-/// `playbackSurfaceCounts()` 的结果。
+/// `PlaybackSurfaceCountsModel.counts(for:)` 的结果。
 struct PlaybackSurfaceCatalogCounts: Sendable, Equatable {
     /// `visibleSongs.count`
     var visibleSongs = 0
@@ -292,70 +279,22 @@ struct PlaybackSurfaceCatalogCounts: Sendable, Equatable {
     var artists = 0
 }
 
-/// 目录读到的计数,给只问「有没有歌」「几首」的视图读(P2 过渡:目录不能读、还没读到时
-/// 调用方照旧读内存模型)。按目录变化防抖后在主线程外重读;每个目录一份。
+#if !os(tvOS)
+// 电视端不用这几个入口计数(TVStore 自己经 `TVCatalogLookups` 问目录)。
+/// 只问「有没有歌」「几首」的视图读的计数:和资料库入口共用 `LibraryHubCatalogCountsModel`
+/// 那一份(同一次计数,同样的节流),不再各自重数。目录不能读、还没读到时为 nil,调用方照旧读内存模型。
 @MainActor
-@Observable
-final class PlaybackSurfaceCountsModel {
-    private(set) var counts: PlaybackSurfaceCatalogCounts?
-
-    @ObservationIgnored private weak var host: LibraryCatalogHost?
-    @ObservationIgnored private var listenerID: UUID?
-    @ObservationIgnored private var reloadTask: Task<Void, Never>?
-    @ObservationIgnored private var generation: UInt64 = 0
-
-    private static var models: [ObjectIdentifier: PlaybackSurfaceCountsModel] = [:]
-
-    /// 这个库的计数模型;库不带目录时为 nil。第一次取时开始跟踪目录变化。
-    static func shared(for library: MusicLibrary) -> PlaybackSurfaceCountsModel? {
-        guard let host = library.catalogHost else { return nil }
-        let key = ObjectIdentifier(host)
-        if let model = models[key] { return model }
-        let model = PlaybackSurfaceCountsModel(host: host)
-        models[key] = model
-        return model
-    }
-
-    /// 目录可读且已经读到时的计数;否则 nil(调用方读内存模型)。登记对目录可读状态与计数的观察。
+enum PlaybackSurfaceCountsModel {
+    /// 目录可读且已经读到时的计数;否则 nil。登记对目录可读状态与计数的观察。
     static func counts(for library: MusicLibrary) -> PlaybackSurfaceCatalogCounts? {
-        guard let model = shared(for: library), let host = library.catalogHost, host.revisions.isReadable else {
-            return nil
-        }
-        return model.counts
-    }
-
-    private init(host: LibraryCatalogHost) {
-        self.host = host
-        listenerID = host.revisions.addListener { [weak self] change in
-            guard let self else { return false }
-            if change.changesMembership || change.invalidatesEverything || !change.updatedRowids.isEmpty {
-                self.scheduleReload(after: .milliseconds(300))
-            }
-            return true
-        }
-        scheduleReload(after: .zero)
-    }
-
-    private func scheduleReload(after delay: Duration) {
-        reloadTask?.cancel()
-        generation &+= 1
-        let generation = generation
-        reloadTask = Task { [weak self] in
-            if delay > .zero {
-                try? await Task.sleep(for: delay)
-                guard !Task.isCancelled else { return }
-            }
-            guard let reader = self?.host?.reader else { return }
-            let next: PlaybackSurfaceCatalogCounts
-            do {
-                next = try await reader.playbackSurfaceCounts()
-            } catch {
-                // 目录还不能读:变成可读时 `setReadable` 会发一次「全部失效」,到时再读。
-                return
-            }
-            guard let self, generation == self.generation else { return }
-            if self.counts != next { self.counts = next }
-        }
+        guard let hub = LibraryHubCatalogCountsModel.shared(for: library)?.readableCounts else { return nil }
+        return PlaybackSurfaceCatalogCounts(
+            visibleSongs: hub.visibleSongs,
+            music: hub.music,
+            hasPlayableVisibleSong: hub.hasPlayableVisibleSong,
+            albums: hub.albums,
+            artists: hub.artists
+        )
     }
 }
 
@@ -387,3 +326,4 @@ extension PlaybackSurfaceCountsModel {
         counts(for: library)?.hasPlayableVisibleSong ?? library.visibleSongs.contains(where: \.isPlayable)
     }
 }
+#endif

@@ -2594,9 +2594,16 @@ struct GenreLibraryView: View {
     @State private var selectedGenreID: String?
     #endif
 
+    /// 目录路径(P3):目录可读且读到了就用目录的流派,否则照旧读内存模型。
+    @State private var catalogGenres = GenreCatalogList()
+
+    private var sourceGenres: [LibraryGenre] {
+        catalogGenres.readableGenres ?? library.visibleGenres
+    }
+
     private var filteredGenres: [LibraryGenre] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return library.visibleGenres
+        return sourceGenres
             .filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
@@ -2606,7 +2613,7 @@ struct GenreLibraryView: View {
     /// 流派名里还有不少没拆开的斜杠、逗号、竖线时，菜单里「流派拆分」那一项下面写一句有几个。
     /// 不弹提示，也不在别处显示。
     private var genreSplitHint: String? {
-        let names = library.visibleGenres.map(\.name)
+        let names = sourceGenres.map(\.name)
         let count = GenreSeparatorHint.unsplitNameCount(
             in: names,
             enabled: GenreSeparatorOptions(rawValue: genreSeparatorsRaw)
@@ -2616,24 +2623,30 @@ struct GenreLibraryView: View {
     }
 
     var body: some View {
-        #if os(macOS)
-        macBody
-        #else
-        if stackRegistersDetails {
-            iosBody
-        } else {
-            iosBody
-                .navigationDestination(for: LibraryGenre.self) { genre in
-                    GenreDetailView(genre: genre)
-                }
+        Group {
+            #if os(macOS)
+            macBody
+            #else
+            if stackRegistersDetails {
+                iosBody
+            } else {
+                iosBody
+                    .navigationDestination(for: LibraryGenre.self) { genre in
+                        GenreDetailView(genre: genre)
+                    }
+            }
+            #endif
         }
-        #endif
+        .onAppear {
+            if let host = library.catalogHost { catalogGenres.activate(host: host) }
+        }
+        .onDisappear { catalogGenres.deactivate() }
     }
 
     #if os(iOS)
     @ViewBuilder
     private var iosBody: some View {
-        if library.visibleGenres.isEmpty {
+        if sourceGenres.isEmpty {
             EmptyStateView(
                 titleKey: "no_genres",
                 descriptionKey: "no_genres_desc",
@@ -2708,7 +2721,7 @@ struct GenreLibraryView: View {
 
     @ViewBuilder
     private var macBody: some View {
-        if library.visibleGenres.isEmpty {
+        if sourceGenres.isEmpty {
             ContentUnavailableView(
                 "no_genres",
                 systemImage: "tag",

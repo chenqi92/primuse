@@ -7,6 +7,8 @@ struct LibraryListRows: Sendable, Equatable {
     var ids: ContiguousArray<Int32>
     var sections: [SongListSectionIndexEntry]
     var revision: Int64
+    /// 专辑墙、艺人墙的分段(首字母或年代),与 `ids` 一一对应。
+    var browseSections: [LibraryBrowseSection] = []
 
     static let empty = LibraryListRows(ids: [], sections: [], revision: 0)
 }
@@ -138,6 +140,8 @@ final class LibraryListModel<Query: LibraryListQuery> {
     let query: Query
     private(set) var count = 0
     private(set) var sections: [SongListSectionIndexEntry] = []
+    /// 专辑墙、艺人墙的分段(见 `LibraryListRows.browseSections`)。
+    private(set) var browseSections: [LibraryBrowseSection] = []
     /// 第一次取行号还没回来。
     private(set) var isLoading = true
     /// 行号整体换过就加一(滚动位置、选择据此对账)。
@@ -177,14 +181,15 @@ final class LibraryListModel<Query: LibraryListQuery> {
     }
 
     /// 开始跟踪目录变化并取第一次行号。重复调用无效。
-    func activate() {
+    /// `initialReload` 为 false:调用方已经 `reload()` 过,只开始跟踪变化。
+    func activate(initialReload: Bool = true) {
         guard listenerID == nil else { return }
         listenerID = revisions?.addListener { [weak self] change in
             guard let self else { return false }
             self.catalogDidChange(change)
             return true
         }
-        scheduleReload(after: .zero)
+        if initialReload { scheduleReload(after: .zero) }
     }
 
     func deactivate() {
@@ -299,6 +304,7 @@ final class LibraryListModel<Query: LibraryListQuery> {
             requestedPages.removeAll()
             count = next.ids.count
             sections = next.sections
+            browseSections = next.browseSections
             listGeneration &+= 1
         }
         isLoading = false

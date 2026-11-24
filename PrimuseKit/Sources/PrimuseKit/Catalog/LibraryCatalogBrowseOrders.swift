@@ -112,6 +112,62 @@ extension LibraryCatalog {
         }
     }
 
+    /// 流派卡片的代表歌曲,每个流派最多 `limit` 首。与 `LibraryGenreIndexBuilder` 同一套挑法:
+    /// 按排名(有封面在前、年份新的在前、再按 id)先取不同专辑各自最靠前的一首,不够再按排名补。
+    /// 只看可见的音乐歌曲(与 `genres()` 同一个范围);`genreIDs` 为 nil 时给全部流派。
+    /// 主线程外调用:按流派、排名流式走一遍流派成员。
+    public func genreRepresentativeSongIDs(genreIDs: Set<String>? = nil, limit: Int = 3) throws -> [String: [String]] {
+        guard limit > 0 else { return [:] }
+        var filter = ""
+        var arguments = StatementArguments()
+        if let genreIDs {
+            guard !genreIDs.isEmpty else { return [:] }
+            filter = "AND n.genreID IN (\(Array(repeating: "?", count: genreIDs.count).joined(separator: ",")))"
+            arguments = StatementArguments(genreIDs.sorted())
+        }
+        return try pool.read { db in
+            let cursor = try Row.fetchCursor(db, sql: """
+                SELECT n.genreID, s.id, s.albumID
+                FROM songGenre g JOIN genreName n ON n.ref = g.genreRef JOIN song s ON s.rowid = g.songRowid
+                WHERE s.kind = 0 AND s.sourceKey IN (\(Self.enabledSourcesSQL)) \(filter)
+                ORDER BY n.genreID,
+                         (s.coverArtFileName IS NOT NULL AND s.coverArtFileName <> '') DESC,
+                         s.year IS NULL, s.year DESC, s.id
+                """, arguments: arguments)
+            var result: [String: [String]] = [:]
+            var genre: String?
+            var albumBests: [String] = []
+            var seenAlbums: Set<String> = []
+            // 补位只会用到排名前 2 × limit 首里的(已选的至多 limit 首)。
+            var ranked: [String] = []
+            func finish() {
+                guard let genre else { return }
+                var selected = albumBests
+                for id in ranked where selected.count < limit && !selected.contains(id) { selected.append(id) }
+                result[genre] = selected
+            }
+            while let row = try cursor.next() {
+                let genreID: String = row[0]
+                if genreID != genre {
+                    finish()
+                    genre = genreID
+                    albumBests = []
+                    seenAlbums = []
+                    ranked = []
+                }
+                let songID: String = row[1]
+                if ranked.count < limit * 2, !ranked.contains(songID) { ranked.append(songID) }
+                guard albumBests.count < limit else { continue }
+                let albumID = (row[2] as String?)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !albumID.isEmpty, seenAlbums.insert(albumID).inserted, !albumBests.contains(songID) {
+                    albumBests.append(songID)
+                }
+            }
+            finish()
+            return result
+        }
+    }
+
     /// 排序键的第一个字节是首字母桶(0–25 是 A–Z,26 是 "#")。
     static func bucketIndex(of key: Data) -> Int {
         guard let first = key.first else { return LibraryCollationPolicy.letterBuckets.count }

@@ -160,6 +160,87 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         await assertShadowMatches(library, "after the held writes")
     }
 
+    /// 专辑页的目录路径(按艺术家、标题、年份;页内搜索、隐藏单曲专辑)给出的专辑与先后,
+    /// 和内存路径(`LibraryAlbumBrowseLayoutBuilder` + 同一个筛选条件)一样,分段也一样。
+    func testAlbumGridCatalogMatchesTheInMemoryOrderAndFilters() async throws {
+        let library = makeLibrary()
+        library.addSongs(Self.fixture(), affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        let unknown = String(localized: "unknown_artist")
+        let year = Calendar.current.component(.year, from: Date())
+        XCTAssertGreaterThan(library.visibleAlbums.count, 3)
+        for order in [LibraryAlbumBrowseOrder.artist, .title, .year] {
+            for (query, hidesSingles) in [("", false), ("", true), ("o", false), ("zzz-no-match", false)] {
+                let predicate = AlbumGridAlbumPredicate(
+                    query: query, likedOnly: false, hidesSingleSongAlbums: hidesSingles,
+                    favorites: LibraryFavoriteLedger(), unknownArtistName: unknown
+                )
+                let layout = LibraryAlbumBrowseLayoutBuilder.layout(
+                    albums: library.visibleAlbums, order: order, unknownArtistName: unknown, currentYear: year
+                )
+                var kept: [Int] = []
+                for (offset, album) in layout.items.enumerated() where predicate.matches(album) { kept.append(offset) }
+                let expected = kept.map { layout.items[$0].id }
+                let model = LibraryListModel(
+                    query: LibraryAlbumBrowseQuery(
+                        order: order, unknownArtistName: unknown, currentYear: year,
+                        predicate: predicate.isEmpty ? nil : predicate
+                    ),
+                    reader: host.reader, revisions: host.revisions
+                )
+                await model.reload()
+                var actual: [String] = []
+                for index in 0..<model.count {
+                    if let album = await model.waitForItem(at: index) { actual.append(album.id) }
+                }
+                let context = "order=\(order) query=\(query) hidesSingles=\(hidesSingles)"
+                XCTAssertEqual(actual, expected, context)
+                XCTAssertEqual(model.browseSections, LibraryBrowseLayout<Album>.sections(layout.sections, keeping: kept), context)
+            }
+        }
+    }
+
+    /// 艺人页(iOS「全部艺术家」)的目录路径:读音顺序、首字母分段与页内搜索,和内存路径一样。
+    func testArtistBrowseCatalogMatchesTheInMemoryOrderAndSearch() async throws {
+        let library = makeLibrary()
+        library.addSongs(Self.fixture(), affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        let unknown = String(localized: "unknown_artist")
+        let layout = LibraryArtistBrowseLayoutBuilder.layout(artists: library.visibleArtists, unknownArtistName: unknown)
+        XCTAssertGreaterThan(layout.items.count, 2)
+        for search in ["", "a", "zzz-no-match"] {
+            var kept: [Int] = []
+            for (offset, artist) in layout.items.enumerated()
+            where search.isEmpty || artist.name.localizedCaseInsensitiveContains(search) { kept.append(offset) }
+            let model = LibraryListModel(
+                query: LibraryArtistBrowseQuery(unknownArtistName: unknown, search: search),
+                reader: host.reader, revisions: host.revisions
+            )
+            await model.reload()
+            var actual: [String] = []
+            for index in 0..<model.count {
+                if let artist = await model.waitForItem(at: index) { actual.append(artist.id) }
+            }
+            XCTAssertEqual(actual, kept.map { layout.items[$0].id }, "search=\(search)")
+            XCTAssertEqual(model.browseSections, LibraryBrowseLayout<Artist>.sections(layout.sections, keeping: kept), "search=\(search)")
+        }
+    }
+
+    /// 流派页的目录路径:流派、计数与卡片的代表歌曲都和内存里的 `visibleGenres` 一样。
+    func testGenrePageCatalogMatchesTheInMemoryGenres() async throws {
+        let library = makeLibrary()
+        library.addSongs(Self.fixture(), affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let list = GenreCatalogList()
+        list.activate(host: try XCTUnwrap(library.catalogHost))
+        for _ in 0..<200 where list.readableGenres == nil { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertFalse(library.visibleGenres.isEmpty)
+        XCTAssertEqual(list.readableGenres, library.visibleGenres)
+        list.deactivate()
+    }
+
     func testDeletesLocalRemovalsAndRestoresAreMirrored() async throws {
         let library = makeLibrary()
         let songs = Self.fixture()
