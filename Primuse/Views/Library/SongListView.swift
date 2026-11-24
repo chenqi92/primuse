@@ -1168,6 +1168,8 @@ struct SongListView: View {
     @State private var sortOrder: SongSortOrder
     @State private var songFilter: SongFilter
     @State private var downloadedSongIDs: Set<String> = []
+    /// 目录里的离线状态(`songOffline`)已经补全到当前这一代:「已下载」筛选与排序可以由目录给。
+    @State private var catalogOfflineIsCurrent = false
     @State private var downloadedFilterRevision = 0
     @State private var downloadedFilterGeneration = 0
     @State private var downloadedFilterTask: Task<Void, Never>?
@@ -1536,6 +1538,13 @@ struct SongListView: View {
             .onChange(of: catalogListKey, initial: true) { _, key in
                 handleCatalogListKeyChange(key)
             }
+            .task(id: catalogOfflineProbe) {
+                await refreshCatalogOfflineState(catalogOfflineProbe)
+            }
+            .onChange(of: library.catalogHost?.revisions.isReadable == true, initial: true) { _, readable in
+                // 目录可读时平铺列表由目录按页取:快照仓库里超出小预算的整库快照不再常驻。
+                Task { await SongListSnapshotStore.shared.setCatalogServesLists(readable) }
+            }
             .onChange(of: browseMode) { _, mode in
                 cancelExplicitSortForNavigation()
                 pendingFolderLocation = nil
@@ -1762,6 +1771,11 @@ struct SongListView: View {
                 folderSourceRevision &+= 1
                 scheduleFolderIndexRecompute(delay: .milliseconds(80))
             }
+            .onChange(of: library.catalogHost?.revisions.membership) { _, _ in
+                // 目录版式的索引按目录建:目录比内存晚一拍,目录跟上(歌入了目录)再建一次。
+                guard library.readableCatalogReader != nil else { return }
+                scheduleFolderIndexRecompute(delay: .milliseconds(180))
+            }
             .onChange(of: scanService.folderHierarchyRevision) { _, _ in
                 folderSourceRevision &+= 1
                 scheduleFolderIndexRecompute(delay: .milliseconds(80))
@@ -1848,14 +1862,58 @@ struct SongListView: View {
     private var catalogEligibleIgnoringOrder: Bool {
         library.catalogHost?.revisions.isReadable == true
             && !showsFolderBrowser
-            && songFilter == .all
+            && (songFilter == .all || (songFilter == .downloaded && catalogOfflineIsCurrent))
             && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 目录给得出与内存路径一样结果的排序:P2a 的那些,外加离线状态补全后的「已下载」。
+    private func catalogSupports(_ order: LibrarySongSortOrder) -> Bool {
+        SongListCatalogPolicy.supports(order) || (order.criterion == .downloaded && catalogOfflineIsCurrent)
+    }
+
+    /// 平铺列表的「已下载」筛选与排序由目录给(不再为它在内存里探测整库的离线状态)。
+    private var catalogServesDownloadedState: Bool {
+        usesCatalogList && (songFilter == .downloaded || sortOrder.criterion == .downloaded)
+    }
+
+    /// 什么时候重新问一次目录里的离线状态是不是当前的。
+    private struct CatalogOfflineProbe: Equatable {
+        let readable: Bool
+        let everything: UInt64
+        let filter: SongFilter
+        let criterion: LibrarySongSortCriterion
+    }
+
+    private var catalogOfflineProbe: CatalogOfflineProbe {
+        CatalogOfflineProbe(
+            readable: library.catalogHost?.revisions.isReadable == true,
+            everything: library.catalogHost?.revisions.everything ?? 0,
+            filter: songFilter,
+            criterion: sortOrder.criterion
+        )
+    }
+
+    private func refreshCatalogOfflineState(_ probe: CatalogOfflineProbe) async {
+        // 目录一可读就问,不等用户切到「已下载」:先走一遍内存路径就会先把整库的离线状态探测一遍。
+        guard probe.readable, let reader = library.readableCatalogReader else {
+            if !probe.readable, catalogOfflineIsCurrent { catalogOfflineIsCurrent = false }
+            return
+        }
+        let current: Bool
+        do {
+            current = try await reader.offlineStateIsCurrent()
+        } catch {
+            plog("📚 catalog offline state probe failed: \(error)")
+            current = false
+        }
+        guard !Task.isCancelled, catalogOfflineIsCurrent != current else { return }
+        catalogOfflineIsCurrent = current
     }
 
     /// 平铺列表直接从曲库目录按页取,不在内存里排整库。查找、「已下载」、目录版式,以及目录
     /// 还给不出一样结果的排序(`SongListCatalogPolicy`)照旧走内存;目录读失败的那个键也走内存。
     private var usesCatalogList: Bool {
-        guard catalogEligibleIgnoringOrder, SongListCatalogPolicy.supports(sortOrder.libraryOrder) else { return false }
+        guard catalogEligibleIgnoringOrder, catalogSupports(sortOrder.libraryOrder) else { return false }
         return catalogList.failedKey != catalogListKeyIgnoringFailure
     }
 
@@ -1865,13 +1923,13 @@ struct SongListView: View {
 
     private var catalogListKeyIgnoringFailure: SongListCatalogList.Key {
         let base = catalogBaseScope
+        var listScope = base
         #if os(macOS)
         // Mac 的来源筛选条:列表只要那一个源,页头与筛选条上的计数仍按整页。
-        var listScope = base
         if let selectedSourceID { listScope.sourceID = selectedSourceID }
-        #else
-        let listScope = base
         #endif
+        // 「已下载」只筛列表;整页的计数(空状态、来源筛选条)仍按整页。
+        listScope.downloadedOnly = songFilter == .downloaded
         return SongListCatalogList.Key(order: sortOrder.libraryOrder, scope: listScope, baseScope: base)
     }
 
@@ -1966,6 +2024,11 @@ struct SongListView: View {
                 // 目录那一份换上了:内存里的整库快照不再需要,放掉。
                 listCache = SongListCache()
             }
+            if ready, usesCatalogList {
+                // 快照仓库里这一页的那几份也不再需要(与 `listCache` 是同一个对象,这里放掉最后一个引用)。
+                let scopeKey = scope.snapshotCacheKey
+                Task { await SongListSnapshotStore.shared.releaseCachedSnapshots(scopeKey: scopeKey) }
+            }
             if isExplicitSort {
                 if ready {
                     finishSortAfterPublication(generation: generation, order: order)
@@ -1991,11 +2054,11 @@ struct SongListView: View {
 
     private var requiresDownloadedSongSnapshot: Bool {
         #if os(macOS)
-        songFilter == .downloaded
+        (songFilter == .downloaded && !catalogServesDownloadedState)
             || tableLayout.visibleColumns.contains(.downloaded)
-            || sortOrder.criterion == .downloaded
+            || (sortOrder.criterion == .downloaded && !catalogServesDownloadedState)
         #else
-        songFilter == .downloaded
+        songFilter == .downloaded && !catalogServesDownloadedState
         #endif
     }
 
@@ -2186,6 +2249,13 @@ struct SongListView: View {
                         selection: selection,
                         sortOrder: $sortOrder,
                         showsListeningIntents: showsListeningIntentShelf
+                    )
+                } else if showsCatalogList, songFilter == .downloaded, usesCatalogList,
+                          catalogList.currentKey == catalogListKey, catalogList.count == 0 {
+                    ContentUnavailableView(
+                        "filter_downloaded",
+                        systemImage: "arrow.down.circle",
+                        description: Text("filter_downloaded_empty_desc")
                     )
                 } else if showsCatalogList {
                     IOSCatalogSongListContainer(
@@ -4075,6 +4145,19 @@ struct SongListView: View {
         )
         // 照这一份输入建好的整库索引留给下一个歌曲页直接用(见 `publishReusableFolderIndex`)。
         let reuseKey = folderIndexReuseKey
+        // 目录可读时按目录建:索引里每首歌只留行号,不再存整库的 id 与 id → 节点表。
+        let catalogReader = library.readableCatalogReader
+        let catalogVersion = LibraryFolderIndexVersion(
+            collectionRevision: collectionRevision,
+            replacementToken: folderIndexScopeToken,
+            sourceRevision: sourceRevision,
+            virtualCollectionRevision: playlistRevision,
+            catalogRevision: library.folderIndexCatalogRevision
+        )
+        let catalogScope = folderCatalogScope
+        let virtualSourceIDs = Set(virtualCollections.filter { $0.kind == .librarySongs }.map(\.sourceID))
+        let appleMusicName = String(localized: "apple_music_library_section")
+        let genericSourceName = String(localized: "source_label")
 
         folderIndexTask?.cancel()
         folderIndexTask = Task { @MainActor in
@@ -4100,12 +4183,56 @@ struct SongListView: View {
                 }
             }.value
             guard !Task.isCancelled else { return }
-            let prepared = await folderIndexStore.index(
-                version: version,
-                sources: descriptors,
-                songs: songsSnapshot,
-                virtualCollections: virtualCollections
-            )
+            var catalogPrepared: LibraryFolderIndex?
+            if let catalogReader {
+                catalogPrepared = await folderIndexStore.index(version: catalogVersion) {
+                    [descriptors, songsSnapshot, virtualSourceIDs, virtualCollections, catalogScope, appleMusicName,
+                     genericSourceName] in
+                    // 带 Apple Music 虚拟集合的源仍按内存里的歌建,只挑出这些源的歌(在主线程外挑)。
+                    let catalogMemorySongs = virtualSourceIDs.isEmpty
+                        ? []
+                        : songsSnapshot.filter { virtualSourceIDs.contains($0.sourceID) }
+                    do {
+                        return try await catalogReader.folderIndex { catalog, isCancelled in
+                            try LibraryFolderIndexBuilder.build(
+                                sources: descriptors,
+                                catalog: LibraryFolderCatalogInput(
+                                    catalog: catalog,
+                                    kinds: catalogScope.kinds,
+                                    ordersSpokenWordLikeShelf: false,
+                                    sourceID: catalogScope.sourceID
+                                ),
+                                unlistedSource: { sourceID in
+                                    guard catalogScope.sourceID == nil || catalogScope.sourceID == sourceID else { return nil }
+                                    return LibraryFolderUnlistedSource.descriptor(
+                                        sourceID: sourceID, appleMusicName: appleMusicName, genericName: genericSourceName
+                                    )
+                                },
+                                memorySongs: catalogMemorySongs,
+                                virtualCollections: virtualCollections,
+                                isCancelled: isCancelled
+                            )
+                        }
+                    } catch is CancellationError {
+                        return nil
+                    } catch {
+                        plog("⚠️ Song list folder index from catalog failed, using memory: \(error)")
+                        return nil
+                    }
+                }
+            }
+            guard !Task.isCancelled else { return }
+            let prepared: LibraryFolderIndex
+            if let catalogPrepared {
+                prepared = catalogPrepared
+            } else {
+                prepared = await folderIndexStore.index(
+                    version: version,
+                    sources: descriptors,
+                    songs: songsSnapshot,
+                    virtualCollections: virtualCollections
+                )
+            }
             guard !Task.isCancelled,
                   browseMode == .folder,
                   folderIndexGeneration == generation,
@@ -4139,8 +4266,23 @@ struct SongListView: View {
             replacementToken: songListVersion.replacementToken,
             virtualCollectionRevision: library.playlistCollectionRevision,
             hierarchyRevision: scanService.folderHierarchyRevision,
-            sources: configuredFolderSourceDescriptors
+            sources: configuredFolderSourceDescriptors,
+            catalogRevision: library.folderIndexCatalogRevision
         )
+    }
+
+    /// 按目录建文件夹索引时的范围,与 `Scope.songs(in:sources:)` 同一口径:整库是音乐
+    /// (`musicSongs`),按源看是这个源的可见歌去掉有声与环境音(有声书服务器的源全要)。
+    private var folderCatalogScope: SongListFolderCatalogScope {
+        switch scope {
+        case .library:
+            return SongListFolderCatalogScope(kinds: [.music], sourceID: nil)
+        case .source(let sourceID):
+            return SongListFolderCatalogScope(
+                kinds: scope.showsAudiobookshelfContents(in: sourcesStore) ? nil : [.music, .collectionOnly],
+                sourceID: sourceID
+            )
+        }
     }
 
     /// 目录版式下,上一个歌曲页建好的整库目录索引还对得上就在出现的这一帧摆出来。
@@ -7805,3 +7947,9 @@ extension View {
     }
 }
 #endif
+
+/// 歌曲页目录版式按目录建索引时的范围。
+struct SongListFolderCatalogScope: Sendable, Equatable {
+    let kinds: Set<LibraryCatalogContentKind>?
+    let sourceID: String?
+}

@@ -493,6 +493,10 @@ public struct SongListSnapshotVersion: Hashable, Sendable {
 
 /// Retains recent orderings within a shared row budget. The latest snapshot stays
 /// cached even when a single large list exceeds that budget.
+///
+/// 曲库目录可读时(`setCatalogServesLists(true)`)歌曲页平铺列表改由目录按页取,内存快照只给
+/// 查找、目录还排不出的排序这些场合临时用:这时只留预算内(`catalogBackedMaximumRows`)的几份,
+/// 超出预算的那份算好就交给调用方,不再常驻在这里。
 public actor SongListSnapshotStore {
     public static let shared = SongListSnapshotStore()
     public static let libraryScopeKey = "library"
@@ -533,9 +537,40 @@ public actor SongListSnapshotStore {
     private var recentlyUsed: [Key] = []
     private var cacheGeneration: UInt64 = 0
 
+    /// 目录可读时缓存的行数上限。
+    public static let catalogBackedMaximumRows = 20_000
+    private var catalogServesLists = false
+
     public init() { maximumCachedRows = 100_000 }
 
     init(maximumCachedRows: Int) { self.maximumCachedRows = maximumCachedRows }
+
+    private var retainedRowBudget: Int {
+        catalogServesLists ? min(maximumCachedRows, Self.catalogBackedMaximumRows) : maximumCachedRows
+    }
+
+    /// 目录能不能给歌曲页供列表。打开时立刻按小预算收紧已经缓存的快照。
+    public func setCatalogServesLists(_ serves: Bool) {
+        guard catalogServesLists != serves else { return }
+        catalogServesLists = serves
+        guard serves else { return }
+        var retainedRows = 0
+        var retained: [Key: SongListSnapshot] = [:]
+        for key in recentlyUsed.reversed() {
+            guard let snapshot = cachedByKey[key], retainedRows + snapshot.rows.count <= retainedRowBudget else { break }
+            retained[key] = snapshot
+            retainedRows += snapshot.rows.count
+        }
+        cachedByKey = retained
+        recentlyUsed.removeAll { retained[$0] == nil }
+    }
+
+    /// 某个范围的快照不再需要(这一页换成了目录列表):放掉,不影响别的范围。
+    public func releaseCachedSnapshots(scopeKey: String) {
+        guard cachedByKey.keys.contains(where: { $0.scopeKey == scopeKey }) else { return }
+        cachedByKey = cachedByKey.filter { $0.key.scopeKey != scopeKey }
+        recentlyUsed.removeAll { $0.scopeKey == scopeKey }
+    }
 
     /// 已经算好(含预热好)的那份, 不用等。列表页出现时先拿它直接摆出来, 免得先摆一个
     /// 转圈、等主线程转一轮再换成整张表; 没有就照常走 `snapshot(...)`。
@@ -625,11 +660,14 @@ public actor SongListSnapshotStore {
            generation == cacheGeneration,
            isCurrentTask {
             recordUse(of: key)
-            var retainedRows = prepared.rows.count
-            var retained: [Key: SongListSnapshot] = [key: prepared]
+            let budget = retainedRowBudget
+            // 目录供列表时超出预算的那份不常驻(调用方手里那份照用)。
+            let keepsLatest = !catalogServesLists || prepared.rows.count <= budget
+            var retainedRows = keepsLatest ? prepared.rows.count : 0
+            var retained: [Key: SongListSnapshot] = keepsLatest ? [key: prepared] : [:]
             for previous in recentlyUsed.dropLast().reversed() {
                 guard let other = cachedByKey[previous],
-                      retainedRows + other.rows.count <= maximumCachedRows else { break }
+                      retainedRows + other.rows.count <= budget else { break }
                 retained[previous] = other
                 retainedRows += other.rows.count
             }

@@ -461,10 +461,41 @@ private struct LibrarySearchMatcher {
     }
 }
 
+/// 字面查找(歌词)时读过的歌词文本。只是备忘:放掉后下次照样从歌词文件读,结果不变。
+/// 跨次查找留着,所以有上限:歌词正文合计超过 `maximumCharacters` 个字符、或记下的
+/// 「没有歌词」超过 `maximumMissingKeys` 条时,先整份清空再记新的。
 struct LibrarySearchCache: Sendable {
-    var lyricsTextByKey: [String: String] = [:]
-    var lyricsLinesByKey: [String: [LyricLine]] = [:]
-    var missingLyricsKeys: Set<String> = []
+    private(set) var lyricsTextByKey: [String: String] = [:]
+    private(set) var lyricsLinesByKey: [String: [LyricLine]] = [:]
+    private(set) var missingLyricsKeys: Set<String> = []
+    private var characterCount = 0
+
+    static let maximumCharacters = 4_000_000
+    static let maximumMissingKeys = 50_000
+
+    mutating func storeText(_ text: String, for key: String) {
+        makeRoom(for: text.utf16.count)
+        lyricsTextByKey[key] = text
+    }
+
+    mutating func storeLines(_ lines: [LyricLine], for key: String) {
+        makeRoom(for: lines.reduce(0) { $0 + $1.text.utf16.count })
+        lyricsLinesByKey[key] = lines
+    }
+
+    mutating func storeMissing(_ key: String) {
+        if missingLyricsKeys.count >= Self.maximumMissingKeys { missingLyricsKeys.removeAll() }
+        missingLyricsKeys.insert(key)
+    }
+
+    private mutating func makeRoom(for characters: Int) {
+        if characterCount + characters > Self.maximumCharacters {
+            lyricsTextByKey.removeAll()
+            lyricsLinesByKey.removeAll()
+            characterCount = 0
+        }
+        characterCount += characters
+    }
 }
 
 struct LibrarySearchOutput: Sendable {
@@ -645,7 +676,7 @@ enum LibrarySearchWorker {
             songID: song.id,
             lyricsFileName: song.lyricsFileName
         ) else {
-            cache.missingLyricsKeys.insert(cacheKey)
+            cache.storeMissing(cacheKey)
             return nil
         }
 
@@ -658,10 +689,10 @@ enum LibrarySearchWorker {
         }.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
         guard !searchable.isEmpty else {
-            cache.missingLyricsKeys.insert(cacheKey)
+            cache.storeMissing(cacheKey)
             return nil
         }
-        cache.lyricsLinesByKey[cacheKey] = searchable
+        cache.storeLines(searchable, for: cacheKey)
         return searchable
     }
 
@@ -679,7 +710,7 @@ enum LibrarySearchWorker {
             songID: song.id,
             lyricsFileName: song.lyricsFileName
         ) else {
-            cache.missingLyricsKeys.insert(cacheKey)
+            cache.storeMissing(cacheKey)
             return nil
         }
 
@@ -695,10 +726,10 @@ enum LibrarySearchWorker {
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
         guard !text.isEmpty else {
-            cache.missingLyricsKeys.insert(cacheKey)
+            cache.storeMissing(cacheKey)
             return nil
         }
-        cache.lyricsTextByKey[cacheKey] = text
+        cache.storeText(text, for: cacheKey)
         return text
     }
 
@@ -1713,10 +1744,11 @@ actor LibrarySearchIndex {
         if let revisionKey, lastMetadataRevisionKey == revisionKey { return true }
 
         do {
-            let existing = try await Self.metadataStates(in: pool)
-            let songIDs = Set(songs.map(\.id))
-            let removed = existing.compactMap { songIDs.contains($0.key) ? nil : $0.value.id }
-            try await writeMetadataBatches(songs: songs, removed: removed, existing: existing, pool: pool, sourceTypes: sourceTypes)
+            // 整库对账不把整张状态表(id、指纹)读进一个字典:要删的按游标挑出来,
+            // 要比的指纹每批只取这一批歌的(峰值与一批同阶,结果与整表比一样)。
+            let songIDs = Set(songs.lazy.map(\.id))
+            let removed = try await Self.metadataStateIDs(notIn: songIDs, in: pool)
+            try await writeMetadataBatches(songs: songs, removed: removed, existing: nil, pool: pool, sourceTypes: sourceTypes)
             lastMetadataRevisionKey = revisionKey
             return true
         } catch is CancellationError {
@@ -1754,8 +1786,9 @@ actor LibrarySearchIndex {
         }
     }
 
+    /// `existing` 为 nil 时每批只取这一批歌的已存状态。
     private func writeMetadataBatches(
-        songs: [Song], removed: [Int64], existing: [String: StoredMetadataState], pool: DatabasePool,
+        songs: [Song], removed: [Int64], existing knownStates: [String: StoredMetadataState]?, pool: DatabasePool,
         sourceTypes: [String: MusicSourceType]
     ) async throws {
         // Only the current batch owns copied Song values and Foundation temporaries.
@@ -1784,6 +1817,12 @@ actor LibrarySearchIndex {
             try Task.checkCancellation()
             let startedAt = ProcessInfo.processInfo.systemUptime
             let end = min(start + Self.metadataBatchSize, songs.count)
+            let existing: [String: StoredMetadataState]
+            if let knownStates {
+                existing = knownStates
+            } else {
+                existing = try await Self.metadataStates(songIDs: Set(songs[start..<end].lazy.map(\.id)), in: pool)
+            }
             let changes = autoreleasepool {
                 songs[start..<end].compactMap { song -> (song: Song, fingerprint: String, path: String, stateID: Int64?)? in
                     let path = SongPathPresentationPolicy.displayPath(for: song, sourceType: sourceTypes[song.sourceID]) ?? ""
@@ -1865,8 +1904,8 @@ actor LibrarySearchIndex {
     private func synchronizeLyrics(songs: [Song]) async -> Bool {
         guard let pool = dbPool else { return false }
         do {
-            var existing = try await Self.lyricsStates(in: pool)
-            let visibleIDs = Set(songs.map(\.id))
+            // 与元数据对账一样:已存状态每批只取这一批的,过期的最后按游标挑。
+            let visibleIDs = Set(songs.lazy.map(\.id))
             let store = assetStore
             let localFiles = songs.count >= Self.lyricsInventoryMinimumCount ? store.lyricsSearchFileNames() : nil
 
@@ -1874,6 +1913,7 @@ actor LibrarySearchIndex {
                 let startedAt = ProcessInfo.processInfo.systemUptime
                 if Task.isCancelled { return false }
                 let end = min(start + Self.lyricsBatchSize, songs.count)
+                var existing = try await Self.lyricsStates(songIDs: Set(songs[start..<end].lazy.map(\.id)), in: pool)
                 var documents: [LyricsDocument] = []
                 var removals: [Int64] = []
 
@@ -1928,14 +1968,14 @@ actor LibrarySearchIndex {
             }
 
             guard !Task.isCancelled else { return false }
-            let staleIDs = existing
-                .filter { !visibleIDs.contains($0.key) }
-                .map(\.value.id)
-                .filter { $0 >= 0 }
+            let staleIDs = try await Self.lyricsStateIDs(notIn: visibleIDs, in: pool)
             if !staleIDs.isEmpty {
                 try Self.removeLyricsDocuments(ids: staleIDs, in: pool)
             }
             return true
+        } catch is CancellationError {
+            // 每批取已存状态时遇到取消:与原先在批间看到取消一样,安静地退出。
+            return false
         } catch {
             plog("🔎 Lyrics index sync failed: \(error.localizedDescription)")
             return false
@@ -2043,16 +2083,15 @@ actor LibrarySearchIndex {
         let compact: String
     }
 
-    private static func metadataStates(in pool: DatabasePool) async throws -> [String: StoredMetadataState] {
+    /// 已存状态里歌不在 `songIDs` 里的那些行(按游标逐行看,不建整表字典)。
+    private static func metadataStateIDs(notIn songIDs: Set<String>, in pool: DatabasePool) async throws -> [Int64] {
         try await pool.read { db in
-            var result: [String: StoredMetadataState] = [:]
-            let rows = try Row.fetchCursor(db, sql: "SELECT id, songID, fingerprint FROM metadataSearchState")
+            var result: [Int64] = []
+            let rows = try Row.fetchCursor(db, sql: "SELECT id, songID FROM metadataSearchState")
             while let row = try rows.next() {
                 try Task.checkCancellation()
-                let id: Int64 = row["id"]
                 let songID: String = row["songID"]
-                let fingerprint: String = row["fingerprint"]
-                result[songID] = StoredMetadataState(id: id, fingerprint: fingerprint)
+                if !songIDs.contains(songID) { result.append(row["id"]) }
             }
             return result
         }
@@ -2085,15 +2124,17 @@ actor LibrarySearchIndex {
         }
     }
 
-    private static func lyricsStates(in pool: DatabasePool) async throws -> [String: StoredLyricsState] {
+    /// 歌词文档里歌不在 `songIDs` 里的那些行。
+    private static func lyricsStateIDs(notIn songIDs: Set<String>, in pool: DatabasePool) async throws -> [Int64] {
         try await pool.read { db in
-            let rows = try Row.fetchAll(db, sql: "SELECT id, songID, signature FROM lyricsSearchDocuments")
-            return Dictionary(uniqueKeysWithValues: rows.map { row in
-                let id: Int64 = row["id"]
+            var result: [Int64] = []
+            let rows = try Row.fetchCursor(db, sql: "SELECT id, songID FROM lyricsSearchDocuments")
+            while let row = try rows.next() {
+                try Task.checkCancellation()
                 let songID: String = row["songID"]
-                let signature: String = row["signature"]
-                return (songID, StoredLyricsState(id: id, signature: signature))
-            })
+                if !songIDs.contains(songID) { result.append(row["id"]) }
+            }
+            return result
         }
     }
 
@@ -2776,8 +2817,11 @@ enum MusicDiscoveryEngine {
         limit: Int,
         isCancelled: () -> Bool = { false }
     ) -> [String] {
+        // 续接多在后台播放时跑:有建好的就用,没有就临时建一份用完即放,不把退后台时放掉的整库
+        // 特征索引再放回缓存常驻(排序结果与缓存的那份一样)。
         guard limit > 0, !seeds.isEmpty,
-              let index = featureIndex(for: songs, revision: revision, isCancelled: isCancelled) else { return [] }
+              let index = featureIndex(for: songs, revision: revision, storesInCache: false, isCancelled: isCancelled)
+        else { return [] }
         let keep = limit * 3
         var rankings: [[String]] = []
         var positionByID: [String: Int] = [:]
@@ -3516,6 +3560,7 @@ enum MusicDiscoveryEngine {
     private static func featureIndex(
         for songs: [Song],
         revision: UInt64?,
+        storesInCache: Bool = true,
         isCancelled: () -> Bool = { false }
     ) -> FeatureIndex? {
         let (reusable, generation) = featureIndexCache.withLock { state -> (FeatureIndex?, UInt64) in
@@ -3525,7 +3570,7 @@ enum MusicDiscoveryEngine {
         }
         if let reusable { return reusable }
         guard let index = FeatureIndex(songs: songs, isCancelled: isCancelled) else { return nil }
-        if let revision {
+        if storesInCache, let revision {
             featureIndexCache.withLock { state in
                 // A request can finish using its own index after a trim, but must not put it back in the cache.
                 guard state.releaseGeneration == generation,

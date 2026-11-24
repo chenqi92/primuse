@@ -5078,9 +5078,11 @@ struct SearchView: View {
     private func searchFolderIndex() async -> LibraryFolderIndex {
         let sources = sourcesStore.allSources
         let descriptors = sources.map(LibraryFolderSourceDescriptor.init(source:))
+        let catalogReader = library.readableCatalogReader
         let key = SearchFolderSnapshotKey(
             collectionRevision: library.visibleSongCollectionRevision,
-            hierarchyRevision: scanService.folderHierarchyRevision, sources: descriptors
+            hierarchyRevision: scanService.folderHierarchyRevision, sources: descriptors,
+            catalogRevision: library.folderIndexCatalogRevision
         )
         if key != workCoordinator.folderKey || workCoordinator.folderTask == nil {
             workCoordinator.folderTask?.cancel()
@@ -5094,8 +5096,25 @@ struct SearchView: View {
                 )
             }
             workCoordinator.folderKey = key
-            workCoordinator.folderTask = Task.detached(priority: .utility) {
-                LibraryFolderIndexBuilder.build(sources: providers.map { $0.resolvedDescriptor() }, songs: songs)
+            workCoordinator.folderTask = Task.detached(priority: .utility) { () async -> LibraryFolderIndex in
+                let resolved = providers.map { $0.resolvedDescriptor() }
+                if let catalogReader {
+                    // 目录可读:按目录建(只要音乐,与 `musicSongs` 同一口径),索引里每首歌只留行号。
+                    do {
+                        return try await catalogReader.folderIndex { catalog, isCancelled in
+                            try LibraryFolderIndexBuilder.build(
+                                sources: resolved,
+                                catalog: LibraryFolderCatalogInput(
+                                    catalog: catalog, kinds: [.music], ordersSpokenWordLikeShelf: false
+                                ),
+                                isCancelled: isCancelled
+                            )
+                        }
+                    } catch {
+                        // 取消时外面会丢掉这份;其余错误改按内存建。
+                    }
+                }
+                return LibraryFolderIndexBuilder.build(sources: resolved, songs: songs)
             }
         }
         return await workCoordinator.folderTask!.value

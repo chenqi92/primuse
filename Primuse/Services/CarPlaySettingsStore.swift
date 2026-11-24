@@ -72,6 +72,8 @@ final class CarPlayFolderLibrary {
         let hierarchy: UInt64
         let sources: [LibraryFolderSourceDescriptor]
         let names: Int
+        /// 按目录建时目录的成员修订号(目录跟上内存后再建一次);目录不可读时为 0。
+        var catalogMembership: UInt64 = 0
     }
 
     init() {
@@ -144,6 +146,8 @@ final class CarPlayFolderLibrary {
     private func observeInputs(generation expectedGeneration: Int) {
         withObservationTracking {
             _ = AppServices.shared.musicLibrary.visibleSongCollectionRevision
+            _ = AppServices.shared.musicLibrary.catalogHost?.revisions.membership
+            _ = AppServices.shared.musicLibrary.catalogHost?.revisions.isReadable
             _ = AppServices.shared.musicLibrary.playlistCollectionRevision
             _ = AppServices.shared.scanService.folderHierarchyRevision
             _ = AppServices.shared.sourcesStore.allSources
@@ -168,7 +172,9 @@ final class CarPlayFolderLibrary {
         let stamp = InputStamp(songs: services.musicLibrary.visibleSongCollectionRevision,
             playlists: services.musicLibrary.playlistCollectionRevision,
             hierarchy: UInt64(services.scanService.folderHierarchyRevision),
-            sources: services.sourcesStore.allSources.map(LibraryFolderSourceDescriptor.init(source:)), names: namesRevision)
+            sources: services.sourcesStore.allSources.map(LibraryFolderSourceDescriptor.init(source:)), names: namesRevision,
+            catalogMembership: services.musicLibrary.readableCatalogReader == nil
+                ? 0 : (services.musicLibrary.catalogHost?.revisions.membership ?? 0))
         guard stamp != cachedInput else { return }
         buildTask?.cancel()
         isLoading = true
@@ -193,7 +199,8 @@ final class CarPlayFolderLibrary {
                     replacementToken: library.songReplacementToken,
                     virtualCollectionRevision: library.playlistCollectionRevision,
                     hierarchyRevision: AppServices.shared.scanService.folderHierarchyRevision,
-                    sources: configuredDescriptors
+                    sources: configuredDescriptors,
+                    catalogRevision: library.folderIndexCatalogRevision
                 )
                 if let reused = LibraryFolderIndexReuseCache.shared.index(for: reuseKey) {
                     self.index = reused
@@ -224,7 +231,10 @@ final class CarPlayFolderLibrary {
                     indexedRoots: source.type.isServerLibrary || source.type == .upnp
                 )
             }
-            let task = Task.detached(priority: .utility) { [descriptors, providers] in
+            let catalogReader = library.readableCatalogReader
+            let appleMusicName = String(localized: "apple_music_library_section")
+            let genericSourceName = String(localized: "source_label")
+            let task = Task.detached(priority: .utility) { [descriptors, providers, catalogReader] () async -> LibraryFolderIndex in
                 // 和歌曲页同一套挂法：借来的索引和自己建的一样。
                 let resolved = descriptors.map { descriptor in
                     guard let provider = providers[descriptor.sourceID] else { return descriptor }
@@ -233,6 +243,32 @@ final class CarPlayFolderLibrary {
                         rootDisplayNames: provider.rootNames,
                         usesIndexedRoots: provider.indexedRoots
                     )
+                }
+                if let catalogReader {
+                    // 目录可读:按目录建,索引里每首歌只留行号。
+                    let virtualSourceIDs = Set(collections.filter { $0.kind == .librarySongs }.map(\.sourceID))
+                    let memorySongs = virtualSourceIDs.isEmpty ? [] : songs.filter { virtualSourceIDs.contains($0.sourceID) }
+                    do {
+                        return try await catalogReader.folderIndex { [resolved] catalog, isCancelled in
+                            try LibraryFolderIndexBuilder.build(
+                                sources: resolved,
+                                catalog: LibraryFolderCatalogInput(
+                                    catalog: catalog, kinds: nil, ordersSpokenWordLikeShelf: !spokenWordSongIDs.isEmpty
+                                ),
+                                unlistedSource: { sourceID in
+                                    LibraryFolderUnlistedSource.descriptor(
+                                        sourceID: sourceID, appleMusicName: appleMusicName, genericName: genericSourceName
+                                    )
+                                },
+                                memorySongs: memorySongs,
+                                virtualCollections: collections,
+                                spokenWordSongIDs: spokenWordSongIDs,
+                                isCancelled: isCancelled
+                            )
+                        }
+                    } catch {
+                        // 取消也落到这里:外面按取消丢弃结果,其余错误改按内存建。
+                    }
                 }
                 return LibraryFolderIndexBuilder.build(sources: resolved, songs: songs, virtualCollections: collections,
                                                        spokenWordSongIDs: spokenWordSongIDs)

@@ -376,6 +376,10 @@ public enum HomeListeningRanking {
         }
         var resolvedArtists: [ArtistCredit: [(name: String, key: String)]] = [:]
         let configuration = artistNameConfiguration.normalized()
+        // 目录版文件夹索引按 id 找节点要查目录:所有播放记录一次查完,不逐条查。
+        let folderNodes = category == .folders
+            ? folders?.nodeIDs(containingSongIDs: Set(events.map(\.songID))) ?? [:]
+            : [:]
         for event in events {
             guard event.playedAt.timeIntervalSinceReferenceDate >= interval.start.timeIntervalSinceReferenceDate,
                   includesEnd ? event.playedAt.timeIntervalSinceReferenceDate <= interval.end.timeIntervalSinceReferenceDate : event.playedAt < interval.end else { continue }
@@ -425,7 +429,7 @@ public enum HomeListeningRanking {
             case .folders:
                 // One play belongs to its containing directory, not every
                 // ancestor. This keeps nested-folder totals comparable.
-                guard let folders, let id = folders.nodeID(containingSongID: event.songID),
+                guard let folders, let id = folderNodes[event.songID],
                       let node = folders.node(withID: id),
                       node.kind == .folder || node.kind == .scanRoot else { continue }
                 components = [id.sourceID, id.kind.rawValue, id.normalizedRelativePath]

@@ -207,6 +207,8 @@ struct SearchFolderSnapshotKey: Equatable {
     let collectionRevision: Int
     let hierarchyRevision: Int
     let sources: [LibraryFolderSourceDescriptor]
+    /// 按目录建时目录的修订号;目录不可读时为 0。
+    var catalogRevision: Int64 = 0
 }
 
 struct SearchFolderProviderInput: Sendable {

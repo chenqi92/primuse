@@ -20,6 +20,9 @@ public struct LibraryFolderIndexReuseKey: Hashable, Sendable {
     public let hierarchyRevision: Int
     /// 各源的名字、扫描根目录、开关。
     public let sources: [LibraryFolderSourceDescriptor]
+    /// 按曲库目录建时目录的修订号(目录不可读、按内存建时为 0)。目录比内存晚一拍,
+    /// 同一份内存修订号下目录可能还没跟上,要一起对上才算同一份输入。
+    public let catalogRevision: Int64
 
     public init(
         songsRevision: UInt64,
@@ -27,7 +30,8 @@ public struct LibraryFolderIndexReuseKey: Hashable, Sendable {
         replacementToken: UUID,
         virtualCollectionRevision: Int,
         hierarchyRevision: Int,
-        sources: [LibraryFolderSourceDescriptor]
+        sources: [LibraryFolderSourceDescriptor],
+        catalogRevision: Int64 = 0
     ) {
         self.songsRevision = songsRevision
         self.collectionRevision = collectionRevision
@@ -35,6 +39,7 @@ public struct LibraryFolderIndexReuseKey: Hashable, Sendable {
         self.virtualCollectionRevision = virtualCollectionRevision
         self.hierarchyRevision = hierarchyRevision
         self.sources = sources
+        self.catalogRevision = catalogRevision
     }
 
     /// 只换了替换令牌（其余输入都没动）的同一份。歌曲页判断这次替换没动目录结构
@@ -46,7 +51,8 @@ public struct LibraryFolderIndexReuseKey: Hashable, Sendable {
             replacementToken: token,
             virtualCollectionRevision: virtualCollectionRevision,
             hierarchyRevision: hierarchyRevision,
-            sources: sources
+            sources: sources,
+            catalogRevision: catalogRevision
         )
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public enum LibraryFolderPathSemantics: String, Hashable, Sendable {
     /// `Song.filePath` belongs to the source-relative file namespace and can
@@ -883,6 +884,9 @@ public final class LibraryFolderIndex: Sendable {
     private let sourceOrder: [String]
     private let partitions: [String: LibraryFolderSourcePartition]
 
+    /// 目录版分区(按源的顺序),按 id 找节点时一起查。
+    private let catalogPartitions: [LibraryFolderCatalogMembers]
+
     fileprivate init(
         sourceOrder: [String],
         partitions: [String: LibraryFolderSourcePartition]
@@ -892,6 +896,7 @@ public final class LibraryFolderIndex: Sendable {
         self.sourceNodeIDs = sourceOrder.compactMap { partitions[$0]?.sourceNodeID }
         self.songCount = partitions.values.reduce(0) { $0 + $1.songCount }
         self.nodeCount = partitions.values.reduce(0) { $0 + $1.nodes.count }
+        self.catalogPartitions = sourceOrder.compactMap { partitions[$0]?.catalogMembers }
     }
 
     public var sourceNodes: [LibraryFolderNode] {
@@ -912,7 +917,7 @@ public final class LibraryFolderIndex: Sendable {
     }
 
     public func directSongIDs(in id: LibraryFolderNodeID) -> [String] {
-        partitions[id.sourceID]?.directSongIDs[id] ?? []
+        partitions[id.sourceID]?.directIDs(in: id) ?? []
     }
 
     public func nodeID(containingSongID songID: String) -> LibraryFolderNodeID? {
@@ -921,7 +926,66 @@ public final class LibraryFolderIndex: Sendable {
                 return nodeID
             }
         }
-        return nil
+        return catalogNodeIDs(containingSongIDs: [songID])[songID]
+    }
+
+    /// 一批歌各自所在的节点(不在索引里的歌不在结果里)。目录版一次查完,
+    /// 不要对几千首歌逐首调 `nodeID(containingSongID:)`。
+    public func nodeIDs(containingSongIDs songIDs: some Collection<String>) -> [String: LibraryFolderNodeID] {
+        var result: [String: LibraryFolderNodeID] = [:]
+        var unresolved: [String] = []
+        for songID in songIDs where result[songID] == nil {
+            var found = false
+            for sourceID in sourceOrder {
+                if let nodeID = partitions[sourceID]?.nodeIDBySongID[songID] {
+                    result[songID] = nodeID
+                    found = true
+                    break
+                }
+            }
+            if !found { unresolved.append(songID) }
+        }
+        for (songID, nodeID) in catalogNodeIDs(containingSongIDs: unresolved) {
+            result[songID] = nodeID
+        }
+        return result
+    }
+
+    private func catalogNodeIDs(containingSongIDs songIDs: [String]) -> [String: LibraryFolderNodeID] {
+        guard !songIDs.isEmpty, let catalog = catalogPartitions.first?.catalog else { return [:] }
+        let lookups: [String: LibraryCatalogFolderLookup]
+        do {
+            lookups = try catalog.folderLookups(ids: songIDs)
+        } catch {
+            LibraryFolderCatalogLog.failure("lookup", error)
+            return [:]
+        }
+        var result: [String: LibraryFolderNodeID] = [:]
+        for (songID, lookup) in lookups {
+            for members in catalogPartitions where members.sourceID == lookup.sourceID {
+                if let nodeID = members.nodeID(for: lookup) { result[songID] = nodeID }
+            }
+        }
+        return result
+    }
+
+    /// 这个源的分区是不是按目录建的(歌只存行号)。
+    public func isCatalogBacked(sourceID: String) -> Bool {
+        partitions[sourceID]?.catalogMembers != nil
+    }
+
+    /// 目录版:一个节点(或连同子树)的歌的行号,先后与 `songIDs(in:scope:)` 相同。内存版分区返回 nil。
+    /// 整个范围的播放、批量操作用它,不必先把整棵子树的 id 读出来。
+    public func rowids(in id: LibraryFolderNodeID, scope: LibraryFolderSongScope) -> ContiguousArray<Int32>? {
+        guard let partition = partitions[id.sourceID], let members = partition.catalogMembers else { return nil }
+        guard partition.nodes[id] != nil else { return [] }
+        guard scope == .descendants else { return members.direct[id] ?? [] }
+        var result = ContiguousArray<Int32>()
+        result.reserveCapacity(partition.nodes[id]?.descendantSongCount ?? 0)
+        for nodeID in partition.subtree(of: id) {
+            result.append(contentsOf: members.direct[nodeID] ?? [])
+        }
+        return result
     }
 
     public func songIDs(
@@ -930,6 +994,9 @@ public final class LibraryFolderIndex: Sendable {
     ) -> [String] {
         guard let partition = partitions[id.sourceID], partition.nodes[id] != nil else {
             return []
+        }
+        if let members = partition.catalogMembers {
+            return members.songIDs(rowids: rowids(in: id, scope: scope) ?? [])
         }
         guard scope == .descendants else {
             return partition.directSongIDs[id] ?? []
@@ -961,6 +1028,25 @@ public final class LibraryFolderIndex: Sendable {
         var result: [String] = []
         result.reserveCapacity(limit)
         var visited = 0
+        if let members = partition.catalogMembers {
+            // 目录版:按节点、每次一小段地把行号换成 id,找够就停。
+            for nodeID in partition.subtree(of: id) {
+                guard let rowids = members.direct[nodeID] else { continue }
+                var start = rowids.startIndex
+                while start < rowids.endIndex {
+                    let end = min(start + Self.catalogLookupChunk, rowids.endIndex)
+                    for songID in members.songIDs(rowids: rowids[start..<end]) {
+                        visited &+= 1
+                        if visited.isMultiple(of: 512), isCancelled() { return result }
+                        guard matches(songID) else { continue }
+                        result.append(songID)
+                        if result.count == limit { return result }
+                    }
+                    start = end
+                }
+            }
+            return result
+        }
         var pending = [id]
         while let current = pending.popLast() {
             for songID in partition.directSongIDs[current] ?? [] {
@@ -976,6 +1062,9 @@ public final class LibraryFolderIndex: Sendable {
         }
         return result
     }
+
+    /// 目录版找封面时每次从目录换多少个 id。
+    static let catalogLookupChunk = 64
 
     /// Applies the active flat-list sort to one lazily requested folder scope.
     /// This is intended for play queues and folder actions, not row rendering.
@@ -1289,34 +1378,14 @@ public enum LibraryFolderIndexBuilder {
 
         let usesVirtualCollections = virtualCollections.contains { $0.kind == .librarySongs }
 
-        if !usesVirtualCollections, let providerResolver {
-            for root in providerResolver.roots {
-                let rootID = LibraryFolderNodeID(
-                    sourceID: source.sourceID,
-                    kind: .scanRoot,
-                    normalizedRelativePath: root.path
-                )
-                _ = ensureAccumulator(
-                    id: rootID,
-                    parent: sourceAccumulator,
-                    displayName: root.displayName,
-                    accumulators: &accumulators
-                )
-            }
-        } else if !usesVirtualCollections, source.pathSemantics == .hierarchical {
-            for root in policy.scanRoots {
-                let rootID = LibraryFolderNodeID(
-                    sourceID: source.sourceID,
-                    kind: .scanRoot,
-                    normalizedRelativePath: root.identityPath
-                )
-                _ = ensureAccumulator(
-                    id: rootID,
-                    parent: sourceAccumulator,
-                    displayName: root.displayName ?? (source.pathEncoding == .native ? source.displayName : nil),
-                    accumulators: &accumulators
-                )
-            }
+        if !usesVirtualCollections {
+            seedScanRoots(
+                source: source,
+                policy: policy,
+                providerResolver: providerResolver,
+                sourceAccumulator: sourceAccumulator,
+                accumulators: &accumulators
+            )
         }
 
         if !usesVirtualCollections {
@@ -1331,111 +1400,14 @@ public enum LibraryFolderIndexBuilder {
                         return
                     }
 
-                    let leafAndAncestors: (
-                        leaf: LibraryFolderNodeAccumulator,
-                        ancestors: [LibraryFolderNodeAccumulator]
-                    )
-
-                    if let providerResolver,
-                       let placement = providerResolver.placement(for: song.filePath) {
-                        let rootID = LibraryFolderNodeID(
-                            sourceID: source.sourceID,
-                            kind: .scanRoot,
-                            normalizedRelativePath: placement.root.path
-                        )
-                        let rootAccumulator = ensureAccumulator(
-                            id: rootID,
-                            parent: sourceAccumulator,
-                            displayName: placement.root.displayName,
-                            accumulators: &accumulators
-                        )
-                        var parent = rootAccumulator
-                        var ancestors = [sourceAccumulator, rootAccumulator]
-
-                        for folder in placement.folders {
-                            let folderID = LibraryFolderNodeID(
-                                sourceID: source.sourceID,
-                                kind: .folder,
-                                normalizedRelativePath: folder.path
-                            )
-                            parent = ensureAccumulator(
-                                id: folderID,
-                                parent: parent,
-                                displayName: folder.displayName,
-                                accumulators: &accumulators
-                            )
-                            ancestors.append(parent)
-                        }
-                        leafAndAncestors = (parent, ancestors)
-                    } else if providerResolver != nil {
-                        let node = ensureSpecialAccumulator(
-                            kind: .uncategorized,
-                            source: source,
-                            sourceAccumulator: sourceAccumulator,
-                            accumulators: &accumulators
-                        )
-                        leafAndAncestors = (node, [sourceAccumulator, node])
-                    } else {
-                        let placement = policy.placement(for: song.filePath)
-                        switch placement.category {
-                        case .folder:
-                            guard let root = placement.scanRoot else { return }
-                            let rootID = LibraryFolderNodeID(
-                                sourceID: source.sourceID,
-                                kind: .scanRoot,
-                                normalizedRelativePath: root.identityPath
-                            )
-                            let rootAccumulator = ensureAccumulator(
-                                id: rootID,
-                                parent: sourceAccumulator,
-                                displayName: root.displayName ?? (source.pathEncoding == .native ? source.displayName : nil),
-                                accumulators: &accumulators
-                            )
-                            var parent = rootAccumulator
-                            var identityComponents = root.identityComponents
-                            var ancestors = [sourceAccumulator, rootAccumulator]
-
-                            for (component, identityComponent) in zip(
-                                placement.folderComponents,
-                                placement.identityFolderComponents
-                            ) {
-                                identityComponents.append(identityComponent)
-                                let folderID = LibraryFolderNodeID(
-                                    sourceID: source.sourceID,
-                                    kind: .folder,
-                                    normalizedRelativePath: NormalizedLibraryFolderPath.path(
-                                        from: identityComponents
-                                    )
-                                )
-                                parent = ensureAccumulator(
-                                    id: folderID,
-                                    parent: parent,
-                                    displayName: component,
-                                    accumulators: &accumulators
-                                )
-                                ancestors.append(parent)
-                            }
-                            leafAndAncestors = (parent, ancestors)
-
-                        case .uncategorized:
-                            let node = ensureSpecialAccumulator(
-                                kind: .uncategorized,
-                                source: source,
-                                sourceAccumulator: sourceAccumulator,
-                                accumulators: &accumulators
-                            )
-                            leafAndAncestors = (node, [sourceAccumulator, node])
-
-                        case .other:
-                            let node = ensureSpecialAccumulator(
-                                kind: .other,
-                                source: source,
-                                sourceAccumulator: sourceAccumulator,
-                                accumulators: &accumulators
-                            )
-                            leafAndAncestors = (node, [sourceAccumulator, node])
-                        }
-                    }
+                    guard let leafAndAncestors = place(
+                        filePath: song.filePath,
+                        source: source,
+                        policy: policy,
+                        providerResolver: providerResolver,
+                        sourceAccumulator: sourceAccumulator,
+                        accumulators: &accumulators
+                    ) else { return }
 
                     leafAndAncestors.leaf.directSongIDs.append(song.id)
                     leafAndAncestors.leaf.directSongOffsets.append(offset)
@@ -1508,9 +1480,74 @@ public enum LibraryFolderIndexBuilder {
             sourceAccumulator.descendantSongCount = sourceSongIDs.count
         }
 
+        guard let (nodes, childIDs) = finishNodes(
+            source: source,
+            accumulators: accumulators,
+            directCount: { $0.directSongIDs.count }
+        ) else {
+            return emptyPartition(source: source, sourceNodeID: sourceNodeID)
+        }
+        var directSongIDs: [LibraryFolderNodeID: [String]] = [:]
+        for accumulator in accumulators.values where !accumulator.directSongIDs.isEmpty {
+            directSongIDs[accumulator.id] = accumulator.directSongIDs
+        }
+
+        return LibraryFolderSourcePartition(
+            sourceNodeID: sourceNodeID,
+            nodes: nodes,
+            childIDs: childIDs,
+            directSongIDs: directSongIDs,
+            nodeIDBySongID: nodeIDBySongID
+        )
+    }
+
+    /// 扫描根(或服务端给的根目录)先建好:里面一首歌都没有的根也要出现。
+    fileprivate static func seedScanRoots(
+        source: LibraryFolderSourceDescriptor,
+        policy: LibraryFolderPathPolicy,
+        providerResolver: LibraryFolderProviderHierarchyResolver?,
+        sourceAccumulator: LibraryFolderNodeAccumulator,
+        accumulators: inout [LibraryFolderNodeID: LibraryFolderNodeAccumulator]
+    ) {
+        if let providerResolver {
+            for root in providerResolver.roots {
+                let rootID = LibraryFolderNodeID(
+                    sourceID: source.sourceID,
+                    kind: .scanRoot,
+                    normalizedRelativePath: root.path
+                )
+                _ = ensureAccumulator(
+                    id: rootID,
+                    parent: sourceAccumulator,
+                    displayName: root.displayName,
+                    accumulators: &accumulators
+                )
+            }
+        } else if source.pathSemantics == .hierarchical {
+            for root in policy.scanRoots {
+                let rootID = LibraryFolderNodeID(
+                    sourceID: source.sourceID,
+                    kind: .scanRoot,
+                    normalizedRelativePath: root.identityPath
+                )
+                _ = ensureAccumulator(
+                    id: rootID,
+                    parent: sourceAccumulator,
+                    displayName: root.displayName ?? (source.pathEncoding == .native ? source.displayName : nil),
+                    accumulators: &accumulators
+                )
+            }
+        }
+    }
+
+    /// 节点与排好序的子节点表。被取消时返回 nil。
+    fileprivate static func finishNodes(
+        source: LibraryFolderSourceDescriptor,
+        accumulators: [LibraryFolderNodeID: LibraryFolderNodeAccumulator],
+        directCount: (LibraryFolderNodeAccumulator) -> Int
+    ) -> (nodes: [LibraryFolderNodeID: LibraryFolderNode], childIDs: [LibraryFolderNodeID: [LibraryFolderNodeID]])? {
         var nodes: [LibraryFolderNodeID: LibraryFolderNode] = [:]
         var childIDs: [LibraryFolderNodeID: [LibraryFolderNodeID]] = [:]
-        var directSongIDs: [LibraryFolderNodeID: [String]] = [:]
         nodes.reserveCapacity(accumulators.count)
         childIDs.reserveCapacity(accumulators.count)
 
@@ -1521,7 +1558,7 @@ public enum LibraryFolderIndexBuilder {
         }
         for (position, accumulator) in accumulators.values.enumerated() {
             if position.isMultiple(of: 256), isBuildCancelled {
-                return emptyPartition(source: source, sourceNodeID: sourceNodeID)
+                return nil
             }
             let sortedChildren = accumulator.childIDs.sorted { lhs, rhs in
                 let lhsRank = nodeSortRank(lhs.kind)
@@ -1544,25 +1581,127 @@ public enum LibraryFolderIndexBuilder {
                 sourceID: source.sourceID,
                 kind: accumulator.id.kind,
                 displayName: accumulator.displayName,
-                directSongCount: accumulator.directSongIDs.count,
+                directSongCount: directCount(accumulator),
                 descendantSongCount: accumulator.descendantSongCount,
                 childNodeCount: sortedChildren.count
             )
             if !sortedChildren.isEmpty {
                 childIDs[accumulator.id] = sortedChildren
             }
-            if !accumulator.directSongIDs.isEmpty {
-                directSongIDs[accumulator.id] = accumulator.directSongIDs
+        }
+        return (nodes, childIDs)
+    }
+
+    /// 一首歌落在哪个叶节点、从源到叶经过哪些节点(沿途没有的节点顺手建好)。
+    /// nil:这首歌不进索引。内存版与目录版共用,两边的归属规则只有这一份。
+    fileprivate static func place(
+        filePath: String,
+        source: LibraryFolderSourceDescriptor,
+        policy: LibraryFolderPathPolicy,
+        providerResolver: LibraryFolderProviderHierarchyResolver?,
+        sourceAccumulator: LibraryFolderNodeAccumulator,
+        accumulators: inout [LibraryFolderNodeID: LibraryFolderNodeAccumulator]
+    ) -> (leaf: LibraryFolderNodeAccumulator, ancestors: [LibraryFolderNodeAccumulator])? {
+        if let providerResolver,
+           let placement = providerResolver.placement(for: filePath) {
+            let rootID = LibraryFolderNodeID(
+                sourceID: source.sourceID,
+                kind: .scanRoot,
+                normalizedRelativePath: placement.root.path
+            )
+            let rootAccumulator = ensureAccumulator(
+                id: rootID,
+                parent: sourceAccumulator,
+                displayName: placement.root.displayName,
+                accumulators: &accumulators
+            )
+            var parent = rootAccumulator
+            var ancestors = [sourceAccumulator, rootAccumulator]
+
+            for folder in placement.folders {
+                let folderID = LibraryFolderNodeID(
+                    sourceID: source.sourceID,
+                    kind: .folder,
+                    normalizedRelativePath: folder.path
+                )
+                parent = ensureAccumulator(
+                    id: folderID,
+                    parent: parent,
+                    displayName: folder.displayName,
+                    accumulators: &accumulators
+                )
+                ancestors.append(parent)
+            }
+            return (parent, ancestors)
+        } else if providerResolver != nil {
+            let node = ensureSpecialAccumulator(
+                kind: .uncategorized,
+                source: source,
+                sourceAccumulator: sourceAccumulator,
+                accumulators: &accumulators
+            )
+            return (node, [sourceAccumulator, node])
+        } else {
+            let placement = policy.placement(for: filePath)
+            switch placement.category {
+            case .folder:
+                guard let root = placement.scanRoot else { return nil }
+                let rootID = LibraryFolderNodeID(
+                    sourceID: source.sourceID,
+                    kind: .scanRoot,
+                    normalizedRelativePath: root.identityPath
+                )
+                let rootAccumulator = ensureAccumulator(
+                    id: rootID,
+                    parent: sourceAccumulator,
+                    displayName: root.displayName ?? (source.pathEncoding == .native ? source.displayName : nil),
+                    accumulators: &accumulators
+                )
+                var parent = rootAccumulator
+                var identityComponents = root.identityComponents
+                var ancestors = [sourceAccumulator, rootAccumulator]
+
+                for (component, identityComponent) in zip(
+                    placement.folderComponents,
+                    placement.identityFolderComponents
+                ) {
+                    identityComponents.append(identityComponent)
+                    let folderID = LibraryFolderNodeID(
+                        sourceID: source.sourceID,
+                        kind: .folder,
+                        normalizedRelativePath: NormalizedLibraryFolderPath.path(
+                            from: identityComponents
+                        )
+                    )
+                    parent = ensureAccumulator(
+                        id: folderID,
+                        parent: parent,
+                        displayName: component,
+                        accumulators: &accumulators
+                    )
+                    ancestors.append(parent)
+                }
+                return (parent, ancestors)
+
+            case .uncategorized:
+                let node = ensureSpecialAccumulator(
+                    kind: .uncategorized,
+                    source: source,
+                    sourceAccumulator: sourceAccumulator,
+                    accumulators: &accumulators
+                )
+                return (node, [sourceAccumulator, node])
+
+            case .other:
+                let node = ensureSpecialAccumulator(
+                    kind: .other,
+                    source: source,
+                    sourceAccumulator: sourceAccumulator,
+                    accumulators: &accumulators
+                )
+                return (node, [sourceAccumulator, node])
             }
         }
-
-        return LibraryFolderSourcePartition(
-            sourceNodeID: sourceNodeID,
-            nodes: nodes,
-            childIDs: childIDs,
-            directSongIDs: directSongIDs,
-            nodeIDBySongID: nodeIDBySongID
-        )
     }
 
     private static var isBuildCancelled: Bool {
@@ -1648,22 +1787,477 @@ public enum LibraryFolderIndexBuilder {
     }
 }
 
+/// 按曲库目录建文件夹索引的输入。
+public struct LibraryFolderCatalogInput: Sendable {
+    public let catalog: LibraryCatalog
+    /// 已启用源里的哪些类别进索引:nil 是全部可见的歌(首页、车机、电视),`[.music]` 只要音乐(歌曲页、搜索)。
+    public var kinds: Set<LibraryCatalogContentKind>?
+    /// 全是有声(有声书、播客)的文件夹按书架的章节顺序读,相当于旧接口传进整库的有声 id。
+    public var ordersSpokenWordLikeShelf: Bool
+    /// 只建这一个源(按源看的歌曲页):只读这个源的行。
+    public var sourceID: String?
+
+    public init(
+        catalog: LibraryCatalog,
+        kinds: Set<LibraryCatalogContentKind>?,
+        ordersSpokenWordLikeShelf: Bool,
+        sourceID: String? = nil
+    ) {
+        self.catalog = catalog
+        self.kinds = kinds
+        self.ordersSpokenWordLikeShelf = ordersSpokenWordLikeShelf
+        self.sourceID = sourceID
+    }
+}
+
+extension LibraryFolderIndexBuilder {
+    /// 按曲库目录建:节点、名字、计数、子节点顺序与按整库 `[Song]` 建的那份完全一样,但每首歌只留
+    /// 4 字节行号,不留 id 字典。歌按库内顺序分批从目录流式读(只读行号、源、文件夹键、路径、类别);
+    /// 同一目录里文件名「平常」的歌共用一次归属计算。文件夹里的顺序再按节点取几列排好。
+    ///
+    /// - `unlistedSource`:目录里有歌、却不在 `sources` 里的源(Apple Music 资料库之类)给它一个描述,
+    ///   按第一次出现的先后排在后面;nil 跳过这个源。
+    /// - `memorySongs`:带 Apple Music 虚拟集合(`librarySongs`)的源仍照内存里的歌建,集合成员来自
+    ///   内存里的歌单快照,目录里没有这份语义;只需传这些源的歌。
+    /// - `isCancelled` 返回 true 时抛 `CancellationError`。
+    public static func build(
+        sources: [LibraryFolderSourceDescriptor],
+        catalog input: LibraryFolderCatalogInput,
+        unlistedSource: (String) -> LibraryFolderSourceDescriptor? = { _ in nil },
+        memorySongs: [Song] = [],
+        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = [],
+        spokenWordSongIDs: Set<String> = [],
+        isCancelled: () -> Bool = { false }
+    ) throws -> LibraryFolderIndex {
+        var sourceOrder: [String] = []
+        var descriptorByID: [String: LibraryFolderSourceDescriptor] = [:]
+        for source in sources where source.isEnabled {
+            guard descriptorByID[source.sourceID] == nil else { continue }
+            descriptorByID[source.sourceID] = source
+            sourceOrder.append(source.sourceID)
+        }
+        let listed = Set(sources.map(\.sourceID))
+        let virtualSourceIDs = Set(virtualCollections.filter { $0.kind == .librarySongs }.map(\.sourceID))
+        let catalogSourceIDs = SpokenWordBookSourcePaths.catalogSourceIDs
+
+        var builds: [String: CatalogSourceBuild] = [:]
+        var rejected = Set<String>()
+        var position = 0
+        try input.catalog.forEachFolderRow(kinds: input.kinds, sourceID: input.sourceID) { row in
+            position &+= 1
+            if position.isMultiple(of: 256), isCancelled() { throw CancellationError() }
+            let build: CatalogSourceBuild
+            if let existing = builds[row.sourceID] {
+                build = existing
+            } else {
+                guard !rejected.contains(row.sourceID) else { return true }
+                var descriptor = descriptorByID[row.sourceID]
+                if descriptor == nil, !listed.contains(row.sourceID), let made = unlistedSource(row.sourceID), made.isEnabled {
+                    descriptor = made
+                    descriptorByID[row.sourceID] = made
+                    sourceOrder.append(row.sourceID)
+                }
+                guard let descriptor, !virtualSourceIDs.contains(row.sourceID) else {
+                    rejected.insert(row.sourceID)
+                    return true
+                }
+                build = CatalogSourceBuild(source: descriptor)
+                builds[row.sourceID] = build
+            }
+            autoreleasepool { build.add(row) }
+            return true
+        }
+
+        var partitions: [String: LibraryFolderSourcePartition] = [:]
+        partitions.reserveCapacity(sourceOrder.count)
+        var songOffsetsBySource: [String: [Int]] = [:]
+        for offset in memorySongs.indices where virtualSourceIDs.contains(memorySongs[offset].sourceID) {
+            songOffsetsBySource[memorySongs[offset].sourceID, default: []].append(offset)
+        }
+        let virtualCollectionsBySource = Dictionary(grouping: virtualCollections, by: \.sourceID)
+        for sourceID in sourceOrder {
+            if isCancelled() { throw CancellationError() }
+            guard let source = descriptorByID[sourceID] else { continue }
+            if virtualSourceIDs.contains(sourceID) {
+                partitions[sourceID] = buildPartition(
+                    source: source,
+                    songs: memorySongs,
+                    songOffsets: songOffsetsBySource[sourceID] ?? [],
+                    virtualCollections: virtualCollectionsBySource[sourceID] ?? [],
+                    spokenWordSongIDs: spokenWordSongIDs
+                )
+                continue
+            }
+            let build = builds[sourceID] ?? CatalogSourceBuild(source: source)
+            partitions[sourceID] = try build.finish(
+                input: input,
+                catalogSourceIDs: catalogSourceIDs,
+                isCancelled: isCancelled
+            )
+        }
+        return LibraryFolderIndex(sourceOrder: sourceOrder, partitions: partitions)
+    }
+
+    /// 一个源在目录版里的建法:逐行归属、收行号与行号段,最后排文件夹里的顺序。
+    fileprivate final class CatalogSourceBuild {
+        let source: LibraryFolderSourceDescriptor
+        let policy: LibraryFolderPathPolicy
+        let providerResolver: LibraryFolderProviderHierarchyResolver?
+        let plainNames: LibraryFolderPlainFileNameRule?
+        let sourceNodeID: LibraryFolderNodeID
+        let sourceAccumulator: LibraryFolderNodeAccumulator
+        var accumulators: [LibraryFolderNodeID: LibraryFolderNodeAccumulator]
+        /// 目录文件夹键 → 文件名平常的歌的归属(nil:这些歌不进索引)。
+        var folderPlacements: [Int64: (leaf: LibraryFolderNodeAccumulator, ancestors: [LibraryFolderNodeAccumulator])?] = [:]
+        var nodeTable: [LibraryFolderNodeID] = []
+        var runStarts = ContiguousArray<Int32>()
+        var runOrdinals = ContiguousArray<Int32>()
+        var songCount = 0
+        var firstRowid: Int32 = 0
+        var lastRowid: Int32 = 0
+
+        init(source: LibraryFolderSourceDescriptor) {
+            self.source = source
+            policy = LibraryFolderPathPolicy(
+                scanRoots: source.scanRoots,
+                semantics: source.pathSemantics,
+                encoding: source.pathEncoding
+            )
+            providerResolver = source.providerHierarchy.map(LibraryFolderProviderHierarchyResolver.init)
+            plainNames = providerResolver == nil && policy.semantics == .hierarchical && !policy.scanRoots.isEmpty
+                ? LibraryFolderPlainFileNameRule(policy: policy)
+                : nil
+            sourceNodeID = LibraryFolderNodeID(sourceID: source.sourceID, kind: .source, normalizedRelativePath: "")
+            sourceAccumulator = LibraryFolderNodeAccumulator(
+                id: sourceNodeID, parentID: nil, displayName: source.displayName
+            )
+            accumulators = [sourceNodeID: sourceAccumulator]
+            LibraryFolderIndexBuilder.seedScanRoots(
+                source: source,
+                policy: policy,
+                providerResolver: providerResolver,
+                sourceAccumulator: sourceAccumulator,
+                accumulators: &accumulators
+            )
+        }
+
+        func add(_ row: LibraryCatalogFolderRow) {
+            let placed: (leaf: LibraryFolderNodeAccumulator, ancestors: [LibraryFolderNodeAccumulator])?
+            if let folderKey = row.folderKey, let plainNames, plainNames.isPlain(row.filePath) {
+                if let memo = folderPlacements[folderKey] {
+                    placed = memo
+                } else {
+                    placed = place(row.filePath)
+                    folderPlacements[folderKey] = .some(placed)
+                }
+            } else {
+                placed = place(row.filePath)
+            }
+            guard let placed else { return }
+            let leaf = placed.leaf
+            leaf.directRowids.append(row.rowid)
+            if row.kind == LibraryCatalogContentKind.spokenWord.rawValue || row.kind == LibraryCatalogContentKind.podcast.rawValue {
+                leaf.spokenWordCount += 1
+            }
+            for ancestor in placed.ancestors {
+                ancestor.descendantSongCount += 1
+            }
+            if leaf.ordinal < 0 {
+                leaf.ordinal = Int32(nodeTable.count)
+                nodeTable.append(leaf.id)
+            }
+            if runOrdinals.last != leaf.ordinal {
+                runStarts.append(row.rowid)
+                runOrdinals.append(leaf.ordinal)
+            }
+            if songCount == 0 { firstRowid = row.rowid }
+            lastRowid = row.rowid
+            songCount += 1
+        }
+
+        private func place(_ filePath: String) -> (leaf: LibraryFolderNodeAccumulator, ancestors: [LibraryFolderNodeAccumulator])? {
+            LibraryFolderIndexBuilder.place(
+                filePath: filePath,
+                source: source,
+                policy: policy,
+                providerResolver: providerResolver,
+                sourceAccumulator: sourceAccumulator,
+                accumulators: &accumulators
+            )
+        }
+
+        func finish(
+            input: LibraryFolderCatalogInput,
+            catalogSourceIDs: Set<String>,
+            isCancelled: () -> Bool
+        ) throws -> LibraryFolderSourcePartition {
+            // A directory is usually one album: keep its songs in track order
+            // so browsing and playing it reads 1, 2, 3 rather than scan order.
+            var direct: [LibraryFolderNodeID: ContiguousArray<Int32>] = [:]
+            for accumulator in accumulators.values where !accumulator.directRowids.isEmpty {
+                if isCancelled() { throw CancellationError() }
+                let rowids = accumulator.directRowids
+                guard rowids.count > 1 else {
+                    direct[accumulator.id] = rowids
+                    continue
+                }
+                let ordered = try autoreleasepool {
+                    try LibraryFolderCatalogTrackOrder.orderedRowids(
+                        rowids,
+                        sourceID: source.sourceID,
+                        allSpokenWord: input.ordersSpokenWordLikeShelf && accumulator.spokenWordCount == rowids.count,
+                        catalog: input.catalog,
+                        catalogSourceIDs: catalogSourceIDs
+                    )
+                }
+                direct[accumulator.id] = ordered
+                accumulator.directRowids = []
+            }
+            guard let (nodes, childIDs) = LibraryFolderIndexBuilder.finishNodes(
+                source: source,
+                accumulators: accumulators,
+                directCount: { direct[$0.id]?.count ?? 0 }
+            ) else { throw CancellationError() }
+            let members = LibraryFolderCatalogMembers(
+                catalog: input.catalog,
+                sourceID: source.sourceID,
+                kinds: input.kinds,
+                direct: direct,
+                songCount: songCount,
+                nodeTable: nodeTable,
+                runStarts: runStarts,
+                runOrdinals: runOrdinals,
+                firstRowid: firstRowid,
+                lastRowid: lastRowid
+            )
+            return LibraryFolderSourcePartition(
+                sourceNodeID: sourceNodeID,
+                nodes: nodes,
+                childIDs: childIDs,
+                directSongIDs: [:],
+                nodeIDBySongID: [:],
+                catalogMembers: members
+            )
+        }
+    }
+}
+
+/// 同一目录里哪些歌的文件名不会改变它的归属:对这些歌,`LibraryFolderPathPolicy.placement(for:)`
+/// 只取决于目录,所以按目录(目录的文件夹键)算一次就够。拿不准的一律返回 false,改为逐首算。
+///
+/// 文件名会影响归属的情形(两种编码各自的 `parse` 规则):百分号转义、反斜杠、`? # @ :`、
+/// 控制与格式字符、首尾空白、"." 与 "..",与缓存目录或扫描根同名,路径为空、以斜杠结尾、
+/// 含连续斜杠,以及根下没有目录的文件。
+struct LibraryFolderPlainFileNameRule: Sendable {
+    /// 扫描根各级目录名(归一化后的身份写法):文件与它们同名时,文件名会参与扫描根的匹配。
+    private let rootComponents: Set<String>
+    private let rootComponentsHaveDots: Bool
+
+    private static let sensitiveNames: Set<String> = [
+        ".", "..", ".cache", "cache", "caches", "deriveddata", "temporaryitems", "application support",
+        "folders", "tmp", "containers", "library", "private", "var", "mobile", "users", "home",
+    ]
+
+    init(policy: LibraryFolderPathPolicy) {
+        var components = Set<String>()
+        for root in policy.scanRoots {
+            components.formUnion(root.identityComponents)
+        }
+        rootComponents = components
+        rootComponentsHaveDots = components.contains { $0.contains(".") }
+    }
+
+    func isPlain(_ filePath: String) -> Bool {
+        let utf8 = filePath.utf8
+        guard let lastSlash = utf8.lastIndex(of: UInt8(ascii: "/")) else { return false }
+        let nameStart = utf8.index(after: lastSlash)
+        guard nameStart < utf8.endIndex, lastSlash > utf8.startIndex else { return false }
+        // 连续斜杠交给逐首计算(目录写法与 `NSString` 的规整可能不一致)。
+        var previousSlash = false
+        for byte in utf8 {
+            let isSlash = byte == UInt8(ascii: "/")
+            if isSlash, previousSlash { return false }
+            previousSlash = isSlash
+        }
+        let name = filePath[nameStart...]
+        var sawDot = false
+        var isASCII = true
+        for scalar in name.unicodeScalars {
+            switch scalar {
+            case "%", "\\", "?", "#", "@", ":": return false
+            case ".": sawDot = true
+            default: break
+            }
+            if !scalar.isASCII { isASCII = false }
+            if CharacterSet.controlCharacters.contains(scalar) { return false }
+        }
+        if let first = name.unicodeScalars.first, CharacterSet.whitespacesAndNewlines.contains(first) { return false }
+        if let last = name.unicodeScalars.last, CharacterSet.whitespacesAndNewlines.contains(last) { return false }
+        // 只有不带扩展名的文件、点开头的文件,或扫描根里有带点的目录名时,才需要按身份写法比名字。
+        let needsIdentity = !sawDot || name.hasPrefix(".") || rootComponentsHaveDots
+        guard needsIdentity else { return true }
+        let identity = isASCII ? String(name).lowercased() : NormalizedLibraryFolderPath.identityComponent(String(name))
+        return !Self.sensitiveNames.contains(identity) && !rootComponents.contains(identity)
+    }
+}
+
+/// `LibraryFolderTrackOrder.sortedIDs` 在只有几列(行号、id、标题、曲号、碟号、路径)时的同一套顺序:
+/// 先看名字是否给出顺序(改名的章节、按名字编号的文件),否则碟号、曲号(含文件名里的号)、标题、id。
+/// 全是有声的文件夹(书架顺序)要整首歌,按节点分批取出后直接交给 `LibraryFolderTrackOrder`。
+enum LibraryFolderCatalogTrackOrder {
+    static func orderedRowids(
+        _ rowids: ContiguousArray<Int32>,
+        sourceID: String,
+        allSpokenWord: Bool,
+        catalog: LibraryCatalog,
+        catalogSourceIDs: Set<String>
+    ) throws -> ContiguousArray<Int32> {
+        if allSpokenWord {
+            return try shelfOrderedRowids(rowids, catalog: catalog, catalogSourceIDs: catalogSourceIDs)
+        }
+        let byRowid = try catalog.folderOrderRecords(rowids: rowids)
+        let records = rowids.compactMap { byRowid[$0] }
+        var ordered = ContiguousArray(sorted(records, sourceID: sourceID, catalogSourceIDs: catalogSourceIDs).map(\.rowid))
+        // 两步之间被删掉的行排在最后(取 id 时会被跳过),计数与建索引时一致。
+        if ordered.count < rowids.count {
+            ordered.append(contentsOf: rowids.filter { byRowid[$0] == nil })
+        }
+        return ordered
+    }
+
+    private static func shelfOrderedRowids(
+        _ rowids: ContiguousArray<Int32>,
+        catalog: LibraryCatalog,
+        catalogSourceIDs: Set<String>
+    ) throws -> ContiguousArray<Int32> {
+        var songs: [Song] = []
+        var rowidByID: [String: Int32] = [:]
+        songs.reserveCapacity(rowids.count)
+        for chunk in LibraryCatalog.chunks(of: Array(rowids), size: LibraryScale.maxMaterializedRows) {
+            let byRowid = try catalog.songsByRowid(Array(chunk))
+            for rowid in chunk {
+                guard let song = byRowid[rowid] else { continue }
+                songs.append(song)
+                rowidByID[song.id] = rowid
+            }
+        }
+        let ordered = LibraryFolderTrackOrder.sorted(
+            songs,
+            catalogSourceIDs: catalogSourceIDs,
+            spokenWordSongIDs: Set(songs.map(\.id))
+        )
+        var result = ContiguousArray(ordered.compactMap { rowidByID[$0.id] })
+        if result.count < rowids.count {
+            let placed = Set(result)
+            result.append(contentsOf: rowids.filter { !placed.contains($0) })
+        }
+        return result
+    }
+
+    static func sorted(
+        _ records: [LibraryCatalogFolderOrderRecord],
+        sourceID: String,
+        catalogSourceIDs: Set<String>
+    ) -> [LibraryCatalogFolderOrderRecord] {
+        guard records.count > 1 else { return records }
+        if let paths = pathsIfNamed(records, sourceID: sourceID, catalogSourceIDs: catalogSourceIDs) {
+            return records.indices.sorted { lhs, rhs in
+                isOrderedByPath(records[lhs], paths[lhs], before: records[rhs], paths[rhs])
+            }.map { records[$0] }
+        }
+        let keys = records.map { (disc: max(1, $0.discNumber ?? 1), track: trackNumber(of: $0) ?? Int.max) }
+        return records.indices.sorted { lhs, rhs in
+            if keys[lhs].disc != keys[rhs].disc { return keys[lhs].disc < keys[rhs].disc }
+            if keys[lhs].track != keys[rhs].track { return keys[lhs].track < keys[rhs].track }
+            let titleOrder = records[lhs].title.localizedStandardCompare(records[rhs].title)
+            if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+            return records[lhs].id < records[rhs].id
+        }.map { records[$0] }
+    }
+
+    /// 与 `AlbumTrackOrder.trackNumber(for:)` 相同。
+    private static func trackNumber(of record: LibraryCatalogFolderOrderRecord) -> Int? {
+        if let number = record.trackNumber, number > 0 { return number }
+        return AlbumTrackOrder.fileNameTrackNumber(record.filePath)
+    }
+
+    private struct TrackPlace: Hashable {
+        let disc: Int
+        let track: Int
+    }
+
+    /// 与 `LibraryFolderTrackOrder.pathsIfNamed` 相同。
+    private static func pathsIfNamed(
+        _ records: [LibraryCatalogFolderOrderRecord],
+        sourceID: String,
+        catalogSourceIDs: Set<String>
+    ) -> [String?]? {
+        guard records.count > 1 else { return nil }
+        if let paths = pathsIfRenamed(records, sourceID: sourceID) { return paths.map(Optional.some) }
+        let namesFolders = !catalogSourceIDs.contains(sourceID)
+        func path(of record: LibraryCatalogFolderOrderRecord) -> String? {
+            guard namesFolders else { return nil }
+            return SpokenWordBookSourcePaths.groupingPath(sourceID: sourceID, filePath: record.filePath)
+        }
+        let numbered = SpokenWordBookGrouping.chaptersGoByName(
+            records,
+            place: { record in record.trackNumber.map { TrackPlace(disc: record.discNumber ?? 1, track: $0) } },
+            name: { record in path(of: record).map(SpokenWordBookGrouping.fileStem) ?? record.title }
+        )
+        return numbered ? records.map(path(of:)) : nil
+    }
+
+    /// 与 `LibraryFolderTrackOrder.pathsIfRenamed` 相同。
+    private static func pathsIfRenamed(_ records: [LibraryCatalogFolderOrderRecord], sourceID: String) -> [String]? {
+        guard records.count > 1, records.contains(where: { $0.title.contains("\u{7B2C}") }) else { return nil }
+        var paths: [String] = []
+        paths.reserveCapacity(records.count)
+        var agrees = false
+        var renamed = false
+        for record in records {
+            let path = SpokenWordBookSourcePaths.groupingPath(sourceID: sourceID, filePath: record.filePath)
+            let reading = SpokenWordBookGroupingRules.chapterReading(title: record.title, path: path)
+            if reading.agrees { agrees = true }
+            if reading.renamed != nil { renamed = true }
+            paths.append(path)
+        }
+        return agrees && renamed ? paths : nil
+    }
+
+    private static func isOrderedByPath(
+        _ lhs: LibraryCatalogFolderOrderRecord, _ lhsPath: String?,
+        before rhs: LibraryCatalogFolderOrderRecord, _ rhsPath: String?
+    ) -> Bool {
+        if let lhsPath, let rhsPath {
+            let byPath = lhsPath.localizedStandardCompare(rhsPath)
+            if byPath != .orderedSame { return byPath == .orderedAscending }
+        }
+        let byTitle = lhs.title.localizedStandardCompare(rhs.title)
+        if byTitle != .orderedSame { return byTitle == .orderedAscending }
+        return lhs.id < rhs.id
+    }
+}
+
 public struct LibraryFolderIndexVersion: Hashable, Sendable {
     public let collectionRevision: Int
     public let replacementToken: UUID
     public let sourceRevision: Int
     public let virtualCollectionRevision: Int
+    /// 按曲库目录建时目录的修订号;按内存建为 0。
+    public let catalogRevision: Int64
 
     public init(
         collectionRevision: Int,
         replacementToken: UUID,
         sourceRevision: Int = 0,
-        virtualCollectionRevision: Int = 0
+        virtualCollectionRevision: Int = 0,
+        catalogRevision: Int64 = 0
     ) {
         self.collectionRevision = collectionRevision
         self.replacementToken = replacementToken
         self.sourceRevision = sourceRevision
         self.virtualCollectionRevision = virtualCollectionRevision
+        self.catalogRevision = catalogRevision
     }
 }
 
@@ -1718,6 +2312,24 @@ public actor LibraryFolderIndexStore {
         return prepared
     }
 
+    /// 同上,由调用方给出建法(按曲库目录建)。建法失败时返回 nil,不记缓存,调用方改走内存版。
+    public func index(
+        version: LibraryFolderIndexVersion,
+        build: @escaping @Sendable () async -> LibraryFolderIndex?
+    ) async -> LibraryFolderIndex? {
+        if cachedVersion == version, let cachedIndex {
+            return cachedIndex
+        }
+        pending?.task.cancel()
+        pending = nil
+        let prepared = await build()
+        if let prepared {
+            cachedVersion = version
+            cachedIndex = prepared
+        }
+        return prepared
+    }
+
     public func clear() {
         pending?.task.cancel()
         pending = nil
@@ -1734,6 +2346,12 @@ private final class LibraryFolderNodeAccumulator {
     var childIDSet: Set<LibraryFolderNodeID> = []
     var directSongIDs: [String] = []
     var directSongOffsets: [Int] = []
+    /// 目录版:直接歌曲的行号(先按库内顺序收,最后排成文件夹里的顺序)。
+    var directRowids = ContiguousArray<Int32>()
+    /// 目录版:直接歌曲里有声(有声书、播客)的首数。
+    var spokenWordCount = 0
+    /// 目录版:节点在行号段表里的序号,-1 表示还没有歌。
+    var ordinal: Int32 = -1
     var descendantSongCount = 0
 
     init(
@@ -1751,23 +2369,130 @@ private final class LibraryFolderSourcePartition: Sendable {
     let sourceNodeID: LibraryFolderNodeID
     let nodes: [LibraryFolderNodeID: LibraryFolderNode]
     let childIDs: [LibraryFolderNodeID: [LibraryFolderNodeID]]
+    /// 内存版:每个节点的直接歌曲 id 与每首歌所在的节点。目录版为空。
     let directSongIDs: [LibraryFolderNodeID: [String]]
     let nodeIDBySongID: [String: LibraryFolderNodeID]
+    /// 目录版:每首歌只留行号,id 按需从目录取。
+    let catalogMembers: LibraryFolderCatalogMembers?
 
-    var songCount: Int { nodeIDBySongID.count }
+    var songCount: Int { catalogMembers?.songCount ?? nodeIDBySongID.count }
 
     init(
         sourceNodeID: LibraryFolderNodeID,
         nodes: [LibraryFolderNodeID: LibraryFolderNode],
         childIDs: [LibraryFolderNodeID: [LibraryFolderNodeID]],
         directSongIDs: [LibraryFolderNodeID: [String]],
-        nodeIDBySongID: [String: LibraryFolderNodeID]
+        nodeIDBySongID: [String: LibraryFolderNodeID],
+        catalogMembers: LibraryFolderCatalogMembers? = nil
     ) {
         self.sourceNodeID = sourceNodeID
         self.nodes = nodes
         self.childIDs = childIDs
         self.directSongIDs = directSongIDs
         self.nodeIDBySongID = nodeIDBySongID
+        self.catalogMembers = catalogMembers
+    }
+
+    /// 节点的直接歌曲 id(文件夹里的顺序)。
+    func directIDs(in id: LibraryFolderNodeID) -> [String] {
+        guard let catalogMembers else { return directSongIDs[id] ?? [] }
+        return catalogMembers.songIDs(rowids: catalogMembers.direct[id] ?? [])
+    }
+
+    /// 一个节点(连同子树)按 `songIDs(in:scope:)` 的先后访问到的节点。
+    func subtree(of id: LibraryFolderNodeID) -> [LibraryFolderNodeID] {
+        var visited: [LibraryFolderNodeID] = []
+        var pending = [id]
+        while let current = pending.popLast() {
+            visited.append(current)
+            if let children = childIDs[current] {
+                pending.append(contentsOf: children.reversed())
+            }
+        }
+        return visited
+    }
+}
+
+/// 目录版分区的成员:每个节点的直接歌曲只存 4 字节的行号(文件夹里的顺序),按 id 找节点走
+/// 「行号段」表(库内顺序里同一节点连着的一段记一条,条数与文件夹数同阶),不存整库的
+/// id → 节点字典。行号是目录里稳定的句柄(删掉的行号不会再分给别的歌),id 按需从目录读。
+final class LibraryFolderCatalogMembers: Sendable {
+    let catalog: LibraryCatalog
+    let sourceID: String
+    let kinds: Set<LibraryCatalogContentKind>?
+    let direct: [LibraryFolderNodeID: ContiguousArray<Int32>]
+    let songCount: Int
+    private let nodeTable: [LibraryFolderNodeID]
+    private let runStarts: ContiguousArray<Int32>
+    private let runOrdinals: ContiguousArray<Int32>
+    private let firstRowid: Int32
+    private let lastRowid: Int32
+
+    /// 节点里的歌不多于这个数时,按段表找到节点后再在节点里核一遍成员。
+    static let verifiedNodeSize = 512
+
+    init(
+        catalog: LibraryCatalog,
+        sourceID: String,
+        kinds: Set<LibraryCatalogContentKind>?,
+        direct: [LibraryFolderNodeID: ContiguousArray<Int32>],
+        songCount: Int,
+        nodeTable: [LibraryFolderNodeID],
+        runStarts: ContiguousArray<Int32>,
+        runOrdinals: ContiguousArray<Int32>,
+        firstRowid: Int32,
+        lastRowid: Int32
+    ) {
+        self.catalog = catalog
+        self.sourceID = sourceID
+        self.kinds = kinds
+        self.direct = direct
+        self.songCount = songCount
+        self.nodeTable = nodeTable
+        self.runStarts = runStarts
+        self.runOrdinals = runOrdinals
+        self.firstRowid = firstRowid
+        self.lastRowid = lastRowid
+    }
+
+    /// 建索引时就在这个分区里的那首歌所在的节点;别的源、别的类别、建完才加进来的歌是 nil。
+    func nodeID(for lookup: LibraryCatalogFolderLookup) -> LibraryFolderNodeID? {
+        guard lookup.sourceID == sourceID, !runStarts.isEmpty,
+              lookup.rowid >= firstRowid, lookup.rowid <= lastRowid else { return nil }
+        if let kinds, !kinds.contains(where: { $0.rawValue == lookup.kind }) { return nil }
+        // 最后一个起点 ≤ 行号的段。
+        var lower = 0
+        var upper = runStarts.count
+        while upper - lower > 1 {
+            let middle = (lower + upper) / 2
+            if runStarts[middle] <= lookup.rowid { lower = middle } else { upper = middle }
+        }
+        let ordinal = Int(runOrdinals[lower])
+        guard nodeTable.indices.contains(ordinal) else { return nil }
+        let nodeID = nodeTable[ordinal]
+        if let members = direct[nodeID], members.count <= Self.verifiedNodeSize, !members.contains(lookup.rowid) {
+            return nil
+        }
+        return nodeID
+    }
+
+    /// 行号 → id,保持顺序;读不到(目录出错、行已删)的跳过。
+    func songIDs(rowids: some Collection<Int32>) -> [String] {
+        guard !rowids.isEmpty else { return [] }
+        do {
+            return try catalog.songIDs(rowids: rowids)
+        } catch {
+            LibraryFolderCatalogLog.failure("songIDs", error)
+            return []
+        }
+    }
+}
+
+enum LibraryFolderCatalogLog {
+    private static let logger = Logger(subsystem: "com.primuse.library", category: "LibraryFolders")
+
+    static func failure(_ operation: String, _ error: any Error) {
+        logger.error("📁 folder catalog \(operation, privacy: .public) failed: \(String(describing: error), privacy: .public)")
     }
 }
 

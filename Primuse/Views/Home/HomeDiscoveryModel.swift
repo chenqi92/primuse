@@ -200,6 +200,8 @@ final class HomeDiscoveryModel {
         let hierarchy: Int
         let names: Int
         let sources: [LibraryFolderSourceDescriptor]
+        /// 目录的成员修订号:索引按目录建时,目录跟上内存(新加的歌入了目录)要再建一次。
+        var catalogMembership: UInt64 = 0
     }
 
     private struct HistorySignature: Equatable {
@@ -337,8 +339,11 @@ final class HomeDiscoveryModel {
         )
         guard historySignature != signature else { return }
         var dates: [LibraryFolderNodeID: Date] = [:]
-        for entry in PlayHistoryStore.shared.entries {
-            var nodeID = index?.nodeID(containingSongID: entry.songID)
+        let entries = PlayHistoryStore.shared.entries
+        // 目录版索引按 id 找节点要查目录:几千条记录一次查完,不逐条查。
+        let nodesBySongID = index?.nodeIDs(containingSongIDs: entries.map(\.songID)) ?? [:]
+        for entry in entries {
+            var nodeID = nodesBySongID[entry.songID]
             while let id = nodeID {
                 dates[id] = max(dates[id] ?? .distantPast, entry.playedAt)
                 nodeID = index?.node(withID: id)?.parentID
@@ -354,12 +359,13 @@ final class HomeDiscoveryModel {
         }
     }
 
-    func updateMetadata(song: Song) {
+    /// `containingNodeID`:调用方已经批量查好的节点(`.some(nil)` 表示不在索引里);nil 时这里自己查。
+    func updateMetadata(song: Song, containingNodeID: LibraryFolderNodeID?? = nil) {
         let previousCover = songsByID[song.id]?.coverArtFileName
         if songsByID[song.id] != nil { songsByID[song.id] = song }
         var coversChanged = false
         if song.coverArtFileName != nil {
-            var nodeID = index?.nodeID(containingSongID: song.id)
+            var nodeID = containingNodeID ?? index?.nodeID(containingSongID: song.id)
             while let id = nodeID {
                 if let existing = folderCoverSongIDs[id],
                    existing.count < 4,
@@ -512,7 +518,8 @@ struct HomeDiscoveryObserver: View {
             playlists: library.playlistCollectionRevision,
             hierarchy: scanService.folderHierarchyRevision,
             names: model.nameRevision,
-            sources: sourcesStore.allSources.map(LibraryFolderSourceDescriptor.init(source:))
+            sources: sourcesStore.allSources.map(LibraryFolderSourceDescriptor.init(source:)),
+            catalogMembership: library.readableCatalogReader == nil ? 0 : (library.catalogHost?.revisions.membership ?? 0)
         )
     }
 
@@ -528,17 +535,20 @@ struct HomeDiscoveryObserver: View {
                 model.bindLibrary(library)
                 let sources = Dictionary(sourcesStore.allSources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 var structureChanged = false
-                for id in library.lastReplacedSongIDs {
+                let replacedIDs = Array(library.lastReplacedSongIDs)
+                // 目录版索引按 id 找节点要查目录:这一批一次查完。
+                let currentNodes = model.index?.nodeIDs(containingSongIDs: replacedIDs) ?? [:]
+                for id in replacedIDs {
                     pendingMetadataIDs.insert(id)
                     guard let song = library.unobservedVisibleSong(id: id) else { continue }
                     if let source = sources[song.sourceID],
                        !source.type.isCloudDrive, !source.type.isServerLibrary,
                        source.type != .upnp, song.sourceID != AppleMusicLibraryIdentity.sourceID,
                        LibraryFolderSourceDescriptor(source: source).placementNodeID(for: song)
-                        != model.index?.nodeID(containingSongID: id) {
+                        != currentNodes[id] {
                         structureChanged = true
                     }
-                    model.updateMetadata(song: song)
+                    model.updateMetadata(song: song, containingNodeID: .some(currentNodes[id]))
                 }
                 model.handledMetadataToken = token
                 if structureChanged {
@@ -550,7 +560,8 @@ struct HomeDiscoveryObserver: View {
                         replacementToken: token,
                         virtualCollectionRevision: library.playlistCollectionRevision,
                         hierarchyRevision: scanService.folderHierarchyRevision,
-                        sources: request.sources
+                        sources: request.sources,
+                        catalogRevision: library.folderIndexCatalogRevision
                     )
                     HomeDiscoveryFolderIndexCache.shared.rekey(
                         currentIndex,
@@ -631,10 +642,56 @@ struct HomeDiscoveryObserver: View {
                 indexedRoots: source.type.isServerLibrary || source.type == .upnp
             )
         }
+        let catalogReader = library.readableCatalogReader
         let task = Task.detached(priority: .utility) {
-            [descriptors, providers, spokenWordSongIDs] () -> (LibraryFolderIndex, PrewarmedCovers)? in
+            [descriptors, providers, spokenWordSongIDs, catalogReader] () async -> (LibraryFolderIndex, PrewarmedCovers)? in
             guard !Task.isCancelled else { return nil }
             let collections = collectionSnapshot.collections(availableSongs: songs)
+            if let catalogReader {
+                // 目录可读:按目录建,索引里每首歌只留行号。配置里没有的源由目录里出现的先后补描述。
+                var configured: [LibraryFolderSourceDescriptor] = []
+                for descriptor in descriptors {
+                    guard let provider = providers[descriptor.sourceID] else {
+                        configured.append(descriptor)
+                        continue
+                    }
+                    guard let attached = descriptor.attachingProviderHierarchy(
+                        syncIndex: provider.items,
+                        rootDisplayNames: provider.rootNames,
+                        usesIndexedRoots: provider.indexedRoots,
+                        isCancelled: { Task.isCancelled }
+                    ) else { return nil }
+                    configured.append(attached)
+                }
+                let virtualSourceIDs = Set(collections.filter { $0.kind == .librarySongs }.map(\.sourceID))
+                let memorySongs = virtualSourceIDs.isEmpty ? [] : songs.filter { virtualSourceIDs.contains($0.sourceID) }
+                do {
+                    let index = try await catalogReader.folderIndex { [configured] catalog, isCancelled in
+                        try LibraryFolderIndexBuilder.build(
+                            sources: configured,
+                            catalog: LibraryFolderCatalogInput(
+                                catalog: catalog, kinds: nil, ordersSpokenWordLikeShelf: !spokenWordSongIDs.isEmpty
+                            ),
+                            unlistedSource: { sourceID in
+                                LibraryFolderUnlistedSource.descriptor(
+                                    sourceID: sourceID, appleMusicName: appleMusicName, genericName: sourceName
+                                )
+                            },
+                            memorySongs: memorySongs,
+                            virtualCollections: collections,
+                            spokenWordSongIDs: spokenWordSongIDs,
+                            isCancelled: isCancelled
+                        )
+                    }
+                    guard !Task.isCancelled else { return nil }
+                    let prewarmed = Self.prewarmedCovers(for: index, lookup: lookup, pins: pins) { Task.isCancelled }
+                    return (index, prewarmed)
+                } catch is CancellationError {
+                    return nil
+                } catch {
+                    plog("⚠️ Home folder index from catalog failed, using memory: \(error)")
+                }
+            }
             var descriptors = descriptors
             var known = Set(descriptors.map(\.sourceID))
             for index in songs.indices {
@@ -745,7 +802,8 @@ struct HomeDiscoveryObserver: View {
             replacementToken: replacementToken,
             virtualCollectionRevision: library.playlistCollectionRevision,
             hierarchyRevision: scanService.folderHierarchyRevision,
-            sources: request.sources
+            sources: request.sources,
+            catalogRevision: library.folderIndexCatalogRevision
         )
     }
 

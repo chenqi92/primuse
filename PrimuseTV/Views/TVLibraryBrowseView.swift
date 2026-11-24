@@ -276,7 +276,8 @@ struct TVFolderBrowser: View {
             }
         }
         .foregroundStyle(TVColor.text)
-        .task(id: store.recommendationRevision) {
+        // 索引按目录建时,目录跟上内存(歌入了目录)也要再建一次。
+        .task(id: "\(store.recommendationRevision)-\(store.library.catalogHost?.revisions.membership ?? 0)") {
             let built = await store.makeFolderIndex()
             guard !Task.isCancelled else { return }
             index = built
@@ -573,6 +574,20 @@ struct TVBrowseSongArtwork: View {
 extension TVStore {
     func makeFolderIndex() async -> LibraryFolderIndex {
         let sources = sourcesStore.allSources.map { LibraryFolderSourceDescriptor(source: $0) }
+        if let reader = library.readableCatalogReader {
+            // 目录可读:按目录建(音乐,与 `songIDs` 同一口径),索引里每首歌只留行号,也不先按 id 物化整库。
+            do {
+                return try await reader.folderIndex { catalog, isCancelled in
+                    try LibraryFolderIndexBuilder.build(
+                        sources: sources,
+                        catalog: LibraryFolderCatalogInput(catalog: catalog, kinds: [.music], ordersSpokenWordLikeShelf: false),
+                        isCancelled: isCancelled
+                    )
+                }
+            } catch {
+                plog("⚠️ TV folder index from catalog failed, using memory: \(error)")
+            }
+        }
         let visible = songIDs.compactMap { library.song(id: $0) }
         let spokenWordSongIDs = library.spokenWordSongIDs
         return await Task.detached(priority: .userInitiated) {

@@ -691,20 +691,36 @@ public enum LargeQueueRequestPlanner {
 /// window covers `requestedIDs[lower..<nextOffset]`; songs after it are handed
 /// out first. Under repeat-all the songs before the window follow once, so a
 /// full cycle still plays every requested song before the queue wraps.
+///
+/// 整库请求的 id 列表放在映射文件里(`QueueContinuationIDFile`),取窗口时按段读出;
+/// 常驻内存里不再有整库规模的 `[String]`。
 public struct QueueContinuation: Codable, Equatable, Sendable {
     public let token: String
     /// A disk-backed whole-library request holds candidate IDs until each window is resolved.
     public let musicSourceIDs: Set<String>?
-    public private(set) var requestedIDs: [String]
+    private var storage: QueueContinuationIDStorage
     public private(set) var nextOffset: Int
     /// Songs before the window (`requestedIDs[0..<leadingEnd]`).
     public private(set) var leadingEnd: Int
     public private(set) var leadingOffset: Int
 
+    /// 整张请求。整库请求时这里会临时建一份整库规模的数组:只要条数用 `requestedCount`,
+    /// 只要一段用 `requestedIDs(in:)`。
+    public var requestedIDs: [String] { storage.materialized }
+
+    public var requestedCount: Int { storage.count }
+
+    /// 请求里的一段(越界部分截掉)。
+    public func requestedIDs(in range: Range<Int>) -> [String] {
+        let lower = min(max(0, range.lowerBound), storage.count)
+        let upper = min(max(lower, range.upperBound), storage.count)
+        return storage.ids(in: lower..<upper)
+    }
+
     public init(token: String = UUID().uuidString, requestedIDs: [String], window: Range<Int>, musicSourceIDs: Set<String>? = nil) {
         self.token = token
         self.musicSourceIDs = musicSourceIDs
-        self.requestedIDs = requestedIDs
+        self.storage = .make(requestedIDs)
         nextOffset = min(window.upperBound, requestedIDs.count)
         leadingEnd = max(0, min(window.lowerBound, requestedIDs.count))
         leadingOffset = 0
@@ -712,17 +728,57 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
 
     /// Restores a stored continuation; offsets are clamped to the IDs.
     init(token: String, requestedIDs: [String], nextOffset: Int, leadingEnd: Int, leadingOffset: Int, musicSourceIDs: Set<String>? = nil) {
+        self.init(
+            token: token, storage: .make(requestedIDs), nextOffset: nextOffset,
+            leadingEnd: leadingEnd, leadingOffset: leadingOffset, musicSourceIDs: musicSourceIDs
+        )
+    }
+
+    init(
+        token: String,
+        storage: QueueContinuationIDStorage,
+        nextOffset: Int,
+        leadingEnd: Int,
+        leadingOffset: Int,
+        musicSourceIDs: Set<String>?
+    ) {
         self.token = token
         self.musicSourceIDs = musicSourceIDs
-        self.requestedIDs = requestedIDs
-        self.nextOffset = max(0, min(nextOffset, requestedIDs.count))
-        self.leadingEnd = max(0, min(leadingEnd, requestedIDs.count))
+        self.storage = storage
+        self.nextOffset = max(0, min(nextOffset, storage.count))
+        self.leadingEnd = max(0, min(leadingEnd, storage.count))
         self.leadingOffset = max(0, min(leadingOffset, self.leadingEnd))
+    }
+
+    var idStorage: QueueContinuationIDStorage { storage }
+
+    private enum CodingKeys: String, CodingKey {
+        case token, musicSourceIDs, requestedIDs, nextOffset, leadingEnd, leadingOffset
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        token = try container.decode(String.self, forKey: .token)
+        musicSourceIDs = try container.decodeIfPresent(Set<String>.self, forKey: .musicSourceIDs)
+        storage = .make(try container.decode([String].self, forKey: .requestedIDs))
+        nextOffset = try container.decode(Int.self, forKey: .nextOffset)
+        leadingEnd = try container.decode(Int.self, forKey: .leadingEnd)
+        leadingOffset = try container.decode(Int.self, forKey: .leadingOffset)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(token, forKey: .token)
+        try container.encodeIfPresent(musicSourceIDs, forKey: .musicSourceIDs)
+        try container.encode(storage.materialized, forKey: .requestedIDs)
+        try container.encode(nextOffset, forKey: .nextOffset)
+        try container.encode(leadingEnd, forKey: .leadingEnd)
+        try container.encode(leadingOffset, forKey: .leadingOffset)
     }
 
     /// Nothing more can ever be handed out, whatever the repeat mode.
     public var isExhausted: Bool {
-        nextOffset >= requestedIDs.count && leadingOffset >= leadingEnd
+        nextOffset >= storage.count && leadingOffset >= leadingEnd
     }
 
     /// Follows song ID migrations so owed songs still resolve afterwards.
@@ -732,9 +788,11 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
     /// the window. Repeats that no migration touched stay as requested.
     public mutating func remapIDs(_ replacements: [String: String]) {
         guard !replacements.isEmpty else { return }
+        let requestedIDs = storage.materialized
         let mapped = requestedIDs.map { replacements[$0] ?? $0 }
         var migrated = Set<String>()
         for (old, new) in zip(requestedIDs, mapped) where old != new { migrated.insert(new) }
+        guard !migrated.isEmpty else { return }
         let window = leadingEnd..<max(leadingEnd, nextOffset)
         let ordered = Array(window) + Array(window.upperBound..<mapped.count) + Array(0..<leadingEnd)
         var kept = Set<String>()
@@ -742,13 +800,15 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
         for index in ordered where migrated.contains(mapped[index]) {
             if !kept.insert(mapped[index]).inserted { dropped.insert(index) }
         }
-        requestedIDs = mapped
-        guard !dropped.isEmpty else { return }
+        guard !dropped.isEmpty else {
+            storage = .make(mapped)
+            return
+        }
         func shifted(_ offset: Int) -> Int { offset - dropped.count(in: 0..<offset) }
         nextOffset = shifted(nextOffset)
         leadingOffset = shifted(leadingOffset)
         leadingEnd = shifted(leadingEnd)
-        requestedIDs = mapped.indices.filter { !dropped.contains($0) }.map { mapped[$0] }
+        storage = .make(mapped.indices.filter { !dropped.contains($0) }.map { mapped[$0] })
     }
 
     /// Songs moved to Up Next must not be appended again when the window fills.
@@ -756,53 +816,54 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
     public mutating func removePendingSongs(withIDs songIDs: Set<String>) {
         guard !songIDs.isEmpty else { return }
         let leading = leadingOffset..<leadingEnd
-        let dropped = IndexSet(requestedIDs.indices.filter {
-            ($0 >= nextOffset || leading.contains($0)) && songIDs.contains(requestedIDs[$0])
+        let count = storage.count
+        let dropped = IndexSet((0..<count).filter {
+            ($0 >= nextOffset || leading.contains($0)) && songIDs.contains(storage[$0])
         })
         guard !dropped.isEmpty else { return }
         func shifted(_ offset: Int) -> Int { offset - dropped.count(in: 0..<offset) }
         nextOffset = shifted(nextOffset)
         leadingOffset = shifted(leadingOffset)
         leadingEnd = shifted(leadingEnd)
-        requestedIDs = requestedIDs.indices.filter { !dropped.contains($0) }.map { requestedIDs[$0] }
+        storage = .make((0..<count).filter { !dropped.contains($0) }.map { storage[$0] })
     }
 
     /// Removes deleted songs from every segment of the continuation (leading,
     /// active window, and trailing) while keeping cursor offsets aligned.
     public mutating func removeSongs(withIDs songIDs: Set<String>) {
         guard !songIDs.isEmpty else { return }
-        let dropped = IndexSet(requestedIDs.indices.filter { songIDs.contains(requestedIDs[$0]) })
+        let count = storage.count
+        let dropped = IndexSet((0..<count).filter { songIDs.contains(storage[$0]) })
         guard !dropped.isEmpty else { return }
         func shifted(_ offset: Int) -> Int { offset - dropped.count(in: 0..<offset) }
         nextOffset = shifted(nextOffset)
         leadingOffset = shifted(leadingOffset)
         leadingEnd = shifted(leadingEnd)
-        requestedIDs = requestedIDs.indices.filter { !dropped.contains($0) }.map { requestedIDs[$0] }
+        storage = .make((0..<count).filter { !dropped.contains($0) }.map { storage[$0] })
     }
 
     /// Up to `maxCount` IDs in playback order. The leading part is only used
     /// under repeat-all, after the trailing part has run out.
     public mutating func takeNext(maxCount: Int, repeatsAll: Bool) -> [String] {
         guard maxCount > 0 else { return [] }
-        if nextOffset < requestedIDs.count {
-            let end = min(requestedIDs.count, nextOffset + maxCount)
+        if nextOffset < storage.count {
+            let end = min(storage.count, nextOffset + maxCount)
             defer { nextOffset = end }
-            return Array(requestedIDs[nextOffset..<end])
+            return storage.ids(in: nextOffset..<end)
         }
         guard repeatsAll, leadingOffset < leadingEnd else { return [] }
         let end = min(leadingEnd, leadingOffset + maxCount)
         defer { leadingOffset = end }
-        return Array(requestedIDs[leadingOffset..<end])
+        return storage.ids(in: leadingOffset..<end)
     }
 }
 
 /// Stored next to the session file. Written only when a continuation starts
 /// or advances (every few hundred songs), never on each playback update.
 ///
-/// A whole-library request owes up to a million IDs. They go into their own
-/// plain-text file, rewritten only when the list itself changes; advancing
-/// rewrites just a small state file. Files from the former single-JSON format
-/// still load.
+/// 整库请求欠着的 id(上百万条)放在单独的二进制文件里(`QueueContinuationIDFile`,读回时映射,
+/// 不逐条建字符串),只在列表本身变了时重写;前进只重写一个小的状态文件。旧版的纯文本 id 文件
+/// 与单个 JSON 文件读回时转成新格式一次,旧文件随即删掉。
 public struct QueueContinuationStore: Sendable {
     public let url: URL
 
@@ -815,7 +876,13 @@ public struct QueueContinuationStore: Sendable {
         self.url = url
     }
 
+    /// 二进制 id 文件(映射读)。
     var idsURL: URL {
+        url.deletingPathExtension().appendingPathExtension("qids")
+    }
+
+    /// 旧版的纯文本 id 文件(一行一个),读回时转换。
+    var legacyIDsURL: URL {
         url.deletingPathExtension().appendingPathExtension("ids")
     }
 
@@ -827,48 +894,63 @@ public struct QueueContinuationStore: Sendable {
         let leadingOffset: Int
         let idsCount: Int
         let idsFingerprint: UInt64
+        /// 2:二进制 id 文件;没有这一项的是旧版的纯文本文件。
+        let idsFormat: Int?
     }
 
     private static let idsHeaderPrefix = "primuse-queue-ids v1 "
+    static let currentIDsFormat = 2
 
     public func load() -> QueueContinuation? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         if let state = try? JSONDecoder().decode(State.self, from: data) {
-            guard let ids = loadIDs(count: state.idsCount, fingerprint: state.idsFingerprint) else { return nil }
-            return QueueContinuation(
-                token: state.token,
-                requestedIDs: ids,
-                nextOffset: state.nextOffset,
-                leadingEnd: state.leadingEnd,
-                leadingOffset: state.leadingOffset,
-                musicSourceIDs: state.musicSourceIDs
-            )
+            if state.idsFormat == Self.currentIDsFormat { return mapped(state) }
+            return convertLegacyIDs(state)
         }
-        return try? JSONDecoder().decode(QueueContinuation.self, from: data)
+        // 更早的单个 JSON 文件:读回后按新格式存一次,再从新文件映射。
+        guard let legacy = try? JSONDecoder().decode(QueueContinuation.self, from: data) else { return nil }
+        save(legacy)
+        guard let saved = try? Data(contentsOf: url),
+              let state = try? JSONDecoder().decode(State.self, from: saved),
+              state.idsFormat == Self.currentIDsFormat else { return legacy }
+        return mapped(state) ?? legacy
+    }
+
+    /// 新格式:id 文件映射进来,条数与指纹对得上才用。
+    private func mapped(_ state: State) -> QueueContinuation? {
+        guard let file = QueueContinuationIDFile.open(url: idsURL),
+              file.count == state.idsCount, file.fingerprint == state.idsFingerprint else { return nil }
+        return QueueContinuation(
+            token: state.token, storage: .file(file), nextOffset: state.nextOffset,
+            leadingEnd: state.leadingEnd, leadingOffset: state.leadingOffset,
+            musicSourceIDs: state.musicSourceIDs
+        )
     }
 
     public func save(_ continuation: QueueContinuation?) {
         guard let continuation else {
             try? FileManager.default.removeItem(at: url)
             try? FileManager.default.removeItem(at: idsURL)
+            try? FileManager.default.removeItem(at: legacyIDsURL)
             return
         }
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let ids = continuation.requestedIDs
-        // A newline inside an ID cannot go into the line format; keep the
-        // former single-document format for such a list.
-        guard !ids.contains(where: { $0.utf8.contains(10) }) else {
-            guard let data = try? JSONEncoder().encode(continuation) else { return }
-            try? data.write(to: url, options: .atomic)
-            try? FileManager.default.removeItem(at: idsURL)
-            return
-        }
-        let fingerprint = Self.fingerprint(ids)
-        if storedIDsHeader() != Self.header(count: ids.count, fingerprint: fingerprint) {
-            guard writeIDs(ids, fingerprint: fingerprint) else { return }
+        let storage = continuation.idStorage
+        let fingerprint = storage.fingerprint
+        if let stored = QueueContinuationIDFile.header(at: idsURL),
+           stored.count == storage.count, stored.fingerprint == fingerprint {
+            // 列表没变:只重写状态文件。
+        } else {
+            do {
+                try QueueContinuationIDFile.write(
+                    (0..<storage.count).lazy.map { storage[$0] }, count: storage.count, to: idsURL
+                )
+            } catch {
+                return
+            }
         }
         let state = State(
             token: continuation.token,
@@ -876,90 +958,90 @@ public struct QueueContinuationStore: Sendable {
             nextOffset: continuation.nextOffset,
             leadingEnd: continuation.leadingEnd,
             leadingOffset: continuation.leadingOffset,
-            idsCount: ids.count,
-            idsFingerprint: fingerprint
+            idsCount: storage.count,
+            idsFingerprint: fingerprint,
+            idsFormat: Self.currentIDsFormat
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: url, options: .atomic)
+        try? FileManager.default.removeItem(at: legacyIDsURL)
     }
 
-    // MARK: - ID list file
+    // MARK: - Fingerprint
+
+    static let fingerprintSeed: UInt64 = 0xcbf2_9ce4_8422_2325
+    static let fingerprintPrime: UInt64 = 0x0000_0100_0000_01B3
+
+    /// FNV-1a over every ID and a separator: stable across launches.
+    static func fingerprint(_ ids: [String]) -> UInt64 {
+        var hash = fingerprintSeed
+        for id in ids {
+            for byte in id.utf8 {
+                hash ^= UInt64(byte)
+                hash = hash &* fingerprintPrime
+            }
+            hash ^= 10
+            hash = hash &* fingerprintPrime
+        }
+        return hash
+    }
+
+    // MARK: - Former plain-text ID list
 
     private static func header(count: Int, fingerprint: UInt64) -> String {
         idsHeaderPrefix + "\(count) \(String(fingerprint, radix: 16))"
     }
 
-    /// FNV-1a over every ID and a separator: stable across launches.
-    static func fingerprint(_ ids: [String]) -> UInt64 {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for id in ids {
-            for byte in id.utf8 {
-                hash ^= UInt64(byte)
-                hash = hash &* 0x0000_0100_0000_01B3
-            }
-            hash ^= 10
-            hash = hash &* 0x0000_0100_0000_01B3
-        }
-        return hash
-    }
-
-    private func storedIDsHeader() -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: idsURL) else { return nil }
-        defer { try? handle.close() }
-        guard let prefix = try? handle.read(upToCount: 256),
-              let newline = prefix.firstIndex(of: 10) else { return nil }
-        return String(decoding: prefix[prefix.startIndex..<newline], as: UTF8.self)
-    }
-
-    private func writeIDs(_ ids: [String], fingerprint: UInt64) -> Bool {
-        let temporary = idsURL.appendingPathExtension("tmp")
-        FileManager.default.createFile(atPath: temporary.path, contents: nil)
-        guard let handle = try? FileHandle(forWritingTo: temporary) else { return false }
-        var buffer = Data()
-        buffer.reserveCapacity(1 << 16)
-        buffer.append(contentsOf: Self.header(count: ids.count, fingerprint: fingerprint).utf8)
-        buffer.append(10)
-        do {
-            for id in ids {
-                buffer.append(contentsOf: id.utf8)
-                buffer.append(10)
-                if buffer.count >= 1 << 16 {
-                    try handle.write(contentsOf: buffer)
-                    buffer.removeAll(keepingCapacity: true)
-                }
-            }
-            try handle.write(contentsOf: buffer)
-            try handle.close()
-            // The state file names the list by fingerprint, so a crash between
-            // these two steps only costs the continuation, never a wrong one.
-            try? FileManager.default.removeItem(at: idsURL)
-            try FileManager.default.moveItem(at: temporary, to: idsURL)
-            return true
-        } catch {
-            try? handle.close()
-            try? FileManager.default.removeItem(at: temporary)
-            return false
-        }
-    }
-
-    private func loadIDs(count: Int, fingerprint: UInt64) -> [String]? {
-        guard let data = try? Data(contentsOf: idsURL, options: .mappedIfSafe),
+    /// 旧版纯文本 id 文件:逐行流式转成二进制文件(不先建整张字符串数组),转好后删掉旧文件。
+    private func convertLegacyIDs(_ state: State) -> QueueContinuation? {
+        guard let data = try? Data(contentsOf: legacyIDsURL, options: .alwaysMapped),
               let headerEnd = data.firstIndex(of: 10),
               String(decoding: data[data.startIndex..<headerEnd], as: UTF8.self)
-                == Self.header(count: count, fingerprint: fingerprint) else { return nil }
-        return data.withUnsafeBytes { raw -> [String]? in
-            let bytes = raw.bindMemory(to: UInt8.self)
-            guard let base = bytes.baseAddress, count >= 0, count <= bytes.count - headerEnd - 1 else { return nil }
-            let end = base + bytes.count
-            var line = base + headerEnd + 1
-            var ids: [String] = []
-            ids.reserveCapacity(count)
-            while line < end, let newline = memchr(line, 10, line.distance(to: end)) {
-                let separator = UnsafeRawPointer(newline).assumingMemoryBound(to: UInt8.self)
-                ids.append(String(decoding: UnsafeBufferPointer(start: line, count: line.distance(to: separator)), as: UTF8.self))
-                line = separator + 1
+                == Self.header(count: state.idsCount, fingerprint: state.idsFingerprint) else { return nil }
+        let lines = LegacyIDLines(data: data, start: headerEnd + 1)
+        guard lines.isWellFormed(count: state.idsCount) else { return nil }
+        let fingerprint: UInt64
+        do {
+            fingerprint = try QueueContinuationIDFile.write(lines, count: state.idsCount, to: idsURL)
+        } catch {
+            return nil
+        }
+        guard fingerprint == state.idsFingerprint, let file = QueueContinuationIDFile.open(url: idsURL) else {
+            try? FileManager.default.removeItem(at: idsURL)
+            return nil
+        }
+        let converted = QueueContinuation(
+            token: state.token, storage: .file(file), nextOffset: state.nextOffset,
+            leadingEnd: state.leadingEnd, leadingOffset: state.leadingOffset,
+            musicSourceIDs: state.musicSourceIDs
+        )
+        save(converted)
+        return converted
+    }
+
+    /// 旧版文件里头行之后的各行(每行一个 id,以换行结尾)。
+    private struct LegacyIDLines: Sequence {
+        let data: Data
+        let start: Int
+
+        func isWellFormed(count: Int) -> Bool {
+            var lines = 0
+            var position = start
+            while position < data.endIndex {
+                guard let newline = data[position...].firstIndex(of: 10) else { return false }
+                lines += 1
+                position = newline + 1
             }
-            return ids.count == count && line == end ? ids : nil
+            return lines == count
+        }
+
+        func makeIterator() -> AnyIterator<String> {
+            var position = start
+            return AnyIterator {
+                guard position < data.endIndex, let newline = data[position...].firstIndex(of: 10) else { return nil }
+                defer { position = newline + 1 }
+                return String(decoding: data[position..<newline], as: UTF8.self)
+            }
         }
     }
 }
