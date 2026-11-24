@@ -1412,6 +1412,9 @@ final class TVStore {
     // 有声内容的续播:每一条记住自己听到哪一秒(与 iPhone / Mac 共用 SpokenWordStore)。
     /// 正在播的这条是有声内容。正在播放页据此把上一首 / 下一首换成后退 15 / 前进 30 秒。
     private(set) var currentItemIsSpokenWord = false
+    /// 有声书「单章循环」锁定的章节，与音乐的 `repeatMode` 隔离。
+    private(set) var spokenWordChapterRepeat: SpokenWordChapterRepeatTarget?
+    @ObservationIgnored private var pendingSpokenWordChapterRepeat: SpokenWordChapterRepeatTarget?
     /// 这一条已经真正开始出声:之前时钟报的是解码器起点,写进去会把保存的位置抹掉。
     @ObservationIgnored private var spokenWordPositionArmed = false
     /// 续播目标还没落地(引擎没按起点开播时,开播后再补一次定位)。
@@ -6805,14 +6808,19 @@ final class TVStore {
         guard !isLiveRadio else { return }
         spokenWordStoppedAt = nil
         engine.seekToFraction(f)
+        if duration > 0 {
+            noteSpokenWordChapterRepeatSeek(to: duration * f, preservesChapterOnBackwardCrossing: false)
+        }
     }
     func skipForward() {
         guard !isLiveRadio else { return }
         engine.skip(by: 10)
+        noteSpokenWordChapterRepeatSeek(to: currentTime + 10, preservesChapterOnBackwardCrossing: false)
     }
     func skipBackward() {
         guard !isLiveRadio else { return }
         engine.skip(by: -10)
+        noteSpokenWordChapterRepeatSeek(to: max(0, currentTime - 10), preservesChapterOnBackwardCrossing: true)
     }
 
     /// 把一本有声书按章节顺序作为队列播放,从 `itemID`(缺省为续听的那一章)开始。
@@ -6853,6 +6861,7 @@ final class TVStore {
         pendingSpokenWordResume = nil
         spokenWordStoppedAt = nil
         engine.seek(to: target)
+        noteSpokenWordChapterRepeatSeek(to: target, preservesChapterOnBackwardCrossing: offset < 0)
         rememberSpokenWordPosition(force: true)
     }
 
@@ -6883,6 +6892,16 @@ final class TVStore {
             // 「本集结束」锁的是用户离开的那一条。
             sleepStopAfterItemID = nil
         }
+        let isAudiobook = isSpokenWord && library.localPodcastShowID(forSongID: song.id) == nil
+        let targetBookID = isAudiobook ? spokenWordBookID(forSongID: song.id) : nil
+        reconcileSpokenWordChapterRepeat(
+            songID: song.id,
+            bookID: targetBookID,
+            isAudiobook: isAudiobook,
+            chapters: [],
+            currentChapterIndex: nil,
+            currentTime: requested
+        )
         guard isSpokenWord else { return requested }
         noteSpokenWordItemSelected(song.id)
         if let raw = library.song(id: song.id) {
@@ -6896,6 +6915,7 @@ final class TVStore {
                     guard !Task.isCancelled, let self, self.currentSongID == raw.id else { return }
                     self.sourceChapters = details.chapters
                     self.libraryPodcastShowNotes = details.showNotes
+                    self.reconcileSpokenWordChapterRepeatForCurrentItem()
                 }
             }
         }
@@ -7383,6 +7403,7 @@ final class TVStore {
         pendingSpokenWordResume = nil
         spokenWordStoppedAt = nil
         engine.seek(to: position)
+        noteSpokenWordChapterRepeatSeek(to: position, preservesChapterOnBackwardCrossing: false)
         rememberSpokenWordPosition(force: true)
     }
 
@@ -7974,6 +7995,9 @@ final class TVStore {
             advancePodcastQueue()
             return
         }
+        if restartSpokenWordChapterRepeatAtTrackEndIfNeeded() {
+            return
+        }
         // 音乐队列播完: 相似歌曲一般在这首开始时就排上了; 还在算就等它落地再往下走。
         if repeatMode == .off, !hasNextQueueSong,
            autoContinuationTask != nil || autoContinuationDecision == .similarSongs {
@@ -8367,6 +8391,240 @@ final class TVStore {
         sleepStopAfterChapter = nil
         plog("🎧 TV sleep: chapter \(lock.chapterIndex + 1) ended, pausing")
         pausePlayback()
+    }
+
+    // MARK: 有声书单章循环
+
+    var currentItemIsAudiobook: Bool {
+        hasNowPlaying && currentItemIsSpokenWord && !currentItemIsPodcast && !isLiveRadio
+    }
+
+    var isRepeatingCurrentSpokenWordChapter: Bool {
+        guard currentItemIsAudiobook, let target = spokenWordChapterRepeat else { return false }
+        return target.songID == nowPlaying.songID
+    }
+
+    private var spokenWordChapterRepeatBounds: SpokenWordChapterRepeatBounds? {
+        guard currentItemIsAudiobook, let target = spokenWordChapterRepeat else { return nil }
+        let total = duration > 0 ? duration : nowPlaying.duration
+        return SpokenWordChapterRepeatPolicy.bounds(
+            for: target,
+            songID: nowPlaying.songID,
+            duration: total,
+            chapters: spokenWordChapters,
+            introOutro: currentSpokenWordIntroOutro
+        )
+    }
+
+    func isRepeatingSpokenWordRow(_ row: SpokenWordContentsRow) -> Bool {
+        guard currentItemIsAudiobook else { return false }
+        return SpokenWordChapterRepeatPolicy.matches(spokenWordChapterRepeat, row: row)
+    }
+
+    func isRepeatingSpokenWordItem(id itemID: String) -> Bool {
+        guard currentItemIsAudiobook, let target = spokenWordChapterRepeat else { return false }
+        return target.songID == itemID && target.chapterIndex == nil
+    }
+
+    func toggleSpokenWordChapterRepeat() {
+        setSpokenWordChapterRepeat(!isRepeatingCurrentSpokenWordChapter)
+    }
+
+    func setSpokenWordChapterRepeat(_ enabled: Bool) {
+        guard enabled else {
+            pendingSpokenWordChapterRepeat = nil
+            spokenWordChapterRepeat = nil
+            return
+        }
+        guard currentItemIsAudiobook else { return }
+        let chapters = spokenWordChapters
+        let chapterIndex = chapters.isEmpty ? nil : (currentSpokenWordChapterIndex ?? chapters.chapterIndex(at: currentTime) ?? 0)
+        pendingSpokenWordChapterRepeat = nil
+        spokenWordChapterRepeat = SpokenWordChapterRepeatTarget(
+            songID: nowPlaying.songID,
+            chapterIndex: chapterIndex,
+            bookID: currentSpokenWordBookID
+        )
+    }
+
+    func repeatSpokenWordContentsRow(_ row: SpokenWordContentsRow) {
+        guard currentItemIsAudiobook else { return }
+        if isRepeatingSpokenWordRow(row) {
+            setSpokenWordChapterRepeat(false)
+            return
+        }
+        switch row.kind {
+        case let .chapter(index, startTime):
+            let target = SpokenWordChapterRepeatTarget(
+                songID: row.itemID,
+                chapterIndex: index,
+                bookID: currentSpokenWordBookID
+            )
+            if hasNowPlaying, nowPlaying.songID == row.itemID {
+                pendingSpokenWordChapterRepeat = nil
+                spokenWordChapterRepeat = target
+                if currentSpokenWordChapterIndex != index {
+                    pendingSpokenWordResume = nil
+                    spokenWordStoppedAt = nil
+                    engine.seek(to: startTime)
+                    rememberSpokenWordPosition(force: true)
+                }
+                if !isPlaying { togglePlayPause() }
+            } else {
+                pendingSpokenWordChapterRepeat = target
+                playSpokenWordBookItem(id: row.itemID, at: startTime)
+            }
+        case .item:
+            let target = SpokenWordChapterRepeatTarget(
+                songID: row.itemID,
+                chapterIndex: nil,
+                bookID: currentSpokenWordBookID
+            )
+            if hasNowPlaying, nowPlaying.songID == row.itemID {
+                pendingSpokenWordChapterRepeat = nil
+                spokenWordChapterRepeat = target
+                if !isPlaying { togglePlayPause() }
+            } else {
+                pendingSpokenWordChapterRepeat = target
+                playSpokenWordBookItem(id: row.itemID)
+            }
+        }
+    }
+
+    @discardableResult
+    func playSpokenWordBookRepeating(songIDs: [String], startingAt itemID: String, bookID: String) -> Bool {
+        if hasNowPlaying, nowPlaying.songID == itemID, currentItemIsAudiobook {
+            if isRepeatingSpokenWordItem(id: itemID) {
+                setSpokenWordChapterRepeat(false)
+                return false
+            }
+            let chapters = spokenWordChapters
+            let chapterIndex = chapters.isEmpty ? nil : (currentSpokenWordChapterIndex ?? chapters.chapterIndex(at: currentTime) ?? 0)
+            pendingSpokenWordChapterRepeat = nil
+            spokenWordChapterRepeat = SpokenWordChapterRepeatTarget(
+                songID: itemID,
+                chapterIndex: chapterIndex,
+                bookID: bookID
+            )
+            if !isPlaying { togglePlayPause() }
+            return true
+        }
+        pendingSpokenWordChapterRepeat = SpokenWordChapterRepeatTarget(
+            songID: itemID,
+            chapterIndex: nil,
+            bookID: bookID
+        )
+        return playSpokenWordBook(songIDs: songIDs, startingAt: itemID)
+    }
+
+    private func reconcileSpokenWordChapterRepeatForCurrentItem() {
+        reconcileSpokenWordChapterRepeat(
+            songID: hasNowPlaying ? nowPlaying.songID : nil,
+            bookID: currentSpokenWordBookID,
+            isAudiobook: currentItemIsAudiobook,
+            chapters: spokenWordChapters,
+            currentChapterIndex: currentSpokenWordChapterIndex,
+            currentTime: currentTime
+        )
+    }
+
+    private func reconcileSpokenWordChapterRepeat(
+        songID: String?,
+        bookID: String?,
+        isAudiobook: Bool,
+        chapters: [MediaChapter],
+        currentChapterIndex: Int?,
+        currentTime: Double
+    ) {
+        if let pending = pendingSpokenWordChapterRepeat {
+            if let songID, songID == pending.songID {
+                pendingSpokenWordChapterRepeat = nil
+                spokenWordChapterRepeat = SpokenWordChapterRepeatPolicy.reconciled(
+                    target: pending,
+                    currentSongID: songID,
+                    currentBookID: bookID,
+                    isAudiobook: isAudiobook,
+                    chapters: chapters,
+                    currentChapterIndex: currentChapterIndex,
+                    currentTime: currentTime
+                )
+                return
+            }
+            if songID != nil {
+                pendingSpokenWordChapterRepeat = nil
+            }
+        }
+        spokenWordChapterRepeat = SpokenWordChapterRepeatPolicy.reconciled(
+            target: spokenWordChapterRepeat,
+            currentSongID: songID,
+            currentBookID: bookID,
+            isAudiobook: isAudiobook,
+            chapters: chapters,
+            currentChapterIndex: currentChapterIndex,
+            currentTime: currentTime
+        )
+    }
+
+    private func noteSpokenWordChapterRepeatSeek(
+        to targetTime: Double,
+        preservesChapterOnBackwardCrossing: Bool
+    ) {
+        guard hasNowPlaying, let current = spokenWordChapterRepeat else { return }
+        spokenWordChapterRepeat = SpokenWordChapterRepeatPolicy.retargetedAfterUserSeek(
+            current,
+            songID: nowPlaying.songID,
+            seekTime: targetTime,
+            chapters: spokenWordChapters,
+            preservesChapterOnBackwardCrossing: preservesChapterOnBackwardCrossing
+        )
+    }
+
+    private func enforceSpokenWordChapterRepeatIfNeeded() {
+        if spokenWordChapterRepeat != nil {
+            reconcileSpokenWordChapterRepeatForCurrentItem()
+        }
+        guard currentItemIsAudiobook, isPlaying,
+              let target = spokenWordChapterRepeat,
+              let bounds = spokenWordChapterRepeatBounds,
+              bounds.end != nil else { return }
+        guard SpokenWordChapterRepeatPolicy.reachedEnd(
+            of: bounds,
+            at: engine.currentTime,
+            currentChapterIndex: currentSpokenWordChapterIndex,
+            lockedChapterIndex: target.chapterIndex
+        ) else { return }
+        if let lock = sleepStopAfterChapter, lock.songID == nowPlaying.songID, lock.chapterIndex == target.chapterIndex {
+            sleepStopAfterChapter = nil
+            pausePlayback()
+            return
+        }
+        if let itemID = sleepStopAfterItemID, itemID == nowPlaying.songID {
+            sleepStopAfterItemID = nil
+            pausePlayback()
+            return
+        }
+        if let selection = selectedChapterSleep,
+           selection.chapter.songID == nowPlaying.songID,
+           let end = bounds.end,
+           selection.shouldStop(songID: nowPlaying.songID, position: end) {
+            cancelSleepTimer()
+            pausePlayback()
+            return
+        }
+        engine.seek(to: bounds.start)
+    }
+
+    private func restartSpokenWordChapterRepeatAtTrackEndIfNeeded() -> Bool {
+        guard currentItemIsAudiobook,
+              let target = spokenWordChapterRepeat,
+              let bounds = spokenWordChapterRepeatBounds,
+              queue.indices.contains(queueIndex),
+              let current = song(queue[queueIndex]),
+              current.id == target.songID else { return false }
+        serverOutroHandledSongID = nil
+        pendingSpokenWordChapterRepeat = target
+        startPlaying(current, resumeTime: bounds.start)
+        return true
     }
 
     /// 有声内容:这本书的最后一条播完才停。
@@ -8821,6 +9079,8 @@ final class TVStore {
     /// 已经在放这一集就只是继续。
     func playPodcast(_ episode: PodcastEpisode, continuing: [PodcastEpisode] = []) {
         pendingDeepLink = nil
+        pendingSpokenWordChapterRepeat = nil
+        spokenWordChapterRepeat = nil
         let podcasts = podcastStore
         if currentPodcastEpisodeID == episode.id, hasNowPlaying, !isLiveRadio {
             if !isPlaying { togglePlayPause() }
@@ -9290,6 +9550,7 @@ final class TVStore {
                 ScrobbleService.shared.handleProgressTick(playedDelta: delta)
                 self.rememberSpokenWordPosition()
                 self.enforceSpokenWordChapterSleepIfNeeded()
+                self.enforceSpokenWordChapterRepeatIfNeeded()
                 self.applyServerSpokenWordOutroSkipIfNeeded()
                 self.refreshPreparedNextStreamIfNeeded(requestID: requestID)
                 ticks += 1
@@ -9916,6 +10177,8 @@ extension TVStore {
         isLiveRadio = false
         currentRadioStationID = nil
         currentItemIsSpokenWord = false
+        pendingSpokenWordChapterRepeat = nil
+        spokenWordChapterRepeat = nil
         resetPodcastPlayback()
         isMusicVideoModeEnabled = false
         playbackRestoreAttempted = true

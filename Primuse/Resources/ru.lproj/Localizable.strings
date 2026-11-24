@@ -8090,3 +8090,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "Четыре бумажные куклы качаются, подпевают и играют на барабанах на нарисованной акварелью сцене, а с каждой строкой песни меняется кадр";
 "fullscreen_effect_watercolor_theater_motion" = "Движения следуют за ритмом, энергией и текстом · Линии туши перерисовываются 12 раз в секунду";
 "immersive_theater_greeting" = "Привет!";
+"spoken_word_repeat_chapter" = "Повтор главы";
+"spoken_word_repeat_chapter_short" = "Повтор";
+"spoken_word_repeat_chapter_play" = "Повторять эту главу";
+"spoken_word_repeat_chapter_stop" = "Отключить повтор главы";
+"player_controls_tile_home_menu" = "Если выключено — в меню «Ещё»";

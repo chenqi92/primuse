@@ -27,18 +27,24 @@ public enum SpokenWordControlTile: String, CaseIterable, Codable, Hashable, Iden
     case like
     /// 「更多」菜单。默认在右上角;打开后挪到这一排。
     case more
+    /// 单章循环（仅限有声书）。默认隐藏、入口在「更多」菜单与目录行菜单里；需要常驻时可打开。
+    case repeatChapter
 
     public var id: String { rawValue }
 
     public func isAvailable(for kind: SpokenWordPlayerKind) -> Bool {
-        self != .upNext || kind == .podcast
+        switch self {
+        case .upNext: kind == .podcast
+        case .repeatChapter: kind == .audiobook
+        default: true
+        }
     }
 
     /// 默认在别处(右上角、播放键旁)的几样:打开就从原处挪进这一排,关掉回原处。
     public var movesFromElsewhere: Bool {
         switch self {
         case .airPlay, .transcript, .like, .more: true
-        case .speed, .sleepTimer, .bookmark, .contents, .upNext: false
+        case .speed, .sleepTimer, .bookmark, .contents, .upNext, .repeatChapter: false
         }
     }
 }
@@ -73,11 +79,17 @@ public enum SpokenWordSlotAction: String, CaseIterable, Codable, Hashable, Ident
     case like
     /// 「更多」菜单。放进格子后右上角(或标题旁)不再有这一颗。
     case more
+    /// 单章循环（仅限有声书）。
+    case repeatChapter
 
     public var id: String { rawValue }
 
     public func isAvailable(for kind: SpokenWordPlayerKind) -> Bool {
-        self != .upNext || kind == .podcast
+        switch self {
+        case .upNext: kind == .podcast
+        case .repeatChapter: kind == .audiobook
+        default: true
+        }
     }
 
     /// 功能块那一排里也有的几样。摆在格子里、此刻看得见时,那一排不再重复。
@@ -91,6 +103,7 @@ public enum SpokenWordSlotAction: String, CaseIterable, Codable, Hashable, Ident
         case .transcript: .transcript
         case .like: .like
         case .more: .more
+        case .repeatChapter: .repeatChapter
         case .chapters: nil
         }
     }
@@ -223,10 +236,13 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         SpokenWordControlTile.allCases.filter { $0.isAvailable(for: kind) }
     }
 
-    /// 隔空播放、喜欢、「更多」默认在右上角,文字稿默认在播放键旁边,都不在这一排。
+    /// 隔空播放、喜欢、「更多」默认在右上角,文字稿默认在播放键旁边,单章循环默认在「更多」菜单里,都不在这一排。
     public static func defaultHidden(for kind: SpokenWordPlayerKind) -> Set<SpokenWordControlTile> {
         let elsewhere = Set(SpokenWordControlTile.allCases.filter { $0.movesFromElsewhere && $0.isAvailable(for: kind) })
-        return kind == .podcast ? elsewhere.union([.bookmark]) : elsewhere
+        switch kind {
+        case .audiobook: return elsewhere.union([.repeatChapter])
+        case .podcast: return elsewhere.union([.bookmark])
+        }
     }
 
     public static func `default`(for kind: SpokenWordPlayerKind) -> SpokenWordControlLayout {

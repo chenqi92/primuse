@@ -8090,3 +8090,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "हाथ से बने जलरंग मंच पर चार काग़ज़ी कठपुतलियाँ गाने के साथ झूमती, गाती और ड्रम बजाती हैं, और हर पंक्ति पर दृश्य बदलता है";
 "fullscreen_effect_watercolor_theater_motion" = "हरकतें बीट, ऊर्जा और बोलों के साथ बदलती हैं · स्याही की रेखाएँ हर सेकंड 12 बार फिर से बनती हैं";
 "immersive_theater_greeting" = "नमस्ते!";
+"spoken_word_repeat_chapter" = "अध्याय दोहराएं";
+"spoken_word_repeat_chapter_short" = "दोहराएं";
+"spoken_word_repeat_chapter_play" = "यह अध्याय लूप में चलाएं";
+"spoken_word_repeat_chapter_stop" = "अध्याय दोहराना बंद करें";
+"player_controls_tile_home_menu" = "बंद होने पर: 'और' मेनू में";

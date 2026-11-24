@@ -8800,6 +8800,8 @@ struct NowPlayingView: View {
                         style: style,
                         showsPartButtons: controls.partRow == .chapters,
                         showsAccessory: controls.partRow.map { $0 != .chapters } ?? false,
+                        showsActiveRepeatIndicator: !controls.placedActions.contains(.repeatChapter)
+                            && !controls.tiles.contains(.repeatChapter),
                         onOpenContents: { openContentsPanel() }
                     ) {
                         // 章节那一行右边换成别的键时(「播放页按钮」,如「更多」)只放这一颗。
@@ -10641,6 +10643,8 @@ struct NowPlayingView: View {
             showsAddToPlaylist: !menuSuppressed.contains(.addToPlaylist) && shows(.addToPlaylist),
             showsCastAction: !menuSuppressed.contains(.cast) && shows(.cast),
             showsSleepTimer: !menuSuppressed.contains(.sleepTimer) && shows(.sleepTimer),
+            showsRepeatChapter: isSpokenWord && !currentItemIsPodcast && shows(.repeatChapter),
+            isRepeatingChapter: player.isRepeatingCurrentSpokenWordChapter,
             offersPlaybackRateControls: !player.isAppleMusicMode && !menuSuppressed.contains(.playbackSpeed),
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
@@ -10810,6 +10814,10 @@ struct NowPlayingView: View {
             },
             onToggleImmersiveArtwork: { setImmersiveShowsArtwork(!immersiveShowsArtwork) },
             onShowSleepTimer: { showSleepTimer = true },
+            onToggleRepeatChapter: {
+                PMHaptics.playbackModeToggled()
+                player.toggleSpokenWordChapterRepeat()
+            },
             onAdjustEqualizer: { openEqualizer() },
             onShowEqualizerBypassNotice: { showEqualizerBypassNotice = true },
             onShowPitchNotice: { showPitchNotice(currentPitchAvailability) },
@@ -11094,19 +11102,21 @@ struct NowPlayingView: View {
         inlineActions: Bool,
         controlSurface: NowPlayingControlSurface
     ) -> some View {
-        SpokenWordPlayerHeading(
+        let controls = spokenWordControlLayout.resolved(
+            in: controlSurface == .wideLandscape
+                ? spokenWordWideLandscapeControlContext
+                : spokenWordPortraitControlContext()
+        )
+        return SpokenWordPlayerHeading(
             palette: spokenWordPalette,
             titleFont: titleFont,
             partFont: partFont,
+            showsActiveRepeatIndicator: !controls.placedActions.contains(.repeatChapter)
+                && !controls.tiles.contains(.repeatChapter),
             onOpenShow: openCurrentPodcastShow,
             onOpenBook: { presentCurrentBook() },
             onOpenContents: { openContentsPanel() }
         ) {
-            let controls = spokenWordControlLayout.resolved(
-                in: controlSurface == .wideLandscape
-                    ? spokenWordWideLandscapeControlContext
-                    : spokenWordPortraitControlContext()
-            )
             HStack(spacing: 4) {
                 if inlineActions {
                     if controls.headerShowsAirPlay {
@@ -11306,6 +11316,23 @@ struct NowPlayingView: View {
                 controlSurface: menuSurface,
                 plainLabel: NowPlayingMoreMenuPlainLabel(font: font, tint: tint, height: height)
             )
+        case .repeatChapter:
+            let isRepeating = player.isRepeatingCurrentSpokenWordChapter
+            Button {
+                PMHaptics.playbackModeToggled()
+                player.toggleSpokenWordChapterRepeat()
+            } label: {
+                spokenWordSlotIcon(
+                    "repeat.1",
+                    font: font,
+                    tint: isRepeating ? selectedTint : tint,
+                    height: height
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(!player.currentItemIsAudiobook)
+            .accessibilityLabel(Text(isRepeating ? "spoken_word_repeat_chapter_stop" : "spoken_word_repeat_chapter"))
+            .accessibilityAddTraits(isRepeating ? .isSelected : [])
         }
     }
 
@@ -11368,7 +11395,7 @@ struct NowPlayingView: View {
                         )
                     )
                 ))
-            case .speed, .sleepTimer, .bookmark, .contents, .upNext, .airPlay:
+            case .speed, .sleepTimer, .bookmark, .contents, .upNext, .airPlay, .repeatChapter:
                 return nil
             }
         }
@@ -16660,6 +16687,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let showsAddToPlaylist: Bool
     let showsCastAction: Bool
     let showsSleepTimer: Bool
+    let showsRepeatChapter: Bool
+    let isRepeatingChapter: Bool
     let offersPlaybackRateControls: Bool
     let castingRendererName: String?
     let isSleepTimerActive: Bool
@@ -17065,6 +17094,7 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
     let onSetBundledLyricsTranslationsShown: (Bool) -> Void
     let onToggleImmersiveArtwork: () -> Void
     let onShowSleepTimer: () -> Void
+    let onToggleRepeatChapter: () -> Void
     let onAdjustEqualizer: () -> Void
     let onShowEqualizerBypassNotice: () -> Void
     let onShowPitchNotice: () -> Void
@@ -17757,6 +17787,16 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
                             Image(systemName: "text.line.first.and.arrowtriangle.forward")
                         }
                     }
+                }
+
+                if snapshot.showsRepeatChapter {
+                    Toggle(isOn: Binding(
+                        get: { snapshot.isRepeatingChapter },
+                        set: { _ in onToggleRepeatChapter() }
+                    )) {
+                        Label(String(localized: "spoken_word_repeat_chapter"), systemImage: "repeat.1")
+                    }
+                    .disabled(!snapshot.hasSong)
                 }
 
                 if snapshot.showsSleepTimer {

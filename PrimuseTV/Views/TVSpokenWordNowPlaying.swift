@@ -276,6 +276,12 @@ struct TVSpokenWordContentsColumn: View {
                     }
                 }
                 Spacer(minLength: 12)
+                if store.isRepeatingSpokenWordRow(row) {
+                    Image(systemName: "repeat.1")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(TVColor.spokenWordSpace)
+                        .accessibilityLabel(Text(String(localized: "spoken_word_repeat_chapter")))
+                }
                 stateMark(row.state)
                     .frame(width: 30, height: 30)
             }
@@ -290,6 +296,22 @@ struct TVSpokenWordContentsColumn: View {
         }
         // 文件自己的章节标记缩进排在它下面。
         .padding(.leading, row.isNested ? 56 : 0)
+        .contextMenu {
+            if store.currentItemIsAudiobook {
+                let repeating = store.isRepeatingSpokenWordRow(row)
+                Button {
+                    onInteraction()
+                    store.repeatSpokenWordContentsRow(row)
+                } label: {
+                    Label(
+                        String(localized: repeating
+                            ? "spoken_word_repeat_chapter_stop"
+                            : "spoken_word_repeat_chapter_play"),
+                        systemImage: "repeat.1"
+                    )
+                }
+            }
+        }
         .accessibilityElement(children: .combine)
     }
 

@@ -8090,3 +8090,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "أربع دمى ورقية صغيرة تتمايل وتغني وتقرع الطبول على مسرح مرسوم بالألوان المائية، مع لقطة جديدة لكل سطر من الكلمات";
 "fullscreen_effect_watercolor_theater_motion" = "تتبدّل الحركات مع الإيقاع والطاقة والكلمات · خطوط الحبر تُعاد رسمًا 12 مرة في الثانية";
 "immersive_theater_greeting" = "مرحبًا!";
+"spoken_word_repeat_chapter" = "تكرار الفصل";
+"spoken_word_repeat_chapter_short" = "تكرار";
+"spoken_word_repeat_chapter_play" = "تشغيل هذا الفصل بتكرار";
+"spoken_word_repeat_chapter_stop" = "إيقاف تكرار الفصل";
+"player_controls_tile_home_menu" = "عند الإيقاف: في قائمة المزيد";

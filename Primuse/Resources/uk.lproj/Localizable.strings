@@ -8090,3 +8090,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "Чотири паперові ляльки гойдаються, підспівують і грають на барабанах на намальованій аквареллю сцені, а з кожним рядком пісні змінюється кадр";
 "fullscreen_effect_watercolor_theater_motion" = "Рухи йдуть за ритмом, енергією та текстом · Лінії туші перемальовуються 12 разів на секунду";
 "immersive_theater_greeting" = "Привіт!";
+"spoken_word_repeat_chapter" = "Повтор розділу";
+"spoken_word_repeat_chapter_short" = "Повтор";
+"spoken_word_repeat_chapter_play" = "Повторювати цей розділ";
+"spoken_word_repeat_chapter_stop" = "Вимкнути повтор розділу";
+"player_controls_tile_home_menu" = "Якщо вимкнено — у меню «Більше»";

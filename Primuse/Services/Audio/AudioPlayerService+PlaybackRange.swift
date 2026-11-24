@@ -158,9 +158,9 @@ extension AudioPlayerService {
         return eachTrackStop
     }
 
-    /// 这一首放完不接下一首:A-B 循环中,或者播完要停。
+    /// 这一首放完不接下一首:A-B 循环中、有声书单章循环中,或者播完要停。
     var holdsQueueAtCurrentTrackEnd: Bool {
-        abRepeat.loop != nil || currentTrackEndStop != nil
+        abRepeat.loop != nil || currentTrackEndStop != nil || isRepeatingCurrentSpokenWordChapter
     }
 
     // MARK: 停止点

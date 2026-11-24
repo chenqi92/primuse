@@ -228,6 +228,16 @@ struct TVOptionsView: View {
                 ))
             }
         }
+        if store.currentItemIsAudiobook {
+            let repeating = store.isRepeatingCurrentSpokenWordChapter
+            playback.append(.init(
+                id: "repeatChapter",
+                icon: "repeat.1",
+                label: String(localized: "spoken_word_repeat_chapter"),
+                on: repeating,
+                run: { store.toggleSpokenWordChapterRepeat() }
+            ))
+        }
         playback.append(.init(id: "sleep", icon: "moon.zzz.fill",
                               label: store.sleepTimerMinutes > 0
                                   ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes)

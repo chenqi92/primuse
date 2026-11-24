@@ -360,6 +360,14 @@ struct MacBottomBar: View {
                 }
             }
 
+            if player.isRepeatingCurrentSpokenWordChapter {
+                PMRoundBtn(icon: "repeat.1", iconSize: 12, style: .plain,
+                           isActive: true, help: "spoken_word_repeat_chapter_stop") {
+                    player.setSpokenWordChapterRepeat(false)
+                }
+                .pmFadeTransition()
+            }
+
             // 睡眠定时三个空间都在同一个位置; 电台没有「更多」菜单, 这是它唯一的入口。
             if player.currentSong != nil || player.isLiveRadio {
                 sleepTimerButton

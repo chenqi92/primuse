@@ -1498,6 +1498,26 @@ final class AudioPlayerService {
     var currentChapterIndex: Int?
     /// True while the current item is spoken word, including podcasts.
     var currentItemIsSpokenWord = false
+    /// 有声书「单章循环」锁定的章节。与音乐的 `repeatMode` / `ListeningPlayModeLedger` 隔离，
+    /// 不污染音乐的循环设置；切到另一本书或离开有声书时自动关闭。
+    var spokenWordChapterRepeat: SpokenWordChapterRepeatTarget? {
+        didSet {
+            guard spokenWordChapterRepeat != oldValue else { return }
+            spokenWordChapterRepeatJumpTask?.cancel()
+            spokenWordChapterRepeatJumpTask = nil
+            queueEndHoldDidChange(wasHolding: oldValue != nil)
+            if let target = spokenWordChapterRepeat {
+                plog("🔁 Audiobook chapter repeat on: song=\(target.songID) chapter=\(target.chapterIndex.map(String.init) ?? "file")")
+            } else {
+                plog("🔁 Audiobook chapter repeat off")
+            }
+        }
+    }
+    @ObservationIgnored var spokenWordChapterRepeatJumpTask: Task<Void, Never>?
+    /// 从目录或书详情页点「单章循环播放」切到别的章时，先挂在这里等新章落位后接管。
+    @ObservationIgnored var pendingSpokenWordChapterRepeat: SpokenWordChapterRepeatTarget?
+    @ObservationIgnored var isSeekingForSpokenWordChapterRepeat = false
+    @ObservationIgnored var isSkippingSpokenWordBackward = false
     /// 智能速度(REQ-174):「已节省」的记账,和上次为它重发锁屏进度时这一段拿掉了多少。
     @ObservationIgnored var smartSpeedSavingsMeter = SmartSpeedSavingsMeter()
     @ObservationIgnored var smartSpeedNowPlayingBaseline: TimeInterval = 0

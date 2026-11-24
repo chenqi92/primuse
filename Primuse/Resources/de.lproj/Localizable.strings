@@ -8184,3 +8184,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "Vier kleine Papierfiguren wiegen sich, singen mit und trommeln auf einer handgemalten Aquarellbühne – mit neuer Einstellung bei jeder Liedzeile";
 "fullscreen_effect_watercolor_theater_motion" = "Bewegungen folgen Beat, Energie und Text · Tuschelinien 12-mal pro Sekunde neu gezeichnet";
 "immersive_theater_greeting" = "Hallo!";
+"spoken_word_repeat_chapter" = "Kapitel wiederholen";
+"spoken_word_repeat_chapter_short" = "Wiederh.";
+"spoken_word_repeat_chapter_play" = "Dieses Kapitel wiederholen";
+"spoken_word_repeat_chapter_stop" = "Kapitelwiederholung stoppen";
+"player_controls_tile_home_menu" = "Ausgeschaltet: im Menü „Mehr“";

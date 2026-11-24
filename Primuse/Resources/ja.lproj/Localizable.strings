@@ -8185,3 +8185,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "手描き水彩の小さな舞台で、4体の紙人形が歌に合わせて揺れたり口ずさんだりドラムを叩いたり。歌詞が変わるたびにカットも変わります";
 "fullscreen_effect_watercolor_theater_motion" = "ビート・盛り上がり・歌詞に合わせて動きが変わる · 線画は毎秒12回描き直し";
 "immersive_theater_greeting" = "やあ！";
+"spoken_word_repeat_chapter" = "チャプターをリピート";
+"spoken_word_repeat_chapter_short" = "リピート";
+"spoken_word_repeat_chapter_play" = "このチャプターをリピート再生";
+"spoken_word_repeat_chapter_stop" = "チャプターのリピートを解除";
+"player_controls_tile_home_menu" = "オフのときは「もっと見る」内";

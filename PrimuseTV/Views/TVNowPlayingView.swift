@@ -1190,6 +1190,13 @@ struct TVNowPlayingView: View {
                 }
                 .disabled(store.isLoading)
             }
+            if store.isRepeatingCurrentSpokenWordChapter {
+                TVRoundBtn(icon: "repeat.1", size: 64, active: true,
+                           accessibilityLabel: String(localized: "spoken_word_repeat_chapter_stop"),
+                           onInteraction: registerInteraction) {
+                    store.setSpokenWordChapterRepeat(false)
+                }
+            }
             TVRoundBtn(icon: "bookmark", size: 64,
                        accessibilityLabel: String(localized: "spoken_word_add_bookmark"),
                        onInteraction: registerInteraction) {

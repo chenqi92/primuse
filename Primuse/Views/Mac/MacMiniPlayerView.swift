@@ -522,21 +522,42 @@ struct MacMiniPlayerView: View {
             .pmPointingHand()
             .help(Text(player.currentItemIsSpokenWord ? "a11y_skip_forward" : "next_song"))
 
-            Button { cycleRepeat() } label: {
-                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(player.repeatMode != .off ? theme.accentColor : PMColor.textMuted)
-                    .frame(width: 30, height: 30)
-                    .playbackToggleHighlight(
-                        isActive: player.repeatMode != .off,
-                        tint: theme.accentColor,
-                        diameter: 30,
-                        inactiveFill: PMColor.text.opacity(0.06)
-                    )
+            if player.currentItemIsAudiobook {
+                let isRepeating = player.isRepeatingCurrentSpokenWordChapter
+                Button { player.toggleSpokenWordChapterRepeat() } label: {
+                    Image(systemName: "repeat.1")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(isRepeating ? theme.accentColor : PMColor.textMuted)
+                        .frame(width: 30, height: 30)
+                        .playbackToggleHighlight(
+                            isActive: isRepeating,
+                            tint: theme.accentColor,
+                            diameter: 30,
+                            inactiveFill: PMColor.text.opacity(0.06)
+                        )
+                }
+                .buttonStyle(.plain)
+                .pmPointingHand()
+                .help(Text(isRepeating ? "spoken_word_repeat_chapter_stop" : "spoken_word_repeat_chapter"))
+                .accessibilityLabel(Text(isRepeating ? "spoken_word_repeat_chapter_stop" : "spoken_word_repeat_chapter"))
+                .accessibilityValue(Text(isRepeating ? "a11y_value_on" : "a11y_value_off"))
+            } else {
+                Button { cycleRepeat() } label: {
+                    Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(player.repeatMode != .off ? theme.accentColor : PMColor.textMuted)
+                        .frame(width: 30, height: 30)
+                        .playbackToggleHighlight(
+                            isActive: player.repeatMode != .off,
+                            tint: theme.accentColor,
+                            diameter: 30,
+                            inactiveFill: PMColor.text.opacity(0.06)
+                        )
+                }
+                .buttonStyle(.plain)
+                .pmPointingHand()
+                .accessibilityValue(Text(player.repeatMode != .off ? "a11y_value_on" : "a11y_value_off"))
             }
-            .buttonStyle(.plain)
-            .pmPointingHand()
-            .accessibilityValue(Text(player.repeatMode != .off ? "a11y_value_on" : "a11y_value_off"))
         }
         .frame(maxWidth: .infinity)
     }

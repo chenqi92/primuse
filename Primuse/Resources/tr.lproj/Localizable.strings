@@ -8090,3 +8090,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "Dört küçük kâğıt kukla, elle boyanmış suluboya sahnede şarkıyla sallanıyor, eşlik ediyor ve davul çalıyor; her sözde sahne değişiyor";
 "fullscreen_effect_watercolor_theater_motion" = "Hareketler ritme, enerjiye ve sözlere göre değişir · Mürekkep çizgileri saniyede 12 kez yeniden çizilir";
 "immersive_theater_greeting" = "Selam!";
+"spoken_word_repeat_chapter" = "Bölümü yinele";
+"spoken_word_repeat_chapter_short" = "Yinele";
+"spoken_word_repeat_chapter_play" = "Bu bölümü döngüde oynat";
+"spoken_word_repeat_chapter_stop" = "Bölüm yinelemeyi durdur";
+"player_controls_tile_home_menu" = "Kapalıyken: Daha Fazla menüsünde";

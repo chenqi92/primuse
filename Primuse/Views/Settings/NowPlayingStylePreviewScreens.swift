@@ -392,7 +392,7 @@ private struct PreviewSpokenTiles: View {
     }
 
     private func caption(_ tile: SpokenWordControlTile) -> some View {
-        Text(tile.editorTitleKey(for: kind))
+        Text(tile == .repeatChapter ? LocalizedStringKey("spoken_word_repeat_chapter_short") : tile.editorTitleKey(for: kind))
             .font(.caption)
             .foregroundStyle(secondary)
             .lineLimit(1)

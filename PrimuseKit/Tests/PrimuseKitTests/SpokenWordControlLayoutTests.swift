@@ -35,7 +35,7 @@ import Testing
         #expect(!layout.showsLike)
         let decoded = Layout.decode(layout.encoded(), kind: .audiobook)
         #expect(decoded == layout)
-        #expect(decoded.order == [.contents, .speed, .sleepTimer, .bookmark, .airPlay, .transcript, .like, .more])
+        #expect(decoded.order == [.contents, .speed, .sleepTimer, .bookmark, .airPlay, .transcript, .like, .more, .repeatChapter])
     }
 
     @Test func userHiddenEntriesFallBackIntoTheMenu() {
@@ -402,11 +402,37 @@ import Testing
     }
 
     @Test func oldConfigsKeepTheNewTilesWhereTheyWere() {
-        // 老版本存的配置里没有文字稿、喜欢、更多这几块:照默认留在原处。
+        // 老版本存的配置里没有文字稿、喜欢、更多、单章循环这几块:照默认留在原处。
         let old = Layout.decode(#"{"order":["contents","speed","sleepTimer","bookmark","airPlay"],"hidden":["bookmark"]}"#, kind: .audiobook)
-        #expect(old.order.suffix(3) == [.transcript, .like, .more])
-        #expect(!old.isShown(.transcript) && !old.isShown(.like) && !old.isShown(.more))
+        #expect(old.order.suffix(4) == [.transcript, .like, .more, .repeatChapter])
+        #expect(!old.isShown(.transcript) && !old.isShown(.like) && !old.isShown(.more) && !old.isShown(.repeatChapter))
         #expect(old.visibleTiles() == [.contents, .speed, .sleepTimer, .airPlay])
+    }
+
+    @Test func repeatChapterIsAudiobookOnlyHiddenByDefaultAndDeduplicatesAcrossSlotAndTiles() {
+        #expect(SpokenWordControlTile.repeatChapter.isAvailable(for: .audiobook))
+        #expect(!SpokenWordControlTile.repeatChapter.isAvailable(for: .podcast))
+        #expect(SpokenWordSlotAction.repeatChapter.isAvailable(for: .audiobook))
+        #expect(!SpokenWordSlotAction.repeatChapter.isAvailable(for: .podcast))
+
+        let defaultBook = Layout.default(for: .audiobook)
+        #expect(!defaultBook.isShown(.repeatChapter))
+        #expect(defaultBook.visibleTiles() == [.speed, .sleepTimer, .bookmark, .contents])
+
+        // 播客解老配置也不会混入单章循环。
+        let podcast = Layout.decode(#"{"order":["speed","repeatChapter","contents"],"slots":{"leadingSide":"repeatChapter"}}"#, kind: .podcast)
+        #expect(!podcast.order.contains(.repeatChapter))
+        #expect(podcast.choice(in: .leadingSide) == .empty)
+
+        // 高频用户可把单章循环打开到功能块或放到格子，两者同时打开时自动去重。
+        let tiled = defaultBook.settingTile(.repeatChapter, shown: true)
+        #expect(tiled.resolved(in: Self.bookPortrait(transcript: false)).tiles.contains(.repeatChapter))
+        #expect(Layout.decode(tiled.encoded(), kind: .audiobook) == tiled)
+
+        let slotted = tiled.placing(.action(.repeatChapter), in: .trailingSide)
+        let resolved = slotted.resolved(in: Self.bookPortrait(transcript: false))
+        #expect(resolved.trailingSide == .repeatChapter)
+        #expect(!resolved.tiles.contains(.repeatChapter))
     }
 
     @Test func sourceLineToggleRoundTrips() {

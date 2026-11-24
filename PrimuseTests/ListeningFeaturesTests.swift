@@ -1274,6 +1274,104 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertNil(player.spokenWordIntroOutro(for: music))
     }
 
+    func testAudiobookChapterRepeatHoldsQueueFollowsSameBookAndIsolatesMusicRepeatMode() throws {
+        let player = try makePlayer()
+        let bookA1 = introOutroChapter()
+        var bookA2 = bookA1
+        bookA2.id = UUID().uuidString
+        bookA2.title = "Chapter 2"
+        bookA2.filePath = bookA1.filePath.replacingOccurrences(of: "01.mp3", with: "02.mp3")
+        let bookB1 = introOutroChapter()
+        let music = song(UUID().uuidString, duration: 240, genre: "Pop", path: "/Music/pop.mp3")
+        cleanups.append {
+            SpokenWordStore.shared.markFinished(false, songIDs: [bookA2.id])
+            SpokenWordStore.shared.clearPosition(forSongID: bookA2.id)
+        }
+
+        player.repeatMode = .all
+        player.currentSong = bookA1
+        XCTAssertFalse(player.isRepeatingCurrentSpokenWordChapter)
+        XCTAssertFalse(player.holdsQueueAtCurrentTrackEnd)
+
+        player.toggleSpokenWordChapterRepeat()
+        XCTAssertTrue(player.isRepeatingCurrentSpokenWordChapter)
+        XCTAssertTrue(player.holdsQueueAtCurrentTrackEnd)
+        XCTAssertTrue(player.isRepeatingSpokenWordItem(id: bookA1.id))
+        // 有声书单章循环不改动音乐的 repeatMode。
+        XCTAssertEqual(player.repeatMode, .all)
+
+        // 同书内换章自动跟随，不解除循环。
+        player.currentSong = bookA2
+        XCTAssertTrue(player.isRepeatingCurrentSpokenWordChapter)
+        XCTAssertTrue(player.isRepeatingSpokenWordItem(id: bookA2.id))
+        XCTAssertFalse(player.isRepeatingSpokenWordItem(id: bookA1.id))
+
+        // 切到另一本书自动关闭。
+        player.currentSong = bookB1
+        XCTAssertFalse(player.isRepeatingCurrentSpokenWordChapter)
+        XCTAssertFalse(player.holdsQueueAtCurrentTrackEnd)
+
+        // 切到音乐也自动关闭，且音乐原本的 repeatMode 完好。
+        player.setSpokenWordChapterRepeat(true)
+        XCTAssertTrue(player.isRepeatingCurrentSpokenWordChapter)
+        player.currentSong = music
+        XCTAssertFalse(player.isRepeatingCurrentSpokenWordChapter)
+        XCTAssertEqual(player.repeatMode, .all)
+    }
+
+    func testAudiobookChapterRepeatTargetsChapterMarksAndRespectsIntro() throws {
+        let player = try makePlayer()
+        let m4b = introOutroChapter()
+        let bookID = player.spokenWordBookID(for: m4b)
+        let preferences = SpokenWordIntroOutroPreferences.shared
+        cleanups.append { preferences.set(nil, forBookID: bookID) }
+        preferences.set(SpokenWordIntroOutro(introSeconds: 20, outroSeconds: 10), forBookID: bookID)
+
+        player.currentSong = m4b
+        player.duration = m4b.duration
+        player.spokenWordChapters = [
+            MediaChapter(startTime: 0, title: "序章"),
+            MediaChapter(startTime: 300, title: "第一章"),
+            MediaChapter(startTime: 900, title: "第二章"),
+        ]
+        player.currentTime = 420
+        player.refreshCurrentChapter()
+        XCTAssertEqual(player.currentChapterIndex, 1)
+
+        player.setSpokenWordChapterRepeat(true)
+        XCTAssertEqual(player.spokenWordChapterRepeat?.chapterIndex, 1)
+        XCTAssertEqual(player.spokenWordChapterRepeatBounds, SpokenWordChapterRepeatBounds(start: 300, end: 900))
+
+        let chapter1Row = SpokenWordContentsRow(
+            kind: .chapter(index: 1, startTime: 300), itemID: m4b.id, number: 2,
+            title: "第一章", duration: 600, state: .current(fraction: 0.2), isNested: false
+        )
+        let chapter2Row = SpokenWordContentsRow(
+            kind: .chapter(index: 2, startTime: 900), itemID: m4b.id, number: 3,
+            title: "第二章", duration: 900, state: .unplayed, isNested: false
+        )
+        XCTAssertTrue(player.isRepeatingSpokenWordRow(chapter1Row))
+        XCTAssertFalse(player.isRepeatingSpokenWordRow(chapter2Row))
+
+        // 手动拖进度到最后一章：起点 900，终点交给文件尾。
+        player.noteSpokenWordChapterRepeatSeek(to: 1_000)
+        XCTAssertEqual(player.spokenWordChapterRepeat?.chapterIndex, 2)
+        XCTAssertEqual(player.spokenWordChapterRepeatBounds, SpokenWordChapterRepeatBounds(start: 900, end: nil))
+
+        // 切回序章：起点套用本书 20 秒片头跳过。
+        player.noteSpokenWordChapterRepeatSeek(to: 50)
+        XCTAssertEqual(player.spokenWordChapterRepeat?.chapterIndex, 0)
+        XCTAssertEqual(player.spokenWordChapterRepeatBounds, SpokenWordChapterRepeatBounds(start: 20, end: 300))
+
+        // 目录行上再次点「取消单章循环」关闭。
+        let chapter0Row = SpokenWordContentsRow(
+            kind: .chapter(index: 0, startTime: 0), itemID: m4b.id, number: 1,
+            title: "序章", duration: 300, state: .current(fraction: 0.1), isNested: false
+        )
+        player.repeatSpokenWordContentsRow(chapter0Row)
+        XCTAssertFalse(player.isRepeatingCurrentSpokenWordChapter)
+    }
+
     func testLocalBookOverrideWinsOverServerAndCanBeDisabledOrReset() throws {
         let player = try makePlayer()
         var chapter = introOutroChapter()

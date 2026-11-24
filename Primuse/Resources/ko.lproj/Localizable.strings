@@ -8184,3 +8184,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "손으로 그린 수채화 무대에서 종이 인형 넷이 노래에 맞춰 흔들고 따라 부르고 드럼을 칩니다. 가사 한 줄마다 장면이 바뀌어요";
 "fullscreen_effect_watercolor_theater_motion" = "비트·에너지·가사에 따라 동작이 바뀜 · 잉크 선은 초당 12번 다시 그림";
 "immersive_theater_greeting" = "안녕!";
+"spoken_word_repeat_chapter" = "챕터 반복";
+"spoken_word_repeat_chapter_short" = "반복";
+"spoken_word_repeat_chapter_play" = "이 챕터 반복 재생";
+"spoken_word_repeat_chapter_stop" = "챕터 반복 해제";
+"player_controls_tile_home_menu" = "끄면 '더 보기' 메뉴";

@@ -1063,6 +1063,7 @@ extension AudioPlayerService {
         let isUserSeek = !isRecovery && !isConfigurationRecovery && !isColdSessionRestore && !reacquiringLocalRouteFocus
         if isUserSeek {
             noteABRepeatSeek(to: time)
+            noteSpokenWordChapterRepeatSeek(to: time)
         }
         noteSpokenWordSeekWhilePaused(to: time, isRecovery: isRecovery)
         if isAppleMusicMode {

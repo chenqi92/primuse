@@ -84,7 +84,7 @@ extension AudioPlayerService {
             stop()
             return
         }
-        if repeatMode == .one {
+        if repeatMode == .one || isRepeatingCurrentSpokenWordChapter {
             suspendPlaybackAfterFailure(
                 reason: "repeat-one-playback-failure",
                 message: lastPlaybackError ?? String(localized: "playback_error_decode")

@@ -387,6 +387,8 @@ struct AudiobookCurrentPartRow<Accessory: View>: View {
     var showsPartButtons = true
     /// 右边换成了别的一颗键(`accessory`)。
     var showsAccessory = false
+    /// 页面上没有另摆「单章循环」按钮时，开启单章循环后在这里放一颗轻状态键，一眼看得出且一键取消。
+    var showsActiveRepeatIndicator = true
     let onOpenContents: () -> Void
     @ViewBuilder var accessory: () -> Accessory
     @Environment(AudioPlayerService.self) private var player
@@ -395,6 +397,7 @@ struct AudiobookCurrentPartRow<Accessory: View>: View {
         let label = SpokenWordPartTitleLabel(
             SpokenWordPlayerText.partTitle(player) ?? player.currentSong?.title ?? ""
         )
+        let showsRepeatBadge = showsActiveRepeatIndicator && player.isRepeatingCurrentSpokenWordChapter
         // 墨黑上面原来还有一行「当前章节」,和章号栏的「CHAPTER」重复,去掉了(#367)。
         HStack(spacing: 0) {
             Button(action: onOpenContents) {
@@ -421,8 +424,26 @@ struct AudiobookCurrentPartRow<Accessory: View>: View {
             .accessibilityElement(children: .combine)
             .accessibilityHint(Text("spoken_word_contents_title"))
 
-            if showsPartButtons || showsAccessory {
+            if showsRepeatBadge || showsPartButtons || showsAccessory {
                 HStack(spacing: 0) {
+                    if showsRepeatBadge {
+                        Button {
+                            #if os(iOS)
+                            PMHaptics.playbackModeToggled()
+                            #endif
+                            player.setSpokenWordChapterRepeat(false)
+                        } label: {
+                            Image(systemName: "repeat.1")
+                                .font(.callout.weight(.semibold))
+                                .foregroundStyle(style.accent)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("spoken_word_repeat_chapter_stop"))
+                        .accessibilityAddTraits(.isSelected)
+                        .pmFadeTransition(motion: .control)
+                    }
                     if showsPartButtons {
                         SpokenWordPartButton(forward: false, color: style.control(paper: style.primary), font: .callout)
                         SpokenWordPartButton(forward: true, color: style.control(paper: style.primary), font: .callout)
@@ -437,6 +458,7 @@ struct AudiobookCurrentPartRow<Accessory: View>: View {
         }
         .contentTransition(.opacity)
         .pmAnimation(.trackChange, value: label)
+        .pmAnimation(.control, value: showsRepeatBadge)
     }
 }
 

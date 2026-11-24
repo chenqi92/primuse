@@ -434,7 +434,11 @@ private struct SpokenWordContentsList: View, Equatable {
                             onOpen?()
                             if isSheet { dismiss() }
                         } label: {
-                            SpokenWordContentsRowView(row: row, palette: palette)
+                            SpokenWordContentsRowView(
+                                row: row,
+                                palette: palette,
+                                isRepeating: player.isRepeatingSpokenWordRow(row)
+                            )
                         }
                         .buttonStyle(.plain)
                         .contentShape(Rectangle())
@@ -492,6 +496,23 @@ private struct SpokenWordContentsList: View, Equatable {
 
     @ViewBuilder
     private func rowMenu(_ row: SpokenWordContentsRow) -> some View {
+        if player.currentItemIsAudiobook {
+            let repeating = player.isRepeatingSpokenWordRow(row)
+            Button {
+                player.repeatSpokenWordContentsRow(row)
+                if !repeating {
+                    onOpen?()
+                    if isSheet { dismiss() }
+                }
+            } label: {
+                Label(
+                    String(localized: repeating
+                        ? "spoken_word_repeat_chapter_stop"
+                        : "spoken_word_repeat_chapter_play"),
+                    systemImage: "repeat.1"
+                )
+            }
+        }
         if row.kind == .item {
             if store.isFinished(songID: row.itemID) {
                 Button {
@@ -515,6 +536,7 @@ private struct SpokenWordContentsList: View, Equatable {
 struct SpokenWordContentsRowView: View {
     let row: SpokenWordContentsRow
     var palette: SpokenWordPlayerPalette?
+    var isRepeating = false
 
     private var primary: Color { palette?.primary ?? .primary }
     private var secondary: Color { palette?.secondary ?? .secondary }
@@ -544,6 +566,13 @@ struct SpokenWordContentsRowView: View {
             }
 
             Spacer(minLength: 0)
+
+            if isRepeating {
+                Image(systemName: "repeat.1")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(accent)
+                    .accessibilityLabel(Text("spoken_word_repeat_chapter"))
+            }
 
             stateMark
                 .frame(width: 22, height: 22)

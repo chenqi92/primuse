@@ -1557,13 +1557,27 @@ struct SpokenWordBookDetailView: View {
                             item: item,
                             number: index + 1,
                             isResumeItem: item.id == book.resumeItemID && book.canContinue,
-                            isPlaying: player.isPlaying && player.currentSong?.id == item.id
+                            isPlaying: player.isPlaying && player.currentSong?.id == item.id,
+                            isRepeating: player.isRepeatingSpokenWordItem(id: item.id)
                         )
                     }
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
                     .loadsOfflineAudioSnapshot(for: songsByID[item.id])
                     .contextMenu {
+                        let repeating = player.isRepeatingSpokenWordItem(id: item.id)
+                        Button {
+                            if let songIndex = songs.firstIndex(where: { $0.id == item.id }) {
+                                player.playSpokenWordBookRepeating(songs: songs, startingAt: songIndex, bookID: book.id)
+                            }
+                        } label: {
+                            Label(
+                                String(localized: repeating
+                                    ? "spoken_word_repeat_chapter_stop"
+                                    : "spoken_word_repeat_chapter_play"),
+                                systemImage: "repeat.1"
+                            )
+                        }
                         Button {
                             store.markFinished(!item.isFinished, songIDs: [item.id])
                         } label: {
@@ -2880,6 +2894,7 @@ struct SpokenWordChapterItemRow: View {
     let number: Int
     let isResumeItem: Bool
     let isPlaying: Bool
+    var isRepeating = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -2910,6 +2925,12 @@ struct SpokenWordChapterItemRow: View {
                         .foregroundStyle(isPlaying ? ListeningSpace.spokenWord.tint : (item.isFinished ? .secondary : .primary))
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    if isRepeating {
+                        Image(systemName: "repeat.1")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(ListeningSpace.spokenWord.tint)
+                            .accessibilityLabel(Text("spoken_word_repeat_chapter"))
+                    }
                     if !detail.isEmpty {
                         Text(detail)
                             .font(.caption.monospacedDigit())

@@ -2068,7 +2068,7 @@ private struct SpokenWordMenuItemsEditor: View {
             .bookmark, .chaptersAndBookmarks, .goToBook, .generateTranscript, .importTranscripts, .exportText, .songInfo,
             .editTags, .editLyrics, .reloadLyrics, .openInAppleMusic,
         ]),
-        ("player_menu_group_spoken_playback", playbackItems),
+        ("player_menu_group_spoken_playback", [.repeatChapter] + playbackItems),
     ]
 
     /// 资料库里的播客(自己下载、标成播客的歌)走的也是播客这一份配置,菜单里有加歌单、
@@ -2206,6 +2206,7 @@ extension NowPlayingMenuItem {
         case .lyricsTiming: "ruler"
         case .singAlong: KaraokeSingAlongText.symbol
         case .orientation: "rectangle.landscape.rotate"
+        case .repeatChapter: "repeat.1"
         }
     }
 
@@ -2277,6 +2278,7 @@ extension NowPlayingMenuItem {
         case .lyricsTiming: "lyrics_timing_title"
         case .singAlong: "sing_along_title"
         case .orientation: "player_controls_action_orientation"
+        case .repeatChapter: "spoken_word_repeat_chapter"
         }
     }
 }
@@ -2549,6 +2551,7 @@ extension SpokenWordControlTile {
         case .transcript: "text.bubble"
         case .like: "heart"
         case .more: "ellipsis"
+        case .repeatChapter: "repeat.1"
         }
     }
 
@@ -2563,6 +2566,7 @@ extension SpokenWordControlTile {
         case .transcript: "spoken_word_text_tab"
         case .like: "player_controls_action_like"
         case .more: "more"
+        case .repeatChapter: "spoken_word_repeat_chapter"
         }
     }
 
@@ -2571,6 +2575,7 @@ extension SpokenWordControlTile {
         switch self {
         case .airPlay, .like, .more: "player_controls_tile_home_header"
         case .transcript: "player_controls_tile_home_transport"
+        case .repeatChapter: "player_controls_tile_home_menu"
         case .speed, .sleepTimer, .bookmark, .contents, .upNext: nil
         }
     }
@@ -2594,6 +2599,7 @@ extension SpokenWordSlotAction {
         case .upNext: "list.bullet"
         case .like: "heart"
         case .more: "ellipsis"
+        case .repeatChapter: "repeat.1"
         }
     }
 
@@ -2608,6 +2614,7 @@ extension SpokenWordSlotAction {
         case .upNext: "up_next"
         case .like: "player_controls_action_like"
         case .more: "player_menu_items_title"
+        case .repeatChapter: "spoken_word_repeat_chapter"
         }
     }
 }

@@ -151,6 +151,7 @@ extension AudioPlayerService {
         if sleepStopAfterChapter != nil {
             enforceChapterSleepLockIfNeeded()
         }
+        followSpokenWordChapterRepeatLoop()
     }
 
     func stopTimeUpdater() {
@@ -235,6 +236,8 @@ extension AudioPlayerService {
         }
         // A-B 的 B 就在曲尾:回到 A,不管循环方式。
         if restartABRepeatAtTrackEndIfNeeded() { return }
+        // 有声书单章循环:回到本章起点(多文件书回文件头/片头后,带章节标记的最后一章回该章起点)。
+        if await restartSpokenWordChapterRepeatAtTrackEndIfNeeded() { return }
         // 「单曲播一遍」停在这首上,用不着先把队列续长。
         if currentTrackEndStop == .stay, stopForTrackEndIfNeeded() { return }
         // 音乐队列播完: 续播的相似歌曲通常在这首开始时就已经排上了; 极短的歌

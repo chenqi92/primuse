@@ -343,7 +343,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 Task { await player.next() }
             }
             divider()
-            // 有声内容按书的顺序听, 随机与循环只会打乱章节。
+            // 有声内容按书的顺序听, 随机与列表循环只会打乱章节；有声书单独支持单章循环。
             if !isSpokenWord {
                 toggleRow(title: "shuffle", symbol: "shuffle",
                           isOn: Binding(get: { player.shuffleEnabled },
@@ -353,6 +353,13 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                          symbol: player.repeatMode == .one ? "repeat.1" : "repeat",
                          isChecked: player.repeatMode != .off) {
                     cycleRepeat()
+                }
+                divider()
+            } else if player.currentItemIsAudiobook {
+                checkRow(title: "spoken_word_repeat_chapter",
+                         symbol: "repeat.1",
+                         isChecked: player.isRepeatingCurrentSpokenWordChapter) {
+                    player.toggleSpokenWordChapterRepeat()
                 }
                 divider()
             }

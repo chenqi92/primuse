@@ -749,7 +749,17 @@ struct TVSpokenWordBookDetailView: View {
                                     item, index: index, isResume: item.id == book.resumeItemID,
                                     podcastEpisodes: isPodcast ? ordered : nil,
                                     order: settings.order,
-                                    onFocusChanged: focusChanged
+                                    onFocusChanged: focusChanged,
+                                    onRepeatChapter: isPodcast ? nil : {
+                                        if store.playSpokenWordBookRepeating(
+                                            songIDs: book.items.map(\.id),
+                                            startingAt: item.id,
+                                            bookID: book.id
+                                        ) {
+                                            openPlayer()
+                                            dismiss()
+                                        }
+                                    }
                                 ) {
                                     play(book, from: item.id)
                                 }
@@ -782,9 +792,11 @@ struct TVSpokenWordBookDetailView: View {
         podcastEpisodes: [SpokenWordBookItem]?,
         order: LocalPodcastEpisodeOrder,
         onFocusChanged: @escaping (Bool) -> Void,
+        onRepeatChapter: (() -> Void)? = nil,
         action: @escaping () -> Void
     ) -> some View {
         let isPodcast = podcastEpisodes != nil
+        let isRepeating = !isPodcast && store.isRepeatingSpokenWordItem(id: item.id)
         let row = TVFocusButton(
             radius: 16, scale: 1.02, lift: 0, ring: false,
             action: action, onFocusChanged: onFocusChanged,
@@ -821,6 +833,12 @@ struct TVSpokenWordBookDetailView: View {
                     }
                 }
                 Spacer(minLength: 12)
+                if isRepeating {
+                    Image(systemName: "repeat.1")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(TVColor.spokenWordSpace)
+                        .accessibilityLabel(Text(String(localized: "spoken_word_repeat_chapter")))
+                }
                 // 听完又在重听的一章仍是接着听的那一章。
                 if isResume, !item.isFinished || item.position != nil {
                     Image(systemName: "play.circle.fill")
@@ -858,6 +876,19 @@ struct TVSpokenWordBookDetailView: View {
                     Button(String(localized: "podcast_mark_older_played")) {
                         SpokenWordStore.shared.markFinished(true, songIDs: earlier)
                     }
+                }
+            }
+        } else if let onRepeatChapter {
+            row.contextMenu {
+                Button {
+                    onRepeatChapter()
+                } label: {
+                    Label(
+                        String(localized: isRepeating
+                            ? "spoken_word_repeat_chapter_stop"
+                            : "spoken_word_repeat_chapter_play"),
+                        systemImage: "repeat.1"
+                    )
                 }
             }
         } else {

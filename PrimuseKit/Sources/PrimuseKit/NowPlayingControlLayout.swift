@@ -218,6 +218,8 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case singAlong
     /// 横竖屏切换:没摆在播放页上时补进来,只在手机上出现;有声书、播客的播放页上没有这颗键,一直在菜单里。
     case orientation
+    /// 有声书的单章循环开关。
+    case repeatChapter
 
     public var id: String { rawValue }
 

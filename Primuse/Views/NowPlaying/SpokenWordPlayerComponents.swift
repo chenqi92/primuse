@@ -497,9 +497,32 @@ struct SpokenWordActionTiles: View {
             if isPodcast, let onUpNext { upNextTile(onUpNext) }
         case .airPlay:
             airPlayTile
+        case .repeatChapter:
+            if player.currentItemIsAudiobook { repeatChapterTile }
         case .transcript, .like, .more:
             if let view = customTile?(tile) { view }
         }
+    }
+
+    private var repeatChapterTile: some View {
+        let isRepeating = player.isRepeatingCurrentSpokenWordChapter
+        return Button {
+            #if os(iOS)
+            PMHaptics.playbackModeToggled()
+            #endif
+            player.toggleSpokenWordChapterRepeat()
+        } label: {
+            tile {
+                Image(systemName: "repeat.1")
+                    .font(iconFont)
+                    .foregroundStyle(isRepeating ? palette.accent : palette.primary)
+            } caption: {
+                Text("spoken_word_repeat_chapter_short")
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(isRepeating ? "spoken_word_repeat_chapter_stop" : "spoken_word_repeat_chapter"))
+        .accessibilityAddTraits(isRepeating ? .isSelected : [])
     }
 
     /// 隔空播放(「播放页按钮」里打开后从右上角挪到这一排)。系统的选取键只认点在它自己身上,
@@ -748,6 +771,8 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
     var partFont: Font = .body
     var alignment: HorizontalAlignment = .leading
     var titleLineLimit = 2
+    /// 页面上没有另摆单章循环键时，开启后在进度行旁显示轻状态键，一键取消。
+    var showsActiveRepeatIndicator = true
     /// 播客:节目名单独可点,打开节目页。
     var onOpenShow: (() -> Void)? = nil
     let onOpenBook: () -> Void
@@ -808,6 +833,27 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
                         .fixedSize()
                 }
                 if alignment != .center { Spacer(minLength: 0) }
+                if showsActiveRepeatIndicator, player.isRepeatingCurrentSpokenWordChapter {
+                    Button {
+                        #if os(iOS)
+                        PMHaptics.playbackModeToggled()
+                        #endif
+                        player.setSpokenWordChapterRepeat(false)
+                    } label: {
+                        Image(systemName: "repeat.1")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(palette.accent)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    #if os(macOS)
+                    .pmPointingHand()
+                    .help(Text("spoken_word_repeat_chapter_stop"))
+                    #endif
+                    .accessibilityLabel(Text("spoken_word_repeat_chapter_stop"))
+                    .accessibilityAddTraits(.isSelected)
+                    .pmFadeTransition(motion: .control)
+                }
                 SpokenWordPartPositionButton(palette: palette, action: onOpenContents)
             }
             .font(.footnote)
@@ -841,6 +887,7 @@ extension SpokenWordPlayerHeading where Trailing == EmptyView {
         partFont: Font = .body,
         alignment: HorizontalAlignment = .leading,
         titleLineLimit: Int = 2,
+        showsActiveRepeatIndicator: Bool = true,
         onOpenShow: (() -> Void)? = nil,
         onOpenBook: @escaping () -> Void,
         onOpenContents: @escaping () -> Void
@@ -851,6 +898,7 @@ extension SpokenWordPlayerHeading where Trailing == EmptyView {
             partFont: partFont,
             alignment: alignment,
             titleLineLimit: titleLineLimit,
+            showsActiveRepeatIndicator: showsActiveRepeatIndicator,
             onOpenShow: onOpenShow,
             onOpenBook: onOpenBook,
             onOpenContents: onOpenContents,
@@ -2095,6 +2143,31 @@ struct SpokenWordTranscriptReader: View {
             menuRow("transcript_reader_themes_settings", systemImage: "textformat.size") { chooseMenuAction(.settings) }
             Divider()
             playbackRateRow
+            if player.currentItemIsAudiobook {
+                Divider()
+                let isRepeating = player.isRepeatingCurrentSpokenWordChapter
+                Button {
+                    #if os(iOS)
+                    PMHaptics.playbackModeToggled()
+                    #endif
+                    player.toggleSpokenWordChapterRepeat()
+                    showsMenu = false
+                } label: {
+                    HStack(spacing: 12) {
+                        Text("spoken_word_repeat_chapter")
+                        Spacer(minLength: 8)
+                        Image(systemName: isRepeating ? "repeat.1.circle.fill" : "repeat.1")
+                            .foregroundStyle(isRepeating ? Color.accentColor : Color.primary)
+                            .frame(width: 22)
+                    }
+                    .font(.body)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isRepeating ? .isSelected : [])
+            }
             if let song = player.currentSong, SpokenWordTranscriptOffsetStore.shared.itemKey(for: song) != nil {
                 Divider()
                 SpokenWordTranscriptOffsetRow(scope: .item(song), compact: true)

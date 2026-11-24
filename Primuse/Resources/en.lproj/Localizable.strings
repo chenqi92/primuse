@@ -7945,3 +7945,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "Four little puppets sway, sing along and drum on a hand-painted watercolor stage, with a new shot for every lyric line";
 "fullscreen_effect_watercolor_theater_motion" = "Moves follow the beat, energy and lyrics · Ink lines redrawn 12 times a second";
 "immersive_theater_greeting" = "Hi!";
+"spoken_word_repeat_chapter" = "Repeat Chapter";
+"spoken_word_repeat_chapter_short" = "Repeat";
+"spoken_word_repeat_chapter_play" = "Loop This Chapter";
+"spoken_word_repeat_chapter_stop" = "Stop Repeating Chapter";
+"player_controls_tile_home_menu" = "When off: in More menu";
