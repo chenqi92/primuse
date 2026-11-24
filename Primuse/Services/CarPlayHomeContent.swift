@@ -419,7 +419,7 @@ enum CarPlayHomeContent {
         case .playlist:
             resolved = library.playlists.first { $0.id == item.targetID }.map { playlist($0, directly: directly) }
         case .album:
-            resolved = library.visibleAlbums.first { $0.id == item.targetID }.map { album($0, directly: directly) }
+            resolved = library.visibleAlbum(id: item.targetID).map { album($0, directly: directly) }
         case .song:
             resolved = library.unobservedVisibleSong(id: item.targetID).map { song($0, queue: [$0.id]) }
         case .folder:

@@ -927,8 +927,34 @@ final class TVStore {
         return library.isReady && !hasBuiltLookupSinceLibraryReady
     }
 
+    /// 可见专辑数、音乐歌曲数、艺人数(资料库标题、播放页书架的分栏)。目录可读时读目录的计数,
+    /// 与 `albums.count`、`songs.count`、`artists.count` 相同。
+    var visibleAlbumCount: Int {
+        _ = libraryContentRevision
+        return catalogLookups.presence()?.albums ?? library.visibleAlbums.count
+    }
+
+    var musicSongCount: Int {
+        _ = libraryContentRevision
+        return catalogLookups.presence()?.musicSongs ?? library.musicSongs.count
+    }
+
+    var visibleArtistCount: Int {
+        _ = libraryContentRevision
+        return catalogLookups.presence()?.artists ?? library.visibleArtists.count
+    }
+
+    /// 有没有本机播客文件(播客页决定要不要显示欢迎卡)。
+    var hasLocalPodcastSongs: Bool {
+        if let count = catalogLookups.songCount(LibrarySongScope(kinds: [.podcast])) { return count > 0 }
+        return !library.localPodcastSongs.isEmpty
+    }
+
     var hasRealLibrary: Bool {
         _ = libraryContentRevision
+        if let presence = catalogLookups.presence() {
+            return VisibleLibraryPresencePolicy.hasContent(songCount: presence.musicSongs, albumCount: presence.albums)
+        }
         return VisibleLibraryPresencePolicy.hasContent(
             songCount: library.musicSongs.count,
             albumCount: library.visibleAlbums.count
@@ -1221,6 +1247,10 @@ final class TVStore {
     @ObservationIgnored private var folderItemNames: [String: [String: String]] = [:]
     /// 上一次交给分书的网盘扫描根名字(随源保存,扫描索引里没有扫描根这一行)。
     @ObservationIgnored private var publishedScanRootNames: [String: [String: String]] = [:]
+
+    /// 曲库目录可读时改读目录的那几样(计数、专辑曲目、喜欢的专辑/艺人……,见 `TVCatalogLookups`)。
+    /// 没命中时照旧走下面按内存建的小索引。
+    @ObservationIgnored private(set) lazy var catalogLookups = TVCatalogLookups(library: self.library)
 
     // 浏览数据直接读曲库的可见数组,按需转换成界面值(见 `TVLibraryList`)。
     // 下面几份是按查找修订号懒建的小索引:第一次用到才建,修订号一变就作废。
@@ -1614,6 +1644,11 @@ final class TVStore {
     private func likedLibraryAlbums() -> [Album] {
         let favorites = LibraryFavoritesStore.shared
         let favoritesRevision = favorites.revision
+        if let albums = catalogLookups.likedAlbums(
+            favoritesRevision: favoritesRevision, likedOrder: Self.likedOrder(favorites, .album)
+        ) {
+            return albums
+        }
         if let cache = likedAlbumsCache, cache.library == libraryContentRevision, cache.favorites == favoritesRevision {
             return cache.albums
         }
@@ -1625,6 +1660,12 @@ final class TVStore {
     private func likedLibraryArtists(_ mode: ArtistBrowseMode) -> [Artist] {
         let favorites = LibraryFavoritesStore.shared
         let favoritesRevision = favorites.revision
+        // 目录只有全部艺人的可见列表;「专辑艺人」模式(含只列有完整发行的人)仍读内存。
+        if mode == .allArtists, let artists = catalogLookups.likedArtists(
+            favoritesRevision: favoritesRevision, likedOrder: Self.likedOrder(favorites, .artist)
+        ) {
+            return artists
+        }
         if let cache = likedArtistsCache, cache.mode == mode,
            cache.library == libraryContentRevision, cache.favorites == favoritesRevision {
             return cache.artists
@@ -1632,6 +1673,14 @@ final class TVStore {
         let artists = favorites.likedArtists(in: library.browsableArtists(mode))
         likedArtistsCache = (mode, libraryContentRevision, favoritesRevision, artists)
         return artists
+    }
+
+    /// 喜欢的键 → 先后(最近喜欢的在前),与 `LibraryFavoritesStore.likedAlbums(in:)` 同一份顺序。
+    private static func likedOrder(_ favorites: LibraryFavoritesStore, _ kind: LibraryFavoriteKind) -> [String: Int] {
+        Dictionary(
+            favorites.ledger.active(kind).enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     /// 首页「喜欢的专辑」一排。
@@ -1899,6 +1948,8 @@ final class TVStore {
     /// 下一次搜索在后台按需重新读。
     func releaseSearchCache() {
         searchCache = LibrarySearchCache()
+        // 目录查询的小缓存一并放掉(下次读时重查)。
+        catalogLookups.removeAll()
     }
 
     struct TVSearchResults {
@@ -2073,7 +2124,19 @@ final class TVStore {
         sortedSongIDs(forAlbum: id).filter { library.visibleSong(id: $0) != nil }
     }
 
+    /// 专辑曲目 id,只读内存里的曲库。刚改完标签、刚补全完就要看这张专辑现在有哪些歌的地方用它:
+    /// 目录跟着内存写,有一小段滞后。
+    func currentSongIDs(forAlbum id: String) -> [String] {
+        inMemorySortedSongIDs(forAlbum: id).filter { library.visibleSong(id: $0) != nil }
+    }
+
     private func sortedSongIDs(forAlbum id: String) -> [String] {
+        _ = libraryContentRevision
+        if let ids = catalogLookups.albumSongIDs(id) { return ids }
+        return inMemorySortedSongIDs(forAlbum: id)
+    }
+
+    private func inMemorySortedSongIDs(forAlbum id: String) -> [String] {
         _ = libraryContentRevision
         if sortedAlbumSongIDs[id] == nil {
             let index = albumSongIDsIndex ?? {
@@ -2117,6 +2180,7 @@ final class TVStore {
     var recommended: [TVAlbum] {
         _ = libraryContentRevision
         _ = albumArtworkPaletteRevision
+        if let albums = catalogLookups.lastAlbums(6) { return albums.map(albumMapper.map) }
         return library.visibleAlbums.suffix(6).map(albumMapper.map)
     }
 
@@ -2771,6 +2835,8 @@ final class TVStore {
     /// 整库计数:一趟走完 `songs`,之后直到 `songs` 再变都直接复用。读 `library.songs`
     /// 同时登记观察依赖,依赖它的视图在歌曲增删后照旧刷新。
     private func allSongCountsBySource() -> [String: Int] {
+        // 目录可读时按源 GROUP BY,不再整库走一趟;读答案时登记了目录修订号的观察。
+        if let counts = catalogLookups.songCountsBySource() { return counts }
         let songs = library.songs
         let generation = library.songMutationGenerationForMaintenance
         if let cache = songCountsBySourceCache, cache.generation == generation, cache.total == songs.count {
@@ -2995,7 +3061,7 @@ final class TVStore {
                 return PMString("ext.tv.test.failedDetail", error.localizedDescription)
             }
         }
-        guard let song = library.songs.first(where: { $0.sourceID == id }) else {
+        guard let song = await firstLibrarySong(ofSourceID: id) else {
             // 曲库里还没有这个源的歌,不代表连不上 —— 刚添加完还没扫描就是这种情况。
             // 凡是电视端自己能列目录的类型,就用真实的一次列举来验证连接,
             // 别再用「暂无歌曲,无法测试」把用户挡回去。
@@ -5026,8 +5092,25 @@ final class TVStore {
 
     func queueTransferScan(source: MusicSource, path: String, deleted: Bool) {
         if deleted {
-            let ids = Set(library.songs.filter { $0.sourceID == source.id && $0.filePath == "/" + path }.map(\.id))
-            removeTransferredSongsFromQueue(ids)
+            let filePath = "/" + path
+            if let reader = readableCatalogReader {
+                // 目录按 (源, 路径) 索引直接查,不再整库过一遍。
+                let sourceID = source.id
+                Task { [weak self] in
+                    let ids: [String]
+                    do {
+                        ids = try await reader.songIDs(sourceID: sourceID, filePath: filePath)
+                    } catch {
+                        plog("📚 TV catalog transfer path lookup failed, using memory: \(error)")
+                        ids = self?.library.songs.filter { $0.sourceID == sourceID && $0.filePath == filePath }
+                            .map(\.id) ?? []
+                    }
+                    self?.removeTransferredSongsFromQueue(Set(ids))
+                }
+            } else {
+                let ids = Set(library.songs.filter { $0.sourceID == source.id && $0.filePath == filePath }.map(\.id))
+                removeTransferredSongsFromQueue(ids)
+            }
         }
         let url = URL(fileURLWithPath: "/" + path)
         if PrimuseConstants.readableLyricsExtensions.contains(url.pathExtension.lowercased()) {
@@ -5044,6 +5127,27 @@ final class TVStore {
               !source.isDeleted, source.isEnabled, !locallyRemovedSourceIDs.contains(source.id) else { return }
         transferNeedsScan = true
         // Interrupted sidecar updates may have lost their in-memory path list.
+        if let reader = readableCatalogReader {
+            let sourceID = source.id
+            Task { [weak self] in
+                let stems: Set<String>
+                do {
+                    stems = try await reader.reduceSongIdentities(.source(sourceID), into: Set<String>()) { collected, song in
+                        collected.insert(URL(fileURLWithPath: song.filePath).deletingPathExtension().path)
+                        return true
+                    }
+                } catch {
+                    plog("📚 TV catalog transfer stems failed, using memory: \(error)")
+                    stems = Set(self?.library.songs.filter { $0.sourceID == sourceID }.map {
+                        URL(fileURLWithPath: $0.filePath).deletingPathExtension().path
+                    } ?? [])
+                }
+                guard let self else { return }
+                self.transferLyricsStems.formUnion(stems)
+                self.startTransferScan(sourceID: sourceID)
+            }
+            return
+        }
         transferLyricsStems.formUnion(library.songs.filter { $0.sourceID == source.id }.map {
             URL(fileURLWithPath: $0.filePath).deletingPathExtension().path
         })
@@ -5070,19 +5174,17 @@ final class TVStore {
                 let scanRevision = TVLocalTransferSource.scanRevision(in: defaults)
                 let stems = transferLyricsStems
                 transferLyricsStems.removeAll()
-                let changed = library.songs.filter {
-                    $0.sourceID == sourceID && stems.contains(URL(fileURLWithPath: $0.filePath).deletingPathExtension().path)
-                }
-                for song in changed {
-                    _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id)
-                    applyLyrics([], forSongID: song.id)
+                let changedIDs = await songIDs(ofSourceID: sourceID, whosePathStemIsIn: stems)
+                for songID in changedIDs {
+                    _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
+                    applyLyrics([], forSongID: songID)
                 }
                 guard await runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"]) else {
                     transferScanError = "unavailable"
                     return
                 }
                 guard case .done = scanner.phase else { transferScanError = "unavailable"; return }
-                if let id = currentSongID, changed.contains(where: { $0.id == id }),
+                if let id = currentSongID, changedIDs.contains(id),
                    let song = library.song(id: id), let requestID = activePlaybackRequestID {
                     coordinator.refreshTransferredLyrics(song: song, source: source, requestID: requestID)
                 }

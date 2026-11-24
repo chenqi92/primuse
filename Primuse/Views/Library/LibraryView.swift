@@ -308,7 +308,7 @@ final class LibraryStartupPlaybackCoordinator {
                 player.shuffleEnabled = false
                 await player.play(prepared: queue)
             } else {
-                var ids = library.musicSongIDsExcludingDisliked
+                var ids = await Self.wholeLibraryPlaybackIDs(library: library)
                 if let firstID { ids.insert(firstID, at: 0) }
                 guard !ids.isEmpty else { return }
                 let order: LargeQueueRequestOrder = shuffled ? .shuffled : .asGiven
@@ -316,6 +316,20 @@ final class LibraryStartupPlaybackCoordinator {
                 await player.play(queueIDs: ids, order: firstID != nil ? .shuffledAfterStart : order)
             }
         }
+    }
+
+    /// 「播放全部 / 随机播放全部」交给播放器的整库 id。目录可读时从目录流式取(可播放的音乐、
+    /// 不含不喜欢的,库内顺序;不可播放的那些播放器本来也会按 `playableOnly` 挑掉),
+    /// 读失败或目录不可读时照旧用内存模型的 `musicSongIDsExcludingDisliked`。
+    static func wholeLibraryPlaybackIDs(library: MusicLibrary) async -> [String] {
+        if let host = library.catalogHost, host.revisions.isReadable {
+            do {
+                return try await host.reader.playbackSongIDs(excluding: library.dislikedSongIDs)
+            } catch {
+                plog("🎶 catalog whole-library ids failed (\(error)); using the in-memory library")
+            }
+        }
+        return library.musicSongIDsExcludingDisliked
     }
 
     func request<Selection>(
@@ -818,10 +832,26 @@ struct LibraryView: View {
     private var regularPlaylists: [Playlist] {
         library.playlists.filter { $0.id != MusicLibrary.likedSongsPlaylistID }
     }
+    /// 目录可读时入口上的计数从目录读(见 `LibraryHubCatalogCountsModel`),否则 nil(读内存模型)。
+    private var catalogHubCounts: LibraryHubCatalogCounts? {
+        LibraryHubCatalogCountsModel.shared(for: library)?.readableCounts
+    }
+    private var visibleSongCount: Int { catalogHubCounts?.visibleSongs ?? songs.count }
+    private var musicSongCount: Int { catalogHubCounts?.music ?? library.musicSongs.count }
+    private var albumCount: Int { catalogHubCounts?.albums ?? albums.count }
+    /// 目录只有「全部艺术家」的个数;「专辑艺术家」列法照旧数内存模型。
+    private var artistCount: Int {
+        if ArtistBrowseMode.resolved(artistBrowseModeRaw) == .allArtists, let counts = catalogHubCounts {
+            return counts.artists
+        }
+        return artists.count
+    }
+    private var genreCount: Int { catalogHubCounts?.genres ?? genres.count }
+    private var ambientCount: Int { catalogHubCounts?.ambient ?? library.ambientSongs.count }
     private var hasContent: Bool {
-        !songs.isEmpty
-            || !albums.isEmpty
-            || !artists.isEmpty
+        visibleSongCount > 0
+            || albumCount > 0
+            || artistCount > 0
             || !regularPlaylists.isEmpty
             || !library.smartPlaylists.isEmpty
             || !radioStationsStore.stations.isEmpty
@@ -2024,9 +2054,9 @@ struct LibraryView: View {
         guard library.isReady, let stamp = await library.presentationCacheStamp(),
               !Task.isCancelled, scope == hubScope, revision == artworkPreviewRevision else { return }
         let counts: [LibrarySection: Int] = [
-            .songs: library.musicSongs.count, .folders: songs.count, .albums: albums.count, .artists: artists.count,
-            .genres: genres.count, .playlists: regularPlaylists.count + library.smartPlaylists.count,
-            .spokenWord: library.spokenWordBookCount, .ambient: library.ambientSongs.count,
+            .songs: musicSongCount, .folders: visibleSongCount, .albums: albumCount, .artists: artistCount,
+            .genres: genreCount, .playlists: regularPlaylists.count + library.smartPlaylists.count,
+            .spokenWord: library.spokenWordBookCount, .ambient: ambientCount,
             .musicVideos: library.musicVideoSongs.count
         ]
         let sampled = selection.songs.prefix(3).map(\.id)
@@ -2241,7 +2271,7 @@ struct LibraryView: View {
         case .favorites:
             return String(localized: "library_quick_access")
         case .folders:
-            return count(songs.count, unitKey: "songs_count")
+            return count(visibleSongCount, unitKey: "songs_count")
         case .statistics:
             return String(localized: "stats_section_label")
         case .releaseDate:
@@ -2250,7 +2280,7 @@ struct LibraryView: View {
             return String(localized: "library_recommendations_subtitle")
         case .songs:
             // 「歌曲」只数音乐,有声内容在有声那一页按书计。
-            return count(library.musicSongs.count, unitKey: "songs_count")
+            return count(musicSongCount, unitKey: "songs_count")
         case .spokenWord:
             // 有声书按书和章节计,不是「几首歌曲」。带内嵌章节的文件按章节数算,其余一个文件一章。
             let totals: (books: Int, chapters: Int)
@@ -2260,11 +2290,11 @@ struct LibraryView: View {
             } else { return "—" }
             return String(format: String(localized: "library_spoken_word_count_format"), totals.books, totals.chapters)
         case .albums:
-            return count(albums.count, unitKey: "albums_count")
+            return count(albumCount, unitKey: "albums_count")
         case .artists:
-            return count(artists.count, unitKey: "artists_count")
+            return count(artistCount, unitKey: "artists_count")
         case .genres:
-            return count(genres.count, unitKey: "genres_count")
+            return count(genreCount, unitKey: "genres_count")
         case .playlists:
             return count(
                 regularPlaylists.count + library.smartPlaylists.count,
@@ -2275,7 +2305,7 @@ struct LibraryView: View {
         case .podcasts:
             return countText(PodcastStore.shared.shows.count + library.localPodcastShowCount, unitKey: "podcast_shows_count")
         case .ambient:
-            return count(library.ambientSongs.count, unitKey: "ambient_sounds_count")
+            return count(ambientCount, unitKey: "ambient_sounds_count")
         case .musicVideos:
             return count(library.musicVideoSongs.count, unitKey: "music_videos_count")
         }

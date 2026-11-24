@@ -522,7 +522,15 @@ extension ListeningStatsView {
         if let cached = model.attribution, model.attributionKey == attributionKey {
             attribution = cached
         } else {
-            let librarySongs = library?.songs ?? []
+            let librarySongs: [Song]
+            if let library, let catalogSongs = await Self.catalogAttributionSongs(
+                music: corpus.music, live: live, deleted: deleted, library: library
+            ) {
+                librarySongs = catalogSongs
+            } else {
+                librarySongs = library?.songs ?? []
+            }
+            guard !Task.isCancelled, trigger == refreshTrigger else { return }
             attribution = await Task.detached(priority: .userInitiated) {
                 YearlyReportAnalyzer.attributeSources(music: corpus.music, live: live, deleted: deleted, librarySongs: librarySongs)
             }.value
@@ -535,7 +543,13 @@ extension ListeningStatsView {
 
         let key = SnapshotKey(corpus: corpusKey, presentation: trigger.presentation)
         guard model.snapshotKey != key || model.snapshot == nil else { return }
-        let traits = library.map { YearlyReportAnalyzer.songTraits(for: corpus.music, library: $0) } ?? [:]
+        let traits: [String: ListeningRecapSongTraits]
+        if let library, let catalogTraits = await Self.catalogSongTraits(for: corpus.music, library: library) {
+            traits = catalogTraits
+        } else {
+            traits = library.map { YearlyReportAnalyzer.songTraits(for: corpus.music, library: $0) } ?? [:]
+        }
+        guard !Task.isCancelled, trigger == refreshTrigger else { return }
         let calendar = statsCalendar
         let now = Date()
         let requestedYear = trigger.presentation.year
@@ -550,6 +564,84 @@ extension ListeningStatsView {
         model.snapshotKey = key
         model.snapshot = snapshot
         plog("📊 Yearly report year=\(snapshot.report.map { String($0.year) } ?? "none") plays=\(snapshot.report?.recap.totals.plays ?? 0) history=\(corpus.music.count)")
+    }
+
+    /// 曲库目录可读时(P2c)给归属投票用的那部分曲库:`attributeSources` 只看活着的源里、id 或
+    /// 「歌名 + 歌手」键被要投票的源的记录点到的歌,目录里只取这些(结果相同)。不需要投票时一首都不取。
+    /// 目录不可读或读失败时 nil,调用方照旧传整库。
+    @MainActor
+    private static func catalogAttributionSongs(
+        music: [PlayHistoryStore.Entry],
+        live: [MusicSource],
+        deleted: [MusicSource],
+        library: MusicLibrary
+    ) async -> [Song]? {
+        guard let reader = P2cCatalogAccess.reader(for: library) else { return nil }
+        let liveIDs = Set(live.map(\.id))
+        let tombstones = Dictionary(deleted.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let needsVote = Set(music.map(\.sourceID)).filter { sourceID in
+            !liveIDs.contains(sourceID)
+                && tombstones[sourceID].flatMap { ListeningSourceAttribution.connectionMatch(for: $0, among: live) } == nil
+        }
+        guard !needsVote.isEmpty else { return [] }
+        var wantedIDs = Set<String>()
+        var wantedKeys = Set<String>()
+        for entry in music where needsVote.contains(entry.sourceID) {
+            wantedIDs.insert(entry.songID)
+            wantedKeys.insert(ListeningSourceAttribution.songKey(title: entry.songTitle, artist: entry.artistName) ?? "")
+        }
+        // 闭包在读线程上跑:交给它不可变的副本。
+        let voteIDs = wantedIDs
+        let voteKeys = wantedKeys
+        do {
+            return try await reader.readCancellable { catalog, cancellation in
+                var songs: [Song] = []
+                var visited = 0
+                try catalog.forEachSong(.everything) { _, song in
+                    visited += 1
+                    if visited.isMultiple(of: 512), cancellation.isCancelled { return false }
+                    guard liveIDs.contains(song.sourceID) else { return true }
+                    if voteIDs.contains(song.id) {
+                        songs.append(song)
+                    } else if let key = ListeningSourceAttribution.songKey(title: song.title, artist: song.artistName),
+                              voteKeys.contains(key) {
+                        songs.append(song)
+                    }
+                    return true
+                }
+                try cancellation.check()
+                return songs
+            }
+        } catch {
+            if !(error is CancellationError) {
+                plog("📊 Listening stats: catalog attribution failed, using in-memory library: \(error.localizedDescription)")
+            }
+            return nil
+        }
+    }
+
+    /// 与 `YearlyReportAnalyzer.songTraits(for:library:)` 相同(按 id 取,含停用源),只是从曲库目录取。
+    @MainActor
+    private static func catalogSongTraits(
+        for entries: [PlayHistoryStore.Entry],
+        library: MusicLibrary
+    ) async -> [String: ListeningRecapSongTraits]? {
+        guard let reader = P2cCatalogAccess.reader(for: library) else { return nil }
+        do {
+            let songs = try await reader.songsChunked(ids: Array(Set(entries.map(\.songID))), scope: .everything)
+            var traits: [String: ListeningRecapSongTraits] = [:]
+            for song in songs {
+                traits[song.id] = ListeningRecapSongTraits(
+                    genre: song.genre, year: song.year, duration: song.duration, format: song.fileFormat
+                )
+            }
+            return traits
+        } catch {
+            if !(error is CancellationError) {
+                plog("📊 Listening stats: catalog traits failed, using in-memory library: \(error.localizedDescription)")
+            }
+            return nil
+        }
     }
 
     nonisolated private static func makeSnapshot(

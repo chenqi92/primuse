@@ -562,6 +562,9 @@ private struct SearchLibraryRevisionObserver: View {
             .onChange(of: library.searchRevision) { _, _ in onRevisionChange() }
             .onChange(of: library.lyricsSearchRevision) { _, _ in onRevisionChange() }
             .onChange(of: library.isReady) { _, _ in onRevisionChange() }
+            // 歌曲从曲库目录回查时(P2c):目录变得可读、目录跟上增删之后再查一遍。
+            .onChange(of: library.catalogHost?.revisions.isReadable) { _, _ in onRevisionChange() }
+            .onChange(of: library.catalogHost?.revisions.membership) { _, _ in onRevisionChange() }
             .onChange(of: startupSources) { _, _ in
                 if !library.isReady { onRevisionChange() }
             }
@@ -4565,9 +4568,17 @@ struct SearchView: View {
         #else
         let startupSourceIDs: Set<String>? = nil
         #endif
-        let searchSnapshot = library.searchSongSnapshot(musicOnly: !scopedSearch, startupSourceIDs: startupSourceIDs)
-        let visibleLookup = scopedSearch ? library.visibleSongLookup() : nil
+        // 曲库目录可读时歌曲从目录取(P2c);库还在启动、目录不可读、范围大到超出物化上限时
+        // 仍走内存快照。
+        let catalogReader = startupSourceIDs == nil ? P2cCatalogAccess.reader(for: library) : nil
         let scopeSnapshot = scope
+        let scopeFromCatalog = catalogReader != nil
+            && (scopeSnapshot?.songIDs.count ?? 0) <= LibraryScale.maxMaterializedRows
+        let memorySnapshot: LibrarySearchSongSnapshot? = catalogReader == nil
+            ? library.searchSongSnapshot(musicOnly: !scopedSearch, startupSourceIDs: startupSourceIDs)
+            : nil
+        let visibleLookup = scopedSearch && !scopeFromCatalog ? library.visibleSongLookup() : nil
+        let sourceTypes = memorySnapshot?.sourceTypes ?? library.searchSources?.typesByID ?? [:]
         let albumsSnapshot = scopedSearch || !layout.shows(.albums) ? [] : library.visibleAlbums
         let artistsSnapshot = scopedSearch || !layout.shows(.artists) ? [] : library.visibleArtists
         let cacheSnapshot = workCoordinator.lyricsCache
@@ -4599,10 +4610,32 @@ struct SearchView: View {
                     visibleLookup.songs(inLibraryOrder: scopeSnapshot.songIDs)
                 }
                 songsSnapshot = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            } else if let scopeSnapshot, let catalogReader {
+                var fromCatalog: [PrimuseKit.Song]?
+                do {
+                    let songs = try await catalogReader.songsInLibraryOrder(ids: scopeSnapshot.songIDs, scope: .visible)
+                    // 目录跟写内存有一小段滞后:少了歌(刚加进来的)时这一次照旧读内存。
+                    if songs.count == scopeSnapshot.songIDs.count { fromCatalog = songs }
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    plog("🔎 Catalog scoped search failed, using in-memory songs: \(error.localizedDescription)")
+                }
+                if let fromCatalog {
+                    songsSnapshot = fromCatalog
+                } else {
+                    let lookup = library.visibleSongLookup()
+                    let worker = Task.detached(priority: .userInitiated) {
+                        lookup.songs(inLibraryOrder: scopeSnapshot.songIDs)
+                    }
+                    songsSnapshot = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+                }
             } else {
-                songsSnapshot = searchSnapshot.songs
+                // 走目录的全局搜索不取整库:歌曲由下面的目录快照按 id 回查。
+                songsSnapshot = memorySnapshot?.songs ?? []
             }
             guard !Task.isCancelled else { return }
+            // 索引不可用、歌词索引还没建完时的逐首兜底仍要整份音乐;目录路径下只在那时才取内存里的。
+            let literalFromMemory = !scopedSearch && memorySnapshot == nil
 
             // The persistent index limits global matches before membership filtering.
             // Search the scope directly so matches outside it cannot crowd out its songs.
@@ -4610,6 +4643,24 @@ struct SearchView: View {
             if scopedSearch {
                 indexed = nil
             } else {
+                let searchSnapshot: LibrarySearchSongSnapshot
+                if let memorySnapshot {
+                    searchSnapshot = memorySnapshot
+                } else if let catalogReader {
+                    do {
+                        searchSnapshot = try await LibrarySearchCatalogSnapshot.make(
+                            reader: catalogReader, query: query, matchKinds: matchKinds,
+                            wantsAlbums: !albumsSnapshot.isEmpty, songLimit: 120, sourceTypes: sourceTypes
+                        )
+                    } catch {
+                        guard !Task.isCancelled else { return }
+                        plog("🔎 Catalog search snapshot failed, using in-memory songs: \(error.localizedDescription)")
+                        searchSnapshot = library.searchSongSnapshot(musicOnly: true)
+                    }
+                } else {
+                    searchSnapshot = library.searchSongSnapshot(musicOnly: true)
+                }
+                guard !Task.isCancelled else { return }
                 indexed = await LibrarySearchIndex.shared.search(
                     query: query,
                     snapshot: searchSnapshot,
@@ -4625,10 +4676,11 @@ struct SearchView: View {
             let output: LibrarySearchOutput
             if let indexed {
                 if !indexed.lyricsIndexComplete, matchKinds.contains(.lyrics) {
+                    let lyricsSongs = literalFromMemory ? library.searchSongSnapshot(musicOnly: true).songs : songsSnapshot
                     lyricsFallback = Task.detached(priority: .utility) {
                         LibrarySearchWorker.compute(
                             query: query,
-                            songs: songsSnapshot,
+                            songs: lyricsSongs,
                             albums: [],
                             cache: cacheSnapshot,
                             includeMetadata: false,
@@ -4642,15 +4694,16 @@ struct SearchView: View {
                 // FTS5/trigram is unavailable only on an unsupported SQLite
                 // runtime. Keep the corrected cancellable worker as a safe
                 // compatibility fallback.
+                let fallbackSongs = literalFromMemory ? library.searchSongSnapshot(musicOnly: true).songs : songsSnapshot
                 let fallbackWorker = Task.detached(priority: .userInitiated) {
                     LibrarySearchWorker.compute(
                         query: query,
-                        songs: songsSnapshot,
+                        songs: fallbackSongs,
                         albums: albumsSnapshot,
                         cache: cacheSnapshot,
-                        sourceTypes: searchSnapshot.sourceTypes,
+                        sourceTypes: sourceTypes,
                         matchKinds: matchKinds,
-                        songLimit: scopedSearch ? songsSnapshot.count : 120
+                        songLimit: scopedSearch ? fallbackSongs.count : 120
                     )
                 }
                 output = await withTaskCancellationHandler {
@@ -4863,8 +4916,10 @@ struct SearchView: View {
         workCoordinator.semanticMatchGeneration &+= 1
         let matchGeneration = workCoordinator.semanticMatchGeneration
         let concepts = AISemanticLibraryAggregationPolicy.concepts(from: plan)
-        let searchSnapshot = library.searchSongSnapshot()
-        let songsSnapshot = searchSnapshot.songs
+        // 曲库目录可读时每个概念各取一份目录快照(P2c),不拿整库;兜底的逐首搜索才取内存里的。
+        let catalogReader = P2cCatalogAccess.reader(for: library)
+        let memorySnapshot: LibrarySearchSongSnapshot? = catalogReader == nil ? library.searchSongSnapshot() : nil
+        let sourceTypes = memorySnapshot?.sourceTypes ?? library.searchSources?.typesByID ?? [:]
         let albumsSnapshot = resultLayout.shows(.albums) ? library.visibleAlbums : []
         let artistsSnapshot = resultLayout.shows(.artists) ? library.visibleArtists : []
         let matchKinds = resultLayout.matchKinds
@@ -4878,6 +4933,24 @@ struct SearchView: View {
         var seenArtists = Set<String>()
         for (conceptOrder, concept) in concepts.enumerated() {
             guard !Task.isCancelled else { return }
+            let searchSnapshot: LibrarySearchSongSnapshot
+            if let memorySnapshot {
+                searchSnapshot = memorySnapshot
+            } else if let catalogReader {
+                do {
+                    searchSnapshot = try await LibrarySearchCatalogSnapshot.make(
+                        reader: catalogReader, query: concept, matchKinds: matchKinds,
+                        wantsAlbums: !albumsSnapshot.isEmpty, songLimit: 12, sourceTypes: sourceTypes
+                    )
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    plog("🔎 Catalog semantic snapshot failed, using in-memory songs: \(error.localizedDescription)")
+                    searchSnapshot = library.searchSongSnapshot()
+                }
+            } else {
+                searchSnapshot = library.searchSongSnapshot()
+            }
+            guard !Task.isCancelled else { return }
             let indexed = await LibrarySearchIndex.shared.search(
                 query: concept, snapshot: searchSnapshot, albums: albumsSnapshot,
                 metadataRevisionKey: metadataRevisionKey, matchKinds: matchKinds,
@@ -4887,6 +4960,7 @@ struct SearchView: View {
             if let indexed {
                 if !indexed.lyricsIndexComplete, matchKinds.contains(.lyrics) {
                     let cache = workCoordinator.lyricsCache
+                    let songsSnapshot = memorySnapshot?.songs ?? library.searchSongSnapshot().songs
                     let worker = Task.detached(priority: .utility) {
                         LibrarySearchWorker.compute(
                             query: concept, songs: songsSnapshot, albums: [], cache: cache,
@@ -4900,10 +4974,11 @@ struct SearchView: View {
                     output = indexed.output
                 }
             } else {
+                let songsSnapshot = memorySnapshot?.songs ?? library.searchSongSnapshot().songs
                 let worker = Task.detached(priority: .utility) {
                     LibrarySearchWorker.compute(
                         query: concept, songs: songsSnapshot, albums: albumsSnapshot,
-                        cache: LibrarySearchCache(), sourceTypes: searchSnapshot.sourceTypes, matchKinds: matchKinds,
+                        cache: LibrarySearchCache(), sourceTypes: sourceTypes, matchKinds: matchKinds,
                         songLimit: 12, albumLimit: 12
                     )
                 }

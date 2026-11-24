@@ -3729,6 +3729,9 @@ final class SourceManager {
     @ObservationIgnored private var retiredSMBSidecarConnectors: [any MusicSourceConnector] = []
     private let sourcesProvider: @Sendable () async throws -> [MusicSource]
     private let songsProvider: @MainActor () -> [Song]
+    /// 曲库目录此刻可读时的读接口(P2d);nil 时照旧用 `songsProvider` 的整库数组。
+    /// 由 `AppServices` 接上 `MusicLibrary.catalogHost`。
+    @ObservationIgnored var catalogReaderProvider: @MainActor () -> LibraryCatalogReader? = { nil }
     @ObservationIgnored private var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
     @ObservationIgnored private var offlineAudioSnapshotVersions: [String: UInt64] = [:]
     @ObservationIgnored private var pendingOfflineAudioCachePaths: Set<String> = []
@@ -7622,6 +7625,9 @@ final class SourceManager {
         recordedSignature: String?,
         currentSignature: String
     ) async -> Bool {
+        // 目录可读时先按源查出这个源的歌曲 id:放在清理开始之前,下面「代际仍是这一代」
+        // 的检查到改快照之间不多出挂起点。目录不可读时照旧在最后读整库数组。
+        let catalogSongIDs = await catalogSongIDsForOfflineSnapshotPurge(sourceID: sourceID)
         let prefix = "\(sourceID)/"
         guard await AudioCacheManager.shared.beginSourcePurge(
             prefix: prefix,
@@ -7655,10 +7661,30 @@ final class SourceManager {
         automaticPlaylistPinnedSongsByID = automaticPlaylistPinnedSongsByID.filter {
             $0.value.sourceID != sourceID
         }
-        for song in songsProvider() where song.sourceID == sourceID {
-            removeOfflineAudioSnapshot(for: song.id)
+        if let catalogSongIDs {
+            for songID in catalogSongIDs {
+                removeOfflineAudioSnapshot(for: songID)
+            }
+        } else {
+            for song in songsProvider() where song.sourceID == sourceID {
+                removeOfflineAudioSnapshot(for: song.id)
+            }
         }
         return true
+    }
+
+    /// 这个源的全部歌曲 id(含停用源,库内顺序),从目录按源查。目录不可读或读失败时 nil。
+    private func catalogSongIDsForOfflineSnapshotPurge(sourceID: String) async -> [String]? {
+        guard let reader = catalogReaderProvider() else { return nil }
+        do {
+            return try await reader.reduceSongIdentities(.source(sourceID), into: [String]()) { ids, song in
+                ids.append(song.id)
+                return true
+            }
+        } catch {
+            plog("📚 catalog source song ids failed, using memory: \(error)")
+            return nil
+        }
     }
 
     /// 缓存根目录在进程里不变，算一次就够。
@@ -9117,6 +9143,41 @@ final class SourceManager {
         return items
     }
 
+    /// 同 `offlineDownloadItems(in:)`,歌从曲库目录流式读:整库(含停用源)或某个源,库内顺序,
+    /// 只留路径对得上离线条目的那些,再交给同一套配对与排序。目录不可读或读失败时 nil。
+    func catalogOfflineDownloadItems(sourceID: String?) async -> [OfflineDownloadItem]? {
+        guard let reader = catalogReaderProvider() else { return nil }
+        await AudioCacheManager.shared.restoreOfflineEntriesIfCacheCleared()
+        let entries = await AudioCacheManager.shared.offlineDownloadEntries()
+        guard !entries.isEmpty else { return [] }
+        let paths = Set(entries.map(\.path))
+        let scope: LibrarySongScope = sourceID.map { LibrarySongScope.source($0) } ?? .everything
+        let matched: [Song]
+        do {
+            matched = try await reader.reduceSongs(scope, into: [Song]()) { songs, song in
+                if paths.contains(Self.offlineEntryPath(for: song)) { songs.append(song) }
+                return true
+            }
+        } catch {
+            plog("📚 catalog offline downloads scan failed, using memory: \(error)")
+            return nil
+        }
+        guard !matched.isEmpty else { return [] }
+        let items = await Task.detached(priority: .userInitiated) {
+            Self.offlineDownloadItems(entries: entries, songs: matched)
+        }.value
+        await registerDownloadNames(for: items.map(\.song))
+        return items
+    }
+
+    /// 离线条目的相对路径(与 `offlineDownloadItems(entries:songs:)` 里的拼法一致)。
+    private nonisolated static func offlineEntryPath(for song: Song) -> String {
+        "\(song.sourceID)/" + CacheFileNamePolicy.make(
+            path: song.filePath,
+            preferredExtension: song.isDiscImageTrack ? "iso" : song.fileFormat.rawValue
+        )
+    }
+
     func registerDownloadNames(for songs: [Song]) async {
         let names = await Task.detached(priority: .utility) {
             Dictionary(songs.map { song in
@@ -10205,14 +10266,21 @@ final class SourceManager {
         }
         let preference = PlaybackSettings.load().offlineDownloadQuality
         let pinnedPaths = await AudioCacheManager.shared.pinnedRelativePaths()
-        let songs = songsProvider()
-        let candidates = await Task.detached(priority: .utility) {
-            Self.offlineCompactionSweepCandidates(
-                songs: songs,
-                pinnedPaths: pinnedPaths,
-                preference: preference
-            )
-        }.value
+        let candidates: [Song]
+        if let catalogCandidates = await catalogOfflineCompactionSweepCandidates(
+            pinnedPaths: pinnedPaths, preference: preference
+        ) {
+            candidates = catalogCandidates
+        } else {
+            let songs = songsProvider()
+            candidates = await Task.detached(priority: .utility) {
+                Self.offlineCompactionSweepCandidates(
+                    songs: songs,
+                    pinnedPaths: pinnedPaths,
+                    preference: preference
+                )
+            }.value
+        }
         guard !Task.isCancelled else { return }
         offlineCompactionSweepProgress?.total = candidates.count
         plog("🗜 Offline compaction sweep: \(candidates.count) pinned originals to convert")
@@ -10225,6 +10293,62 @@ final class SourceManager {
                 offlineCompactionSweepProgress?.savedBytes += savedBytes
             }
         }
+    }
+
+    /// 同 `offlineCompactionSweepCandidates`,目录可读时在主线程外流式走整库(含停用源、库内顺序),
+    /// 只留候选。没有固定的路径时不走。目录不可读或读失败时返回 nil,调用方走整库数组。
+    private func catalogOfflineCompactionSweepCandidates(
+        pinnedPaths: Set<String>,
+        preference: StreamQualityPreference
+    ) async -> [Song]? {
+        guard let reader = catalogReaderProvider() else { return nil }
+        guard !pinnedPaths.isEmpty else { return [] }
+        struct Accumulator: Sendable {
+            var seenPaths = Set<String>()
+            var candidates: [Song] = []
+        }
+        do {
+            return try await reader.reduceSongs(.everything, into: Accumulator()) { accumulator, song in
+                if let path = Self.offlineCompactionSweepPath(
+                    for: song, pinnedPaths: pinnedPaths, preference: preference, seenPaths: accumulator.seenPaths
+                ) {
+                    accumulator.seenPaths.insert(path)
+                    accumulator.candidates.append(song)
+                }
+                return true
+            }.candidates
+        } catch {
+            plog("📚 catalog offline compaction scan failed, using memory: \(error)")
+            return nil
+        }
+    }
+
+    /// 一首歌是不是压缩候选:返回它的缓存相对路径(与 `offlineCompactionSweepCandidates` 同一套判断)。
+    private nonisolated static func offlineCompactionSweepPath(
+        for song: Song,
+        pinnedPaths: Set<String>,
+        preference: StreamQualityPreference,
+        seenPaths: Set<String>
+    ) -> String? {
+        guard case .compact = OfflineDownloadQualityPolicy.plan(
+            preference: preference,
+            format: song.codecFormat,
+            isStreamDescriptor: song.isStreamDescriptor,
+            isStandaloneMusicVideo: song.isStandaloneMusicVideo,
+            isCueTrack: song.isCueTrack,
+            sourceBitRateKbps: song.bitRate,
+            fileSize: song.fileSize,
+            duration: song.duration
+        ) else { return nil }
+        let fileName = CacheFileNamePolicy.make(
+            path: song.filePath,
+            preferredExtension: song.isDiscImageTrack ? "iso" : song.fileFormat.rawValue
+        )
+        let path = "\(song.sourceID)/\(fileName)"
+        guard pinnedPaths.contains(path), !seenPaths.contains(path) else { return nil }
+        let original = audioCacheDirectoryURL(for: song.sourceID).appendingPathComponent(fileName)
+        guard FileManager.default.fileExists(atPath: original.path) else { return nil }
+        return path
     }
 
     /// 已离线固定、原文件还在、按当前设置该转的歌; 同一个文件(整轨 CUE)只留一首。

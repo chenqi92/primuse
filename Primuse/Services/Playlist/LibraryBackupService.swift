@@ -149,10 +149,21 @@ enum LibraryBackupService {
             try LibraryUserDataBackup.decode(data)
         }.value
 
+        // 曲库目录可读时(P2c)按 id 查目录、按标题只取同歌名主体的候选;读失败时照旧走内存。
+        let catalogReader = P2cCatalogAccess.reader(for: library)
+        var catalogIDs: Set<String>?
+        if let catalogReader {
+            do {
+                catalogIDs = try await catalogReader.existingSongIDs(backup.tracks.compactMap(\.songID))
+            } catch {
+                plog("Library backup restore: catalog id lookup failed, using in-memory library: \(error.localizedDescription)")
+            }
+        }
         var resolutions: [String: String] = [:]
         var unresolved: [CarriedSongMarks] = []
         for track in backup.tracks {
-            if let id = track.songID, library.storedSong(id: id) != nil {
+            // 目录跟写内存有一小段滞后:目录里没有的 id 再问内存模型(刚加进来的歌)。
+            if let id = track.songID, catalogIDs?.contains(id) == true || library.storedSong(id: id) != nil {
                 resolutions[track.key] = id
                 continue
             }
@@ -169,8 +180,18 @@ enum LibraryBackupService {
             ))
         }
         if !unresolved.isEmpty {
-            let candidates = library.visibleSongs
             let cache = library.playlistEntryMatchKeyCache
+            var catalogCandidates: [Song]?
+            if let catalogReader {
+                // `matchCarriedMarks` 只按歌名主体分桶找(`PlaylistEntryMatcher`),同主体的候选就够。
+                let titles = Set(unresolved.map { ExternalTrackMatchPolicy.normalizedCoreTitle($0.matchSubject.title) })
+                do {
+                    catalogCandidates = try await catalogReader.songs(matchingCoreTitles: titles, scope: .visible)
+                } catch {
+                    plog("Library backup restore: catalog candidates failed, using in-memory library: \(error.localizedDescription)")
+                }
+            }
+            let candidates = catalogCandidates ?? library.visibleSongs
             let matched = await Task.detached(priority: .userInitiated) {
                 MusicLibrary.matchCarriedMarks(unresolved, against: candidates, keyCache: cache)
             }.value

@@ -731,7 +731,7 @@ struct HomeIntelligenceHintCard: View {
             // 选了内置 AI 但还没同意的,同样当作没开:卡片上的「开启」会先弹同意页。
             relayEnabled: intelligence.isBuiltInAIActive,
             recommendationsAvailable: intelligence.isPersonalizedRecommendationsConfigured,
-            musicSongCount: library.musicSongs.count
+            musicSongCount: PlaybackSurfaceCountsModel.musicSongCount(in: library)
         )
     }
 

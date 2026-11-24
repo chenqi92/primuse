@@ -282,7 +282,9 @@ extension AudioPlayerService {
     /// after everything already queued; under shuffle they are appended to the
     /// end of the current order, so nothing already heard comes round again.
     /// Songs that left the library since the request are skipped.
-    func refillQueueFromContinuationIfNeeded() {
+    /// `allowsCatalog`: P2 过渡 —— 目录可读时这一批从目录取(`refillQueueFromCatalog`),
+    /// 目录读失败后那一次传 false 走内存模型。
+    func refillQueueFromContinuationIfNeeded(allowsCatalog: Bool = true) {
         guard var continuation = queueContinuation,
               !isInstallingMedleyQueue,
               let library,
@@ -304,6 +306,11 @@ extension AudioPlayerService {
                 self.queueContinuationReadTask = nil
                 if ready { self.refillQueueFromContinuationIfNeeded() }
             }
+            return
+        }
+        // 启动时的磁盘续接(`musicSourceIDs`)还要按内存里的分类筛,留在内存路径。
+        if allowsCatalog, continuation.musicSourceIDs == nil,
+           refillQueueFromCatalog(continuation, library: library) {
             return
         }
 
@@ -329,7 +336,7 @@ extension AudioPlayerService {
         return max(0, queueEntries.count - 1 - currentIndex)
     }
 
-    private func appendContinuation(_ additions: [Song], remainder: QueueContinuation?) {
+    func appendContinuation(_ additions: [Song], remainder: QueueContinuation?) {
         let upcoming = upcomingQueueCount
         queueContinuation = remainder
         persistQueueContinuation()

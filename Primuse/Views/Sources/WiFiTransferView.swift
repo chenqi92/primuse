@@ -484,9 +484,28 @@ struct WiFiTransferView: View {
             changedLyrics.insert(changedURL.deletingPathExtension().path)
         }
         if deleted {
-            let removed = library.songs.filter { $0.sourceID == source.id && $0.filePath == "/" + path }
-            if !removed.isEmpty {
-                Task { await player.prepareQueueForRemovingSongs(withIDs: Set(removed.map(\.id))) }
+            if let host = library.catalogHost, host.revisions.isReadable {
+                // 曲库目录按 (源, 路径) 索引直接查,不再整库过一遍。
+                let reader = host.reader
+                let sourceID = source.id
+                let filePath = "/" + path
+                Task {
+                    let ids: [String]
+                    do {
+                        ids = try await reader.songIDs(sourceID: sourceID, filePath: filePath)
+                    } catch {
+                        plog("📚 Wi-Fi transfer catalog path lookup failed, using memory: \(error)")
+                        ids = library.songs.filter { $0.sourceID == sourceID && $0.filePath == filePath }.map(\.id)
+                    }
+                    if !ids.isEmpty {
+                        await player.prepareQueueForRemovingSongs(withIDs: Set(ids))
+                    }
+                }
+            } else {
+                let removed = library.songs.filter { $0.sourceID == source.id && $0.filePath == "/" + path }
+                if !removed.isEmpty {
+                    Task { await player.prepareQueueForRemovingSongs(withIDs: Set(removed.map(\.id))) }
+                }
             }
         }
         guard pendingScan == nil else { return }

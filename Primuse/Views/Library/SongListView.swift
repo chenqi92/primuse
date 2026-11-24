@@ -1174,6 +1174,14 @@ struct SongListView: View {
     @State private var isDownloadedFilterLoading = false
     @State private var sortValuesVersion = SongListSortValuesVersion()
     @State private var listCache = SongListCache()
+    /// 曲库目录可读时平铺列表的数据源(见 `usesCatalogList`)。
+    @State private var catalogList = SongListCatalogList()
+    #if os(macOS)
+    /// 目录列表里要定位的那首在第几行(按行号查出来;对哪首、哪一版行号查的一并记着)。
+    @State private var catalogLocatedRow: SongListCatalogLocatedRow?
+    /// 目录列表时「加入歌单」先按 id 取好歌再弹框。
+    @State private var catalogBatchSongs: [Song] = []
+    #endif
     @State private var searchText: String = ""
     #if os(iOS)
     /// 页内搜索真正拿去过滤的词: 停手一小会儿才跟上输入, 整库几十万首时不必每敲一个字
@@ -1519,7 +1527,14 @@ struct SongListView: View {
                     accepted: true
                 )
                 LibrarySongSortOrderPreference.save(requested.libraryOrder)
-                scheduleSortedRecompute(pruneRowModels: false, isExplicitSort: true)
+                if catalogListKey != nil {
+                    scheduleCatalogList(isExplicitSort: true)
+                } else {
+                    scheduleSortedRecompute(pruneRowModels: false, isExplicitSort: true)
+                }
+            }
+            .onChange(of: catalogListKey, initial: true) { _, key in
+                handleCatalogListKeyChange(key)
             }
             .onChange(of: browseMode) { _, mode in
                 cancelExplicitSortForNavigation()
@@ -1579,7 +1594,8 @@ struct SongListView: View {
             }
             .onChange(of: sourceSortSignature) { _, _ in
                 sortValuesVersion.invalidate(.source)
-                if sortOrder.criterion == .source {
+                // 目录列表的源名由目录自己跟着换(`updateCatalogSourceNames`),列表模型随之重查。
+                if sortOrder.criterion == .source, !usesCatalogList {
                     scheduleSortedRecompute(
                         delay: .milliseconds(80),
                         pruneRowModels: false,
@@ -1636,6 +1652,9 @@ struct SongListView: View {
                     cancelExplicitSortForSelection()
                 }
             }
+            .background {
+                SongListCatalogSelectionObserver(selection: selection, catalogList: catalogList)
+            }
             .onDisappear(perform: handleViewDisappear)
             #if os(iOS)
             .navigationDestination(item: $folderLocationDestination) { destination in
@@ -1661,7 +1680,7 @@ struct SongListView: View {
             }
             #if os(macOS)
             .sheet(isPresented: $showAddVisibleToPlaylist) {
-                BatchAddToPlaylistSheet(songs: filteredSongs.filteredPlayable())
+                BatchAddToPlaylistSheet(songs: showsCatalogList ? catalogBatchSongs : filteredSongs.filteredPlayable())
             }
             .sheet(item: $contextAddToPlaylistSong) { song in
                 AddToPlaylistSheet(song: library.song(id: song.id) ?? song)
@@ -1704,6 +1723,12 @@ struct SongListView: View {
                 resolve: { library.unobservedVisibleSong(id: $0) }
             )
             .onAppear {
+                // 目录列表的多选 id 取好后,已选里不在列表上的去掉(同 `pruneSelection`)。
+                let selectionModel = selection
+                catalogList.selectionIDsDidLoad = { ids in
+                    guard selectionModel.isActive, !selectionModel.isEmpty else { return }
+                    selectionModel.prune(to: Set(ids))
+                }
                 // NavigationStack keeps this destination alive while another
                 // tab is selected. Reuse its existing order instead of
                 // sorting 10K songs again on every return.
@@ -1741,7 +1766,8 @@ struct SongListView: View {
                 folderSourceRevision &+= 1
                 scheduleFolderIndexRecompute(delay: .milliseconds(80))
                 sortValuesVersion.invalidate(.fileName)
-                if sortOrder.criterion == .fileName {
+                // 目录列表的文件名索引由目录自己跟着换(`updateCatalogFileNameIndexes`)。
+                if sortOrder.criterion == .fileName, !usesCatalogList {
                     scheduleSortedRecompute(delay: .milliseconds(80), pruneRowModels: false,
                                             isExplicitSort: activeSortIsExplicit)
                 }
@@ -1813,6 +1839,154 @@ struct SongListView: View {
 
     private var songs: [Song] {
         scope.songs(in: library, sources: sourcesStore)
+    }
+
+    // MARK: Catalog-backed flat list (P2a)
+
+    /// 目录给得出这一页、而且眼前是平铺的整份列表(不在目录版式、没有「已下载」、没有页内查找)。
+    /// 排序是否支持另算(`usesCatalogList`)。
+    private var catalogEligibleIgnoringOrder: Bool {
+        library.catalogHost?.revisions.isReadable == true
+            && !showsFolderBrowser
+            && songFilter == .all
+            && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 平铺列表直接从曲库目录按页取,不在内存里排整库。查找、「已下载」、目录版式,以及目录
+    /// 还给不出一样结果的排序(`SongListCatalogPolicy`)照旧走内存;目录读失败的那个键也走内存。
+    private var usesCatalogList: Bool {
+        guard catalogEligibleIgnoringOrder, SongListCatalogPolicy.supports(sortOrder.libraryOrder) else { return false }
+        return catalogList.failedKey != catalogListKeyIgnoringFailure
+    }
+
+    private var catalogListKey: SongListCatalogList.Key? {
+        usesCatalogList ? catalogListKeyIgnoringFailure : nil
+    }
+
+    private var catalogListKeyIgnoringFailure: SongListCatalogList.Key {
+        let base = catalogBaseScope
+        #if os(macOS)
+        // Mac 的来源筛选条:列表只要那一个源,页头与筛选条上的计数仍按整页。
+        var listScope = base
+        if let selectedSourceID { listScope.sourceID = selectedSourceID }
+        #else
+        let listScope = base
+        #endif
+        return SongListCatalogList.Key(order: sortOrder.libraryOrder, scope: listScope, baseScope: base)
+    }
+
+    /// 与 `Scope.songs(in:sources:)` 同一个范围:整库是可见音乐;单个源是这个源的可见歌曲去掉
+    /// 有声与环境音(只因歌单镜像在库里的条目留着),Audiobookshelf 源全留。
+    private var catalogBaseScope: LibrarySongScope {
+        switch scope {
+        case .library:
+            return .visibleMusic
+        case .source(let sourceID):
+            if scope.showsAudiobookshelfContents(in: sourcesStore) {
+                return LibrarySongScope(sourceID: sourceID)
+            }
+            return LibrarySongScope(kinds: [.music, .collectionOnly], sourceID: sourceID)
+        }
+    }
+
+    /// 眼前画的是目录列表。手里没有内存快照时一律画目录那一份(换排序时新的取好之前先留着旧的;
+    /// 换到内存才排得出的排序时,内存快照排好之前也先留着它);有内存快照时,目录那一份正好是
+    /// 当前的排序与范围才换过去。
+    private var showsCatalogList: Bool {
+        guard catalogList.hasCurrent, catalogEligibleIgnoringOrder else { return false }
+        if listCache.isEmpty { return true }
+        return usesCatalogList && catalogList.currentKey == catalogListKey
+    }
+
+    /// 整页范围是空的(给整页空状态)。目录路径计数还没取到时不算空。
+    private var showsEmptyLibrary: Bool {
+        if showsFolderBrowser { return false }
+        if usesCatalogList || showsCatalogList {
+            return catalogList.baseCount == 0
+        }
+        return songs.isEmpty
+    }
+
+    /// 眼前这份列表里可播放的歌数(页头、工具栏的播放与随机键)。
+    private var displayedPlayableCount: Int {
+        showsCatalogList ? catalogList.listPlayableCount : filteredProjection.playableCount
+    }
+
+    /// 多选、范围选择要的「这份列表的 id」。目录列表的在多选开始时取一次。
+    private var selectableOrderedSongIDs: [String] {
+        showsCatalogList ? (catalogList.selectionIDs ?? []) : filteredSongIDs
+    }
+
+    private func handleCatalogListKeyChange(_ key: SongListCatalogList.Key?) {
+        guard key != nil else {
+            catalogList.cancelPending()
+            if library.catalogHost?.revisions.isReadable != true, catalogList.hasCurrent {
+                catalogList.reset()
+            }
+            if !sortRequestActive { ensureSortedSnapshotIfNeeded() }
+            return
+        }
+        scheduleCatalogList(isExplicitSort: false)
+    }
+
+    /// 让目录那一份列表跟上当前的排序与范围。换上之前旧的那一份(或内存快照)照旧显示;
+    /// 用户换排序时带着与内存路径同样的进度提示。
+    private func scheduleCatalogList(isExplicitSort: Bool) {
+        guard let key = catalogListKey, let host = library.catalogHost else { return }
+        if !isExplicitSort, catalogList.isCurrentOrPending(key) { return }
+        if !isExplicitSort, let explicitGeneration = sortProgress.generation {
+            sortFeedbackTask?.cancel()
+            sortFeedbackTask = nil
+            sortFeedbackDeadline = nil
+            let cancelledOrder = sortProgress.order ?? sortOrder.libraryOrder
+            _ = sortProgress.cancel(generation: explicitGeneration)
+            SongListPerformanceSignpost.sortCancelled(
+                generation: explicitGeneration,
+                order: cancelledOrder.rawValue
+            )
+        }
+        sortGeneration &+= 1
+        let generation = sortGeneration
+        let order = key.order
+        pendingSnapshot = nil
+        pendingSnapshotPrunesRows = false
+        pendingSnapshotIsExplicitSort = false
+        pendingSnapshotGeneration = 0
+        pendingSnapshotOrder = nil
+        activeSortIsExplicit = isExplicitSort
+        sortRequestActive = true
+        if isExplicitSort {
+            beginSortFeedback(generation: generation, order: order)
+        }
+        sortTask?.cancel()
+        sortTask = Task { @MainActor in
+            let ready = await catalogList.prepare(key: key, host: host)
+            guard !Task.isCancelled, sortGeneration == generation else { return }
+            if ready, usesCatalogList, !listCache.isEmpty {
+                // 目录那一份换上了:内存里的整库快照不再需要,放掉。
+                listCache = SongListCache()
+            }
+            if isExplicitSort {
+                if ready {
+                    finishSortAfterPublication(generation: generation, order: order)
+                } else {
+                    finishSortWithoutPublication(generation: generation, order: order, isExplicitSort: true)
+                }
+            } else {
+                sortRequestActive = false
+                activeSortIsExplicit = false
+            }
+            // 目录读失败时 `failedKey` 让 `catalogListKey` 变成 nil,`handleCatalogListKeyChange`
+            // 接着排内存快照。
+        }
+    }
+
+    /// 目录列表上的动作要整份 id:按显示顺序取好再做(播放、加入队列、导出)。
+    private func withCatalogSongIDs(_ body: @escaping @MainActor ([String]) -> Void) {
+        Task { @MainActor in
+            guard let ids = await catalogList.orderedSongIDs(), !ids.isEmpty else { return }
+            body(ids)
+        }
     }
 
     private var requiresDownloadedSongSnapshot: Bool {
@@ -1911,7 +2085,7 @@ struct SongListView: View {
 
     @ViewBuilder
     private var content: some View {
-        if songs.isEmpty && !showsFolderBrowser {
+        if showsEmptyLibrary {
             EmptyStateView(
                 titleKey: "no_songs",
                 descriptionKey: "no_songs_desc",
@@ -1936,7 +2110,10 @@ struct SongListView: View {
 
     /// 排序、分目录还没好：先转圈，好了换成列表。
     private var isPreparingList: Bool {
-        (!songs.isEmpty && requiresSortedSnapshot && listCache.isEmpty)
+        if showsCatalogList { return false }
+        // 目录那一份第一次取行号还没回来,手里也没有内存快照。
+        if usesCatalogList { return listCache.isEmpty }
+        return (!songs.isEmpty && requiresSortedSnapshot && listCache.isEmpty)
             || (showsFolderBrowser && !folderCache.hasIndex)
     }
 
@@ -1973,15 +2150,16 @@ struct SongListView: View {
     /// 只是播放键先不能点，数量先按整库的歌数写（筛了「已下载」时先空着），换成列表时这一行不动。
     private var minimalHeader: SongListMinimalHeader {
         let isPreparing = isPreparingList
+        let preparingTotal: Int? = usesCatalogList ? catalogList.baseCount : songs.count
         let preparingCount = songFilter == .all
-            ? "\(songs.count.formatted()) \(String(localized: "songs_count"))"
+            ? preparingTotal.map { "\($0.formatted()) \(String(localized: "songs_count"))" } ?? " "
             : " "
         return SongListMinimalHeader(
             selection: selection,
             progress: sortProgress,
             countText: isPreparing ? preparingCount : songCountText,
-            canPlay: !isPreparing && !showsFolderBrowser && filteredProjection.playableCount > 0,
-            canShuffle: !isPreparing && !showsFolderBrowser && filteredProjection.playableCount > 1,
+            canPlay: !isPreparing && !showsFolderBrowser && displayedPlayableCount > 0,
+            canShuffle: !isPreparing && !showsFolderBrowser && displayedPlayableCount > 1,
             browseMode: $browseMode,
             folderBlocker: folderBrowseBlocker,
             explainFolderBlocker: explainFolderBrowseBlocker,
@@ -2009,6 +2187,18 @@ struct SongListView: View {
                         sortOrder: $sortOrder,
                         showsListeningIntents: showsListeningIntentShelf
                     )
+                } else if showsCatalogList {
+                    IOSCatalogSongListContainer(
+                        catalog: catalogList,
+                        rowRevision: catalogList.rowRevision,
+                        sectionIndexEntries: catalogList.sections,
+                        locatedSongID: locatedSongID,
+                        locationRequestID: songLocation.request?.id,
+                        selection: selection,
+                        showsListeningIntents: showsListeningIntentShelf,
+                        onPlay: playSong
+                    )
+                    .equatable()
                 } else if songFilter == .downloaded,
                           isDownloadedFilterLoading,
                           downloadedSongIDs.isEmpty {
@@ -2087,9 +2277,11 @@ struct SongListView: View {
 
     /// 页头上的「8,426 首歌曲」：眼前这份列表有几首（筛选、查找之后的）。
     private var songCountText: String {
-        let count = showsFolderBrowser && listCache.isEmpty
-            ? songs.count
-            : filteredProjection.rows.count
+        let count = showsCatalogList
+            ? catalogList.count
+            : showsFolderBrowser && listCache.isEmpty
+                ? songs.count
+                : filteredProjection.rows.count
         return "\(count.formatted()) \(String(localized: "songs_count"))"
     }
 
@@ -2191,8 +2383,18 @@ struct SongListView: View {
 
     private var macSongList: some View {
         let rows = filteredRows
-        let locatedRowOffset = locatedSongID.flatMap { songID in
-            rows.firstIndex(where: { $0.id == songID })
+        let usesCatalogRows = showsCatalogList
+        let catalogLocateKey = SongListCatalogLocateKey(
+            songID: usesCatalogRows ? locatedSongID : nil,
+            rowRevision: catalogList.rowRevision
+        )
+        let locatedRowOffset: Int?
+        if usesCatalogRows {
+            locatedRowOffset = catalogLocatedRow.flatMap { $0.key == catalogLocateKey ? $0.position : nil }
+        } else {
+            locatedRowOffset = locatedSongID.flatMap { songID in
+                rows.firstIndex(where: { $0.id == songID })
+            }
         }
         let scrollTarget = (songLocation.needsScroll ? locatedRowOffset : nil).map { offset in
             switch macViewMode {
@@ -2216,9 +2418,9 @@ struct SongListView: View {
         let request = MacSongLocationScrollRequest(
             requestID: songLocation.request?.id,
             songID: locatedSongID,
-            rowOrderRevision: listCache.rowOrderRevision,
+            rowOrderRevision: usesCatalogRows ? catalogList.rowRevision : listCache.rowOrderRevision,
             target: scrollTarget,
-            rowCount: rows.count,
+            rowCount: usesCatalogRows ? catalogList.count : rows.count,
             resetKey: scrollResetKey
         )
 
@@ -2231,6 +2433,9 @@ struct SongListView: View {
                     // 也不会给下面的虚拟化滚动面留下声明式动画。
                     macFolderSongList
                         .pmAppearFade()
+                } else if usesCatalogRows {
+                    macCatalogFlatSongList(request: request)
+                        .pmAppearFade()
                 } else {
                     macFlatSongList(rows: rows, request: request)
                         .pmAppearFade()
@@ -2241,6 +2446,13 @@ struct SongListView: View {
             }
         }
         .background(PMColor.bg.ignoresSafeArea())
+        // 目录列表的定位:按行号查出那首在第几行,再交给滚动面。
+        .task(id: catalogLocateKey) {
+            guard let songID = catalogLocateKey.songID else { return }
+            let position = await catalogList.position(of: songID)
+            guard !Task.isCancelled else { return }
+            catalogLocatedRow = position.map { SongListCatalogLocatedRow(key: catalogLocateKey, position: $0) }
+        }
         .onAppear { rebuildPlayCounts() }
         .onChange(of: selectedSourceID) { _, _ in
             pruneSelection()
@@ -2354,6 +2566,150 @@ struct SongListView: View {
                 .accessibilityHidden(true)
         }
         .frame(minWidth: viewportWidth, alignment: .leading)
+    }
+
+    // MARK: Mac catalog-backed flat list (P2a)
+
+    /// 目录列表版的 `macFlatSongList`:行数来自目录,行按位置从当前那一份按页取,
+    /// 还没取到的位置留空(与内存路径里解析不到歌的位置一样)。
+    private func macCatalogFlatSongList(request: MacSongLocationScrollRequest) -> some View {
+        let rowCount = catalogList.count
+        let rowHeight: CGFloat? = macViewMode == .grid ? nil : macVirtualRowHeight
+        let ordinalWidth = MacOrdinalColumn.width(
+            for: rowCount, minimum: 32, fontSize: 11, locale: locale, showsNumbers: showsRowNumbers
+        )
+        return MacSongScrollSurface(
+            allowsHorizontalScrolling: macViewMode == .list,
+            rowCount: rowCount,
+            rowHeight: rowHeight,
+            request: request
+        ) {
+            macSongScrollChrome(isEmpty: rowCount == 0, ordinalWidth: ordinalWidth)
+        } results: { range, viewportWidth in
+            macCatalogFlatSongResults(
+                rowCount: rowCount,
+                range: range,
+                viewportWidth: viewportWidth,
+                ordinalWidth: ordinalWidth
+            )
+        }
+    }
+
+    private func macCatalogFlatSongResults(
+        rowCount: Int,
+        range: Range<Int>,
+        viewportWidth: CGFloat,
+        ordinalWidth: CGFloat
+    ) -> some View {
+        Group {
+            switch macViewMode {
+            case .list, .compact:
+                macCatalogWindowedSongResults(
+                    rowCount: rowCount,
+                    range: range,
+                    viewportWidth: viewportWidth,
+                    ordinalWidth: ordinalWidth
+                )
+                .pmAppearFade()
+            case .grid:
+                catalogSongGrid(rowCount: rowCount)
+                    .frame(
+                        width: max(0, viewportWidth - PMSpace.xxxl * 2),
+                        alignment: .leading
+                    )
+                    .padding(.horizontal, PMSpace.xxxl)
+                    .pmAppearFade()
+            }
+        }
+        .frame(minWidth: viewportWidth, alignment: .leading)
+    }
+
+    private func macCatalogWindowedSongResults(
+        rowCount: Int,
+        range: Range<Int>,
+        viewportWidth: CGFloat,
+        ordinalWidth: CGFloat
+    ) -> some View {
+        let rowHeight = macVirtualRowHeight
+        let rowWidth = max(0, viewportWidth - PMSpace.xxxl * 2)
+        let visibleRange = range.clamped(to: 0..<max(0, rowCount))
+        return VStack(alignment: .leading, spacing: 0) {
+            Color.clear
+                .frame(height: CGFloat(visibleRange.lowerBound) * rowHeight)
+                .frame(minWidth: viewportWidth, alignment: .leading)
+                .accessibilityHidden(true)
+
+            ForEach(visibleRange, id: \.self) { position in
+                Group {
+                    if let song = catalogList.song(at: position) {
+                        Group {
+                            switch macViewMode {
+                            case .list:
+                                songTableRow(song, index: position, ordinalWidth: ordinalWidth)
+                            case .compact:
+                                compactSongRow(song, index: position, ordinalWidth: ordinalWidth)
+                            case .grid:
+                                EmptyView()
+                            }
+                        }
+                        .songSelectable(
+                            songID: song.id,
+                            selection: selection,
+                            orderedIDs: { selectableOrderedSongIDs },
+                            defaultAction: { playSong(song) }
+                        )
+                    } else {
+                        Color.clear
+                    }
+                }
+                .id(position)
+                .frame(minWidth: rowWidth, alignment: .leading)
+                .frame(height: rowHeight)
+                .padding(.horizontal, PMSpace.xxxl)
+            }
+
+            Color.clear
+                .frame(height: CGFloat(max(0, rowCount - visibleRange.upperBound)) * rowHeight)
+                .frame(minWidth: viewportWidth, alignment: .leading)
+                .accessibilityHidden(true)
+        }
+        .frame(minWidth: viewportWidth, alignment: .leading)
+    }
+
+    private func catalogSongGrid(rowCount: Int) -> some View {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 20), count: 6),
+            alignment: .leading,
+            spacing: 20
+        ) {
+            ForEach(0..<rowCount, id: \.self) { position in
+                Group {
+                    if let song = catalogList.song(at: position) {
+                        songGridTile(
+                            song,
+                            ordinal: position + 1,
+                            isCurrent: player.currentSong?.id == song.id,
+                            isLocated: locatedSongID == song.id
+                        )
+                        .songLocationRow(song.id, assignsScrollID: false)
+                        .songSelectable(
+                            songID: song.id,
+                            selection: selection,
+                            style: .overlay,
+                            orderedIDs: { selectableOrderedSongIDs },
+                            defaultAction: { playSong(song) }
+                        )
+                    } else {
+                        Color.clear
+                            .aspectRatio(1, contentMode: .fit)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .id(position)
+            }
+        }
+        .scrollTargetLayout()
+        .padding(.top, 12)
     }
 
     private var macVirtualRowHeight: CGFloat {
@@ -2474,7 +2830,9 @@ struct SongListView: View {
             title: String(localized: "tab_songs"),
             subtitle: librarySubtitle,
             iconSystemName: "music.note",
-            coverSong: listCache.coverSongID.flatMap { library.unobservedVisibleSong(id: $0) },
+            coverSong: showsCatalogList
+                ? catalogList.coverSong
+                : listCache.coverSongID.flatMap { library.unobservedVisibleSong(id: $0) },
             onPlay: { playLibrary(shuffled: false) },
             onShuffle: { playLibrary(shuffled: true) },
             makeMoreMenu: { listMoreMenu }
@@ -2485,14 +2843,16 @@ struct SongListView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 sourceChip(title: String(localized: "search_chip_all"),
-                           count: listCache.songCount, color: nil,
+                           count: showsCatalogList ? (catalogList.baseCount ?? 0) : listCache.songCount, color: nil,
                            active: selectedSourceID == nil && songFilter == .all) {
                     selectedSourceID = nil
                     songFilter = .all
                 }
 
                 ForEach(sourcesStore.allSources.prefix(5), id: \.id) { source in
-                    let count = listCache.songCount(forSourceID: source.id)
+                    let count = showsCatalogList
+                        ? catalogList.songCount(forSourceID: source.id)
+                        : listCache.songCount(forSourceID: source.id)
                     if count > 0 {
                         sourceChip(title: source.name, count: count,
                                    color: sourceColor(source),
@@ -2692,7 +3052,10 @@ struct SongListView: View {
     }
 
     private var librarySubtitle: String {
-        "\(listCache.songCount) \(String(localized: "songs_count")) · \(listCache.playableCount) \(String(localized: "home_playable")) · \(listCache.totalDuration.formattedShort)"
+        if showsCatalogList {
+            return "\(catalogList.baseCount ?? 0) \(String(localized: "songs_count")) · \(catalogList.basePlayableCount) \(String(localized: "home_playable")) · \(catalogList.baseTotalDuration.formattedShort)"
+        }
+        return "\(listCache.songCount) \(String(localized: "songs_count")) · \(listCache.playableCount) \(String(localized: "home_playable")) · \(listCache.totalDuration.formattedShort)"
     }
 
     private var activeTableColumns: [MacSongsColumn] { tableLayout.activeColumns }
@@ -3037,18 +3400,28 @@ struct SongListView: View {
         // Header/menu construction is part of every macOS body update. Keep it
         // on lightweight IDs; materialize 10K Song values only after the user
         // actually invokes an action.
-        let projection = filteredProjection
+        let usesCatalogRows = showsCatalogList
+        let projection = usesCatalogRows ? SongListProjection.empty : filteredProjection
         let visibleIDs = projection.orderedSongIDs
-        let playableCount = projection.playableCount
+        let visibleCount = usesCatalogRows ? catalogList.count : visibleIDs.count
+        let playableCount = usesCatalogRows ? catalogList.listPlayableCount : projection.playableCount
+        let library = self.library
 
-        func materializeVisible() -> [Song] {
-            visibleIDs.compactMap { library.unobservedVisibleSong(id: $0) }
+        func resolve(_ ids: [String], playableOnly: Bool) -> [Song] {
+            ids.compactMap { songID in
+                guard let song = library.unobservedVisibleSong(id: songID),
+                      !playableOnly || song.isPlayable else { return nil }
+                return song
+            }
         }
 
-        func materializePlayable() -> [Song] {
-            visibleIDs.compactMap { songID in
-                guard let song = library.unobservedVisibleSong(id: songID), song.isPlayable else { return nil }
-                return song
+        /// 内存路径直接用手里的 id;目录路径按显示顺序取好 id 再做。歌按 id 从内存模型取
+        /// (加入队列、导出、刮削的接口只收 `[Song]`)。
+        func withVisibleSongs(playableOnly: Bool, _ body: @escaping @MainActor ([Song]) -> Void) {
+            if usesCatalogRows {
+                withCatalogSongIDs { ids in body(resolve(ids, playableOnly: playableOnly)) }
+            } else {
+                body(resolve(visibleIDs, playableOnly: playableOnly))
             }
         }
 
@@ -3058,7 +3431,7 @@ struct SongListView: View {
                       title: selection.isActive
                           ? String(localized: "done")
                           : String(localized: "batch_select"),
-                      enabled: !visibleIDs.isEmpty) {
+                      enabled: visibleCount > 0) {
                     if selection.isActive {
                         selection.deactivate()
                     } else {
@@ -3071,17 +3444,24 @@ struct SongListView: View {
                       title: String(localized: "queue_all_songs"),
                       trailing: playableCount.formatted(),
                       enabled: playableCount > 0) {
-                    player.appendToQueue(materializePlayable())
+                    withVisibleSongs(playableOnly: true) { player.appendToQueue($0) }
                 },
                 .init(icon: "text.line.first.and.arrowtriangle.forward",
                       title: String(localized: "insert_next"),
                       enabled: playableCount > 0) {
-                    player.insertNextInQueue(materializePlayable())
+                    withVisibleSongs(playableOnly: true) { player.insertNextInQueue($0) }
                 },
                 .init(icon: "text.badge.plus",
                       title: String(localized: "add_to_playlist_ellipsis"),
                       enabled: playableCount > 0) {
-                    showAddVisibleToPlaylist = true
+                    if usesCatalogRows {
+                        withVisibleSongs(playableOnly: true) { songs in
+                            catalogBatchSongs = songs
+                            showAddVisibleToPlaylist = true
+                        }
+                    } else {
+                        showAddVisibleToPlaylist = true
+                    }
                 },
             ],
             [
@@ -3094,23 +3474,25 @@ struct SongListView: View {
             [
                 .init(icon: "wand.and.stars",
                       title: String(localized: "scrape_missing_metadata"),
-                      trailing: visibleIDs.count.formatted(),
-                      enabled: !visibleIDs.isEmpty && !scraperService.isScraping) {
+                      trailing: visibleCount.formatted(),
+                      enabled: visibleCount > 0 && !scraperService.isScraping) {
                     guard scraperSettings.hasEnabledSource else {
                         showNoScraperSourceAlert = true
                         return
                     }
-                    scraperService.scrapeMissingMetadata(songs: materializeVisible(), in: library)
+                    withVisibleSongs(playableOnly: false) { songs in
+                        scraperService.scrapeMissingMetadata(songs: songs, in: library)
+                    }
                 },
                 .init(icon: "square.and.arrow.up",
                       title: String(localized: "export_m3u8_ellipsis"),
                       enabled: playableCount > 0) {
-                    exportVisibleSongs(format: .m3u8)
+                    withVisibleSongs(playableOnly: true) { exportSongs($0, format: .m3u8) }
                 },
                 .init(icon: "curlybraces",
                       title: String(localized: "export_json_ellipsis"),
                       enabled: playableCount > 0) {
-                    exportVisibleSongs(format: .json)
+                    withVisibleSongs(playableOnly: true) { exportSongs($0, format: .json) }
                 },
             ],
             [
@@ -3188,16 +3570,12 @@ struct SongListView: View {
         return ("", "circle")
     }
 
-    private var visiblePlayableSongs: [Song] {
-        filteredSongs.filteredPlayable()
-    }
-
-    private func exportVisibleSongs(format: PlaylistExporter.Format) {
+    private func exportSongs(_ songs: [Song], format: PlaylistExporter.Format) {
         do {
             let playlist = Playlist(name: String(localized: "tab_songs"))
             let url = try PlaylistExporter.export(
                 playlist: playlist,
-                songs: visiblePlayableSongs,
+                songs: songs,
                 format: format,
                 sourcesStore: sourcesStore
             )
@@ -3222,6 +3600,13 @@ struct SongListView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
+        if showsCatalogList {
+            withCatalogSongIDs { ids in
+                player.shuffleEnabled = shuffled
+                Task { await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven) }
+            }
+            return
+        }
         let ids = filteredSongIDs
         guard !ids.isEmpty else { return }
         player.shuffleEnabled = shuffled
@@ -3234,6 +3619,8 @@ struct SongListView: View {
             isEditing: selection.isActive,
             titled: verticalBarEdge != nil,
             contains: { id in
+                // 目录列表就是这一页的整个范围。
+                if showsCatalogList { return pageScopeContains(id) }
                 if !listCache.isEmpty { return listCache.contains(songID: id) }
                 if showsFolderBrowser, let index = folderCache.index {
                     return index.nodeID(containingSongID: id) != nil
@@ -3242,7 +3629,8 @@ struct SongListView: View {
                 return pageScopeContains(id)
             },
             isVisible: { id in
-                showsFolderBrowser
+                if showsCatalogList { return catalogListShows(id) }
+                return showsFolderBrowser
                     // 还没排好时没有筛选就算在列表里：定位请求留着，列表出来再滚过去。
                     || (listCache.isEmpty && folderBrowseBlocker == nil)
                     || filteredProjection.rows.contains { $0.id == id }
@@ -3312,7 +3700,7 @@ struct SongListView: View {
         } else {
             let locate = locateCurrentButton
             let locateTarget = locate.targetID(player: player, library: library)
-            let canShuffle = !showsFolderBrowser && filteredProjection.playableCount > 1
+            let canShuffle = !showsFolderBrowser && displayedPlayableCount > 1
             PMCollapsibleToolbar(actionCount: sectionRailActive || locateTarget != nil ? 4 : 3) {
                 locate
                 SongListShuffleToolbarButton(
@@ -3359,7 +3747,23 @@ struct SongListView: View {
     /// 操作会作用到用户此刻根本看不见的歌上。
     private func pruneSelection() {
         guard selection.isActive, !selection.isEmpty else { return }
+        if showsCatalogList {
+            // 目录列表的 id 还没取好时不修剪(取好后 `selectionIDsDidLoad` 再修剪)。
+            guard let ids = catalogList.selectionIDs else { return }
+            selection.prune(to: Set(ids))
+            return
+        }
         selection.prune(to: Set(batchOrderedSongIDs))
+    }
+
+    /// 目录列表里这首在不在眼前(Mac 选了来源筛选时只看那个源)。
+    private func catalogListShows(_ songID: String) -> Bool {
+        #if os(macOS)
+        if let selectedSourceID {
+            return library.unobservedVisibleSong(id: songID)?.sourceID == selectedSourceID
+        }
+        #endif
+        return true
     }
 
     /// Normal browsing returns worker-built arrays by reference. A source/search
@@ -3447,12 +3851,18 @@ struct SongListView: View {
             )
         }
         #endif
+        if showsCatalogList {
+            // 多选开始时按显示顺序取一次;还没取好时先只给已选的那些。
+            return catalogList.selectionIDs ?? Array(selection.selectedIDs)
+        }
         return showsFolderBrowser
             ? (listCache.isEmpty ? songs.map(\.id) : listCache.orderedSongIDs)
             : filteredSongIDs
     }
 
     private var requiresSortedSnapshot: Bool {
+        // 目录列表不需要内存里的整库快照。
+        if usesCatalogList { return false }
         #if os(macOS)
         return true
         #else
@@ -4162,6 +4572,16 @@ struct SongListView: View {
     }
 
     private func playSong(_ song: Song) {
+        if showsCatalogList {
+            // 目录列表:按显示顺序取好整份 id(播放器的整库请求只认 id),再从这首起放。
+            withCatalogSongIDs { ids in
+                guard let index = ids.firstIndex(of: song.id) else { return }
+                plog("🎶 SongList setQueue visible=\(ids.count) start='\(song.title)' catalog")
+                SiriMediaInteractionDonor.donate(song: song)
+                Task { await player.play(queueIDs: ids, startingAt: index, order: .rotatedToStart, playableOnly: false) }
+            }
+            return
+        }
         let ids = filteredSongIDs
         guard let index = ids.firstIndex(of: song.id) else { return }
         plog("🎶 SongList setQueue visible=\(ids.count) start='\(song.title)'")
@@ -4173,6 +4593,15 @@ struct SongListView: View {
     /// 播放按钮, 唯独「歌曲」这份总列表没有 —— 只能先随便点开一首歌进播放页,
     /// 再去底部那排控件里把随机播放打开。
     private func shuffleVisibleSongs() {
+        if showsCatalogList {
+            withCatalogSongIDs { ids in
+                guard ids.count > 1 else { return }
+                plog("🎶 SongList shuffleAll visible=\(ids.count) catalog")
+                player.shuffleEnabled = true
+                Task { await player.play(queueIDs: ids, order: .shuffled) }
+            }
+            return
+        }
         let ids = filteredSongIDs
         guard ids.count > 1 else { return }
         plog("🎶 SongList shuffleAll visible=\(ids.count)")
@@ -4182,6 +4611,14 @@ struct SongListView: View {
 
     /// 极简页头的「全部播放」：按眼前的顺序从第一首放起。
     private func playVisibleSongs() {
+        if showsCatalogList {
+            withCatalogSongIDs { ids in
+                plog("🎶 SongList playAll visible=\(ids.count) catalog")
+                player.shuffleEnabled = false
+                Task { await player.play(queueIDs: ids, order: .asGiven) }
+            }
+            return
+        }
         let ids = filteredSongIDs
         guard !ids.isEmpty else { return }
         plog("🎶 SongList playAll visible=\(ids.count)")
@@ -5829,6 +6266,279 @@ private struct SongSelectionActivationObserver: View {
             }
     }
 }
+
+// MARK: - Catalog-backed rows (P2a)
+
+/// 目录列表里定位查行号的身份:哪首、对哪一版行号。
+private struct SongListCatalogLocateKey: Equatable {
+    let songID: String?
+    let rowRevision: Int
+}
+
+private struct SongListCatalogLocatedRow: Equatable {
+    let key: SongListCatalogLocateKey
+    let position: Int
+}
+
+/// 多选开始 / 结束时让目录列表取 / 放这份列表的 id。零尺寸子视图,父视图不观察多选状态。
+private struct SongListCatalogSelectionObserver: View {
+    let selection: SongSelectionModel
+    let catalogList: SongListCatalogList
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: selection.isActive, initial: true) { _, isActive in
+                catalogList.setWantsSelectionIDs(isActive)
+            }
+    }
+}
+
+#if os(iOS)
+/// `IOSSongListContainer` 的目录版:行数、分节来自目录,行按位置从当前那一份按页取,
+/// 还没取到的位置画占位行。一个位置一个子视图、一个滚动目标,字母索引与定位按位置跳。
+private struct IOSCatalogSongListContainer: View, @MainActor Equatable {
+    let catalog: SongListCatalogList
+    let rowRevision: Int
+    let sectionIndexEntries: [SongListSectionIndexEntry]
+    let locatedSongID: String?
+    let locationRequestID: UUID?
+    @Environment(\.songListLocation) private var location
+    @Environment(\.songListAppearance) private var appearance
+    let selection: SongSelectionModel
+    let showsListeningIntents: Bool
+    let onPlay: (Song) -> Void
+
+    @State private var indexScrollRequest: IOSSongIndexScrollRequest?
+    @State private var scrollPosition = ScrollPosition(idType: Int.self)
+    @State private var scrollAnchor: UnitPoint = .top
+    @State private var indexTracker = LibraryIndexRailTracker()
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+
+    private var sectionIndexTrailingInset: CGFloat {
+        verticalBarEdge == .trailing ? 10 : 2
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.catalog === rhs.catalog
+            && lhs.rowRevision == rhs.rowRevision
+            && lhs.sectionIndexEntries == rhs.sectionIndexEntries
+            && lhs.locatedSongID == rhs.locatedSongID
+            && lhs.locationRequestID == rhs.locationRequestID
+            && lhs.selection === rhs.selection
+            && lhs.showsListeningIntents == rhs.showsListeningIntents
+    }
+
+    var body: some View {
+        let rowCount = catalog.count
+        let railModel = LibraryIndexRailModel(songEntries: sectionIndexEntries, rowCount: rowCount)
+        let showsIndex = showsSectionIndex(rowCount: rowCount)
+        return ZStack(alignment: .trailing) {
+            ScrollView {
+                if showsListeningIntents {
+                    StartListeningShelf(horizontalInset: 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
+                }
+                positionStack(rowCount: rowCount, showsIndex: showsIndex)
+            }
+            .scrollPosition($scrollPosition, anchor: scrollAnchor)
+            .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.5) { positions in
+                guard let top = positions.min() else { return }
+                indexTracker.lastTopPosition = top
+                guard showsIndex else { return }
+                indexTracker.update(railModel.label(containing: top))
+            }
+            .pmExtendsUnderVerticalBar()
+            .background(Color(UIColor.systemBackground))
+            .songRowColumnsContainer()
+
+            if showsIndex {
+                LibraryIndexRail(
+                    entries: railModel.entries,
+                    tracker: indexTracker,
+                    hitWidth: 48,
+                    countText: { "\($0.formatted()) \(String(localized: "songs_count"))" },
+                    preview: { _ in EmptyView() }
+                ) { entry in
+                    guard (0..<catalog.count).contains(entry.target) else { return }
+                    indexScrollRequest = IOSSongIndexScrollRequest(
+                        rowOffset: entry.target,
+                        rowOrderRevision: rowRevision
+                    )
+                }
+                .accessibilityIdentifier("songList.alphabetIndex")
+                .padding(.trailing, sectionIndexTrailingInset)
+                .padding(.top, showsListeningIntents ? 48 : 0)
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
+            }
+        }
+        .task(id: indexScrollRequest) {
+            guard let request = indexScrollRequest else { return }
+            scrollAnchor = .top
+            await Task.yield()
+            guard !Task.isCancelled,
+                  request.rowOrderRevision == rowRevision,
+                  (0..<catalog.count).contains(request.rowOffset) else {
+                return
+            }
+            scrollPosition.scrollTo(id: request.rowOffset, anchor: .top)
+        }
+        .task(id: SongLocationScrollTrigger(
+            requestID: locationRequestID,
+            songID: locatedSongID,
+            rowOrderRevision: rowRevision
+        )) {
+            // 目录列表里按行号查那首在第几行(主线程外取行号,再在整列行号里找)。
+            guard location?.needsScroll != false, let locatedSongID,
+                  let rowOffset = await catalog.position(of: locatedSongID) else { return }
+            scrollAnchor = .center
+            await Task.yield()
+            guard !Task.isCancelled,
+                  self.locatedSongID == locatedSongID,
+                  rowRevision == catalog.rowRevision else { return }
+            scrollPosition.scrollTo(id: rowOffset, anchor: .center)
+        }
+        .onChange(of: rowRevision) { _, _ in
+            indexScrollRequest = nil
+            indexTracker.update(indexTracker.lastTopPosition.flatMap(railModel.label(containing:)))
+        }
+        .pmAnimation(.control, value: showsIndex)
+    }
+
+    @ViewBuilder
+    private func positionStack(rowCount: Int, showsIndex: Bool) -> some View {
+        if appearance == .list {
+            LazyVStack(spacing: 0) {
+                positionSlots(rowCount: rowCount, showsIndex: showsIndex)
+            }
+            .scrollTargetLayout()
+        } else {
+            SongTimelineStack(appearance: appearance) {
+                positionSlots(rowCount: rowCount, showsIndex: showsIndex)
+            }
+        }
+    }
+
+    private func positionSlots(rowCount: Int, showsIndex: Bool) -> some View {
+        ForEach(0..<rowCount, id: \.self) { position in
+            IOSCatalogSongListPositionSlot(
+                position: position,
+                isLast: position == rowCount - 1,
+                trailingPadding: showsIndex ? 40 + sectionIndexTrailingInset : 16,
+                catalog: catalog,
+                locatedSongID: locatedSongID,
+                selection: selection,
+                onPlay: onPlay
+            )
+        }
+    }
+
+    /// 同 `IOSSongListContainer.showsSectionIndex`。
+    private func showsSectionIndex(rowCount: Int) -> Bool {
+        appearance == .list
+            && !selection.isActive
+            && rowCount >= 24
+            && sectionIndexEntries.lazy.filter(\.isAvailable).count > 1
+    }
+}
+
+private struct IOSCatalogSongListPositionSlot: View {
+    let position: Int
+    let isLast: Bool
+    let trailingPadding: CGFloat
+    let catalog: SongListCatalogList
+    let locatedSongID: String?
+    let selection: SongSelectionModel
+    let onPlay: (Song) -> Void
+    @Environment(\.songRowStyle) private var rowStyle
+    @Environment(\.songListAppearance) private var appearance
+
+    var body: some View {
+        VStack(spacing: 0) {
+            IOSCatalogSongListPositionRow(
+                position: position,
+                catalog: catalog,
+                locatedSongID: locatedSongID,
+                selection: selection,
+                onPlay: onPlay
+            )
+            .padding(.leading, appearance == .list ? 16 : 0)
+            .padding(.trailing, appearance == .list ? trailingPadding : 0)
+            .padding(.vertical, appearance == .list ? 4 : 0)
+
+            if appearance == .list {
+                Divider()
+                    .padding(.leading, rowStyle.separatorLeadingInset)
+                    .opacity(isLast ? 0 : 1)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+private struct IOSCatalogSongListPositionRow: View {
+    let position: Int
+    let catalog: SongListCatalogList
+    let locatedSongID: String?
+    let selection: SongSelectionModel
+    let onPlay: (Song) -> Void
+
+    @ViewBuilder
+    var body: some View {
+        if let song = catalog.song(at: position) {
+            IOSSongListRow(
+                model: catalog.rowModel(for: song),
+                ordinal: position + 1,
+                totalCount: catalog.count,
+                selection: selection,
+                onPlay: onPlay,
+                isLocated: song.id == locatedSongID
+            )
+            // 结构身份绑在位置上,VoiceOver 跟着这个位置上的歌。
+            .accessibilityIdentifier("songRow.\(song.id)")
+        } else {
+            SongListCatalogPlaceholderRow()
+        }
+    }
+}
+
+/// 那一页还没从目录取到时的占位行:与歌曲行同样的封面格与两行字高,取到后原地换成歌曲行。
+private struct SongListCatalogPlaceholderRow: View {
+    @Environment(\.songRowStyle) private var rowStyle
+    @Environment(\.songListAppearance) private var appearance
+    @ScaledMetric(relativeTo: .subheadline) private var timelineCardHeight = SongTimelineRowMetrics.timelineCardHeight
+    @ScaledMetric(relativeTo: .subheadline) private var artworkCapsuleHeight = SongTimelineRowMetrics.artworkCapsuleHeight
+
+    var body: some View {
+        Group {
+            switch appearance {
+            case .list:
+                HStack(spacing: rowStyle.artworkSpacing) {
+                    RoundedRectangle(cornerRadius: rowStyle.artworkCornerRadius)
+                        .fill(Color.secondary.opacity(0.12))
+                        .frame(width: rowStyle.artworkSize, height: rowStyle.artworkSize)
+                    VStack(alignment: .leading, spacing: rowStyle.textSpacing) {
+                        Text(verbatim: "Song title placeholder")
+                            .font(rowStyle.titleFont)
+                        Text(verbatim: "Artist placeholder")
+                            .font(rowStyle.subtitleFont)
+                    }
+                    .redacted(reason: .placeholder)
+                    Spacer(minLength: 0)
+                }
+            case .timeline:
+                Color.clear.frame(height: timelineCardHeight)
+            case .artwork:
+                Color.clear.frame(height: artworkCapsuleHeight)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHidden(true)
+    }
+}
+#endif
 
 private struct SongListToolbarPrincipal: View {
     let selection: SongSelectionModel

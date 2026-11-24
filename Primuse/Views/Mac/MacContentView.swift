@@ -1012,12 +1012,20 @@ struct MacContentView: View {
     private func openSpotlightItem(_ item: SpotlightItem) {
         switch item {
         case .song(let id):
-            guard library.visibleSong(id: id) != nil else { return }
             // 命中歌 + 整库剩下的拼起来当队列,跟 iOS 与 Siri 同款;只交 ID。
-            var ids = [id]
-            ids.reserveCapacity(library.visibleSongs.count)
-            for song in library.visibleSongs where song.id != id { ids.append(song.id) }
-            Task { await player.play(queueIDs: ids, startingAt: 0, caller: "Spotlight") }
+            // 目录可读时由目录确认这首还在可见曲库里、整库那一段(全部可见内容)也在目录里拼;
+            // 否则照旧查内存模型。
+            let request = CatalogLibraryQueueRequest(
+                leadingIDs: [id], kinds: nil, excludedIDs: [id], requiresFirstLeadingSong: true
+            )
+            Task {
+                if await player.playLibraryFromCatalog(request, caller: "Spotlight") { return }
+                guard library.visibleSong(id: id) != nil else { return }
+                var ids = [id]
+                ids.reserveCapacity(library.visibleSongs.count)
+                for song in library.visibleSongs where song.id != id { ids.append(song.id) }
+                await player.play(queueIDs: ids, startingAt: 0, caller: "Spotlight")
+            }
         case .album(let id):
             guard let album = library.visibleAlbum(id: id) else { return }
             NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)

@@ -80,10 +80,21 @@ enum ServerPlaylistMirror {
         source: MusicSource,
         library: MusicLibrary
     ) async -> PreparedSnapshot {
-        let songs = library.songs
-        let matchingSongs = library.visibleSongs
         let sourceID = source.id
         let sourceType = source.type
+        if let reader = P2cCatalogAccess.reader(for: library) {
+            do {
+                return try await prepareFromCatalog(
+                    snapshot: snapshot, sourceID: sourceID, sourceType: sourceType, reader: reader
+                )
+            } catch is CancellationError {
+                return PreparedSnapshot(entries: [], indexedTrackCount: 0)
+            } catch {
+                plog("\(logContext(sourceID: sourceID, sourceType: sourceType)) catalog prepare failed, using in-memory library: \(error.localizedDescription)")
+            }
+        }
+        let songs = library.songs
+        let matchingSongs = library.visibleSongs
         let worker = Task.detached(priority: .utility) {
             ServerPlaylistMirror.prepare(snapshot: snapshot, sourceID: sourceID, sourceType: sourceType,
                                          songs: songs, matchingSongs: matchingSongs,
@@ -107,13 +118,64 @@ enum ServerPlaylistMirror {
             songs: songs,
             wanting: referencedItemIDs(in: snapshot.playlists)
         )
-        let unresolvedSubjects = snapshot.playlists.flatMap { playlist in
+        return prepare(
+            snapshot: snapshot, sourceID: sourceID, sourceType: sourceType,
+            index: index, matchingSongs: matchingSongs, isCancelled: isCancelled
+        )
+    }
+
+    /// 按 id 没对上、也不是服务端直接能播的曲目:落地时要跨源按标题找。
+    nonisolated private static func unresolvedSubjects(
+        in snapshot: ServerPlaylistSnapshot,
+        index: [String: String]
+    ) -> [ExternalTrackMatchPolicy.Subject] {
+        snapshot.playlists.flatMap { playlist in
             playlist.tracks.compactMap { track -> ExternalTrackMatchPolicy.Subject? in
                 guard let id = track.externalID,
                       index[id] == nil, playlist.playableSongs[id] == nil else { return nil }
                 return .init(title: track.title, artists: track.artists, duration: track.duration)
             }
         }
+    }
+
+    /// 曲库目录可读时(P2c):对照只查这个源里歌单引用到的 id(只读身份投影),跨源按标题找的候选
+    /// 只取同歌名主体的可见歌 —— `PlaylistEntryMatcher(songs:matching:)` 本来就只看这些,结果相同。
+    private static func prepareFromCatalog(
+        snapshot: ServerPlaylistSnapshot,
+        sourceID: String,
+        sourceType: MusicSourceType,
+        reader: LibraryCatalogReader
+    ) async throws -> PreparedSnapshot {
+        let index = try await reader.serverItemIndex(sourceID: sourceID, wanting: referencedItemIDs(in: snapshot.playlists))
+        let subjects = Self.unresolvedSubjects(in: snapshot, index: index)
+        var candidates: [Song] = []
+        if !subjects.isEmpty {
+            candidates = try await reader.songs(
+                matchingCoreTitles: Set(subjects.map { ExternalTrackMatchPolicy.normalizedCoreTitle($0.title) }),
+                scope: .visible
+            )
+        }
+        try Task.checkCancellation()
+        let matchingSongs = candidates
+        let worker = Task.detached(priority: .utility) {
+            ServerPlaylistMirror.prepare(
+                snapshot: snapshot, sourceID: sourceID, sourceType: sourceType,
+                index: index, matchingSongs: matchingSongs, isCancelled: { Task.isCancelled }
+            )
+        }
+        return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+    }
+
+    nonisolated private static func prepare(
+        snapshot: ServerPlaylistSnapshot,
+        sourceID: String,
+        sourceType: MusicSourceType,
+        index: [String: String],
+        matchingSongs: [Song],
+        isCancelled: () -> Bool = { false }
+    ) -> PreparedSnapshot {
+        guard !isCancelled() else { return PreparedSnapshot(entries: [], indexedTrackCount: 0) }
+        let unresolvedSubjects = Self.unresolvedSubjects(in: snapshot, index: index)
         let matcher = unresolvedSubjects.isEmpty ? nil : PlaylistEntryMatcher(
             songs: matchingSongs, matching: unresolvedSubjects, isCancelled: isCancelled
         )
@@ -309,11 +371,16 @@ enum ServerPlaylistMirror {
         /// 先在主线程外建好整源对照, 之后的 `apply` 都只是查表。
         func prepareIndex() async {
             guard index == nil else { return }
-            let songs = library.songs
             let sourceID = source.id
-            let built = await Task.detached(priority: .utility) {
-                ServerPlaylistMirror.serverItemIndex(sourceID: sourceID, songs: songs)
-            }.value
+            let built: [String: String]
+            if let catalogBuilt = await ServerPlaylistMirror.catalogServerItemIndex(sourceID: sourceID, library: library) {
+                built = catalogBuilt
+            } else {
+                let songs = library.songs
+                built = await Task.detached(priority: .utility) {
+                    ServerPlaylistMirror.serverItemIndex(sourceID: sourceID, songs: songs)
+                }.value
+            }
             guard !isFinished else { return }
             index = built
         }
@@ -377,13 +444,20 @@ enum ServerPlaylistMirror {
 
         private func startIndexIfNeeded() {
             guard indexTask == nil, !isFinished else { return }
-            let songs = library.songs
             let sourceID = source.id
+            let library = library
             indexTask = Task { @MainActor [weak self] in
-                let worker = Task.detached(priority: .utility) {
-                    ServerPlaylistMirror.serverItemIndex(sourceID: sourceID, songs: songs)
+                let built: [String: String]
+                if let catalogBuilt = await ServerPlaylistMirror.catalogServerItemIndex(sourceID: sourceID, library: library) {
+                    built = catalogBuilt
+                } else {
+                    guard !Task.isCancelled else { return }
+                    let songs = library.songs
+                    let worker = Task.detached(priority: .utility) {
+                        ServerPlaylistMirror.serverItemIndex(sourceID: sourceID, songs: songs)
+                    }
+                    built = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
                 }
-                let built = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
                 guard let self, !self.isFinished, !Task.isCancelled else { return }
                 self.index = built
             }
@@ -464,10 +538,37 @@ enum ServerPlaylistMirror {
         library: MusicLibrary,
         preferring members: Set<String>
     ) async -> [String] {
-        let songs = library.songs
-        let matchingSongs = library.visibleSongs
         let sourceID = source.id
         let sourceType = source.type
+        if let reader = P2cCatalogAccess.reader(for: library) {
+            // 曲库目录可读时(P2c):对照只查引用到的 id,标题候选只取同歌名主体的可见歌。
+            do {
+                let index = try await reader.serverItemIndex(
+                    sourceID: sourceID, wanting: referencedItemIDs(in: [serverPlaylist])
+                )
+                let titles = Set(positionUnresolvedEntries(
+                    serverPlaylist, sourceID: sourceID, sourceType: sourceType, index: index, preferring: members
+                ).map { ExternalTrackMatchPolicy.normalizedCoreTitle($0.entry.title) })
+                var candidates: [Song] = []
+                if !titles.isEmpty {
+                    candidates = try await reader.songs(matchingCoreTitles: titles, scope: .visible)
+                }
+                let matchingSongs = candidates
+                let worker = Task.detached(priority: .userInitiated) {
+                    ServerPlaylistMirror.positionMembers(
+                        serverPlaylist, sourceID: sourceID, sourceType: sourceType, index: index,
+                        matchingSongs: matchingSongs, preferring: members
+                    )
+                }
+                return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            } catch is CancellationError {
+                return []
+            } catch {
+                plog("\(logContext(sourceID: sourceID, sourceType: sourceType)) catalog positions failed, using in-memory library: \(error.localizedDescription)")
+            }
+        }
+        let songs = library.songs
+        let matchingSongs = library.visibleSongs
         let worker = Task.detached(priority: .userInitiated) {
             ServerPlaylistMirror.positionMembers(
                 serverPlaylist, sourceID: sourceID, sourceType: sourceType, songs: songs,
@@ -475,6 +576,20 @@ enum ServerPlaylistMirror {
             )
         }
         return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+    }
+
+    /// 整源对照(`ProgressiveApplier` 用)从曲库目录建:只读这个源的身份投影,不拍整库。
+    /// 目录不可读或读失败时 nil,调用方照旧从内存建。
+    fileprivate static func catalogServerItemIndex(sourceID: String, library: MusicLibrary) async -> [String: String]? {
+        guard let reader = P2cCatalogAccess.reader(for: library) else { return nil }
+        do {
+            return try await reader.serverItemIndex(sourceID: sourceID, wanting: nil)
+        } catch is CancellationError {
+            return nil
+        } catch {
+            plog("Server playlists source=\(LogRedactionPolicy.digest(sourceID)) catalog index failed, using in-memory library: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     nonisolated private static func positionMembers(
@@ -486,6 +601,45 @@ enum ServerPlaylistMirror {
         preferring members: Set<String>
     ) -> [String] {
         let index = serverItemIndex(sourceID: sourceID, songs: songs, wanting: referencedItemIDs(in: [playlist]))
+        return positionMembers(
+            playlist, sourceID: sourceID, sourceType: sourceType, index: index,
+            matchingSongs: matchingSongs, preferring: members
+        )
+    }
+
+    /// 按 id 对不上、镜像里也没有它的置灰占位的那些位置(落地时会去别的源按标题找)。
+    nonisolated private static func positionUnresolvedEntries(
+        _ playlist: ServerPlaylist,
+        sourceID: String,
+        sourceType: MusicSourceType,
+        index: [String: String],
+        preferring members: Set<String>
+    ) -> [(offset: Int, entry: PlaylistPendingEntry)] {
+        let metadata = Dictionary(playlist.tracks.compactMap { track in
+            track.externalID.map { ($0, track) }
+        }, uniquingKeysWith: { first, _ in first })
+        var result: [(offset: Int, entry: PlaylistPendingEntry)] = []
+        for (offset, trackID) in playlist.trackIDs.enumerated() where !trackID.isEmpty {
+            let pending = PlaylistPendingEntry.idPrefix + ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: trackID)
+            guard index[trackID] == nil, playlist.playableSongs[trackID] == nil, !members.contains(pending) else { continue }
+            let track = metadata[trackID]
+            result.append((offset, PlaylistPendingEntry(
+                id: pending,
+                title: track?.title ?? "", artists: track?.artists ?? [], album: track?.album,
+                duration: track?.duration, origin: sourceType.rawValue, externalID: trackID, serverSourceID: sourceID
+            )))
+        }
+        return result
+    }
+
+    nonisolated private static func positionMembers(
+        _ playlist: ServerPlaylist,
+        sourceID: String,
+        sourceType: MusicSourceType,
+        index: [String: String],
+        matchingSongs: [Song],
+        preferring members: Set<String>
+    ) -> [String] {
         let metadata = Dictionary(playlist.tracks.compactMap { track in
             track.externalID.map { ($0, track) }
         }, uniquingKeysWith: { first, _ in first })

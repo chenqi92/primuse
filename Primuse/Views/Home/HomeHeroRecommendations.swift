@@ -225,7 +225,7 @@ struct HomeHeroRecommendationSection: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(content == .albums ? LocalizedStringKey("home_hero_album_picks") : "home_hero_theme_playlists").font(.title3.bold()).accessibilityAddTraits(.isHeader)
                 .padding(.horizontal, 20)
-            if isInteractive && (library.musicSongs.isEmpty || models.allSatisfy({ $0.revision > 0 && !$0.isLoading && $0.songs.isEmpty })) {
+            if isInteractive && (PlaybackSurfaceCountsModel.musicSongCount(in: library) == 0 || models.allSatisfy({ $0.revision > 0 && !$0.isLoading && $0.songs.isEmpty })) {
                 ContentUnavailableView("library_recommendations_empty_title", systemImage: "sparkles")
             } else if content == .albums && albums.isEmpty {
                 if !isInteractive || catalog.albums.isLoading || catalog.albums.revision == 0 {
@@ -593,7 +593,7 @@ struct HomeHeroCoverWallSection: View {
         let songs = content == .songs ? shownSongs : []
         let items = content == .albums ? albumItems(albums) : songItems(songs)
         Group {
-            if isInteractive && (library.musicSongs.isEmpty || (model.revision > 0 && !model.isLoading && items.isEmpty)) {
+            if isInteractive && (PlaybackSurfaceCountsModel.musicSongCount(in: library) == 0 || (model.revision > 0 && !model.isLoading && items.isEmpty)) {
                 ContentUnavailableView("library_recommendations_empty_title", systemImage: "sparkles")
             } else if items.isEmpty {
                 HomeHeroCoverWallSkeleton(metrics: metrics)

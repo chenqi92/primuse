@@ -362,7 +362,7 @@ struct PodcastLibraryContent: View {
     var body: some View {
         let sections = PodcastLibrarySectionLayout.decode(sectionLayoutRawValue).visibleSections(
             hasSubscriptions: !store.shows.isEmpty,
-            hasLibraryEpisodes: !library.localPodcastSongs.isEmpty
+            hasLibraryEpisodes: LibraryHubCatalogCountsModel.hasLocalPodcastEpisodes(in: library)
         )
         Group {
             if !store.isLoaded {
@@ -460,7 +460,7 @@ struct PodcastSectionsEditorButton: View {
     @Environment(MusicLibrary.self) private var library
 
     var body: some View {
-        if !PodcastStore.shared.shows.isEmpty || !library.localPodcastSongs.isEmpty {
+        if !PodcastStore.shared.shows.isEmpty || LibraryHubCatalogCountsModel.hasLocalPodcastEpisodes(in: library) {
             Button {
                 navigation.showsSectionEditor = true
             } label: {

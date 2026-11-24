@@ -48,11 +48,19 @@ struct AmbientSoundBoard: View {
     @Environment(AudioPlayerService.self) private var player
     @AppStorage(AmbientQuickTimerRow.storageKey) private var quickTimerMinutes = 0
     @State private var playlistSong: Song?
+    /// 目录可读时从目录取的环境音(可见的环境音,库内顺序,同 `ambientSongs`)。nil 时读内存模型。
+    @State private var catalogSongs: [Song]?
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 230), spacing: 14)]
 
+    /// 目录可读与否、目录内容修订号:变了就重取环境音。
+    private var catalogKey: AmbientCatalogKey {
+        let revisions = library.catalogHost?.revisions
+        return AmbientCatalogKey(readable: revisions?.isReadable == true, revision: revisions?.songs ?? 0)
+    }
+
     var body: some View {
-        let songs = library.ambientSongs
+        let songs = catalogSongs ?? library.ambientSongs
         let groups = AmbientSoundGrouping.groups(for: songs)
         let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         VStack(alignment: .leading, spacing: 22) {
@@ -92,6 +100,34 @@ struct AmbientSoundBoard: View {
         }
         .sheet(item: $playlistSong) { song in
             AddToPlaylistSheet(song: song)
+        }
+        .task(id: catalogKey) { await loadCatalogSongs(catalogKey) }
+    }
+
+    /// 环境音从目录取(按类别的行号列表,再按行号物化)。超过一次物化上限、读失败或目录不可读时
+    /// 退回内存模型,不截断。
+    private func loadCatalogSongs(_ key: AmbientCatalogKey) async {
+        guard key.readable, let reader = library.catalogHost?.reader else {
+            catalogSongs = nil
+            return
+        }
+        if catalogSongs != nil {
+            // 目录连续在变(扫描)时不必每次都重取。
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+        }
+        do {
+            let songs = try await reader.read { catalog -> [Song]? in
+                let rows = try catalog.rowList(LibrarySongScope(kinds: [.ambient]))
+                guard rows.count <= LibraryScale.maxMaterializedRows else { return nil }
+                return try catalog.songs(rowids: rows.rowids)
+            }
+            guard !Task.isCancelled else { return }
+            catalogSongs = songs
+        } catch {
+            plog("📚 catalog ambient songs failed: \(error)")
+            guard !Task.isCancelled else { return }
+            catalogSongs = nil
         }
     }
 
@@ -512,4 +548,9 @@ extension ListeningSpaceSearchPolicy.AmbientCandidate {
             folder: folder
         )
     }
+}
+
+private struct AmbientCatalogKey: Equatable {
+    let readable: Bool
+    let revision: UInt64
 }

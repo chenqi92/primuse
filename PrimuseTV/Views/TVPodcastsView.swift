@@ -94,7 +94,7 @@ struct TVPodcastsView: View {
                             }
                             likedEpisodes
                             localShowsSection(cell: cell)
-                            if podcasts.shows.isEmpty && store.library.localPodcastSongs.isEmpty {
+                            if podcasts.shows.isEmpty && !store.hasLocalPodcastSongs {
                                 welcome(cell: cell)
                             }
                             regionHiddenNote

@@ -222,7 +222,9 @@ struct ArtistListView: View {
                     }
                     searchText = ""
                     selectedArtistID = artist.id
+                    selectedCatalogArtist = artist
                 }
+                .task(id: usesCatalogArtistList) { updateCatalogArtistList() }
                 .libraryInsightBatchFill(kind: .artist, request: $requestsIntroFill) {
                     filteredArtists.map(LibraryInsightBatchItem.artist)
                 }
@@ -534,8 +536,47 @@ struct ArtistListView: View {
     #if os(macOS)
     /// 当前选中的艺术家 (nil → 取过滤后列表第一个), 驱动右侧详情。
     @State private var selectedArtistID: String?
+    /// 资料库「全部艺术家」列法、不在查找也不只看喜欢时,左栏从曲库目录按页取(P2a)。
+    @State private var catalogArtistList: LibraryListModel<LibraryArtistListQuery>?
+    /// 目录列表里点选(或从别处打开)的那位。目录列表只物化可见区附近,选中的那位单独留着。
+    @State private var selectedCatalogArtist: Artist?
+
+    /// 目录的艺人顺序与 `visibleArtists` 一致(名字本地化排序、同名按首次出现),计数按可见歌曲算;
+    /// 「专辑艺术家」列法、查找、只看喜欢目录还给不出一样的结果,走内存模型。
+    private var usesCatalogArtistList: Bool {
+        browsesLibrary
+            && browseMode == .allArtists
+            && !showsLikedOnly
+            && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && library.catalogHost?.revisions.isReadable == true
+    }
+
+    /// 目录那一份已经取到行号(与第一页),而且没有读错。读错时这一页照旧用内存模型。
+    private var showsCatalogArtistList: Bool {
+        guard usesCatalogArtistList, let model = catalogArtistList,
+              !model.isLoading, model.lastError == nil else { return false }
+        return model.count == 0 || model.item(at: 0) != nil
+    }
+
+    private func updateCatalogArtistList() {
+        guard usesCatalogArtistList, let host = library.catalogHost else {
+            catalogArtistList?.deactivate()
+            catalogArtistList = nil
+            return
+        }
+        guard catalogArtistList == nil else { return }
+        let model = host.artistList(visibleOnly: true)
+        model.activate()
+        catalogArtistList = model
+    }
 
     private var selectedArtist: Artist? {
+        if showsCatalogArtistList, let model = catalogArtistList {
+            if let id = selectedArtistID, let artist = selectedCatalogArtist, artist.id == id {
+                return artist
+            }
+            return model.item(at: 0)
+        }
         if let id = selectedArtistID,
            let match = filteredArtists.first(where: { $0.id == id }) {
             return match
@@ -620,7 +661,31 @@ struct ArtistListView: View {
                 )
             }
 
-            if showsEmptyBrowseList {
+            if showsCatalogArtistList, let model = catalogArtistList {
+                if model.count == 0 {
+                    emptyBrowseList
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView(.vertical) {
+                        LazyVStack(spacing: 1) {
+                            ForEach(0..<model.count, id: \.self) { index in
+                                if let artist = model.item(at: index) {
+                                    artistRow(artist)
+                                } else {
+                                    // 那一页还没取到:与一行同高的空位(36 头像 + 上下 6)。
+                                    Color.clear
+                                        .frame(height: 48)
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 24)
+                    }
+                    .scrollIndicators(.visible, axes: .vertical)
+                    .accessibilityIdentifier("artistList.scroll")
+                }
+            } else if showsEmptyBrowseList {
                 emptyBrowseList
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if filteredArtists.isEmpty {
@@ -696,6 +761,7 @@ struct ArtistListView: View {
         let isSelected = selectedArtist?.id == artist.id
         return PMScrollingButton {
             selectedArtistID = artist.id
+            selectedCatalogArtist = artist
         } label: {
             HStack(spacing: 10) {
                 ArtistArtworkView(

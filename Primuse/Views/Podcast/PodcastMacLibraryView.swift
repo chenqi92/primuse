@@ -23,7 +23,9 @@ struct MacPodcastLibraryView: View {
     @Environment(MusicLibrary.self) private var library
     private var store: PodcastStore { PodcastStore.shared }
     private var hasShows: Bool { !store.shows.isEmpty }
-    private var hasLibraryContent: Bool { hasShows || !library.localPodcastSongs.isEmpty }
+    private var hasLibraryContent: Bool {
+        hasShows || LibraryHubCatalogCountsModel.hasLocalPodcastEpisodes(in: library)
+    }
     private var isSearching: Bool { !search.trimmedQuery.isEmpty }
 
     init(initialPage: Page = .library, initialQuery: String = "") {

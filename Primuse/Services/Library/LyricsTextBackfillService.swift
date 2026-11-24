@@ -75,9 +75,14 @@ final class LyricsTextBackfillService {
         // 在 MainActor 上只做廉价的候选快照 (id + 文件名); 真正的磁盘读取 /
         // 解码在下面分 chunk 丢到后台, 避免几千首未命中缓存的歌在启动时独占
         // 主线程。
-        let candidates: [Candidate] = library.songs.compactMap { song in
-            guard song.lyricsText == nil, song.lyricsFileName?.isEmpty == false else { return nil }
-            return Candidate(id: song.id, lyricsFileName: song.lyricsFileName)
+        let candidates: [Candidate]
+        if let fromCatalog = await catalogCandidates() {
+            candidates = fromCatalog
+        } else {
+            candidates = library.songs.compactMap { song in
+                guard song.lyricsText == nil, song.lyricsFileName?.isEmpty == false else { return nil }
+                return Candidate(id: song.id, lyricsFileName: song.lyricsFileName)
+            }
         }
         // 二道闸: `startIfNeeded()` 之后到这里之间理论上不会翻回 `.preparing`,
         // 但写标记位是一次性的、不可逆的, 所以再确认一次。
@@ -155,5 +160,22 @@ final class LyricsTextBackfillService {
     private struct Candidate: Sendable {
         let id: String
         let lyricsFileName: String?
+    }
+
+    /// 曲库目录可读时在主线程外流式挑候选(有歌词文件引用、还没有歌词全文,整库含停用源,
+    /// 库内顺序,与内存里的写法同一个条件)。目录不可读或读失败时 nil。
+    private func catalogCandidates() async -> [Candidate]? {
+        guard let host = library.catalogHost, host.revisions.isReadable else { return nil }
+        do {
+            return try await host.reader.reduceSongs(.everything, into: [Candidate]()) { candidates, song in
+                if song.lyricsText == nil, song.lyricsFileName?.isEmpty == false {
+                    candidates.append(Candidate(id: song.id, lyricsFileName: song.lyricsFileName))
+                }
+                return true
+            }
+        } catch {
+            plog("📚 lyrics backfill catalog scan failed, using memory: \(error)")
+            return nil
+        }
     }
 }

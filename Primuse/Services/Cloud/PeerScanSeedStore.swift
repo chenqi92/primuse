@@ -411,7 +411,18 @@ final class PeerScanSeedCoordinator {
     /// 扫完再去看一眼,有结果就交给补读接过来。
     func lookup(for source: MusicSource) async -> PeerScanSeedLookup? {
         guard PeerScanSeedStore.isEnabled, Self.isEligible(source, in: sourcesStore) else { return nil }
-        let hasLocalRows = library?.songs.contains { $0.sourceID == source.id } ?? true
+        let hasLocalRows: Bool
+        if let host = library?.catalogHost, host.revisions.isReadable {
+            // 曲库目录可读时按源查一次 EXISTS(含停用源),不再整库过一遍。
+            do {
+                hasLocalRows = try await host.reader.containsSongs(sourceID: source.id)
+            } catch {
+                plog("📚 peer seeds catalog lookup failed, using memory: \(error)")
+                hasLocalRows = library?.songs.contains { $0.sourceID == source.id } ?? true
+            }
+        } else {
+            hasLocalRows = library?.songs.contains { $0.sourceID == source.id } ?? true
+        }
         if !hasLocalRows, sourcesStore.sourceIDsCreatedOnThisDevice.contains(source.id) {
             if !sourcesStore.sourceIDsCreatedThisRun.contains(source.id) {
                 postScanCheckSourceIDs.insert(source.id)

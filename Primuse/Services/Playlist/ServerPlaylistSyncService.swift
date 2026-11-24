@@ -385,11 +385,46 @@ enum ServerPlaylistCopyService {
             return Input(playlistID: id, name: playlist.name, rows: rows)
         }
         let targetID = target.id
-        let targetSongs = library.visibleSongs.filter { $0.sourceID == targetID }
         let keyCache = library.playlistEntryMatchKeyCache
+        let targetSongs: [Song]
+        if let reader = P2cCatalogAccess.reader(for: library),
+           let candidates = await Self.catalogTargetCandidates(inputs, targetID: targetID, reader: reader) {
+            targetSongs = candidates
+        } else {
+            targetSongs = library.visibleSongs.filter { $0.sourceID == targetID }
+        }
         return await Task.detached(priority: .userInitiated) {
             Self.makePlans(inputs, targetID: targetID, targetSongs: targetSongs, keyCache: keyCache)
         }.value
+    }
+
+    /// 曲库目录可读时(P2c):目标源里只取与这些条目同歌名主体的可见歌。匹配器只在同歌名主体的桶里找,
+    /// 拿这份候选建的匹配器与拿整个目标源建的给出同样的结果。读失败时 nil,调用方改走内存。
+    private static func catalogTargetCandidates(
+        _ inputs: [Input], targetID: String, reader: LibraryCatalogReader
+    ) async -> [Song]? {
+        var titles = Set<String>()
+        for input in inputs {
+            for row in input.rows {
+                switch row {
+                case .song(let song):
+                    guard song.sourceID != targetID else { continue }
+                    titles.insert(ExternalTrackMatchPolicy.normalizedCoreTitle(song.title))
+                case .pending(let pending):
+                    titles.insert(ExternalTrackMatchPolicy.normalizedCoreTitle(pending.matchSubject.title))
+                }
+            }
+        }
+        do {
+            return try await reader.songs(
+                matchingCoreTitles: titles, scope: LibrarySongScope(sourceID: targetID)
+            )
+        } catch {
+            if !(error is CancellationError) {
+                plog("Server playlist copy target=\(LogRedactionPolicy.digest(targetID)) catalog candidates failed, using in-memory library: \(error.localizedDescription)")
+            }
+            return nil
+        }
     }
 
     nonisolated private static func makePlans(
@@ -849,11 +884,35 @@ final class ServerFavoriteSyncService {
         applyFence: () -> Bool
     ) async -> Bool {
         // 曲库里没有的收藏(插件的在线收藏)先作为仅歌单的歌入库, 下面才对得上号。
+        let admitted = snapshot.itemIDs.compactMap { snapshot.playableSongs[$0] }
         library.admitCollectionOnlySongs(
-            snapshot.itemIDs.compactMap { snapshot.playableSongs[$0] },
+            admitted,
             sourceID: sourceID,
             indexMaintenance: .immediate
         )
+        if let musicLibrary = library as? MusicLibrary, let reader = P2cCatalogAccess.reader(for: musicLibrary) {
+            // 曲库目录可读时(P2c)只读这个源的身份投影。刚入库的仅歌单歌目录可能还没跟上,
+            // 它们排在库尾,按同一规则补在目录结果后面(先到的算数不变)。
+            let requested = Set(snapshot.itemIDs)
+            do {
+                var matches = try await reader.firstSongIDs(sourceID: sourceID, wanting: requested) { path in
+                    ServerFavoriteWritebackPolicy.songID(fromConnectorPath: path, sourceType: sourceType)
+                }
+                for song in admitted where song.sourceID == sourceID {
+                    guard let itemID = ServerFavoriteWritebackPolicy.songID(
+                            fromConnectorPath: song.filePath, sourceType: sourceType
+                          ), requested.contains(itemID), matches[itemID] == nil else { continue }
+                    matches[itemID] = song.id
+                }
+                let prepared = snapshot.itemIDs.compactMap { matches[$0] }
+                guard !Task.isCancelled, applyFence() else { return false }
+                return applyReconciled(snapshot, sourceID: sourceID, serverLikes: prepared)
+            } catch is CancellationError {
+                return false
+            } catch {
+                plog("Server favorites source=\(LogRedactionPolicy.digest(sourceID)) catalog match failed, using in-memory library: \(error.localizedDescription)")
+            }
+        }
         let songs = library.songs
         let worker = Task.detached(priority: .utility) { () -> [String]? in
             let requested = Set(snapshot.itemIDs)
@@ -871,11 +930,14 @@ final class ServerFavoriteSyncService {
         }
         let prepared = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
         guard let prepared, !Task.isCancelled, applyFence() else { return false }
+        return applyReconciled(snapshot, sourceID: sourceID, serverLikes: prepared)
+    }
+
+    private func applyReconciled(_ snapshot: ServerFavoriteSnapshot, sourceID: String, serverLikes: [String]) -> Bool {
         let currentLikes = library.likedSongIDs(fromSourceID: sourceID)
         let likedBefore = Set(currentLikes)
         // 清单不完整时只加不撤：被跳过的那几条里可能就有本机已喜欢的歌。
         let retainedLikes = snapshot.isComplete ? [] : currentLikes
-        let serverLikes = prepared
         let likedAfter = Set(retainedLikes + serverLikes)
         // 「服务器上收藏了 N 首、本机对上 M 首」: 用户说两边对不上时先看这一行。
         plog("Server favorites source=\(LogRedactionPolicy.digest(sourceID)) result=reconciled server=\(snapshot.itemIDs.count) matched=\(serverLikes.count) added=\(likedAfter.subtracting(likedBefore).count) removed=\(likedBefore.subtracting(likedAfter).count) complete=\(snapshot.isComplete)")

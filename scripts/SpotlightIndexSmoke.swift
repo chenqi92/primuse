@@ -44,6 +44,23 @@ final class MusicLibrary {
     func onReady(_ work: @escaping @MainActor () -> Void) { work() }
 }
 
+// 曲库目录(P2c):冒烟测试里目录永远不可读,收录走原来的内存路径。
+enum P2cCatalogAccess {
+    @MainActor static func reader(for library: MusicLibrary) -> LibraryCatalogReader? { nil }
+}
+
+final class LibraryCatalogReader: Sendable {
+    func spotlightSongSelection(prioritySongIDs: [String], limit: Int) async throws -> LibraryCatalogSpotlightSelection {
+        LibraryCatalogSpotlightSelection(songs: [], priorityCount: 0, visibleCount: 0)
+    }
+}
+
+struct LibraryCatalogSpotlightSelection: Sendable {
+    let songs: [Song]
+    let priorityCount: Int
+    let visibleCount: Int
+}
+
 enum MetadataAssetStore {
     static let shared = MetadataAssetStoreFixture()
 }

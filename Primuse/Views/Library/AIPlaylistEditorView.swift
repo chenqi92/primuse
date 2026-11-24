@@ -240,7 +240,7 @@ struct AIPlaylistEditorView: View {
             && !normalizedPrompt.isEmpty
             && requestedSongCount != nil
             && remainingSelectionCapacity > 0
-            && !library.visibleSongs.isEmpty
+            && PlaybackSurfaceCountsModel.visibleSongCount(in: library) > 0
             && intelligence.isPersonalizedRecommendationsConfigured
     }
 
@@ -423,7 +423,7 @@ struct AIPlaylistEditorView: View {
     }
 
     private var promptFooterKey: LocalizedStringKey {
-        if library.visibleSongs.isEmpty {
+        if PlaybackSurfaceCountsModel.visibleSongCount(in: library) == 0 {
             return "ai_playlist_empty_library"
         }
         if !intelligence.isPersonalizedRecommendationsConfigured {

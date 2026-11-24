@@ -338,6 +338,15 @@ final class TVKaraokeSession {
         vocalAssist.reset()
     }
 
+    nonisolated private static func companionMatch(
+        for target: KaraokeCompanionCandidate,
+        in candidates: [KaraokeCompanionCandidate],
+        backing: Bool
+    ) -> KaraokeCompanionCandidate? {
+        backing ? KaraokeCompanionPolicy.original(for: target, in: candidates)
+            : KaraokeCompanionPolicy.instrumental(for: target, in: candidates)
+    }
+
     nonisolated static func companionCandidate(_ song: Song) -> KaraokeCompanionCandidate {
         KaraokeCompanionCandidate(id: song.id, title: song.title, artistName: song.artistName,
                                   albumTitle: song.albumTitle, duration: song.duration,
@@ -345,15 +354,41 @@ final class TVKaraokeSession {
     }
 
     private func findCompanion(for song: Song) {
-        let songs = store.library.visibleSongs
         let target = Self.companionCandidate(song)
         let backing = isPlayingInstrumental
+        // 目录可读时流式走一遍可见歌曲,只留下去掉版本标记后同名的那几首再交给匹配规则
+        // (同名是匹配的必要条件,库内顺序不变,结果与整库匹配一样);否则照旧在内存里整库匹配。
+        let reader = store.readableCatalogReader
+        let songs = reader == nil ? store.library.visibleSongs : []
         companionTask = Task { @MainActor [weak self] in
-            let matchID = await Task.detached(priority: .utility) {
-                let candidates = songs.map(Self.companionCandidate)
-                return (backing ? KaraokeCompanionPolicy.original(for: target, in: candidates)
-                        : KaraokeCompanionPolicy.instrumental(for: target, in: candidates))?.id
-            }.value
+            var matchID: String?
+            var resolved = false
+            if let reader {
+                let base = KaraokeCompanionPolicy.baseTitle(target.title)
+                if base.isEmpty {
+                    resolved = true
+                } else {
+                    do {
+                        let candidates = try await reader.reduceSongs(.visible, into: [KaraokeCompanionCandidate]()) {
+                            found, candidate in
+                            if KaraokeCompanionPolicy.baseTitle(candidate.title) == base {
+                                found.append(Self.companionCandidate(candidate))
+                            }
+                            return true
+                        }
+                        matchID = Self.companionMatch(for: target, in: candidates, backing: backing)?.id
+                        resolved = true
+                    } catch {
+                        plog("📚 TV karaoke companion catalog lookup failed, using memory: \(error)")
+                    }
+                }
+            }
+            if !resolved {
+                let fallback = reader == nil ? songs : (self?.store.library.visibleSongs ?? [])
+                matchID = await Task.detached(priority: .utility) {
+                    Self.companionMatch(for: target, in: fallback.map(Self.companionCandidate), backing: backing)?.id
+                }.value
+            }
             guard !Task.isCancelled, let self, self.isActive, self.songID == song.id else { return }
             let match = matchID.flatMap { self.store.library.song(id: $0) }
             if backing, let original = match {

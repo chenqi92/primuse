@@ -51,6 +51,32 @@ struct ShuffleWeighting: Sendable {
     func shuffled(ids: [String], lookup: VisibleSongLookup) -> [String] {
         shuffled(ids, song: { lookup.song(id: $0) })
     }
+
+    /// 找不到的歌、没播放过的歌的权重。
+    var defaultWeight: Double {
+        WeightedShufflePolicy.weight(of: nil, preference: preference, counts: counts)
+    }
+
+    /// 一首歌的权重, 与 `weights(_:song:)` 同一算法; 整库请求在目录上逐首遍历时用,
+    /// 同一个 `resolver` 跨整趟复用(它只缓存占位署名的判断)。
+    func weight(of song: Song?, resolver: inout ShuffleArtistKeyResolver) -> Double {
+        let candidate = song.map { Self.candidate(for: $0, resolver: &resolver) }
+        return WeightedShufflePolicy.weight(of: candidate, preference: preference, counts: counts)
+    }
+
+    /// 同 `shuffled(ids:lookup:)`, 权重事先算好: `sparseWeights` 只记与 `defaultWeight` 不同的歌,
+    /// 其余按默认权重。目录上的整库请求用(不为整库建查找表)。
+    func shuffled(ids: [String], sparseWeights: [String: Double]) -> [String] {
+        guard ids.count > 1 else { return ids }
+        let fallback = defaultWeight
+        let elementWeights = ids.map { sparseWeights[$0] ?? fallback }
+        var generator = SystemRandomNumberGenerator()
+        return WeightedShufflePolicy.shuffled(
+            Array(ids.indices),
+            weight: { elementWeights[$0] },
+            using: &generator
+        ).map { ids[$0] }
+    }
 }
 
 /// 随机播放加权用的播放次数(#332)。一首歌取本机听歌记录与音乐服务器记下的次数中较大的那个,

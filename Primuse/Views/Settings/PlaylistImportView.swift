@@ -74,6 +74,10 @@ struct PlaylistImportView: View {
     @State private var csvDocument = PlaylistImportCSVDocument()
     @State private var manualMatchEntry: PlaylistImporter.ImportEntry?
     @State private var manualMatchQuery = ""
+    /// 曲库目录可读时手动匹配的结果从目录查(P2c);nil 表示还没查过。
+    @State private var manualMatchCatalogResults: [Song]?
+    /// 目录读失败后这张单子改回内存路径。
+    @State private var manualMatchCatalogFailed = false
     /// 解析 + 库匹配在后台跑期间为 true, 用来显示进度并阻止重复触发。
     @State private var isParsing = false
     @State private var sourceMode: ImportSourceMode = .file
@@ -1417,12 +1421,21 @@ struct PlaylistImportView: View {
         // 全部丢到后台跑, 否则 1000 条对 5 万首库会冻结 UI 数秒。
         // 匹配池用 visibleSongs(排除停用源), 与歌单展示 / 手动匹配口径一致 ——
         // 命中停用源的歌写进歌单后 songs(forPlaylist:) 也看不到。
-        let snapshot = library.visibleSongs
         let keyCache = library.playlistEntryMatchKeyCache
-        let raw = try await Task.detached(priority: .userInitiated) {
-            let parsed = try Self.parseAndMatchOffMain(data: data, ext: fileExtension, fileName: name, songs: snapshot)
-            return Self.refineUnmatchedOffMain(parsed, songs: snapshot, keyCache: keyCache)
-        }.value
+        let raw: RawImportResult
+        if let reader = P2cCatalogAccess.reader(for: library),
+           let fromCatalog = try await Self.parseAndMatchFromCatalog(
+               data: data, ext: fileExtension, fileName: name, reader: reader, keyCache: keyCache
+           ) {
+            // 曲库目录可读(P2c):只取文件里点到的 id / 文件名 / 歌名对应的那些歌来对,不拍整库。
+            raw = fromCatalog
+        } else {
+            let snapshot = library.visibleSongs
+            raw = try await Task.detached(priority: .userInitiated) {
+                let parsed = try Self.parseAndMatchOffMain(data: data, ext: fileExtension, fileName: name, songs: snapshot)
+                return Self.refineUnmatchedOffMain(parsed, songs: snapshot, keyCache: keyCache)
+            }.value
+        }
         try Task.checkCancellation()
         // @MainActor 隔离的 ImportEntry/ImportPreview 只能在主线程构造,
         // 但这一步是 O(条目数) 纯映射 (无 folding/全库扫描), 不卡 UI。
@@ -1537,14 +1550,173 @@ struct PlaylistImportView: View {
         fileName: String,
         songs: [Song]
     ) throws -> RawImportResult {
-        let index = MatchIndex(songs: songs)
+        let parsed = try parseImportFileOffMain(data: data, ext: ext, fileName: fileName)
+        return matchParsedOffMain(parsed, index: MatchIndex(songs: songs))
+    }
+
+    /// 解析出来、还没对曲库的一份歌单文件。
+    nonisolated private struct ParsedImportFile: Sendable {
+        struct Entry: Sendable {
+            /// Primuse-JSON 里的 song.id(先按它对);m3u 没有。
+            let songID: String?
+            let path: String
+            let title: String
+            let artist: String?
+        }
+        let suggestedName: String
+        let kindMarker: String?
+        let entries: [Entry]
+    }
+
+    nonisolated private static func parseImportFileOffMain(
+        data: Data,
+        ext: String,
+        fileName: String
+    ) throws -> ParsedImportFile {
         switch ext {
         case "m3u", "m3u8":
-            return try parseM3U8OffMain(data: data, fileName: fileName, index: index)
+            return try parseM3U8OffMain(data: data, fileName: fileName)
         case "json":
-            return try parseJSONOffMain(data: data, fileName: fileName, index: index)
+            return try parseJSONOffMain(data: data, fileName: fileName)
         default:
             throw OffMainImportError.unsupportedFormat
+        }
+    }
+
+    /// 匹配优先级: song.id → basename → title+artist 模糊。
+    nonisolated private static func matchParsedOffMain(_ parsed: ParsedImportFile, index: MatchIndex) -> RawImportResult {
+        let matches = parsed.entries.map { entry -> RawMatch in
+            if let songID = entry.songID, let s = index.songByID(songID) {
+                return RawMatch(displayTitle: entry.title, displayArtist: entry.artist, matchedSong: s, matchKindRaw: "songID")
+            }
+            if let s = index.matchByBasename(entry.path, title: entry.title, artist: entry.artist) {
+                return RawMatch(displayTitle: entry.title, displayArtist: entry.artist, matchedSong: s, matchKindRaw: "basename")
+            }
+            if let s = index.matchByTitleArtist(title: entry.title, artist: entry.artist) {
+                return RawMatch(displayTitle: entry.title, displayArtist: entry.artist, matchedSong: s, matchKindRaw: "fuzzy")
+            }
+            return RawMatch(displayTitle: entry.title, displayArtist: entry.artist, matchedSong: nil, matchKindRaw: nil)
+        }
+        return RawImportResult(suggestedName: parsed.suggestedName, kindMarker: parsed.kindMarker, matches: matches)
+    }
+
+    // MARK: Catalog matching (P2c)
+
+    /// 文件里的条目会去查的键: song.id、文件名(连同按它对时要核对的歌名/歌手)、歌名(连同歌手)。
+    /// 走目录时只把命中这些键、且核对得上的歌取出来建 `MatchIndex`:每个条目能挑中的歌
+    /// 与拿整库建的索引完全相同(桶里多出来的歌本来就会被条目自己的核对条件滤掉)。
+    nonisolated private struct ImportMatchKeys: Sendable {
+        struct Probe: Sendable {
+            let title: String
+            let artist: String?
+        }
+        var songIDs = Set<String>()
+        var basenames: [String: [Probe]] = [:]
+        /// 规范化歌名 → 规范化歌手(`MatchIndex.matchByTitleArtist`)。
+        var titles: [String: Set<String>] = [:]
+
+        var isEmpty: Bool { songIDs.isEmpty && basenames.isEmpty && titles.isEmpty }
+
+        mutating func add(songID: String?, path: String?, title: String, artist: String?, byTitleArtist: Bool) {
+            if let songID { songIDs.insert(songID) }
+            if let path {
+                for needle in MediaImportText.fileBasenames(path) {
+                    basenames[needle, default: []].append(Probe(title: title, artist: artist))
+                }
+            }
+            if byTitleArtist, let artist, !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let normalizedTitle = MatchIndex.normalize(title)
+                if !normalizedTitle.isEmpty {
+                    titles[normalizedTitle, default: []].insert(MatchIndex.normalize(artist))
+                }
+            }
+        }
+    }
+
+    /// 目录里命中 `keys` 的可见歌(库内顺序),以及歌名主体在 `coreTitles` 里的可见歌
+    /// (给 `PlaylistEntryMatcher`;见 `LibraryCatalogReader.songs(matchingCoreTitles:)`)。一趟流式遍历。
+    nonisolated private static func catalogImportCandidates(
+        reader: LibraryCatalogReader,
+        keys: ImportMatchKeys,
+        coreTitles: Set<String> = []
+    ) async throws -> (indexSongs: [Song], titledSongs: [Song]) {
+        let coreTitles = coreTitles.subtracting([""])
+        guard !keys.isEmpty || !coreTitles.isEmpty else { return ([], []) }
+        let result = try await reader.readCancellable { (catalog, cancellation) -> CatalogImportCandidates in
+            var indexSongs: [Song] = []
+            var titledSongs: [Song] = []
+            var visited = 0
+            try catalog.forEachSong(.visible) { _, song in
+                visited += 1
+                if visited.isMultiple(of: 512), cancellation.isCancelled { return false }
+                autoreleasepool {
+                    if !coreTitles.isEmpty, coreTitles.contains(ExternalTrackMatchPolicy.normalizedCoreTitle(song.title)) {
+                        titledSongs.append(song)
+                    }
+                    guard !keys.isEmpty else { return }
+                    if keys.songIDs.contains(song.id) {
+                        indexSongs.append(song)
+                        return
+                    }
+                    if !keys.basenames.isEmpty {
+                        let basename = (song.filePath.replacingOccurrences(of: "\\", with: "/") as NSString)
+                            .lastPathComponent.lowercased()
+                        if let probes = keys.basenames[basename], probes.contains(where: {
+                            PlaylistEntryMatcher.fileMetadataMatches(song, title: $0.title, artist: $0.artist)
+                        }) {
+                            indexSongs.append(song)
+                            return
+                        }
+                    }
+                    if !keys.titles.isEmpty, let artists = keys.titles[MatchIndex.normalize(song.title)],
+                       artists.contains(MatchIndex.normalize(song.artistName ?? "")) {
+                        indexSongs.append(song)
+                    }
+                }
+                return true
+            }
+            try cancellation.check()
+            return CatalogImportCandidates(indexSongs: indexSongs, titledSongs: titledSongs)
+        }
+        return (result.indexSongs, result.titledSongs)
+    }
+
+    nonisolated private struct CatalogImportCandidates: Sendable {
+        let indexSongs: [Song]
+        let titledSongs: [Song]
+    }
+
+    /// m3u / Primuse-JSON 走目录对曲库。目录读失败时返回 nil,调用方改走内存快照;
+    /// 文件本身解析失败照常抛出。
+    nonisolated private static func parseAndMatchFromCatalog(
+        data: Data,
+        ext: String,
+        fileName: String,
+        reader: LibraryCatalogReader,
+        keyCache: PlaylistEntryMatchKeyCache
+    ) async throws -> RawImportResult? {
+        let parsed = try await Task.detached(priority: .userInitiated) {
+            try Self.parseImportFileOffMain(data: data, ext: ext, fileName: fileName)
+        }.value
+        var keys = ImportMatchKeys()
+        for entry in parsed.entries {
+            keys.add(songID: entry.songID, path: entry.path, title: entry.title, artist: entry.artist, byTitleArtist: true)
+        }
+        do {
+            let candidates = try await catalogImportCandidates(reader: reader, keys: keys)
+            let matched = matchParsedOffMain(parsed, index: MatchIndex(songs: candidates.indexSongs))
+            guard matched.matches.contains(where: { $0.matchedSong == nil }) else { return matched }
+            // 没对上的再按导入外部歌单的规则对一遍;规则只在同一歌名主体里找,候选也只取这些。
+            let titles = Set(matched.matches.compactMap { raw in
+                raw.matchedSong == nil ? ExternalTrackMatchPolicy.normalizedCoreTitle(raw.displayTitle) : nil
+            })
+            let titled = try await reader.songs(matchingCoreTitles: titles, scope: .visible)
+            return refineUnmatchedOffMain(matched, songs: titled, keyCache: keyCache)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            plog("Playlist import: catalog match failed, using in-memory library: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -1610,9 +1782,8 @@ struct PlaylistImportView: View {
 
     nonisolated private static func parseJSONOffMain(
         data: Data,
-        fileName: String,
-        index: MatchIndex
-    ) throws -> RawImportResult {
+        fileName: String
+    ) throws -> ParsedImportFile {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let file: PlaylistExporter.PrimusePlaylistFile
@@ -1623,30 +1794,20 @@ struct PlaylistImportView: View {
         }
         guard !file.tracks.isEmpty else { throw OffMainImportError.empty }
 
-        let matches = file.tracks.map { track -> RawMatch in
-            if let s = index.songByID(track.songID) {
-                return RawMatch(displayTitle: track.title, displayArtist: track.artistName, matchedSong: s, matchKindRaw: "songID")
-            }
-            if let s = index.matchByBasename(track.filePath, title: track.title, artist: track.artistName) {
-                return RawMatch(displayTitle: track.title, displayArtist: track.artistName, matchedSong: s, matchKindRaw: "basename")
-            }
-            if let s = index.matchByTitleArtist(title: track.title, artist: track.artistName) {
-                return RawMatch(displayTitle: track.title, displayArtist: track.artistName, matchedSong: s, matchKindRaw: "fuzzy")
-            }
-            return RawMatch(displayTitle: track.title, displayArtist: track.artistName, matchedSong: nil, matchKindRaw: nil)
+        let entries = file.tracks.map { track in
+            ParsedImportFile.Entry(songID: track.songID, path: track.filePath, title: track.title, artist: track.artistName)
         }
-        return RawImportResult(
+        return ParsedImportFile(
             suggestedName: file.playlist.name,
             kindMarker: file.playlist.kind,
-            matches: matches
+            entries: entries
         )
     }
 
     nonisolated private static func parseM3U8OffMain(
         data: Data,
-        fileName: String,
-        index: MatchIndex
-    ) throws -> RawImportResult {
+        fileName: String
+    ) throws -> ParsedImportFile {
         guard let text = MediaImportText.decode(data) else {
             throw OffMainImportError.malformed("encoding")
         }
@@ -1678,17 +1839,11 @@ struct PlaylistImportView: View {
         }
         guard !rawEntries.isEmpty else { throw OffMainImportError.empty }
 
-        let matches = rawEntries.map { raw -> RawMatch in
+        let entries = rawEntries.map { raw -> ParsedImportFile.Entry in
             let (displayTitle, displayArtist) = Self.parseExtInf(raw.extInf, fallbackPath: raw.path)
-            if let s = index.matchByBasename(raw.path, title: displayTitle, artist: displayArtist) {
-                return RawMatch(displayTitle: displayTitle, displayArtist: displayArtist, matchedSong: s, matchKindRaw: "basename")
-            }
-            if let s = index.matchByTitleArtist(title: displayTitle, artist: displayArtist) {
-                return RawMatch(displayTitle: displayTitle, displayArtist: displayArtist, matchedSong: s, matchKindRaw: "fuzzy")
-            }
-            return RawMatch(displayTitle: displayTitle, displayArtist: displayArtist, matchedSong: nil, matchKindRaw: nil)
+            return ParsedImportFile.Entry(songID: nil, path: raw.path, title: displayTitle, artist: displayArtist)
         }
-        return RawImportResult(suggestedName: playlistName, kindMarker: kindMarker, matches: matches)
+        return ParsedImportFile(suggestedName: playlistName, kindMarker: kindMarker, entries: entries)
     }
 
     /// 解析 `#EXTINF:duration,Artist - Title`。Artist 段可能没有, 这种整段当
@@ -1862,12 +2017,24 @@ struct PlaylistImportView: View {
         allowsSameNameMerge: Bool,
         _ load: @Sendable () async throws -> ExternalPlaylist
     ) async throws -> PreparedImport {
-        let snapshot = library.visibleSongs
         let keyCache = library.playlistEntryMatchKeyCache
+        let catalogReader = P2cCatalogAccess.reader(for: library)
+        // 目录可读时不拍整库(P2c);内存快照只在目录不可读或读失败时才取。
+        let memorySnapshot = catalogReader == nil ? library.visibleSongs : nil
         let playlist = try await load()
-        let rows = await Task.detached(priority: .userInitiated) {
-            Self.matchExternalOffMain(playlist.tracks, songs: snapshot, keyCache: keyCache)
-        }.value
+        var catalogRows: [RawExternalMatch]?
+        if let catalogReader {
+            catalogRows = try await Self.matchExternalFromCatalog(playlist.tracks, reader: catalogReader, keyCache: keyCache)
+        }
+        let rows: [RawExternalMatch]
+        if let catalogRows {
+            rows = catalogRows
+        } else {
+            let snapshot = memorySnapshot ?? library.visibleSongs
+            rows = await Task.detached(priority: .userInitiated) {
+                Self.matchExternalOffMain(playlist.tracks, songs: snapshot, keyCache: keyCache)
+            }.value
+        }
         try Task.checkCancellation()
         let origin = playlist.platform?.rawValue ?? "text"
         let preview = PlaylistImporter.ImportPreview(
@@ -1926,14 +2093,45 @@ struct PlaylistImportView: View {
         let suggested: Song?
     }
 
+    /// 外部歌单走目录对曲库(P2c):文件名候选只取核对得上的歌,规则匹配的候选只取同歌名主体的歌,
+    /// 两份都与拿整库建的索引给出同样的结果。目录读失败返回 nil,调用方改走内存快照。
+    nonisolated private static func matchExternalFromCatalog(
+        _ tracks: [ExternalPlaylistTrack],
+        reader: LibraryCatalogReader,
+        keyCache: PlaylistEntryMatchKeyCache
+    ) async throws -> [RawExternalMatch]? {
+        var keys = ImportMatchKeys()
+        var coreTitles = Set<String>()
+        for track in tracks {
+            if let location = track.location {
+                keys.add(songID: nil, path: location, title: track.title, artist: track.artistLine, byTitleArtist: false)
+            }
+            for subject in track.matchSubjects {
+                coreTitles.insert(ExternalTrackMatchPolicy.normalizedCoreTitle(subject.title))
+            }
+        }
+        do {
+            let candidates = try await catalogImportCandidates(reader: reader, keys: keys, coreTitles: coreTitles)
+            return matchExternalOffMain(
+                tracks, songs: candidates.titledSongs, keyCache: keyCache, pathSongs: candidates.indexSongs
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            plog("Playlist import: catalog match failed, using in-memory library: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     nonisolated private static func matchExternalOffMain(
         _ tracks: [ExternalPlaylistTrack],
         songs: [Song],
-        keyCache: PlaylistEntryMatchKeyCache
+        keyCache: PlaylistEntryMatchKeyCache,
+        pathSongs: [Song]? = nil
     ) -> [RawExternalMatch] {
         let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache)
         // 播放器导出文件里带着文件路径时，先按文件名对（同一批文件多半就在曲库里）。
-        let pathIndex = tracks.contains { $0.location != nil } ? MatchIndex(songs: songs) : nil
+        let pathIndex = tracks.contains { $0.location != nil } ? MatchIndex(songs: pathSongs ?? songs) : nil
         return tracks.map { track in
             if let location = track.location, let song = pathIndex?.matchByBasename(location, title: track.title, artist: track.artistLine) {
                 return RawExternalMatch(track: track, matched: song, suggested: nil)
@@ -2056,9 +2254,14 @@ struct PlaylistImportView: View {
         }
         .frame(width: 520, height: 520)
         .background(PMColor.bg)
+        .task(id: manualMatchQuery) { await refreshManualMatchFromCatalog() }
     }
 
     private var manualMatchResults: [Song] {
+        if !manualMatchCatalogFailed, P2cCatalogAccess.reader(for: library) != nil {
+            // 查询中沿用上一份结果,不闪空也不回头拍整库。
+            return manualMatchCatalogResults ?? []
+        }
         let query = manualMatchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return Array(library.visibleSongs.prefix(40)) }
         let folded = query.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
@@ -2072,6 +2275,51 @@ struct PlaylistImportView: View {
             }
             .prefix(40)
             .map { $0 }
+    }
+
+    /// 与 `manualMatchResults` 的内存算法相同:空查询取库内顺序前 40 首可见歌;否则按库内顺序
+    /// 取前 40 首「歌名 歌手 专辑」折叠后含查询词的可见歌。
+    private func refreshManualMatchFromCatalog() async {
+        guard let reader = P2cCatalogAccess.reader(for: library) else {
+            manualMatchCatalogResults = nil
+            return
+        }
+        let query = manualMatchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuration = library.artistNameConfiguration
+        do {
+            let results: [Song]
+            if query.isEmpty {
+                results = try await reader.firstSongs(.visible, limit: 40)
+            } else {
+                try await Task.sleep(for: .milliseconds(150))
+                let folded = query.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                results = try await reader.readCancellable { catalog, cancellation in
+                    var hits: [Song] = []
+                    var visited = 0
+                    try catalog.forEachSong(.visible) { _, song in
+                        visited += 1
+                        if visited.isMultiple(of: 512), cancellation.isCancelled { return false }
+                        let text = [song.title, song.displayArtistName(configuration: configuration), song.albumTitle]
+                            .compactMap { $0 }
+                            .joined(separator: " ")
+                            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                        if text.contains(folded) { hits.append(song) }
+                        return hits.count < 40
+                    }
+                    try cancellation.check()
+                    return hits
+                }
+            }
+            guard !Task.isCancelled else { return }
+            manualMatchCatalogResults = results
+            manualMatchCatalogFailed = false
+        } catch is CancellationError {
+            return
+        } catch {
+            plog("Playlist import: catalog manual match failed, using in-memory library: \(error.localizedDescription)")
+            manualMatchCatalogResults = nil
+            manualMatchCatalogFailed = true
+        }
     }
 
     private func applyManualMatch(entry: PlaylistImporter.ImportEntry, song: Song) {

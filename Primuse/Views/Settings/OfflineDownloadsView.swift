@@ -448,8 +448,14 @@ struct OfflineDownloadsView: View {
     }
 
     private func reload() async {
-        let songs = sourceID.map { id in library.songs.filter { $0.sourceID == id } } ?? library.songs
-        let loaded = await sourceManager.offlineDownloadItems(in: songs)
+        let loaded: [SourceManager.OfflineDownloadItem]
+        // 目录可读时从目录流式读、只留下载过的歌;否则照旧把整库(或这个源的)数组交过去。
+        if let fromCatalog = await sourceManager.catalogOfflineDownloadItems(sourceID: sourceID) {
+            loaded = fromCatalog
+        } else {
+            let songs = sourceID.map { id in library.songs.filter { $0.sourceID == id } } ?? library.songs
+            loaded = await sourceManager.offlineDownloadItems(in: songs)
+        }
         guard !Task.isCancelled else { return }
         items = loaded
         selection.formIntersection(Set(loaded.map(\.id)))

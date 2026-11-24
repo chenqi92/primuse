@@ -1079,10 +1079,26 @@ struct DuplicateSongsView: View {
         }
         // 主线程只负责拍 snapshot, 实际 Dictionary(grouping:) + folding
         // + sort 全部到后台跑。10k+ 库主线程跑要 1-3s 直接卡 UI。
-        let snapshot = library.visibleSongs
-        let detected = await Task.detached(priority: .userInitiated) {
-            DuplicateDetector.detect(in: snapshot)
-        }.value
+        var catalogDetected: [DuplicateGroup]?
+        if let reader = P2cCatalogAccess.reader(for: library) {
+            // 曲库目录可读时(P2c)两趟流式遍历,只把可能重复的歌取出来分组,不拍整库。
+            do {
+                catalogDetected = try await DuplicateCatalogScan.detect(reader: reader)
+            } catch is CancellationError {
+                return
+            } catch {
+                plog("Duplicate scan: catalog scan failed, using in-memory library: \(error.localizedDescription)")
+            }
+        }
+        let detected: [DuplicateGroup]
+        if let catalogDetected {
+            detected = catalogDetected
+        } else {
+            let snapshot = library.visibleSongs
+            detected = await Task.detached(priority: .userInitiated) {
+                DuplicateDetector.detect(in: snapshot)
+            }.value
+        }
         // A pull-to-refresh may have captured the pre-cleanup library while
         // the completion-triggered scan starts later with committed data.
         // Only the newest scan may publish, so an older detached result can

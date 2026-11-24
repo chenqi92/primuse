@@ -103,6 +103,13 @@ final class SpotlightIndexService {
         let playlists: [PlaylistSummary]
         let artistNameConfiguration: ArtistNameConfiguration
         var showsArtwork = true
+        /// 曲库目录路径(P2c):`songs` 已经是选好的那批(先最近放过和喜欢的,再最新加入的),
+        /// 前 `catalogPriorityCount` 首是优先的;`catalogVisibleSongCount` 是可见歌曲总数。
+        /// 内存路径下两者为 nil,`songs` 是整份可见歌曲。
+        var catalogPriorityCount: Int?
+        var catalogVisibleSongCount: Int?
+
+        var visibleSongCount: Int { catalogVisibleSongCount ?? songs.count }
     }
 
     /// A cover in the artwork store that a search result can show.
@@ -415,10 +422,10 @@ final class SpotlightIndexService {
     func refreshStatus(library: MusicLibrary) {
         isStatusVisible = true
         guard library.isReady, workPhase != .running, status.beginMeasuring() else { return }
-        let snapshot = makeLibrarySnapshot(library: library)
         let manifestURL = self.manifestURL
         let revision = Self.synchronizationGeneration
         Task.detached(priority: .utility) { [weak self] in
+            guard let snapshot = await self?.librarySnapshotPreferringCatalog(library: library) else { return }
             let stored = Self.loadManifest(from: manifestURL)
             let found = await Self.indexedSignatures()
             guard let prepared = Self.prepareSnapshot(snapshot) else { return }
@@ -433,7 +440,7 @@ final class SpotlightIndexService {
                 foundIdentifiers: found.map { Set($0.keys) }, isVerified: found != nil)
             await self?.finishStatusMeasurement(
                 coverage, missing: missing, revision: revision, library: library,
-                exceedsSongLimit: snapshot.songs.count > Self.maxIndexedSongs
+                exceedsSongLimit: snapshot.visibleSongCount > Self.maxIndexedSongs
             )
             await Self.logSearchDiagnostics(snapshot: snapshot, prepared: prepared, found: found)
         }
@@ -449,8 +456,8 @@ final class SpotlightIndexService {
             spotlightDiagnostic("search export skipped reason=library-not-ready")
             return
         }
-        let snapshot = makeLibrarySnapshot(library: library)
-        spotlightDiagnostic("search export state songs=\(snapshot.songs.count) limit=\(Self.maxIndexedSongs) phase=\(workPhase) pending=\(Self.isSynchronizationPending)")
+        let snapshot = await librarySnapshotPreferringCatalog(library: library)
+        spotlightDiagnostic("search export state songs=\(snapshot.visibleSongCount) limit=\(Self.maxIndexedSongs) phase=\(workPhase) pending=\(Self.isSynchronizationPending)")
         let task = Task.detached(priority: .utility) {
             guard let prepared = Self.prepareSnapshot(snapshot) else { return }
             await Self.logSearchDiagnostics(snapshot: snapshot, prepared: prepared, found: nil, forExport: true)
@@ -685,7 +692,42 @@ final class SpotlightIndexService {
         }
     }
 
-    private func makeLibrarySnapshot(library: MusicLibrary) -> LibrarySnapshot {
+    /// 曲库目录可读时(P2c)收录的歌从目录选(`selectingCatalogSongs`),专辑、艺人、歌单照旧;
+    /// 目录不可读或读失败时就是 `makeLibrarySnapshot`。
+    private func librarySnapshotPreferringCatalog(library: MusicLibrary) async -> LibrarySnapshot {
+        guard let reader = P2cCatalogAccess.reader(for: library) else { return makeLibrarySnapshot(library: library) }
+        let base = makeLibrarySnapshot(library: library, includingSongs: false)
+        do {
+            return try await Self.selectingCatalogSongs(base, reader: reader)
+        } catch {
+            if !(error is CancellationError) { spotlightError("catalog song selection", error) }
+            return makeLibrarySnapshot(library: library)
+        }
+    }
+
+    /// 选歌规则见 `LibraryCatalogReader.spotlightSongSelection`(与 `indexedSongs(of:)` 同一挑法)。
+    /// 选歌放在 `LibraryCatalogReader+P2c.swift`,这个文件只碰这一个入口(Spotlight 冒烟测试单独编译本文件)。
+    private nonisolated static func selectingCatalogSongs(
+        _ base: LibrarySnapshot,
+        reader: LibraryCatalogReader
+    ) async throws -> LibrarySnapshot {
+        let selection = try await reader.spotlightSongSelection(
+            prioritySongIDs: base.prioritySongIDs, limit: maxIndexedSongs
+        )
+        return LibrarySnapshot(
+            songs: selection.songs,
+            prioritySongIDs: base.prioritySongIDs,
+            albums: base.albums,
+            artists: base.artists,
+            playlists: base.playlists,
+            artistNameConfiguration: base.artistNameConfiguration,
+            showsArtwork: base.showsArtwork,
+            catalogPriorityCount: selection.priorityCount,
+            catalogVisibleSongCount: selection.visibleCount
+        )
+    }
+
+    private func makeLibrarySnapshot(library: MusicLibrary, includingSongs: Bool = true) -> LibrarySnapshot {
         self.library = library
         let playlistSummaries = library.playlists.map { playlist in
             PlaylistSummary(
@@ -698,7 +740,7 @@ final class SpotlightIndexService {
         let prioritySongIDs = library.recentPlaybackSongIDsForSync
             + library.songIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
         return LibrarySnapshot(
-            songs: library.visibleSongs,
+            songs: includingSongs ? library.visibleSongs : [],
             prioritySongIDs: prioritySongIDs,
             albums: library.visibleAlbums,
             artists: library.visibleArtists,
@@ -767,6 +809,15 @@ final class SpotlightIndexService {
     private func prepareSynchronizationSnapshot() -> Task<PreparedSnapshot?, Never>? {
         guard !isSynchronizationSuspended, Self.canPerformIndexing,
               let library, library.isReady else { return nil }
+        if P2cCatalogAccess.reader(for: library) != nil {
+            // 曲库目录可读(P2c):要收录的歌在后台从目录选,不拍整份可见歌曲。
+            return Task.detached(priority: .background) { [weak self] in
+                guard !Task.isCancelled,
+                      let snapshot = await self?.librarySnapshotPreferringCatalog(library: library),
+                      !Task.isCancelled else { return nil }
+                return Self.prepareSnapshot(snapshot)
+            }
+        }
         let snapshot = makeLibrarySnapshot(library: library)
         return Task.detached(priority: .background) {
             guard !Task.isCancelled else { return nil }
@@ -1181,6 +1232,9 @@ final class SpotlightIndexService {
     private nonisolated static func indexedSongs(
         of snapshot: LibrarySnapshot
     ) -> (songs: [Song], priorityCount: Int) {
+        if let priorityCount = snapshot.catalogPriorityCount {
+            return (snapshot.songs, priorityCount)
+        }
         let songs = snapshot.songs
         let limit = min(songs.count, maxIndexedSongs)
         var chosen: [Song] = []
@@ -1364,7 +1418,7 @@ final class SpotlightIndexService {
 
         return PreparedSnapshot(
             records: records, payloadsByIdentifier: payloads,
-            exceedsSongLimit: snapshot.songs.count > maxIndexedSongs,
+            exceedsSongLimit: snapshot.visibleSongCount > maxIndexedSongs,
             showsArtwork: snapshot.showsArtwork
         )
     }

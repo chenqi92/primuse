@@ -843,7 +843,7 @@ struct TVLibraryView: View {
             // 选「喜欢」时数的是墙上那几张,不是整库。
             let count = albumOrder == .liked
                 ? store.albumBrowseLayout(.liked)?.items.count ?? 0
-                : store.albums.count
+                : store.visibleAlbumCount
             return PMString("ext.tv.library.title.albums", count)
         case .recommendations: return PMString("library_recommendations_title")
         case .artists:
@@ -851,7 +851,7 @@ struct TVLibraryView: View {
                 ? store.likedArtistBrowseLayout(artistBrowseMode).items.count
                 : store.browsableArtists(artistBrowseMode).count
             return PMString("ext.tv.library.title.artists", count)
-        case .songs: return PMString("ext.tv.library.title.songs", TVFmt.count(store.songs.count))
+        case .songs: return PMString("ext.tv.library.title.songs", TVFmt.count(store.musicSongCount))
         case .musicVideos: return filter.display + " · " + TVFmt.count(store.library.musicVideoSongs.count)
         case .genres, .folders, .years, .ranking: return filter.display
         }
@@ -913,12 +913,24 @@ struct TVLibraryView: View {
     }
 
     private func openAmbientSounds() {
-        selectedCollection = TVBrowseDestination(
-            id: "ambient",
-            title: String(localized: "listening_space_ambient"),
-            songIDs: store.library.ambientSongs.map(\.id),
-            isAmbient: true
-        )
+        guard store.readableCatalogReader != nil else {
+            selectedCollection = TVBrowseDestination(
+                id: "ambient",
+                title: String(localized: "listening_space_ambient"),
+                songIDs: store.library.ambientSongs.map(\.id),
+                isAmbient: true
+            )
+            return
+        }
+        Task { @MainActor in
+            let ids = await store.ambientSongIDs()
+            selectedCollection = TVBrowseDestination(
+                id: "ambient",
+                title: String(localized: "listening_space_ambient"),
+                songIDs: ids,
+                isAmbient: true
+            )
+        }
     }
 
     @ViewBuilder
@@ -1964,11 +1976,11 @@ struct TVAlbumDetailView: View {
             // CUE 专辑上还把这一首的专辑艺术家、碟号换掉(补全拆专辑的样子),它会先离开这张专辑,
             // 恢复时靠同一张 CUE 的其它轨把它带回来;日志里 `tracks=` 是前后的曲目数。
             guard ProcessInfo.processInfo.environment["TV_RESTORE_DEBUG"] == "1",
-                  let songID = store.songIDs(forAlbum: albumID).first,
+                  let songID = store.currentSongIDs(forAlbum: albumID).first,
                   var edited = store.library.song(id: songID) else { return }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             let original = edited.title
-            let tracksBefore = store.songIDs(forAlbum: albumID).count
+            let tracksBefore = store.currentSongIDs(forAlbum: albumID).count
             edited.title = original + " · Scraped"
             if edited.isCueTrack {
                 edited.albumArtistName = "Scraped Album Artist"
@@ -1977,18 +1989,18 @@ struct TVAlbumDetailView: View {
             edited.userMetadataEditedAt = Date()
             store.library.replaceSong(edited)
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            let tracksSplit = store.songIDs(forAlbum: albumID).count
+            let tracksSplit = store.currentSongIDs(forAlbum: albumID).count
             showsRestoreConfirmation = true
             focusedRestoreControl = RestoreFocus.cancel
             try? await Task.sleep(nanoseconds: 6_000_000_000)
-            restoreFileTags(store.songIDs(forAlbum: albumID))
+            restoreFileTags(store.currentSongIDs(forAlbum: albumID))
             while restoreProgress?.isFinished != true {
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
             let after = store.library.song(id: songID)
             plog("TV restore debug before=\(original) edited=\(edited.title) after=\(after?.title ?? "-")"
                  + " stamp=\(after?.userMetadataEditedAt == nil ? "cleared" : "kept")"
-                 + " cue=\(edited.isCueTrack) tracks=\(tracksBefore)->\(tracksSplit)->\(store.songIDs(forAlbum: albumID).count)"
+                 + " cue=\(edited.isCueTrack) tracks=\(tracksBefore)->\(tracksSplit)->\(store.currentSongIDs(forAlbum: albumID).count)"
                  + " albumArtist=\(after?.albumArtistName ?? "-") disc=\(after?.discNumber.map(String.init) ?? "-")")
         }
         #endif
@@ -2156,7 +2168,8 @@ struct TVAlbumDetailView: View {
 
     private func albumScrapeDismissed() {
         followAlbumAfterScrape()
-        Task { @MainActor in await refreshLocallyScrapedSongs(store.songIDs(forAlbum: albumID)) }
+        // 刚补全完:读内存里的曲库(目录跟着写有一小段滞后)。
+        Task { @MainActor in await refreshLocallyScrapedSongs(store.currentSongIDs(forAlbum: albumID)) }
     }
 
     /// 专辑里全是 Apple Music 的歌时,问一次目录这张专辑还有哪些曲目资料库里没有。
@@ -2321,14 +2334,15 @@ struct TVAlbumDetailView: View {
             restoreProgress = await scraper.restoreFileTags(songIDs: songIDs) { restoreProgress = $0 }
             // 换回文件里的专辑名后,这张专辑的歌可能归到了另一个专辑 id 下。
             followAlbumAfterScrape()
-            await refreshLocallyScrapedSongs(store.songIDs(forAlbum: albumID))
+            await refreshLocallyScrapedSongs(store.currentSongIDs(forAlbum: albumID))
         }
     }
 
     /// 补全改了专辑名(或专辑艺人)时,这张专辑的歌归到了新的专辑 id 下。
     private func followAlbumAfterScrape() {
         defer { songIDsBeforeScrape = [] }
-        guard store.songIDs(forAlbum: albumID).isEmpty,
+        // 刚改完标签就要知道这张专辑还剩哪些歌:读内存里的曲库(目录跟着写有一小段滞后)。
+        guard store.currentSongIDs(forAlbum: albumID).isEmpty,
               let moved = songIDsBeforeScrape.lazy.compactMap({ store.song($0)?.albumID }).first else { return }
         albumID = moved
     }

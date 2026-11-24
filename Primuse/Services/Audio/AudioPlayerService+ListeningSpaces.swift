@@ -381,8 +381,18 @@ extension AudioPlayerService {
         }
         guard !Task.isCancelled, queueRequestToken == requestToken, castingCommandGeneration == commandGeneration,
               playbackAdvancePolicy.generation == advanceGeneration else { return false }
-        let lookup = library.isReady ? library.historySongLookup() : nil
-        let diskRows = savedRows
+        // P2:曲库就绪且目录可读时,队列里的歌按 id 从目录取(含停用源、只要能放的),
+        // 结果与 `historySongLookup` 逐首查后再筛能放的相同;否则照旧查内存模型。
+        var catalogRows: [String: Song]?
+        if library.isReady {
+            catalogRows = await Self.catalogPlayableSongs(
+                ids: Set(restored.snapshot.queueSongIDs), library: library, visibility: .includingDisabledSources
+            )
+            guard !Task.isCancelled, queueRequestToken == requestToken, castingCommandGeneration == commandGeneration,
+                  playbackAdvancePolicy.generation == advanceGeneration else { return false }
+        }
+        let lookup = library.isReady && catalogRows == nil ? library.historySongLookup() : nil
+        let diskRows = catalogRows ?? savedRows
         let disabledSourceIDs = library.disabledPlaybackSourceIDs
         let prepared = await Task.detached(priority: .userInitiated) { () -> (PlaybackSessionRestorationPlan, [Song], QueueContinuation?)? in
             var snapshot = restored.snapshot

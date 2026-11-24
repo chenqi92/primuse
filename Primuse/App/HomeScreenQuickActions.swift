@@ -90,7 +90,7 @@ final class HomeScreenQuickActionCenter {
                 icon: UIApplicationShortcutIcon(systemImageName: "play.fill")
             ))
         }
-        if !library.musicSongs.isEmpty {
+        if PlaybackSurfaceCountsModel.musicSongCount(in: library) > 0 {
             items.append(UIApplicationShortcutItem(
                 type: HomeScreenQuickAction.shuffleLibrary.rawValue,
                 localizedTitle: HomeScreenQuickAction.shuffleLibrary.localizedTitle(),
@@ -250,6 +250,12 @@ final class SystemActivityRouter {
     /// 命中歌 + 整库剩下的拼起来当队列，跟 Siri / Shortcuts 同款行为；只交 ID，整库在主线程之外按窗口取。
     private func playSongWithLibrary(id: String, caller: String) async {
         let library = AppServices.shared.musicLibrary
+        // 目录可读时由目录确认点的歌还在可见曲库里,整库那一段(全部可见内容)也在目录里拼;
+        // 否则照旧查内存模型。
+        let request = CatalogLibraryQueueRequest(
+            leadingIDs: [id], kinds: nil, excludedIDs: [id], requiresFirstLeadingSong: true
+        )
+        if await AppServices.shared.playerService.playLibraryFromCatalog(request, caller: caller) { return }
         guard library.visibleSong(id: id) != nil else {
             plog("🔎 \(caller) song \(id.prefix(12)) is not in the visible library")
             return

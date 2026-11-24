@@ -425,4 +425,58 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         }
         XCTAssertEqual(first?.title, "AAA first by title")
     }
+
+    /// P2:目录跟写内存有一小段滞后。内存里已经有、目录里还没有的歌,按 id 读目录的地方退回内存模型,
+    /// 不把它当成「不在曲库里」(恢复的队列少歌、点的歌被挑掉从别的歌开始放)。
+    func testReadsByIDFallBackToMemoryWhileTheCatalogLags() async throws {
+        let library = makeLibrary()
+        let songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+
+        // 目录停下后再加一首:内存里有,目录里还没有。
+        await library.stopCatalogMirror()
+        let fresh = Song(id: "lag-fresh", title: "Fresh", albumTitle: "New", artistName: "Ada", duration: 200,
+                         fileFormat: .flac, filePath: "/Music/New/fresh.flac", sourceID: Self.sourceA)
+        library.addSongs([fresh], affectedSourceIDs: [Self.sourceA])
+        for _ in 0..<500 where library.visibleSong(id: fresh.id) == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNotNil(library.visibleSong(id: fresh.id))
+        XCTAssertTrue(host.revisions.isReadable)
+        let catalogRows = try await host.reader.songsByID([fresh.id], visibility: .visible)
+        XCTAssertNil(catalogRows[fresh.id], "the stopped mirror must not have written the new song")
+
+        let known = songs[0].id
+        let caughtUp = await AudioPlayerService.catalogPlayableSongs(ids: [known], library: library, visibility: .visible)
+        XCTAssertEqual(caughtUp?.keys.sorted(), [known])
+        let lagging = await AudioPlayerService.catalogPlayableSongs(
+            ids: [known, fresh.id], library: library, visibility: .visible
+        )
+        XCTAssertNil(lagging, "restore must use the in-memory library while the catalog misses a playable song")
+
+        let suite = "catalog-lag-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let sessionDirectory = directory.appendingPathComponent("player-session", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let musicMemory = MusicSessionMemoryStore(
+            defaults: defaults, url: sessionDirectory.appendingPathComponent("music-memory.json")
+        )
+        let player = AudioPlayerService(
+            library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: sessionDirectory.appendingPathComponent("session.json")),
+            musicSessionMemoryStore: musicMemory,
+            queueBookmarkStore: QueueBookmarkStore(directory: sessionDirectory.appendingPathComponent("bookmarks")),
+            activateAudioSession: { _ in XCTFail("Catalog lag tests must not start audio") }
+        )
+        let handled = await player.playLibraryFromCatalog(
+            CatalogLibraryQueueRequest(leadingIDs: [fresh.id], kinds: [.music], excludedIDs: [fresh.id])
+        )
+        XCTAssertFalse(handled, "a tapped song the catalog has not received yet must go through the in-memory path")
+        XCTAssertNil(player.currentSong)
+        await musicMemory.waitForPendingPersistence()
+    }
 }

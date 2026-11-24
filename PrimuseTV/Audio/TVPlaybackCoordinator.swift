@@ -3352,11 +3352,13 @@ final class TVPlaybackCoordinator {
                     (entry.name as NSString).pathExtension.lowercased()
                 )
             }.count
+            // 同一个音频文件上的各轨:目录可读时按 (源, 路径) 查,否则照旧在整库里找。
+            let siblingCandidates = await store.songsSharingFile(with: song)
             listing = CueTrackLyricsDirectory(
                 key: key,
                 index: SidecarDirectoryIndex(entries),
                 cueSheetCount: cueSheetCount,
-                tracks: Self.cueSiblingTracks(of: song, in: store.library.songs),
+                tracks: Self.cueSiblingTracks(of: song, in: siblingCandidates),
                 listedAt: Date()
             )
             cueTrackLyricsDirectory = listing

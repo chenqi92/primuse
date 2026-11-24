@@ -555,6 +555,36 @@ final class KaraokeSession {
             if playsBackingTrack { loadLyrics(for: song) }
             return
         }
+        let expectedID = song.id
+        // P2:目录可读时流式地看一遍可见曲库,只留标题对得上的几首再交给同一套挑法;
+        // 读失败或目录不能读时照旧看内存里的整份可见歌曲。
+        if let reader = PlaybackCatalogAccess.reader(for: library) {
+            companionTask = Task { @MainActor [weak self] in
+                let match: Song?
+                do {
+                    match = try await reader.read { catalog in
+                        try KaraokeSession.catalogCompanion(for: target, playsBackingTrack: playsBackingTrack, in: catalog)
+                    }
+                } catch {
+                    guard !Task.isCancelled, let self, self.songID == expectedID else { return }
+                    plog("🎤 Karaoke companion catalog read failed (\(error)); using the in-memory library")
+                    self.findCompanionInMemory(for: song, target: target, playsBackingTrack: playsBackingTrack, library: library)
+                    return
+                }
+                guard !Task.isCancelled, let self, self.songID == expectedID else { return }
+                self.applyCompanion(match, for: song, playsBackingTrack: playsBackingTrack)
+            }
+            return
+        }
+        findCompanionInMemory(for: song, target: target, playsBackingTrack: playsBackingTrack, library: library)
+    }
+
+    private func findCompanionInMemory(
+        for song: Song,
+        target: KaraokeCompanionCandidate,
+        playsBackingTrack: Bool,
+        library: MusicLibrary
+    ) {
         let songs = library.visibleSongs
         let expectedID = song.id
         companionTask = Task { @MainActor [weak self] in
@@ -567,18 +597,66 @@ final class KaraokeSession {
             }.value
             guard !Task.isCancelled, let self, self.songID == expectedID else { return }
             let match = matchID.flatMap { library.song(id: $0) }
-            if playsBackingTrack {
-                if let original = match {
-                    self.pairedOriginal = original
-                    self.lyricsBorrowedFromTitle = original.title
-                    self.loadLyrics(for: original, expectedSongID: expectedID)
-                } else {
-                    self.loadLyrics(for: song)
-                }
+            self.applyCompanion(match, for: song, playsBackingTrack: playsBackingTrack)
+        }
+    }
+
+    private func applyCompanion(_ match: Song?, for song: Song, playsBackingTrack: Bool) {
+        if playsBackingTrack {
+            if let original = match {
+                pairedOriginal = original
+                lyricsBorrowedFromTitle = original.title
+                loadLyrics(for: original, expectedSongID: song.id)
             } else {
-                self.instrumentalCompanion = match
+                loadLyrics(for: song)
+            }
+        } else {
+            instrumentalCompanion = match
+        }
+    }
+
+    /// 在目录上找伴奏或原唱:库内顺序流式地看可见歌曲,只留去掉版本标记后标题相同的
+    /// (`KaraokeCompanionPolicy` 本来就只在这些里挑,先后不变),再交给同一套挑法。结果有界。
+    nonisolated static func catalogCompanion(
+        for target: KaraokeCompanionCandidate,
+        playsBackingTrack: Bool,
+        in catalog: LibraryCatalog
+    ) throws -> Song? {
+        let base = KaraokeCompanionPolicy.baseTitle(target.title)
+        guard !base.isEmpty else { return nil }
+        var songsByID: [String: Song] = [:]
+        var candidates: [KaraokeCompanionCandidate] = []
+        try catalog.forEachSong(.visible) { _, song in
+            // 与 `bestMatch` 的头一道筛子同一个折叠规则;过了再比完整的去标记标题。
+            guard song.id != target.id,
+                  companionFolded(song.title).hasPrefix(base),
+                  KaraokeCompanionPolicy.baseTitle(song.title) == base else { return true }
+            candidates.append(companionCandidate(song))
+            if songsByID[song.id] == nil { songsByID[song.id] = song }
+            return true
+        }
+        let match = playsBackingTrack
+            ? KaraokeCompanionPolicy.original(for: target, in: candidates)
+            : KaraokeCompanionPolicy.instrumental(for: target, in: candidates)
+        return match.flatMap { songsByID[$0.id] }
+    }
+
+    /// `KaraokeCompanionPolicy.folded` 的同一规则(Kit 里不公开):只留小写字母与数字。
+    nonisolated private static func companionFolded(_ text: String) -> String {
+        var result = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            if scalar.isASCII {
+                let value = scalar.value
+                if (0x30...0x39).contains(value) || (0x61...0x7A).contains(value) {
+                    result.append(scalar)
+                } else if (0x41...0x5A).contains(value), let lowered = Unicode.Scalar(value + 0x20) {
+                    result.append(lowered)
+                }
+            } else if scalar.properties.isAlphabetic || scalar.properties.numericType != nil {
+                result.append(contentsOf: String(scalar).lowercased().unicodeScalars)
             }
         }
+        return String(result)
     }
 
     // MARK: - AI separation

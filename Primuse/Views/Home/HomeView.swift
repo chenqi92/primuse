@@ -2661,7 +2661,7 @@ struct HomeView: View {
                 HomeDeferredSection { artistsSection(style) }
             }
         case .recentlyAdded:
-            if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty || !library.visibleAlbums.isEmpty {
+            if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty || PlaybackSurfaceCountsModel.visibleAlbumCount(in: library) > 0 {
                 HomeDeferredSection { recentlyAddedAlbumsSection(style) }
             }
         case .recentlyAddedSongs:
@@ -3657,9 +3657,9 @@ struct HomeView: View {
             libraryRevision: library.searchRevision,
             playlistRevision: library.playlistCollectionRevision,
             historyRevision: PlayHistoryStore.shared.revision,
-            visibleSongCount: library.visibleSongs.count,
-            visibleAlbumCount: library.visibleAlbums.count,
-            visibleArtistCount: library.visibleArtists.count,
+            visibleSongCount: PlaybackSurfaceCountsModel.visibleSongCount(in: library),
+            visibleAlbumCount: PlaybackSurfaceCountsModel.visibleAlbumCount(in: library),
+            visibleArtistCount: PlaybackSurfaceCountsModel.visibleArtistCount(in: library),
             recentSongIDs: Array(library.recentPlaybackSongIDsForSync.prefix(30)),
             dayStamp: dayStamp,
             localeIdentifier: Locale.current.identifier,
@@ -4010,7 +4010,7 @@ struct HomeView: View {
         case .musicVideos:
             return library.hasMusicVideoContent
         case .recentlyAddedSongs:
-            return !library.musicSongs.isEmpty
+            return PlaybackSurfaceCountsModel.musicSongCount(in: library) > 0
         default:
             return true
         }
@@ -4371,9 +4371,38 @@ struct HomeView: View {
         let reusableBase = refreshCoordinator.highlightsBase.flatMap { $0.key == baseKey ? $0 : nil }
         let cachedLatestAdded = reusableBase?.latestAdded
         let cachedAlbumTiles = reusableBase?.albumTiles
+        // P2:目录可读时在目录上流式地算(结果相同、有界),读失败或目录不能读时照旧遍历内存里的整库数组。
+        let catalogReader = PlaybackCatalogAccess.reader(for: library)
         refreshCoordinator.libraryHighlightsTask = Task { @MainActor in
-            let worker = Task.detached(priority: .utility) {
+            let worker = Task.detached(priority: .utility) { () -> ([Song], [HomeAlbumTile], TimeInterval, [Song], [String], [Song]) in
                 let startedAt = Date()
+                if let catalogReader {
+                    do {
+                        let highlights = try await Self.catalogLibraryHighlights(
+                            reader: catalogReader,
+                            cachedLatestAdded: cachedLatestAdded,
+                            cachedAlbumTiles: cachedAlbumTiles,
+                            recentSongs: recentSongs,
+                            playedAlbumKeys: playedAlbumKeys,
+                            seeds: heroSeeds,
+                            albumLimit: Self.recentlyAddedAlbumPoolLimit,
+                            includingExternalSongs: signature.showsExternalAlbums
+                        )
+                        let resolvedRecentSongs = recentSongs.isEmpty
+                            ? Array(highlights.latestAdded.prefix(30))
+                            : recentSongs
+                        return (
+                            highlights.heroCurrent,
+                            highlights.albumTiles,
+                            Date().timeIntervalSince(startedAt),
+                            resolvedRecentSongs,
+                            highlights.heroNext.map(\.id),
+                            highlights.latestAdded
+                        )
+                    } catch {
+                        plog("🏠 library highlights catalog read failed (\(error)); using the in-memory library")
+                    }
+                }
                 // 两处都只要最近加入的头几十首: 有界选择一次, 不为它把整库复制、
                 // 排序两遍(百万首各要几百 MB)。与 `sorted(by:).prefix` 结果相同。
                 let latestAdded = cachedLatestAdded
@@ -4522,7 +4551,7 @@ struct HomeView: View {
         let quickFinishedAt = Date()
 
         let snapshot = HomeSnapshot(
-            hasContent: !library.visibleSongs.isEmpty,
+            hasContent: PlaybackSurfaceCountsModel.visibleSongCount(in: library) > 0,
             statsGlimpse: summary.totalPlays > 0 ? summary : nil,
             forYouResults: forYouResults,
             recentSongs: recentSongs,
@@ -5830,15 +5859,22 @@ struct HomeView: View {
                 plog("🏠 tapped song dropped by playable filter — skipping")
                 return
             }
-            var ids = leading
-            ids.reserveCapacity(leading.count + library.musicSongs.count)
-            for candidate in library.musicSongs where !existingIDs.contains(candidate.id) {
-                ids.append(candidate.id)
-            }
-            plog("🏠 setQueue: \(ids.count) songs, startIndex=\(startIndex)")
             player.shuffleEnabled = false
             SiriMediaInteractionDonor.donate(song: song)
-            Task { await player.play(queueIDs: ids, startingAt: startIndex) }
+            // 目录可读时整库那一段在目录里拼(同一张列表),否则照旧从内存模型拼。
+            let request = CatalogLibraryQueueRequest(
+                leadingIDs: leading, startIndex: startIndex, kinds: [.music], excludedIDs: existingIDs
+            )
+            Task {
+                if await player.playLibraryFromCatalog(request) { return }
+                var ids = leading
+                ids.reserveCapacity(leading.count + library.musicSongs.count)
+                for candidate in library.musicSongs where !existingIDs.contains(candidate.id) {
+                    ids.append(candidate.id)
+                }
+                plog("🏠 setQueue: \(ids.count) songs, startIndex=\(startIndex)")
+                await player.play(queueIDs: ids, startingAt: startIndex)
+            }
             return
         }
 
@@ -5870,11 +5906,22 @@ struct HomeView: View {
             return
         }
         // 点的这一首照放; 后面整库接上的不含不喜欢的歌(#193)。
-        let ids = library.musicSongIDsExcludingDisliked
-        guard !ids.isEmpty else { return }
-        player.shuffleEnabled = false
-        SiriMediaInteractionDonor.donate(song: song)
-        Task { await player.play(queueIDs: [song.id] + ids, startingAt: 0, order: .shuffledAfterStart) }
+        // 目录可读时整库那一段在目录里拼;关随机、捐交互放在确定有歌可放之后(同原来的空库判断)。
+        let request = CatalogLibraryQueueRequest(
+            leadingIDs: [song.id], order: .shuffledAfterStart, kinds: [.music], excludedIDs: library.dislikedSongIDs
+        )
+        Task {
+            let handled = await player.playLibraryFromCatalog(request) {
+                player.shuffleEnabled = false
+                SiriMediaInteractionDonor.donate(song: song)
+            }
+            guard !handled else { return }
+            let ids = library.musicSongIDsExcludingDisliked
+            guard !ids.isEmpty else { return }
+            player.shuffleEnabled = false
+            SiriMediaInteractionDonor.donate(song: song)
+            await player.play(queueIDs: [song.id] + ids, startingAt: 0, order: .shuffledAfterStart)
+        }
     }
 
     private func playLibrary(shuffled: Bool) {
@@ -5889,10 +5936,17 @@ struct HomeView: View {
         // Only IDs leave the main actor's hands here: the whole library is
         // filtered and shuffled off it, and only the first window is resolved.
         // Disliked songs (#193) are left out of a whole-library play.
-        let ids = library.musicSongIDsExcludingDisliked
-        guard !ids.isEmpty else { return }
-        player.shuffleEnabled = false
-        Task { await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven) }
+        // 目录可读时 id 列表在目录里拼(同一张列表),否则照旧从内存模型拼。
+        let order: LargeQueueRequestOrder = shuffled ? .shuffled : .asGiven
+        let request = CatalogLibraryQueueRequest(order: order, kinds: [.music], excludedIDs: library.dislikedSongIDs)
+        Task {
+            let handled = await player.playLibraryFromCatalog(request) { player.shuffleEnabled = false }
+            guard !handled else { return }
+            let ids = library.musicSongIDsExcludingDisliked
+            guard !ids.isEmpty else { return }
+            player.shuffleEnabled = false
+            await player.play(queueIDs: ids, order: order)
+        }
     }
 }
 
@@ -5927,5 +5981,193 @@ private struct HomeRecentlyAddedPlayButton: View {
             albumIDs: albumIDs, includingExternalSongs: includesExternalSongs, shuffled: shuffled,
             library: library, player: player
         )
+    }
+}
+
+// MARK: - Library highlights from the catalog (P2)
+
+extension HomeView {
+    /// `scheduleLibraryHighlightsRefresh` 在目录上算的那一份:最近加入的前 60 首、顶部封面两组、
+    /// 最近添加的专辑卡。与内存路径同一套规则,结果有界;遍历是流式的,内存只占一批。
+    struct CatalogLibraryHighlights: Sendable {
+        let latestAdded: [Song]
+        let heroCurrent: [Song]
+        let heroNext: [Song]
+        let albumTiles: [HomeAlbumTile]
+    }
+
+    /// - 最近加入:音乐按库内顺序走一遍,稳定地留加入时间最新的 60 首(同 `firstSorted(... > ...)`)。
+    /// - 顶部封面:同一趟里喂两个种子的候选池(同 `makeHeroCoverSongs`)。
+    /// - 最近添加的专辑:全部可见内容(音乐那一趟 + 非音乐一趟)按专辑记最新加入时间
+    ///   (`RecentlyAddedAlbumPolicy.Index` 的规则),排好后只把前几张按 id 物化成可见专辑;
+    ///   封面歌按库内顺序在这几张专辑的歌里挑(同 `makeRecentlyAddedAlbumTiles`)。
+    nonisolated static func catalogLibraryHighlights(
+        reader: LibraryCatalogReader,
+        cachedLatestAdded: [Song]?,
+        cachedAlbumTiles: [HomeAlbumTile]?,
+        recentSongs: [Song],
+        playedAlbumKeys: Set<String>,
+        seeds: HomeHeroCarouselSeeds,
+        albumLimit: Int,
+        includingExternalSongs: Bool
+    ) async throws -> CatalogLibraryHighlights {
+        try await reader.read { catalog in
+            let latestLimit = 60
+            let tracksAlbums = cachedAlbumTiles == nil
+            var latest: [Song] = []
+            let seedOrder = [seeds.current, seeds.next]
+            var pools = seedOrder.map {
+                HomeHeroCarouselSelection.RediscoveryPool(seed: $0, playedAlbumKeys: playedAlbumKeys)
+            }
+            var byID: [String: Song] = [:]
+            var latestDates: [String: Date] = [:]
+            var externalAlbumIDs = Set<String>()
+
+            func noteAlbumDate(_ song: Song) {
+                guard let albumID = song.albumID, !albumID.isEmpty else { return }
+                if !includingExternalSongs, song.isExternal == true {
+                    externalAlbumIDs.insert(albumID)
+                } else {
+                    latestDates[albumID] = max(latestDates[albumID] ?? .distantPast, RecentlyAddedAlbumPolicy.date(for: song))
+                }
+            }
+
+            try catalog.forEachSong(.visibleMusic) { _, song in
+                if cachedLatestAdded == nil,
+                   latest.count < latestLimit || song.dateAdded > latest[latest.count - 1].dateAdded {
+                    // 相同加入时间的排在先出现的后面(稳定)。
+                    var low = 0
+                    var high = latest.count
+                    while low < high {
+                        let middle = (low + high) / 2
+                        if latest[middle].dateAdded >= song.dateAdded { low = middle + 1 } else { high = middle }
+                    }
+                    latest.insert(song, at: low)
+                    if latest.count > latestLimit { latest.removeLast() }
+                }
+                if let key = Self.heroAlbumKey(song) {
+                    for index in pools.indices {
+                        if pools[index].consider(songID: song.id, albumKey: key, trackNumber: song.trackNumber) {
+                            byID[song.id] = song
+                        }
+                    }
+                }
+                if tracksAlbums { noteAlbumDate(song) }
+                return true
+            }
+            let latestAdded = cachedLatestAdded ?? latest
+
+            // 顶部封面:同 `makeHeroCoverSongs` 的收尾。
+            func candidate(_ song: Song) -> HomeHeroCarouselSelection.Candidate? {
+                guard let key = Self.heroAlbumKey(song) else { return nil }
+                return HomeHeroCarouselSelection.Candidate(songID: song.id, albumKey: key)
+            }
+            let recent = recentSongs.compactMap(candidate)
+            let added = latestAdded.compactMap(candidate)
+            for song in recentSongs + latestAdded { byID[song.id] = byID[song.id] ?? song }
+            let picked = zip(seedOrder, pools).map { seed, pool in
+                HomeHeroCarouselSelection.pick(
+                    recent: recent,
+                    added: added,
+                    rediscovery: pool.candidates(),
+                    seed: seed
+                ).compactMap { byID[$0] }
+            }
+
+            let albumTiles: [HomeAlbumTile]
+            if let cachedAlbumTiles {
+                albumTiles = cachedAlbumTiles
+            } else {
+                // 非音乐的可见内容(有声、播客、环境音、只在歌单里的)也算专辑的加入时间,同内存路径用 `visibleSongs`。
+                let otherKinds = Set(LibraryCatalogContentKind.allCases).subtracting([.music])
+                try catalog.forEachSong(LibrarySongScope(kinds: otherKinds)) { _, song in
+                    noteAlbumDate(song)
+                    return true
+                }
+                albumTiles = try Self.catalogRecentlyAddedAlbumTiles(
+                    latestDates: latestDates,
+                    externalAlbumIDs: externalAlbumIDs,
+                    limit: albumLimit,
+                    includingExternalSongs: includingExternalSongs,
+                    in: catalog
+                )
+            }
+            return CatalogLibraryHighlights(
+                latestAdded: latestAdded,
+                heroCurrent: picked[0],
+                heroNext: picked[1],
+                albumTiles: albumTiles
+            )
+        }
+    }
+
+    /// 最近添加的专辑卡:按专辑最新加入时间从新到旧、同时间按 id(`RecentlyAddedAlbumPolicy.sorted`),
+    /// 只要可见专辑(全是外部歌曲的专辑在不含外部时不要);前几张按 id 物化。
+    nonisolated private static func catalogRecentlyAddedAlbumTiles(
+        latestDates: [String: Date],
+        externalAlbumIDs: Set<String>,
+        limit: Int,
+        includingExternalSongs: Bool,
+        in catalog: LibraryCatalog
+    ) throws -> [HomeAlbumTile] {
+        guard limit > 0, !latestDates.isEmpty else { return [] }
+        // 有日期的专辑都满足「不全是外部歌曲」;没有日期的可见专辑排在最后,前 `limit` 张里轮不到它们
+        // (可见专辑都有可见音乐,音乐那一趟已经记过日期)。
+        let ordered = latestDates.keys.sorted { lhs, rhs in
+            let left = latestDates[lhs] ?? .distantPast
+            let right = latestDates[rhs] ?? .distantPast
+            return left == right ? lhs < rhs : left > right
+        }
+        // 排在前面的可能是有声书、播客这类不算可见专辑的;取不够就多看一段。
+        var prefixCount = min(ordered.count, max(limit * 2, limit + 16))
+        var albums: [Album] = []
+        while true {
+            let wanted = Set(ordered.prefix(prefixCount))
+            let byID = try Self.visibleAlbumsByID(wanted, in: catalog)
+            albums = ordered.prefix(prefixCount).compactMap { byID[$0] }
+            if albums.count >= limit || prefixCount >= ordered.count { break }
+            prefixCount = min(ordered.count, prefixCount * 4)
+        }
+        albums = Array(albums.prefix(limit))
+
+        // 封面歌:这张专辑可见的歌里按库内顺序看,先有封面的、再任意一首,按曲号、标题挑最前的。
+        return try albums.map { album in
+            let rowids = try catalog.albumSongRowList(albumID: album.id).rowids.sorted()
+            var firstSong: Song?
+            var firstCoveredSong: Song?
+            for song in try catalog.songs(rowids: rowids.prefix(LibraryScale.maxMaterializedRows)) {
+                guard includingExternalSongs || song.isExternal != true, song.albumID == album.id else { continue }
+                if let current = firstSong {
+                    if Self.homeAlbumSongPrecedes(song, current) { firstSong = song }
+                } else {
+                    firstSong = song
+                }
+                if song.coverArtFileName?.isEmpty == false {
+                    if let covered = firstCoveredSong {
+                        if Self.homeAlbumSongPrecedes(song, covered) { firstCoveredSong = song }
+                    } else {
+                        firstCoveredSong = song
+                    }
+                }
+            }
+            return HomeAlbumTile(album: album, artworkSong: firstCoveredSong ?? firstSong)
+        }
+    }
+
+    /// 按 id 找可见专辑(目录按专辑键分批物化,找齐就停)。
+    nonisolated private static func visibleAlbumsByID(_ wanted: Set<String>, in catalog: LibraryCatalog) throws -> [String: Album] {
+        guard !wanted.isEmpty else { return [:] }
+        let keys = try catalog.albumKeys(visibleOnly: true).keys
+        var byID: [String: Album] = [:]
+        var start = 0
+        while start < keys.count, byID.count < wanted.count {
+            let end = min(keys.count, start + LibraryScale.maxMaterializedRows)
+            for album in try catalog.albums(keys: keys[start..<end], visibleCounts: true)
+            where wanted.contains(album.id) && byID[album.id] == nil {
+                byID[album.id] = album
+            }
+            start = end
+        }
+        return byID
     }
 }

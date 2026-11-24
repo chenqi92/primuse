@@ -199,7 +199,19 @@ struct PrimuseLibrarySongQuery: EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [PrimuseLibrarySongEntity] {
         let library = AppServices.shared.musicLibrary
         guard await library.whenReady(timeout: .seconds(8)) else { return [] }
-        let songs = identifiers.compactMap { library.visibleSong(id: $0) }
+        var resolved: [Song]?
+        if let reader = P2cCatalogAccess.reader(for: library) {
+            // 曲库目录可读时按 id 从目录取(P2c),保持请求的顺序。
+            do {
+                let fromCatalog = try await reader.songsChunked(ids: identifiers, scope: .visible)
+                // 目录跟写内存有一小段滞后:目录里还没有的(刚加进来的歌)再问内存模型。
+                let byID = Dictionary(fromCatalog.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                resolved = identifiers.compactMap { byID[$0] ?? library.visibleSong(id: $0) }
+            } catch {
+                plog("Siri song entities: catalog lookup failed, using in-memory library: \(error.localizedDescription)")
+            }
+        }
+        let songs = (resolved ?? identifiers.compactMap { library.visibleSong(id: $0) })
             .filter { $0.isPlayable && SiriRadioStationCatalog.safeDisplayName($0.title) != nil }
         return await PrimuseLibrarySongEntity.entities(for: songs)
     }

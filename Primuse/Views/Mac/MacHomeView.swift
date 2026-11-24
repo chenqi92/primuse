@@ -423,7 +423,7 @@ struct MacHomeView: View {
                     .pmAppearFade(.contentAppear)
             }
         case .recentlyAdded:
-            if hasContent, showRecentlyAdded, !library.visibleAlbums.isEmpty {
+            if hasContent, showRecentlyAdded, PlaybackSurfaceCountsModel.visibleAlbumCount(in: library) > 0 {
                 recentlyAddedSection
                     .pmAppearFade(.contentAppear)
             }
@@ -2055,14 +2055,21 @@ struct MacHomeView: View {
             let existingIDs = Set(queue.map(\.id))
             let leading = queue.filteredPlayable().map(\.id)
             guard let startIndex = leading.firstIndex(of: song.id) else { return }
-            var ids = leading
-            ids.reserveCapacity(leading.count + library.musicSongs.count)
-            for candidate in library.musicSongs where !existingIDs.contains(candidate.id) {
-                ids.append(candidate.id)
-            }
             player.shuffleEnabled = false
             SiriMediaInteractionDonor.donate(song: song)
-            Task { await player.play(queueIDs: ids, startingAt: startIndex) }
+            // 目录可读时整库那一段在目录里拼(同一张列表),否则照旧从内存模型拼。
+            let request = CatalogLibraryQueueRequest(
+                leadingIDs: leading, startIndex: startIndex, kinds: [.music], excludedIDs: existingIDs
+            )
+            Task {
+                if await player.playLibraryFromCatalog(request) { return }
+                var ids = leading
+                ids.reserveCapacity(leading.count + library.musicSongs.count)
+                for candidate in library.musicSongs where !existingIDs.contains(candidate.id) {
+                    ids.append(candidate.id)
+                }
+                await player.play(queueIDs: ids, startingAt: startIndex)
+            }
             return
         }
         queue = queue.filteredPlayable()
@@ -2073,11 +2080,17 @@ struct MacHomeView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
-        // 整库播放不含不喜欢的歌(#193)。
-        let ids = library.musicSongIDsExcludingDisliked
-        guard !ids.isEmpty else { return }
-        player.shuffleEnabled = false
-        Task { await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven) }
+        // 整库播放不含不喜欢的歌(#193)。目录可读时 id 列表在目录里拼,否则照旧从内存模型拼。
+        let order: LargeQueueRequestOrder = shuffled ? .shuffled : .asGiven
+        let request = CatalogLibraryQueueRequest(order: order, kinds: [.music], excludedIDs: library.dislikedSongIDs)
+        Task {
+            let handled = await player.playLibraryFromCatalog(request) { player.shuffleEnabled = false }
+            guard !handled else { return }
+            let ids = library.musicSongIDsExcludingDisliked
+            guard !ids.isEmpty else { return }
+            player.shuffleEnabled = false
+            await player.play(queueIDs: ids, order: order)
+        }
     }
 }
 

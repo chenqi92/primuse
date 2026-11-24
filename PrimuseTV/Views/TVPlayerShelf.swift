@@ -100,8 +100,8 @@ struct TVPlayerShelfContext: Equatable {
             case .thisAlbum: return !albumID.isEmpty
             case .artistAlbums: return !artistIDs.isEmpty
             case .genres: return !store.library.visibleGenres.isEmpty
-            case .albums: return !store.albums.isEmpty
-            case .artists: return !store.artists.isEmpty
+            case .albums: return store.visibleAlbumCount > 0
+            case .artists: return store.visibleArtistCount > 0
             case .recent: return !store.recentlyPlayed.isEmpty
             case .liked: return !store.library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID).isEmpty
             }

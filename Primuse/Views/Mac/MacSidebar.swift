@@ -24,8 +24,17 @@ struct MacSidebar: View {
     private var hidesSingleOnlyAlbumArtists = false
 
     private var browsableArtistCount: Int {
+        // 「全部艺术家」列法目录可读时从目录数;「专辑艺术家」照旧数内存模型。
+        if ArtistBrowseMode.resolved(artistBrowseModeRaw) == .allArtists, let counts = catalogHubCounts {
+            return counts.artists
+        }
         _ = hidesSingleOnlyAlbumArtists
         return library.browsableArtists(.resolved(artistBrowseModeRaw)).count
+    }
+
+    /// 目录可读时侧栏的计数从目录读(与资料库入口同一份,见 `LibraryHubCatalogCountsModel`)。
+    private var catalogHubCounts: LibraryHubCatalogCounts? {
+        LibraryHubCatalogCountsModel.shared(for: library)?.readableCounts
     }
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
     private var librarySectionOrderRawValue = ""
@@ -162,7 +171,7 @@ struct MacSidebar: View {
                 icon: section.icon,
                 title: "sidebar_all_songs",
                 // 「歌曲」只数音乐, 有声内容按书计在自己那一行。
-                trailing: countLabel(library.musicSongs.count)
+                trailing: countLabel(catalogHubCounts?.music ?? library.musicSongs.count)
             )
         case .radio:
             item(
@@ -192,7 +201,7 @@ struct MacSidebar: View {
                 route: .section(.ambient),
                 icon: section.icon,
                 title: ListeningSpace.ambient.titleKey,
-                trailing: countLabel(library.ambientSongs.count)
+                trailing: countLabel(catalogHubCounts?.ambient ?? library.ambientSongs.count)
             )
         case .musicVideos:
             item(
@@ -206,7 +215,7 @@ struct MacSidebar: View {
                 route: .section(.albums),
                 icon: section.icon,
                 title: section.title,
-                trailing: countLabel(library.visibleAlbums.count)
+                trailing: countLabel(catalogHubCounts?.albums ?? library.visibleAlbums.count)
             )
         case .artists:
             item(
@@ -220,7 +229,7 @@ struct MacSidebar: View {
                 route: .section(.genres),
                 icon: section.icon,
                 title: section.title,
-                trailing: countLabel(library.visibleGenres.count)
+                trailing: countLabel(catalogHubCounts?.genres ?? library.visibleGenres.count)
             )
         }
     }
@@ -374,7 +383,8 @@ struct MacSidebar: View {
             ForEach(sourcesStore.sources.prefix(6), id: \.id) { source in
                 let dotColor = sourceDotColor(for: source)
                 // 设计稿: 音乐源行右侧显示该源的歌曲数 (mono 字体 + textFaint)
-                let count = library.visibleSongCount(forSourceID: source.id)
+                let count = catalogHubCounts.map { $0.visibleBySource[source.id] ?? 0 }
+                    ?? library.visibleSongCount(forSourceID: source.id)
                 let route = MacRoute.source(source.id)
                 MacSidebarRow(route: route, highlight: routeSwitch.rowHighlight(for: route), onSelectRoute: onSelectRoute) { selected in
                     HStack(spacing: 8) {

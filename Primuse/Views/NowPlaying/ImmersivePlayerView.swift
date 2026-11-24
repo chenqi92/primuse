@@ -1314,6 +1314,26 @@ struct ImmersivePlayerView: View {
     private func refreshGallerySongs() {
         refreshFlowNeighbors()
         let currentID = player.currentSong?.id
+        // P2:目录可读时在目录上按同一套取法抽样(主线程外、只物化落点上的歌);
+        // 读失败或目录不能读时照旧在内存里的整库数组上取。
+        if let reader = PlaybackCatalogAccess.reader(for: library) {
+            Task {
+                do {
+                    let selected = try await reader.immersiveGallerySample(limit: 12, currentID: currentID)
+                    guard player.currentSong?.id == currentID else { return }
+                    gallerySongs = selected
+                    coverTintProvider.prepare(selected)
+                } catch {
+                    guard player.currentSong?.id == currentID else { return }
+                    refreshGallerySongsFromMemory(currentID: currentID)
+                }
+            }
+            return
+        }
+        refreshGallerySongsFromMemory(currentID: currentID)
+    }
+
+    private func refreshGallerySongsFromMemory(currentID: String?) {
         // Stride through the library and test each stop, instead of filtering
         // the whole library first: that copied and trimmed every song on the
         // main thread at each song change.
@@ -2172,7 +2192,15 @@ private struct ImmersiveLibraryCountObserver: View {
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .onChange(of: library.songs.count) { _, _ in onCountChange() }
+            .onChange(of: libraryCountToken) { _, _ in onCountChange() }
+    }
+
+    /// 曲库首数变了就变。P2:目录可读时跟目录的成员修订号(有增删才前进),否则照旧读内存里的首数。
+    private var libraryCountToken: String {
+        if let host = library.catalogHost, host.revisions.isReadable {
+            return "catalog-\(host.revisions.membership)"
+        }
+        return "memory-\(library.songs.count)"
     }
 }
 /// 全屏效果页上由播放页画的按钮在哪一处:右上角那颗玻璃圆钮,还是底部播放胶囊里。

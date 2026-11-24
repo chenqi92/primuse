@@ -184,7 +184,7 @@ struct MacQueuePanel: View {
             }
 
             // 资料库里一首歌都没有时, 这个按钮按下去什么也不会发生, 不给。
-            if !library.musicSongs.isEmpty {
+            if PlaybackSurfaceCountsModel.musicSongCount(in: library) > 0 {
                 QueueEmptyShuffleButton(action: shuffleLibrary)
                     .padding(.top, 4)
             }
@@ -493,11 +493,16 @@ struct MacQueuePanel: View {
     }
 
     private func shuffleLibrary() {
-        // 和首页「随机播放全部」同一套: 整库不含不喜欢的歌(#193)。
-        let ids = library.musicSongIDsExcludingDisliked
-        guard !ids.isEmpty else { return }
-        player.shuffleEnabled = false
-        Task { await player.play(queueIDs: ids, order: .shuffled) }
+        // 和首页「随机播放全部」同一套: 整库不含不喜欢的歌(#193)。目录可读时 id 列表在目录里拼。
+        let request = CatalogLibraryQueueRequest(order: .shuffled, kinds: [.music], excludedIDs: library.dislikedSongIDs)
+        Task {
+            let handled = await player.playLibraryFromCatalog(request) { player.shuffleEnabled = false }
+            guard !handled else { return }
+            let ids = library.musicSongIDsExcludingDisliked
+            guard !ids.isEmpty else { return }
+            player.shuffleEnabled = false
+            await player.play(queueIDs: ids, order: .shuffled)
+        }
     }
 
     private func saveQueueAsPlaylist() {

@@ -245,8 +245,15 @@ extension AudioPlayerService {
                     matches = savedSongs.filter(\.isPlayable)
                 } else {
                     await library.whenReady()
-                    let lookup = await library.visibleSongLookup()
-                    matches = lookup.playableSongs(forIDs: missingIDs)
+                    // P2:目录可读时按 id 从目录取(可见、能放),否则照旧查内存模型。
+                    if let catalogRows = await Self.catalogPlayableSongs(
+                        ids: missingIDs, library: library, visibility: .visible
+                    ) {
+                        matches = Array(catalogRows.values)
+                    } else {
+                        let lookup = await library.visibleSongLookup()
+                        matches = lookup.playableSongs(forIDs: missingIDs)
+                    }
                 }
                 for song in matches { playableSongsByID[song.id] = song }
             }

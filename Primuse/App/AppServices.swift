@@ -1313,6 +1313,11 @@ final class AppServices {
         }, songsProvider: {
             library.songs
         })
+        // 目录可读时,按源、按路径的查询改读曲库目录(P2d);不可读时照旧用上面的整库数组。
+        manager.catalogReaderProvider = { [weak library] in
+            guard let host = library?.catalogHost, host.revisions.isReadable else { return nil }
+            return host.reader
+        }
         let scraperSettings = ScraperSettingsStore()
         // 歌词 API 服务器的地址列表经 iCloud 键值同步；CloudKVSSync 只给已登记的键
         // 应用外部变更，所以启动时就把 store 建出来完成登记，别等用户打开设置页。
@@ -2337,6 +2342,33 @@ final class AppServices {
     /// removals also reach the recovered queue. Unreadable files are retained
     /// by the connector; only a completed inventory can remove old rows.
     private func refreshAppleMusicLocalLibrarySources() {
+        if let host = musicLibrary.catalogHost, host.revisions.isReadable {
+            // 目录可读时「这个源有没有歌」按源查一次 EXISTS,不再整库过一遍。
+            let reader = host.reader
+            let sources = sourcesStore.allSources.filter {
+                $0.type == .appleMusicLibrary && $0.isEnabled && !$0.isDeleted
+            }
+            Task { @MainActor [weak self] in
+                for source in sources {
+                    guard let self else { return }
+                    let hasSongs: Bool
+                    do {
+                        hasSongs = try await reader.containsSongs(sourceID: source.id)
+                    } catch {
+                        plog("📚 catalog containsSongs failed, using memory: \(error)")
+                        hasSongs = self.musicLibrary.songs.contains(where: { $0.sourceID == source.id })
+                    }
+                    guard hasSongs, self.scanService.scanStates[source.id]?.isScanning != true else { continue }
+                    self.scanService.scanSource(
+                        source,
+                        sourceManager: self.sourceManager,
+                        library: self.musicLibrary,
+                        sourceStore: self.sourcesStore
+                    )
+                }
+            }
+            return
+        }
         for source in sourcesStore.allSources where source.type == .appleMusicLibrary
             && source.isEnabled && !source.isDeleted {
             guard musicLibrary.songs.contains(where: { $0.sourceID == source.id }),

@@ -1644,7 +1644,7 @@ struct LibraryArtworkEditorSheet: View {
     private var macAutomaticPreview: some View {
         switch owner.kind {
         case .album:
-            if let album = library.visibleAlbums.first(where: { $0.id == owner.id }) {
+            if let album = library.visibleAlbum(id: owner.id) {
                 CachedArtworkView(
                     albumID: album.id,
                     albumTitle: album.title,
@@ -1658,7 +1658,7 @@ struct LibraryArtworkEditorSheet: View {
                 macPreviewPlaceholder
             }
         case .artist:
-            if let artist = library.visibleArtists.first(where: { $0.id == owner.id }) {
+            if let artist = library.visibleArtist(id: owner.id) {
                 CachedArtworkView(
                     artistID: artist.id,
                     artistName: artist.name,

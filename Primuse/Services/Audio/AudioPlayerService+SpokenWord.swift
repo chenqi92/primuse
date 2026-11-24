@@ -1003,6 +1003,32 @@ extension AudioPlayerService {
             return
         }
         guard let library, let book = currentSpokenWordBook else { return }
+        // P2:目录可读时这本书的章节按 id 从目录取(可见的有声内容,同 `spokenWordSongs`);
+        // 读失败或目录不能读时照旧查内存里的整份有声歌曲。
+        if let reader = PlaybackCatalogAccess.reader(for: library) {
+            let itemIDs = book.items.map(\.id)
+            Task {
+                let byID: [String: Song]
+                do {
+                    byID = try await reader.read { catalog in
+                        try LibraryCatalogReader.songsByID(
+                            Array(Set(itemIDs)), scope: LibrarySongScope(kinds: [.spokenWord]), in: catalog
+                        )
+                    }
+                } catch {
+                    plog("📖 Book item catalog read failed (\(error)); using the in-memory library")
+                    let memory = Dictionary(
+                        library.spokenWordSongs.map { ($0.id, $0) },
+                        uniquingKeysWith: { first, _ in first }
+                    )
+                    byID = memory
+                }
+                let songs = itemIDs.compactMap { byID[$0] }
+                guard let index = songs.firstIndex(where: { $0.id == itemID }) else { return }
+                await play(queue: songs, startingAt: index)
+            }
+            return
+        }
         let byID = Dictionary(
             library.spokenWordSongs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }

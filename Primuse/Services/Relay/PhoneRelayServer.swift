@@ -145,10 +145,31 @@ final class PhoneRelayServer: @unchecked Sendable {
         Task { [weak self] in
             guard let self else { conn.cancel(); return }
             // 只服务库里存在的 (source, path),取文件大小与 connector(均在 MainActor)。
+            // 曲库目录可读时按 (源, 路径) 索引查这一首(同一文件的 CUE 分轨取库内顺序第一首),
+            // 不再在主线程上整库过一遍。
+            let catalogReader: LibraryCatalogReader? = await MainActor.run {
+                guard let host = self.library?.catalogHost, host.revisions.isReadable else { return nil }
+                return host.reader
+            }
+            let catalogFileSize: Int64?
+            if let catalogReader {
+                do {
+                    catalogFileSize = try await catalogReader.songs(sourceID: sourceID, filePath: path).first?.fileSize ?? -1
+                } catch {
+                    plog("📚 relay catalog path lookup failed, using memory: \(error)")
+                    catalogFileSize = nil
+                }
+            } else {
+                catalogFileSize = nil
+            }
             let prep: (SourceManager, MusicSource, Int64)? = await MainActor.run {
                 guard let manager = self.sourceManager,
-                      let source = self.sourcesStore?.source(id: sourceID),
-                      let song = self.library?.songs.first(where: { $0.sourceID == sourceID && $0.filePath == path })
+                      let source = self.sourcesStore?.source(id: sourceID) else { return nil }
+                if let catalogFileSize {
+                    // -1:目录里没有这首。
+                    return catalogFileSize < 0 ? nil : (manager, source, catalogFileSize)
+                }
+                guard let song = self.library?.songs.first(where: { $0.sourceID == sourceID && $0.filePath == path })
                 else { return nil }
                 return (manager, source, song.fileSize)
             }

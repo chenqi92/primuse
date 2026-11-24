@@ -95,7 +95,7 @@ final class HomeHeroRecommendationModel {
             let restoredAlbums = saved.albumIDs.compactMap { library.visibleAlbum(id: $0) }
             if restoredSongs.count == saved.songIDs.count,
                restoredAlbums.count == saved.albumIDs.count, !restoredSongs.isEmpty,
-               configuration.content == .songs || !restoredAlbums.isEmpty || library.visibleAlbums.isEmpty {
+               configuration.content == .songs || !restoredAlbums.isEmpty || PlaybackSurfaceCountsModel.visibleAlbumCount(in: library) == 0 {
                 songs = restoredSongs
                 albums = restoredAlbums
                 providerName = saved.providerName
