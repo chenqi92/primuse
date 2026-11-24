@@ -242,6 +242,8 @@ public struct LyricsSnapshot: Codable, Sendable {
     /// Exact playback position represented by `updatedAt`. Older snapshots
     /// omit this value and fall back to the anchor line's start time.
     public var playbackPosition: TimeInterval?
+    /// Media seconds per wall-clock second. Older snapshots use normal speed.
+    public var playbackRate: Double?
     public var isPlaying: Bool
     /// Presentation direction resolved from the source document's language
     /// metadata or text. `nil` identifies snapshots written by older builds.
@@ -250,7 +252,7 @@ public struct LyricsSnapshot: Codable, Sendable {
 
     public init(songID: String, title: String, artist: String, coverImageName: String?,
                 lines: [WidgetLyricLine], anchorIndex: Int,
-                playbackPosition: TimeInterval? = nil, isPlaying: Bool,
+                playbackPosition: TimeInterval? = nil, playbackRate: Double? = nil, isPlaying: Bool,
                 writingDirection: LyricWritingDirection? = nil, updatedAt: Date = Date()) {
         self.songID = songID
         self.title = title
@@ -259,6 +261,7 @@ public struct LyricsSnapshot: Codable, Sendable {
         self.lines = lines
         self.anchorIndex = anchorIndex
         self.playbackPosition = playbackPosition
+        self.playbackRate = playbackRate
         self.isPlaying = isPlaying
         self.writingDirection = writingDirection
         self.updatedAt = updatedAt

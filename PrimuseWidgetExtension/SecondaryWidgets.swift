@@ -47,13 +47,14 @@ struct LyricsProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (LyricsEntry) -> Void) {
-        let snap = context.isPreview
-            ? Self.demo
-            : Self.snapshotAlignedWithPlayback(
-                LyricsSnapshot.load(),
-                playback: PlaybackState.load()
-            )
-        completion(LyricsEntry(date: Date(), snapshot: snap))
+        if context.isPreview {
+            completion(placeholder(in: context))
+            return
+        }
+        let now = Date()
+        let snap = Self.snapshotAlignedWithPlayback(LyricsSnapshot.load(), playback: PlaybackState.load())
+        let entry = snap.flatMap { Self.timelineBatch(for: $0, from: now, maximumFutureEntries: 0).entries.first }
+        completion(entry ?? LyricsEntry(date: now, snapshot: nil))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<LyricsEntry>) -> Void) {
@@ -77,7 +78,7 @@ struct LyricsProvider: TimelineProvider {
         // Project forward from the playback position captured at `updatedAt`.
         // We emit one entry per upcoming line so WidgetKit advances the
         // highlight on cue without polling the main app.
-        let batch = Self.timelineBatch(for: snap, from: now)
+        let batch = Self.timelineBatch(for: snap, from: now, maximumFutureEntries: context.family == .systemSmall ? 96 : 12)
         completion(Timeline(
             entries: batch.entries,
             policy: reloadPolicy(continuationDate: batch.nextReloadDate)
@@ -117,58 +118,12 @@ struct LyricsProvider: TimelineProvider {
     /// Builds entries whose `anchorIndex` advances as playback progresses,
     /// computed purely from the saved line timings + `updatedAt`. Paused
     /// snapshots yield a single static entry.
-    static func timelineBatch(for snap: LyricsSnapshot, from now: Date) -> LyricsTimelineBatch {
-        let anchorTime = WidgetLyricsPresentationPolicy.playbackPosition(in: snap)
-
-        guard snap.isPlaying else {
-            return LyricsTimelineBatch(
-                entries: [LyricsEntry(date: now, snapshot: snap)],
-                nextReloadDate: nil
-            )
-        }
-
-        // Position at `now`, then the line index that should be current.
-        let elapsed = max(0, now.timeIntervalSince(snap.updatedAt))
-        let positionNow = anchorTime + elapsed
-        let currentIndex = WidgetLyricsPresentationPolicy.anchorIndex(
-            for: positionNow,
-            in: snap.lines
+    static func timelineBatch(for snap: LyricsSnapshot, from now: Date, maximumFutureEntries: Int = 12) -> LyricsTimelineBatch {
+        let timeline = WidgetLyricsPresentationPolicy.timeline(for: snap, from: now, maximumFutureEntries: maximumFutureEntries)
+        return LyricsTimelineBatch(
+            entries: timeline.entries.map { LyricsEntry(date: $0.date, snapshot: snap.with(anchorIndex: $0.index)) },
+            nextReloadDate: timeline.nextReloadDate
         )
-
-        var entries: [LyricsEntry] = [LyricsEntry(date: now, snapshot: snap.with(anchorIndex: currentIndex))]
-
-        // One future entry per remaining line transition, capped to keep the
-        // timeline small. Equal timestamps collapse to their final anchor.
-        let maxFutureEntries = 12
-        var added = 0
-        var i = currentIndex + 1
-        while i < snap.lines.count && added < maxFutureEntries {
-            let lineStart = snap.lines[i].time
-            var transitionAnchor = i
-            while transitionAnchor + 1 < snap.lines.count,
-                  snap.lines[transitionAnchor + 1].time == lineStart {
-                transitionAnchor += 1
-            }
-            let secondsUntil = lineStart - positionNow
-            if secondsUntil > 0 {
-                let date = now.addingTimeInterval(secondsUntil)
-                entries.append(LyricsEntry(
-                    date: date,
-                    snapshot: snap.with(anchorIndex: transitionAnchor)
-                ))
-                added += 1
-            }
-            i = transitionAnchor + 1
-        }
-
-        let nextReloadDate: Date?
-        if i < snap.lines.count {
-            let delay = max(0.5, snap.lines[i].time - positionNow)
-            nextReloadDate = now.addingTimeInterval(delay)
-        } else {
-            nextReloadDate = nil
-        }
-        return LyricsTimelineBatch(entries: entries, nextReloadDate: nextReloadDate)
     }
 
     static let demo = LyricsSnapshot(
@@ -186,6 +141,13 @@ struct LyricsProvider: TimelineProvider {
 struct LyricsWidget: Widget {
     let kind = "LyricsWidget"
 
+    #if os(iOS)
+    private var disfavoredLocations: [WidgetLocation] {
+        if #available(iOS 26.0, *) { return [.carPlay] }
+        return []
+    }
+    #endif
+
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: LyricsProvider()) { entry in
             LyricsWidgetView(entry: entry)
@@ -193,7 +155,12 @@ struct LyricsWidget: Widget {
         .contentMarginsDisabled()
         .configurationDisplayName(PMString("ext.widget.lyrics.displayName"))
         .description(PMString("ext.widget.lyrics.description"))
+        #if os(iOS)
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        .disfavoredLocations(disfavoredLocations, for: [.systemSmall])
+        #else
         .supportedFamilies([.systemMedium, .systemLarge])
+        #endif
     }
 }
 
@@ -211,7 +178,34 @@ struct LyricsWidgetView: View {
     }
 
     @ViewBuilder private func content(_ snap: LyricsSnapshot) -> some View {
-        if family == .systemLarge {
+        if family == .systemSmall {
+            WidgetCanvas(padding: 14, showsContours: false) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if snap.lines.indices.contains(snap.anchorIndex) {
+                        Text(verbatim: snap.title)
+                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(verbatim: snap.lines[snap.anchorIndex].text)
+                                .font(.headline.bold()).foregroundStyle(.primary)
+                                .lineLimit(4).minimumScaleFactor(0.85).layoutPriority(1)
+                            let next = snap.anchorIndex + 1
+                            if snap.lines.indices.contains(next) {
+                                Text(verbatim: snap.lines[next].text)
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .modifier(WidgetLyricsDirectionModifier(direction: WidgetLyricsPresentationPolicy.writingDirection(
+                            for: snap.lines, preferredDirection: snap.writingDirection
+                        )))
+                    } else {
+                        Text(verbatim: snap.title).font(.headline.bold()).lineLimit(3)
+                        Text(verbatim: snap.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+        } else if family == .systemLarge {
             WidgetCanvas(padding: 20, showsContours: false, coverImageName: snap.coverImageName, tint: WidgetDesign.brandTint) {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 14) {

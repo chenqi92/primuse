@@ -757,7 +757,10 @@ final class AudioPlayerService {
     }
     var isPlaying = false {
         didSet {
-            if isPlaying && !isLoading { schedulePlaybackMetadataReadIfNeeded() }
+            if isPlaying && !isLoading {
+                if !oldValue { currentTimeAnchor = Date() }
+                schedulePlaybackMetadataReadIfNeeded()
+            }
             if isPlaying != oldValue { noteSpokenWordPlayingChanged() }
         }
     }
@@ -802,13 +805,17 @@ final class AudioPlayerService {
             handoffCurrentTime = currentTime
             #if os(iOS)
             publishLockScreenLyricsIfNeeded()
+            refreshSmallLyricsWidgetOnLineChange()
             #endif
         }
     }
     var duration: TimeInterval = 0
     var isLoading = false {
         didSet {
-            if !isLoading && isPlaying { schedulePlaybackMetadataReadIfNeeded() }
+            if !isLoading && isPlaying {
+                if oldValue { currentTimeAnchor = Date() }
+                schedulePlaybackMetadataReadIfNeeded()
+            }
             if isLoading != oldValue { refreshLoadingIndicator() }
         }
     }
@@ -2552,7 +2559,12 @@ final class AudioPlayerService {
                 // 系统侧的进度按发布的速度往前推,换了速度要立刻重发,锁屏和车机的进度条才不会
                 // 越走越偏(按书记的速度在 `setSpokenWordRate` 里已经重发)。没在放就不碰,
                 // 免得把空快照当成「清掉正在播放」。
-                if self.currentSong != nil { self.updateNowPlayingInfo() }
+                if self.currentSong != nil {
+                    self.updateNowPlayingInfo()
+                    #if os(iOS)
+                    self.publishWidgetLyricsIfNeeded()
+                    #endif
+                }
                 self.observePlaybackRate()
             }
         }
@@ -5020,20 +5032,7 @@ final class AudioPlayerService {
         stopTimeUpdater()
         stopMusicVideoPlayback(clearPlayer: true)
 
-        // Show new song in UI immediately (before download)
-        currentSong = song
-        currentTime = song.appliedPlaybackRange?.start ?? spokenWordOpeningPosition(for: song) ?? 0
-        duration = song.duration.sanitizedDuration
-        isLoading = true
-        isPlaying = false
-        isAtTrackEnd = false
-        plog("▶️ currentSong set to: \(song.title)")
-        // Loading can take up to the remote first-buffer timeout. Publish the
-        // paused rate immediately so Lock Screen never keeps the previous
-        // track's Pause icon while no audio is actually rendering.
-        updateNowPlayingInfo()
-        updateNowPlayingArtworkIfNeeded()
-        updatePlaybackState()
+        stageTrackPlaybackStart(song)
 
         if isKaraokeSessionActive, embeddedKaraokeFile?.songID == song.id, !isCastingMode {
             activeDecoderKind = .native
@@ -5853,6 +5852,7 @@ final class AudioPlayerService {
         audioEngine.stopPlayback()
         stopTimeUpdater()
         stopMusicVideoPlayback(clearPlayer: true)
+        stageTrackPlaybackStart(song)
         await playFromURL(
             song: song,
             url: url,
@@ -5861,6 +5861,20 @@ final class AudioPlayerService {
             bypassSystemMediaPlayback: bypassSystemMediaPlayback,
             shouldRecordPlaybackStart: shouldRecordPlaybackStart
         )
+    }
+
+    private func stageTrackPlaybackStart(_ song: Song) {
+        isLoading = true
+        isPlaying = false
+        isAtTrackEnd = false
+        currentSong = song
+        duration = song.duration.sanitizedDuration
+        currentTime = song.appliedPlaybackRange?.start ?? spokenWordOpeningPosition(for: song) ?? 0
+        plog("▶️ currentSong set to: \(song.title)")
+        // Publish the incoming track's clock before waiting for the first audio buffer.
+        updateNowPlayingInfo()
+        updateNowPlayingArtworkIfNeeded()
+        updatePlaybackState()
     }
 
     private func playFromURL(
@@ -9146,6 +9160,9 @@ final class AudioPlayerService {
     @ObservationIgnored private var lastLyricsWidgetConfigurationRefreshAt = Date.distantPast
     @ObservationIgnored private var hasInstalledLyricsWidgetSurface = false
     @ObservationIgnored private var lastWidgetLyricsDemandAt = Date.distantPast
+    @ObservationIgnored private var hasInstalledSmallLyricsWidget = false
+    @ObservationIgnored private var publishedWidgetLyricsRange: Range<Int>?
+    @ObservationIgnored private var lastSmallWidgetLyricIndex: Int?
 
     private var widgetLyricsSharingEnabled: Bool {
         WidgetSettings.syncEnabled()
@@ -9207,6 +9224,7 @@ final class AudioPlayerService {
     /// family on the Home Screen; lock-screen lyrics remains independently gated.
     func refreshInstalledLyricsWidgetDemand(force: Bool = false) {
         guard widgetLyricsSharingEnabled else {
+            hasInstalledSmallLyricsWidget = false
             clearWidgetLyricsSnapshotIfNeeded()
             if !shouldLoadLyricsForSystemSurfaces {
                 resetSystemLyricsState()
@@ -9228,6 +9246,11 @@ final class AudioPlayerService {
 
             guard let configurations = try? await WidgetCenter.shared.currentConfigurations()
             else { return }
+            if #available(iOS 26.0, *) {
+                self.hasInstalledSmallLyricsWidget = configurations.contains {
+                    $0.kind == "LyricsWidget" && $0.family == .systemSmall
+                }
+            }
             // 经典款的中号写正唱到的那一句, 大号有歌词面板。
             let isInstalled = configurations.contains { configuration in
                 configuration.kind == "LyricsWidget"
@@ -9423,7 +9446,7 @@ final class AudioPlayerService {
         loadLyricsForSystemSurfacesIfNeeded(for: song)
     }
 
-    func lockScreenLyricsPresentation() -> NowPlayingLyricsMetadataPresentation {
+    func lockScreenLyricsPresentation(at playbackTime: TimeInterval? = nil) -> NowPlayingLyricsMetadataPresentation {
         if let presentation = audiobookNowPlayingPresentation { return presentation }
         guard let song = currentSong else {
             return NowPlayingLyricsMetadataPresentation(title: "", artist: "", lyricLineID: nil)
@@ -9434,7 +9457,7 @@ final class AudioPlayerService {
             canonicalTitle: song.title,
             artistName: displayedArtistName(for: song),
             synchronizedLyrics: lyrics,
-            playbackTime: carTitle ? systemLyricsPlaybackTime() : currentTime,
+            playbackTime: playbackTime ?? systemLyricsPlaybackTime(),
             isEnabled: systemNowPlayingLyricsEnabled,
             isLiveStream: isLiveRadio,
             prefersStableTitle: shouldForceAudioOnly && CarPlaySettingsStore.shared.configuration.lyricsPosition != .title,
@@ -9457,7 +9480,8 @@ final class AudioPlayerService {
     /// 两次 0.5 秒采样之间的播放位置, 按倍速外推。歌词边界定时器到点时
     /// `currentTime` 还是上一拍的值, 换行判断和发布的进度都用它。
     func systemLyricsPlaybackTime(at date: Date = Date()) -> TimeInterval {
-        interpolatedTime(at: date, rate: systemNowPlayingClockRate)
+        guard publishesCarTitleLyrics, !isLiveRadio, !currentItemIsAudiobook else { return currentTime }
+        return interpolatedTime(at: date, rate: systemNowPlayingClockRate)
     }
 
     /// 本地引擎的时钟是渲染位置, 声音还要过输出缓冲和线路才出来, 这段已经
@@ -9642,6 +9666,26 @@ final class AudioPlayerService {
         loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
     }
 
+    private func refreshSmallLyricsWidgetOnLineChange() {
+        guard hasInstalledSmallLyricsWidget, shouldForceAudioOnly, isPlaying, !isLoading,
+              !systemSynchronizedLyrics.isEmpty, let window = publishedWidgetLyricsRange else { return }
+        let index = LyricPlaybackPositionPolicy.activeLineIndex(in: systemLyrics, at: currentTime, lookahead: 0)
+        guard index != lastSmallWidgetLyricIndex else { return }
+        guard widgetLyricsSharingEnabled else {
+            hasInstalledSmallLyricsWidget = false
+            clearWidgetLyricsSnapshotIfNeeded()
+            return
+        }
+        if let index, !window.contains(index) || (index == window.upperBound - 1 && window.upperBound < systemLyrics.count) {
+            publishWidgetLyricsIfNeeded()
+            return
+        }
+        lastSmallWidgetLyricIndex = index
+        // CarPlay can coalesce the precomputed timeline down to one entry per minute.
+        // The extension can select the current line from the snapshot already on disk.
+        WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
+    }
+
     func publishWidgetLyricsIfNeeded(coverImageName: String? = nil) {
         guard shouldPublishWidgetLyrics, !isLiveRadio else {
             clearWidgetLyricsSnapshotIfNeeded()
@@ -9654,7 +9698,10 @@ final class AudioPlayerService {
             return
         }
 
-        let position = max(0, currentTime)
+        let sampledAt = Date()
+        let rate = systemNowPlayingClockRate
+        let isActivelyPlaying = isPlaybackActuallyActive
+        let position = isActivelyPlaying ? interpolatedTime(at: sampledAt, rate: rate) : max(0, currentTime)
         // 有声书整本的文字稿上万行:小组件只看当前这句前后,只写这一段,
         // 不然每次刷新都要把整份文稿编码进共享的 UserDefaults(#420)。
         let window = Self.widgetLyricsWindow(in: systemLyrics, at: position)
@@ -9669,7 +9716,6 @@ final class AudioPlayerService {
         let playback = PlaybackState.load()
         let resolvedCoverName = coverImageName
             ?? (playback?.currentSongID == song.id ? playback?.coverImageName : nil)
-        let isActivelyPlaying = isPlaybackActuallyActive
         let direction = LyricWritingDirectionPolicy.resolve(in: windowLines)
         let signature = [
             song.id,
@@ -9678,6 +9724,7 @@ final class AudioPlayerService {
             resolvedCoverName ?? "",
             String(anchor),
             String((position * 2).rounded().finiteInt()),
+            String(rate),
             isActivelyPlaying ? "1" : "0",
             direction.rawValue,
             String(widgetLines.count),
@@ -9693,10 +9740,14 @@ final class AudioPlayerService {
             lines: widgetLines,
             anchorIndex: anchor,
             playbackPosition: position,
+            playbackRate: rate,
             isPlaying: isActivelyPlaying,
-            writingDirection: direction
+            writingDirection: direction,
+            updatedAt: sampledAt
         ).save()
         lastPublishedWidgetLyricsSignature = signature
+        publishedWidgetLyricsRange = window
+        lastSmallWidgetLyricIndex = LyricPlaybackPositionPolicy.activeLineIndex(in: systemLyrics, at: position, lookahead: 0)
         WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
         WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingWidget")
         WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingClassicWidget")
@@ -9720,6 +9771,8 @@ final class AudioPlayerService {
 
     private func clearWidgetLyricsSnapshotIfNeeded() {
         lastPublishedWidgetLyricsSignature = nil
+        publishedWidgetLyricsRange = nil
+        lastSmallWidgetLyricIndex = nil
         guard LyricsSnapshot.load() != nil else { return }
         LyricsSnapshot.clear()
         WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")

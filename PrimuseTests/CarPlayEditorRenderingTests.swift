@@ -76,6 +76,22 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         player.updateNowPlayingInfo()
         XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyPersistentID] as? NSNumber, persistentID)
 
+        let lastLineTime = 1.5
+        player.isLoading = true
+        player.isPlaying = true
+        player.currentTime = lastLineTime - lead - 0.05
+        try await Task.sleep(for: .milliseconds(100))
+        let ready = Date()
+        player.isLoading = false
+        XCTAssertEqual(player.systemLyricsPlaybackTime(at: ready), player.currentTime, accuracy: 0.001)
+        try await Task.sleep(for: .milliseconds(100))
+        player.updateNowPlayingArtwork(cover)
+        let refreshed = try XCTUnwrap(center.nowPlayingInfo)
+        XCTAssertEqual(refreshed[MPMediaItemPropertyTitle] as? String, lines.last)
+        let elapsed = try XCTUnwrap(refreshed[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double)
+        XCTAssertGreaterThanOrEqual(elapsed + lead, lastLineTime)
+        player.isPlaying = false
+
         NotificationCenter.default.post(name: .primuseCarPlaySceneDidDisconnect, object: nil)
         for _ in 0..<100 {
             if center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String == song.title { break }
@@ -85,13 +101,47 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyPersistentID] as? NSNumber, persistentID)
         var nextSong = song
         nextSong.id = UUID().uuidString
-        player.currentSong = nextSong
+        nextSong.title = "河港的清晨"
+        nextSong.duration = 35
+        player.currentTime = 48
         player.updateNowPlayingInfo()
+        player.currentSong = nextSong
+        XCTAssertEqual(center.nowPlayingInfo?[MPNowPlayingInfoPropertyExternalContentIdentifier] as? String, song.id,
+                       "The next item must not be published with the outgoing item's timeline")
+        player.currentTime = 0
+        player.duration = nextSong.duration
+        player.updateNowPlayingInfo()
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, nextSong.title)
+        XCTAssertEqual(center.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double, 0)
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyPlaybackDuration] as? Double, nextSong.duration)
         let nextID = try XCTUnwrap(center.nowPlayingInfo?[MPMediaItemPropertyPersistentID] as? NSNumber)
         XCTAssertNotEqual(nextID, persistentID)
         player.currentSong = song
         player.updateNowPlayingInfo()
         XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyPersistentID] as? NSNumber, persistentID)
+    }
+
+    func testOpeningFilePublishesItsOwnPlaybackClock() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try OfflineAudioFixture.writeWAV(to: file, seconds: 4, sampleRate: 44_100, channels: 1)
+        let player = AudioPlayerService(activateAudioSession: { _ in })
+        defer { player.stop() }
+        var song = Song(id: UUID().uuidString, title: "河湾旧站", duration: 60, fileFormat: .wav,
+                        filePath: file.path, sourceID: "local-test")
+        player.currentSong = song
+        player.duration = song.duration
+        player.currentTime = 48
+        player.updateNowPlayingInfo()
+
+        song.id = UUID().uuidString
+        song.title = "小渡口"
+        song.duration = 4
+        await player.play(song: song, from: file, bypassSystemMediaPlayback: true, shouldRecordPlaybackStart: false)
+        let info = try XCTUnwrap(MPNowPlayingInfoCenter.default().nowPlayingInfo)
+        XCTAssertEqual(info[MPNowPlayingInfoPropertyExternalContentIdentifier] as? String, song.id)
+        XCTAssertEqual(info[MPMediaItemPropertyPlaybackDuration] as? Double, song.duration)
+        XCTAssertLessThan(try XCTUnwrap(info[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double), 1)
     }
 
     func testLyricsPositionChangesAndDisconnectRestorePhonePreference() async throws {

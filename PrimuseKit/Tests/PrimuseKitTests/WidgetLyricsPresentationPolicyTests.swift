@@ -76,6 +76,50 @@ struct WidgetLyricsPresentationPolicyTests {
         #expect(WidgetLyricsPresentationPolicy.playbackPosition(in: legacy) == 3)
     }
 
+    @Test func precomputedSongIncludesTheIntroAndFinalLineAtPlaybackSpeed() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        let verses = (1...40).map { WidgetLyricLine(time: Double($0) * 4, text: "河灯照过第\($0)扇窗") }
+        var snapshot = LyricsSnapshot(songID: "river", title: "灯影", artist: "桥边",
+                                      coverImageName: nil, lines: verses, anchorIndex: 0,
+                                      playbackPosition: 0, playbackRate: 2, isPlaying: true, updatedAt: start)
+        let timeline = WidgetLyricsPresentationPolicy.timeline(for: snapshot, from: start, maximumFutureEntries: 96)
+        #expect(timeline.entries.map(\.index) == [-1] + Array(verses.indices))
+        #expect(timeline.entries.map(\.date) == (0...40).map { start.addingTimeInterval(Double($0) * 2) })
+        #expect(timeline.nextReloadDate == nil)
+
+        let seekTime = start.addingTimeInterval(12)
+        snapshot.playbackPosition = 89
+        snapshot.updatedAt = seekTime
+        snapshot.isPlaying = false
+        let paused = WidgetLyricsPresentationPolicy.timeline(for: snapshot, from: seekTime.addingTimeInterval(20), maximumFutureEntries: 96)
+        #expect(paused.entries.map(\.index) == [21])
+        #expect(paused.nextReloadDate == nil)
+        snapshot.isPlaying = true
+        snapshot.playbackRate = 0.5
+        let resumed = WidgetLyricsPresentationPolicy.timeline(for: snapshot, from: seekTime, maximumFutureEntries: 96)
+        #expect(resumed.entries.prefix(2).map(\.index) == [21, 22])
+        #expect(try #require(resumed.entries.dropFirst().first).date == seekTime.addingTimeInterval(6))
+    }
+
+    @Test func longLyricsHaveAnOverlappingContinuationAndNoDuplicateTimestamps() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 100)
+        var verses = (0...150).map { WidgetLyricLine(time: Double($0), text: "风穿过第\($0)片叶") }
+        verses.insert(WidgetLyricLine(time: 13, text: "还有一声回响"), at: 14)
+        let legacy = LyricsSnapshot(songID: "forest", title: "回响", artist: "秋林",
+                                    coverImageName: nil, lines: verses, anchorIndex: 0, isPlaying: true, updatedAt: start)
+        let batch = WidgetLyricsPresentationPolicy.timeline(for: legacy, from: start, maximumFutureEntries: 96)
+        #expect(batch.entries.count == 97)
+        #expect(batch.entries[13].index == 14)
+        #expect(Set(batch.entries.map(\.date)).count == batch.entries.count)
+        let refill = try #require(batch.nextReloadDate)
+        let lastPrepared = try #require(batch.entries.last)
+        #expect(refill > start && refill < lastPrepared.date)
+        let continuation = WidgetLyricsPresentationPolicy.timeline(for: legacy, from: refill, maximumFutureEntries: 96)
+        #expect(continuation.entries.contains { $0.date == lastPrepared.date && $0.index == lastPrepared.index })
+        #expect(continuation.entries.last?.index == verses.indices.last)
+        #expect(continuation.nextReloadDate == nil)
+    }
+
     @Test func newerPlaybackSampleRealignsLyricsAndDifferentSongInvalidatesThem() throws {
         let lyricDate = Date(timeIntervalSinceReferenceDate: 100)
         let playbackDate = Date(timeIntervalSinceReferenceDate: 110)

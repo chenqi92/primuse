@@ -101,6 +101,14 @@ extension AudioPlayerService {
         }
 
         #if os(iOS)
+        let playbackTime = systemLyricsPlaybackTime()
+        let lyricsPresentation = lockScreenLyricsPresentation(at: playbackTime)
+        #else
+        let playbackTime = currentTime
+        #endif
+        let elapsedTime = max(0, min(playbackTime, duration > 0 ? duration : playbackTime))
+
+        #if os(iOS)
         // 歌词行推进只改标题/副标题与进度。复用上一份快照与其中同一个
         // MPMediaItemArtwork 实例, MediaRemote 就不必在主线程上重新序列化
         // 768 px 位图; 快照身份不一致时照常走下面的完整重建。
@@ -109,17 +117,10 @@ extension AudioPlayerService {
            let cachedKey = cachedNowPlayingInfoKey,
            cachedKey == currentNowPlayingInfoSnapshotKey(),
            var info = cachedNowPlayingInfo {
-            let lyricsPresentation = lockScreenLyricsPresentation()
             info[MPMediaItemPropertyTitle] = lyricsPresentation.title
             info[MPMediaItemPropertyArtist] = lyricsPresentation.artist
             info[MPNowPlayingInfoPropertyPlaybackRate] = projection.playbackRate
-            // 车机主标题按下一行准点发布, 那时 currentTime 还是上一拍的采样,
-            // 直接发出去车机进度条会往回跳。
-            let elapsed = publishesCarTitleLyrics ? systemLyricsPlaybackTime() : currentTime
-            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(
-                0,
-                min(elapsed, duration > 0 ? duration : elapsed)
-            )
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedTime
             nowPlayingCenter.nowPlayingInfo = info
             logCarPlayNowPlayingSnapshot(info, event: "publish.lyrics")
             cachedNowPlayingInfo = info
@@ -136,7 +137,6 @@ extension AudioPlayerService {
         var publishedTitle = audiobookPresentation?.title ?? currentSong?.title ?? ""
         var publishedArtist = audiobookPresentation?.artist ?? displayedArtistName(for: currentSong) ?? ""
         #if os(iOS)
-        let lyricsPresentation = lockScreenLyricsPresentation()
         publishedTitle = lyricsPresentation.title
         publishedArtist = lyricsPresentation.artist
         lastPublishedLockScreenLyricsPresentation = lyricsPresentation
@@ -158,7 +158,6 @@ extension AudioPlayerService {
             info[MPMediaItemPropertyAlbumTitle] = currentRadioStation?.name ?? ""
             info[MPNowPlayingInfoPropertyIsLiveStream] = true
         } else {
-            let elapsedTime = max(0, min(currentTime, duration > 0 ? duration : currentTime))
             info[MPMediaItemPropertyAlbumTitle] = systemNowPlayingAlbumTitle
             info[MPMediaItemPropertyPlaybackDuration] = duration
             info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedTime

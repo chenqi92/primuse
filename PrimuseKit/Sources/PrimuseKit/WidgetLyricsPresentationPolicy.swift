@@ -49,6 +49,39 @@ public enum WidgetLyricsPresentationPolicy {
         return snapshot.lines[index].time
     }
 
+    /// Dates at which the displayed lyric changes. An index of -1 means the
+    /// first line has not started. Long timelines overlap at the next reload.
+    public static func timeline(
+        for snapshot: LyricsSnapshot,
+        from now: Date,
+        maximumFutureEntries: Int
+    ) -> (entries: [(date: Date, index: Int)], nextReloadDate: Date?) {
+        let lines = snapshot.lines
+        let rate = snapshot.playbackRate.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 1
+        let elapsed = snapshot.isPlaying ? max(0, now.timeIntervalSince(snapshot.updatedAt)) : 0
+        let position = playbackPosition(in: snapshot) + elapsed * rate
+        let current = lines.first.map { $0.time <= position ? anchorIndex(for: position, in: lines) : -1 } ?? -1
+        var entries = [(date: now, index: current)]
+        guard snapshot.isPlaying, maximumFutureEntries > 0 else { return (entries, nil) }
+
+        var index = current + 1
+        while index < lines.count {
+            let start = lines[index].time
+            while index + 1 < lines.count, lines[index + 1].time == start {
+                index += 1
+            }
+            if start.isFinite, start > position {
+                if entries.count > maximumFutureEntries {
+                    // Keep planned entries available while WidgetKit requests the next batch.
+                    return (entries, entries[max(1, (entries.count - 1) * 3 / 4)].date)
+                }
+                entries.append((now.addingTimeInterval((start - position) / rate), index))
+            }
+            index += 1
+        }
+        return (entries, nil)
+    }
+
     /// Applies a newer persisted playback sample to lyric timing without
     /// reloading or rewriting the lyric text. A different current song makes
     /// the snapshot invalid immediately; a missing playback payload keeps the

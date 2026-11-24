@@ -67,7 +67,8 @@ extension AudioPlayerService {
         if let override = pendingSpokenWordSeekOverride, override.songID != song.id {
             pendingSpokenWordSeekOverride = nil
         }
-        updateSpokenWordRemoteCommands()
+        // The transport publishes the incoming item once its clock and duration are ready.
+        applySpokenWordSkipIntervals(to: .shared())
         guard currentItemIsSpokenWord else {
             pendingSpokenWordSeekOverride = nil
             return
@@ -1209,6 +1210,9 @@ extension AudioPlayerService {
         guard currentBookID == bookID else { return }
         applyPlaybackRate()
         updateNowPlayingInfo()
+        #if os(iOS)
+        publishWidgetLyricsIfNeeded()
+        #endif
     }
 
     // MARK: - Moving between a book's items
