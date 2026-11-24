@@ -156,6 +156,7 @@ enum LibraryCatalogSongCodec {
 
     private static func encodeRareFields(of song: Song, into extra: inout ExtraWriter) {
         if let names = song.sourceArtistNames { extra.strings(Tag.sourceArtistNames, names) }
+        if let names = song.sourceAlbumArtistNames { extra.strings(Tag.sourceAlbumArtistNames, names) }
         if let value = song.referencedMusicVideoPath { extra.string(Tag.mvPath, value) }
         if let value = song.cueSheetPath { extra.string(Tag.cueSheetPath, value) }
         if let value = song.cueStartTime { extra.bits(Tag.cueStartTime, value.bitPattern) }
@@ -291,7 +292,8 @@ enum LibraryCatalogSongCodec {
             serverAlbumDateAdded: rare.serverAlbumDateAdded,
             contentMetadata: rare.contentMetadata,
             serverCatalogAlbum: rare.serverCatalogAlbum,
-            isExternal: rare.isExternal
+            isExternal: rare.isExternal,
+            sourceAlbumArtistNames: rare.sourceAlbumArtistNames
         )
         song.restoreStoredServerFilePath(row[Column.serverFilePath] as String?)
         return song
@@ -299,6 +301,7 @@ enum LibraryCatalogSongCodec {
 
     struct RareFields {
         var sourceArtistNames: [String]?
+        var sourceAlbumArtistNames: [String]?
         var mvPath: String?
         var cueSheetPath: String?
         var cueStartTime: Double?
@@ -333,6 +336,7 @@ enum LibraryCatalogSongCodec {
             let tag = try reader.byte()
             switch tag {
             case Tag.sourceArtistNames: rare.sourceArtistNames = try reader.strings()
+            case Tag.sourceAlbumArtistNames: rare.sourceAlbumArtistNames = try reader.strings()
             case Tag.mvPath: rare.mvPath = try reader.string()
             case Tag.cueSheetPath: rare.cueSheetPath = try reader.string()
             case Tag.cueStartTime: rare.cueStartTime = Double(bitPattern: try reader.bits())
@@ -381,6 +385,7 @@ enum LibraryCatalogSongCodec {
         let artistName: String?
         let albumTitle: String?
         let albumArtistName: String?
+        let sourceAlbumArtistNames: [String]?
         let year: Int?
         let discNumber: Int?
         let trackNumber: Int?
@@ -427,6 +432,19 @@ enum LibraryCatalogSongCodec {
         """
     static let groupingColumnCount = 17
 
+    static func decodeAlbumArtistFields(
+        albumArtistColumn: String?,
+        extraBlob: Data?
+    ) throws -> (albumArtistName: String?, sourceAlbumArtistNames: [String]?) {
+        guard let extraBlob else { return (albumArtistColumn, nil) }
+        var reader = ExtraReader(extraBlob)
+        var strings: [Int: String] = [:]
+        var doubles: [Int: UInt64] = [:]
+        var rare = RareFields()
+        try decodeRareFields(&reader, into: &rare, strings: &strings, doubles: &doubles)
+        return (strings[Column.albumArtistName] ?? albumArtistColumn, rare.sourceAlbumArtistNames)
+    }
+
     static func decodeGroupingFields(_ row: Row) throws -> GroupingFields {
         var strings: [Int: String] = [:]
         var rare = RareFields()
@@ -441,6 +459,7 @@ enum LibraryCatalogSongCodec {
             artistName: strings[Column.artistName] ?? row[2],
             albumTitle: strings[Column.albumTitle] ?? row[3],
             albumArtistName: strings[Column.albumArtistName] ?? row[4],
+            sourceAlbumArtistNames: rare.sourceAlbumArtistNames,
             year: row[5],
             discNumber: row[6],
             trackNumber: row[7],
@@ -496,6 +515,7 @@ enum LibraryCatalogSongCodec {
         static let replayGainTrackPeak: UInt8 = 0x13
         static let replayGainAlbumGain: UInt8 = 0x14
         static let replayGainAlbumPeak: UInt8 = 0x15
+        static let sourceAlbumArtistNames: UInt8 = 0x16
         /// + 列下标(`Column`):该列字符串的原值。
         static let stringOverride: UInt8 = 0x40
         /// + 列下标:该列浮点数的原始位。

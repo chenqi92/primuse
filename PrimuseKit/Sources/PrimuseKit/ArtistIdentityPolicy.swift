@@ -80,7 +80,7 @@ public enum PlaceholderArtistPolicy {
 /// 不改扫描时的拆分口径 —— 那会改动艺人 id。
 public enum ArtistLinkResolutionPolicy {
     private static let fallbackSeparators = [
-        " & ", " feat. ", " feat ", " ft. ", " ft ", " featuring ", " with ", " x ", " × ", "×", "，", ", ",
+        " • ", " · ", " & ", " feat. ", " feat ", " ft. ", " ft ", " featuring ", " with ", " x ", " × ", "×", "，", ", ",
     ]
 
     public static func linkCandidates(for names: [String], resolves: (String) -> Bool) -> [String] {

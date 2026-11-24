@@ -15,13 +15,22 @@ public struct ServerCatalogAlbumReference: Codable, Hashable, Sendable {
 public struct ServerCatalogAlbumMetadata: Codable, Equatable, Sendable {
     public var id: String
     public var artist: String?
+    public var artists: [String]?
     public var created: Date?
     public var libraryID: String?
     public var releaseType: String?
 
-    public init(id: String, artist: String?, created: Date?, libraryID: String?, releaseType: String? = nil) {
+    public init(
+        id: String,
+        artist: String?,
+        artists: [String]? = nil,
+        created: Date?,
+        libraryID: String?,
+        releaseType: String? = nil
+    ) {
         self.id = id
         self.artist = artist
+        self.artists = artists
         self.created = created
         self.libraryID = libraryID
         self.releaseType = releaseType
@@ -41,7 +50,7 @@ public struct ServerCatalogEnrichment: Sendable {
         guard let reference = original.serverCatalogAlbum,
               let album = albums[reference.id] else { return original }
         var song = original
-        song.albumArtistName = AlbumGroupingPolicy.resolvedAlbumArtistName(
+        let resolvedAlbumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
             albumArtistName: AlbumGroupingPolicy.serverCatalogAlbumArtistName(
                 trackAlbumArtistName: reference.taggedArtist,
                 serverAlbumArtistName: album.artist,
@@ -49,6 +58,21 @@ public struct ServerCatalogEnrichment: Sendable {
             ),
             trackArtistName: song.artistName
         )
+        let albumArtistChanged = song.albumArtistName != resolvedAlbumArtist
+        song.albumArtistName = resolvedAlbumArtist
+        let serverAlbumArtists = album.artists.flatMap { $0.count > 1 ? $0 : nil }
+        if let resolvedAlbumArtist, let albumArtist = album.artist,
+           resolvedAlbumArtist.caseInsensitiveCompare(albumArtist) == .orderedSame {
+            if let serverAlbumArtists {
+                if albumArtistChanged || song.sourceAlbumArtistNames == nil {
+                    song.sourceAlbumArtistNames = serverAlbumArtists
+                }
+            } else if albumArtistChanged {
+                song.sourceAlbumArtistNames = nil
+            }
+        } else if albumArtistChanged {
+            song.sourceAlbumArtistNames = nil
+        }
         if let type = album.releaseType {
             var content = song.contentMetadata ?? SongContentMetadata()
             content.releaseType = type

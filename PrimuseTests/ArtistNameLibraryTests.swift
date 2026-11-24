@@ -1528,7 +1528,127 @@ final class ArtistNameLibraryTests: XCTestCase {
         for name in [nil, "", "  \n ", "Unavailable Artist"] as [String?] {
             let album = Album(id: "missing", title: "Album", artistID: "missing", artistName: name)
             XCTAssertNil(library.linkedArtist(for: album))
+            XCTAssertTrue(library.linkedArtists(for: album).isEmpty)
         }
+        _ = await library.persistNowAndWait()
+    }
+
+    @MainActor
+    func testMultiAlbumArtistsListUnderAlbumsAndLinkIndividually() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MultiAlbumArtists470-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let songs = [
+            makeSong(
+                id: "pap-1",
+                artistName: "Bonez MC • RAF Camora",
+                sourceArtistNames: ["Bonez MC", "RAF Camora"],
+                albumArtistName: "Bonez MC • RAF Camora",
+                sourceAlbumArtistNames: ["Bonez MC", "RAF Camora"],
+                albumTitle: "Palmen aus Plastik 2",
+                filePath: "/pap/1.m4a"
+            ),
+            makeSong(
+                id: "pap-2",
+                artistName: "Bonez MC • RAF Camora • Gzuz",
+                sourceArtistNames: ["Bonez MC", "RAF Camora", "Gzuz"],
+                albumArtistName: "Bonez MC • RAF Camora",
+                sourceAlbumArtistNames: ["Bonez MC", "RAF Camora"],
+                albumTitle: "Palmen aus Plastik 2",
+                filePath: "/pap/2.m4a"
+            ),
+            makeSong(
+                id: "legacy-bullet",
+                artistName: "Bonez MC • RAF Camora",
+                sourceArtistNames: ["Bonez MC", "RAF Camora"],
+                albumArtistName: "Bonez MC • RAF Camora",
+                albumTitle: "Palmen aus Plastik 1",
+                filePath: "/pap1/1.m4a"
+            ),
+            makeSong(
+                id: "display-amp",
+                artistName: "Artist A; Artist B",
+                sourceArtistNames: ["Artist A", "Artist B"],
+                albumArtistName: "Artist A & Artist B",
+                albumTitle: "Joint LP",
+                filePath: "/joint/1.flac"
+            ),
+            makeSong(
+                id: "chinese-middot",
+                artistName: "约翰·列侬",
+                albumArtistName: "约翰·列侬",
+                albumTitle: "Imagine",
+                filePath: "/lennon/1.flac"
+            ),
+            makeSong(
+                id: "band",
+                artistName: "Simon & Garfunkel",
+                albumArtistName: "Simon & Garfunkel",
+                albumTitle: "Bridge Over Troubled Water",
+                filePath: "/sg/1.flac"
+            ),
+        ]
+        library.addSongs(songs, affectedSourceIDs: ["source"])
+        await library.waitForPendingIndex()
+
+        let pap2 = try XCTUnwrap(library.visibleAlbums.first { $0.title == "Palmen aus Plastik 2" })
+        let pap1 = try XCTUnwrap(library.visibleAlbums.first { $0.title == "Palmen aus Plastik 1" })
+        let jointLP = try XCTUnwrap(library.visibleAlbums.first { $0.title == "Joint LP" })
+        let imagine = try XCTUnwrap(library.visibleAlbums.first { $0.title == "Imagine" })
+        let bridge = try XCTUnwrap(library.visibleAlbums.first { $0.title == "Bridge Over Troubled Water" })
+
+        // Same album with different track participants stays grouped as one album.
+        XCTAssertEqual(pap2.songCount, 2)
+        XCTAssertEqual(pap2.sourceArtistNames, ["Bonez MC", "RAF Camora"])
+
+        let bonezID = MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey("Bonez MC"))
+        let rafID = MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey("RAF Camora"))
+        let gzuzID = MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey("Gzuz"))
+
+        // Both album artists get Palmen aus Plastik 1 & 2 under Albums; guest Gzuz gets Appears on.
+        XCTAssertTrue(library.isAlbum(pap2, creditedToArtist: bonezID))
+        XCTAssertTrue(library.isAlbum(pap2, creditedToArtist: rafID))
+        XCTAssertFalse(library.isAlbum(pap2, creditedToArtist: gzuzID))
+        XCTAssertTrue(library.isAlbum(pap1, creditedToArtist: bonezID))
+        XCTAssertTrue(library.isAlbum(pap1, creditedToArtist: rafID))
+
+        let bonezPartition = ArtistAlbumShelfPolicy.partition(
+            albums: library.visibleAlbums,
+            artistID: bonezID,
+            displayName: "Bonez MC",
+            songAlbumIDs: Set(library.songs(forArtist: bonezID).compactMap(\.albumID)),
+            isCredited: { library.isAlbum($0, creditedToArtist: bonezID) }
+        )
+        let rafPartition = ArtistAlbumShelfPolicy.partition(
+            albums: library.visibleAlbums,
+            artistID: rafID,
+            displayName: "RAF Camora",
+            songAlbumIDs: Set(library.songs(forArtist: rafID).compactMap(\.albumID)),
+            isCredited: { library.isAlbum($0, creditedToArtist: rafID) }
+        )
+        let gzuzPartition = ArtistAlbumShelfPolicy.partition(
+            albums: library.visibleAlbums,
+            artistID: gzuzID,
+            displayName: "Gzuz",
+            songAlbumIDs: Set(library.songs(forArtist: gzuzID).compactMap(\.albumID)),
+            isCredited: { library.isAlbum($0, creditedToArtist: gzuzID) }
+        )
+        XCTAssertEqual(Set(bonezPartition.releases.map(\.id)), [pap1.id, pap2.id])
+        XCTAssertTrue(bonezPartition.appearsOn.isEmpty)
+        XCTAssertEqual(Set(rafPartition.releases.map(\.id)), [pap1.id, pap2.id])
+        XCTAssertTrue(rafPartition.appearsOn.isEmpty)
+        XCTAssertTrue(gzuzPartition.releases.isEmpty)
+        XCTAssertEqual(gzuzPartition.appearsOn.map(\.id), [pap2.id])
+
+        // Album detail links expose each album artist individually, without breaking real bands or mid-dot names.
+        XCTAssertEqual(library.linkedArtists(for: pap2).map(\.name), ["Bonez MC", "RAF Camora"])
+        XCTAssertEqual(library.linkedArtists(for: pap1).map(\.name), ["Bonez MC", "RAF Camora"])
+        XCTAssertEqual(library.linkedArtists(for: jointLP).map(\.name), ["Artist A", "Artist B"])
+        XCTAssertEqual(library.linkedArtists(for: imagine).map(\.name), ["约翰·列侬"])
+        XCTAssertEqual(library.linkedArtists(for: bridge).map(\.name), ["Simon & Garfunkel"])
+
         _ = await library.persistNowAndWait()
     }
 
@@ -1537,6 +1657,7 @@ final class ArtistNameLibraryTests: XCTestCase {
         artistName: String,
         sourceArtistNames: [String]? = nil,
         albumArtistName: String? = nil,
+        sourceAlbumArtistNames: [String]? = nil,
         albumTitle: String? = nil,
         sourceID: String = "source",
         filePath: String = "/track.flac"
@@ -1551,7 +1672,8 @@ final class ArtistNameLibraryTests: XCTestCase {
             duration: 180,
             fileFormat: .flac,
             filePath: filePath,
-            sourceID: sourceID
+            sourceID: sourceID,
+            sourceAlbumArtistNames: sourceAlbumArtistNames
         )
     }
 }

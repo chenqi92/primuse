@@ -999,6 +999,7 @@ struct TagChangeReviewView: View {
             restored.sourceArtistNames = original.sourceArtistNames
             restored.albumTitle = original.albumTitle
             restored.albumArtistName = original.albumArtistName
+            restored.sourceAlbumArtistNames = original.sourceAlbumArtistNames
             restored.genre = original.genre
             restored.year = original.year
             restored.trackNumber = original.trackNumber

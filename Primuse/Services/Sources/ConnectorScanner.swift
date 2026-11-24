@@ -1882,7 +1882,11 @@ actor ConnectorScanner {
             )),
            existing.albumArtistName != incoming.albumArtistName {
             refreshed.albumArtistName = incoming.albumArtistName
+            refreshed.sourceAlbumArtistNames = incoming.sourceAlbumArtistNames
             refreshed.albumID = incoming.albumID
+        } else if existing.albumArtistName == incoming.albumArtistName,
+                  existing.sourceAlbumArtistNames != incoming.sourceAlbumArtistNames {
+            refreshed.sourceAlbumArtistNames = incoming.sourceAlbumArtistNames
         }
         if existing.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
             || MediaMetadataTextRepair.isSuspicious(existing.genre) {

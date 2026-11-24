@@ -323,6 +323,7 @@ enum BatchTagEditService {
         base.sourceArtistNames = before.sourceArtistNames
         base.albumTitle = before.albumTitle
         base.albumArtistName = before.albumArtistName
+        base.sourceAlbumArtistNames = before.sourceAlbumArtistNames
         base.genre = before.genre
         base.year = before.year
         base.trackNumber = before.trackNumber
@@ -356,7 +357,11 @@ enum BatchTagEditService {
                         current.artistName = song.artistName
                         current.sourceArtistNames = song.sourceArtistNames
                     }
-                    if original.albumArtistName != song.albumArtistName { current.albumArtistName = song.albumArtistName }
+                    if original.albumArtistName != song.albumArtistName
+                        || original.sourceAlbumArtistNames != song.sourceAlbumArtistNames {
+                        current.albumArtistName = song.albumArtistName
+                        current.sourceAlbumArtistNames = song.sourceAlbumArtistNames
+                    }
                     current.userMetadataEditedAt = song.userMetadataEditedAt
                     if song.filePath != original.filePath { current.filePath = song.filePath }
                     if song.revision != original.revision { current.revision = song.revision }
@@ -564,6 +569,7 @@ enum BatchTagEditService {
                 if updated.artistName != song.artistName { updated.sourceArtistNames = nil }
             case .albumArtist:
                 updated.albumArtistName = value
+                if updated.albumArtistName != song.albumArtistName { updated.sourceAlbumArtistNames = nil }
             case .album:
                 updated.albumTitle = value
             case .genre:
@@ -691,7 +697,9 @@ private extension Song {
         case .artist:
             if artistName != value { sourceArtistNames = nil }
             artistName = value
-        case .albumArtist: albumArtistName = value
+        case .albumArtist:
+            if albumArtistName != value { sourceAlbumArtistNames = nil }
+            albumArtistName = value
         case .album: albumTitle = value
         case .genre: genre = value
         case .year: year = value.flatMap { Int($0) }
@@ -828,6 +836,7 @@ final class PendingTagWritebackStore {
         var sourceArtistNames: [String]?
         var albumTitle: String?
         var albumArtistName: String?
+        var sourceAlbumArtistNames: [String]?
         var genre: String?
         var year: Int?
         var trackNumber: Int?
@@ -839,6 +848,7 @@ final class PendingTagWritebackStore {
             sourceArtistNames = song.sourceArtistNames
             albumTitle = song.albumTitle
             albumArtistName = song.albumArtistName
+            sourceAlbumArtistNames = song.sourceAlbumArtistNames
             genre = song.genre
             year = song.year
             trackNumber = song.trackNumber
@@ -852,6 +862,7 @@ final class PendingTagWritebackStore {
             song.sourceArtistNames = sourceArtistNames
             song.albumTitle = albumTitle
             song.albumArtistName = albumArtistName
+            song.sourceAlbumArtistNames = sourceAlbumArtistNames
             song.genre = genre
             song.year = year
             song.trackNumber = trackNumber

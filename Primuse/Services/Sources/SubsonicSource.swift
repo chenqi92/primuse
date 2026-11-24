@@ -993,6 +993,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
         var summary = album
         if albumWithSongs.releaseTypes?.value != nil { summary.releaseTypes = albumWithSongs.releaseTypes }
+        if let artists = albumWithSongs.artists, !artists.isEmpty { summary.artists = artists }
         return LegacyAlbumResult(index: index, album: summary, songs: songs)
     }
 
@@ -1274,7 +1275,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private func loadAlbumMetadata(preparationID: UUID) async throws {
         let scopes = albumScopes
         let wideAlbums = serverType?.lowercased() == "navidrome"
-        let cacheKey = Self.hash(([baseURL.absoluteString, username, wideAlbums ? "search3-albums-v2" : "albums-v2"] + scopes.sorted()).joined(separator: "\0"))
+        let cacheKey = Self.hash(([baseURL.absoluteString, username, wideAlbums ? "search3-albums-v3" : "albums-v3"] + scopes.sorted()).joined(separator: "\0"))
         let revision = catalogRevision
         let store = albumCatalogStore
         var checkpoint = await Task.detached(priority: .utility) {
@@ -1379,10 +1380,16 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             guard let result = container.albumList2 else { throw SubsonicCompatibilityError.directCatalogUnavailable }
             albums = result.album ?? []
         }
-        return albums.map {
-            ServerCatalogAlbumMetadata(id: $0.id, artist: Self.cleaned($0.artist, unknown: "[Unknown Artist]"),
-                                       created: $0.created.flatMap(Self.parseCatalogDate), libraryID: scope.isEmpty ? libraryScope?.soleLibraryID : scope,
-                                       releaseType: $0.releaseTypes?.value)
+        return albums.map { album in
+            let artistNames = Self.distinctArtistNames(from: album.artists)
+            return ServerCatalogAlbumMetadata(
+                id: album.id,
+                artist: Self.cleaned(album.artist, unknown: "[Unknown Artist]"),
+                artists: artistNames.count > 1 ? artistNames : nil,
+                created: album.created.flatMap(Self.parseCatalogDate),
+                libraryID: scope.isEmpty ? libraryScope?.soleLibraryID : scope,
+                releaseType: album.releaseTypes?.value
+            )
         }
     }
 
@@ -2577,14 +2584,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         // 单曲艺术家常缺标签 → Subsonic 返回 "[Unknown Artist]" 占位; 回退到
         // 专辑艺术家。真正全空的归一成 nil, 让 Primuse 走自己的"未知"处理,
         // 而不是显示字面量 "[Unknown Artist]"。专辑名同理。
-        let sourceArtistNames = child.artists?.compactMap {
-            Self.cleaned($0.name, unknown: "[Unknown Artist]")
-        }.reduce(into: [String]()) { result, name in
-            guard !result.contains(where: {
-                $0.caseInsensitiveCompare(name) == .orderedSame
-            }) else { return }
-            result.append(name)
-        } ?? []
+        let sourceArtistNames = Self.distinctArtistNames(from: child.artists)
         let artist = Self.cleaned(child.displayArtist, unknown: "[Unknown Artist]")
             ?? (sourceArtistNames.count > 1
                 ? sourceArtistNames.joined(separator: "; ")
@@ -2593,26 +2593,44 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             ?? Self.cleaned(album?.artist, unknown: "[Unknown Artist]")
         let albumTitle = Self.cleaned(child.album, unknown: "[Unknown Album]")
             ?? Self.cleaned(album?.name, unknown: "[Unknown Album]")
-        let joinedAlbumArtists = child.albumArtists.flatMap { artists -> String? in
-            let names = artists.compactMap {
-                Self.cleaned($0.name, unknown: "[Unknown Artist]")
-            }
-            return Self.cleaned(names.joined(separator: ", "), unknown: "[Unknown Artist]")
-        }
+        let childAlbumArtistNames = Self.distinctArtistNames(from: child.albumArtists)
+        let joinedAlbumArtists: String? = childAlbumArtistNames.isEmpty
+            ? nil
+            : Self.cleaned(childAlbumArtistNames.joined(separator: ", "), unknown: "[Unknown Artist]")
         let taggedAlbumArtist = Self.cleaned(child.displayAlbumArtist, unknown: "[Unknown Artist]") ?? joinedAlbumArtists
+        let serverAlbumArtistNames: [String] = {
+            let fromAlbum = Self.distinctArtistNames(from: album?.artists)
+            return fromAlbum.isEmpty ? (catalogAlbum?.artists ?? []) : fromAlbum
+        }()
+        let serverAlbumArtist = Self.cleaned(album?.artist, unknown: "[Unknown Artist]")
+            ?? child.albumId.flatMap { catalogAlbums[$0]?.artist ?? provisionalAlbumArtists[$0] }
         if recordsCatalogObservation, let id = child.albumId, provisionalAlbumArtists[id] == nil {
             provisionalAlbumArtists[id] = taggedAlbumArtist ?? artist
         }
         let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
             albumArtistName: AlbumGroupingPolicy.serverCatalogAlbumArtistName(
-                trackAlbumArtistName: Self.cleaned(child.displayAlbumArtist, unknown: "[Unknown Artist]")
-                    ?? joinedAlbumArtists,
-                serverAlbumArtistName: Self.cleaned(album?.artist, unknown: "[Unknown Artist]")
-                    ?? child.albumId.flatMap { catalogAlbums[$0]?.artist ?? provisionalAlbumArtists[$0] },
+                trackAlbumArtistName: taggedAlbumArtist,
+                serverAlbumArtistName: serverAlbumArtist,
                 trackArtistName: artist
             ),
             trackArtistName: artist
         )
+        let sourceAlbumArtistNames: [String]? = {
+            guard let albumArtist else { return nil }
+            if let taggedAlbumArtist, albumArtist.caseInsensitiveCompare(taggedAlbumArtist) == .orderedSame {
+                if childAlbumArtistNames.count > 1 { return childAlbumArtistNames }
+                if let serverAlbumArtist,
+                   albumArtist.caseInsensitiveCompare(serverAlbumArtist) == .orderedSame,
+                   serverAlbumArtistNames.count > 1 {
+                    return serverAlbumArtistNames
+                }
+                return nil
+            }
+            if let serverAlbumArtist, albumArtist.caseInsensitiveCompare(serverAlbumArtist) == .orderedSame {
+                return serverAlbumArtistNames.count > 1 ? serverAlbumArtistNames : nil
+            }
+            return nil
+        }()
 
         return Song(
             id: identity.id,
@@ -2659,8 +2677,20 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             contentMetadata: releaseType.map { SongContentMetadata(releaseType: $0) },
             serverCatalogAlbum: (child.albumId ?? album?.id).map { ServerCatalogAlbumReference(id: $0, taggedArtist: taggedAlbumArtist) },
             isExternal: child.isExternal,
-            serverFilePath: child.path
+            serverFilePath: child.path,
+            sourceAlbumArtistNames: sourceAlbumArtistNames
         )
+    }
+
+    private static func distinctArtistNames(from artists: [SubsonicArtistID3]?) -> [String] {
+        artists?.compactMap {
+            cleaned($0.name, unknown: "[Unknown Artist]")
+        }.reduce(into: [String]()) { result, name in
+            guard !result.contains(where: {
+                $0.caseInsensitiveCompare(name) == .orderedSame
+            }) else { return }
+            result.append(name)
+        } ?? []
     }
 
     private func libraryFolderLocation(
@@ -3523,6 +3553,7 @@ private struct AlbumSummary: Decodable, Sendable {
     let id: String
     let name: String?
     let artist: String?
+    var artists: [SubsonicArtistID3]?
     let coverArt: String?
     let created: String?
 }
@@ -3613,6 +3644,7 @@ private struct AlbumWithSongs: Decodable, Sendable {
     let songCount: Int?
     let song: [SubsonicChild]?
     let artistId: String?
+    let artists: [SubsonicArtistID3]?
     let isCompilation: Bool?
 }
 

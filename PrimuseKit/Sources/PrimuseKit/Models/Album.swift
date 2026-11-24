@@ -6,6 +6,10 @@ public struct Album: Codable, Identifiable, Hashable, Sendable {
     public var title: String
     public var artistID: String?
     public var artistName: String?
+    /// Authoritative distinct album artists supplied by a multi-value source
+    /// (for example OpenSubsonic `albumArtists` / `album.artists`). Nil for
+    /// single-artist albums and legacy text-only rows.
+    public var sourceArtistNames: [String]?
     public var year: Int?
     public var genre: String?
     public var coverArtPath: String?
@@ -18,6 +22,7 @@ public struct Album: Codable, Identifiable, Hashable, Sendable {
         title: String,
         artistID: String? = nil,
         artistName: String? = nil,
+        sourceArtistNames: [String]? = nil,
         year: Int? = nil,
         genre: String? = nil,
         coverArtPath: String? = nil,
@@ -29,6 +34,7 @@ public struct Album: Codable, Identifiable, Hashable, Sendable {
         self.title = title
         self.artistID = artistID
         self.artistName = artistName
+        self.sourceArtistNames = sourceArtistNames
         self.year = year
         self.genre = genre
         self.coverArtPath = coverArtPath

@@ -12,6 +12,8 @@ struct AlbumMember {
     let dateAdded: Double
     /// 这首歌的署名里有专辑艺人(参照实现里这张专辑才算进专辑艺人的专辑数)。
     let credited: Bool
+    /// 已校验过未被推断覆盖的原生多专辑艺人列表。
+    let sourceAlbumArtistNames: [String]?
 }
 
 /// 一张专辑的聚合,与参照实现 `computeAlbumsAndArtists` 逐项同一口径:首首歌按库内顺序,
@@ -33,6 +35,7 @@ struct AlbumAggregate {
     let songCount: Int
     let duration: Double
     let ownerCredited: Bool
+    let sourceArtistNames: [String]?
     let stats: [(key: StatKey, stat: Stat)]
 
     init?(members: some Sequence<AlbumMember>) {
@@ -41,11 +44,15 @@ struct AlbumAggregate {
         var count = 0
         var duration = 0.0
         var credited = false
+        var sourceArtistNames: [String]?
         var order: [StatKey] = []
         var stats: [StatKey: Stat] = [:]
         for member in members {
             if first == nil { first = member.rowid }
             if year == nil, let value = member.year, value > 0 { year = value }
+            if sourceArtistNames == nil, let names = member.sourceAlbumArtistNames {
+                sourceArtistNames = names
+            }
             count += 1
             duration += member.duration
             if member.credited { credited = true }
@@ -65,6 +72,7 @@ struct AlbumAggregate {
         songCount = count
         self.duration = duration
         ownerCredited = credited
+        self.sourceArtistNames = sourceArtistNames
         self.stats = order.map { ($0, stats[$0]!) }
     }
 }
@@ -238,10 +246,14 @@ extension GroupingMaintenance {
         return key
     }
 
-    /// `AlbumArtistIndexBuilder` 里专辑艺人不是可见曲目艺人时的那一支(按名字拆)。
+    /// `AlbumArtistIndexBuilder` 里专辑艺人不是可见曲目艺人时的那一支(优先用原生多值,否则按名字拆)。
     /// 是可见曲目艺人时只用专辑自己的艺人 id,那一支在查询时判断。
     static func parsedCredits(for album: Album, configuration: ArtistNameConfiguration) -> [(id: String, name: String?)] {
         guard let originalID = album.artistID, !originalID.isEmpty else { return [] }
+        let native = AlbumArtistCreditPolicy.distinctNormalizedNames(album.sourceArtistNames)
+        if native.count > 1 {
+            return native.map { (LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey($0)), $0) }
+        }
         let names = ArtistNameParser.names(rawName: album.artistName, configuration: configuration.normalized())
         if names.isEmpty { return [(originalID, nil)] }
         if names.count == 1,
@@ -249,6 +261,33 @@ extension GroupingMaintenance {
             return [(originalID, names[0])]
         }
         return names.map { (LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey($0)), $0) }
+    }
+
+    mutating func replaceAlbumArtistCredits(albumKey: Int64, album: Album) throws {
+        try db.cachedStatement(sql: "DELETE FROM albumArtistCredit WHERE albumKey = ?").execute(arguments: [albumKey])
+        let insertCredit = try db.cachedStatement(sql: """
+            INSERT INTO albumArtistCredit (albumKey, ordinal, artistRef, name) VALUES (?, ?, ?, ?)
+            """)
+        let credits = Self.parsedCredits(for: album, configuration: configuration.artistNames)
+        for (ordinal, credit) in credits.enumerated() {
+            try insertCredit.execute(arguments: [albumKey, ordinal, try refs.artistRef(credit.id, in: db), credit.name])
+        }
+        work.rowsWritten += 1 + credits.count
+    }
+
+    static func encodeSourceArtistNames(_ names: [String]?) -> String? {
+        guard let names, names.count > 1,
+              let data = try? JSONEncoder().encode(names),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        return text
+    }
+
+    static func decodeSourceArtistNames(_ raw: String?) -> [String]? {
+        guard let raw, !raw.isEmpty,
+              let data = raw.data(using: .utf8),
+              let names = try? JSONDecoder().decode([String].self, from: data),
+              names.count > 1 else { return nil }
+        return names
     }
 
     mutating func refreshDirtyAlbums() throws {
@@ -260,20 +299,39 @@ extension GroupingMaintenance {
     /// 「署名里有专辑艺人」变了,专辑艺人的专辑数跟着变。
     mutating func refreshAlbum(key: Int64) throws {
         guard let album = try Row.fetchOne(
-            db.cachedStatement(sql: "SELECT artistRef, ownerCredited FROM album WHERE key = ?"), arguments: [key]
+            db.cachedStatement(sql: """
+                SELECT artistRef, ownerCredited, id, title, artistID, artistName, sourceArtistNames FROM album WHERE key = ?
+                """), arguments: [key]
         ) else { return }
         let artistRef: Int64 = album[0]
         let wasCredited = (album[1] as Int) != 0
+        let albumID: String = album[2]
+        let albumTitle: String = album[3]
+        let albumArtistID: String = album[4]
+        let albumArtistName: String = album[5]
+        let previousSourceArtists = Self.decodeSourceArtistNames(album[6])
         let rows = try Row.fetchAll(db.cachedStatement(sql: """
             SELECT s.rowid, s.year, s.sourceKey, s.kind, s.durationKey, s.dateAdded,
-                   EXISTS (SELECT 1 FROM songArtist sa WHERE sa.songRowid = s.rowid AND sa.artistRef = ?)
+                   EXISTS (SELECT 1 FROM songArtist sa WHERE sa.songRowid = s.rowid AND sa.artistRef = ?),
+                   s.albumArtistName, s.extra
             FROM song s WHERE s.effectiveAlbumRef = ? ORDER BY s.rowid
             """), arguments: [artistRef, key])
         work.rowsRead += rows.count
         try db.cachedStatement(sql: "DELETE FROM albumSourceStat WHERE albumKey = ?").execute(arguments: [key])
-        let members = rows.map { row in
-            AlbumMember(rowid: row[0], year: row[1], sourceKey: row[2], kind: row[3], duration: row[4],
-                        dateAdded: row[5], credited: row[6])
+        let members = try rows.map { row -> AlbumMember in
+            let albumArtistFields = try LibraryCatalogSongCodec.decodeAlbumArtistFields(
+                albumArtistColumn: row[7],
+                extraBlob: row.dataNoCopy(atIndex: 8)
+            )
+            let validatedSourceArtists = AlbumArtistCreditPolicy.validatedSourceArtistNames(
+                songAlbumArtistName: albumArtistFields.albumArtistName,
+                candidate: albumArtistFields.sourceAlbumArtistNames,
+                effectiveAlbumArtistName: albumArtistName
+            )
+            return AlbumMember(
+                rowid: row[0], year: row[1], sourceKey: row[2], kind: row[3], duration: row[4],
+                dateAdded: row[5], credited: row[6], sourceAlbumArtistNames: validatedSourceArtists
+            )
         }
         guard let aggregate = AlbumAggregate(members: members) else {
             try db.cachedStatement(sql: "DELETE FROM album WHERE key = ?").execute(arguments: [key])
@@ -290,6 +348,16 @@ extension GroupingMaintenance {
         let first = try LibraryCatalogSongCodec.decodeGroupingFields(firstRow)
         let sourceID = try sourceInfo(first.sourceKey).id
         try writeAlbumAggregate(key: key, aggregate: aggregate, genre: first.genre, sourceID: sourceID)
+        if aggregate.sourceArtistNames != previousSourceArtists {
+            let updatedAlbum = Album(
+                id: albumID,
+                title: albumTitle,
+                artistID: albumArtistID,
+                artistName: albumArtistName,
+                sourceArtistNames: aggregate.sourceArtistNames
+            )
+            try replaceAlbumArtistCredits(albumKey: key, album: updatedAlbum)
+        }
         if aggregate.ownerCredited != wasCredited { dirty.artists.insert(artistRef) }
     }
 
@@ -297,10 +365,10 @@ extension GroupingMaintenance {
     mutating func writeAlbumAggregate(key: Int64, aggregate: AlbumAggregate, genre: String?, sourceID: String) throws {
         try db.cachedStatement(sql: """
             UPDATE album SET year = ?, genre = ?, sourceID = ?, firstRowid = ?, songCount = ?, duration = ?,
-                             ownerCredited = ? WHERE key = ?
+                             ownerCredited = ?, sourceArtistNames = ? WHERE key = ?
             """).execute(arguments: [
                 aggregate.year, genre, sourceID, aggregate.firstRowid, aggregate.songCount, aggregate.duration,
-                aggregate.ownerCredited ? 1 : 0, key,
+                aggregate.ownerCredited ? 1 : 0, Self.encodeSourceArtistNames(aggregate.sourceArtistNames), key,
             ])
         let insert = try db.cachedStatement(sql: """
             INSERT INTO albumSourceStat (albumKey, sourceKey, kind, songCount, duration, maxDateAdded) VALUES (?, ?, ?, ?, ?, ?)

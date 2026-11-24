@@ -22,6 +22,12 @@ enum LibraryCatalogSchema {
         migrator.registerMigration("catalog-v1") { db in
             try createV1(db)
         }
+        migrator.registerMigration("catalog-v2-album-source-artists") { db in
+            let columns = try db.columns(in: "album")
+            if !columns.contains(where: { $0.name == "sourceArtistNames" }) {
+                try db.execute(sql: "ALTER TABLE album ADD COLUMN sourceArtistNames TEXT")
+            }
+        }
     }
 
     private static func createV1(_ db: Database) throws {
@@ -114,6 +120,7 @@ enum LibraryCatalogSchema {
                 artistID TEXT NOT NULL,
                 artistName TEXT NOT NULL,
                 artistKey BLOB NOT NULL,
+                sourceArtistNames TEXT,
                 year INTEGER,
                 genre TEXT,
                 sourceID TEXT,

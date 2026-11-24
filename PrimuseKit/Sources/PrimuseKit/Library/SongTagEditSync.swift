@@ -181,7 +181,8 @@ public enum SongTagEditPolicy {
         case .artist:
             return SongTagEditValue(text: song.artistName, names: song.sourceArtistNames, modifiedAt: modifiedAt)
         case .album: return SongTagEditValue(text: song.albumTitle, modifiedAt: modifiedAt)
-        case .albumArtist: return SongTagEditValue(text: song.albumArtistName, modifiedAt: modifiedAt)
+        case .albumArtist:
+            return SongTagEditValue(text: song.albumArtistName, names: song.sourceAlbumArtistNames, modifiedAt: modifiedAt)
         case .genre: return SongTagEditValue(text: song.genre, modifiedAt: modifiedAt)
         case .year: return SongTagEditValue(number: song.year, modifiedAt: modifiedAt)
         case .trackNumber: return SongTagEditValue(number: song.trackNumber, modifiedAt: modifiedAt)
@@ -344,7 +345,9 @@ public enum SongTagEditPolicy {
             case .album:
                 if result.albumTitle != value.text { result.albumPinyin = nil }
                 result.albumTitle = value.text
-            case .albumArtist: result.albumArtistName = value.text
+            case .albumArtist:
+                result.albumArtistName = value.text
+                result.sourceAlbumArtistNames = value.names
             case .genre: result.genre = value.text
             case .year: result.year = value.number
             case .trackNumber: result.trackNumber = value.number

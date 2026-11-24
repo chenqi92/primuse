@@ -1243,8 +1243,28 @@ struct SubsonicAlbumCatalogStoreTests {
 
         let legacy = try JSONDecoder().decode(ServerCatalogAlbumMetadata.self, from: Data(#"{"id":"album","libraryID":"2"}"#.utf8))
         #expect(legacy.releaseType == nil)
+        #expect(legacy.artists == nil)
         let withoutTags = ServerCatalogEnrichment(albums: [legacy.id: legacy]).applying(to: merged)
         #expect(withoutTags.contentMetadata?.releaseType == "ep; live")
+
+        let jointMeta = ServerCatalogAlbumMetadata(
+            id: "joint-album",
+            artist: "Bonez MC • RAF Camora",
+            artists: ["Bonez MC", "RAF Camora"],
+            created: Date(timeIntervalSince1970: 200),
+            libraryID: "2"
+        )
+        let untaggedTrack = Song(
+            id: "joint-song", title: "Track", albumID: "local-joint",
+            artistName: "Bonez MC", albumArtistName: "Bonez MC",
+            duration: 1, fileFormat: .m4a, filePath: "/songs/joint.m4a", sourceID: "source",
+            serverCatalogAlbum: .init(id: jointMeta.id, taggedArtist: nil)
+        )
+        let enrichedJoint = ServerCatalogEnrichment(albums: [jointMeta.id: jointMeta]).applying(to: untaggedTrack)
+        #expect(enrichedJoint.albumArtistName == "Bonez MC • RAF Camora")
+        #expect(enrichedJoint.sourceAlbumArtistNames == ["Bonez MC", "RAF Camora"])
+        let roundTripped = try JSONDecoder().decode(Song.self, from: JSONEncoder().encode(enrichedJoint))
+        #expect(roundTripped.sourceAlbumArtistNames == ["Bonez MC", "RAF Camora"])
     }
 
     @Test func cachedDateParsingKeepsExistingPrecisionAndOffsets() {

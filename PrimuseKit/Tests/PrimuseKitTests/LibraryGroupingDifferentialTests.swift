@@ -488,10 +488,41 @@ struct LibraryGroupingDifferentialTests {
     }
 
     static func song(_ id: String, source: String = "nas", path: String, album: String?, artist: String?, albumArtist: String? = nil,
+                     sourceArtists: [String]? = nil, sourceAlbumArtists: [String]? = nil,
                      year: Int? = nil, disc: Int? = nil, track: Int? = nil, server: ServerCatalogAlbumReference? = nil) -> Song {
-        Song(id: id, title: "t\(id)", albumTitle: album, artistName: artist, albumArtistName: albumArtist,
-             trackNumber: track, discNumber: disc, duration: 100, fileFormat: .flac, filePath: path, sourceID: source,
-             year: year, serverCatalogAlbum: server)
+        Song(id: id, title: "t\(id)", albumTitle: album, artistName: artist, sourceArtistNames: sourceArtists,
+             albumArtistName: albumArtist, trackNumber: track, discNumber: disc, duration: 100, fileFormat: .flac,
+             filePath: path, sourceID: source, year: year, serverCatalogAlbum: server,
+             sourceAlbumArtistNames: sourceAlbumArtists)
+    }
+
+    @Test("#470: structured multi-album-artist collaborations match the reference across incremental apply and rebuild")
+    func structuredMultiAlbumArtists() throws {
+        try Self.scenario([
+            Self.song("1", source: "subsonic", path: "/songs/1", album: "Palmen aus Plastik 2",
+                      artist: "Bonez MC • RAF Camora", albumArtist: "Bonez MC • RAF Camora",
+                      sourceArtists: ["Bonez MC", "RAF Camora"],
+                      sourceAlbumArtists: ["Bonez MC", "RAF Camora"],
+                      year: 2018, track: 1,
+                      server: .init(id: "pap-2", taggedArtist: "Bonez MC • RAF Camora")),
+            Self.song("2", source: "subsonic", path: "/songs/2", album: "Palmen aus Plastik 2",
+                      artist: "Bonez MC", albumArtist: "Bonez MC • RAF Camora",
+                      sourceAlbumArtists: ["Bonez MC", "RAF Camora"],
+                      year: 2018, track: 2,
+                      server: .init(id: "pap-2", taggedArtist: "Bonez MC • RAF Camora")),
+            Self.song("3", source: "subsonic", path: "/songs/3", album: "Palmen aus Plastik 2",
+                      artist: "Bonez MC • RAF Camora • Gzuz", albumArtist: "Bonez MC • RAF Camora",
+                      sourceArtists: ["Bonez MC", "RAF Camora", "Gzuz"],
+                      sourceAlbumArtists: ["Bonez MC", "RAF Camora"],
+                      year: 2018, track: 3,
+                      server: .init(id: "pap-2", taggedArtist: "Bonez MC • RAF Camora")),
+            Self.song("4", source: "nas", path: "/ost/1.flac", album: "OST", artist: "Composer A",
+                      albumArtist: "Various Artists", track: 1),
+            Self.song("5", source: "nas", path: "/ost/2.flac", album: "OST", artist: "Composer B & C",
+                      albumArtist: "Composer B & C", sourceArtists: ["Composer B", "Composer C"],
+                      sourceAlbumArtists: ["Composer B", "Composer C"], track: 2),
+            Self.song("6", source: "nas", path: "/other/1.flac", album: "Other", artist: "Solo", track: 1),
+        ], label: "multi-album-artists")
     }
 
     @Test("OST folder: untagged siblings adopt the explicit album artist; the majority absorbs the minority")

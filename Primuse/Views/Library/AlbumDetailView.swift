@@ -76,13 +76,26 @@ struct AlbumDetailView: View {
         library.songs(forAlbum: album.id)
     }
 
+    private var albumArtists: [Artist] {
+        library.linkedArtists(for: album)
+    }
+
     private var albumArtist: Artist? {
-        library.linkedArtist(for: album)
+        albumArtists.first
+    }
+
+    private var multiArtistSeparator: String {
+        if let raw = album.artistName {
+            if raw.contains(" • ") { return "•" }
+            if raw.contains(" & ") { return "&" }
+        }
+        return "·"
     }
 
     @ViewBuilder
-    private var albumArtistLink: some View {
-        if let artist = albumArtist {
+    private func albumArtistLink(centered: Bool) -> some View {
+        let artists = albumArtists
+        if artists.count == 1, let artist = artists.first {
             NavigationLink(value: artist) {
                 HStack(spacing: 4) {
                     Text(verbatim: album.artistName ?? artist.name)
@@ -95,6 +108,30 @@ struct AlbumDetailView: View {
             .buttonStyle(.plain)
             .accessibilityHint(Text("go_to_artist"))
             .accessibilityIdentifier("albumArtistLink")
+        } else if artists.count > 1 {
+            AlbumArtistLinkFlow(spacing: 6, rowSpacing: 4, centered: centered) {
+                ForEach(Array(artists.enumerated()), id: \.element.id) { index, artist in
+                    HStack(spacing: 6) {
+                        if index > 0 {
+                            Text(verbatim: multiArtistSeparator)
+                                .opacity(0.65)
+                                .accessibilityHidden(true)
+                        }
+                        NavigationLink(value: artist) {
+                            HStack(spacing: 3) {
+                                Text(verbatim: artist.name)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .accessibilityHidden(true)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint(Text("go_to_artist"))
+                        .accessibilityIdentifier(index == 0 ? "albumArtistLink" : "albumArtistLink.\(index)")
+                    }
+                }
+            }
         } else {
             Text(verbatim: album.artistName ?? String(localized: "unknown_artist"))
         }
@@ -775,7 +812,7 @@ struct AlbumDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
 
-            albumArtistLink
+            albumArtistLink(centered: centered)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.82))
                 .fixedSize(horizontal: false, vertical: true)
@@ -1018,10 +1055,9 @@ struct AlbumDetailView: View {
         if isCatalogAlbum {
             // 目录现拼的专辑没有可整理的曲库曲目:只留播放这一组,和能找到的艺人页。
             var sections = [playItems, [artworkItem]]
-            if let artist = albumArtist {
-                sections.append([MacHeaderMoreMenu.Item(icon: "music.mic", title: String(localized: "go_to_artist")) {
-                    NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
-                }])
+            let artistItems = macGoToArtistMenuItems
+            if !artistItems.isEmpty {
+                sections.append(artistItems)
             }
             return AnyView(MacHeaderMoreMenu(sections: sections))
         }
@@ -1075,11 +1111,7 @@ struct AlbumDetailView: View {
                 second.append(.init(icon: label.systemImage, title: label.title) { moveSongs(to: kind) })
             }
         }
-        if let artist = albumArtist {
-            second.append(.init(icon: "music.mic", title: String(localized: "go_to_artist")) {
-                NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
-            })
-        }
+        second.append(contentsOf: macGoToArtistMenuItems)
         if let target = albumServerMediaShareTarget {
             second.append(.init(
                 icon: "link.badge.plus",
@@ -1108,10 +1140,24 @@ struct AlbumDetailView: View {
         ]))
     }
 
+    private var macGoToArtistMenuItems: [MacHeaderMoreMenu.Item] {
+        let artists = albumArtists
+        if artists.count == 1, let artist = artists.first {
+            return [.init(icon: "music.mic", title: String(localized: "go_to_artist")) {
+                NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+            }]
+        }
+        return artists.map { artist in
+            MacHeaderMoreMenu.Item(icon: "music.mic", title: artist.name) {
+                NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+            }
+        }
+    }
+
     private var macAlbumSubtitle: some View {
         HStack(spacing: 4) {
             if let name = album.artistName, !name.isEmpty {
-                albumArtistLink
+                albumArtistLink(centered: false)
                     .layoutPriority(1)
                 if !albumSubtitle.isEmpty {
                     Text(verbatim: "·")
@@ -1412,24 +1458,145 @@ private struct AlbumHeroActionRow: View {
 }
 #endif
 
+/// 多位专辑艺人横向排开，行宽不够时自动换行；居中模式下每行各自居中，左对齐模式下紧贴内容宽。
+private struct AlbumArtistLinkFlow: Layout {
+    var spacing: CGFloat = 6
+    var rowSpacing: CGFloat = 4
+    var centered = false
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let rows = arrange(maxWidth: maxWidth, subviews: subviews)
+        let contentWidth = rows.map(\.width).max() ?? 0
+        let height = rows.reduce(0) { $0 + $1.height } + rowSpacing * CGFloat(max(0, rows.count - 1))
+        let width = centered ? (proposal.width ?? contentWidth) : contentWidth
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = arrange(maxWidth: bounds.width, subviews: subviews)
+        var y = bounds.minY
+        for row in rows {
+            let leadingOffset = centered ? max(0, (bounds.width - row.width) / 2) : 0
+            var x = bounds.minX + leadingOffset
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                let rowOffset = (row.height - size.height) / 2
+                subviews[index].place(at: CGPoint(x: x, y: y + rowOffset), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + rowSpacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func arrange(maxWidth: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let needed = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            if needed > maxWidth, !current.indices.isEmpty {
+                rows.append(current)
+                current = Row()
+            }
+            current.width = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            current.height = max(current.height, size.height)
+            current.indices.append(index)
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
+    }
+}
+
 extension MusicLibrary {
+    /// 专辑署名对应的全部可跳转艺人，顺序与专辑署名一致。
+    /// 结构化多专辑艺人（OpenSubsonic `artists` / `albumArtists`）与用户分隔符优先；
+    /// 尚未重扫的旧库或展示拼接串（如 `A • B`、`A & B`、`A · B`）仅在拆出的名字命中库内真实艺人时逐个链接，
+    /// 合辑的「群星 / Various Artists」等单艺人兜底回退到专辑艺人索引。
+    func linkedArtists(for album: Album) -> [Artist] {
+        func lookupByID(_ id: String) -> Artist? {
+            visibleArtist(id: id) ?? visibleAlbumArtist(id: id)
+        }
+        func lookupByName(_ name: String) -> Artist? {
+            let id = Self.hashID(ArtistIdentityPolicy.groupingKey(name))
+            return lookupByID(id) ?? visibleArtist(named: name)
+        }
+
+        let credits = AlbumArtistCreditPolicy.resolvedCredits(
+            for: album,
+            configuration: artistNameConfiguration,
+            isKnownTrackArtist: { visibleArtist(id: $0) != nil },
+            knownTrackArtistName: { visibleArtist(id: $0)?.name },
+            artistID: { Self.hashID(ArtistIdentityPolicy.groupingKey($0)) }
+        )
+
+        var resolved: [Artist] = []
+        var seen = Set<String>()
+        func append(_ artist: Artist) {
+            if seen.insert(artist.id).inserted {
+                resolved.append(artist)
+            }
+        }
+
+        if credits.count > 1 {
+            for credit in credits {
+                if let artist = lookupByID(credit.id) ?? credit.name.flatMap(lookupByName) {
+                    append(artist)
+                }
+            }
+            if !resolved.isEmpty { return resolved }
+        }
+
+        if let id = album.artistID, let artist = visibleArtist(id: id) {
+            return [artist]
+        }
+
+        if let raw = album.artistName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+            let parsedNames = ArtistNameParser.names(
+                rawName: raw,
+                sourceNames: album.sourceArtistNames,
+                configuration: artistNameConfiguration
+            )
+            if parsedNames.count > 1 {
+                for name in parsedNames {
+                    if let artist = lookupByName(name) { append(artist) }
+                }
+                if !resolved.isEmpty { return resolved }
+            }
+
+            let fallbackPieces = ArtistLinkResolutionPolicy.fallbackPieces(of: raw)
+            if fallbackPieces.count > 1 {
+                for piece in fallbackPieces {
+                    let id = Self.hashID(ArtistIdentityPolicy.groupingKey(piece))
+                    if let artist = visibleArtist(id: id) ?? visibleArtist(named: piece) {
+                        append(artist)
+                    }
+                }
+                if resolved.count > 1 { return resolved }
+                resolved.removeAll(keepingCapacity: true)
+                seen.removeAll(keepingCapacity: true)
+            }
+
+            if let artist = lookupByName(raw) {
+                return [artist]
+            }
+        }
+
+        if let id = album.artistID, let artist = visibleAlbumArtist(id: id) {
+            return [artist]
+        }
+        return []
+    }
+
     /// 专辑署名优先，合辑的「群星」等只存在于专辑艺人索引中。
     func linkedArtist(for album: Album) -> Artist? {
-        if let id = album.artistID,
-           let artist = visibleArtist(id: id) ?? visibleAlbumArtist(id: id) {
-            return artist
-        }
-        guard let name = album.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !name.isEmpty else { return nil }
-        let id = Self.hashID(ArtistIdentityPolicy.groupingKey(name))
-        if let artist = visibleArtist(id: id) ?? visibleAlbumArtist(id: id) ?? visibleArtist(named: name) {
-            return artist
-        }
-        for contributor in ArtistNameParser.names(rawName: name, configuration: artistNameConfiguration) {
-            let id = Self.hashID(ArtistIdentityPolicy.groupingKey(contributor))
-            if let artist = visibleArtist(id: id) ?? visibleAlbumArtist(id: id) { return artist }
-        }
-        return nil
+        linkedArtists(for: album).first
     }
 }
 

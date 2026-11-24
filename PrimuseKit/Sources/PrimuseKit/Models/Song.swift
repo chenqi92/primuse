@@ -48,6 +48,13 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         get { core.values.albumArtistName }
         set { updateCore { $0.albumArtistName = newValue } }
     }
+    /// Distinct album artists supplied by a source that exposes a real
+    /// multi-value field (such as OpenSubsonic `albumArtists` / `album.artists`
+    /// or multi-valued embedded tags). Stored in the shared album-level rare box.
+    public var sourceAlbumArtistNames: [String]? {
+        get { rare.values.sourceAlbumArtistNames }
+        set { updateRare { $0.sourceAlbumArtistNames = newValue } }
+    }
     public var duration: TimeInterval {
         get { core.values.duration }
         set { updateCore { $0.duration = newValue } }
@@ -374,7 +381,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         contentMetadata: SongContentMetadata? = nil,
         serverCatalogAlbum: ServerCatalogAlbumReference? = nil,
         isExternal: Bool? = nil,
-        serverFilePath: String? = nil
+        serverFilePath: String? = nil,
+        sourceAlbumArtistNames: [String]? = nil
     ) {
         core = SongCoreFields.make(.init(
             id: id,
@@ -414,8 +422,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         if mvPath != nil || cueSheetPath != nil || cueStartTime != nil || cueEndTime != nil || sacdTrackNumber != nil || isoAudioTrack != nil
             || lyricsText != nil || userMetadataEditedAt != nil || audioVariants != nil
             || serverAlbumDateAdded != nil || contentMetadata != nil || serverCatalogAlbum != nil || isExternal != nil
-            || titlePinyin != nil || artistPinyin != nil || albumPinyin != nil || serverLibraryID != nil {
+            || titlePinyin != nil || artistPinyin != nil || albumPinyin != nil || serverLibraryID != nil
+            || sourceAlbumArtistNames != nil {
             var values = SongRareFields.Values()
+            values.sourceAlbumArtistNames = sourceAlbumArtistNames
             values.contentMetadata = contentMetadata
             values.mvPath = mvPath
             values.cueSheetPath = cueSheetPath
@@ -441,7 +451,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     // MARK: - Codable (same keys and shape as the former synthesized form)
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, albumID, artistID, albumTitle, artistName, sourceArtistNames, albumArtistName
+        case id, title, albumID, artistID, albumTitle, artistName, sourceArtistNames, albumArtistName, sourceAlbumArtistNames
         case trackNumber, discNumber, duration, fileFormat, filePath, serverFilePath, sourceID, fileSize
         case bitRate, sampleRate, bitDepth, genre, year, lastModified, dateAdded, serverPlayCount
         case coverArtFileName, artistArtworkFileName, lyricsFileName, mvPath
@@ -507,7 +517,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             contentMetadata: try container.decodeIfPresent(SongContentMetadata.self, forKey: .contentMetadata),
             serverCatalogAlbum: try container.decodeIfPresent(ServerCatalogAlbumReference.self, forKey: .serverCatalogAlbum),
             isExternal: try container.decodeIfPresent(Bool.self, forKey: .isExternal),
-            serverFilePath: try container.decodeIfPresent(String.self, forKey: .serverFilePath)
+            serverFilePath: try container.decodeIfPresent(String.self, forKey: .serverFilePath),
+            sourceAlbumArtistNames: try container.decodeIfPresent([String].self, forKey: .sourceAlbumArtistNames)
         )
     }
 
@@ -521,6 +532,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encodeIfPresent(artistName, forKey: .artistName)
         try container.encodeIfPresent(sourceArtistNames, forKey: .sourceArtistNames)
         try container.encodeIfPresent(albumArtistName, forKey: .albumArtistName)
+        try container.encodeIfPresent(sourceAlbumArtistNames, forKey: .sourceAlbumArtistNames)
         try container.encodeIfPresent(trackNumber, forKey: .trackNumber)
         try container.encodeIfPresent(discNumber, forKey: .discNumber)
         try container.encode(appliedPlaybackRange?.songDuration ?? duration, forKey: .duration)
@@ -755,6 +767,7 @@ private final class SongCoreWithFilePathAndReplayGain: SongCoreWithFilePath, @un
 /// share one box between them (`SongRareFieldPool`).
 private final class SongRareFields: Hashable, Sendable {
     struct Values: Hashable, Sendable {
+        var sourceAlbumArtistNames: [String]?
         var serverAlbumDateAdded: Date?
         var serverCatalogAlbum: ServerCatalogAlbumReference?
         var isExternal: Bool?
@@ -1062,6 +1075,7 @@ public enum MediaMetadataTextRepair {
         let originalAlbum = song.albumTitle
         let originalAlbumArtist = song.albumArtistName
         let originalSourceArtists = song.sourceArtistNames
+        let originalSourceAlbumArtists = song.sourceAlbumArtistNames
         let fileReferences = fileNameReferences(from: song.filePath)
         var titleReference = fileReferences.title
         var artistReference = fileReferences.artist.map { artist in
@@ -1097,12 +1111,26 @@ public enum MediaMetadataTextRepair {
                 return repairedField(name, reference: nil)
             }
         }
+        if let names = song.sourceAlbumArtistNames {
+            let references = ArtistNameParser.names(rawName: artistReference)
+            let repairedNames = names.compactMap { name -> String? in
+                if name == originalAlbumArtist { return song.albumArtistName }
+                for reference in references {
+                    if let corrected = TextEncodingRepair.repaired(name, corroboratedBy: reference) {
+                        return corrected
+                    }
+                }
+                return repairedField(name, reference: nil)
+            }
+            song.sourceAlbumArtistNames = repairedNames.count > 1 ? repairedNames : nil
+        }
         if song.title != originalTitle { song.titlePinyin = nil }
         if song.artistName != originalArtist { song.artistPinyin = nil }
         if song.albumTitle != originalAlbum { song.albumPinyin = nil }
         return song.title != originalTitle || song.artistName != originalArtist
             || song.albumTitle != originalAlbum || song.albumArtistName != originalAlbumArtist
             || song.sourceArtistNames != originalSourceArtists
+            || song.sourceAlbumArtistNames != originalSourceAlbumArtists
     }
 
     private static func repairedArtistField(_ value: String?, reference: String?) -> String? {
@@ -1498,7 +1526,13 @@ public enum SongUserMetadataPolicy {
         result.albumTitle = existing.albumTitle
         result.artistName = existing.artistName
         result.sourceArtistNames = existing.sourceArtistNames
-        result.albumArtistName = existing.albumArtistName ?? incoming.albumArtistName
+        if let albumArtist = existing.albumArtistName {
+            result.albumArtistName = albumArtist
+            result.sourceAlbumArtistNames = existing.sourceAlbumArtistNames
+        } else {
+            result.albumArtistName = incoming.albumArtistName
+            result.sourceAlbumArtistNames = incoming.sourceAlbumArtistNames
+        }
         result.trackNumber = existing.trackNumber
         result.discNumber = existing.discNumber
         result.genre = existing.genre
@@ -1528,6 +1562,7 @@ public enum SongUserMetadataPolicy {
             || original.artistName != updated.artistName
             || original.sourceArtistNames != updated.sourceArtistNames
             || original.albumArtistName != updated.albumArtistName
+            || original.sourceAlbumArtistNames != updated.sourceAlbumArtistNames
             || original.albumTitle != updated.albumTitle
             || original.trackNumber != updated.trackNumber
             || original.discNumber != updated.discNumber

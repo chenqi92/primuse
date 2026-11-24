@@ -15,11 +15,16 @@ public enum ArtistMergePolicy {
             updated.artistName = merged.joined(separator: "; ")
             updated.sourceArtistNames = merged
         }
-        let albumArtists = ArtistNameParser.names(rawName: song.albumArtistName, configuration: configuration)
+        let albumArtists = ArtistNameParser.names(
+            rawName: song.albumArtistName,
+            sourceNames: song.sourceAlbumArtistNames,
+            configuration: configuration
+        )
         let mergedAlbumArtists = replacing(albumArtists, keys: keys, canonical: canonical)
         if albumArtists != mergedAlbumArtists {
             // Use an enabled separator so album grouping can recover the contributors too.
             updated.albumArtistName = mergedAlbumArtists.joined(separator: configuration.separators.first ?? "; ")
+            updated.sourceAlbumArtistNames = mergedAlbumArtists.count > 1 ? mergedAlbumArtists : nil
         }
         return updated
     }

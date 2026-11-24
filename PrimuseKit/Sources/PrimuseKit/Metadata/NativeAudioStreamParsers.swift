@@ -220,6 +220,7 @@ public struct ISOBaseMediaNativeMetadata: Equatable, Sendable {
     public var artists: [String] = []
     public var albumTitle: String?
     public var albumArtist: String?
+    public var albumArtists: [String] = []
     public var trackNumber: Int?
     public var discNumber: Int?
     public var releaseDate: String?
@@ -619,7 +620,10 @@ public enum ISOBaseMediaNativeMetadataParser {
         case "\u{A9}nam": result.titles.append(contentsOf: texts())
         case "\u{A9}ART": result.artists.append(contentsOf: texts())
         case "\u{A9}alb": result.albumTitle = result.albumTitle ?? texts().first
-        case "aART": result.albumArtist = result.albumArtist ?? texts().first
+        case "aART":
+            let values = texts()
+            result.albumArtists.append(contentsOf: values)
+            result.albumArtist = result.albumArtist ?? values.first
         case "\u{A9}day": result.releaseDate = result.releaseDate ?? texts().first
         case "\u{A9}gen": result.userGenre = result.userGenre ?? texts().first
         case "\u{A9}lyr": result.lyrics = result.lyrics ?? texts().first

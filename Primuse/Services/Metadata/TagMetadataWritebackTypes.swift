@@ -34,7 +34,9 @@ enum TagMetadataWritebackField: String, CaseIterable, Sendable, Hashable {
         var fields: Set<Self> = []
         if original.title != updated.title { fields.insert(.title) }
         if original.artistName != updated.artistName || original.sourceArtistNames != updated.sourceArtistNames { fields.insert(.artist) }
-        if original.albumArtistName != updated.albumArtistName { fields.insert(.albumArtist) }
+        if original.albumArtistName != updated.albumArtistName || original.sourceAlbumArtistNames != updated.sourceAlbumArtistNames {
+            fields.insert(.albumArtist)
+        }
         if original.albumTitle != updated.albumTitle { fields.insert(.album) }
         if original.genre != updated.genre { fields.insert(.genre) }
         if original.year != updated.year { fields.insert(.year) }
@@ -127,7 +129,9 @@ enum TagMetadataWritebackField: String, CaseIterable, Sendable, Hashable {
         case .artist:
             if song.artistName != tags.artist { song.sourceArtistNames = nil }
             song.artistName = tags.artist
-        case .albumArtist: song.albumArtistName = tags.albumArtist
+        case .albumArtist:
+            if song.albumArtistName != tags.albumArtist { song.sourceAlbumArtistNames = nil }
+            song.albumArtistName = tags.albumArtist
         case .album: song.albumTitle = tags.albumTitle
         case .genre: song.genre = tags.genre
         case .year: song.year = tags.year
@@ -144,7 +148,9 @@ enum TagMetadataWritebackField: String, CaseIterable, Sendable, Hashable {
         case .artist:
             song.artistName = source.artistName
             song.sourceArtistNames = source.sourceArtistNames
-        case .albumArtist: song.albumArtistName = source.albumArtistName
+        case .albumArtist:
+            song.albumArtistName = source.albumArtistName
+            song.sourceAlbumArtistNames = source.sourceAlbumArtistNames
         case .album: song.albumTitle = source.albumTitle
         case .genre: song.genre = source.genre
         case .year: song.year = source.year

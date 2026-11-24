@@ -80,10 +80,128 @@ public struct AlbumArtistIndex: Sendable {
     public static let empty = AlbumArtistIndex()
 }
 
+/// 专辑署名（`Album` → 各专辑艺人）的统一解析规则。
+///
+/// 专辑分组身份仍保持整张专辑一个 `album.id` / `album.artistName`，保证同专辑不同曲目
+/// 参与者正常分在同一张专辑；这里只在归属索引、艺人页分架和专辑页跳转时，把合作专辑
+/// 对应到每一位专辑艺人。
+public enum AlbumArtistCreditPolicy {
+    /// 清洗并按分组键去重，保持原先后顺序。
+    public static func distinctNormalizedNames(_ names: [String]?) -> [String] {
+        guard let names, !names.isEmpty else { return [] }
+        var seen = Set<String>()
+        var result: [String] = []
+        result.reserveCapacity(names.count)
+        for raw in names {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let normalized = trimmed.precomposedStringWithCanonicalMapping
+            let key = ArtistIdentityPolicy.groupingKey(normalized)
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            result.append(normalized)
+        }
+        return result
+    }
+
+    /// 仅当歌曲自带的结构化多专辑艺人未被推断覆盖（与专辑生效署名一致）时采信，
+    /// 避免合辑/OST 或独唱专辑折叠合唱曲时把客串署名误升格为整张专辑的专辑艺人。
+    public static func validatedSourceArtistNames(
+        songAlbumArtistName: String?,
+        candidate: [String]?,
+        effectiveAlbumArtistName: String
+    ) -> [String]? {
+        let names = distinctNormalizedNames(candidate)
+        guard names.count > 1, let songAlbumArtistName else { return nil }
+        let songKey = ArtistIdentityPolicy.groupingKey(songAlbumArtistName)
+        let effectiveKey = ArtistIdentityPolicy.groupingKey(effectiveAlbumArtistName)
+        guard !songKey.isEmpty, songKey == effectiveKey else { return nil }
+        return names
+    }
+
+    /// 解析一张专辑的所有归属署名（id + 显示名）。
+    ///
+    /// 顺序：
+    /// 1. 服务端/标签原生提供的多值 `album.sourceArtistNames`（≥2 人）优先；
+    /// 2. 曲目索引已确认的单一艺人（含乐队原名）保留整体身份；
+    /// 3. 按用户配置的分隔符（`ArtistNameParser`）拆；
+    /// 4. 尚未重扫的旧库若带 OpenSubsonic / Navidrome 展示拼接符 `" • "`（U+2022），
+    ///    仅当不在受保护名单且拆出的每一段都是曲库已知曲目艺人时回退拆开，绝不误拆中文间隔号 `·` 或真实乐队名。
+    public static func resolvedCredits(
+        for album: Album,
+        configuration: ArtistNameConfiguration,
+        isKnownTrackArtist: (String) -> Bool,
+        knownTrackArtistName: (String) -> String? = { _ in nil },
+        artistID: (String) -> String
+    ) -> [(id: String, name: String?)] {
+        guard let originalID = album.artistID, !originalID.isEmpty else { return [] }
+        let native = distinctNormalizedNames(album.sourceArtistNames)
+        if native.count > 1 {
+            return deduplicatedCredits(native, artistID: artistID)
+        }
+        if isKnownTrackArtist(originalID) {
+            return [(originalID, knownTrackArtistName(originalID) ?? album.artistName)]
+        }
+        let normalized = configuration.normalized()
+        let names = ArtistNameParser.names(rawName: album.artistName, configuration: normalized)
+        if names.isEmpty { return [(originalID, nil)] }
+        if names.count > 1 {
+            return deduplicatedCredits(names, artistID: artistID)
+        }
+        if let raw = album.artistName,
+           let bulletNames = knownBulletDisplayCredits(
+               rawName: raw,
+               configuration: normalized,
+               isKnownTrackArtist: isKnownTrackArtist,
+               artistID: artistID
+           ) {
+            return deduplicatedCredits(bulletNames, artistID: artistID)
+        }
+        if ArtistIdentityPolicy.groupingKey(names[0]) == ArtistIdentityPolicy.groupingKey(album.artistName ?? "") {
+            return [(originalID, names[0])]
+        }
+        return deduplicatedCredits(names, artistID: artistID)
+    }
+
+    /// 针对未重扫旧库的保守兜底：仅拆 Navidrome 默认展示拼接串 `" • "`，且要求每一段都命中已知曲目艺人。
+    public static func knownBulletDisplayCredits(
+        rawName: String,
+        configuration: ArtistNameConfiguration,
+        isKnownTrackArtist: (String) -> Bool,
+        artistID: (String) -> String
+    ) -> [String]? {
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.contains(" • ") else { return nil }
+        let protected = configuration.protectedNames.contains {
+            $0.compare(trimmed, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]) == .orderedSame
+        }
+        guard !protected else { return nil }
+        let pieces = distinctNormalizedNames(trimmed.components(separatedBy: " • "))
+        guard pieces.count > 1 else { return nil }
+        guard pieces.allSatisfy({ isKnownTrackArtist(artistID($0)) }) else { return nil }
+        return pieces
+    }
+
+    private static func deduplicatedCredits(
+        _ names: [String],
+        artistID: (String) -> String
+    ) -> [(id: String, name: String?)] {
+        var seen = Set<String>()
+        var result: [(id: String, name: String?)] = []
+        result.reserveCapacity(names.count)
+        for name in names {
+            let id = artistID(name)
+            guard !id.isEmpty, seen.insert(id).inserted else { continue }
+            result.append((id, name))
+        }
+        return result
+    }
+}
+
 public enum AlbumArtistIndexBuilder {
     private struct CreditKey: Hashable {
         let id: String
         let name: String?
+        let sourceArtistNames: [String]?
     }
 
     /// - Parameters:
@@ -110,24 +228,18 @@ public enum AlbumArtistIndexBuilder {
         var creditsByKey: [CreditKey: [(id: String, name: String?)]] = [:]
         for album in albums {
             guard let originalID = album.artistID, !originalID.isEmpty else { continue }
-            let key = CreditKey(id: originalID, name: album.artistName)
+            let key = CreditKey(id: originalID, name: album.artistName, sourceArtistNames: album.sourceArtistNames)
             let credits: [(id: String, name: String?)]
             if let cached = creditsByKey[key] {
                 credits = cached
-            } else if let artist = trackArtistsByID[originalID] {
-                // 曲目索引已确认的单一艺人（包括原生多人字段中的乐队名）保留身份。
-                credits = [(originalID, artist.name)]
-                creditsByKey[key] = credits
             } else {
-                let names = ArtistNameParser.names(rawName: album.artistName, configuration: configuration)
-                if names.isEmpty {
-                    credits = [(originalID, nil)]
-                } else if names.count == 1,
-                          ArtistIdentityPolicy.groupingKey(names[0]) == ArtistIdentityPolicy.groupingKey(album.artistName ?? "") {
-                    credits = [(originalID, names[0])]
-                } else {
-                    credits = names.map { (artistID($0), $0) }
-                }
+                credits = AlbumArtistCreditPolicy.resolvedCredits(
+                    for: album,
+                    configuration: configuration,
+                    isKnownTrackArtist: { trackArtistsByID[$0] != nil },
+                    knownTrackArtistName: { trackArtistsByID[$0]?.name },
+                    artistID: artistID
+                )
                 creditsByKey[key] = credits
             }
             for (id, name) in credits {

@@ -1439,6 +1439,30 @@ final class SubsonicCatalogEnrichmentTests: XCTestCase {
         await source.endCatalogEnrichment(scanID: id)
     }
 
+    func testOpenSubsonicMultiAlbumArtistsPreservedAcrossCatalogAndEnrichment() async throws {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        CatalogEnrichmentURLProtocol.configure(host: host, multiAlbumArtists: true)
+        let (source, session) = makeSource(host: host, store: nil)
+        defer { session.invalidateAndCancel(); CatalogEnrichmentURLProtocol.remove(host) }
+        let id = UUID()
+        try await source.beginCatalogEnrichment(scanID: id, revision: "r1")
+        let page = try await source.songCatalogPage(from: "/", offset: 0)
+        XCTAssertEqual(page.songs.count, 2)
+        let tagged = try XCTUnwrap(page.songs.first { $0.song.title == "Joint Track" }?.song)
+        let untagged = try XCTUnwrap(page.songs.first { $0.song.title == "Untagged Cut" }?.song)
+        XCTAssertEqual(tagged.albumArtistName, "Bonez MC • RAF Camora")
+        XCTAssertEqual(tagged.sourceAlbumArtistNames, ["Bonez MC", "RAF Camora"])
+        XCTAssertEqual(tagged.sourceArtistNames, ["Bonez MC", "RAF Camora"])
+
+        let enrichment = try await source.finishCatalogEnrichment(scanID: id, progress: nil)
+        let enrichedTagged = try XCTUnwrap(enrichment?.applying(to: tagged))
+        let enrichedUntagged = try XCTUnwrap(enrichment?.applying(to: untagged))
+        XCTAssertEqual(enrichedTagged.sourceAlbumArtistNames, ["Bonez MC", "RAF Camora"])
+        XCTAssertEqual(enrichedUntagged.albumArtistName, "Bonez MC • RAF Camora")
+        XCTAssertEqual(enrichedUntagged.sourceAlbumArtistNames, ["Bonez MC", "RAF Camora"])
+        await source.endCatalogEnrichment(scanID: id)
+    }
+
     private func makeSource(host: String, store: SubsonicAlbumCatalogStore?, excluded: Set<String> = []) -> (SubsonicSource, URLSession) {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [CatalogEnrichmentURLProtocol.self]
@@ -1453,6 +1477,7 @@ private final class CatalogEnrichmentURLProtocol: URLProtocol, @unchecked Sendab
     private struct State {
         var holdOffset: Int?
         var multipleLibraries = false
+        var multiAlbumArtists = false
         var scopes: [String] = []
         var albumOffsets: [Int] = []
         var songOffsets: [Int] = []
@@ -1462,8 +1487,14 @@ private final class CatalogEnrichmentURLProtocol: URLProtocol, @unchecked Sendab
     nonisolated(unsafe) private static var states: [String: State] = [:]
     private var pendingBody: [String: Any] = [:]
     private var stopped = false
-    static func configure(host: String, holdOffset: Int? = nil, multipleLibraries: Bool = false) {
-        lock.withLock { states[host] = State(holdOffset: holdOffset, multipleLibraries: multipleLibraries) }
+    static func configure(host: String, holdOffset: Int? = nil, multipleLibraries: Bool = false, multiAlbumArtists: Bool = false) {
+        lock.withLock {
+            states[host] = State(
+                holdOffset: holdOffset,
+                multipleLibraries: multipleLibraries,
+                multiAlbumArtists: multiAlbumArtists
+            )
+        }
     }
     static func scopes(_ host: String) -> [String] { lock.withLock { states[host]?.scopes ?? [] } }
     static func offsets(_ host: String, albums: Bool) -> [Int] {
@@ -1495,8 +1526,42 @@ private final class CatalogEnrichmentURLProtocol: URLProtocol, @unchecked Sendab
         case "search3.view":
             let albums = value("songCount") == "0"
             let offset = Int(value(albums ? "albumOffset" : "songOffset") ?? "0") ?? 0
+            let multiAlbumArtists = Self.lock.withLock { Self.states[host]?.multiAlbumArtists == true }
             let body: [String: Any]
-            if albums {
+            if multiAlbumArtists {
+                if albums {
+                    body = ["searchResult3": ["album": offset == 0 ? [[
+                        "id": "pap-2",
+                        "name": "Palmen aus Plastik 2",
+                        "artist": "Bonez MC • RAF Camora",
+                        "artists": [["id": "ar-bonez", "name": "Bonez MC"], ["id": "ar-raf", "name": "RAF Camora"]],
+                        "created": "2020-01-01T00:00:00Z"
+                    ]] : []]]
+                } else {
+                    body = ["searchResult3": ["song": offset == 0 ? [
+                        [
+                            "id": "song-joint",
+                            "albumId": "pap-2",
+                            "album": "Palmen aus Plastik 2",
+                            "title": "Joint Track",
+                            "artist": "Bonez MC • RAF Camora",
+                            "displayArtist": "Bonez MC • RAF Camora",
+                            "artists": [["id": "ar-bonez", "name": "Bonez MC"], ["id": "ar-raf", "name": "RAF Camora"]],
+                            "displayAlbumArtist": "Bonez MC • RAF Camora",
+                            "albumArtists": [["id": "ar-bonez", "name": "Bonez MC"], ["id": "ar-raf", "name": "RAF Camora"]],
+                            "suffix": "m4a"
+                        ],
+                        [
+                            "id": "song-untagged",
+                            "albumId": "pap-2",
+                            "album": "Palmen aus Plastik 2",
+                            "title": "Untagged Cut",
+                            "artist": "Bonez MC",
+                            "suffix": "m4a"
+                        ]
+                    ] : []]]
+                }
+            } else if albums {
                 body = ["searchResult3": ["album": offset < 2 ? [["id": "album-\(offset)", "artist": "Various Artists", "created": "2020-01-01T00:00:00Z", "releaseTypes": ["single", "live"]]] : []]]
             } else {
                 body = ["searchResult3": ["song": offset < 2 ? [["id": "song-\(offset)", "albumId": "album-\(offset)", "title": "Song", "artist": "Soloist", "suffix": "mp3"]] : []]]

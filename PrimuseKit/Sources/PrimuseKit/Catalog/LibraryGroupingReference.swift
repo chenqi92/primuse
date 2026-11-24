@@ -331,6 +331,7 @@ public enum LibraryGroupingReference {
         var albumYears: [Int?] = []
         var albumSongCount: [Int] = []
         var albumDuration: [TimeInterval] = []
+        var albumSourceArtistNames: [[String]?] = []
         var albumSlotBySong = [Int32](repeating: -1, count: songs.count)
         for (offset, song) in songs.enumerated() {
             if offset.isMultiple(of: 256), cancellationCheck() { return nil }
@@ -351,10 +352,19 @@ public enum LibraryGroupingReference {
                 albumYears.append(nil)
                 albumSongCount.append(0)
                 albumDuration.append(0)
+                albumSourceArtistNames.append(nil)
             }
             albumSlotBySong[offset] = Int32(slot)
             if albumYears[slot] == nil, let year = song.year, year > 0 {
                 albumYears[slot] = year
+            }
+            if albumSourceArtistNames[slot] == nil,
+               let names = AlbumArtistCreditPolicy.validatedSourceArtistNames(
+                   songAlbumArtistName: song.albumArtistName,
+                   candidate: song.sourceAlbumArtistNames,
+                   effectiveAlbumArtistName: identity.artistName
+               ) {
+                albumSourceArtistNames[slot] = names
             }
             albumSongCount[slot] += 1
             albumDuration[slot] += song.duration.groupingSanitizedDuration
@@ -379,6 +389,7 @@ public enum LibraryGroupingReference {
                 title: identity.albumTitle,
                 artistID: albumArtistID,
                 artistName: identity.artistName,
+                sourceArtistNames: albumSourceArtistNames[slot],
                 year: albumYears[slot],
                 genre: first.genre,
                 songCount: albumSongCount[slot],

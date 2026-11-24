@@ -904,7 +904,17 @@ enum FileMetadataReader {
             metadata.artist = artists.first
         }
         metadata.albumTitle = text(parsed.albumTitle)
-        metadata.albumArtist = text(parsed.albumArtist)
+        var albumArtists: [String] = []
+        for artist in parsed.albumArtists.compactMap({ text($0) }) where !albumArtists.contains(where: {
+            $0.compare(artist, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]) == .orderedSame
+        }) {
+            albumArtists.append(artist)
+        }
+        if albumArtists.count > 1 {
+            metadata.albumArtist = albumArtists.joined(separator: "; ")
+        } else {
+            metadata.albumArtist = albumArtists.first ?? text(parsed.albumArtist)
+        }
         metadata.trackNumber = parsed.trackNumber
         metadata.discNumber = parsed.discNumber
         metadata.year = parsedYear(text(parsed.releaseDate))

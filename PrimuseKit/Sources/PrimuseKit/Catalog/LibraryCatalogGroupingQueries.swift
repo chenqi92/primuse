@@ -53,7 +53,7 @@ extension LibraryCatalog {
             for chunk in Self.chunks(of: admitted) {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT a.key, a.id, a.title, a.artistID, a.artistName, a.year, a.genre, a.songCount, a.duration,
-                           a.sourceID,
+                           a.sourceID, a.sourceArtistNames,
                            (SELECT total(songCount) FROM albumSourceStat st
                                WHERE st.albumKey = a.key AND st.sourceKey IN (\(Self.enabledSourcesSQL))),
                            (SELECT total(duration) FROM albumSourceStat st
@@ -62,10 +62,12 @@ extension LibraryCatalog {
                     """, arguments: StatementArguments(chunk.map(Int64.init)))
                 for row in rows {
                     let key = try Self.rowid32(row[0])
-                    let visibleCount: Double = row[10]
-                    let visibleDuration: Double = row[11]
+                    let visibleCount: Double = row[11]
+                    let visibleDuration: Double = row[12]
                     byKey[key] = Album(
-                        id: row[1], title: row[2], artistID: row[3], artistName: row[4], year: row[5], genre: row[6],
+                        id: row[1], title: row[2], artistID: row[3], artistName: row[4],
+                        sourceArtistNames: GroupingMaintenance.decodeSourceArtistNames(row[10]),
+                        year: row[5], genre: row[6],
                         songCount: splits ? Int(visibleCount) : row[7],
                         totalDuration: splits ? visibleDuration : row[8],
                         sourceID: row[9]

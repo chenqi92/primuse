@@ -233,6 +233,167 @@ struct AlbumArtistBrowsingTests {
         #expect(none.isEmpty)
     }
 
+    @Test("#470: structured multi-album-artist collaborations appear under Albums for every album artist while guests stay in Appears on")
+    func structuredMultiAlbumArtistsAssignToEveryCreditedArtist() throws {
+        let songs = [
+            Song(
+                id: "track-1", title: "Palmen aus Plastik",
+                albumTitle: "Palmen aus Plastik 2",
+                artistName: "Bonez MC • RAF Camora",
+                sourceArtistNames: ["Bonez MC", "RAF Camora"],
+                albumArtistName: "Bonez MC • RAF Camora",
+                trackNumber: 1, duration: 180, fileFormat: .m4a,
+                filePath: "/songs/1.m4a", sourceID: "navidrome",
+                sourceAlbumArtistNames: ["Bonez MC", "RAF Camora"]
+            ),
+            Song(
+                id: "track-2", title: "Solo Cut",
+                albumTitle: "Palmen aus Plastik 2",
+                artistName: "Bonez MC",
+                albumArtistName: "Bonez MC • RAF Camora",
+                trackNumber: 2, duration: 190, fileFormat: .m4a,
+                filePath: "/songs/2.m4a", sourceID: "navidrome",
+                sourceAlbumArtistNames: ["Bonez MC", "RAF Camora"]
+            ),
+            Song(
+                id: "track-3", title: "Guest Feature",
+                albumTitle: "Palmen aus Plastik 2",
+                artistName: "Bonez MC • RAF Camora • Gzuz",
+                sourceArtistNames: ["Bonez MC", "RAF Camora", "Gzuz"],
+                albumArtistName: "Bonez MC • RAF Camora",
+                trackNumber: 3, duration: 200, fileFormat: .m4a,
+                filePath: "/songs/3.m4a", sourceID: "navidrome",
+                sourceAlbumArtistNames: ["Bonez MC", "RAF Camora"]
+            ),
+        ]
+
+        let derived = LibraryGroupingReference.computeAlbumsAndArtists(
+            songs: songs,
+            configuration: .defaultValue,
+            unknownArtist: "Unknown Artist"
+        )
+        // Different track participants on the same album still stay grouped into one album.
+        #expect(derived.albums.count == 1)
+        let jointAlbum = try #require(derived.albums.first)
+        #expect(jointAlbum.songCount == 3)
+        #expect(jointAlbum.artistName == "Bonez MC • RAF Camora")
+        #expect(jointAlbum.sourceArtistNames == ["Bonez MC", "RAF Camora"])
+
+        let artistsByID = Dictionary(uniqueKeysWithValues: derived.artists.map { ($0.id, $0) })
+        let index = AlbumArtistIndexBuilder.build(
+            albums: derived.albums,
+            trackArtists: derived.artists,
+            trackArtistsByID: artistsByID,
+            configuration: .defaultValue,
+            artistID: { LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey($0)) }
+        )
+        #expect(Set(index.artists.map(\.name)) == ["Bonez MC", "RAF Camora"])
+        #expect(index.albumIDsByAlbumOnlyArtistID.isEmpty)
+
+        let bonezID = LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey("Bonez MC"))
+        let rafID = LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey("RAF Camora"))
+        let gzuzID = LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey("Gzuz"))
+
+        let bonezPartition = ArtistAlbumShelfPolicy.partition(
+            albums: derived.albums, artistID: bonezID, displayName: "Bonez MC",
+            songAlbumIDs: [jointAlbum.id],
+            isCredited: { index.albumIDsByArtistID[bonezID]?.contains($0.id) == true }
+        )
+        let rafPartition = ArtistAlbumShelfPolicy.partition(
+            albums: derived.albums, artistID: rafID, displayName: "RAF Camora",
+            songAlbumIDs: [jointAlbum.id],
+            isCredited: { index.albumIDsByArtistID[rafID]?.contains($0.id) == true }
+        )
+        let gzuzPartition = ArtistAlbumShelfPolicy.partition(
+            albums: derived.albums, artistID: gzuzID, displayName: "Gzuz",
+            songAlbumIDs: [jointAlbum.id],
+            isCredited: { index.albumIDsByArtistID[gzuzID]?.contains($0.id) == true }
+        )
+
+        #expect(bonezPartition.releases.map(\.id) == [jointAlbum.id])
+        #expect(bonezPartition.appearsOn.isEmpty)
+        #expect(rafPartition.releases.map(\.id) == [jointAlbum.id])
+        #expect(rafPartition.appearsOn.isEmpty)
+        #expect(gzuzPartition.releases.isEmpty)
+        #expect(gzuzPartition.appearsOn.map(\.id) == [jointAlbum.id])
+    }
+
+    @Test("Inferred album grouping preserves multi-participant albums without leaking overridden source album artists")
+    func inferredAlbumArtistDoesNotPromoteGuestSourceAlbumArtists() throws {
+        let songs = [
+            Song(
+                id: "ost-1", title: "Theme",
+                albumTitle: "Game OST",
+                artistName: "Composer A",
+                albumArtistName: "Various Artists",
+                trackNumber: 1, duration: 120, fileFormat: .flac,
+                filePath: "/ost/1.flac", sourceID: "local"
+            ),
+            Song(
+                id: "ost-2", title: "Collab Track",
+                albumTitle: "Game OST",
+                artistName: "Composer B & Composer C",
+                sourceArtistNames: ["Composer B", "Composer C"],
+                albumArtistName: "Composer B & Composer C",
+                trackNumber: 2, duration: 130, fileFormat: .flac,
+                filePath: "/ost/2.flac", sourceID: "local",
+                sourceAlbumArtistNames: ["Composer B", "Composer C"]
+            ),
+        ]
+        // Folder authority infers "Various Artists" for ost-2 (since ost-1 has the sole explicit album artist).
+        let otherFolder = Song(
+            id: "other-1", title: "Other",
+            albumTitle: "Other", artistName: "Other",
+            duration: 60, fileFormat: .flac,
+            filePath: "/other/1.flac", sourceID: "local"
+        )
+        let derived = LibraryGroupingReference.computeAlbumsAndArtists(
+            songs: songs + [otherFolder],
+            configuration: .defaultValue,
+            unknownArtist: "Unknown Artist"
+        )
+        let ost = try #require(derived.albums.first { $0.title == "Game OST" })
+        #expect(ost.songCount == 2)
+        #expect(ost.artistName == "Various Artists")
+        #expect(ost.sourceArtistNames == nil)
+    }
+
+    @Test("Legacy bullet display fallback only splits known track artists and never splits Chinese middle dots")
+    func legacyBulletDisplayFallbackProtectsChineseMidDotAndUnknownGroups() {
+        let bonez = artist("bonez", "Bonez MC", albums: 0, songs: 3)
+        let raf = artist("raf", "RAF Camora", albums: 0, songs: 3)
+        let lennon = artist("lennon", "约翰·列侬", albums: 1, songs: 4)
+        let trackArtists = [bonez, raf, lennon]
+        let byID = Dictionary(uniqueKeysWithValues: trackArtists.map { ($0.id, $0) })
+
+        let albums = [
+            album("joint", title: "Palmen aus Plastik", artistID: "bonez • raf", artistName: "Bonez MC • RAF Camora", songs: 10),
+            album("unknown-pair", title: "Mystery", artistID: "bonez • ghost", artistName: "Bonez MC • Ghost", songs: 5),
+            album("lennon-lp", title: "Imagine", artistID: "lennon", artistName: "约翰·列侬", songs: 4),
+            album("lennon-album-only", title: "Anthology", artistID: "约翰·列侬", artistName: "约翰·列侬", songs: 2),
+        ]
+
+        let index = AlbumArtistIndexBuilder.build(
+            albums: albums,
+            trackArtists: trackArtists,
+            trackArtistsByID: byID,
+            configuration: .defaultValue,
+            artistID: { name in
+                switch name {
+                case "Bonez MC": return "bonez"
+                case "RAF Camora": return "raf"
+                case "约翰·列侬": return "lennon"
+                default: return ArtistIdentityPolicy.groupingKey(name)
+                }
+            }
+        )
+        #expect(index.albumIDsByArtistID["bonez"] == ["joint"])
+        #expect(index.albumIDsByArtistID["raf"] == ["joint"])
+        #expect(index.albumIDsByArtistID["bonez • raf"] == nil)
+        #expect(index.albumIDsByAlbumOnlyArtistID["bonez • ghost"] == ["unknown-pair"])
+        #expect(index.albumIDsByArtistID["lennon"] == ["lennon-lp"])
+    }
+
     private func album(_ id: String, title: String, artistID: String?, artistName: String?, songs: Int) -> Album {
         Album(id: id, title: title, artistID: artistID, artistName: artistName, songCount: songs)
     }

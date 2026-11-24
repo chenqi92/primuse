@@ -4123,11 +4123,23 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         let artist = sourceArtistNames.count > 1
             ? sourceArtistNames.joined(separator: "; ")
             : fallbackArtist
+        var sourceAlbumArtistNames: [String] = []
+        for value in (item.albumArtists ?? []).map(\.name) {
+            guard let repaired = MediaMetadataTextRepair.repaired(value),
+                  !sourceAlbumArtistNames.contains(where: {
+                    $0.caseInsensitiveCompare(repaired) == .orderedSame
+                  }) else { continue }
+            sourceAlbumArtistNames.append(repaired)
+        }
+        let explicitAlbumArtist: String? = if let single = MediaMetadataTextRepair.repaired(item.albumArtist) {
+            single
+        } else if sourceAlbumArtistNames.count > 1 {
+            sourceAlbumArtistNames.joined(separator: "; ")
+        } else {
+            sourceAlbumArtistNames.first
+        }
         let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
-            albumArtistName: [item.albumArtist, item.albumArtists?.first?.name]
-                .lazy
-                .compactMap(MediaMetadataTextRepair.repaired)
-                .first,
+            albumArtistName: explicitAlbumArtist,
             trackArtistName: artist
         )
         let album = MediaMetadataTextRepair.repaired(item.album)
@@ -4188,7 +4200,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             ),
             serverDateAdded: serverDateAdded,
             serverFilePath: SongPathPresentationPolicy.providerPath(item.path)
-                ?? item.mediaSources?.first?.path
+                ?? item.mediaSources?.first?.path,
+            sourceAlbumArtistNames: sourceAlbumArtistNames.count > 1 ? sourceAlbumArtistNames : nil
         )
     }
 

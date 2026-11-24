@@ -238,6 +238,7 @@ extension LibraryCatalog {
 
         let assign = try db.cachedStatement(sql: "INSERT INTO \(Self.albumAssignmentTable) (songRowid, albumRef) VALUES (?, ?)")
         var albumOrder: [Int64] = []
+        var albumIdentitiesByKey: [Int64: AlbumGroupingIdentity] = [:]
         var members: [Int64: [AlbumMember]] = [:]
         var firstFields: [Int64: LibraryCatalogSongCodec.GroupingFields] = [:]
         // 一张专辑的歌共用同一个身份:专辑键与专辑艺人引用每个身份只算一次(各要一次 SHA-256)。
@@ -263,11 +264,18 @@ extension LibraryCatalog {
                 try CatalogStatement.execute(assign, in: db)
                 if members[albumKey] == nil {
                     albumOrder.append(albumKey)
+                    albumIdentitiesByKey[albumKey] = identity
                     firstFields[albumKey] = row
                 }
+                let validatedSourceAlbumArtists = AlbumArtistCreditPolicy.validatedSourceArtistNames(
+                    songAlbumArtistName: row.albumArtistName,
+                    candidate: row.sourceAlbumArtistNames,
+                    effectiveAlbumArtistName: identity.artistName
+                )
                 members[albumKey, default: []].append(AlbumMember(
                     rowid: row.rowid, year: row.year, sourceKey: row.sourceKey, kind: row.kind, duration: row.durationKey,
-                    dateAdded: row.dateAdded, credited: credits[index].contains(artistRef)
+                    dateAdded: row.dateAdded, credited: credits[index].contains(artistRef),
+                    sourceAlbumArtistNames: validatedSourceAlbumArtists
                 ))
             }
         }
@@ -278,6 +286,19 @@ extension LibraryCatalog {
                 try grouping.writeAlbumAggregate(
                     key: albumKey, aggregate: aggregate, genre: first.genre, sourceID: sources[first.sourceKey]?.id ?? ""
                 )
+                if let sourceArtistNames = aggregate.sourceArtistNames,
+                   let identity = albumIdentitiesByKey[albumKey] {
+                    let albumID = LibraryGroupingReference.hashID("\(identity.artistName):\(identity.albumTitle)")
+                    let artistID = LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey(identity.artistName))
+                    let album = Album(
+                        id: albumID,
+                        title: identity.albumTitle,
+                        artistID: artistID,
+                        artistName: identity.artistName,
+                        sourceArtistNames: sourceArtistNames
+                    )
+                    try grouping.replaceAlbumArtistCredits(albumKey: albumKey, album: album)
+                }
             }
         }
         cursor = String(fields[fields.count - 1].titleHash ?? 0)

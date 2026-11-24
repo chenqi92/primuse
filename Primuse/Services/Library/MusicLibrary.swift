@@ -8013,6 +8013,7 @@ final class MusicLibrary {
             || old.albumTitle != new.albumTitle
             || old.artistName != new.artistName
             || old.albumArtistName != new.albumArtistName
+            || old.sourceAlbumArtistNames != new.sourceAlbumArtistNames
             || old.trackNumber != new.trackNumber
             || old.discNumber != new.discNumber
             || old.duration != new.duration
@@ -18957,7 +18958,7 @@ final class MusicLibrary {
         var hasher = SHA256()
         var input = Data()
         input.reserveCapacity(1 << 16)
-        appendStableString("derived-index-v8", to: &input)
+        appendStableString("derived-index-v9", to: &input)
         appendStableString(String(localized: "unknown_artist"), to: &input)
         appendStableString(configuration.cacheSignature, to: &input)
 
@@ -18969,6 +18970,7 @@ final class MusicLibrary {
             appendStableString(song.artistName, to: &input)
             appendStableString(song.sourceArtistNames?.joined(separator: "\u{1F}"), to: &input)
             appendStableString(song.albumArtistName, to: &input)
+            appendStableString(song.sourceAlbumArtistNames?.joined(separator: "\u{1F}"), to: &input)
             appendStableString(song.albumTitle, to: &input)
             appendStableInteger(song.year.map(Int64.init) ?? Int64.min, to: &input)
             // 合唱并进主唱那张时用来排除同名的另一张(#338)。

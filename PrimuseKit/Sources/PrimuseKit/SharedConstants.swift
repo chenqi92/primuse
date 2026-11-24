@@ -6568,6 +6568,7 @@ public extension Song {
         artistName = fields.artist
         sourceArtistNames = fields.sourceArtistNames
         albumTitle = fields.albumTitle
+        if albumArtistName != fields.albumArtist { sourceAlbumArtistNames = nil }
         albumArtistName = fields.albumArtist
         year = fields.year
         genre = fields.genre
