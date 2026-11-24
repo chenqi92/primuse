@@ -863,6 +863,71 @@ final class LibraryStartupHarnessTests: XCTestCase {
         print(String(format: "REPORT_SCALE_PRESSURE memoryMB=%.1f materializedRows=%d", Self.megabytes(Self.residentFootprint().current), library.materializedSongRowCount))
     }
 
+    /// 同一份夹具再开一次曲库目录(首次从 `library-songs.sqlite` 迁移):量内存模型之外,目录本身
+    /// 多出来的常驻、迁移的峰值,以及走一遍目录读(计数、排序行号、专辑、按 id 取页)之后的常驻。
+    /// 在夹具的副本上跑,目录文件不写进夹具目录(后面纯内存那项测量的输入不变)。
+    func testScaleFixtureFootprintWithCatalog() async throws {
+        guard let fixture = Self.scaleDirectory,
+              FileManager.default.fileExists(atPath: fixture.appendingPathComponent("library-songs.sqlite").path) else {
+            throw XCTSkip("Build the scale fixture first (PRIMUSE_SCALE_DIR)")
+        }
+        let directory = try Self.copyDirectory(fixture)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let before = Self.residentFootprint()
+        let library: MusicLibrary
+        do {
+            let prepared = await MusicLibrary.prepareStartup(storageDirectory: directory)
+            library = MusicLibrary.makePreparing(storageDirectory: directory, catalogMirroring: .enabled(startDelay: .zero))
+            library.publish(prepared)
+        }
+        await library.waitForPendingIndex()
+        try await Task.sleep(for: .seconds(2))
+        let memoryModel = Self.residentFootprint()
+        let migrationStartedAt = ProcessInfo.processInfo.systemUptime
+        await library.waitForCatalogMirror()
+        let migrationSeconds = ProcessInfo.processInfo.systemUptime - migrationStartedAt
+        let migrated = Self.residentFootprint()
+        let host = try XCTUnwrap(library.catalogHost)
+        XCTAssertTrue(host.revisions.isReadable, "the catalog is readable after the migration")
+        try await Task.sleep(for: .seconds(2))
+        let settled = Self.residentFootprint()
+
+        let reader = host.reader
+        let readsStartedAt = ProcessInfo.processInfo.systemUptime
+        let counts = try await reader.counts()
+        var pagedRows = 0
+        for order in [LibrarySongSortOrder.title, .artist, .album, .dateAdded] {
+            let list = try await reader.songRowList(order: order)
+            let page = Array(list.rowids.prefix(200))
+            pagedRows += try await reader.songs(rowids: page).count
+        }
+        let albumKeys = try await reader.read { try $0.albumKeys(visibleOnly: true).keys }
+        let albums = try await reader.read { try $0.albums(keys: albumKeys.prefix(200), visibleCounts: true) }
+        let readsMilliseconds = (ProcessInfo.processInfo.systemUptime - readsStartedAt) * 1_000
+        try await Task.sleep(for: .seconds(2))
+        let afterReads = Self.residentFootprint()
+        _ = try await reader.read { catalog -> Bool in catalog.releaseMemory(); return true }
+        try await Task.sleep(for: .seconds(1))
+        let released = Self.residentFootprint()
+        let summary = String(
+            format: "📏 scale catalog songs=%d memoryModel=%.0fMB migration=%.1fs migrationPeak=%.0fMB catalogResident=%.0fMB "
+                + "reads=%.0fms readsResident=%.0fMB released=%.0fMB pagedRows=%d albums=%d/%d visible=%d",
+            library.songs.count,
+            Self.megabytes(memoryModel.current) - Self.megabytes(before.current),
+            migrationSeconds,
+            Self.megabytes(migrated.peak) - Self.megabytes(memoryModel.current),
+            Self.megabytes(settled.current) - Self.megabytes(memoryModel.current),
+            readsMilliseconds,
+            Self.megabytes(afterReads.current) - Self.megabytes(settled.current),
+            Self.megabytes(released.current) - Self.megabytes(settled.current),
+            pagedRows, albums.count, albumKeys.count, counts.visibleSongs
+        )
+        plog(summary)
+        print(summary)
+        XCTAssertEqual(counts.visibleSongs, library.visibleSongs.count)
+        await library.stopCatalogMirror()
+    }
+
     func testScaleFixtureFootprint() async throws {
         guard let directory = Self.scaleDirectory,
               FileManager.default.fileExists(atPath: directory.appendingPathComponent("library-songs.sqlite").path) else {
