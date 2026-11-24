@@ -3759,6 +3759,21 @@ final class SourceManager {
     @ObservationIgnored private var offlineAudioSongIDsByPath: [String: Set<String>] = [:]
     @ObservationIgnored private var offlineAudioCacheRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var offlineAudioSnapshotEntries: [String: OfflineAudioSnapshotEntry] = [:]
+    /// 曲库目录 `songOffline` 里记着的已下载的歌(id → 缓存相对路径),与表里的行一一对应。
+    /// 以下载数为界(不随曲库变大);本次启动对过账(`offlineCatalogMirrorReady`)后才用它回答「已下载」。
+    @ObservationIgnored private var offlineCatalogDownloadedPaths: [String: String] = [:]
+    @ObservationIgnored private var offlineAudioEntryAccess: [String: UInt64] = [:]
+    @ObservationIgnored private var offlineAudioEntryClock: UInt64 = 0
+    @ObservationIgnored private var offlineCatalogMirrorReady = false
+    /// 下载清单里有、库里却对不上歌的路径(歌已删、换了路径),对账时不再为它们整库重填。
+    @ObservationIgnored private var offlineCatalogOrphanPaths: Set<String> = []
+    /// 还没写进 `songOffline` 的变化(nil 表示删)。以下载事件为界;目录不可读或歌还没进目录时留着。
+    @ObservationIgnored private var offlineCatalogPendingWrites: [String: LibraryCatalogOfflineEntry?] = [:]
+    @ObservationIgnored private var offlineCatalogFlushTask: Task<Void, Never>?
+    @ObservationIgnored private var offlineCatalogSyncTask: Task<Void, Never>?
+    @ObservationIgnored private var offlineCatalogSyncRequested = false
+    @ObservationIgnored private var offlineCatalogNameWaiters: [CheckedContinuation<Bool, Never>] = []
+    @ObservationIgnored private var offlineCatalogNamesRegistered = false
     /// Lightweight aggregate used by the source cards. Download progress does
     /// not mutate this set; only entering/leaving the downloading state does.
     private(set) var offlineDownloadingSongIDs: Set<String> = []
@@ -3838,8 +3853,13 @@ final class SourceManager {
     @ObservationIgnored private var legacyAudioCacheAdoptionSourceIDs: Set<String>
     @ObservationIgnored private var needsLegacyAudioCacheAdoptionDiscovery: Bool
     @ObservationIgnored private var audioCacheScopeStateAwaitingRead: Bool
-    @ObservationIgnored private var validatedAudioCacheSourceIDs: Set<String> = []
-    @ObservationIgnored private var blockedAudioCacheSourceIDs: Set<String> = []
+    @ObservationIgnored private var validatedAudioCacheSourceIDs: Set<String> = [] {
+        didSet { if validatedAudioCacheSourceIDs != oldValue { scheduleOfflineCatalogSync() } }
+    }
+    /// 缓存范围通过或被挡下的源变了:离线表跟着对一次账(被挡下的源不算已下载)。
+    @ObservationIgnored private var blockedAudioCacheSourceIDs: Set<String> = [] {
+        didSet { if blockedAudioCacheSourceIDs != oldValue { scheduleOfflineCatalogSync() } }
+    }
     @ObservationIgnored private var audioCacheScopeGenerationBySourceID: [String: Int] = [:]
     @ObservationIgnored private var audioCacheScopeValidationTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var audioCacheScopeReconciliationsInProgress: [String: (generation: Int, task: Task<AudioCacheScopeReconciliationResult, Never>)] = [:]
@@ -3891,6 +3911,15 @@ final class SourceManager {
     }
 
     private func observeLibraryInvalidations() {
+        // 下载清单变了(下载完成、移除、系统清缓存后恢复):离线表对一次账。
+        NotificationCenter.default.addObserver(
+            forName: .primuseOfflineDownloadsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleOfflineCatalogSync() }
+        }
+
         NotificationCenter.default.addObserver(
             forName: .primuseAudioCacheFilesDidChange,
             object: nil,
@@ -8373,6 +8402,7 @@ final class SourceManager {
     /// SourceManager cache dictionary.
     func offlineAudioSnapshotEntry(for song: Song) -> OfflineAudioSnapshotEntry {
         observeOfflineAudioSong(song)
+        noteOfflineAudioEntryUse(song.id)
         guard audioCacheReadsAreAllowed(for: song.sourceID) else {
             if let entry = offlineAudioSnapshotEntries[song.id] {
                 entry.update(.notCached)
@@ -8392,6 +8422,21 @@ final class SourceManager {
         return entry
     }
 
+    /// 歌曲行的观察节点按最近使用留至多 `offlineAudioEntryCapacity` 个:滑过整个大曲库不再每行留一个。
+    /// 屏上的行每次重画都会取一次,被挤掉的是很久没画过的行;它再出现时取到的是新节点和当前状态。
+    private static let offlineAudioEntryCapacity = 4_096
+
+    private func noteOfflineAudioEntryUse(_ songID: String) {
+        offlineAudioEntryClock &+= 1
+        offlineAudioEntryAccess[songID] = offlineAudioEntryClock
+        guard offlineAudioSnapshotEntries.count > Self.offlineAudioEntryCapacity else { return }
+        let keep = Self.offlineAudioEntryCapacity / 2
+        let recent = offlineAudioEntryAccess.sorted { $0.value > $1.value }.prefix(keep).map(\.key)
+        let retained = Set(recent).union(offlineDownloadingSongIDs)
+        offlineAudioSnapshotEntries = offlineAudioSnapshotEntries.filter { retained.contains($0.key) }
+        offlineAudioEntryAccess = offlineAudioEntryAccess.filter { retained.contains($0.key) }
+    }
+
     private func setOfflineAudioSnapshot(
         _ snapshot: OfflineAudioCacheSnapshot,
         for songID: String
@@ -8404,6 +8449,7 @@ final class SourceManager {
         if (previousSnapshot?.isDownloaded ?? false) != snapshot.isDownloaded {
             offlineAudioSnapshotRevision &+= 1
         }
+        noteOfflineCatalogState(songID: songID, snapshot: snapshot)
         let wasDownloading = offlineDownloadingSongIDs.contains(songID)
         if snapshot.isDownloading != wasDownloading {
             if snapshot.isDownloading {
@@ -8425,6 +8471,7 @@ final class SourceManager {
         if wasDownloaded {
             offlineAudioSnapshotRevision &+= 1
         }
+        noteOfflineCatalogState(songID: songID, snapshot: .notCached)
     }
 
     /// Removing a complete source can invalidate thousands of downloaded rows.
@@ -8447,6 +8494,9 @@ final class SourceManager {
             offlineAudioSnapshotEntries[songID]?.update(.notCached)
             offlineAudioSnapshotEntries.removeValue(forKey: songID)
             offlineDownloadingSongIDs.remove(songID)
+        }
+        for songID in songIDs where offlineCatalogDownloadedPaths[songID] != nil {
+            noteOfflineCatalogState(songID: songID, snapshot: .notCached)
         }
         if removedDownloadedSong {
             offlineAudioSnapshotRevision &+= 1
@@ -8653,7 +8703,24 @@ final class SourceManager {
     /// populated missing states. Only explicitly retained downloads belong in
     /// this filter; incidental playback cache has a separate lifetime.
     func downloadedSongIDs(in songs: [Song]) async -> Set<String> {
-        await songIDs(in: songs) { $0.isDownloaded }
+        // 本次启动已与目录的离线表对过账:按表回答(已知状态的以状态为准),不再逐首探测、
+        // 也不为整库每首留一份状态。
+        if offlineCatalogMirrorReady {
+            let snapshots = offlineAudioSnapshots
+            let downloaded = offlineCatalogDownloadedPaths
+            return await Task.detached(priority: .userInitiated) {
+                var matched = Set<String>()
+                for song in songs {
+                    if let snapshot = snapshots[song.id] {
+                        if snapshot.isDownloaded { matched.insert(song.id) }
+                    } else if downloaded[song.id] != nil {
+                        matched.insert(song.id)
+                    }
+                }
+                return matched
+            }.value
+        }
+        return await songIDs(in: songs) { $0.isDownloaded }
     }
 
     /// 本机有完整音频的歌: 下载的和播放留下的缓存都算。缓存同步按这个出清单,
@@ -9232,6 +9299,205 @@ final class SourceManager {
             }, uniquingKeysWith: { first, _ in first })
         }.value
         await AudioCacheManager.shared.setDownloadDisplayNames(names)
+    }
+
+    // MARK: - 离线表(曲库目录 songOffline)
+
+    /// 一首歌的「已下载」变了:记进镜像,排一次写目录(下载、移除、缓存范围变化都走这里)。
+    private func noteOfflineCatalogState(songID: String, snapshot: OfflineAudioCacheSnapshot) {
+        let wasDownloaded = offlineCatalogDownloadedPaths[songID] != nil
+        guard wasDownloaded != snapshot.isDownloaded else { return }
+        if snapshot.isDownloaded {
+            offlineCatalogDownloadedPaths[songID] = offlineAudioObservedSongs[songID]?.path ?? ""
+            offlineCatalogPendingWrites.updateValue(
+                LibraryCatalogOfflineEntry(bytes: snapshot.byteCount ?? 0, updatedAt: Date().timeIntervalSinceReferenceDate),
+                forKey: songID
+            )
+        } else {
+            offlineCatalogDownloadedPaths.removeValue(forKey: songID)
+            offlineCatalogPendingWrites.updateValue(nil, forKey: songID)
+        }
+        scheduleOfflineCatalogFlush()
+    }
+
+    private func scheduleOfflineCatalogFlush() {
+        guard offlineCatalogFlushTask == nil else { return }
+        offlineCatalogFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            await self?.flushOfflineCatalogWrites()
+            self?.offlineCatalogFlushTask = nil
+        }
+    }
+
+    /// 把攒下的变化写进 `songOffline`。对账进行中先不写(对账完再写,顺序在它之后)。
+    private func flushOfflineCatalogWrites() async {
+        guard offlineCatalogSyncTask == nil, !offlineCatalogPendingWrites.isEmpty,
+              let reader = catalogReaderProvider() else { return }
+        let writes = offlineCatalogPendingWrites
+        offlineCatalogPendingWrites = [:]
+        let entries = writes.map { (songID: $0.key, entry: $0.value) }
+        do {
+            let missing = try await reader.read { try $0.setOfflineEntries(entries) }
+            // 目录里还没有的歌(跟写慢一拍):已下载的留着,目录下次变化时再写;期间又变过的以新的为准。
+            for songID in missing where offlineCatalogPendingWrites[songID] == nil {
+                if let value = writes[songID], value != nil {
+                    offlineCatalogPendingWrites.updateValue(value, forKey: songID)
+                }
+            }
+        } catch {
+            for (songID, value) in writes where offlineCatalogPendingWrites[songID] == nil {
+                offlineCatalogPendingWrites.updateValue(value, forKey: songID)
+            }
+            plog("⚠️ Offline catalog write deferred: \(error.localizedDescription)")
+        }
+    }
+
+    /// 曲库目录变了(由 App 的目录观察者调用):整份重建过(导入会清空离线表)、或本次还没对过账,就对一次账;
+    /// 还有没写进去的(歌刚进目录)就再写一次。
+    func offlineCatalogDidChange(invalidatesEverything: Bool) {
+        if invalidatesEverything || !offlineCatalogMirrorReady { scheduleOfflineCatalogSync() }
+        if !offlineCatalogPendingWrites.isEmpty { scheduleOfflineCatalogFlush() }
+    }
+
+    /// 排一次离线表对账(防抖)。
+    func scheduleOfflineCatalogSync() {
+        offlineCatalogSyncRequested = true
+        guard offlineCatalogSyncTask == nil else { return }
+        offlineCatalogSyncTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self else { return }
+            var rounds = 0
+            while self.offlineCatalogSyncRequested, rounds < 3 {
+                self.offlineCatalogSyncRequested = false
+                rounds += 1
+                await self.runOfflineCatalogSync()
+            }
+            self.offlineCatalogSyncTask = nil
+            await self.flushOfflineCatalogWrites()
+            if self.offlineCatalogSyncRequested { self.scheduleOfflineCatalogSync() }
+        }
+    }
+
+    /// 与下载清单对一次账。表是满的:按表载入镜像(以下载数为界),清单里已经没有的删掉;
+    /// 清单里多出、又对不上已知的歌的,整库流式重填一遍(每批只算缓存路径,内存只占一批)。
+    private func runOfflineCatalogSync() async {
+        guard let reader = catalogReaderProvider() else { return }
+        let entries = await AudioCacheManager.shared.offlineDownloadEntries()
+        var readableSourceIDs = Set<String>()
+        let sourceIDs = Set(entries.compactMap { $0.path.split(separator: "/", maxSplits: 1).first.map(String.init) })
+        for sourceID in sourceIDs where await ensureAudioCacheScopeValidated(for: sourceID) {
+            readableSourceIDs.insert(sourceID)
+        }
+        var pinned: [String: Int64] = [:]
+        for entry in entries {
+            guard let sourceID = entry.path.split(separator: "/", maxSplits: 1).first.map(String.init),
+                  readableSourceIDs.contains(sourceID) else { continue }
+            pinned[entry.path] = entry.byteCount
+        }
+        let current = (try? await reader.offlineStateIsCurrent()) ?? false
+        if current {
+            if !offlineCatalogMirrorReady {
+                let load: @Sendable (inout [String: String], Song, LibraryCatalogOfflineEntry) -> Void = { mirror, song, _ in
+                    mirror[song.id] = autoreleasepool { "\(song.sourceID)/" + Self.cacheFileName(for: song) }
+                }
+                guard let loaded = try? await reader.reduceDownloadedSongs(into: [String: String](), load) else { return }
+                offlineCatalogDownloadedPaths = loaded
+            }
+            let knownPaths = Set(offlineCatalogDownloadedPaths.values)
+            let unexplained = Set(pinned.keys).subtracting(knownPaths).subtracting(offlineCatalogOrphanPaths)
+            if unexplained.isEmpty {
+                for (songID, path) in offlineCatalogDownloadedPaths where pinned[path] == nil {
+                    offlineCatalogDownloadedPaths.removeValue(forKey: songID)
+                    offlineCatalogPendingWrites.updateValue(nil, forKey: songID)
+                }
+                offlineCatalogMirrorReady = true
+                await registerOfflineCatalogNames(reader: reader)
+                return
+            }
+        }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let snapshot = pinned
+        do {
+            let mirror = try await reader.read { catalog -> [String: String] in
+                try catalog.beginOfflinePopulation()
+                var mirror: [String: String] = [:]
+                var batch: [(rowid: Int32, entry: LibraryCatalogOfflineEntry?)] = []
+                let now = Date().timeIntervalSinceReferenceDate
+                try catalog.forEachSong(.everything) { rowid, song in
+                    let path = autoreleasepool { "\(song.sourceID)/" + Self.cacheFileName(for: song) }
+                    guard let bytes = snapshot[path] else { return true }
+                    mirror[song.id] = path
+                    batch.append((rowid, LibraryCatalogOfflineEntry(bytes: bytes, updatedAt: now)))
+                    if batch.count >= 500 {
+                        try catalog.setOfflineEntries(rowids: batch)
+                        batch.removeAll(keepingCapacity: true)
+                    }
+                    return true
+                }
+                try catalog.setOfflineEntries(rowids: batch)
+                try catalog.finishOfflinePopulation()
+                return mirror
+            }
+            offlineCatalogDownloadedPaths = mirror
+            offlineCatalogOrphanPaths = Set(snapshot.keys).subtracting(mirror.values)
+            offlineCatalogMirrorReady = true
+            plog(String(
+                format: "📥 Offline catalog populated downloaded=%d orphanPaths=%d ms=%.0f",
+                mirror.count, offlineCatalogOrphanPaths.count, (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+            ))
+            // 填的期间下载清单又变了:再对一次账。
+            let after = await AudioCacheManager.shared.offlineDownloadEntries()
+            if Set(after.map(\.path)) != Set(entries.map(\.path)) { offlineCatalogSyncRequested = true }
+            await registerOfflineCatalogNames(reader: reader)
+        } catch {
+            plog("⚠️ Offline catalog population failed; the song list keeps its own downloaded state: \(error.localizedDescription)")
+        }
+    }
+
+    /// 已下载的歌的显示名交给缓存管理器(原来启动时为整库每首算一遍缓存路径;现在只走已下载的那几行)。
+    private func registerOfflineCatalogNames(reader: LibraryCatalogReader) async {
+        let collect: @Sendable (inout [String: String], Song, LibraryCatalogOfflineEntry) -> Void = { names, song, _ in
+            let path = autoreleasepool { "\(song.sourceID)/" + Self.cacheFileName(for: song) }
+            guard names[path] == nil else { return }
+            names[path] = [song.artistName, song.title].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " - ")
+        }
+        guard let names = try? await reader.reduceDownloadedSongs(into: [String: String](), collect) else { return }
+        await AudioCacheManager.shared.setDownloadDisplayNames(names)
+        offlineCatalogNamesRegistered = true
+        resumeOfflineCatalogNameWaiters(true)
+    }
+
+    /// 离线表一直没能对上账时的老路:为整库逐首算缓存路径,找出已下载的歌登记显示名。
+    func registerDownloadNamesFromLibrary(downloadedPaths: Set<String>) async {
+        let songs = songsProvider()
+        let downloadedSongs = await Task.detached(priority: .utility) {
+            songs.filter { song in
+                autoreleasepool {
+                    downloadedPaths.contains("\(song.sourceID)/" + CacheFileNamePolicy.make(
+                        path: song.filePath, preferredExtension: song.fileFormat.rawValue
+                    ))
+                }
+            }
+        }.value
+        await registerDownloadNames(for: downloadedSongs)
+    }
+
+    /// 等离线表那边把下载显示名登记完(启动时用);超时返回 false,调用方照旧整库登记。
+    func waitForOfflineCatalogNames(timeout: Duration) async -> Bool {
+        if offlineCatalogNamesRegistered { return true }
+        return await withCheckedContinuation { continuation in
+            offlineCatalogNameWaiters.append(continuation)
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: timeout)
+                self?.resumeOfflineCatalogNameWaiters(false)
+            }
+        }
+    }
+
+    private func resumeOfflineCatalogNameWaiters(_ registered: Bool) {
+        let waiters = offlineCatalogNameWaiters
+        offlineCatalogNameWaiters = []
+        for waiter in waiters { waiter.resume(returning: registered) }
     }
 
     nonisolated static func offlineDownloadItems(

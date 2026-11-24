@@ -269,7 +269,6 @@ extension LibraryCatalog {
             DELETE FROM song;
             DELETE FROM songStat;
             DELETE FROM songOffline;
-            DELETE FROM songMaintenance;
             DELETE FROM catalogChange;
             DELETE FROM songArtist; DELETE FROM songArtistLookup; DELETE FROM songGenre; DELETE FROM songBook;
             DELETE FROM folder; DELETE FROM album; DELETE FROM albumSourceStat; DELETE FROM albumArtistCredit;

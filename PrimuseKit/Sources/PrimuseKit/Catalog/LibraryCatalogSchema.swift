@@ -10,8 +10,10 @@ import GRDB
 /// - 目录查询走文件夹树(`folder` + `song.folderKey`),不索引整条路径;
 /// - 库内顺序就是行号顺序(导入按 (orderKey, id) 写、新行追加到尾),索引不再带 orderKey。
 enum LibraryCatalogSchema {
-    /// 目录还没随版本发布,v1 的布局原地替换。
-    static let schemaVersion = 1
+    /// 目录还没随版本发布,v1 的布局原地替换。v2:专辑记下各源的艺人名(`album.sourceArtistNames`)。
+    /// v3:逐首维护表(`songMaintenance`)改按歌曲 id 记,`songOffline` 加离线状态的整表标记
+    /// (见 `LibraryCatalog+Offline.swift`)。
+    static let schemaVersion = 3
 
     /// GRDB 内置的本地化比较(每个连接打开时 GRDB 自动注册)。名字写进索引定义,
     /// 系统语言变了要 `REINDEX` 这两个排序规则。
@@ -28,7 +30,34 @@ enum LibraryCatalogSchema {
                 try db.execute(sql: "ALTER TABLE album ADD COLUMN sourceArtistNames TEXT")
             }
         }
+        migrator.registerMigration("catalog-v3-maintenance") { db in
+            try migrateV3(db)
+        }
     }
+
+    /// v3:标签补读的逐首记账按歌曲 id 记(目录跟写比内存慢一拍,刚进库的歌还没有行号也要能记;
+    /// 导入换行号、删歌都不动它)。`songRowid` 列只为写入方删歌时那句按行号删的语句留着,一直为 NULL。
+    /// 少数行才有的位(失败、待重试、本次启动的暂停……)另有部分索引,数这些位、列出这些行不用扫全表。
+    /// `songOffline` 布局不变:行号为 0 的那一行是「已按当前目录填满」的标记(见 `LibraryCatalog+Offline`)。
+    private static func migrateV3(_ db: Database) throws {
+        try db.execute(sql: """
+            DROP TABLE IF EXISTS songMaintenance;
+            CREATE TABLE songMaintenance (
+                songID TEXT PRIMARY KEY NOT NULL,
+                songRowid INTEGER,
+                flags INTEGER NOT NULL DEFAULT 0,
+                retryCount INTEGER NOT NULL DEFAULT 0,
+                lastAttemptAt REAL,
+                detail TEXT
+            ) WITHOUT ROWID;
+            CREATE INDEX songMaintenance_rowid ON songMaintenance(songRowid) WHERE songRowid IS NOT NULL;
+            CREATE INDEX songMaintenance_rare ON songMaintenance(songID) WHERE \(maintenanceRareTerm);
+            UPDATE catalogMeta SET value = '3' WHERE key = 'schemaVersion';
+            """)
+    }
+
+    /// `songMaintenance_rare` 部分索引的条件。查询里要写成一字不差的同一个表达式,查询规划才用得上它。
+    static let maintenanceRareTerm = "(flags & \(LibraryCatalogMaintenanceFlags.rareStorageMask)) != 0"
 
     private static func createV1(_ db: Database) throws {
         try db.execute(sql: """

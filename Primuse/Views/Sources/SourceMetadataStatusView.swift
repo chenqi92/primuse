@@ -177,7 +177,7 @@ struct SourceMetadataStatusView: View {
         }
         .navigationTitle("metadata_status_title")
         .task(id: backfill.statusRevision) {
-            reload(force: !backfill.hasStatusDisplaySnapshot(forSource: source.id))
+            await reload(force: !backfill.hasStatusDisplaySnapshot(forSource: source.id))
         }
         .onChange(of: selectedFilter) { _, _ in
             scheduleProjection(resetVisibleWindow: true)
@@ -712,7 +712,7 @@ struct SourceMetadataStatusView: View {
                     .font(.subheadline.weight(.semibold))
                 Spacer()
                 Button {
-                    reload(force: true)
+                    Task { await reload(force: true) }
                 } label: {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.caption.weight(.semibold))
@@ -1322,9 +1322,12 @@ struct SourceMetadataStatusView: View {
         return relative.isEmpty ? "/" : "/\(relative)"
     }
 
-    private func reload(force: Bool) {
-        if force { backfill.refreshStatusSnapshot() }
-        sourceItems = backfill.statusDisplayItems(forSource: source.id)
+    /// 展示行不在服务里常驻:每次按这个源现算(主线程外),页面离开就放掉。
+    private func reload(force: Bool) async {
+        if force { await backfill.refreshStatusSnapshotOffMain() }
+        let items = await backfill.loadStatusDisplayItems(forSource: source.id)
+        guard !Task.isCancelled else { return }
+        sourceItems = items
         scheduleProjection(resetVisibleWindow: false)
     }
 
@@ -1396,7 +1399,7 @@ struct SourceMetadataStatusView: View {
                 ? "metadata_status_continue_started"
                 : "metadata_status_no_pending_work")
         }
-        reload(force: true)
+        Task { await reload(force: true) }
     }
 
     private func retryFailedItems() {
@@ -1413,7 +1416,7 @@ struct SourceMetadataStatusView: View {
         } else {
             resultMessage = String(localized: "metadata_status_no_retryable_work")
         }
-        reload(force: true)
+        Task { await reload(force: true) }
     }
 
     private func reread(_ item: MetadataBackfillStatusDisplayItem) {
@@ -1442,7 +1445,7 @@ struct SourceMetadataStatusView: View {
                     MetadataBackfillDisplayRedactionPolicy.redact(reason)
                 )
             }
-            reload(force: true)
+            await reload(force: true)
         }
     }
 

@@ -499,7 +499,8 @@ def scan_text(path, text):
 def tracked_swift_files():
     output = subprocess.run(["git", "-C", ROOT, "ls-files", "-z", "--", "*.swift"],
                             capture_output=True, check=True).stdout.decode()
-    return [p for p in output.split("\0") if p and not p.startswith(SKIP_PREFIXES)]
+    # 合并有冲突时同一个文件会按冲突的几个阶段各列一次,去重,免得计数翻倍。
+    return sorted({p for p in output.split("\0") if p and not p.startswith(SKIP_PREFIXES)})
 
 
 def repo_relative(path):

@@ -1318,6 +1318,12 @@ final class AppServices {
             guard let host = library?.catalogHost, host.revisions.isReadable else { return nil }
             return host.reader
         }
+        // 离线表(`songOffline`)跟着目录:变得可读、整份重建(导入会清空它)时对一次账,歌刚进目录时补写。
+        library.catalogHost?.revisions.addListener { [weak manager] change in
+            guard let manager else { return false }
+            manager.offlineCatalogDidChange(invalidatesEverything: change.invalidatesEverything)
+            return true
+        }
         let scraperSettings = ScraperSettingsStore()
         // 歌词 API 服务器的地址列表经 iCloud 键值同步；CloudKVSSync 只给已登记的键
         // 应用外部变更，所以启动时就把 store 建出来完成登记，别等用户打开设置页。
@@ -2100,10 +2106,18 @@ final class AppServices {
 
         let sourceSnapshot = sourcesStore.allSources
         let songSnapshot = musicLibrary.songs
+        let usesCatalogOfflineState = musicLibrary.catalogHost != nil
         Task { [sourceManager] in
             await AudioCacheManager.shared.warmUp()
             let downloadedPaths = (try? AudioCacheManager.shared.downloadStore.paths()) ?? []
             guard !downloadedPaths.isEmpty else { return }
+            // 带目录时显示名由离线表那边登记(只走已下载的那几行);目录一直没能读就照旧为整库逐首算路径
+            // (到那时才取整库,等待期间不握着启动时那一份)。
+            if usesCatalogOfflineState {
+                if await sourceManager.waitForOfflineCatalogNames(timeout: .seconds(90)) { return }
+                await sourceManager.registerDownloadNamesFromLibrary(downloadedPaths: Set(downloadedPaths))
+                return
+            }
             let downloadedSongs = await Task.detached(priority: .utility) {
                 songSnapshot.filter {
                     downloadedPaths.contains("\($0.sourceID)/" + CacheFileNamePolicy.make(

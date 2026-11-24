@@ -250,7 +250,7 @@ song-id-collection-property	Primuse/Services/Cloud/SongTagEditStore.swift	1
 song-id-collection-property	Primuse/Services/Discovery/SimilarTracksService.swift	2
 song-id-collection-property	Primuse/Services/Library/Catalog/LibraryCatalogShadowVerifier.swift	6
 song-id-collection-property	Primuse/Services/Library/HomeHeroRecommendationModel.swift	1
-song-id-collection-property	Primuse/Services/Library/MetadataBackfillService.swift	22
+song-id-collection-property	Primuse/Services/Library/MetadataBackfillService.swift	11
 song-id-collection-property	Primuse/Services/Library/MusicLibrary.swift	32
 song-id-collection-property	Primuse/Services/Library/PlayHistoryStore.swift	3
 song-id-collection-property	Primuse/Services/Library/ScanService.swift	1
