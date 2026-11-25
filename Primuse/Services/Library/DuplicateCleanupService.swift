@@ -94,8 +94,18 @@ final class DuplicateCleanupService {
 
     @discardableResult
     func retryFailedSource(_ sourceID: String) -> Task<Void, Never>? {
-        let failedIDs = Set(lastSourceFailures.filter { $0.id == sourceID }.flatMap { $0.songs.map(\.id) })
-        return cleanup(library.songs.filter { failedIDs.contains($0.id) && $0.sourceID == sourceID })
+        // 按 id 取回此刻库里的那几首(不走整库),同一首只取一次。
+        let failedIDs = lastSourceFailures.filter { $0.id == sourceID }.flatMap { $0.songs.map(\.id) }
+        return cleanup(currentSongs(ids: failedIDs, sourceID: sourceID))
+    }
+
+    /// 这些 id 此刻在库里、属于 `sourceID` 的歌,按给的先后,同一首只取一次。
+    private func currentSongs(ids: [String], sourceID: String) -> [Song] {
+        var seen = Set<String>()
+        return ids.compactMap { id in
+            guard seen.insert(id).inserted, let song = library.song(id: id), song.sourceID == sourceID else { return nil }
+            return song
+        }
     }
 
     /// Songs of `sourceID` that the user may drop from this device's library
@@ -112,11 +122,9 @@ final class DuplicateCleanupService {
     @discardableResult
     func removeFromThisDeviceOnly(sourceID: String) throws -> Int {
         guard activeTask == nil else { return 0 }
-        let eligibleIDs = Set(deviceLocalRemovableSongs(forSourceID: sourceID).map(\.id))
+        let eligibleIDs = deviceLocalRemovableSongs(forSourceID: sourceID).map(\.id)
         guard !eligibleIDs.isEmpty else { return 0 }
-        let songsToRemove = library.songs.filter {
-            eligibleIDs.contains($0.id) && $0.sourceID == sourceID
-        }
+        let songsToRemove = currentSongs(ids: eligibleIDs, sourceID: sourceID)
         guard !songsToRemove.isEmpty else { return 0 }
 
         let remainingCounts = try library.removeSongsFromThisDevice(
@@ -222,11 +230,11 @@ final class DuplicateCleanupService {
         guard !songs.isEmpty else { return nil }
         let sourceByID = Dictionary(sourcesStore.sources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let requestedIDs = Set(songs.map(\.id))
-        let currentIDs = Set(library.songs.map(\.id))
         let remainingFailures = lastSourceFailures.compactMap { failure -> SourceFailure? in
             var retained = failure
+            // 还在库里的才留着(按 id 查,不为这个建整库 id 集合)。
             retained.retainSongs {
-                !requestedIDs.contains($0.id) && currentIDs.contains($0.id)
+                !requestedIDs.contains($0.id) && library.song(id: $0.id) != nil
             }
             return retained.songs.isEmpty ? nil : retained
         }

@@ -33,7 +33,7 @@ legacy-library-api	Primuse/Services/Library/Catalog/LibraryCatalogReader+P2b.swi
 legacy-library-api	Primuse/Services/Library/Catalog/LibraryCatalogReader+P2d.swift	2
 legacy-library-api	Primuse/Services/Library/Catalog/LibraryCatalogReader.swift	2
 legacy-library-api	Primuse/Services/Library/Catalog/LibraryCatalogShadowVerifier.swift	9
-legacy-library-api	Primuse/Services/Library/DuplicateCleanupService.swift	6
+legacy-library-api	Primuse/Services/Library/DuplicateCleanupService.swift	3
 legacy-library-api	Primuse/Services/Library/FavoriteCollectionStore.swift	6
 legacy-library-api	Primuse/Services/Library/HomeHeroRecommendationModel.swift	1
 legacy-library-api	Primuse/Services/Library/ListeningIntentService.swift	4
