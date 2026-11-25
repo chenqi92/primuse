@@ -65,7 +65,9 @@ struct SongCompactStorageTests {
         #expect(SongStorageLayout.coreFieldsSize + 16 <= 280)
         // The rare box absorbs them without leaving the class it had: 457 → 505
         // bytes with the header, both in the 512-byte class (macOS and the iOS
-        // simulator). A field added here later must not push it past 512.
+        // simulator). `sourceAlbumArtistNames` (+8) fits because the one-byte
+        // `isExternal` now fills the padding after `serverAlbumDateAdded`.
+        // A field added here later must not push it past 512.
         #expect(SongStorageLayout.rareFieldsSize + 16 <= 512)
     }
 

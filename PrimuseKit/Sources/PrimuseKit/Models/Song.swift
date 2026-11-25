@@ -768,9 +768,11 @@ private final class SongCoreWithFilePathAndReplayGain: SongCoreWithFilePath, @un
 private final class SongRareFields: Hashable, Sendable {
     struct Values: Hashable, Sendable {
         var sourceAlbumArtistNames: [String]?
+        // `Date?` 占 9 字节、后面按 8 字节对齐留出 7 字节空隙:一字节的 `isExternal` 紧跟在它后面
+        // 正好填进去,整个盒子(含 16 字节头)才留在 512 字节那一档(`SongCompactStorageTests`)。
         var serverAlbumDateAdded: Date?
-        var serverCatalogAlbum: ServerCatalogAlbumReference?
         var isExternal: Bool?
+        var serverCatalogAlbum: ServerCatalogAlbumReference?
         var serverLibraryID: String?
         var titlePinyin: String?
         var artistPinyin: String?
