@@ -121,6 +121,8 @@ struct MacNowPlayingView: View {
     @State private var preferences = MacUIPreferences.shared
     @State private var libraryActions = NowPlayingLibraryActions()
     @State private var showsAudioDetails = false
+    @State private var commentServerStore = CommentAPIServerStore.shared
+    @State private var showComments = false
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
@@ -447,6 +449,9 @@ struct MacNowPlayingView: View {
             LyricLineCommentsSheet(presentation: presentation,
                 song: library.storedSong(id: presentation.songID) ?? (player.currentSong?.id == presentation.songID ? player.currentSong : nil))
                 .playerPresentationColorScheme()
+        }
+        .sheet(isPresented: $showComments) {
+            SongCommentsSheet(song: player.currentSong)
         }
         .task(id: lyricsLoadTaskIdentity) {
             let identity = lyricsLoadTaskIdentity
@@ -1995,6 +2000,19 @@ struct MacNowPlayingView: View {
                 .help(Text(videoShown ? "spoken_word_video_hide" : "spoken_word_video_show"))
                 .accessibilityLabel(Text(videoShown ? "spoken_word_video_hide" : "spoken_word_video_show"))
                 .disabled(player.isLoading)
+            }
+
+            // 评论入口：仅在配置并启用评论 API 服务且当前为音乐时展示。
+            if commentServerStore.hasEnabledServers, !isSpokenWord, !player.isLiveRadio, player.currentSong != nil {
+                Button {
+                    showComments = true
+                } label: {
+                    circleIcon("bubble.left.and.text.bubble.right")
+                }
+                .buttonStyle(.plain)
+                .pmGlassControl(Circle())
+                .help(Text("comments_view_action"))
+                .accessibilityLabel(Text("comments_view_action"))
             }
 
             // This filled icon represents the lyrics view that is already

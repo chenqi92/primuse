@@ -64,6 +64,8 @@ struct TVNowPlayingView: View {
     private var showsReplayGainBadge = PlayerAppearancePreferences.showsReplayGainBadgeByDefault
     /// 播放控制里的「歌词翻译」键打开的面板。
     @State private var showTranslation = false
+    @State private var commentServerStore = CommentAPIServerStore.shared
+    @State private var showComments = false
     @AppStorage(TVLyricsFontLevel.storageKey)
     private var lyricsFontLevelRawValue = TVLyricsFontLevel.standard.rawValue
     @Environment(\.accessibilityReduceTransparency) private var reduceLyricsTransparency
@@ -121,7 +123,7 @@ struct TVNowPlayingView: View {
     private let immersiveIdleThreshold: TimeInterval = 20
 
     private var activePresentationCount: Int {
-        [showOptions, showsAudioDetails, showTranslation, showImmersive, showSpokenWordRate, showSpokenWordSleep, artistLink != nil]
+        [showOptions, showsAudioDetails, showTranslation, showComments, showImmersive, showSpokenWordRate, showSpokenWordSleep, artistLink != nil]
             .filter { $0 }.count
     }
 
@@ -252,6 +254,9 @@ struct TVNowPlayingView: View {
         .tvFullScreenCover(isPresented: $showTranslation) {
             TVLyricsTranslationPanel().environment(store).environment(intelligence)
         }
+        .tvFullScreenCover(isPresented: $showComments) {
+            TVSongCommentsView().environment(store)
+        }
         .tvFullScreenCover(isPresented: $showsAudioDetails, onDismiss: registerInteraction) {
             VStack(alignment: .leading, spacing: 28) {
                 Text(store.nowPlaying.title).font(.title2).lineLimit(2)
@@ -328,7 +333,7 @@ struct TVNowPlayingView: View {
                       !store.isLiveRadio, !store.isMusicVideoPlaybackActive,
                       !store.currentItemIsSpokenWord,
                       fullscreenPlayerEffect != .native,
-                      !showImmersive, !showShelf, !showOptions, !showTranslation, !showsAudioDetails,
+                      !showImmersive, !showShelf, !showOptions, !showTranslation, !showComments, !showsAudioDetails,
                       !scrubberFocused else { continue }
                 if interactionClock.secondsSinceLastInteraction >= immersiveIdleThreshold {
                     presentImmersivePlayer(isUserInitiated: false)
@@ -1424,6 +1429,14 @@ struct TVNowPlayingView: View {
                         ? (translation.intelligentIssue?.explanation ?? translation.activity.statusText ?? "")
                         : ""))
                     .accessibilityIdentifier("tv.nowPlaying.lyricsTranslation")
+            }
+            if commentServerStore.hasEnabledServers, !isSpokenWord, !store.isLiveRadio, store.currentSongID != nil {
+                TVRoundBtn(icon: "bubble.left.and.text.bubble.right", size: 56,
+                           immersiveDark: immersiveDark,
+                           accessibilityLabel: String(localized: "comments_view_action"),
+                           focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.comments.rawValue,
+                           onInteraction: rowInteraction(.comments)) { showComments = true }
+                    .accessibilityIdentifier("tv.nowPlaying.comments")
             }
             // 浏览 / 沉浸 / 更多在同一行——和传输键焦点左右线性可达,不再困在右上角。
             // 浏览替代原来的队列按钮:「接下来」就是货架的第一栏。
@@ -2563,7 +2576,7 @@ final class TVCoveredPlaybackSnapshot {
 
 /// 播放页传输键这一行里没有接进 `TVNowPlayingFocusTarget` 的圆键。
 enum TVPlayerRowControl: String {
-    case like, shuffle, musicVideo, repeatMode, translation, browse, immersive, more
+    case like, shuffle, musicVideo, repeatMode, translation, comments, browse, immersive, more
 }
 
 /// 货架收起后焦点回到哪颗键。

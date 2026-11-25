@@ -258,6 +258,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "scraping.import", titleKey: "import_scraper_source", iosPage: .scraping, macPage: .scraping, keywords: ["Import"]),
         SettingDefinition(id: "scraping.fieldRules", titleKey: "scrape_field_rules", iosPage: .scraping, macPage: .scraping, keywords: ["Fill Missing Fields Only"]),
         SettingDefinition(id: "scraping.lyricsServers", titleKey: "scraper_lyrics_server_name", iosPage: .scraping, macPage: .scraping, keywords: ["Lyrics API Servers", "LrcApi", "API", "lyrics_server_list"], anchor: "scraping.sources", macAnchor: "scraping.sources"),
+        SettingDefinition(id: "comments.servers", titleKey: "comments_service_title", iosPage: .comments, macPage: .comments, keywords: ["comments", "comment API", "评论", "评论服务", "评论源", "API"]),
         SettingDefinition(id: "scraping.autoOnlineLyrics", titleKey: "auto_online_lyrics", iosPage: .scraping, macPage: .scraping, keywords: ["Auto-Fetch Online Lyrics"]),
         SettingDefinition(id: "scraping.reset", titleKey: "reset_scraper_defaults", iosPage: .scraping, macPage: .scraping, keywords: ["Restore Defaults"]),
         SettingDefinition(id: "scraping.fillMissing", titleKey: "scrape_missing_metadata", iosPage: .scraping, macPage: .scraping, keywords: ["Fill Missing"]),

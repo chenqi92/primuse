@@ -45,6 +45,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var transcriptGenerationSong: Song?
     @State private var currentHasTranscript: Bool?
     @State private var showSimilarSongs = false
+    @State private var commentServerStore = CommentAPIServerStore.shared
+    @State private var showComments = false
     @State private var showSleepTimer = false
     @State private var showChapterList = false
     @State private var showKaraoke = false
@@ -154,6 +156,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
         .sheet(isPresented: $showKaraoke) {
             KaraokeStageView()
+        }
+        .sheet(isPresented: $showComments) {
+            SongCommentsSheet(song: player.currentSong)
         }
         .modifier(PlayerMoreMenuTranscriptGeneration(
             songID: player.currentSong?.id,
@@ -404,6 +409,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                         }
                         .focusEffectDisabled()
                     }
+                }
+            }
+            if commentServerStore.hasEnabledServers, !isSpokenWord, !player.isLiveRadio, player.currentSong != nil {
+                menuRow(title: "comments_view_action", symbol: "bubble.left.and.text.bubble.right") {
+                    showComments = true
                 }
             }
             if player.canDislikeCurrentSong {

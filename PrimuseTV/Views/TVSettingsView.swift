@@ -127,6 +127,7 @@ struct TVSettingsView: View {
     @State private var confirmsWordAlignmentModelRemoval = false
     @State private var showsScraperSettings = tvDebugShowsScraperSettings
     @State private var showsScrobbleSettings = tvDebugShowsScrobbleSettings
+    @State private var showsCommentSettings = false
     @State private var showsMedleySettings = false
     @State private var showsTabBarSettings = false
     @State private var showsHomeSectionsSettings = false
@@ -465,6 +466,12 @@ struct TVSettingsView: View {
                             }
                             .accessibilityIdentifier("tv.settings.scrobble")
                             settingDivider
+                            navRow("bubble.left.and.text.bubble.right", String(localized: "comments_service_title"), TVCommentSettingsView.summary,
+                                   note: .app("comments_server_privacy_footer")) {
+                                showsCommentSettings = true
+                            }
+                            .accessibilityIdentifier("tv.settings.comments")
+                            settingDivider
                             navRow("music.note", PMString("ext.tv.settings.library"), libraryStat, kind: .library) { go(.library) }
                             settingDivider
                             infoRow(
@@ -614,6 +621,7 @@ struct TVSettingsView: View {
             TVScraperSettingsView().environment(store)
         }
         .tvFullScreenCover(isPresented: $showsScrobbleSettings) { TVScrobbleSettingsView() }
+        .tvFullScreenCover(isPresented: $showsCommentSettings) { TVCommentSettingsView() }
         .preferredColorScheme(appearance.colorScheme)
         .confirmationDialog(PMString("default_artwork_title"), isPresented: $showsDefaultArtworkPicker, titleVisibility: .visible) {
             ForEach(MissingArtworkStyle.allCases, id: \.self) { style in
@@ -647,6 +655,8 @@ struct TVSettingsView: View {
                 showsScraperSettings = false
             } else if showsScrobbleSettings {
                 showsScrobbleSettings = false
+            } else if showsCommentSettings {
+                showsCommentSettings = false
             } else if showsTranslationPanel {
                 showsTranslationPanel = false
             } else if showsAISettings {

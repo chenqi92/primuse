@@ -1097,3 +1097,6 @@
 "fullscreen_effect_watercolor_theater" = "水彩小劇場";
 "fullscreen_effect_watercolor_theater_subtitle" = "四個紙偶小夥伴在手繪水彩舞台上跟著歌搖擺、跟唱、打鼓，每句歌詞換一個鏡頭";
 "fullscreen_effect_watercolor_theater_motion" = "隨拍子、能量和歌詞換動作 · 墨線每秒抖動十二次";
+
+/* Comment API Servers */
+"ext.lanSettings.category.commentServers" = "評論 API 服務";

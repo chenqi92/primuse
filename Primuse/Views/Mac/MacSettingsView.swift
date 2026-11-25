@@ -11,7 +11,7 @@ import PrimuseKit
 /// system as the design instead of embedding the older grouped Forms.
 enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
     case playback, storage, equalizer, effects, keyboard, theme
-    case scrape, artists, lyrics, appleMusic, scrobble, intelligence, widgets, cloud, deleted, ssl, siri, about
+    case scrape, artists, lyrics, appleMusic, scrobble, comments, intelligence, widgets, cloud, deleted, ssl, siri, about
 
     var id: String { rawValue }
 
@@ -27,6 +27,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .lyrics: return String(localized: "lyrics_settings_title")
         case .appleMusic: return "Apple Music"
         case .scrobble: return SettingsPage.scrobble.title
+        case .comments: return SettingsPage.comments.title
         case .intelligence: return String(localized: "ai_settings_title")
         case .widgets: return Lz("Widgets")
         case .cloud: return "iCloud"
@@ -50,6 +51,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .lyrics: return "character.bubble"
         case .appleMusic: return "music.note"
         case .scrobble: return "waveform.path.ecg"
+        case .comments: return "bubble.left.and.text.bubble.right"
         case .intelligence: return "sparkles"
         case .widgets: return "rectangle.grid.2x2"
         case .cloud: return "icloud"
@@ -73,6 +75,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .lyrics: return "ST-05"
         case .appleMusic: return "ST-06"
         case .scrobble: return "ST-17"
+        case .comments: return "ST-18"
         case .intelligence: return "ST-14"
         case .widgets: return "ST-07"
         case .cloud: return "ST-08"
@@ -130,6 +133,7 @@ extension SettingsPage {
         case .lyrics, .transcription: .lyrics
         case .appleMusic: .appleMusic
         case .scrobble: .scrobble
+        case .comments: .comments
         case .intelligence: .intelligence
         case .widgets: .widgets
         case .cloud: .cloud
@@ -156,6 +160,7 @@ private extension MacSettingsTab {
         case .lyrics: .lyrics
         case .appleMusic: .appleMusic
         case .scrobble: .scrobble
+        case .comments: .comments
         case .intelligence: .intelligence
         case .widgets: .widgets
         case .cloud: .cloud
@@ -403,6 +408,8 @@ struct MacSettingsView: View {
             MacSTAppleMusicView()
         case .scrobble:
             ScrobbleSettingsView()
+        case .comments:
+            CommentAPIServersView()
         case .intelligence:
             MacSTIntelligenceView()
         case .widgets:

@@ -1328,6 +1328,7 @@ final class AppServices {
         // 歌词 API 服务器的地址列表经 iCloud 键值同步；CloudKVSSync 只给已登记的键
         // 应用外部变更，所以启动时就把 store 建出来完成登记，别等用户打开设置页。
         _ = LyricsAPIServerStore.shared
+        _ = CommentAPIServerStore.shared
         let scanService = ScanService(defersSyncStateLoading: true)
         manager.prepareFileRenameHandler = { [weak scanService] sourceID in
             guard let scanService else { throw CancellationError() }

@@ -1098,3 +1098,6 @@
 "fullscreen_effect_watercolor_theater" = "Watercolor Theater";
 "fullscreen_effect_watercolor_theater_subtitle" = "Four little puppets sway, sing along and drum on a hand-painted watercolor stage, with a new shot for every lyric line";
 "fullscreen_effect_watercolor_theater_motion" = "Moves follow the beat, energy and lyrics · Ink lines redrawn 12 times a second";
+
+/* Comment API Servers */
+"ext.lanSettings.category.commentServers" = "Comment API servers";

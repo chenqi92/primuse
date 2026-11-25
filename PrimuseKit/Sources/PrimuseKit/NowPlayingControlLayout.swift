@@ -29,6 +29,8 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
     /// 横竖屏切换:竖屏时转到横屏,横屏时转回竖屏,不用等手机转过去。只有手机上有,
     /// 平板、展开的折叠屏内屏和 Mac 上这一格当作空着(配置在 iPhone 与 iPad 之间同步)。
     case orientation
+    /// 查看歌曲评论:仅在配置并启用评论 API 服务时显示,点开底部弹框。
+    case comments
 
     public var id: String { rawValue }
 
@@ -54,7 +56,7 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
     public var duplicatesMenuItem: Bool {
         switch self {
         case .dislike, .sleepTimer, .equalizer, .playbackSpeed, .karaoke,
-             .fullScreen, .addToPlaylist, .share, .cast:
+             .fullScreen, .addToPlaylist, .share, .cast, .comments:
             true
         case .like, .lyrics, .airPlay, .queue, .shuffle, .repeatMode, .playMode, .abRepeat, .queueBookmark,
              .orientation:
@@ -220,6 +222,8 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case orientation
     /// 有声书的单章循环开关。
     case repeatChapter
+    /// 查看歌曲评论:仅在配置并启用评论 API 服务时出现。
+    case comments
 
     public var id: String { rawValue }
 

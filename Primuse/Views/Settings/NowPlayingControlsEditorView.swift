@@ -2026,7 +2026,7 @@ private struct NowPlayingMenuItemsEditor: View {
         ("player_menu_group_quick", [.like, .fullScreen, .immersiveFaceToggle, .share, .addToPlaylist, .delete]),
         ("player_menu_group_modes", [.shuffle, .shufflePreference, .repeatMode, .karaoke, .singAlong, .medley, .continueMedley]),
         ("player_menu_group_song", [
-            .scrape, .reloadLyrics, .similarSongs, .dislike, .playbackRange, .clipExport, .shuffleLink,
+            .scrape, .reloadLyrics, .similarSongs, .comments, .dislike, .playbackRange, .clipExport, .shuffleLink,
             .editTags, .editLyrics, .exportText,
         ]),
         ("player_menu_group_go", [.showInLibrary, .songInfo, .goToAlbum, .goToArtist, .openInAppleMusic]),
@@ -2207,12 +2207,18 @@ extension NowPlayingMenuItem {
         case .singAlong: KaraokeSingAlongText.symbol
         case .orientation: "rectangle.landscape.rotate"
         case .repeatChapter: "repeat.1"
+        case .comments: "bubble.left.and.text.bubble.right"
         }
     }
 
-    /// 这台设备的编辑页里列不列出来:横竖屏切换只在手机上列。
+    /// 这台设备的编辑页里列不列出来:横竖屏切换只在手机上列;评论仅在配置了评论源时列。
+    @MainActor
     var isOfferedInEditor: Bool {
-        self != .orientation || NowPlayingControlsEditorView.offersOrientationControl
+        switch self {
+        case .orientation: NowPlayingControlsEditorView.offersOrientationControl
+        case .comments: CommentAPIServerStore.shared.hasEnabledServers
+        default: true
+        }
     }
 
     var editorTitleKey: LocalizedStringKey {
@@ -2279,6 +2285,7 @@ extension NowPlayingMenuItem {
         case .singAlong: "sing_along_title"
         case .orientation: "player_controls_action_orientation"
         case .repeatChapter: "spoken_word_repeat_chapter"
+        case .comments: "comments_view_action"
         }
     }
 }
@@ -2506,12 +2513,18 @@ extension NowPlayingControlAction {
         case .abRepeat: "selection.pin.in.out"
         case .queueBookmark: "bookmark"
         case .orientation: "rectangle.landscape.rotate"
+        case .comments: "bubble.left.and.text.bubble.right"
         }
     }
 
-    /// 这台设备的编辑页里列不列出来:横竖屏切换只在手机上列。
+    /// 这台设备的编辑页里列不列出来:横竖屏切换只在手机上列;评论仅在配置了评论源时列。
+    @MainActor
     var isOfferedInEditor: Bool {
-        self != .orientation || NowPlayingControlsEditorView.offersOrientationControl
+        switch self {
+        case .orientation: NowPlayingControlsEditorView.offersOrientationControl
+        case .comments: CommentAPIServerStore.shared.hasEnabledServers
+        default: true
+        }
     }
 
     var editorTitleKey: LocalizedStringKey {
@@ -2535,6 +2548,7 @@ extension NowPlayingControlAction {
         case .abRepeat: "ab_repeat"
         case .queueBookmark: "queue_bookmark_save"
         case .orientation: "player_controls_action_orientation"
+        case .comments: "comments_view_action"
         }
     }
 }

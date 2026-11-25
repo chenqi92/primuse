@@ -42,6 +42,16 @@ enum LANSettingsExporter {
                 if let encoded = try? JSONEncoder().encode(settings.strippingCredentials()) {
                     bundle.values[key] = LANSettingsBundle.encodeValue(encoded)
                 }
+            case LANSettingsTransferPolicy.commentAPIServersKey:
+                guard defaults.object(forKey: key) != nil else { continue }
+                let settings = CommentAPIServerSettings.load(defaults: defaults)
+                for server in settings.hydratingCredentials().servers {
+                    guard let authorization = server.authorization, !authorization.isEmpty else { continue }
+                    secrets[CommentAPIServerCredentialStore.account(for: server.id)] = authorization
+                }
+                if let encoded = try? JSONEncoder().encode(settings.strippingCredentials()) {
+                    bundle.values[key] = LANSettingsBundle.encodeValue(encoded)
+                }
             default:
                 guard let value = defaults.object(forKey: key) else { continue }
                 bundle.values[key] = LANSettingsBundle.encodeValue(value)
@@ -150,6 +160,7 @@ enum LANSettingsExporter {
     private static func assertPolicyKeysMatchApp() {
         assert(LANSettingsTransferPolicy.scraperSettingsKey == ScraperSettings.defaultsKey)
         assert(LANSettingsTransferPolicy.lyricsAPIServersKey == LyricsAPIServerSettings.defaultsKey)
+        assert(LANSettingsTransferPolicy.commentAPIServersKey == CommentAPIServerSettings.defaultsKey)
         assert(LANSettingsTransferPolicy.aiSettingsKey == AISettingsStore.storageKey)
         assert(LANSettingsTransferPolicy.lyricsTranscriptionKey == LyricsTranscriptionSettingsStore.storageKey)
         assert(LANSettingsTransferPolicy.playerEffectKey == FullscreenPlayerEffect.storageKey)

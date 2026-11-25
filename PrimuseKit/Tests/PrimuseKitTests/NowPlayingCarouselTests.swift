@@ -6,26 +6,28 @@ import Testing
 struct NowPlayingCarouselConfigurationTests {
     private typealias Configuration = NowPlayingCarouselConfiguration
 
-    @Test("默认关闭,没改过时左边调音、发现,右边接下来、舞台;歌词不在默认排布里")
+    @Test("默认关闭,没改过时左边调音、发现,右边接下来、舞台;歌词与评论不在默认排布里")
     func defaults() {
         #expect(Configuration.enabledByDefault == false)
         #expect(Configuration.decode("") == .default)
         #expect(Configuration.decode("   ") == .default)
         #expect(Configuration.default.leading == [.sound, .explore])
         #expect(Configuration.default.trailing == [.upNext, .stage])
-        #expect(Configuration.default.unassigned == [.lyrics])
+        #expect(Configuration.default.unassigned == [.lyrics, .comments])
     }
 
-    @Test("老用户存下的排布读回来不变,歌词只出现在可添加的里")
+    @Test("老用户存下的排布读回来不变,歌词与评论只出现在可添加的里")
     func existingLayoutsKeepTheirOrder() {
         let customized = Configuration.decode("explore|stage,upNext")
         #expect(customized.leading == [.explore])
         #expect(customized.trailing == [.stage, .upNext])
-        #expect(customized.unassigned == [.sound, .lyrics])
-        // 旧版六页的名字照旧并进四个面,不会冒出歌词。
+        #expect(customized.unassigned == [.sound, .lyrics, .comments])
+        // 旧版六页的名字照旧并进四个面,不会冒出歌词或评论。
         let legacy = Configuration.decode("equalizer,similarSongs|queue,karaoke")
         #expect(legacy.side(of: .lyrics) == nil)
+        #expect(legacy.side(of: .comments) == nil)
         #expect(NowPlayingCarouselPanel.migrated(legacyName: "lyrics") == nil)
+        #expect(NowPlayingCarouselPanel.migrated(legacyName: "comments") == nil)
     }
 
     @Test("歌词加到哪一边都紧挨播放器,也能存下读回、换顺序")
@@ -129,7 +131,7 @@ struct NowPlayingCarouselConfigurationTests {
         configuration.remove(.sound)
         #expect(configuration.leading == [.stage])
         #expect(configuration.side(of: .sound) == nil)
-        #expect(configuration.unassigned == [.sound, .explore, .upNext, .lyrics])
+        #expect(configuration.unassigned == [.sound, .explore, .upNext, .lyrics, .comments])
 
         var full = Configuration(leading: [.sound, .explore, .upNext, .stage], trailing: [])
         #expect(!full.canAdd(to: .leading))

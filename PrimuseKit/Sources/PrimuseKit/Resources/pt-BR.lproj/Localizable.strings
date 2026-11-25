@@ -1047,3 +1047,6 @@
 "fullscreen_effect_watercolor_theater" = "Teatrinho em aquarela";
 "fullscreen_effect_watercolor_theater_subtitle" = "Quatro bonequinhos de papel balançam, cantam junto e tocam bateria num palco pintado em aquarela, com uma cena nova a cada verso";
 "fullscreen_effect_watercolor_theater_motion" = "Os movimentos seguem a batida, a energia e a letra · Traços de nanquim redesenhados 12 vezes por segundo";
+
+/* Comment API Servers */
+"ext.lanSettings.category.commentServers" = "Servidores de API de comentários";

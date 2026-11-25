@@ -10,6 +10,7 @@ struct TVOptionsView: View {
     /// 给了就显示「前往」一组:选了之后收起本层,由播放页升起货架的对应一栏。
     var onGoTo: ((TVPlayerShelfTab) -> Void)? = nil
     @State private var showKaraoke = false
+    @State private var showComments = false
     @State private var showMedleySettings = false
     @State private var pendingMedleyIDs: [String]?
     @State private var matchTarget: TVSongMatchTarget?
@@ -97,6 +98,11 @@ struct TVOptionsView: View {
         if store.currentSongID != nil, !isSpokenWord, !store.isMedleyActive {
             song.append(.init(id: "karaoke", icon: "music.mic", label: String(localized: "karaoke_title"),
                               run: { showKaraoke = true }))
+        }
+        if CommentAPIServerStore.shared.hasEnabledServers, store.currentSongID != nil, !isSpokenWord, !store.isLiveRadio {
+            song.append(.init(id: "comments", icon: "bubble.left.and.text.bubble.right",
+                              label: String(localized: "comments_view_action"),
+                              run: { showComments = true }))
         }
         // 歌词字号:按一下换下一档,和睡眠定时一样就地循环。
         if !isSpokenWord, !store.isLiveRadio {
@@ -353,6 +359,9 @@ struct TVOptionsView: View {
         }
         .tvFullScreenCover(isPresented: $showKaraoke) {
             TVKaraokeStageView()
+        }
+        .tvFullScreenCover(isPresented: $showComments) {
+            TVSongCommentsView().environment(store)
         }
         .tvFullScreenCover(isPresented: $showMedleySettings) { TVMedleySettingsView() }
         .tvFullScreenCover(item: $matchTarget) { target in

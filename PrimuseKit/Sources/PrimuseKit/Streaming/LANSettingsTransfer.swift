@@ -108,6 +108,7 @@ public struct LANBackdropImageEntry: Codable, Sendable, Equatable {
 public enum LANSettingsCategory: String, CaseIterable, Sendable, Comparable {
     case scraping
     case lyricsServers
+    case commentServers
     case intelligence
     case artistNames
     case playerEffect
@@ -121,7 +122,7 @@ public enum LANSettingsCategory: String, CaseIterable, Sendable, Comparable {
 }
 
 /// 扫码直传放行哪些设置。规则是「同一个 Apple ID 的 Apple TV 经 iCloud 能收到、电视又用得上的」:
-/// 刮削、歌词 API 服务、智能功能(含推荐意图)、艺术家名称规则、沉浸风格、播放页背景(连同
+/// 刮削、歌词 API 服务、评论 API 服务、智能功能(含推荐意图)、艺术家名称规则、沉浸风格、播放页背景(连同
 /// 「我的图片」)。播放设置(电视没有淡入淡出、回放增益、均衡器)、歌词字号、搜索记录、电台订阅
 /// 不带;证书信任、同步开关这类按设备做的决定更不能带 —— 电视收到不在表里的键一律丢掉。
 ///
@@ -130,6 +131,7 @@ public enum LANSettingsCategory: String, CaseIterable, Sendable, Comparable {
 public enum LANSettingsTransferPolicy {
     public static let scraperSettingsKey = "primuse_scraper_settings_v3"
     public static let lyricsAPIServersKey = "primuse_lyrics_api_servers_v1"
+    public static let commentAPIServersKey = "primuse_comment_api_servers_v1"
     public static let aiSettingsKey = "ai.settings.v1"
     public static let lyricsTranscriptionKey = "lyrics.transcription.settings.v1"
     public static let playerEffectKey = "primuse.fullscreenPlayerEffect"
@@ -162,6 +164,7 @@ public enum LANSettingsTransferPolicy {
     private static let valueCategories: [String: LANSettingsCategory] = [
         scraperSettingsKey: .scraping,
         lyricsAPIServersKey: .lyricsServers,
+        commentAPIServersKey: .commentServers,
         aiSettingsKey: .intelligence,
         lyricsTranscriptionKey: .intelligence,
         AIRecommendationIntentStoragePolicy.storageKey: .intelligence,
@@ -192,6 +195,10 @@ public enum LANSettingsTransferPolicy {
         if account.hasPrefix("lyrics.apiServer."), account.hasSuffix(".authorization"),
            account.count > "lyrics.apiServer.".count + ".authorization".count {
             return .lyricsServers
+        }
+        if account.hasPrefix("comments.apiServer."), account.hasSuffix(".authorization"),
+           account.count > "comments.apiServer.".count + ".authorization".count {
+            return .commentServers
         }
         if account.hasPrefix("ai.provider."), account.hasSuffix(".apiKey"),
            account.count > "ai.provider.".count + ".apiKey".count {

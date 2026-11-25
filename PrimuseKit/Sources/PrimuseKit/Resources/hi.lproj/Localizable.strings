@@ -1047,3 +1047,6 @@
 "fullscreen_effect_watercolor_theater" = "जलरंग रंगमंच";
 "fullscreen_effect_watercolor_theater_subtitle" = "हाथ से बने जलरंग मंच पर चार काग़ज़ी कठपुतलियाँ गाने के साथ झूमती, गाती और ड्रम बजाती हैं, और हर पंक्ति पर दृश्य बदलता है";
 "fullscreen_effect_watercolor_theater_motion" = "हरकतें बीट, ऊर्जा और बोलों के साथ बदलती हैं · स्याही की रेखाएँ हर सेकंड 12 बार फिर से बनती हैं";
+
+/* Comment API Servers */
+"ext.lanSettings.category.commentServers" = "टिप्पणी API सर्वर";

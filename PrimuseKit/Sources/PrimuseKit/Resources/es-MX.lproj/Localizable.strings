@@ -1047,3 +1047,6 @@
 "fullscreen_effect_watercolor_theater" = "Teatrito de acuarela";
 "fullscreen_effect_watercolor_theater_subtitle" = "Cuatro titeritos de papel se mecen, cantan y tocan la batería en un escenario pintado en acuarela, con una toma nueva en cada línea de la letra";
 "fullscreen_effect_watercolor_theater_motion" = "Los movimientos siguen el ritmo, la energía y la letra · Trazos de tinta redibujados 12 veces por segundo";
+
+/* Comment API Servers */
+"ext.lanSettings.category.commentServers" = "Servidores de API de comentarios";

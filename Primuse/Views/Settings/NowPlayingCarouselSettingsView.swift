@@ -11,9 +11,14 @@ struct NowPlayingCarouselSettingsView: View {
     @AppStorage(NowPlayingCarouselCardSettings.storageKey) private var cardStorage = ""
     @AppStorage(NowPlayingCarouselConfiguration.showsNowPlayingStripStorageKey)
     private var showsNowPlayingStrip = NowPlayingCarouselConfiguration.showsNowPlayingStripByDefault
+    @State private var commentServerStore = CommentAPIServerStore.shared
 
     private var configuration: NowPlayingCarouselConfiguration { .decode(storage) }
     private var cardSettings: NowPlayingCarouselCardSettings { .decode(cardStorage) }
+    /// 未配置评论源时不展示「评论」可添加项。
+    private var availablePanels: [NowPlayingCarouselPanel] {
+        configuration.unassigned.filter { $0 != .comments || commentServerStore.hasEnabledServers }
+    }
 
     var body: some View {
         Form {
@@ -32,9 +37,9 @@ struct NowPlayingCarouselSettingsView: View {
             sideSection(.leading)
             sideSection(.trailing)
 
-            if !configuration.unassigned.isEmpty {
+            if !availablePanels.isEmpty {
                 Section {
-                    ForEach(configuration.unassigned) { panel in
+                    ForEach(availablePanels) { panel in
                         HStack(spacing: 12) {
                             NowPlayingCarouselPanelIcon(panel: panel)
                             panelLabel(panel)

@@ -1100,3 +1100,6 @@
 "fullscreen_effect_watercolor_theater" = "Petit théâtre aquarelle";
 "fullscreen_effect_watercolor_theater_subtitle" = "Quatre petites marionnettes de papier se balancent, chantent et jouent de la batterie sur une scène peinte à l’aquarelle, avec un nouveau plan à chaque ligne de paroles";
 "fullscreen_effect_watercolor_theater_motion" = "Les gestes suivent le rythme, l’énergie et les paroles · Traits d’encre redessinés 12 fois par seconde";
+
+/* Comment API Servers */
+"ext.lanSettings.category.commentServers" = "Serveurs d'API de commentaires";

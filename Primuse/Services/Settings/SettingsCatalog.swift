@@ -42,7 +42,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     case themeColor, fullscreen, appIcon, playerStyle
     case sources, scraping, artists, duplicates, deleted, storage
     case cacheSync, cloud, family, appleTV, relay, dlna
-    case intelligence, appleMusic, scrobble, siri, carplay
+    case intelligence, appleMusic, scrobble, comments, siri, carplay
     case domains, about, diagnostics, licenses, keyboard, widgets
 
     var id: String { "page." + rawValue }
@@ -57,7 +57,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
              .widgets, .playerStyle: .appearance
         case .cloud, .family: .sync
         // Apple TV 与投放本就是对外连接的一种，不值得单开一个只有两项的分类。
-        case .intelligence, .appleMusic, .scrobble, .dlna, .appleTV, .relay: .integrations
+        case .intelligence, .appleMusic, .scrobble, .comments, .dlna, .appleTV, .relay: .integrations
         case .domains: .security
         case .about, .diagnostics, .licenses: .about
         }
@@ -92,6 +92,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .intelligence: "ai_settings_title"
         case .appleMusic: "settings_apple_music_section"
         case .scrobble: "scrobble_title"
+        case .comments: "comments_service_title"
         case .siri: "Siri & Shortcuts"
         case .carplay: "CarPlay"
         case .domains: "trusted_domains"
@@ -135,6 +136,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .intelligence: "sparkles"
         case .appleMusic: "applelogo"
         case .scrobble: "music.note.list"
+        case .comments: "bubble.left.and.text.bubble.right"
         case .siri: "waveform"
         case .carplay: "car"
         case .domains: "lock.shield"
@@ -169,7 +171,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         #if os(macOS)
         return [.playback, .equalizer, .effects, .lyrics, .transcription,
                 .appearance, .scraping, .artists,
-                .deleted, .storage, .cacheSync, .cloud, .intelligence, .appleMusic, .scrobble, .domains, .about, .keyboard, .widgets, .siri].contains(self)
+                .deleted, .storage, .cacheSync, .cloud, .intelligence, .appleMusic, .scrobble, .comments, .domains, .about, .keyboard, .widgets, .siri].contains(self)
         #else
         // Apple Music 的授权与同步都在音乐源那一行上完成, iOS 不再单开一页
         // 只有"授权 + 同步"两件事的设置页。macOS 那页有资料库同步、目录搜索

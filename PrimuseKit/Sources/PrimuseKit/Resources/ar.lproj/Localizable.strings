@@ -1047,3 +1047,6 @@
 "fullscreen_effect_watercolor_theater" = "مسرح الألوان المائية";
 "fullscreen_effect_watercolor_theater_subtitle" = "أربع دمى ورقية صغيرة تتمايل وتغني وتقرع الطبول على مسرح مرسوم بالألوان المائية، مع لقطة جديدة لكل سطر من الكلمات";
 "fullscreen_effect_watercolor_theater_motion" = "تتبدّل الحركات مع الإيقاع والطاقة والكلمات · خطوط الحبر تُعاد رسمًا 12 مرة في الثانية";
+
+/* Comment API Servers */
+"ext.lanSettings.category.commentServers" = "خوادم API للتعليقات";

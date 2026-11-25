@@ -112,6 +112,7 @@ extension NowPlayingCarouselPanel {
         case .upNext: "player_carousel_face_up_next"
         case .stage: "player_carousel_face_stage"
         case .lyrics: "player_carousel_face_lyrics"
+        case .comments: "player_carousel_face_comments"
         }
     }
 
@@ -122,6 +123,7 @@ extension NowPlayingCarouselPanel {
         case .upNext: String(localized: "player_carousel_face_up_next")
         case .stage: String(localized: "player_carousel_face_stage")
         case .lyrics: String(localized: "player_carousel_face_lyrics")
+        case .comments: String(localized: "player_carousel_face_comments")
         }
     }
 
@@ -133,6 +135,7 @@ extension NowPlayingCarouselPanel {
         case .upNext: "player_carousel_face_up_next_summary"
         case .stage: "player_carousel_face_stage_summary"
         case .lyrics: "player_carousel_face_lyrics_summary"
+        case .comments: "player_carousel_face_comments_summary"
         }
     }
 
@@ -144,6 +147,7 @@ extension NowPlayingCarouselPanel {
         case .stage: "music.mic"
         // 和播放页的歌词键同一个图标。
         case .lyrics: "text.bubble"
+        case .comments: "bubble.left.and.text.bubble.right"
         }
     }
 
@@ -155,6 +159,7 @@ extension NowPlayingCarouselPanel {
         case .upNext: Color(red: 0.20, green: 0.72, blue: 0.58)
         case .stage: Color(red: 1.0, green: 0.30, blue: 0.48)
         case .lyrics: Color(red: 0.62, green: 0.42, blue: 1.0)
+        case .comments: Color(red: 0.22, green: 0.64, blue: 0.96)
         }
     }
 }

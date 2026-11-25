@@ -317,7 +317,7 @@ public struct NowPlayingEffectPlayerControls: Equatable, Sendable {
     /// 横竖屏切换转的是这一页本身,不换走它。
     public static let allowedActions: [NowPlayingControlAction] = [
         .like, .dislike, .queue, .shuffle, .repeatMode, .playMode, .abRepeat, .sleepTimer,
-        .airPlay, .equalizer, .playbackSpeed, .karaoke, .addToPlaylist, .share, .orientation,
+        .airPlay, .equalizer, .playbackSpeed, .karaoke, .addToPlaylist, .share, .orientation, .comments,
     ]
 
     private var stored: [String: String]

@@ -2373,6 +2373,8 @@ struct NowPlayingView: View {
     /// 页面上那颗按钮此刻用不了时点出来的说明。
     @State private var controlNotice: NowPlayingControlNotice?
     @State private var showQueue = false
+    @State private var commentServerStore = CommentAPIServerStore.shared
+    @State private var showComments = false
     @State private var lyrics: [LyricLine] = []
     /// 歌词面板、全屏舞台、海报和机翻用的那份：关掉「显示歌词自带的译文」时去掉文件带的
     /// 译文。`lyrics` 仍是原文档，缓存比对照旧拿它。
@@ -2509,6 +2511,7 @@ struct NowPlayingView: View {
 
     private var hasBlockingNowPlayingPresentation: Bool {
         showQueue
+            || showComments
             || showsImmersiveEffectPicker
             || scrapeTargetSong != nil
             || libraryActions.playlistSong != nil
@@ -3149,6 +3152,7 @@ struct NowPlayingView: View {
             presentedPodcastSheet = nil
             showsTranscriptReader = false
             showQueue = false
+            showComments = false
             scrapeTargetSong = nil
             libraryActions.playlistSong = nil
             libraryActions.failureMessage = nil
@@ -4594,7 +4598,8 @@ struct NowPlayingView: View {
     private var carouselCardContext: NowPlayingCarouselCardContext {
         NowPlayingCarouselCardContext(
             isAppleMusic: player.isAppleMusicMode,
-            isCasting: player.castingRenderer != nil
+            isCasting: player.castingRenderer != nil,
+            hasCommentServers: commentServerStore.hasEnabledServers
         )
     }
 
@@ -4689,6 +4694,13 @@ struct NowPlayingView: View {
                         onBackgroundTap: returnToPlayer
                     )
                 }
+            )
+        case .comments:
+            return page(
+                NowPlayingCarouselCommentsFace(
+                    context: context,
+                    appearance: appearance
+                )
             )
         }
     }
@@ -5588,6 +5600,15 @@ struct NowPlayingView: View {
                 #endif
         }
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: player.currentSong)
+        .sheet(isPresented: $showComments) {
+            SongCommentsSheet(song: player.currentSong)
+                #if os(iOS)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+                #endif
+                .playerPresentationColorScheme()
+        }
         .sheet(isPresented: $showCastPicker) {
             CastDevicePickerSheet()
                 .presentationDetents([.medium, .large])
@@ -7518,10 +7539,17 @@ struct NowPlayingView: View {
         #endif
     }
 
-    /// 全屏效果页那几格。不能手动横竖屏的画布上，横竖屏切换那一格当作空着。
+    /// 是否可展示歌曲评论入口：仅在用户配置并启用评论 API 服务，且当前为音乐（非有声/电台）时可用。
+    private var commentControlAvailable: Bool {
+        commentServerStore.hasEnabledServers && !usesSpokenWordTransport && !player.isLiveRadio
+    }
+
+    /// 全屏效果页那几格。不能手动横竖屏的画布上，横竖屏切换那一格当作空着；未配置评论源时评论键同样空着。
     private var effectPlayerChromeControls: NowPlayingEffectPlayerControls {
-        let controls = NowPlayingControlLayoutCache.effectPlayerControls(for: effectPlayerControlStorage)
-        return orientationControlAvailable ? controls : controls.removing(.orientation)
+        var controls = NowPlayingControlLayoutCache.effectPlayerControls(for: effectPlayerControlStorage)
+        if !orientationControlAvailable { controls = controls.removing(.orientation) }
+        if !commentControlAvailable { controls = controls.removing(.comments) }
+        return controls
     }
 
     /// 电台横屏顶上那排圆钮里的横竖屏切换键：竖屏时转到横屏，横屏时转回竖屏，不用等手机转过去。
@@ -10712,6 +10740,7 @@ struct NowPlayingView: View {
                 : player.currentSong.flatMap { ShuffleLinkMenuState(songID: $0.id, library: library) },
             showsScrape: shows(.scrape),
             showsSimilarSongs: shows(.similarSongs),
+            showsComments: commentControlAvailable && !menuSuppressed.contains(.comments) && shows(.comments),
             showsTagEditor: shows(.editTags) && (!player.isAppleMusicMode || tagEditorSong != nil),
             showsLyricsEditor: shows(.editLyrics),
             showsSongInfo: shows(.songInfo),
@@ -10740,6 +10769,7 @@ struct NowPlayingView: View {
             onScrape: { openScrapeForCurrentSong() },
             onReloadLyricsFromSource: { reloadLyricsFromSource() },
             onShowSimilarSongs: { showSimilarSongs = true },
+            onShowComments: { showComments = true },
             onEditTags: { showTagEditor = true },
             onEditLyrics: {
                 lyricsEditorAutoStartsAudioTranscription = false
@@ -11890,22 +11920,26 @@ struct NowPlayingView: View {
     /// 不能手动横竖屏的画布(平板、展开的折叠屏内屏、Mac)上横竖屏切换当作没摆。
     private var musicControlLayout: NowPlayingControlLayout {
         guard !usesSpokenWordTransport else { return .default }
-        return NowPlayingControlLayoutCache.layout(
+        let layout = NowPlayingControlLayoutCache.layout(
             for: controlLayoutStorage,
             lyricsPageStorage: lyricsPageControlStorage,
             hidesOrientation: !orientationControlAvailable,
             isLyricsVisible: { showLyrics }
         )
+        return (!commentControlAvailable && layout.placedActions.contains(.comments))
+            ? layout.removing(.comments) : layout
     }
 
     private var lyricsModeControlLayout: NowPlayingControlLayout {
         guard !usesSpokenWordTransport else { return .default }
-        return NowPlayingControlLayoutCache.layout(
+        let layout = NowPlayingControlLayoutCache.layout(
             for: controlLayoutStorage,
             lyricsPageStorage: lyricsPageControlStorage,
             hidesOrientation: !orientationControlAvailable,
             isLyricsVisible: { true }
         )
+        return (!commentControlAvailable && layout.placedActions.contains(.comments))
+            ? layout.removing(.comments) : layout
     }
 
     private var lyricsPageControls: NowPlayingLyricsPageControls {
@@ -11915,10 +11949,12 @@ struct NowPlayingView: View {
     /// 全屏歌词(及 iPad 横屏看歌词)按「全屏歌词」那份配置摆的几格。「跟歌名旁」跟的是看歌词时歌名旁那一格。
     private var immersiveLyricsActions: [NowPlayingImmersiveLyricsSlot: NowPlayingControlAction] {
         guard !usesSpokenWordTransport else { return [:] }
-        let actions = NowPlayingControlLayoutCache.immersiveLyricsControls(for: immersiveLyricsControlStorage)
+        var actions = NowPlayingControlLayoutCache.immersiveLyricsControls(for: immersiveLyricsControlStorage)
             .actions(header: musicControlLayout.action(in: .header))
-        // 不能手动横竖屏的画布上,横竖屏切换那一格空着。
-        return orientationControlAvailable ? actions : actions.filter { $0.value != .orientation }
+        // 不能手动横竖屏的画布上,横竖屏切换那一格空着;未配置评论源时评论键空着。
+        if !orientationControlAvailable { actions = actions.filter { $0.value != .orientation } }
+        if !commentControlAvailable { actions = actions.filter { $0.value != .comments } }
+        return actions
     }
 
     /// 全屏歌词顶上一排「更多」左边那几颗。
@@ -11936,6 +11972,7 @@ struct NowPlayingView: View {
         guard !usesSpokenWordTransport, let extra = lyricsPageControls.headerExtra else { return nil }
         if extra == .karaoke, !offersLyricsKaraokeAction { return nil }
         if extra == .orientation, !orientationControlAvailable { return nil }
+        if extra == .comments, !commentControlAvailable { return nil }
         let resolvedLayout = controlLayout ?? musicControlLayout
         guard !resolvedLayout.visibleActions(on: surface).contains(extra) else { return nil }
         return extra
@@ -12636,6 +12673,12 @@ struct NowPlayingView: View {
                 symbol: isLandscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
                 label: String(localized: isLandscape ? "player_orientation_to_portrait" : "player_orientation_to_landscape")
             )
+        case .comments:
+            return NowPlayingControlFace(
+                symbol: "bubble.left.and.text.bubble.right",
+                label: String(localized: "comments_view_action"),
+                requiresSong: true
+            )
         }
     }
 
@@ -12744,6 +12787,7 @@ struct NowPlayingView: View {
         case .share: shareSong = player.currentSong
         case .cast: showCastPicker = true
         case .orientation: togglePlayerOrientation()
+        case .comments: showComments = true
         case .airPlay, .playbackSpeed: break
         }
     }
@@ -16758,6 +16802,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// 下面几项在「播放页按钮 › 『更多』菜单」里可以关掉(#198)。
     let showsScrape: Bool
     let showsSimilarSongs: Bool
+    let showsComments: Bool
     let showsTagEditor: Bool
     let showsLyricsEditor: Bool
     let showsSongInfo: Bool
@@ -17061,6 +17106,7 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
     let onScrape: () -> Void
     let onReloadLyricsFromSource: () -> Void
     let onShowSimilarSongs: () -> Void
+    let onShowComments: () -> Void
     let onEditTags: () -> Void
     let onEditLyrics: () -> Void
     let onShowSongInfo: () -> Void
@@ -17512,6 +17558,13 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
                 if !snapshot.isSpokenWord, snapshot.showsSimilarSongs {
                     Button(action: onShowSimilarSongs) {
                         Label(String(localized: "similar_songs"), systemImage: "sparkles")
+                    }
+                    .disabled(!snapshot.hasSong)
+                }
+
+                if !snapshot.isSpokenWord, snapshot.showsComments {
+                    Button(action: onShowComments) {
+                        Label(String(localized: "comments_view_action"), systemImage: "bubble.left.and.text.bubble.right")
                     }
                     .disabled(!snapshot.hasSong)
                 }

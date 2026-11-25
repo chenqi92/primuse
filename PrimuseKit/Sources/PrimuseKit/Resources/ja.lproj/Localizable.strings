@@ -1100,3 +1100,6 @@
 "fullscreen_effect_watercolor_theater" = "水彩ミニシアター";
 "fullscreen_effect_watercolor_theater_subtitle" = "手描き水彩の小さな舞台で、4体の紙人形が歌に合わせて揺れたり口ずさんだりドラムを叩いたり。歌詞が変わるたびにカットも変わります";
 "fullscreen_effect_watercolor_theater_motion" = "ビート・盛り上がり・歌詞に合わせて動きが変わる · 線画は毎秒12回描き直し";
+
+/* Comment API Servers */
+"ext.lanSettings.category.commentServers" = "コメント API サーバ";

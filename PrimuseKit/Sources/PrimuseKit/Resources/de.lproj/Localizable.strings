@@ -1100,3 +1100,6 @@
 "fullscreen_effect_watercolor_theater" = "Aquarell-Theater";
 "fullscreen_effect_watercolor_theater_subtitle" = "Vier kleine Papierfiguren wiegen sich, singen mit und trommeln auf einer handgemalten Aquarellbühne – mit neuer Einstellung bei jeder Liedzeile";
 "fullscreen_effect_watercolor_theater_motion" = "Bewegungen folgen Beat, Energie und Text · Tuschelinien 12-mal pro Sekunde neu gezeichnet";
+
+/* Comment API Servers */
+"ext.lanSettings.category.commentServers" = "Kommentar-API-Server";

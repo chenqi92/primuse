@@ -197,6 +197,7 @@ enum OfflineSettingsBackupService {
             if key == PlaybackSettings.defaultsKey { _ = try JSONDecoder().decode(PlaybackSettings.self, from: sanitized) }
             if key == ScraperSettings.defaultsKey { _ = try JSONDecoder().decode(ScraperSettings.self, from: sanitized) }
             if key == LyricsAPIServerSettings.defaultsKey { _ = try JSONDecoder().decode(LyricsAPIServerSettings.self, from: sanitized) }
+            if key == CommentAPIServerSettings.defaultsKey { _ = try JSONDecoder().decode(CommentAPIServerSettings.self, from: sanitized) }
             return sanitized
         }
         return OfflineSettingsRedaction.sanitize(value)

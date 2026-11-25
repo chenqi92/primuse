@@ -16,23 +16,25 @@ public enum NowPlayingCarouselPanel: String, CaseIterable, Codable, Sendable, Id
     case stage
     /// 歌词:整页滚动歌词(和播放页的歌词同一套)。不在默认排布里,用户在设置里自己加。
     case lyrics
+    /// 评论:整页歌曲评论(仅在配置并启用评论 API 服务时出现)。不在默认排布里,用户在设置里自己加。
+    case comments
 
     public var id: String { rawValue }
 
-    /// 这一面能放的卡片,按面里从上到下的顺序。歌词那一面没有卡片。
+    /// 这一面能放的卡片,按面里从上到下的顺序。歌词与评论那一面没有卡片。
     public var cards: [NowPlayingCarouselCard] {
         NowPlayingCarouselCard.allCases.filter { $0.panel == self }
     }
 
-    /// 这一面由卡片组成:卡片全关、或当前这首一张都用不了时转动会跳过它。不分卡片的面(歌词)一直在。
+    /// 这一面由卡片组成:卡片全关、或当前这首一张都用不了时转动会跳过它。不分卡片的面(歌词、评论)单独判断。
     public var usesCards: Bool {
-        self != .lyrics
+        self != .lyrics && self != .comments
     }
 
-    /// 在设置里添加(没指定位置)时放在紧挨播放器的那一格,而不是最外面:歌词是播放器的另一种看法,
+    /// 在设置里添加(没指定位置)时放在紧挨播放器的那一格,而不是最外面:歌词与评论都是播放器的延伸看法,
     /// 加上就是为了从播放器一滑就到。
     public var addsNextToPlayer: Bool {
-        self == .lyrics
+        self == .lyrics || self == .comments
     }
 
     /// 旧版六个单功能页的存储名并进哪一面(配置升级用)。不认识的返回 nil。
@@ -91,10 +93,12 @@ public enum NowPlayingCarouselCard: String, CaseIterable, Codable, Sendable, Ide
 public struct NowPlayingCarouselCardContext: Equatable, Sendable {
     public var isAppleMusic: Bool
     public var isCasting: Bool
+    public var hasCommentServers: Bool
 
-    public init(isAppleMusic: Bool = false, isCasting: Bool = false) {
+    public init(isAppleMusic: Bool = false, isCasting: Bool = false, hasCommentServers: Bool = false) {
         self.isAppleMusic = isAppleMusic
         self.isCasting = isCasting
+        self.hasCommentServers = hasCommentServers
     }
 }
 
@@ -255,12 +259,15 @@ public struct NowPlayingCarouselConfiguration: Equatable, Sendable {
         )
     }
 
-    /// 按卡片设置与当前这首跳过空面后的排布;不分卡片的面(歌词)不跳过。
+    /// 按卡片设置与当前这首跳过空面后的排布;不分卡片的面中,歌词不跳过,评论在未配置评论源时跳过。
     public func visible(
         cardSettings: NowPlayingCarouselCardSettings,
         in context: NowPlayingCarouselCardContext
     ) -> NowPlayingCarouselConfiguration {
-        skippingPanels { $0.usesCards && cardSettings.visibleCards(on: $0, in: context).isEmpty }
+        skippingPanels { panel in
+            if panel == .comments { return !context.hasCommentServers }
+            return panel.usesCards && cardSettings.visibleCards(on: panel, in: context).isEmpty
+        }
     }
 
     // MARK: 编辑
@@ -566,7 +573,7 @@ public enum NowPlayingCarouselFullscreenPolicy {
         case .panel(.explore):
             if hasAlbum { return .albumPage }
             return hasArtist ? .artistPage : .selectedEffect
-        case .panel(.lyrics):
+        case .panel(.lyrics), .panel(.comments):
             // 和播放器一样进用户选定的全屏(原生效果时是全屏歌词),不临时换效果。
             return .selectedEffect
         }

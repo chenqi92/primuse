@@ -15,7 +15,7 @@ enum OfflineSettingsCatalog {
     // Explicit keys keep runtime state, Keychain references, trust decisions and sync revisions out.
     static let standardKeys: Set<String> = Set(InterfaceLayoutSync.keys).union(playerKeys).union([
         PlaybackSettings.defaultsKey, AISettingsStore.storageKey, LyricsTranscriptionSettingsStore.storageKey,
-        ScraperSettings.defaultsKey, LyricsAPIServerSettings.defaultsKey, ArtistNameConfiguration.storageKey,
+        ScraperSettings.defaultsKey, LyricsAPIServerSettings.defaultsKey, CommentAPIServerSettings.defaultsKey, ArtistNameConfiguration.storageKey,
         PlayerBackdropSettings.storageKey, PlayerBackdropSettings.customImagesStorageKey,
         FullscreenPlayerEffect.storageKey, LyricsRomanizationSettingsStore.storageKey,
         CloudKVSKey.lyricsFontScale, CloudKVSKey.lyricsTranslationFontScale,
@@ -70,7 +70,7 @@ enum OfflineSettingsCatalog {
 
     static let jsonKeys: Set<String> = [
         PlaybackSettings.defaultsKey, AISettingsStore.storageKey, LyricsTranscriptionSettingsStore.storageKey,
-        ScraperSettings.defaultsKey, LyricsAPIServerSettings.defaultsKey, ArtistNameConfiguration.storageKey,
+        ScraperSettings.defaultsKey, LyricsAPIServerSettings.defaultsKey, CommentAPIServerSettings.defaultsKey, ArtistNameConfiguration.storageKey,
         PlayerBackdropSettings.storageKey, LyricsRomanizationSettingsStore.storageKey,
         "primuse.lyrics.translation.settings.v1", "primuse.scrobble.settings.v1",
         EQPresetLibrary.storageKey, CarPlayLayoutConfiguration.storageKey, "primuse.carplay.savedLayouts.v1",

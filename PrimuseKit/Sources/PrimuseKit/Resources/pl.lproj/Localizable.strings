@@ -1047,3 +1047,6 @@
 "fullscreen_effect_watercolor_theater" = "Akwarelowy teatrzyk";
 "fullscreen_effect_watercolor_theater_subtitle" = "Cztery papierowe kukiełki kołyszą się, śpiewają i grają na bębnach na malowanej akwarelą scenie, a z każdym wersem zmienia się ujęcie";
 "fullscreen_effect_watercolor_theater_motion" = "Ruchy podążają za rytmem, energią i tekstem · Linie tuszu rysowane od nowa 12 razy na sekundę";
+
+/* Comment API Servers */
+"ext.lanSettings.category.commentServers" = "Serwery API komentarzy";

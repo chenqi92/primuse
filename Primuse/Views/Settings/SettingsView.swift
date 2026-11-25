@@ -330,6 +330,7 @@ private struct SettingsPageContent: View {
         // 等开关)走 MacSettingsView, 不经过这里。
         case .appleMusic: EmptyView()
         case .scrobble: ScrobbleSettingsView()
+        case .comments: CommentAPIServersView()
         case .domains: TrustedDomainsView()
         case .diagnostics: DiagnosticReportsView(service: AppServices.shared.crashDiagnostics)
         case .licenses: LicensesView()
