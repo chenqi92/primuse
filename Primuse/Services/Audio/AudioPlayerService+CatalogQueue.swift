@@ -12,6 +12,18 @@ enum PlaybackCatalogAccess {
     }
 }
 
+/// `queueLibraryFromCatalog` 的结果。
+enum CatalogLibraryQueueOutcome: Equatable, Sendable {
+    /// 目录不能用(还没迁完、读失败):调用方照旧走内存路径。
+    case unavailable
+    /// 队列装上了。
+    case installed
+    /// 列表一首能放的都没有,或者点的那首已经不在可见曲库里;什么也没动。
+    case nothingToPlay
+    /// 准备期间来了新的请求,这一个作废。
+    case superseded
+}
+
 extension AudioPlayerService {
     // MARK: - Whole-library requests from the catalog
 
@@ -30,24 +42,34 @@ extension AudioPlayerService {
         callerLine: Int = #line,
         willInstall: () -> Void = {}
     ) async -> Bool {
-        guard let library, let reader = PlaybackCatalogAccess.reader(for: library) else { return false }
+        await queueLibraryFromCatalog(request, caller: caller, callerLine: callerLine, willInstall: willInstall) != .unavailable
+    }
+
+    /// 同 `playLibraryFromCatalog`,但分得清处理的结果(Siri 要据此答复放了还是没找到)。
+    func queueLibraryFromCatalog(
+        _ request: CatalogLibraryQueueRequest,
+        caller: String = #fileID,
+        callerLine: Int = #line,
+        willInstall: () -> Void = {}
+    ) async -> CatalogLibraryQueueOutcome {
+        guard let library, let reader = PlaybackCatalogAccess.reader(for: library) else { return .unavailable }
         if !request.leadingIDs.isEmpty {
             let present: [String: Song]
             do {
                 present = try await reader.songsByID(request.leadingIDs, visibility: .visible)
             } catch {
-                return false
+                return .unavailable
             }
             // 目录跟写内存有一小段滞后:前面那几首(点的那首、最近播放)内存里可见、目录里还没有时,
             // 整个请求走内存路径,免得点的歌被当成「不在曲库」挑掉、从别的歌开始放。
             if request.leadingIDs.contains(where: { present[$0] == nil && library.visibleSong(id: $0) != nil }) {
                 plog("🎶 Catalog queue request: leading songs not in the catalog yet; using the in-memory library")
-                return false
+                return .unavailable
             }
             // 点的那首已经不在可见曲库里:什么也不做,也不打断别的还在准备的请求(同原来先查再排队)。
             if request.requiresFirstLeadingSong, let first = request.leadingIDs.first, present[first] == nil {
                 plog("🎶 Catalog queue request: the requested song is not in the visible library")
-                return true
+                return .nothingToPlay
             }
         }
         queueRequestToken &+= 1
@@ -65,27 +87,27 @@ extension AudioPlayerService {
             )
         } catch {
             // 等目录的这段时间里又来了新的请求:这一个作废,不再退回内存路径去盖掉它。
-            guard queueRequestToken == token else { return true }
+            guard queueRequestToken == token else { return .superseded }
             plog("🎶 Catalog queue request failed (\(error)); using the in-memory library")
-            return false
+            return .unavailable
         }
         guard queueRequestToken == token else {
             plog("🎶 Catalog queue request superseded while preparing")
-            return true
+            return .superseded
         }
         let prepareMS = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
         switch plan {
         case .missingFirstLeadingSong:
             plog("🎶 Catalog queue request: the requested song is not in the visible library")
-            return true
+            return .nothingToPlay
         case .empty(let requestedCount):
             plog("🎶 Catalog queue request of \(requestedCount) ids resolved to nothing")
-            return true
+            return .nothingToPlay
         case .prepared(let prepared, let requestedCount):
             plog("🎶 Catalog queue request ids=\(requestedCount) order=\(request.order) installed=\(prepared.items.count) continuation=\(prepared.continuation?.requestedCount ?? 0) prepare=\(prepareMS)ms")
             willInstall()
             await play(prepared: prepared, caller: caller, callerLine: callerLine)
-            return true
+            return .installed
         }
     }
 

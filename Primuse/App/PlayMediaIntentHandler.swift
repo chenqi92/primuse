@@ -126,9 +126,7 @@ final class PlayMediaIntentHandler: NSObject,
                 // in as IDs, shuffled off the main actor; shuffling the songs
                 // here copied the whole library inside Siri's time budget.
                 let startsLargeQueue = queue.count > QueueWindowPolicy.windowLimit
-                    && (player.currentSong == nil
-                        || intent.playbackQueueLocation == .now
-                        || intent.playbackQueueLocation == .unknown)
+                    && Self.startsNow(intent, player: player)
                 if startsLargeQueue {
                     player.shuffleEnabled = shouldShuffle
                     let ids = queue.map(\.id)
@@ -178,6 +176,45 @@ final class PlayMediaIntentHandler: NSObject,
                     startedAt: startedAt,
                     detail: "song-accepted queue=\(queue.count)"
                 )
+
+            case .wholeLibrary(let shouldShuffle):
+                // 「播放音乐」:可播放的音乐(不含不喜欢的)在目录上拼成 id 列表、在主线程外打乱,
+                // 只物化第一窗,同资料库「随机播放全部」。队列装上之前就答复 Siri(开始放远端
+                // 的歌可能要几十秒,见下面 `.songs` 的说明);一首能放的都没有时答复没找到。
+                let library = AppServices.shared.musicLibrary
+                let request = CatalogLibraryQueueRequest(
+                    order: shouldShuffle ? .shuffled : .asGiven,
+                    kinds: [.music],
+                    excludedIDs: library.dislikedSongIDs
+                )
+                let outcome = await player.queueLibraryFromCatalog(request, caller: "SiriKit") {
+                    player.shuffleEnabled = shouldShuffle
+                    Self.respond(.success, completion: completion, startedAt: startedAt, detail: "library-queue")
+                }
+                switch outcome {
+                case .installed:
+                    return
+                case .superseded:
+                    // 准备的这一会儿又点了别的歌:那一个接着放,这次请求也算接下了。
+                    Self.respond(.success, completion: completion, startedAt: startedAt, detail: "library-queue-superseded")
+                    return
+                case .nothingToPlay:
+                    Self.respond(.failureUnknownMediaType, completion: completion, startedAt: startedAt, detail: "empty-queue")
+                    return
+                case .unavailable:
+                    break
+                }
+                // 目录读失败:照旧从内存模型拼。
+                let ids = library.musicSongsExcludingDisliked.compactMap { $0.isPlayable ? $0.id : nil }
+                guard !ids.isEmpty else {
+                    Self.respond(.failureUnknownMediaType, completion: completion, startedAt: startedAt, detail: "unresolved")
+                    return
+                }
+                player.shuffleEnabled = shouldShuffle
+                Task { @MainActor in
+                    await player.play(queueIDs: ids, order: shouldShuffle ? .shuffled : .asGiven, caller: "SiriKit")
+                }
+                Self.respond(.success, completion: completion, startedAt: startedAt, detail: "queue")
 
             case .radio(let station):
                 let outcome = await AppServices.shared.startRadioForIntent(station)
@@ -848,6 +885,12 @@ final class PlayMediaIntentHandler: NSObject,
         // songs, not the audiobooks. A named request looks in the music
         // first and reaches a book only when no music carries the name; the
         // book then plays as a book, not as a list of its chapters.
+        // 要现在放、目录可读时整库在目录上排队(见 `handle`),不在这里把整库歌曲拷一份。
+        if identifierGroups.isEmpty, query.kind == .music, !query.hasSearchTerm,
+           PlaybackCatalogAccess.reader(for: library) != nil,
+           startsNow(intent, player: AppServices.shared.playerService) {
+            return .wholeLibrary(shouldShuffle: true)
+        }
         let resolution: SiriMediaSearchResolution?
         if identifierGroups.isEmpty {
             resolution = SiriMediaSearchResolver.resolvePreferringMusic(
@@ -870,6 +913,14 @@ final class PlayMediaIntentHandler: NSObject,
                 || (identifiers.isEmpty && !query.hasSearchTerm),
             namesItem: SiriSpokenWordRouting.namesItem(query, identifiers: identifiers)
         )
+    }
+
+    /// 这次请求的歌是现在就放(换掉当前队列),而不是插到下一首、排到最后。
+    @MainActor
+    private static func startsNow(_ intent: INPlayMediaIntent, player: AudioPlayerService) -> Bool {
+        player.currentSong == nil
+            || intent.playbackQueueLocation == .now
+            || intent.playbackQueueLocation == .unknown
     }
 
     /// Songs a lookup found, or — when they are spoken-word items — their
@@ -1422,14 +1473,18 @@ final class PlayMediaIntentHandler: NSObject,
 
 private enum IntentTarget {
     case songs([Song], shouldShuffle: Bool)
+    /// 「播放音乐」什么都没点名、现在就放:整库在目录上排队,不先物化成歌曲数组。
+    case wholeLibrary(shouldShuffle: Bool)
     case radio(RadioStation)
     /// From `itemID`, or where the book was left when nil.
     case book(SpokenWordBook, startingAt: String?)
     case podcast(PodcastIntentPlan)
 
     var isSongs: Bool {
-        if case .songs = self { return true }
-        return false
+        switch self {
+        case .songs, .wholeLibrary: return true
+        case .radio, .book, .podcast: return false
+        }
     }
 }
 

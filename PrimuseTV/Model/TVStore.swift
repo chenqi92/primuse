@@ -2046,6 +2046,13 @@ final class TVStore {
         return try? await host.reader.songIDs(rowids: page.rowids, scope: .visibleMusic)
     }
 
+    /// Siri「播放音乐」的整库:可播放的音乐、不含不喜欢的,库内顺序;在主线程外从目录取。
+    /// 与 `library.musicSongsExcludingDisliked` 里能放的那些相同。目录读不了时为 nil。
+    func playableMusicIDsFromCatalog() async -> [String]? {
+        guard let host = library.catalogHost, host.revisions.isReadable else { return nil }
+        return try? await host.reader.playbackSongIDs(excluding: library.dislikedSongIDs)
+    }
+
     /// 在目录排的「歌曲」页上点歌:队列是整页(同内存那一份的 `play(_:in:)`),id 先在后台取好。
     /// 取不到时按可见曲库续播(同没给列表时)。后点的一下作废先点的。
     @discardableResult

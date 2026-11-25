@@ -593,4 +593,68 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertNil(player.currentSong)
         await musicMemory.waitForPendingPersistence()
     }
+
+    /// Siri「播放音乐」走目录:目录给的整库(可播放的音乐、不含不喜欢的)与内存那一份相同;一首能放的
+    /// 都没有、点的那首不在曲库时,目录排队答「没有可放的」,不装队列、不调 `willInstall`(Siri 据此
+    /// 答复没找到);目录还没收到点的那首时答「目录不能用」,调用方走内存路径。
+    func testWholeLibraryRequestsReportWhatTheCatalogQueueDid() async throws {
+        let library = makeLibrary()
+        let songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let disliked = try XCTUnwrap(library.musicSongs.first(where: \.isPlayable)).id
+        library.setDisliked(songID: disliked, isDisliked: true)
+        let host = try XCTUnwrap(library.catalogHost)
+        XCTAssertEqual(library.dislikedSongIDs, [disliked])
+
+        let catalogIDs = try await host.reader.playbackSongIDs(excluding: library.dislikedSongIDs)
+        let memoryIDs = library.musicSongsExcludingDisliked.compactMap { $0.isPlayable ? $0.id : nil }
+        XCTAssertEqual(Set(catalogIDs), Set(memoryIDs))
+        XCTAssertEqual(catalogIDs.count, memoryIDs.count)
+        XCTAssertFalse(catalogIDs.contains(disliked))
+
+        let suite = "catalog-outcome-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let sessionDirectory = directory.appendingPathComponent("player-session", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let musicMemory = MusicSessionMemoryStore(
+            defaults: defaults, url: sessionDirectory.appendingPathComponent("music-memory.json")
+        )
+        let player = AudioPlayerService(
+            library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: sessionDirectory.appendingPathComponent("session.json")),
+            musicSessionMemoryStore: musicMemory,
+            queueBookmarkStore: QueueBookmarkStore(directory: sessionDirectory.appendingPathComponent("bookmarks")),
+            activateAudioSession: { _ in XCTFail("Catalog outcome tests must not start audio") }
+        )
+        var installs = 0
+        let everything = Set(library.musicSongs.map(\.id))
+        let empty = await player.queueLibraryFromCatalog(
+            CatalogLibraryQueueRequest(order: .shuffled, kinds: [.music], excludedIDs: everything)
+        ) { installs += 1 }
+        XCTAssertEqual(empty, .nothingToPlay)
+        let missing = await player.queueLibraryFromCatalog(
+            CatalogLibraryQueueRequest(leadingIDs: ["not-in-the-library"], kinds: nil, requiresFirstLeadingSong: true)
+        ) { installs += 1 }
+        XCTAssertEqual(missing, .nothingToPlay)
+        XCTAssertEqual(installs, 0)
+        XCTAssertNil(player.currentSong)
+
+        // 目录停下后再加一首:点它时目录还没有,走内存路径。
+        await library.stopCatalogMirror()
+        let fresh = Song(id: "outcome-fresh", title: "Fresh", albumTitle: "New", artistName: "Ada", duration: 200,
+                         fileFormat: .flac, filePath: "/Music/New/outcome-fresh.flac", sourceID: Self.sourceA)
+        library.addSongs([fresh], affectedSourceIDs: [Self.sourceA])
+        for _ in 0..<500 where library.visibleSong(id: fresh.id) == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let lagging = await player.queueLibraryFromCatalog(
+            CatalogLibraryQueueRequest(leadingIDs: [fresh.id], kinds: [.music], excludedIDs: [fresh.id])
+        ) { installs += 1 }
+        XCTAssertEqual(lagging, .unavailable)
+        XCTAssertEqual(installs, 0)
+        await musicMemory.waitForPendingPersistence()
+    }
 }

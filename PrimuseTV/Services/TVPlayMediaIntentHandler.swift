@@ -103,6 +103,15 @@ final class TVPlayMediaIntentHandler: NSObject,
                     shuffled: shuffled
                 )
                 code = accepted ? .success : .failure
+            case .wholeLibrary(let shuffled):
+                // 「播放音乐」:可播放的音乐(不含不喜欢的),同下面内存路径的那一份;目录读失败时照旧从内存取。
+                let ids = await store.playableMusicIDsFromCatalog()
+                    ?? store.library.musicSongsExcludingDisliked.compactMap { $0.isPlayable ? $0.id : nil }
+                if ids.isEmpty {
+                    code = .failureUnknownMediaType
+                } else {
+                    code = store.playResolvedQueue(songIDs: ids, shuffled: shuffled) ? .success : .failure
+                }
             case .radio(let station):
                 // Unwrapping a .pls over cleartext or a server station can take
                 // far longer than Siri waits, and a confirmation may be waiting
@@ -679,6 +688,10 @@ final class TVPlayMediaIntentHandler: NSObject,
         // reaches a book only when no music carries the name; the book then
         // plays as a book, not as a list of its chapters.
         let playsWholeLibrary = identifiers.isEmpty && !query.hasSearchTerm
+        // 目录可读时整库的 id 在后台从目录取(见 `handle`),不在这里把整库歌曲拷一份。
+        if identifierGroups.isEmpty, query.kind == .music, !query.hasSearchTerm, store.catalogLookups.isReadable {
+            return .wholeLibrary(shuffled: true)
+        }
         let found: SiriMediaSearchResolution?
         if identifierGroups.isEmpty {
             found = SiriMediaSearchResolver.resolvePreferringMusic(
@@ -1157,6 +1170,8 @@ final class TVPlayMediaIntentHandler: NSObject,
 
 private enum TVIntentTarget {
     case songs([Song], shuffled: Bool)
+    /// 「播放音乐」什么都没点名:整库的 id 在后台从目录取,不先物化成歌曲数组。
+    case wholeLibrary(shuffled: Bool)
     case radio(RadioStation)
     /// From `itemID`, or where the book was left when nil.
     case book(SpokenWordBook, startingAt: String?)
