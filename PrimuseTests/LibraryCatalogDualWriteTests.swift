@@ -711,4 +711,35 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         )
         XCTAssertEqual(named.map(\.id), songs.filter { $0.title == "Loose Track" }.map(\.id))
     }
+
+    /// Siri 歌曲快捷指令:在目录上流式挑(只留够格的优先歌与最新的那些)与交内存里整库的结果相同。
+    func testSiriSongShortcutsFromTheCatalogMatchTheWholeLibrary() async throws {
+        let library = makeLibrary()
+        var songs = Self.fixture()
+        for (index, title) in ["晴天", "夜曲", "海", "Hi", "初晴", "山海间"].enumerated() {
+            var song = Song(id: "short-\(index)", title: title, albumTitle: "Short", artistName: "Ada", duration: 200,
+                            fileFormat: .flac, filePath: "/Music/Short/\(index).flac", sourceID: Self.sourceA)
+            song.dateAdded = Date(timeIntervalSince1970: 1_800_000_000 + Double(index % 3))
+            songs.append(song)
+        }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let reader = try XCTUnwrap(library.catalogHost?.reader)
+        for (priority, limit) in [([String](), 10), (["short-4", "missing", "short-4"], 3), (["short-2"], 1), ([], 0)] {
+            let fromCatalog = try await reader.read { catalog in
+                try SiriSongCatalog.shortcuts(priorityIDs: priority, limit: limit) { body in
+                    try catalog.forEachSong(.visibleMusic) { _, song in body(song) }
+                }
+            }
+            let fromMemory = SiriSongCatalog.shortcuts(from: library.musicSongs, priorityIDs: priority, limit: limit)
+            XCTAssertEqual(fromCatalog.map(\.id), fromMemory.map(\.id), "priority \(priority) limit \(limit)")
+        }
+        let all = try await reader.read { catalog in
+            try SiriSongCatalog.shortcuts(priorityIDs: [], limit: 10) { body in
+                try catalog.forEachSong(.visibleMusic) { _, song in body(song) }
+            }
+        }
+        XCTAssertTrue(all.contains { $0.id == "short-0" })
+        XCTAssertTrue(all.allSatisfy { $0.id.hasPrefix("short-") }, "the fixture's longer titles are not shortcut phrases")
+    }
 }

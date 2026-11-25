@@ -74,6 +74,61 @@ struct SiriSongCatalogTests {
         }
     }
 
+    /// 流式那一版(只留够格的优先歌和最新的 `limit` 首)与原来先建整库 id 表、再有界挑选的结果相同。
+    @Test(arguments: [1, 2, 3, 4, 5] as [UInt64])
+    func streamingSelectionMatchesTheWholeLibraryAlgorithm(seed: UInt64) {
+        var state = seed
+        func next(_ upperBound: Int) -> Int {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Int((state >> 33) % UInt64(upperBound))
+        }
+        let titles = ["初晴", "晴天", "海", "山海间", "不能再作为短歌名", "Hi", "Love Story", "  ", "夜曲"]
+        for round in 0..<40 {
+            let songs: [Song] = (0..<(20 + next(300))).map { index in
+                var value = song("s\(seed)-\(round)-\(index)", titles[next(titles.count)])
+                value.dateAdded = Date(timeIntervalSince1970: TimeInterval(next(12)))
+                if next(10) == 0 { value.filePath = "" }
+                return value
+            }
+            var priority: [String] = (0..<next(8)).map { _ in songs[next(songs.count)].id }
+            if next(3) == 0 { priority.append("missing") }
+            if let first = priority.first, next(2) == 0 { priority.append(first) }
+            let limit = next(30)
+            let streamed = SiriSongCatalog.shortcuts(priorityIDs: priority, limit: limit) { body in
+                for song in songs where !body(song) { return }
+            }
+            #expect(streamed.map(\.id) == Self.reference(songs, priorityIDs: priority, limit: limit).map(\.id),
+                    "seed \(seed) round \(round) limit \(limit)")
+        }
+    }
+
+    /// 原来的整库算法(改成流式之前的 `shortcuts(from:priorityIDs:limit:)`),作对照。
+    private static func reference(_ songs: [Song], priorityIDs: [String], limit: Int) -> [Song] {
+        guard limit > 0 else { return [] }
+        var byID: [String: Int] = [:]
+        for index in songs.indices {
+            let song = songs[index]
+            guard song.isPlayable else { continue }
+            let title = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty && title.count <= 3
+                && SiriRadioStationCatalog.safeDisplayName(title) != nil
+                && SiriRadioStationCatalog.isSafeIdentifier(song.id) {
+                byID[song.id] = index
+            }
+        }
+        var selected: [Song] = []
+        for id in priorityIDs {
+            if let index = byID.removeValue(forKey: id) {
+                selected.append(songs[index])
+                if selected.count == limit { return selected }
+            }
+        }
+        let remaining = byID.values.sorted {
+            songs[$0].dateAdded != songs[$1].dateAdded ? songs[$0].dateAdded > songs[$1].dateAdded : songs[$0].id < songs[$1].id
+        }.prefix(limit - selected.count)
+        return selected + remaining.map { songs[$0] }
+    }
+
     private func song(_ id: String, _ title: String) -> Song {
         Song(id: id, title: title, fileFormat: .mp3, filePath: "\(id).mp3", sourceID: "fixture", dateAdded: Date(timeIntervalSince1970: 0))
     }

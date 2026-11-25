@@ -25,14 +25,20 @@ final class SiriSongSuggestionCache {
     }
 
     func songs(for inputs: Inputs, from songs: [Song]) async -> [Song]? {
+        let select = select
+        return await self.songs(for: inputs) { await select(songs, inputs.priorityIDs, inputs.limit) }
+    }
+
+    /// 同 `songs(for:from:)`,但挑选由调用方给(曲库目录上流式挑,不交整库数组)。同一份输入只挑一次,
+    /// 共用、作废的规则不变;`selecting` 在主线程外执行。
+    func songs(for inputs: Inputs, selecting: @escaping @Sendable () async -> [Song]) async -> [Song]? {
         guard !Task.isCancelled else { return nil }
         if let cached, cached.inputs == inputs { return cached.songs }
         if pending?.inputs != inputs {
             pending?.task.cancel()
             cached = nil
-            let select = select
             pending = (inputs, UUID(), Task.detached(priority: .utility) {
-                await select(songs, inputs.priorityIDs, inputs.limit)
+                await selecting()
             })
         }
         guard let request = pending else { return nil }

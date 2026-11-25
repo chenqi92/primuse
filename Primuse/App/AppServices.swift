@@ -2844,7 +2844,28 @@ final class AppServices {
         while !Task.isCancelled {
             guard let books = await siriCatalogBookList(), !Task.isCancelled else { return false }
             let inputs = siriSongSuggestionInputs(limit: siriSongShortcutLimit(bookCount: books.count))
-            let selected = await siriSongSuggestions.songs(for: inputs, from: musicLibrary.musicSongs)
+            let selected: [Song]?
+            if let reader = PlaybackCatalogAccess.reader(for: musicLibrary) {
+                // 目录可读时在目录上流式挑(只留够格的优先歌与最新的那些),不交整库数组。挑法与先后无关
+                // (优先歌按给的先后,其余按加入时间与 id),同交整库的结果;读失败时照旧挑内存里的整库。
+                // crash-pattern: allow legacy-library-api 只是读失败时的后备,共用存储不复制
+                let fallback = musicLibrary.musicSongs
+                selected = await siriSongSuggestions.songs(for: inputs) {
+                    do {
+                        return try await reader.read { catalog in
+                            try SiriSongCatalog.shortcuts(priorityIDs: inputs.priorityIDs, limit: inputs.limit) { body in
+                                try catalog.forEachSong(.visibleMusic) { _, song in body(song) }
+                            }
+                        }
+                    } catch {
+                        plog("Siri song shortcuts: catalog read failed (\(error)); using the in-memory library")
+                        return SiriSongCatalog.shortcuts(from: fallback, priorityIDs: inputs.priorityIDs, limit: inputs.limit)
+                    }
+                }
+            } else {
+                // crash-pattern: allow legacy-library-api 目录读不了时照旧交整库
+                selected = await siriSongSuggestions.songs(for: inputs, from: musicLibrary.musicSongs)
+            }
             guard let currentBooks = await siriCatalogBookList(), !Task.isCancelled else { return false }
             // A source can disappear or metadata can land while selection runs.
             let current = siriSongSuggestionInputs(limit: siriSongShortcutLimit(bookCount: currentBooks.count))
