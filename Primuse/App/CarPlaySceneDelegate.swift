@@ -801,11 +801,26 @@ extension CarPlaySceneDelegate {
 // MARK: - Section builders
 
 extension CarPlaySceneDelegate {
+    /// 曲库目录可读时直接在目录上取车机列表(一次有界的查询,结果与在内存数组上 `firstSorted` 一样);
+    /// 目录不能读或读失败返回 nil,调用方照旧在内存里的整库上挑。
+    private func fromCatalog<T>(_ list: String, _ body: (LibraryCatalog) throws -> T) -> T? {
+        let library = AppServices.shared.musicLibrary
+        guard let host = library.catalogHost, host.revisions.isReadable,
+              let catalog = host.mirror.readableCatalog else { return nil }
+        do {
+            return try body(catalog)
+        } catch {
+            plog("🚗 CarPlay \(list) catalog read failed (\(error)); using the in-memory library")
+            return nil
+        }
+    }
+
     private func albumsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        let albums = CarPlayListSelection.firstSorted(library.visibleAlbums, limit: 500) {
-            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-        }
+        let albums = fromCatalog("albums", { try $0.firstAlbumsByTitle(limit: 500) })
+            ?? CarPlayListSelection.firstSorted(library.visibleAlbums, limit: 500) {
+                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
         let indexByID = Dictionary(
             albums.enumerated().map { ($1.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -860,7 +875,10 @@ extension CarPlaySceneDelegate {
 
     private func artistsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        let artists = CarPlayListSelection.firstSorted(browsableArtists(library), limit: 500) {
+        // 「全部艺术家」列法在目录上取;「专辑艺术家」列法目录还没有对应的索引,照旧在内存里挑。
+        let mode = ArtistBrowseMode.resolved(UserDefaults.standard.string(forKey: ArtistBrowseMode.storageKey))
+        let catalogArtists = mode == .allArtists ? fromCatalog("artists", { try $0.firstArtistsByName(limit: 500) }) : nil
+        let artists = catalogArtists ?? CarPlayListSelection.firstSorted(browsableArtists(library), limit: 500) {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
         return Self.sectionedByIndexLetter(artists, titleKey: \.name, makeItem: artistItem)
@@ -879,9 +897,10 @@ extension CarPlaySceneDelegate {
 
     private func songsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        let songs = CarPlayListSelection.firstSorted(library.musicSongs, limit: 500) {
-            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-        }
+        let songs = fromCatalog("songs", { try $0.firstSongsByTitle(limit: 500) })
+            ?? CarPlayListSelection.firstSorted(library.musicSongs, limit: 500) {
+                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
         // queueProvider closures need a stable index into the whole sorted
         // array even after we group it into letter sections. Use the
         // duplicate-tolerant initializer — Song.id is supposed to be unique

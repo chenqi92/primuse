@@ -182,6 +182,68 @@ extension LibraryCatalog {
         }
     }
 
+    // MARK: - CarPlay lists
+
+    /// 车机歌曲列表:按标题(Foundation 的 `localizedCaseInsensitiveCompare`)排的前 `limit` 首,
+    /// 同名保持库内顺序 —— 与在内存数组上跑 `CarPlayListSelection.firstSorted` 的结果一样。
+    public func firstSongsByTitle(_ scope: LibrarySongScope = .visibleMusic, limit: Int) throws -> [Song] {
+        let cap = LibraryScaleGuard.admitMaterialization(count: limit)
+        guard cap > 0 else { return [] }
+        let rowids = try pool.read { db -> [Int32] in
+            let (scopeSQL, arguments) = try scope.whereClause(in: db)
+            return try Int64.fetchAll(db, sql: """
+                SELECT s.rowid FROM song s WHERE \(scopeSQL)
+                ORDER BY s.title COLLATE \(DatabaseCollation.localizedCaseInsensitiveCompare.name), s.rowid
+                LIMIT \(cap)
+                """, arguments: arguments).map(Self.rowid32)
+        }
+        return try songs(rowids: rowids)
+    }
+
+    /// 车机专辑列表:可见专辑按标题(`localizedCaseInsensitiveCompare`)排的前 `limit` 张,同名保持
+    /// 专辑墙的先后(标题本地化排序、同名按首次出现)。
+    public func firstAlbumsByTitle(limit: Int) throws -> [Album] {
+        let cap = LibraryScaleGuard.admitMaterialization(count: limit)
+        guard cap > 0 else { return [] }
+        let keys = try pool.read { db -> [Int32] in
+            let filter = try Self.visibleSplitsLibrary(in: db)
+                ? """
+                  WHERE a.key IN (SELECT albumKey FROM albumSourceStat
+                      WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))
+                  """
+                : ""
+            return try Int64.fetchAll(db, sql: """
+                SELECT a.key FROM album a \(filter)
+                ORDER BY a.title COLLATE \(DatabaseCollation.localizedCaseInsensitiveCompare.name),
+                         a.title COLLATE \(LibraryCatalogSchema.localizedCollation), a.firstRowid
+                LIMIT \(cap)
+                """).map(Self.rowid32)
+        }
+        return try albums(keys: keys, visibleCounts: true)
+    }
+
+    /// 车机艺人列表(「全部艺术家」):可见艺人按名字(`localizedCaseInsensitiveCompare`)排的前 `limit` 位,
+    /// 同名保持艺人列表的先后。
+    public func firstArtistsByName(limit: Int) throws -> [Artist] {
+        let cap = LibraryScaleGuard.admitMaterialization(count: limit)
+        guard cap > 0 else { return [] }
+        let keys = try pool.read { db -> [Int32] in
+            let filter = try Self.visibleSplitsLibrary(in: db)
+                ? """
+                  WHERE artist.key IN (SELECT artistRef FROM artistSourceStat
+                      WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))
+                  """
+                : ""
+            return try Int64.fetchAll(db, sql: """
+                SELECT artist.key FROM artist \(filter)
+                ORDER BY artist.name COLLATE \(DatabaseCollation.localizedCaseInsensitiveCompare.name),
+                         artist.name COLLATE \(LibraryCatalogSchema.localizedCollation), artist.firstRowid, artist.firstOrdinal
+                LIMIT \(cap)
+                """).map(Self.rowid32)
+        }
+        return try artists(keys: keys, visibleCounts: true)
+    }
+
     /// 排序键的第一个字节是首字母桶(0–25 是 A–Z,26 是 "#")。
     static func bucketIndex(of key: Data) -> Int {
         guard let first = key.first else { return LibraryCollationPolicy.letterBuckets.count }

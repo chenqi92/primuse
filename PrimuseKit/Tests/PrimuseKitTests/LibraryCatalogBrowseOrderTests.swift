@@ -105,6 +105,25 @@ struct LibraryCatalogBrowseOrderTests {
         }
     }
 
+    @Test("CarPlay lists match CarPlayListSelection.firstSorted on the in-memory order", arguments: [UInt64(4), 21])
+    func carPlayLists(seed: UInt64) throws {
+        for disabled in [Set<String>(), ["src-nas"]] {
+            let temporary = try Self.makeCatalog(seed: seed, count: 600, disabled: disabled)
+            let catalog = temporary.catalog
+            let limit = 40
+            func ascending(_ lhs: String, _ rhs: String) -> Bool { lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending }
+            let music = try catalog.songs(rowids: catalog.rowList(.visibleMusic).rowids)
+            let expectedSongs = CarPlayListSelection.firstSorted(music, limit: limit) { ascending($0.title, $1.title) }
+            #expect(try catalog.firstSongsByTitle(limit: limit).map(\.id) == expectedSongs.map(\.id), "seed \(seed) songs")
+            let albums = try catalog.albums(keys: catalog.albumKeys(visibleOnly: true).keys, visibleCounts: true)
+            let expectedAlbums = CarPlayListSelection.firstSorted(albums, limit: limit) { ascending($0.title, $1.title) }
+            #expect(try catalog.firstAlbumsByTitle(limit: limit).map(\.id) == expectedAlbums.map(\.id), "seed \(seed) albums")
+            let artists = try catalog.artists(keys: catalog.artistKeys(visibleOnly: true).keys, visibleCounts: true)
+            let expectedArtists = CarPlayListSelection.firstSorted(artists, limit: limit) { ascending($0.name, $1.name) }
+            #expect(try catalog.firstArtistsByName(limit: limit).map(\.id) == expectedArtists.map(\.id), "seed \(seed) artists")
+        }
+    }
+
     @Test("Orders the catalog does not sort here return nil")
     func unsupportedOrders() throws {
         let temporary = try Self.makeCatalog(seed: 5, count: 40, disabled: [])
