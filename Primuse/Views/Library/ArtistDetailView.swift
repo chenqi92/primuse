@@ -1217,53 +1217,18 @@ struct ArtistHeroTitleBlock: View {
 
 private struct ArtistScrollEdgeEffectModifier: ViewModifier {
     let softensEdges: Bool
-    @State private var hasScrolledPhoto = false
-    @State private var scrollState = ArtistScrollEdgeState()
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content
-                .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-                // A stationary edge wash would blur hair/forehead before the
-                // portrait itself has scrolled behind the navigation controls.
-                .scrollEdgeEffectHidden(!softensEdges || !hasScrolledPhoto, for: .top)
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
+                .scrollEdgeEffectHidden(true, for: .top)
                 .scrollEdgeEffectHidden(!softensEdges, for: .bottom)
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    geometry.contentOffset.y + geometry.contentInsets.top
-                } action: { _, offset in
-                    scrollState.offset = offset
-                    if !scrollState.userHasInteracted {
-                        // Safe-area/header measurements can adjust the initial
-                        // offset after the image loads. They are not a gesture.
-                        scrollState.restingOffset = offset
-                    }
-                    let scrolled = scrollState.userHasInteracted
-                        && offset - scrollState.restingOffset > 8
-                    if hasScrolledPhoto != scrolled {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            hasScrolledPhoto = scrolled
-                        }
-                    }
-                }
-                .onScrollPhaseChange { _, phase in
-                    if !scrollState.userHasInteracted,
-                       phase == .tracking || phase == .interacting {
-                        scrollState.restingOffset = scrollState.offset
-                        scrollState.userHasInteracted = true
-                    }
-                }
         } else {
             content
         }
     }
-}
-
-/// Non-observed bookkeeping: per-frame offset updates must not redraw the page.
-private final class ArtistScrollEdgeState {
-    var offset: CGFloat = 0
-    var restingOffset: CGFloat = 0
-    var userHasInteracted = false
 }
 #endif
 

@@ -2030,6 +2030,7 @@ private struct FullBleedTopSofteningToggle: View {
                 Text("player_full_bleed_top_softening_description")
             }
         }
+        .settingsAnchor("appearance.fullBleedTopSoftening")
     }
 }
 

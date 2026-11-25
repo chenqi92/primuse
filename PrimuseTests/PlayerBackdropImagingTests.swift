@@ -1646,6 +1646,44 @@ final class PlayerBackdropImagingTests: XCTestCase {
         XCTAssertEqual(SettingsCatalog.byID["appearance.fullBleedMiddleSoftening"]?.page, .playerStyle)
     }
 
+    func testTopSofteningBlursPlayerTopAndDisablesCleanly() throws {
+        let suite = "PlayerTopSoftening-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: PlayerAppearancePreferences.fullBleedMiddleSofteningKey)
+
+        func render(_ topSoftens: Bool) throws -> [UInt8] {
+            defaults.set(topSoftens, forKey: PlayerAppearancePreferences.fullBleedTopSofteningKey)
+            let view = PreviewFullBleedArtwork(
+                width: 200,
+                height: 250,
+                topSafeArea: 20,
+                appearance: .init(colorScheme: .dark, contrast: .standard)
+            ) {
+                HStack(spacing: 0) {
+                    Color.white
+                    Color.black
+                }
+            }
+            .defaultAppStorage(defaults)
+            return try rgbaPixels(of: XCTUnwrap(ImageRenderer(content: view).uiImage?.cgImage))
+        }
+
+        let softened = try render(true)
+        let sharp = try render(false)
+        func redChannel(_ pixels: [UInt8], x: Int, y: Int) -> Int {
+            Int(pixels[(y * 200 + x) * 4])
+        }
+        // Adjacent columns across the center seam stay crisp when top softening is off
+        // and blend together when top softening blur is enabled.
+        let sharpSeamDelta = abs(redChannel(sharp, x: 96, y: 12) - redChannel(sharp, x: 104, y: 12))
+        let softenedSeamDelta = abs(redChannel(softened, x: 96, y: 12) - redChannel(softened, x: 104, y: 12))
+        XCTAssertGreaterThan(sharpSeamDelta, 100)
+        XCTAssertLessThan(softenedSeamDelta, sharpSeamDelta / 2)
+        XCTAssertEqual(SettingsCatalog.byID["appearance.fullBleedTopSoftening"]?.page, .playerStyle)
+        XCTAssertTrue(SettingsCatalog.search("柔化效果").contains { $0.id == "appearance.fullBleedTopSoftening" })
+    }
+
     private func rgbaPixels(of image: CGImage) throws -> [UInt8] {
         var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
         try pixels.withUnsafeMutableBytes { buffer in

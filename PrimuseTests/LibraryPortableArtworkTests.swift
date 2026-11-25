@@ -1151,6 +1151,86 @@ final class LibraryPortableArtworkTests: XCTestCase {
         try await verifyArtistPageTint(portrait: .green, checksMeshSwitch: true)
     }
 
+    func testAlbumPageHidesTopScrollEdgeBlurAtRestAndWhileScrolling() async throws {
+        guard #available(iOS 26.0, *) else { return }
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        let sourceID = "AlbumTopEdge-\(UUID().uuidString)"
+        let songs = (0..<12).map { index in
+            let id = UUID().uuidString
+            return Song(
+                id: id,
+                title: "Track \(index + 1)",
+                albumTitle: "No Top Blur Album",
+                artistName: "Album Edge Artist",
+                trackNumber: index + 1,
+                fileFormat: .mp3,
+                filePath: "/album-edge-\(index).mp3",
+                sourceID: sourceID
+            )
+        }
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+        let album = try XCTUnwrap(library.visibleAlbums.first { $0.title == "No Top Blur Album" })
+
+        let services = AppServices.shared
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let size = CGSize(width: 390, height: 844)
+        window.frame = CGRect(origin: .zero, size: size)
+        let host = UIHostingController(rootView:
+            NavigationStack { AlbumDetailView(album: album) }
+                .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+                .frame(width: size.width, height: size.height)
+                .environment(library)
+                .environment(SourceManager(sourcesProvider: { [] }))
+                .environment(SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources")))
+                .environment(services.playerService).environment(services.metadataBackfill)
+                .environment(services.musicIntelligence)
+                .environment(services.scraperService).environment(services.scraperSettingsStore)
+                .environment(services.playbackSettingsStore)
+                .environment(services.themeService).environment(CoverTintProvider())
+                .environment(services.batchRemoval)
+                .environment(\.scenePhase, .inactive)
+                .environment(\.horizontalSizeClass, .compact)
+                .environment(\.verticalSizeClass, .regular)
+                .environment(\.colorScheme, .light)
+        )
+        host.safeAreaRegions = []
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.frame = window.bounds
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            originalWindow?.makeKeyAndVisible()
+        }
+
+        func scrollViews(in view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+        }
+
+        var detailScroll: UIScrollView?
+        for _ in 0..<30 {
+            try await Task.sleep(for: .milliseconds(100))
+            host.view.layoutIfNeeded()
+            if let scroll = scrollViews(in: host.view).first(where: { $0.bounds.height > 600 }),
+               scroll.topEdgeEffect.isHidden,
+               !scroll.bottomEdgeEffect.isHidden {
+                detailScroll = scroll
+                break
+            }
+        }
+        let scroll = try XCTUnwrap(detailScroll, "Expected album scroll view to hide top edge effect while keeping bottom edge effect")
+        scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentOffset.y + 120), animated: false)
+        try await Task.sleep(for: .milliseconds(250))
+        host.view.layoutIfNeeded()
+        XCTAssertTrue(scroll.topEdgeEffect.isHidden)
+        XCTAssertFalse(scroll.bottomEdgeEffect.isHidden)
+    }
+
     func testArtistIntroAndAddEntryAppearBeforeReleasesInPortrait() async throws {
         try await verifyArtistPageTint(portrait: .black, synopsisLayout: .regular)
     }
@@ -1408,6 +1488,18 @@ final class LibraryPortableArtworkTests: XCTestCase {
             try await assertSoftensEdges(top: false, bottom: false)
             defaults.set(true, forKey: ArtistAppearancePreferences.softensEdgesKey)
             try await assertSoftensEdges(top: false, bottom: true)
+            if #available(iOS 26.0, *) {
+                func scrollViews(in view: UIView) -> [UIScrollView] {
+                    (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+                }
+                if let scroll = scrollViews(in: host.view).first(where: { $0.bounds.height > 600 }) {
+                    scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentOffset.y + 120), animated: false)
+                    try await Task.sleep(for: .milliseconds(250))
+                    host.view.layoutIfNeeded()
+                    XCTAssertTrue(scroll.topEdgeEffect.isHidden)
+                    XCTAssertFalse(scroll.bottomEdgeEffect.isHidden)
+                }
+            }
             defaults.set(PlayerAmbientStyle.mesh.rawValue, forKey: ArtistAppearancePreferences.colorStyleKey)
             backdrop.update { $0.ambientStyle = .classic }
             try await assertBackgroundVariation(true)

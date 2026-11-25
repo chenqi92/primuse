@@ -247,6 +247,7 @@ struct AlbumDetailView: View {
         #if os(iOS)
         .libraryDetailTint(from: artworkTintSong)
         .minimalNavigationDetail()
+        .modifier(AlbumScrollEdgeEffectModifier())
         .librarySearchContext {
             LibrarySearchScope(
                 title: album.title,
@@ -1410,6 +1411,17 @@ struct AlbumDetailView: View {
 }
 
 #if os(iOS)
+private struct AlbumScrollEdgeEffectModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.scrollEdgeEffectHidden(true, for: .top)
+        } else {
+            content
+        }
+    }
+}
+
 private struct AlbumHeroActionRow: View {
     let playDisabled: Bool
     let shuffleDisabled: Bool
