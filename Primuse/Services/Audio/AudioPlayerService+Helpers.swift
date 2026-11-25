@@ -374,7 +374,7 @@ extension AudioPlayerService {
             isPrimuseManagingAppleMusicQueue = true
             AppServices.shared.appleMusic.prepareForPrimuseManagedQueue()
         }
-        plog("🎶 Queue continuation appended \(additions.count) songs (queue=\(queueEntries.count) remaining=\(queueContinuation.map { $0.requestedIDs.count - $0.nextOffset } ?? 0))")
+        plog("🎶 Queue continuation appended \(additions.count) songs (queue=\(queueEntries.count) remaining=\(queueContinuation.map { $0.requestedCount - $0.nextOffset } ?? 0))")
         persistPlaybackSession()
     }
 

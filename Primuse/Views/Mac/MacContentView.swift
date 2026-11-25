@@ -1585,6 +1585,8 @@ private struct MacSongListPrewarm: ViewModifier {
             } catch {
                 return
             }
+            // 目录可读、这种排序目录给得出时,歌曲页直接从目录按页取,用不上内存里的整库快照。
+            if library.readableCatalogReader != nil, SongListCatalogPolicy.supports(order) { return }
             let version = SongListSnapshotVersion(
                 collectionRevision: library.visibleSongCollectionRevision,
                 replacementToken: library.songReplacementToken

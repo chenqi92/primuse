@@ -17,8 +17,13 @@ final class MusicSessionMemoryStore {
         var sourceID: String
         var savedAt: Date
         var continuation: QueueContinuation? = nil
+        /// 只在存盘的那份里有:单独存的续接的令牌(读回时对上才接回来,随即清掉)。
+        var storedContinuationToken: String? = nil
 
-        var requestedSongIDs: [String] { continuation?.requestedIDs ?? snapshot.queueSongIDs }
+        /// 这张队列请求的整张 id(续接在映射文件里时不读成数组)。
+        var requestedSongs: QueueRequestedSongs {
+            continuation.map(QueueRequestedSongs.continuation) ?? .ids(snapshot.queueSongIDs)
+        }
     }
 
     static let shared = MusicSessionMemoryStore()
@@ -30,9 +35,11 @@ final class MusicSessionMemoryStore {
     @ObservationIgnored private(set) var startupRead: Task<[String: Song]?, Never>?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let url: URL
+    /// 续接单独存(`QueueContinuationStore`:整库请求的 id 在映射文件里),不嵌进上面那份 JSON。
+    @ObservationIgnored private let continuationURL: URL
     @ObservationIgnored private var revision = 0
     private var loadTask: Task<Void, Never>?
-    @ObservationIgnored private var activeQueueWhileLoading: [String]?
+    @ObservationIgnored private var activeQueueWhileLoading: QueueRequestedSongs?
     @ObservationIgnored private var writeTask: Task<Void, Never>?
     @ObservationIgnored private var pendingWrite: Memory?
     @ObservationIgnored private var hasPendingWrite = false
@@ -46,24 +53,36 @@ final class MusicSessionMemoryStore {
         let url = url ?? PlaybackSessionStore().url.deletingLastPathComponent()
             .appendingPathComponent("recent-music-queue.json")
         self.url = url
+        let continuationURL = url.deletingPathExtension().appendingPathExtension("continuation.json")
+        self.continuationURL = continuationURL
         let legacy = defaults.data(forKey: Self.key)
         loadTask = Task { [weak self] in
-            let loaded = await Task.detached(priority: .utility) {
+            let read = await Task.detached(priority: .utility) { () -> (memory: Memory, embedded: Bool)? in
                 let data = (try? Data(contentsOf: url)) ?? legacy
-                return data.flatMap { try? JSONDecoder().decode(Memory.self, from: $0) }
+                guard var memory = data.flatMap({ try? JSONDecoder().decode(Memory.self, from: $0) }) else { return nil }
+                // 旧版把续接整张嵌在 JSON 里;新版单独存,按令牌对上才接回来。
+                let embedded = memory.continuation != nil
+                if !embedded, let token = memory.storedContinuationToken,
+                   let stored = QueueContinuationStore(url: continuationURL).load(), stored.token == token {
+                    memory.continuation = stored
+                }
+                memory.storedContinuationToken = nil
+                return (memory, embedded)
             }.value
             guard let self else { return }
             defer {
                 self.loadTask = nil
                 self.activeQueueWhileLoading = nil
             }
-            guard self.revision == 0, let loaded else { return }
-            if loaded.requestedSongIDs == self.activeQueueWhileLoading {
+            guard self.revision == 0, let read else { return }
+            let loaded = read.memory
+            if loaded.requestedSongs == self.activeQueueWhileLoading {
                 self.clear()
                 return
             }
             self.memory = loaded
-            if legacy != nil { self.save(loaded) }
+            // 旧格式(存在偏好设置里,或续接嵌在 JSON 里)按新格式重存一次。
+            if legacy != nil || read.embedded { self.save(loaded) }
         }
     }
 
@@ -115,9 +134,13 @@ final class MusicSessionMemoryStore {
 
     /// Older versions also saved the active queue here. It can arrive from disk
     /// before or after the player has installed the current playback session.
+    func excludeActiveQueue(_ requested: QueueRequestedSongs) {
+        if loadTask != nil { activeQueueWhileLoading = requested }
+        if memory?.requestedSongs == requested { clear() }
+    }
+
     func excludeActiveQueue(_ songIDs: [String]) {
-        if loadTask != nil { activeQueueWhileLoading = songIDs }
-        if memory?.requestedSongIDs == songIDs { clear() }
+        excludeActiveQueue(.ids(songIDs))
     }
 
     func clear() {
@@ -133,7 +156,7 @@ final class MusicSessionMemoryStore {
         let previousContinuation = current.continuation
         if var continuation = current.continuation {
             continuation.removeSongs(withIDs: songIDs)
-            current.continuation = (continuation.isExhausted || continuation.requestedIDs.isEmpty) ? nil : continuation
+            current.continuation = (continuation.isExhausted || continuation.requestedCount == 0) ? nil : continuation
         }
         let currentSongID = current.snapshot.currentSongID.isEmpty ? current.songID : current.snapshot.currentSongID
         let plan = QueueBatchRemovalPolicy.plan(
@@ -177,7 +200,7 @@ final class MusicSessionMemoryStore {
                 if batch.isEmpty { break }
                 pulled.append(contentsOf: batch.filter { !songIDs.contains($0) })
             }
-            current.continuation = (continuation.isExhausted || continuation.requestedIDs.isEmpty) ? nil : continuation
+            current.continuation = (continuation.isExhausted || continuation.requestedCount == 0) ? nil : continuation
             retainedIDs = pulled
             startIndex = 0
             replacedCurrent = true
@@ -226,15 +249,19 @@ final class MusicSessionMemoryStore {
         if !current.songID.isEmpty {
             candidates.insert(current.songID)
         }
-        if let continuation = current.continuation {
-            candidates.formUnion(continuation.requestedIDs)
-        }
-        let stale = candidates.filter { id in
+        func isStale(_ id: String) -> Bool {
             guard !id.hasPrefix(RadioStation.playbackSongIDPrefix),
                   !PodcastIdentity.isEpisodeID(id) else {
                 return false
             }
             return library.storedSong(id: id) == nil
+        }
+        var stale = candidates.filter(isStale)
+        // 续接欠着的(整库请求时在映射文件里)逐条看,不先并成一个整库的集合。
+        if let continuation = current.continuation {
+            for id in continuation.requestedIDList where !candidates.contains(id) && !stale.contains(id) && isStale(id) {
+                stale.insert(id)
+            }
         }
         guard !stale.isEmpty else { return }
         removeSongs(withIDs: stale, resolveSong: { library.storedSong(id: $0) })
@@ -257,15 +284,24 @@ final class MusicSessionMemoryStore {
                 self.pendingWrite = nil
                 self.hasPendingWrite = false
                 let url = self.url
+                let continuationStore = QueueContinuationStore(url: self.continuationURL)
                 let succeeded = await Task.detached(priority: .utility) {
                     do {
                         if let value {
                             try FileManager.default.createDirectory(
                                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true
                             )
-                            try JSONEncoder().encode(value).write(to: url, options: .atomic)
-                        } else if FileManager.default.fileExists(atPath: url.path) {
-                            try FileManager.default.removeItem(at: url)
+                            // 续接先存(id 列表没变时只重写小状态文件),JSON 里只留它的令牌。
+                            continuationStore.save(value.continuation)
+                            var plain = value
+                            plain.continuation = nil
+                            plain.storedContinuationToken = value.continuation?.token
+                            try JSONEncoder().encode(plain).write(to: url, options: .atomic)
+                        } else {
+                            continuationStore.save(nil)
+                            if FileManager.default.fileExists(atPath: url.path) {
+                                try FileManager.default.removeItem(at: url)
+                            }
                         }
                         return true
                     } catch {
@@ -371,6 +407,11 @@ extension AudioPlayerService {
 
     /// Capture before replacing either the window or its continuation. A
     /// single-song request and its automatic recommendations never own this slot.
+    /// 眼前这条队列的整张请求:有续接就是续接那张(整库请求时在映射文件里),否则是装着的这些歌。
+    var activeQueueRequest: QueueRequestedSongs {
+        queueContinuation.map(QueueRequestedSongs.continuation) ?? .ids(queueEntries.map(\.song.id))
+    }
+
     func rememberCurrentMusicQueue(outgoing: Song? = nil) {
         guard remembersMusicQueue, let song = outgoing ?? currentSong,
               listeningSpace(of: song) == .music,
@@ -399,7 +440,7 @@ extension AudioPlayerService {
         if queueEntries.indices.contains(currentIndex), queueEntries[currentIndex].song.id == song.id {
             // Stop can leave its queue installed with no current song.
             if currentSong == nil {
-                musicSessionMemoryStore.excludeActiveQueue(queueContinuation?.requestedIDs ?? queueEntries.map(\.song.id))
+                musicSessionMemoryStore.excludeActiveQueue(activeQueueRequest)
             }
             return
         }

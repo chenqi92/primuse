@@ -238,14 +238,7 @@ enum DeferredLibrarySnapshotWork {
     }
 }
 
-enum LibrarySearchMatchKind: CaseIterable, Sendable {
-    case metadata
-    case path
-    case lyrics
-    case fuzzy
-
-    static let all = Set(allCases)
-}
+// `LibrarySearchMatchKind` 与文本匹配(`LibrarySearchTextMatcher`)在 PrimuseKit 里。
 
 struct LibrarySearchResult: Identifiable, Sendable {
     let song: Song
@@ -257,209 +250,7 @@ struct LibrarySearchResult: Identifiable, Sendable {
     var id: String { song.id }
 }
 
-private struct LibrarySearchMatcher {
-    let rawQuery: String
-    let normalizedQuery: String
-    private let shouldTransliterateCandidates: Bool
-
-    var isValid: Bool { !normalizedQuery.isEmpty }
-    var normalizedLength: Int { normalizedQuery.count }
-    var requiresPinyinCandidates: Bool { shouldTransliterateCandidates }
-
-    init(query: String) {
-        rawQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A Han query can be matched in its original script. Transliteration
-        // is only useful when the user typed Latin pinyin/initials; avoiding it
-        // for normal Chinese queries prevents thousands of unnecessary ICU
-        // transforms in a large library.
-        shouldTransliterateCandidates = !Self.containsHan(rawQuery)
-        normalizedQuery = Self.normalized(rawQuery, transliterateHan: false)
-    }
-
-    func score(candidate: String) -> (score: Int, kind: LibrarySearchMatchKind)? {
-        guard !candidate.isEmpty else { return nil }
-
-        if candidate.localizedCaseInsensitiveContains(rawQuery) {
-            return (120, .metadata)
-        }
-        guard isValid else { return nil }
-
-        let normalizedCandidate = Self.normalized(
-            candidate,
-            transliterateHan: shouldTransliterateCandidates
-        )
-        guard !normalizedCandidate.isEmpty else { return nil }
-
-        if normalizedCandidate.contains(normalizedQuery) {
-            return (110, .metadata)
-        }
-
-        if shouldTransliterateCandidates {
-            let initials = Self.initials(candidate)
-            if !initials.isEmpty, initials.contains(normalizedQuery) {
-                return (100, .metadata)
-            }
-        }
-
-        if normalizedQuery.count >= 3,
-           Self.isSubsequence(normalizedQuery, of: normalizedCandidate) {
-            return (55, .fuzzy)
-        }
-
-        return nil
-    }
-
-    struct PreparedText: Sendable {
-        let raw: String
-        let original: String
-        let latin: String
-        let initials: String
-        let semantic: String
-        let includesPinyin: Bool
-
-        init(_ text: String, includesPinyin: Bool = true) {
-            raw = text
-            original = LibrarySearchMatcher.normalized(text, transliterateHan: false)
-            semantic = ListeningSpaceSearchPolicy.normalized(text)
-            self.includesPinyin = includesPinyin
-            if includesPinyin {
-                let transliterated = LibrarySearchMatcher.containsHan(text)
-                    ? (text.applyingTransform(.mandarinToLatin, reverse: false)?
-                        .applyingTransform(.stripDiacritics, reverse: false) ?? text)
-                    : text
-                latin = LibrarySearchMatcher.normalized(transliterated, transliterateHan: false)
-                initials = LibrarySearchMatcher.initials(transliterated)
-            } else {
-                latin = original
-                initials = ""
-            }
-        }
-
-        var characters: Set<Unicode.Scalar> {
-            Set((original + latin + initials + semantic).unicodeScalars)
-        }
-    }
-
-    func score(prepared: PreparedText) -> Int? {
-        if prepared.raw.localizedCaseInsensitiveContains(rawQuery) { return 120 }
-        let candidate = shouldTransliterateCandidates ? prepared.latin : prepared.original
-        guard !candidate.isEmpty else { return nil }
-        if candidate.contains(normalizedQuery) { return 110 }
-        if shouldTransliterateCandidates, prepared.initials.contains(normalizedQuery) { return 100 }
-        if normalizedLength >= 3, Self.isSubsequence(normalizedQuery, of: candidate) { return 55 }
-        return nil
-    }
-
-    func lyricsMatch(in lines: [LyricLine], contextLines: Int = 1) -> (snippet: String, timestamp: TimeInterval)? {
-        let indexedLines = lines
-            .enumerated()
-            .map { (offset: $0.offset, line: $0.element, text: $0.element.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            .filter { !$0.text.isEmpty }
-        guard !indexedLines.isEmpty else { return nil }
-
-        var matchPosition: Int?
-        for (index, item) in indexedLines.enumerated() {
-            guard !Task.isCancelled else { return nil }
-            if lyricsContainQuery(item.text) {
-                matchPosition = index
-                break
-            }
-        }
-
-        guard let matchPosition else { return nil }
-        let lowerBound = max(0, matchPosition - contextLines)
-        let upperBound = min(indexedLines.count - 1, matchPosition + contextLines)
-        var snippetLines = Array(indexedLines[lowerBound...upperBound].map(\.text))
-        if lowerBound > 0 { snippetLines[0] = "..." + snippetLines[0] }
-        if upperBound < indexedLines.count - 1 {
-            snippetLines[snippetLines.count - 1] += "..."
-        }
-        return (snippetLines.joined(separator: "\n"), indexedLines[matchPosition].line.timestamp)
-    }
-
-    func lyricsContainQuery(_ text: String) -> Bool {
-        guard !rawQuery.isEmpty else { return false }
-        // Lyrics search is literal full-text search. Pinyin matching remains
-        // available for title/artist/album metadata, but transliterating every
-        // lyric line is prohibitively expensive and was the source of a
-        // MetricKit CPU exception on a 5K-file lyrics library.
-        return text.range(
-            of: rawQuery,
-            options: [.caseInsensitive, .diacriticInsensitive],
-            locale: .current
-        ) != nil
-    }
-
-    private static func normalized(_ text: String, transliterateHan: Bool) -> String {
-        let latin: String
-        if text.unicodeScalars.allSatisfy(\.isASCII) {
-            latin = text.lowercased()
-        } else if transliterateHan, containsHan(text) {
-            latin = text
-                .applyingTransform(.mandarinToLatin, reverse: false)?
-                .applyingTransform(.stripDiacritics, reverse: false)
-                ?? text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-        } else {
-            latin = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-        }
-
-        let allowed = CharacterSet.alphanumerics
-        let scalars = latin.lowercased().unicodeScalars.filter { allowed.contains($0) }
-        return String(String.UnicodeScalarView(scalars))
-    }
-
-    private static func initials(_ text: String) -> String {
-        let latin: String
-        if containsHan(text) {
-            latin = text
-                .applyingTransform(.mandarinToLatin, reverse: false)?
-                .applyingTransform(.stripDiacritics, reverse: false)
-                ?? text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-        } else {
-            latin = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-        }
-
-        let allowed = CharacterSet.alphanumerics
-        var result = String.UnicodeScalarView()
-        var shouldTakeNext = true
-        for scalar in latin.lowercased().unicodeScalars {
-            if allowed.contains(scalar) {
-                if shouldTakeNext {
-                    result.append(scalar)
-                    shouldTakeNext = false
-                }
-            } else {
-                shouldTakeNext = true
-            }
-        }
-        return String(result)
-    }
-
-    private static func containsHan(_ text: String) -> Bool {
-        text.unicodeScalars.contains { scalar in
-            switch scalar.value {
-            case 0x3400...0x4DBF,
-                 0x4E00...0x9FFF,
-                 0xF900...0xFAFF,
-                 0x20000...0x2FA1F:
-                return true
-            default:
-                return false
-            }
-        }
-    }
-
-    private static func isSubsequence(_ needle: String, of haystack: String) -> Bool {
-        var remaining = needle[...]
-        for char in haystack {
-            if remaining.first == char {
-                remaining.removeFirst()
-                if remaining.isEmpty { return true }
-            }
-        }
-        return remaining.isEmpty
-    }
-}
+private typealias LibrarySearchMatcher = LibrarySearchTextMatcher
 
 /// 字面查找(歌词)时读过的歌词文本。只是备忘:放掉后下次照样从歌词文件读,结果不变。
 /// 跨次查找留着,所以有上限:歌词正文合计超过 `maximumCharacters` 个字符、或记下的
@@ -740,136 +531,42 @@ enum LibrarySearchWorker {
 
 // Character postings also admit pinyin initials and subsequences; final scoring
 // preserves the existing ranking without normalizing the entire catalogue per query.
+// 专辑、艺人的预处理文本与倒排存在搜索库里(`LibraryCollectionSearchStore`),不常驻内存;
+// 规则与原先的内存版逐条相同。
 actor LibraryCatalogSearchIndex {
-    struct Output: Sendable {
-        let albums: [Album]
-        let artists: [Artist]
+    typealias Output = LibraryCollectionSearchStore.Output
+
+    private let store: LibraryCollectionSearchStore?
+
+    /// `database`:搜索库(`LibrarySearchIndex.shared.collectionSearchDatabase`)。不给时(测试、
+    /// 搜索库打不开)用一个只属于这个实例的内存库。
+    init(database: (any DatabaseWriter)? = nil) {
+        if let database {
+            store = LibraryCollectionSearchStore(writer: database)
+        } else {
+            store = try? LibraryCollectionSearchStore.temporary()
+        }
     }
 
-    private struct AlbumText {
-        let title: LibrarySearchMatcher.PreparedText
-        let artist: LibrarySearchMatcher.PreparedText
-    }
-    private var albums: [Album] = []
-    private var artists: [Artist] = []
-    private var albumText: [AlbumText] = []
-    private var artistText: [LibrarySearchMatcher.PreparedText] = []
-    private var albumIDs = Set<String>()
-    private var albumIncludesPinyin = false
-    private var albumPostings: [Unicode.Scalar: Set<Int>] = [:]
-    private var artistPostings: [Unicode.Scalar: Set<Int>] = [:]
-    private var texts: [String: LibrarySearchMatcher.PreparedText] = [:]
-    private(set) var preparationCount = 0
-    private(set) var lastAlbumCandidateCount = 0
-
-    private func prepared(_ text: String, includesPinyin: Bool) -> LibrarySearchMatcher.PreparedText {
-        if let cached = texts[text], cached.includesPinyin || !includesPinyin { return cached }
-        let value = LibrarySearchMatcher.PreparedText(text, includesPinyin: includesPinyin)
-        texts[text] = value
-        return value
-    }
-
-    private func prepare(albums nextAlbums: [Album], artists nextArtists: [Artist], includesPinyin: Bool) -> Bool {
-        if !sharesStorage(albums, nextAlbums) || (includesPinyin && !albumIncludesPinyin) {
-            var rows: [AlbumText] = []
-            var postings: [Unicode.Scalar: Set<Int>] = [:]
-            rows.reserveCapacity(nextAlbums.count)
-            for (index, album) in nextAlbums.enumerated() {
-                guard !Task.isCancelled else { return false }
-                let row = autoreleasepool {
-                    AlbumText(
-                        title: prepared(album.title, includesPinyin: includesPinyin),
-                        artist: prepared(album.artistName ?? "", includesPinyin: includesPinyin)
-                    )
-                }
-                rows.append(row)
-                for character in row.title.characters.union(row.artist.characters) {
-                    postings[character, default: []].insert(index)
-                }
-            }
-            albums = nextAlbums
-            albumText = rows
-            albumPostings = postings
-            albumIDs = Set(nextAlbums.map(\.id))
-            albumIncludesPinyin = includesPinyin
-            preparationCount += 1
-        }
-        if !sharesStorage(artists, nextArtists) {
-            var rows: [LibrarySearchMatcher.PreparedText] = []
-            var postings: [Unicode.Scalar: Set<Int>] = [:]
-            for (index, artist) in nextArtists.enumerated() {
-                guard !Task.isCancelled else { return false }
-                let row = autoreleasepool { prepared(artist.name, includesPinyin: false) }
-                rows.append(row)
-                for character in row.characters { postings[character, default: []].insert(index) }
-            }
-            artists = nextArtists
-            artistText = rows
-            artistPostings = postings
-            preparationCount += 1
-        }
-        if texts.count > max(1_024, 2 * (nextAlbums.count * 2 + nextArtists.count)) {
-            var retained = Set(nextAlbums.flatMap { [$0.title, $0.artistName ?? ""] })
-            retained.formUnion(nextArtists.map(\.name))
-            texts = texts.filter { retained.contains($0.key) }
-        }
-        return true
-    }
-
-    private func candidates(
-        _ query: String, postings: [Unicode.Scalar: Set<Int>], alphanumericOnly: Bool = true
-    ) -> Set<Int> {
-        let characters = Set(query.unicodeScalars.filter {
-            alphanumericOnly ? CharacterSet.alphanumerics.contains($0) : !CharacterSet.whitespacesAndNewlines.contains($0)
-        })
-        guard !characters.isEmpty else { return [] }
-        let lists = characters.map { postings[$0] ?? [] }.sorted { $0.count < $1.count }
-        var result = lists[0]
-        for list in lists.dropFirst() {
-            result.formIntersection(list)
-            if result.isEmpty { break }
-        }
-        return result
-    }
+    var preparationCount: Int { store?.preparationCount ?? 0 }
+    var lastAlbumCandidateCount: Int { store?.lastAlbumCandidateCount ?? 0 }
 
     func search(
         query: String, albums: [Album], artists: [Artist],
         relatedAlbums: [Album] = [], semanticArtists: Bool = false,
         includePinyin: Bool = true
     ) -> Output {
-        let matcher = LibrarySearchMatcher(query: query)
-        guard !matcher.rawQuery.isEmpty, !Task.isCancelled,
-              prepare(albums: albums, artists: artists, includesPinyin: includePinyin && matcher.requiresPinyinCandidates) else {
+        guard let store else { return Output(albums: [], artists: []) }
+        do {
+            return try store.search(
+                query: query, albums: albums, artists: artists, relatedAlbums: relatedAlbums,
+                semanticArtists: semanticArtists, includePinyin: includePinyin,
+                isCancelled: { Task.isCancelled }
+            )
+        } catch {
+            plog("🔎 Album/artist search failed: \(error.localizedDescription)")
             return Output(albums: [], artists: [])
         }
-        let offsets = candidates(matcher.normalizedQuery, postings: albumPostings)
-        lastAlbumCandidateCount = offsets.count
-        var ranked: [(Album, Int)] = []
-        for offset in offsets.sorted() {
-            guard !Task.isCancelled else { return Output(albums: [], artists: []) }
-            let row = albumText[offset]
-            let titleScore = matcher.score(prepared: row.title).map { $0 + 20 } ?? 0
-            let artistScore = matcher.score(prepared: row.artist).map { $0 + 10 } ?? 0
-            let score = max(titleScore, artistScore)
-            if score > 0 { ranked.append((albums[offset], score)) }
-        }
-        var matchedAlbums = ranked.sorted {
-            if $0.1 != $1.1 { return $0.1 > $1.1 }
-            return $0.0.title.localizedCaseInsensitiveCompare($1.0.title) == .orderedAscending
-        }.map(\.0)
-        var seen = Set(matchedAlbums.map(\.id))
-        matchedAlbums += relatedAlbums.filter { albumIDs.contains($0.id) && seen.insert($0.id).inserted }
-        let semanticQuery = ListeningSpaceSearchPolicy.normalized(query)
-        let words = semanticQuery.split(separator: " ")
-        let artistCandidates = candidates(semanticQuery, postings: artistPostings, alphanumericOnly: false)
-        let matchedArtists = artistCandidates.sorted().compactMap { offset -> Artist? in
-            let text = artistText[offset]
-            let matches = semanticArtists
-                ? text.semantic.contains(semanticQuery) || (words.count > 1 && words.allSatisfy { text.semantic.contains($0) })
-                : text.raw.localizedCaseInsensitiveContains(matcher.rawQuery)
-            return matches ? artists[offset] : nil
-        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        return Output(albums: matchedAlbums, artists: matchedArtists)
     }
 }
 
@@ -962,6 +659,12 @@ actor LibrarySearchIndex {
     private static let externalContentSchemaVersion = "v3_external_lyrics_content"
     private static let displayPathSchemaVersion = "v4_user_visible_song_path"
     private static let incrementalAllSongsSchemaVersion = "v5_incremental_all_songs"
+    private static let collectionSearchSchemaVersion = "v7_collection_search_text"
+    private static let catalogCursorSchemaVersion = "v8_catalog_change_cursor"
+    /// 按目录流水补的歌超过这么多首就改走整库对账(两者的工作量差不多了)。
+    private static let catalogRecoveryLimit = 20_000
+    /// 被杀后再启动时目录可能还在跟上旧库(不可读),最多等这么久(每次 0.5 s)。
+    private static let catalogRecoveryWaitSteps = 60
     /// FTS5 external-content triggers touch several indexes per transaction.
     /// Larger utility batches drastically reduce WAL checkpoints/write
     /// amplification while the short inter-batch pause keeps reads responsive.
@@ -1003,12 +706,25 @@ actor LibrarySearchIndex {
     func releaseReadCaches() {
         searchDisplayPaths = [:]
     }
+
+    /// 曲库目录的读接口,由持有目录的一方挂上(`attachCatalog`)。挂上后,被杀、崩溃后待做的整库对账
+    /// 改为按目录变更流水只补上次跟上之后改过的歌;没挂、目录读不了或流水对不上时照旧整库对账。
+    private static let catalogReaderSlot = OSAllocatedUnfairLock<LibraryCatalogReader?>(initialState: nil)
+
+    nonisolated static func attachCatalog(_ reader: LibraryCatalogReader?) {
+        catalogReaderSlot.withLock { $0 = reader }
+    }
+
+    /// 搜索页专辑、艺人索引用的库(就是这份搜索库);打不开时为 nil。
+    nonisolated var collectionSearchDatabase: DatabasePool? { dbPool }
     private var isPreparing = false
 
     private struct PendingFullPreparation {
         let songs: [Song]
         let generation: Int
         let sourceTypes: [String: MusicSourceType]
+        /// 排进这次整库对账时丢掉了还没写的增量:那些改动目录未必已经有了,不能按目录流水补。
+        var discardedDelta = false
     }
 
     private struct PendingLyricsRefresh {
@@ -1152,6 +868,8 @@ actor LibrarySearchIndex {
                 path: directory.appendingPathComponent("library-search.sqlite").path
             )
             try Self.migrate(pool)
+            // 专辑、艺人文本按搜索页实例分开存,上一次运行留下的作废。
+            try pool.write { db in try LibraryCollectionSearchStore.removeAll(in: db) }
             dbPool = pool
         } catch {
             dbPool = nil
@@ -1286,6 +1004,20 @@ actor LibrarySearchIndex {
         migrator.registerMigration("v6_server_reported_song_paths") { _ in
             maintenanceDefaults.removeObject(forKey: reportedPathsPreparedKey)
         }
+        migrator.registerMigration(collectionSearchSchemaVersion) { db in
+            // 搜索页专辑、艺人的预处理文本与倒排(`LibraryCollectionSearchStore`)。
+            try LibraryCollectionSearchStore.createTables(in: db)
+        }
+        migrator.registerMigration(catalogCursorSchemaVersion) { db in
+            // 索引全部跟上时目录变更流水的位置:被杀后从这里只补改过的歌,不再整库对账。
+            try db.execute(sql: """
+                CREATE TABLE catalogChangeCursor (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    epoch TEXT NOT NULL,
+                    seq INTEGER NOT NULL
+                )
+                """)
+        }
         try migrator.migrate(pool)
         let needsVacuum = try pool.read { db in
             try Bool.fetchOne(
@@ -1308,7 +1040,8 @@ actor LibrarySearchIndex {
         guard dbPool != nil, !Task.isCancelled, Self.isPreparationPending() else { return }
         pendingFullPreparation = PendingFullPreparation(
             songs: songs,
-            generation: generation, sourceTypes: sourceTypes
+            generation: generation, sourceTypes: sourceTypes,
+            discardedDelta: !pendingSearchDelta.isEmpty || pendingFullPreparation?.discardedDelta == true
         )
         // A newer full snapshot contains every earlier metadata mutation.
         pendingSearchDelta = PendingSearchDelta()
@@ -1357,6 +1090,13 @@ actor LibrarySearchIndex {
         while !Task.isCancelled {
             if let full = pendingFullPreparation {
                 pendingFullPreparation = nil
+                if await recoverFromCatalogChanges(full) {
+                    Self.markPreparationCompleted(generation: full.generation)
+                    didCompleteWork = true
+                    await recordCatalogCursorIfCaughtUp()
+                    continue
+                }
+                guard !Task.isCancelled else { break }
                 guard await synchronizeMetadata(songs: full.songs, revisionKey: nil, sourceTypes: full.sourceTypes),
                       !Task.isCancelled,
                       await synchronizeLyrics(songs: full.songs),
@@ -1364,6 +1104,7 @@ actor LibrarySearchIndex {
                 Self.markPreparationCompleted(generation: full.generation)
                 Self.maintenanceDefaults.set(true, forKey: Self.reportedPathsPreparedKey)
                 didCompleteWork = true
+                await recordCatalogCursorIfCaughtUp()
                 continue
             }
 
@@ -1389,6 +1130,7 @@ actor LibrarySearchIndex {
                     )
                 }
                 didCompleteWork = true
+                await recordCatalogCursorIfCaughtUp()
                 continue
             }
             break
@@ -1416,6 +1158,101 @@ actor LibrarySearchIndex {
                 )
             }
         }
+    }
+
+    // MARK: - Catalog change feed
+
+    /// 索引此刻完全跟上(没有待做的代次)时,记下目录变更流水的末尾。
+    ///
+    /// 这时目录里的每一条变更都早于这一刻,对应的曲库改动已经推进过代次、也已经进了索引;目录比内存
+    /// 慢一拍时,那些改动以后才进流水,补的时候多补一遍,结果不变。目录读不了时不记(留着旧位置,
+    /// 以后从更早处补,也不会漏)。
+    private func recordCatalogCursorIfCaughtUp() async {
+        guard let pool = dbPool, !Self.isPreparationPending(),
+              let reader = Self.catalogReaderSlot.withLock({ $0 }), reader.isAvailable else { return }
+        guard let cursor = try? await reader.read({ try $0.changeCursor() }) else { return }
+        // 读位置期间又有改动进来时不记:那次改动的代次还没处理完。
+        guard !Self.isPreparationPending() else { return }
+        do {
+            try await pool.write { db in
+                try db.execute(
+                    sql: "INSERT OR REPLACE INTO catalogChangeCursor (id, epoch, seq) VALUES (1, ?, ?)",
+                    arguments: [cursor.epoch, cursor.seq]
+                )
+            }
+        } catch {
+            plog("🔎 Search index catalog cursor write failed: \(error.localizedDescription)")
+        }
+    }
+
+    private static func storedCatalogCursor(in pool: DatabasePool) throws -> LibraryCatalogChangeCursor? {
+        try pool.read { db in
+            try Row.fetchOne(db, sql: "SELECT epoch, seq FROM catalogChangeCursor WHERE id = 1").map {
+                LibraryCatalogChangeCursor(epoch: $0["epoch"], seq: $0["seq"])
+            }
+        }
+    }
+
+    /// 待做的整库对账改为按目录流水补:上次跟上之后目录里增、改、删过的歌按 id 现取(在调用方给的
+    /// 整库列表里找,找不到的就是删了),走与日常增量同一套写法。改名在流水里只记新 id,旧 id 留下的行
+    /// 在条数对不上时按游标清掉(与整库对账删行的那一步相同)。
+    ///
+    /// 只在这些都成立时用,否则返回 false、照旧整库对账:结构升级不要求重建(`reportedPathsPrepared`)、
+    /// 排进来时没丢掉待写的增量、挂了目录、记过位置、目录可读(刚启动时最多等 30 s)、流水还是同一条、
+    /// 要补的不超过上限。
+    private func recoverFromCatalogChanges(_ full: PendingFullPreparation) async -> Bool {
+        guard let pool = dbPool, !full.discardedDelta,
+              Self.maintenanceDefaults.bool(forKey: Self.reportedPathsPreparedKey),
+              let reader = Self.catalogReaderSlot.withLock({ $0 }),
+              let cursor = try? Self.storedCatalogCursor(in: pool) else { return false }
+        var waited = 0
+        while !reader.isAvailable {
+            guard waited < Self.catalogRecoveryWaitSteps, !Task.isCancelled else { return false }
+            try? await Task.sleep(for: .milliseconds(500))
+            waited += 1
+        }
+        let limit = Self.catalogRecoveryLimit
+        guard let batch = try? await reader.read({ try $0.changedSongIDs(since: cursor, limit: limit) }),
+              !batch.isTruncated, !Task.isCancelled else { return false }
+        let changed = Set(batch.songIDs)
+        var upserts: [Song] = []
+        if !changed.isEmpty {
+            for (offset, song) in full.songs.enumerated() {
+                if offset.isMultiple(of: 4_096), Task.isCancelled { return false }
+                if changed.contains(song.id) { upserts.append(song) }
+            }
+        }
+        let deleting = changed.subtracting(upserts.lazy.map(\.id))
+        guard await synchronizeMetadataChanges(upserts: upserts, deletingIDs: deleting, sourceTypes: full.sourceTypes),
+              !Task.isCancelled,
+              await synchronizeLyricsChanges(upserts: upserts, deletingIDs: deleting),
+              !Task.isCancelled else { return false }
+        do {
+            // 补完后索引里应当正好是库里的这些歌(每首一行状态)。多出来的是改名留下的旧 id,清掉;
+            // 少了说明记下的位置靠不住,改走整库对账。
+            func stateCount() async throws -> Int {
+                try await pool.read { db in try Int.fetchOne(db, sql: "SELECT count(*) FROM metadataSearchState") ?? 0 }
+            }
+            let count = try await stateCount()
+            if count != full.songs.count {
+                let songIDs = Set(full.songs.lazy.map(\.id))
+                guard count >= songIDs.count else { return false }
+                if count > songIDs.count {
+                    let removed = try await Self.metadataStateIDs(notIn: songIDs, in: pool)
+                    try await writeMetadataBatches(songs: [], removed: removed, existing: [:], pool: pool, sourceTypes: full.sourceTypes)
+                    let staleLyrics = try await Self.lyricsStateIDs(notIn: songIDs, in: pool)
+                    if !staleLyrics.isEmpty { try Self.removeLyricsDocuments(ids: staleLyrics, in: pool) }
+                    guard try await stateCount() == songIDs.count else { return false }
+                }
+            }
+        } catch {
+            if !(error is CancellationError) {
+                plog("🔎 Search index catalog recovery failed: \(error.localizedDescription)")
+            }
+            return false
+        }
+        plog("🔎 Search index recovered \(changed.count) changed songs from the catalog change feed")
+        return !Task.isCancelled
     }
 
     private func synchronizeLyricsRefreshes(
@@ -2953,17 +2790,14 @@ enum MusicDiscoveryEngine {
         }
         let seedPositions = input.seedIDs.compactMap { seedPositionByID[$0] }
         // Radio may already own a full index. A large Home request on its own only needs one page of features.
-        let cached = featureIndexCache.withLock { state -> FeatureIndex? in
-            guard let entry = state.index, entry.revision == input.libraryRevision, entry.count == songs.count else { return nil }
-            return entry.index
-        }
+        let cached = reusableFeatureIndex(revision: input.libraryRevision, count: songs.count)
         if songs.count > 16_384, cached == nil {
             let seedSongs = seedPositions.map { songs[$0] }
             let selected = rankedCandidates(in: songs, limit: limit, personalized: input,
                                             isCancelled: isCancelled) { visit in
                 for start in stride(from: 0, to: songs.count, by: 4_096) {
                     let page = songs[start..<min(start + 4_096, songs.count)]
-                    guard let index = FeatureIndex(songs: page, isCancelled: isCancelled) else { return false }
+                    guard let index = FeatureIndex.make(songs: page, isCancelled: isCancelled) else { return false }
                     let seeds = seedSongs.map { index.feature(for: $0) }
                     guard scoreRecommendations(in: index, seeds: seeds, offset: start, input: input,
                                                isCancelled: isCancelled, visit: visit) else { return false }
@@ -3228,6 +3062,11 @@ enum MusicDiscoveryEngine {
             for reason in reasons { insert(reason) }
         }
 
+        /// 打分给的理由:位的先后与 `order` 的前六个相同。
+        init(similarity reasons: DiscoverySimilarityReasons) {
+            bits = reasons.rawValue
+        }
+
         var isEmpty: Bool { bits == 0 }
 
         mutating func insert(_ reason: MusicDiscoveryReason) {
@@ -3266,8 +3105,8 @@ enum MusicDiscoveryEngine {
     /// Position preserves the stable ordering of equal scores and dates.
     private struct CandidateRanking {
         private var heap: [Candidate]
-        private let dates: [Date]
-        private let titles: [String]?
+        private let dates: DiscoveryDateColumn
+        private let titles: DiscoveryStringColumn?
         let artistCount: Int
         let albumCount: Int
 
@@ -3329,197 +3168,13 @@ enum MusicDiscoveryEngine {
     }
 
     /// The comparison features of one song, as keys into a `FeatureIndex`.
-    private struct Feature {
-        let id: String
-        let albumID: Int32
-        let albumTitle: Int32
-        let artistID: Int32
-        let artistName: Int32
-        let genre: Int32
-        let folder: Int32
-        let source: Int32
-        let year: Int?
-        let duration: TimeInterval
-    }
+    private typealias Feature = DiscoveryFeature
 
-    /// Struct-of-arrays feature table over one song list. Every text field is
-    /// case/diacritic-folded once and interned to an integer key, so scoring a
-    /// 200K-song library compares integers instead of copying and re-folding
-    /// strings — the previous per-call `NormalizedSong` array kept a full `Song`
-    /// copy per entry and cost hundreds of MB on large libraries.
-    private struct FeatureIndex: Sendable {
-        /// Nil or empty after normalization: never equal to anything.
-        static let noKey: Int32 = -1
-
-        var ids: [String] = []
-        var titles: [String] = []
-        var dateAdded: [Date] = []
-        var playable: [Bool] = []
-        var hasCoverArt: [Bool] = []
-        var albumID: [Int32] = []
-        var albumTitle: [Int32] = []
-        var artistID: [Int32] = []
-        var artistName: [Int32] = []
-        var genre: [Int32] = []
-        var folder: [Int32] = []
-        var source: [Int32] = []
-        var year: [Int?] = []
-        var duration: [TimeInterval] = []
-        var artistIdentity: [Int64] = []
-        var albumIdentity: [Int64] = []
-        /// Normalized text → key. Shared by every folded field; keys are only
-        /// ever compared within the same field.
-        var textKeys: [String: Int32] = [:]
-        var sourceKeys: [String: Int32] = [:]
-        /// Raw text → key while building. A library repeats the same album,
-        /// artist and genre strings across every track, and folding each one
-        /// again was most of the build (a million songs: tens of seconds).
-        /// Emptied once the index is built.
-        private var rawTextKeys: [String: Int32] = [:]
-        private var folderKeys: [String: Int32] = [:]
-
-        init?(songs: some Collection<Song>, isCancelled: () -> Bool) {
-            let count = songs.count
-            ids.reserveCapacity(count)
-            titles.reserveCapacity(count)
-            dateAdded.reserveCapacity(count)
-            playable.reserveCapacity(count)
-            hasCoverArt.reserveCapacity(count)
-            albumID.reserveCapacity(count)
-            albumTitle.reserveCapacity(count)
-            artistID.reserveCapacity(count)
-            artistName.reserveCapacity(count)
-            genre.reserveCapacity(count)
-            folder.reserveCapacity(count)
-            source.reserveCapacity(count)
-            year.reserveCapacity(count)
-            duration.reserveCapacity(count)
-            artistIdentity.reserveCapacity(count)
-            albumIdentity.reserveCapacity(count)
-            var albumTitleIdentityKeys: [AlbumTitleIdentity: Int64] = [:]
-
-            for (position, song) in songs.enumerated() {
-                if position.isMultiple(of: 512), isCancelled() { return nil }
-                ids.append(song.id)
-                titles.append(song.title)
-                dateAdded.append(song.dateAdded)
-                playable.append(song.isPlayable)
-                hasCoverArt.append(song.coverArtFileName?.isEmpty == false)
-                let albumIDKey = intern(song.albumID)
-                let albumTitleKey = intern(song.albumTitle)
-                let artistIDKey = intern(song.artistID)
-                let artistNameKey = intern(song.artistName)
-                albumID.append(albumIDKey)
-                albumTitle.append(albumTitleKey)
-                artistID.append(artistIDKey)
-                artistName.append(artistNameKey)
-                genre.append(intern(GenreTagValues.primary(in: song.genre)))
-                folder.append(internFolder(of: song.filePath))
-                source.append(internSource(song.sourceID))
-                year.append(song.year)
-                duration.append(song.duration)
-
-                // Same precedence as `artistIdentity(_:)` / `albumIdentity(_:artistKey:)`:
-                // id, then name/title, then the song itself.
-                let artistKey: Int64
-                if artistIDKey != Self.noKey {
-                    artistKey = Int64(artistIDKey)
-                } else if artistNameKey != Self.noKey {
-                    artistKey = (1 << 32) | Int64(artistNameKey)
-                } else {
-                    artistKey = (2 << 32) | Int64(position)
-                }
-                artistIdentity.append(artistKey)
-                if albumIDKey != Self.noKey {
-                    albumIdentity.append(Int64(albumIDKey))
-                } else if albumTitleKey != Self.noKey {
-                    let pair = AlbumTitleIdentity(artist: artistKey, title: albumTitleKey)
-                    let next = (1 << 40) | Int64(albumTitleIdentityKeys.count)
-                    albumIdentity.append(albumTitleIdentityKeys[pair, default: next])
-                    if albumTitleIdentityKeys[pair] == nil { albumTitleIdentityKeys[pair] = next }
-                } else {
-                    albumIdentity.append((2 << 40) | Int64(position))
-                }
-            }
-            rawTextKeys = [:]
-            folderKeys = [:]
-        }
-
-        private struct AlbumTitleIdentity: Hashable {
-            let artist: Int64
-            let title: Int32
-        }
-
-        private mutating func intern(_ text: String?) -> Int32 {
-            guard let text else { return Self.noKey }
-            if let key = rawTextKeys[text] { return key }
-            let key = internNormalized(MusicDiscoveryEngine.normalized(text))
-            rawTextKeys[text] = key
-            return key
-        }
-
-        private mutating func internFolder(of path: String) -> Int32 {
-            let folder = MusicDiscoveryEngine.folderPath(of: path)
-            if let key = folderKeys[folder] { return key }
-            let key = internNormalized(MusicDiscoveryEngine.normalizedFolder(folder))
-            folderKeys[folder] = key
-            return key
-        }
-
-        private mutating func internNormalized(_ value: String) -> Int32 {
-            guard !value.isEmpty else { return Self.noKey }
-            if let key = textKeys[value] { return key }
-            let key = Int32(textKeys.count)
-            textKeys[value] = key
-            return key
-        }
-
-        private mutating func internSource(_ sourceID: String) -> Int32 {
-            if let key = sourceKeys[sourceID] { return key }
-            let key = Int32(sourceKeys.count)
-            sourceKeys[sourceID] = key
-            return key
-        }
-
-        func feature(at position: Int) -> Feature {
-            Feature(
-                id: ids[position],
-                albumID: albumID[position],
-                albumTitle: albumTitle[position],
-                artistID: artistID[position],
-                artistName: artistName[position],
-                genre: genre[position],
-                folder: folder[position],
-                source: source[position],
-                year: year[position],
-                duration: duration[position]
-            )
-        }
-
-        /// Features of a song that may not be in the list (a radio seed). Text
-        /// absent from the index cannot equal any indexed song's text.
-        func feature(for song: Song) -> Feature {
-            func key(_ text: String?) -> Int32 {
-                guard let text else { return Self.noKey }
-                let value = MusicDiscoveryEngine.normalized(text)
-                guard !value.isEmpty else { return Self.noKey }
-                return textKeys[value] ?? -2
-            }
-            let folderText = MusicDiscoveryEngine.parentFolder(song.filePath)
-            return Feature(
-                id: song.id,
-                albumID: key(song.albumID),
-                albumTitle: key(song.albumTitle),
-                artistID: key(song.artistID),
-                artistName: key(song.artistName),
-                genre: key(GenreTagValues.primary(in: song.genre)),
-                folder: folderText.isEmpty ? Self.noKey : (textKeys[folderText] ?? -2),
-                source: sourceKeys[song.sourceID] ?? -2,
-                year: song.year,
-                duration: song.duration
-            )
-        }
-    }
+    /// Struct-of-arrays feature table over one song list (`DiscoveryFeatureTable`). Every text field is
+    /// case/diacritic-folded once and interned to an integer key, so scoring a 200K-song library compares
+    /// integers instead of copying and re-folding strings. 整库那份写成 Caches 下的只读映射文件,常驻的
+    /// 只有干净页;分页打分、按调用方给的列表临时建的仍在进程里。
+    private typealias FeatureIndex = DiscoveryFeatureTable
 
     private struct CachedFeatureIndex: Sendable {
         let revision: UInt64
@@ -3555,94 +3210,70 @@ enum MusicDiscoveryEngine {
         _ = featureIndex(for: songs, revision: revision, isCancelled: isCancelled)
     }
 
+    /// 整库特征表的映射文件。文件头记着进程标记、修订号与条数,对不上就重建。
+    private static let featureTableURL = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        .appendingPathComponent("Primuse", isDirectory: true)
+        .appendingPathComponent("discovery-features.bin")
+
+    /// 缓存里的,或本进程同一修订号写过的映射文件(退后台时放掉了映射,文件还在)。都没有时返回 nil。
+    private static func reusableFeatureIndex(revision: UInt64?, count: Int) -> FeatureIndex? {
+        guard let revision else { return nil }
+        let (cached, generation) = featureIndexCache.withLock { state -> (FeatureIndex?, UInt64) in
+            let entry = state.index
+            let matches = entry?.revision == revision && entry?.count == count
+            return (matches ? entry?.index : nil, state.releaseGeneration)
+        }
+        if let cached { return cached }
+        guard let mapped = FeatureIndex.openMapped(at: featureTableURL, revision: revision, count: count) else { return nil }
+        storeFeatureIndex(mapped, revision: revision, count: count, generation: generation)
+        return mapped
+    }
+
+    private static func storeFeatureIndex(_ index: FeatureIndex, revision: UInt64, count: Int, generation: UInt64) {
+        featureIndexCache.withLock { state in
+            // A request can finish using its own index after a trim, but must not put it back in the cache.
+            guard state.releaseGeneration == generation,
+                  state.index.map({ $0.revision <= revision }) ?? true else { return }
+            state.index = CachedFeatureIndex(revision: revision, count: count, index: index)
+        }
+    }
+
     /// The feature index for `songs`, reused while the library's music list
     /// keeps the same revision. Nil only when cancelled mid-build.
+    ///
+    /// 带修订号的(整库)那份写成只读映射文件再映射回来,缓存里留的是映射(干净页,内存紧时系统可以
+    /// 直接丢掉再从文件读回)。写不了文件时退回进程里的一份,`storesInCache` 为 false 时不放进缓存。
     private static func featureIndex(
         for songs: [Song],
         revision: UInt64?,
         storesInCache: Bool = true,
         isCancelled: () -> Bool = { false }
     ) -> FeatureIndex? {
-        let (reusable, generation) = featureIndexCache.withLock { state -> (FeatureIndex?, UInt64) in
-            let cached = state.index
-            let matches = revision != nil && cached?.revision == revision && cached?.count == songs.count
-            return (matches ? cached?.index : nil, state.releaseGeneration)
+        guard let revision else { return FeatureIndex.make(songs: songs, isCancelled: isCancelled) }
+        if let reusable = reusableFeatureIndex(revision: revision, count: songs.count) { return reusable }
+        let generation = featureIndexCache.withLock { $0.releaseGeneration }
+        guard let columns = DiscoveryFeatureColumns(songs: songs, isCancelled: isCancelled) else { return nil }
+        if let mapped = try? FeatureIndex.writeMapped(columns, to: featureTableURL, revision: revision) {
+            storeFeatureIndex(mapped, revision: revision, count: songs.count, generation: generation)
+            return mapped
         }
-        if let reusable { return reusable }
-        guard let index = FeatureIndex(songs: songs, isCancelled: isCancelled) else { return nil }
-        if storesInCache, let revision {
-            featureIndexCache.withLock { state in
-                // A request can finish using its own index after a trim, but must not put it back in the cache.
-                guard state.releaseGeneration == generation,
-                      state.index.map({ $0.revision <= revision }) ?? true else { return }
-                state.index = CachedFeatureIndex(revision: revision, count: songs.count, index: index)
-            }
+        guard let index = try? columns.makeTable() else { return nil }
+        if storesInCache {
+            storeFeatureIndex(index, revision: revision, count: songs.count, generation: generation)
         }
         return index
     }
 
-    private static func keysMatch(_ lhs: Int32, _ rhs: Int32) -> Bool {
-        lhs >= 0 && lhs == rhs
-    }
-
     /// Scoring over interned features; identical rules and weights to the
-    /// string comparison it replaces (folded, non-empty equality).
+    /// string comparison it replaces (folded, non-empty equality). 规则本身在 `DiscoveryFeatureTable`。
     private static func similarity(
         between seed: Feature,
         and position: Int,
         in index: FeatureIndex
     ) -> Match {
-        var score: Double = 0
-        var reasons = ReasonSet([])
-
-        if keysMatch(seed.albumID, index.albumID[position])
-            || keysMatch(seed.albumTitle, index.albumTitle[position]) {
-            score += 46
-            reasons.insert(.sameAlbum)
-        }
-
-        if keysMatch(seed.artistID, index.artistID[position])
-            || keysMatch(seed.artistName, index.artistName[position]) {
-            score += 40
-            reasons.insert(.sameArtist)
-        }
-
-        if keysMatch(seed.genre, index.genre[position]) {
-            score += 30
-            reasons.insert(.sameGenre)
-        }
-
-        if let seedYear = seed.year, let candidateYear = index.year[position] {
-            let delta = abs(seedYear - candidateYear)
-            if delta <= 2 {
-                score += 10
-                reasons.insert(.sameEra)
-            } else if delta <= 6 {
-                score += 5
-                reasons.insert(.sameEra)
-            }
-        }
-
-        let candidateDuration = index.duration[position]
-        if seed.duration > 30, candidateDuration > 30 {
-            let delta = abs(seed.duration - candidateDuration)
-            let ratio = delta / max(seed.duration, candidateDuration)
-            if ratio <= 0.12 {
-                score += 7
-                reasons.insert(.similarDuration)
-            } else if ratio <= 0.22 {
-                score += 3
-            }
-        }
-
-        if seed.source == index.source[position],
-           keysMatch(seed.folder, index.folder[position]) {
-            score += 12
-            reasons.insert(.sameFolder)
-        }
-
-        var match = Match(score: score, reasons: [])
-        match.reasons = reasons
+        let similarity = index.similarity(between: seed, at: position)
+        var match = Match(score: similarity.score, reasons: [])
+        match.reasons = ReasonSet(similarity: similarity.reasons)
         return match
     }
 
@@ -3924,26 +3555,9 @@ enum MusicDiscoveryEngine {
         return "song:\(song.id)"
     }
 
-    private static func parentFolder(_ path: String) -> String {
-        normalizedFolder(folderPath(of: path))
-    }
-
-    /// `(path as NSString).deletingLastPathComponent` without bridging every
-    /// song's path; shapes it does not handle the same way go to NSString.
-    fileprivate static func folderPath(of path: String) -> String {
-        AlbumArtistInferencePolicy.directory(ofPath: path)
-    }
-
-    fileprivate static func normalizedFolder(_ folder: String) -> String {
-        guard folder != "." else { return "" }
-        return normalized(folder)
-    }
-
+    /// 与特征表同一套折叠(`DiscoveryFeatureText`)。
     private static func normalized(_ text: String) -> String {
-        text
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        DiscoveryFeatureText.normalized(text)
     }
 
     private static func stableNoise(_ id: String) -> Double {
@@ -19873,6 +19487,8 @@ extension MusicLibrary: LibraryCatalogOwner {
         syncCatalogInputs()
         if catalogAlbumArtistFoldersReceived { catalogHost.mirror.updateFolderParents(albumArtistFolders) }
         catalogHost.mirror.start()
+        // 搜索库被杀后待做的整库对账,改按目录变更流水只补改过的歌(目录读不了时它自己退回整库对账)。
+        LibrarySearchIndex.attachCatalog(catalogHost.reader)
     }
 
     fileprivate func catalogInputs() -> LibraryCatalogMirrorInputs {

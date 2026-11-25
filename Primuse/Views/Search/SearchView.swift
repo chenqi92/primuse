@@ -330,7 +330,8 @@ final class SearchWorkCoordinator {
     var searchTask: Task<Void, Never>?
     var intelligenceTask: Task<Void, Never>?
     var lyricsCache = LibrarySearchCache()
-    let catalogIndex = LibraryCatalogSearchIndex()
+    /// 专辑、艺人的预处理文本与倒排存在搜索库里,不常驻内存。
+    let catalogIndex = LibraryCatalogSearchIndex(database: LibrarySearchIndex.shared.collectionSearchDatabase)
     var requiresLocalSearchResume = false
     var generation = 0
     var intelligenceGeneration = 0

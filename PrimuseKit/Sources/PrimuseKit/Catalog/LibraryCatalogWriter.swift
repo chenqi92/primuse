@@ -99,6 +99,9 @@ extension LibraryCatalog {
             let revision = inserted.isEmpty && updated.isEmpty && deleted.isEmpty
                 ? try Self.revision(in: db)
                 : try Self.bumpRevision(in: db)
+            if !inserted.isEmpty || !updated.isEmpty || !deleted.isEmpty {
+                try Self.trimChangeFeed(in: db)
+            }
             var work = grouping.work
             work.kiloInstructions = meter?.stop() ?? 0
             return (LibraryCatalogChangeSummary(

@@ -2191,7 +2191,7 @@ extension AudioPlayerService {
             return
         }
         let prepareMS = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
-        plog("🎶 Queue request ids=\(ids.count) order=\(order) installed=\(prepared.items.count) continuation=\(prepared.continuation?.requestedIDs.count ?? 0) prepare=\(prepareMS)ms")
+        plog("🎶 Queue request ids=\(ids.count) order=\(order) installed=\(prepared.items.count) continuation=\(prepared.continuation?.requestedCount ?? 0) prepare=\(prepareMS)ms")
         await play(
             queue: prepared.items,
             startingAt: prepared.selectedIndex,
@@ -2330,18 +2330,19 @@ extension AudioPlayerService {
         keepsContinuation: Bool = false,
         preparedContinuation: QueueContinuation? = nil
     ) {
-        let requestedIDs = preparedContinuation?.requestedIDs ?? requestedSongs.map(\.id)
+        // 整库请求的 id 在映射文件里:比较、记下这张请求时都不读成数组。
+        let requested = preparedContinuation.map(QueueRequestedSongs.continuation) ?? .ids(requestedSongs.map(\.id))
         if !keepsContinuation {
-            let isMusicQueue = !isInstallingMedleyQueue && requestedIDs.count > 1
+            let isMusicQueue = !isInstallingMedleyQueue && requested.count > 1
                 && requestedSongs.indices.contains(requestedIndex)
                 && listeningSpace(of: requestedSongs[requestedIndex]) == .music
             if remembersMusicQueue,
-               !isMusicQueue || (queueContinuation?.requestedIDs ?? queueEntries.map(\.song.id)) != requestedIDs {
+               !isMusicQueue || activeQueueRequest != requested {
                 rememberCurrentMusicQueue()
             }
             queueIdentity = UUID()
             remembersMusicQueue = isMusicQueue
-            if isMusicQueue { musicSessionMemoryStore.excludeActiveQueue(requestedIDs) }
+            if isMusicQueue { musicSessionMemoryStore.excludeActiveQueue(requested) }
         }
         queueRequestToken &+= 1
         if !keepsContinuation { resetAutoContinuation() }
@@ -2357,7 +2358,7 @@ extension AudioPlayerService {
             if !isInstallingMedleyQueue,
                let window = QueueWindowPolicy.window(count: requestedSongs.count, selectedIndex: requestedIndex) {
                 setQueueContinuation(QueueContinuation(
-                    requestedIDs: requestedIDs,
+                    requestedIDs: preparedContinuation?.requestedIDs ?? requestedSongs.map(\.id),
                     window: window
                 ))
                 songs = Array(requestedSongs[window])
@@ -2663,7 +2664,7 @@ extension AudioPlayerService {
            currentSong.map(PodcastPlaybackSong.isEpisode) != true,
            queueEntries.first.map({ PodcastPlaybackSong.isEpisode($0.song) }) != true,
            continuation.musicSourceIDs == nil || !continuation.musicSourceIDs!.isDisjoint(with: sourceIDs) {
-            for id in continuation.requestedIDs where !id.hasPrefix(RadioStation.playbackSongIDPrefix)
+            for id in continuation.requestedIDList where !id.hasPrefix(RadioStation.playbackSongIDPrefix)
                 && !PodcastIdentity.isEpisodeID(id)
                 && library.storedSong(id: id) == nil {
                 staleIDs.insert(id)
@@ -2684,7 +2685,7 @@ extension AudioPlayerService {
             let original = continuation
             continuation.removeSongs(withIDs: songIDs)
             if continuation != original {
-                setQueueContinuation(continuation.isExhausted || continuation.requestedIDs.isEmpty ? nil : continuation)
+                setQueueContinuation(continuation.isExhausted || continuation.requestedCount == 0 ? nil : continuation)
             }
         }
         guard !isLiveRadio else { return }
@@ -2715,7 +2716,7 @@ extension AudioPlayerService {
                     }
                 }
             }
-            setQueueContinuation(continuation.isExhausted || continuation.requestedIDs.isEmpty ? nil : continuation)
+            setQueueContinuation(continuation.isExhausted || continuation.requestedCount == 0 ? nil : continuation)
             if !refilled.isEmpty {
                 retainedSongs = refilled
                 if case .stopAndClearQueue = effectiveAction {

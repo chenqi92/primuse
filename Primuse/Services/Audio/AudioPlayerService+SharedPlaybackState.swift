@@ -368,7 +368,7 @@ extension AudioPlayerService {
         playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
         localPipelineAdvanceTicket = nil
         if remembersMusicQueue {
-            musicSessionMemoryStore.excludeActiveQueue(prepared.continuation?.requestedIDs ?? plan.queueSongIDs)
+            musicSessionMemoryStore.excludeActiveQueue(prepared.continuation.map(QueueRequestedSongs.continuation) ?? .ids(plan.queueSongIDs))
         }
         updateNowPlayingInfo()
         updateNowPlayingArtworkIfNeeded()

@@ -82,7 +82,7 @@ extension AudioPlayerService {
             plog("🎶 Catalog queue request of \(requestedCount) ids resolved to nothing")
             return true
         case .prepared(let prepared, let requestedCount):
-            plog("🎶 Catalog queue request ids=\(requestedCount) order=\(request.order) installed=\(prepared.items.count) continuation=\(prepared.continuation?.requestedIDs.count ?? 0) prepare=\(prepareMS)ms")
+            plog("🎶 Catalog queue request ids=\(requestedCount) order=\(request.order) installed=\(prepared.items.count) continuation=\(prepared.continuation?.requestedCount ?? 0) prepare=\(prepareMS)ms")
             willInstall()
             await play(prepared: prepared, caller: caller, callerLine: callerLine)
             return true
