@@ -303,6 +303,20 @@ extension SongloftSource: CatalogDriftReportingConnector {
     }
 }
 
+extension SongloftSource: ServerSongSearchingConnector {
+    func searchServerSongs(query: String, limit: Int) async throws -> [Song] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(query) else { return [] }
+        let capped = max(1, min(limit, SongloftAPIProtocol.pageSize))
+        try await connect()
+        let page = try await client.trackPage(offset: 0, limit: capped, keyword: trimmed)
+        var seen = Set<Int64>()
+        return page.tracks.compactMap { track -> Song? in
+            guard !track.isRadio, track.isVideo != true, seen.insert(track.id).inserted else { return nil }
+            return track.makeSong(sourceID: sourceID)
+        }.prefix(capped).map { $0 }
+    }
+}
+
 extension SongloftSource: ServerSongPathProvidingConnector {
     func fetchServerFilePath(for path: String) async throws -> String? {
         guard let id = SongloftAPIProtocol.trackID(from: path) else { return nil }

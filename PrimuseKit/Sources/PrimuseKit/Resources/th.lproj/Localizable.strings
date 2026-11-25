@@ -1047,6 +1047,9 @@
 "fullscreen_effect_watercolor_theater" = "โรงละครสีน้ำ";
 "fullscreen_effect_watercolor_theater_subtitle" = "ตุ๊กตากระดาษสี่ตัวโยกตัว ร้องตาม และตีกลองบนเวทีสีน้ำวาดมือ เปลี่ยนฉากทุกบรรทัดเนื้อเพลง";
 "fullscreen_effect_watercolor_theater_motion" = "ท่าทางเปลี่ยนตามจังหวะ พลังเพลง และเนื้อร้อง · เส้นหมึกวาดใหม่ 12 ครั้งต่อวินาที";
+"ext.tv.search.server" = "เซิร์ฟเวอร์มีเดีย";
+"ext.tv.search.serverSearching" = "กำลังค้นหาเซิร์ฟเวอร์มีเดีย…";
+"ext.tv.settings.serverSearch" = "ค้นหาเซิร์ฟเวอร์มีเดีย";
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "เซิร์ฟเวอร์ API ความคิดเห็น";

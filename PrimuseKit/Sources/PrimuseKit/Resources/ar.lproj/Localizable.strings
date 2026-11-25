@@ -1047,6 +1047,9 @@
 "fullscreen_effect_watercolor_theater" = "مسرح الألوان المائية";
 "fullscreen_effect_watercolor_theater_subtitle" = "أربع دمى ورقية صغيرة تتمايل وتغني وتقرع الطبول على مسرح مرسوم بالألوان المائية، مع لقطة جديدة لكل سطر من الكلمات";
 "fullscreen_effect_watercolor_theater_motion" = "تتبدّل الحركات مع الإيقاع والطاقة والكلمات · خطوط الحبر تُعاد رسمًا 12 مرة في الثانية";
+"ext.tv.search.server" = "خوادم الوسائط";
+"ext.tv.search.serverSearching" = "جارٍ البحث في خوادم الوسائط…";
+"ext.tv.settings.serverSearch" = "البحث في خوادم الوسائط";
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "خوادم API للتعليقات";

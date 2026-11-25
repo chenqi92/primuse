@@ -534,6 +534,28 @@ public actor FnMusicServiceClient {
         return FnMusicCatalogPage(tracks: tracks, total: total, rawCount: rawTracks.count)
     }
 
+    public func searchTracks(
+        query: String,
+        limit: Int = ServerSearchAvailabilityPolicy.perSourceLimit
+    ) async throws -> [FnMusicCatalogTrack] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(query) else { return [] }
+        let capped = max(1, min(limit, FnMusicPagingPolicy.pageSize))
+        let payload = try await authenticatedJSON(
+            method: "GET",
+            path: "/search/track",
+            queryItems: [
+                URLQueryItem(name: "q", value: trimmed),
+                URLQueryItem(name: "page", value: "1"),
+                URLQueryItem(name: "size", value: String(capped)),
+            ]
+        )
+        guard let dictionary = payload as? [String: Any],
+              let rawTracks = dictionary["list"] as? [[String: Any]] else {
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.missingList"))
+        }
+        return Array(rawTracks.compactMap(FnMusicCatalogTrack.init(json:)).prefix(capped))
+    }
+
     public func coverData(
         reference: String,
         size: Int = 640,

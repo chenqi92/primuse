@@ -9,7 +9,7 @@ extension SearchResultSection {
         case .path: .path
         case .lyrics: .lyrics
         case .fuzzy: .fuzzy
-        case .albums, .artists, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord, .ambient: nil
+        case .albums, .artists, .intelligent, .appleMusic, .serverSearch, .playlists, .folders, .radio, .spokenWord, .ambient: nil
         }
     }
 
@@ -74,6 +74,8 @@ struct SearchResultLayoutEditor: View {
     let showsIntelligentRow: Bool
     /// 没添加或停用了 Apple Music 源时同理。
     let showsAppleMusicRow: Bool
+    /// 没添加或停用了可实时搜索的媒体服务器源时不列这一行。
+    var showsServerSearchRow = false
     var showsRadioRow = true
     var showsSpokenWordRow = true
     /// 没有环境音(或关了单独归类)时不列这一行。
@@ -83,6 +85,8 @@ struct SearchResultLayoutEditor: View {
     @AppStorage(SearchResultSectionLayout.hiddenKey) private var hiddenRawValue = ""
     @AppStorage(AppleMusicFeatureSettings.catalogSearchEnabledKey)
     private var appleMusicCatalogSearchEnabled = true
+    @AppStorage(ServerSearchFeatureSettings.enabledKey)
+    private var serverSearchEnabled = false
     #if os(iOS)
     @Environment(\.dismiss) private var dismiss
     @AppStorage(SearchResultDisplayMode.storageKey) private var displayMode: SearchResultDisplayMode = .continuous
@@ -101,6 +105,7 @@ struct SearchResultLayoutEditor: View {
             switch section {
             case .intelligent: showsIntelligentRow
             case .appleMusic: showsAppleMusicRow
+            case .serverSearch: showsServerSearchRow
             case .radio: showsRadioRow
             case .spokenWord: showsSpokenWordRow
             case .ambient: showsAmbientRow
@@ -230,11 +235,15 @@ struct SearchResultLayoutEditor: View {
     #endif
 
     private func isShown(_ section: SearchResultSection) -> Bool {
-        section == .appleMusic ? appleMusicCatalogSearchEnabled : !hidden.contains(section)
+        switch section {
+        case .appleMusic: appleMusicCatalogSearchEnabled
+        case .serverSearch: serverSearchEnabled
+        default: !hidden.contains(section)
+        }
     }
 
     private func canToggle(_ section: SearchResultSection) -> Bool {
-        !isShown(section) || section == .appleMusic
+        !isShown(section) || !section.isLocal
             || displayed.contains { $0 != section && $0.isLocal && isShown($0) }
     }
 
@@ -244,6 +253,10 @@ struct SearchResultLayoutEditor: View {
             set: { isShown in
                 if section == .appleMusic {
                     appleMusicCatalogSearchEnabled = isShown
+                    return
+                }
+                if section == .serverSearch {
+                    serverSearchEnabled = isShown
                     return
                 }
                 var updated = hidden

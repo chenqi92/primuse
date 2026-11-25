@@ -2533,6 +2533,76 @@ final class TVSourceScanner {
         }
     }
 
+    /// 调用已添加媒体服务器的标准曲库搜索接口（含多线路自动切换）。
+    func searchServerSongs(
+        source: MusicSource,
+        credential: SourceCredential?,
+        query: String,
+        limit: Int
+    ) async throws -> [Song] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(query) else { return [] }
+        let capped = max(1, min(limit, 500))
+        return try await withRoutedSource(source) { routedSource in
+            switch routedSource.type {
+            case .jellyfin, .emby, .plex,
+                 .subsonic, .navidrome, .airsonic, .gonic, .zspace,
+                 .songloft:
+                guard let connector = TVServerCatalogConnectorFactory.make(
+                    source: routedSource,
+                    credential: credential
+                ) as? any ServerSongSearchingConnector else {
+                    return []
+                }
+                return try await connector.searchServerSongs(query: trimmed, limit: capped)
+
+            case .fnMusic:
+                let client = fnMusicClient(source: routedSource, credential: credential)
+                let tracks = try await client.searchTracks(query: trimmed, limit: capped)
+                var seen = Set<String>()
+                return tracks.compactMap { track -> Song? in
+                    guard seen.insert(track.guid).inserted else { return nil }
+                    return track.makeSong(sourceID: source.id, albumArtistName: nil)
+                }
+
+            case .daoliyu:
+                guard let baseURL = DaoLiYuAPIProtocol.serverBaseURL(
+                    host: routedSource.host ?? "",
+                    port: routedSource.port,
+                    useSSL: routedSource.useSsl,
+                    basePath: routedSource.basePath
+                ) else {
+                    throw DaoLiYuServiceError.invalidURL
+                }
+                let client = DaoLiYuServiceClient(source: routedSource, credential: credential)
+                let tracks = try await client.searchTracks(query: trimmed, limit: capped)
+                var seen = Set<String>()
+                return tracks.compactMap { track -> Song? in
+                    guard seen.insert(track.id).inserted else { return nil }
+                    return track.makeSong(sourceID: source.id, serverBaseURL: baseURL)
+                }
+
+            case .synologyAudioStation:
+                let deviceName = routedSource.deviceId?.isEmpty == false
+                    ? SynologyAudioStationStreamResolver.trustedDeviceName
+                    : nil
+                let client = SynologyAudioStationClient(
+                    source: routedSource,
+                    credential: credential,
+                    deviceName: deviceName
+                )
+                let tracks = try await client.searchSongs(keyword: trimmed, limit: capped)
+                var seen = Set<String>()
+                return tracks.compactMap { track -> Song? in
+                    guard seen.insert(track.id).inserted else { return nil }
+                    return track.makeSong(sourceID: source.id)
+                }
+
+            default:
+                return []
+            }
+        }
+    }
+
     private func withRoutedSource<T: Sendable>(
         _ source: MusicSource,
         operation: (MusicSource) async throws -> T

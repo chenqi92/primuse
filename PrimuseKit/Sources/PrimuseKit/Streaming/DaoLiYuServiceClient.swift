@@ -349,16 +349,20 @@ public actor DaoLiYuServiceClient {
         try await trackPage(skip: 0, take: 1).total
     }
 
-    public func trackPage(skip: Int, take: Int) async throws -> DaoLiYuCatalogPage {
+    public func trackPage(skip: Int, take: Int, search: String? = nil) async throws -> DaoLiYuCatalogPage {
         guard skip >= 0, take > 0, take <= 500 else {
             throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidPagination"))
         }
+        var queryItems = [
+            URLQueryItem(name: "skip", value: String(skip)),
+            URLQueryItem(name: "take", value: String(take)),
+        ]
+        if let search = search?.trimmingCharacters(in: .whitespacesAndNewlines), !search.isEmpty {
+            queryItems.append(URLQueryItem(name: "search", value: search))
+        }
         let payload = try await authorizedJSON(
             path: "/tracks",
-            queryItems: [
-                URLQueryItem(name: "skip", value: String(skip)),
-                URLQueryItem(name: "take", value: String(take)),
-            ]
+            queryItems: queryItems
         )
         guard let dictionary = payload as? [String: Any],
               let rawTracks = dictionary["items"] as? [[String: Any]],
@@ -369,7 +373,7 @@ public actor DaoLiYuServiceClient {
         guard tracks.count == rawTracks.count else {
             throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.unrecognizedItem"))
         }
-        if skip == 0 { playlistTrackCache.removeAll(keepingCapacity: true) }
+        if skip == 0, search == nil { playlistTrackCache.removeAll(keepingCapacity: true) }
         for track in tracks { playlistTrackCache[track.id] = track.playlistTrack }
         return DaoLiYuCatalogPage(
             tracks: tracks,
@@ -378,6 +382,13 @@ public actor DaoLiYuServiceClient {
             take: daoLiYuInt(dictionary["take"]) ?? take,
             rawCount: rawTracks.count
         )
+    }
+
+    public func searchTracks(query: String, limit: Int = ServerSearchAvailabilityPolicy.perSourceLimit) async throws -> [DaoLiYuCatalogTrack] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(query) else { return [] }
+        let capped = max(1, min(limit, 500))
+        let page = try await trackPage(skip: 0, take: capped, search: trimmed)
+        return Array(page.tracks.prefix(capped))
     }
 
     public func track(id: String) async throws -> DaoLiYuCatalogTrack {

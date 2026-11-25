@@ -8090,6 +8090,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "Cztery papierowe kukiełki kołyszą się, śpiewają i grają na bębnach na malowanej akwarelą scenie, a z każdym wersem zmienia się ujęcie";
 "fullscreen_effect_watercolor_theater_motion" = "Ruchy podążają za rytmem, energią i tekstem · Linie tuszu rysowane od nowa 12 razy na sekundę";
 "immersive_theater_greeting" = "Cześć!";
+"search_section_server" = "Serwery multimediów";
+"search_server_searching" = "Wyszukiwanie na serwerach multimediów…";
 "spoken_word_repeat_chapter" = "Powtarzaj rozdział";
 "spoken_word_repeat_chapter_short" = "Powtarzaj";
 "spoken_word_repeat_chapter_play" = "Zapętl ten rozdział";

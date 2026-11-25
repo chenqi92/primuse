@@ -1097,6 +1097,9 @@
 "fullscreen_effect_watercolor_theater" = "水彩小剧场";
 "fullscreen_effect_watercolor_theater_subtitle" = "四个纸偶小伙伴在手绘水彩舞台上跟着歌摇摆、跟唱、打鼓，每句歌词换一个镜头";
 "fullscreen_effect_watercolor_theater_motion" = "随拍子、能量和歌词换动作 · 墨线每秒抖动十二次";
+"ext.tv.search.server" = "媒体服务器";
+"ext.tv.search.serverSearching" = "正在搜索媒体服务器…";
+"ext.tv.settings.serverSearch" = "搜索媒体服务器";
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "评论 API 服务";

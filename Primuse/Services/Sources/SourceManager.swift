@@ -2081,6 +2081,15 @@ extension RoutedConnectorProxy {
         }
     }
 
+    func searchServerSongs(query: String, limit: Int) async throws -> [Song] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerSongSearchingConnector else {
+                return []
+            }
+            return try await provider.searchServerSongs(query: query, limit: limit)
+        }
+    }
+
     func takeCatalogDriftObservation() async -> Bool {
         await routing.takeCatalogDriftObservation()
     }
@@ -2482,7 +2491,7 @@ extension RoutedSynologyAudioStationConnector: RoutedServerSongPathForwarding {}
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTranscodingConnector,
     RefreshingMetadataSongConnector, TemporaryAudioProcessingConnector,
-    ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
+    ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector, ServerSongSearchingConnector,
     ServerCatalogEnrichingConnector, ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistDescriptionConnector,
     ServerPlaylistCreatingConnector, ServerPlaylistRemovingConnector, ServerPlaylistReorderingConnector,
@@ -2828,7 +2837,7 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTra
 struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector,
     ServerFavoriteConnector, MediaServerWritebackConnector,
-    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector, ServerSongSearchingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2944,7 +2953,7 @@ struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataSongConne
 
 private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLyricsConnector, ServerScrobblingConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector,
-    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector, ServerSongSearchingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -3225,7 +3234,7 @@ private struct RoutedTingReaderConnector: RoutedConnectorProxy, RefreshingMetada
 private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector, ServerFavoriteConnector,
     ServerScrobblingConnector, ServerRadioConnector, ServerRadioStreamResolvingConnector,
-    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector, ServerSongSearchingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -3315,7 +3324,8 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistCreatingConnector, ServerRatingConnector,
     ServerRadioConnector,
-    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector {
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
+    ServerSongSearchingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -3393,7 +3403,8 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
     ServerFavoriteConnector, IncrementalSongCatalogConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector,
-    ServerCollectionFavoriteConnector, ServerLibraryListingConnector, ServerScrobblingConnector {
+    ServerCollectionFavoriteConnector, ServerLibraryListingConnector, ServerScrobblingConnector,
+    ServerSongSearchingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool

@@ -380,7 +380,7 @@ final class TVPlaybackCoordinator {
                     playback: { [weak store] in
                         guard let store else { return .init(isPlaying: false, isSpokenWord: false) }
                         return .init(
-                            song: store.isLiveRadio ? nil : store.currentSongID.flatMap { store.library.song(id: $0) },
+                            song: store.isLiveRadio ? nil : store.currentSongID.flatMap { store.playableSong(id: $0) },
                             isPlaying: store.isPlaying, isSpokenWord: store.currentItemIsSpokenWord
                         )
                     },
@@ -526,7 +526,7 @@ final class TVPlaybackCoordinator {
         }
         playbackIssue = nil
         downloadQuotaFailure = nil
-        guard let song = playbackSongOverride ?? store.library.song(id: songID) else {
+        guard let song = playbackSongOverride ?? store.playableSong(id: songID) else {
             plog("🎬 TV play: song not found id=\(songID)")
             guard isCurrent(requestID, store: store) else { return }
             playbackIssue = .failed(PMString("ext.tv.playback.songNotFound"))
@@ -1357,7 +1357,7 @@ final class TVPlaybackCoordinator {
     private func initialReplayGain(for song: Song, requestID: UUID, url: URL?) async -> ReplayGainAdjustment {
         guard let store, TVReplayGainSettings.shared.enabled, !store.isLiveRadio,
               ReplayGainAnalysisService.supports(song) else { return .init() }
-        let queue = store.queueSongIDs.compactMap { store.library.song(id: $0) }
+        let queue = store.queueSongIDs.compactMap { store.playableSong(id: $0) }
         let mode = ReplayGainPolicy.effectiveMode(TVReplayGainSettings.shared.mode, song: song, queue: queue, shuffled: store.shuffleEnabled)
         if let snapshot = replayGainSnapshot, snapshot.requestID == requestID {
             return snapshot.value.values
@@ -1430,7 +1430,7 @@ final class TVPlaybackCoordinator {
         guard let (song, requestID) = replayGainSelection, let store,
               TVReplayGainSettings.shared.enabled, !store.isLiveRadio,
               ReplayGainAnalysisService.supports(song) else { return }
-        let queue = store.queueSongIDs.compactMap { store.library.song(id: $0) }
+        let queue = store.queueSongIDs.compactMap { store.playableSong(id: $0) }
         let mode = ReplayGainPolicy.effectiveMode(TVReplayGainSettings.shared.mode, song: song, queue: queue, shuffled: store.shuffleEnabled)
         let songs = ReplayGainPolicy.analysisPlan(
             current: song,

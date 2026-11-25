@@ -1047,6 +1047,9 @@
 "fullscreen_effect_watercolor_theater" = "Suluboya Tiyatrosu";
 "fullscreen_effect_watercolor_theater_subtitle" = "Dört küçük kâğıt kukla, elle boyanmış suluboya sahnede şarkıyla sallanıyor, eşlik ediyor ve davul çalıyor; her sözde sahne değişiyor";
 "fullscreen_effect_watercolor_theater_motion" = "Hareketler ritme, enerjiye ve sözlere göre değişir · Mürekkep çizgileri saniyede 12 kez yeniden çizilir";
+"ext.tv.search.server" = "Medya Sunucuları";
+"ext.tv.search.serverSearching" = "Medya sunucularında aranıyor…";
+"ext.tv.settings.serverSearch" = "Medya Sunucularında Ara";
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "Yorum API sunucuları";

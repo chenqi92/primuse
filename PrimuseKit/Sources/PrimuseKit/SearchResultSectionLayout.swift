@@ -17,6 +17,8 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
     /// AI 语义搜索补充的结果。
     case intelligent
     case appleMusic
+    /// 已启用媒体服务器的实时曲库搜索结果（仅未入库曲目）。
+    case serverSearch
     case radio
     case spokenWord
     /// 环境音(白噪音、雨声…):不在歌曲结果里,单独一组。
@@ -36,6 +38,7 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
         case .fuzzy: "search_section_fuzzy"
         case .intelligent: "search_ai_section"
         case .appleMusic: "search_section_apple_music"
+        case .serverSearch: "search_section_server"
         case .radio: "radio_title"
         case .spokenWord: "tab_spoken_word"
         case .ambient: "listening_space_ambient"
@@ -54,21 +57,22 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
         case .fuzzy: "textformat.abc"
         case .intelligent: "sparkles"
         case .appleMusic: "applelogo"
+        case .serverSearch: "server.rack"
         case .radio: "radio.fill"
         case .spokenWord: "books.vertical"
         case .ambient: "leaf"
         }
     }
 
-    /// 这一块是不是本机曲库里的结果。Apple Music 是在线目录,不算。
-    public var isLocal: Bool { self != .appleMusic }
+    /// 这一块是不是本机曲库里的结果。Apple Music 与媒体服务器实时搜索是在线结果,不算。
+    public var isLocal: Bool { self != .appleMusic && self != .serverSearch }
 
     /// 宽屏「全部」页里这一块的形态。
     public var blockForm: SearchResultBlockForm {
         switch self {
         case .albums, .artists, .appleMusic: .shelf
         case .lyrics: .cards
-        case .metadata, .path, .fuzzy, .intelligent, .playlists, .folders, .radio, .spokenWord, .ambient: .list
+        case .metadata, .path, .fuzzy, .intelligent, .serverSearch, .playlists, .folders, .radio, .spokenWord, .ambient: .list
         }
     }
 }
@@ -257,6 +261,7 @@ public enum SearchResultSectionLayout {
         .fuzzy,
         .intelligent,
         .appleMusic,
+        .serverSearch,
         .playlists,
         .folders,
         .radio,
@@ -353,6 +358,7 @@ public enum SearchResultSectionLayout {
     private static func normalizedHidden(_ sections: Set<SearchResultSection>) -> Set<SearchResultSection> {
         var hidden = sections
         hidden.remove(.appleMusic)
+        hidden.remove(.serverSearch)
         // 老存档或手改过的存档可能把本机结果全关了,至少留回默认顺序里的第一块。
         if !defaultOrder.contains(where: { $0.isLocal && !hidden.contains($0) }),
            let first = defaultOrder.first(where: \.isLocal) {

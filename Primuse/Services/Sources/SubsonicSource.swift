@@ -3598,6 +3598,12 @@ private struct SearchResult3: Decodable {
     let song: [SubsonicChild]?
 }
 
+private struct Search2Container: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let searchResult2: SearchResult3?
+}
+
 private struct ArtistInfoContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
@@ -4382,6 +4388,76 @@ extension SubsonicSource: ServerAdminConnector {
                 try await NavidromeAdmin.deleteUser(id: id, baseURL: url, session: &session, load: load)
             }
         }
+    }
+}
+
+extension SubsonicSource: ServerSongSearchingConnector {
+    func searchServerSongs(query: String, limit: Int) async throws -> [Song] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(query) else { return [] }
+        let capped = max(1, min(limit, SubsonicCatalogPagingPolicy.pageSize))
+        try await connect()
+        try? await prepareLibraryScope(refreshing: false)
+
+        let folderIDs: [String?]
+        if let included = libraryScope?.includedLibraryIDs {
+            if included.isEmpty { return [] }
+            folderIDs = included.map(Optional.some)
+        } else {
+            folderIDs = [nil]
+        }
+
+        var songs: [Song] = []
+        var seenIDs = Set<String>()
+        for folderID in folderIDs {
+            try Task.checkCancellation()
+            let remaining = capped - songs.count
+            guard remaining > 0 else { break }
+            let children = try await requestSearchSongs(
+                query: trimmed,
+                limit: remaining,
+                musicFolderID: folderID
+            )
+            for child in children {
+                guard seenIDs.insert(child.id).inserted else { continue }
+                songs.append(buildSong(from: child))
+                if songs.count >= capped { break }
+            }
+        }
+        return songs
+    }
+
+    private func requestSearchSongs(
+        query: String,
+        limit: Int,
+        musicFolderID: String?
+    ) async throws -> [SubsonicChild] {
+        var items = [
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "artistCount", value: "0"),
+            URLQueryItem(name: "albumCount", value: "0"),
+            URLQueryItem(name: "songCount", value: String(limit)),
+            URLQueryItem(name: "songOffset", value: "0"),
+        ]
+        if let musicFolderID {
+            items.append(URLQueryItem(name: "musicFolderId", value: musicFolderID))
+        }
+        do {
+            let container: Search3Container = try await requestJSON("search3", query: items)
+            if let songs = container.searchResult3?.song {
+                return songs
+            }
+            if container.searchResult3 != nil {
+                return []
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch SourceError.authenticationFailed {
+            throw SourceError.authenticationFailed
+        } catch {
+            // Fall through to legacy search2 when a server omits search3.
+        }
+        let fallback: Search2Container = try await requestJSON("search2", query: items)
+        return fallback.searchResult2?.song ?? []
     }
 }
 

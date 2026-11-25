@@ -700,6 +700,20 @@ extension SynologyAudioStationSource: ServerRatingObservingConnector {
     }
 }
 
+extension SynologyAudioStationSource: ServerSongSearchingConnector {
+    func searchServerSongs(query: String, limit: Int) async throws -> [Song] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(query) else { return [] }
+        let capped = max(1, min(limit, 5_000))
+        try await connect()
+        let tracks = try await perform { try await $0.searchSongs(keyword: trimmed, limit: capped) }
+        var seen = Set<String>()
+        return tracks.compactMap { track -> Song? in
+            guard seen.insert(track.id).inserted else { return nil }
+            return track.makeSong(sourceID: sourceID)
+        }
+    }
+}
+
 extension SynologyAudioStationSource: ServerSongPathProvidingConnector {
     func fetchServerFilePath(for path: String) async throws -> String? {
         guard let id = SynologyAudioStationAPI.songID(fromTrackPath: path) else { return nil }

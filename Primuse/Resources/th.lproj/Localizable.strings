@@ -8090,6 +8090,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "ตุ๊กตากระดาษสี่ตัวโยกตัว ร้องตาม และตีกลองบนเวทีสีน้ำวาดมือ เปลี่ยนฉากทุกบรรทัดเนื้อเพลง";
 "fullscreen_effect_watercolor_theater_motion" = "ท่าทางเปลี่ยนตามจังหวะ พลังเพลง และเนื้อร้อง · เส้นหมึกวาดใหม่ 12 ครั้งต่อวินาที";
 "immersive_theater_greeting" = "หวัดดี!";
+"search_section_server" = "เซิร์ฟเวอร์มีเดีย";
+"search_server_searching" = "กำลังค้นหาเซิร์ฟเวอร์มีเดีย…";
 "spoken_word_repeat_chapter" = "เล่นซ้ำบทนี้";
 "spoken_word_repeat_chapter_short" = "เล่นซ้ำ";
 "spoken_word_repeat_chapter_play" = "เล่นบทนี้ซ้ำ";

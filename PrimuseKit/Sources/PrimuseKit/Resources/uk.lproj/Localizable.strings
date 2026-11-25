@@ -1047,6 +1047,9 @@
 "fullscreen_effect_watercolor_theater" = "Акварельний театрик";
 "fullscreen_effect_watercolor_theater_subtitle" = "Чотири паперові ляльки гойдаються, підспівують і грають на барабанах на намальованій аквареллю сцені, а з кожним рядком пісні змінюється кадр";
 "fullscreen_effect_watercolor_theater_motion" = "Рухи йдуть за ритмом, енергією та текстом · Лінії туші перемальовуються 12 разів на секунду";
+"ext.tv.search.server" = "Медіасервери";
+"ext.tv.search.serverSearching" = "Пошук на медіасерверах…";
+"ext.tv.settings.serverSearch" = "Пошук на медіасерверах";
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "Сервери API коментарів";

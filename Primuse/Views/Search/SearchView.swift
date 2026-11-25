@@ -525,6 +525,7 @@ private enum MacSearchResultFilter: Hashable {
     case artists
     case lyrics
     case appleMusic
+    case serverSearch
 }
 #endif
 
@@ -618,6 +619,7 @@ struct SearchView: View {
     @Namespace private var searchZoomNamespace
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(\.openURL) private var openURL
@@ -627,6 +629,9 @@ struct SearchView: View {
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(AppleMusicFeatureSettings.catalogSearchEnabledKey)
     private var appleMusicCatalogSearchEnabled = true
+    @AppStorage(ServerSearchFeatureSettings.enabledKey)
+    private var serverSearchEnabled = false
+    @State private var serverSearch = ServerSongSearchService()
     @AppStorage(SearchResultSectionLayout.orderKey)
     private var resultSectionOrderRawValue = ""
     @AppStorage(SearchResultSectionLayout.hiddenKey)
@@ -775,6 +780,25 @@ struct SearchView: View {
         visibleAppleMusicSearchResults.count + visibleAppleMusicArtists.count + visibleAppleMusicAlbums.count
     }
 
+    private var hasSearchableServerSource: Bool {
+        ServerSearchAvailabilityPolicy.hasSearchableSource(
+            in: sourcesStore.sources,
+            disabledSourceIDs: library.disabledSourceIDs
+        )
+    }
+
+    private var serverSearchActive: Bool {
+        scope == nil && ServerSearchAvailabilityPolicy.isEnabled(
+            featureEnabled: serverSearchEnabled,
+            sources: sourcesStore.sources,
+            disabledSourceIDs: library.disabledSourceIDs
+        )
+    }
+
+    private var visibleServerSearchHits: [ServerSearchHit] {
+        serverSearchActive ? serverSearch.hits : []
+    }
+
     private var resultLayout: SearchResultLayout {
         SearchResultLayout(
             orderRawValue: resultSectionOrderRawValue,
@@ -782,12 +806,13 @@ struct SearchView: View {
         )
     }
 
-    /// 结果区按用户排的顺序出场的块。Apple Music 另看曲库搜索开关与源是否可用。
+    /// 结果区按用户排的顺序出场的块。Apple Music 与媒体服务器另看对应开关与源是否可用。
     private var orderedResultSections: [SearchResultSection] {
         let layout = resultLayout
         return layout.order.filter { section in
             switch section {
             case .appleMusic: appleMusicSearchEnabled
+            case .serverSearch: serverSearchActive
             case .radio: showsSpace(.radio)
             case .spokenWord: showsSpace(.spokenWord)
             case .ambient: showsSpace(.ambient)
@@ -804,6 +829,7 @@ struct SearchView: View {
                 sourceInstalled: library.appleMusicSourceInstalled,
                 disabledSourceIDs: library.disabledSourceIDs
             ),
+            showsServerSearchRow: hasSearchableServerSource,
             showsRadioRow: radioSearchAvailable,
             showsSpokenWordRow: spokenWordSearchAvailable,
             showsAmbientRow: library.hasAmbientContent
@@ -821,6 +847,7 @@ struct SearchView: View {
             case .intelligent:
                 semanticSearchFeedback.isVisible || !visibleSemanticResults.isEmpty || !visibleSemanticAlbums.isEmpty
             case .appleMusic: appleMusicSearchEnabled
+            case .serverSearch: serverSearchActive && (!visibleServerSearchHits.isEmpty || serverSearch.isSearching)
             case .radio: !radioHits.isEmpty
             case .spokenWord: !bookHits.isEmpty
             case .ambient: !ambientHits.isEmpty
@@ -945,7 +972,7 @@ struct SearchView: View {
         return primary + supplements.filter { $0.section == section && seen.insert($0.id).inserted }
     }
 
-    /// 音乐这一组有没有东西可显示(含 AI / Apple Music 的状态行)。
+    /// 音乐这一组有没有东西可显示(含 AI / Apple Music / 媒体服务器的状态行)。
     private var musicHasResults: Bool {
         !(searchResults.isEmpty
             && matchingAlbums.isEmpty
@@ -954,6 +981,8 @@ struct SearchView: View {
             && matchingCollections(.folders).isEmpty
             && visibleSemanticResults.isEmpty
             && visibleAppleMusicResultCount == 0
+            && visibleServerSearchHits.isEmpty
+            && !(serverSearchActive && serverSearch.isSearching)
             && !semanticSearchFeedback.isVisible)
     }
 
@@ -1297,7 +1326,7 @@ struct SearchView: View {
         let sections = displayedResultSections
         #if os(macOS)
         switch macResultFilter {
-        case .albums, .artists, .appleMusic:
+        case .albums, .artists, .appleMusic, .serverSearch:
             return []
         case .lyrics:
             return searchResults
@@ -1364,6 +1393,7 @@ struct SearchView: View {
                 // 搜索词可能是在别的页面清掉的, 这时本页收不到变化;
                 // Apple Music 的结果存在共享服务里, 不清就会带着上一轮的计数。
                 appleMusic.clearCatalogSearchResults()
+                serverSearch.clear()
             }
             resumeSearchIfNeeded()
             if !searchText.isEmpty { performSemanticSearch(query: searchText) }
@@ -1429,10 +1459,12 @@ struct SearchView: View {
             workCoordinator.lyricsCache = LibrarySearchCache()
             performSearch(query: searchText)
             performAppleMusicSearch(query: searchText)
+            performServerSearch(query: searchText)
         }
         .onChange(of: searchText) { _, newValue in
             performSearch(query: newValue)
             performAppleMusicSearch(query: newValue)
+            performServerSearch(query: newValue)
         }
         .onChange(of: hiddenResultSectionsRawValue) { _, _ in
             // 关掉的块不再查、也不再占歌; 重搜一遍, 歌才会落回还开着的那几块。
@@ -1443,6 +1475,13 @@ struct SearchView: View {
                 performAppleMusicSearch(query: searchText)
             } else {
                 appleMusic.clearCatalogSearchResults()
+            }
+        }
+        .onChange(of: serverSearchActive) { _, isEnabled in
+            if isEnabled {
+                performServerSearch(query: searchText)
+            } else {
+                serverSearch.clear()
             }
         }
         .background {
@@ -1711,7 +1750,7 @@ struct SearchView: View {
         // 两棵子树不并存。搜索中占位 ⇄ 结果表每敲一键就翻一次, 保持硬切。
         Group {
             if searchText.isEmpty {
-                if library.visibleSongs.isEmpty && radioStore.stations.isEmpty {
+                if library.visibleSongs.isEmpty && radioStore.stations.isEmpty && !serverSearchActive {
                     EmptyStateView(
                         titleKey: "search_empty_library",
                         descriptionKey: "search_empty_library_desc",
@@ -1774,6 +1813,11 @@ struct SearchView: View {
         }
         .onChange(of: appleMusicSearchEnabled) { _, isEnabled in
             if !isEnabled, macResultFilter == .appleMusic {
+                macResultFilter = .all
+            }
+        }
+        .onChange(of: serverSearchActive) { _, isEnabled in
+            if !isEnabled, macResultFilter == .serverSearch {
                 macResultFilter = .all
             }
         }
@@ -1857,6 +1901,12 @@ struct SearchView: View {
                         title: "Apple Music · \(visibleAppleMusicResultCount)"
                     )
                 }
+                if macFilterIsAvailable(.serverSearch) {
+                    macFilterChip(
+                        .serverSearch,
+                        title: "\(String(localized: "search_section_server")) · \(visibleServerSearchHits.count)"
+                    )
+                }
             }
             .padding(.vertical, 1)
         }
@@ -1867,7 +1917,7 @@ struct SearchView: View {
     private var macSearchContent: some View {
         // 与 iOS 同构: 只给不随击键翻转的几支补淡入, 搜索中占位 ⇄ 结果保持硬切。
         if searchText.isEmpty {
-            if library.visibleSongs.isEmpty && radioStore.stations.isEmpty {
+            if library.visibleSongs.isEmpty && radioStore.stations.isEmpty && !serverSearchActive {
                 EmptyStateView(
                     titleKey: "search_empty_library",
                     descriptionKey: "search_empty_library_desc",
@@ -2016,8 +2066,9 @@ struct SearchView: View {
             if macItemCount(section, artists: artists, excluding: nil) > 0 {
                 present.insert(section)
             } else if section == .appleMusic
+                        || (section == .serverSearch && serverSearch.isSearching)
                         || (section == .intelligent && semanticSearchFeedback.isVisible) {
-                // Apple Music 没结果时有一张状态卡, 智能补充有进度/失败提示。
+                // Apple Music 没结果时有一张状态卡, 智能补充与媒体服务器搜索中也有进度提示。
                 present.insert(section)
             }
             // 放到最佳匹配旁边的那块, 扣掉最佳匹配本身之后还得有东西。
@@ -2068,6 +2119,8 @@ struct SearchView: View {
                 + visibleSemanticAlbums.count
         case .appleMusic:
             return visibleAppleMusicResultCount
+        case .serverSearch:
+            return visibleServerSearchHits.count
         case .playlists, .folders:
             return matchingCollections(section).count
         case .radio:
@@ -2213,6 +2266,8 @@ struct SearchView: View {
             macArtistShelf(model.artists, width: width, excluding: excluded)
         case .appleMusic:
             macAppleMusicShelf(width: width)
+        case .serverSearch:
+            macServerSearchBlock(width: width, besideTopMatch: besideTopMatch)
         case .metadata, .path, .lyrics, .fuzzy:
             macSongBlock(section, width: width, besideTopMatch: besideTopMatch, excluding: excluded)
         case .intelligent:
@@ -2786,7 +2841,7 @@ struct SearchView: View {
             macSongBucket(kind: .fuzzy, title: "search_section_fuzzy", showsAllResults: showsAllResults)
         case .intelligent:
             macSemanticSection(limit: showsAllResults ? 40 : 6)
-        case .albums, .artists, .appleMusic, .playlists, .folders, .radio, .spokenWord, .ambient:
+        case .albums, .artists, .appleMusic, .serverSearch, .playlists, .folders, .radio, .spokenWord, .ambient:
             EmptyView()
         }
     }
@@ -2817,6 +2872,9 @@ struct SearchView: View {
                     .frame(maxWidth: 900, alignment: .leading)
                 case .appleMusic:
                     macAppleMusicSection(showsAllResults: true)
+                        .frame(maxWidth: 900, alignment: .leading)
+                case .serverSearch:
+                    macServerSearchSection(showsAllResults: true)
                         .frame(maxWidth: 900, alignment: .leading)
                 case .all:
                     EmptyView()
@@ -3523,6 +3581,8 @@ struct SearchView: View {
             return layout.shows(.lyrics)
         case .appleMusic:
             return appleMusicSearchEnabled
+        case .serverSearch:
+            return serverSearchActive
         }
     }
 
@@ -3586,6 +3646,8 @@ struct SearchView: View {
             return searchResults.contains { $0.matchKind == .lyrics }
         case .appleMusic:
             return appleMusicSearchEnabled
+        case .serverSearch:
+            return serverSearchActive && (!visibleServerSearchHits.isEmpty || serverSearch.isSearching)
         }
     }
 
@@ -3598,6 +3660,106 @@ struct SearchView: View {
             + matchingAlbums.count
             + matchingArtists.count
             + visibleAppleMusicResultCount
+            + visibleServerSearchHits.count
+    }
+
+    @ViewBuilder
+    private func macServerSearchBlock(width: CGFloat, besideTopMatch: Bool) -> some View {
+        let hits = visibleServerSearchHits
+        let columns = SearchResultPageLayout.columnCount(for: Double(width))
+        let limit = SearchResultPageLayout.previewCount(
+            for: .serverSearch,
+            innerColumns: columns,
+            besideTopMatch: besideTopMatch
+        )
+        let shown = Array(hits.prefix(limit))
+        VStack(alignment: .leading, spacing: 10) {
+            macBlockHeader(
+                "search_section_server",
+                systemImage: "server.rack",
+                seeAll: hits.count > shown.count ? .serverSearch : nil
+            )
+            if shown.isEmpty, serverSearch.isSearching {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("search_server_searching")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textMuted)
+                }
+                .padding(.vertical, 6)
+            } else {
+                macColumns(shown, columns: columns, spacing: 18, rowSpacing: 2) { index, hit in
+                    macServerSearchRow(hit, ordinal: index + 1, largestOrdinal: hits.count)
+                }
+            }
+        }
+    }
+
+    private func macServerSearchSection(showsAllResults: Bool = false) -> some View {
+        let hits = showsAllResults ? visibleServerSearchHits : Array(visibleServerSearchHits.prefix(6))
+        return VStack(alignment: .leading, spacing: 10) {
+            macSectionLabel("search_section_server")
+            if hits.isEmpty, serverSearch.isSearching {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("search_server_searching")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textMuted)
+                }
+                .padding(.vertical, 6)
+            } else {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(hits.enumerated()), id: \.element.id) { index, hit in
+                        macServerSearchRow(hit, ordinal: index + 1, largestOrdinal: hits.count)
+                    }
+                }
+            }
+        }
+    }
+
+    private func macServerSearchRow(_ hit: ServerSearchHit, ordinal: Int, largestOrdinal: Int) -> some View {
+        let song = hit.song
+        let isCurrent = player.currentSong?.id == song.id
+        let subtitle = serverSearchSubtitle(for: hit)
+        return Button {
+            playServerSearchHit(hit)
+        } label: {
+            HStack(spacing: 10) {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 36,
+                    cornerRadius: 6,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                    SongRowNumberedTitle(number: ordinal, title: song.title)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
+                        .lineLimit(1)
+                    if !subtitle.isEmpty {
+                        Text(verbatim: subtitle)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                if song.duration > 0 {
+                    Text(verbatim: song.duration.formattedDuration)
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(PMColor.textFaint)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .pmRowBackground(cornerRadius: 6)
+        }
+        .buttonStyle(.plain)
+        .contextMenu { serverSearchHitMenu(hit) }
     }
 
     private var appleMusicStatusText: String {
@@ -3805,7 +3967,138 @@ struct SearchView: View {
             // Apple Music 启用时即使没结果也显示 section 标题, 让用户一眼看到
             // "为什么没有 Apple Music 推荐" (未授权 / 搜索失败 / 真没结果)。
             appleMusicSection
+        case .serverSearch:
+            serverSearchSection
         }
+    }
+
+    @ViewBuilder
+    private var serverSearchSection: some View {
+        let hits = visibleServerSearchHits
+        if !hits.isEmpty || (serverSearchActive && serverSearch.isSearching) {
+            Section {
+                if hits.isEmpty, serverSearch.isSearching {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text("search_server_searching")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                } else {
+                    ForEach(Array(hits.enumerated()), id: \.element.id) { index, hit in
+                        serverSearchRow(hit, number: index + 1)
+                    }
+                }
+            } header: {
+                if focusedResultSection != .serverSearch {
+                    Label("search_section_server", systemImage: "server.rack")
+                }
+            }
+        }
+    }
+
+    private func serverSearchRow(_ hit: ServerSearchHit, number: Int) -> some View {
+        let song = hit.song
+        let isCurrent = player.currentSong?.id == song.id
+        let subtitle = serverSearchSubtitle(for: hit)
+        return HStack(spacing: 8) {
+            Button {
+                playServerSearchHit(hit)
+            } label: {
+                HStack(spacing: 12) {
+                    CachedArtworkView(
+                        coverRef: song.coverArtFileName,
+                        songID: song.id,
+                        size: 44,
+                        cornerRadius: 6,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        fileFormat: song.fileFormat
+                    )
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            SongRowTrackNumber(number: number, largestNumber: visibleServerSearchHits.count)
+                            Text(verbatim: song.title)
+                                .font(.subheadline)
+                                .foregroundStyle(isCurrent ? Color.accentColor : Color.primary)
+                                .lineLimit(1)
+                        }
+                        if !subtitle.isEmpty {
+                            Text(verbatim: subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if song.duration > 0 {
+                        Text(verbatim: song.duration.formattedDuration)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Menu {
+                serverSearchHitMenu(hit)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("a11y_more_actions")
+        }
+        .contextMenu { serverSearchHitMenu(hit) }
+    }
+
+    @ViewBuilder
+    private func serverSearchHitMenu(_ hit: ServerSearchHit) -> some View {
+        Button {
+            insertServerSearchHitNext(hit)
+        } label: {
+            Label(String(localized: "insert_next"), systemImage: "text.line.first.and.arrowtriangle.forward")
+        }
+        Button {
+            appendServerSearchHitToQueue(hit)
+        } label: {
+            Label(String(localized: "add_to_queue"), systemImage: "text.line.last.and.arrowtriangle.forward")
+        }
+    }
+
+    private func serverSearchSubtitle(for hit: ServerSearchHit) -> String {
+        [
+            hit.song.artistName,
+            hit.song.albumTitle,
+            hit.sourceName,
+        ]
+        .compactMap { value -> String? in
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        .joined(separator: " · ")
+    }
+
+    private func playServerSearchHit(_ hit: ServerSearchHit) {
+        let queue = visibleServerSearchHits.map(\.song)
+        let index = visibleServerSearchHits.firstIndex(where: { $0.id == hit.id }) ?? 0
+        addRecentSearch(searchText)
+        Task { await player.play(queue: queue.isEmpty ? [hit.song] : queue, startingAt: index) }
+    }
+
+    private func insertServerSearchHitNext(_ hit: ServerSearchHit) {
+        guard player.insertNextInQueue([hit.song]) != nil else { return }
+        QueueReceipt.announce(.next, systemImage: "text.line.first.and.arrowtriangle.forward")
+    }
+
+    private func appendServerSearchHitToQueue(_ hit: ServerSearchHit) {
+        player.appendToQueue([hit.song])
+        QueueReceipt.announce(.last, systemImage: "text.line.last.and.arrowtriangle.forward")
     }
 
     @ViewBuilder
@@ -4524,6 +4817,7 @@ struct SearchView: View {
               renderedQuery != searchText || workCoordinator.requiresLocalSearchResume else { return }
         performSearch(query: searchText)
         performAppleMusicSearch(query: searchText)
+        performServerSearch(query: searchText)
     }
 
     private func performAppleMusicSearch(query: String) {
@@ -4532,6 +4826,20 @@ struct SearchView: View {
             return
         }
         appleMusic.search(query: query)
+    }
+
+    private func performServerSearch(query: String) {
+        guard serverSearchActive else {
+            serverSearch.clear()
+            return
+        }
+        serverSearch.search(
+            query: query,
+            sources: sourcesStore.sources,
+            disabledSourceIDs: library.disabledSourceIDs,
+            library: library,
+            sourceManager: sourceManager
+        )
     }
 
     private func performSearch(query: String) {

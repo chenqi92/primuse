@@ -43,7 +43,7 @@ struct SearchResultSectionLayoutTests {
     @Test("A stored order round-trips")
     func orderRoundTrips() {
         let custom: [SearchResultSection] = [
-            .metadata, .lyrics, .albums, .artists, .path, .fuzzy, .appleMusic, .intelligent, .playlists, .folders, .radio, .spokenWord,
+            .metadata, .lyrics, .albums, .artists, .path, .fuzzy, .appleMusic, .serverSearch, .intelligent, .playlists, .folders, .radio, .spokenWord,
             .ambient,
         ]
         let encoded = SearchResultSectionLayout.encodeOrder(custom)
@@ -94,11 +94,11 @@ struct SearchResultSectionLayoutTests {
         #expect(SearchResultSectionLayout.encodeHidden([]).isEmpty)
     }
 
-    @Test("Apple Music visibility belongs to the catalog search switch, not this store")
+    @Test("Apple Music and server search visibility belong to their own switches, not this store")
     func appleMusicNeverStoredAsHidden() {
-        let encoded = SearchResultSectionLayout.encodeHidden([.appleMusic, .path])
+        let encoded = SearchResultSectionLayout.encodeHidden([.appleMusic, .serverSearch, .path])
         #expect(SearchResultSectionLayout.decodeHidden(encoded) == [.path])
-        #expect(SearchResultSectionLayout.decodeHidden(#"["appleMusic"]"#).isEmpty)
+        #expect(SearchResultSectionLayout.decodeHidden(#"["appleMusic","serverSearch"]"#).isEmpty)
     }
 
     @Test("The last local section cannot be hidden")
@@ -107,8 +107,9 @@ struct SearchResultSectionLayoutTests {
         let allButMetadata = Set(local).subtracting([.metadata])
         #expect(!SearchResultSectionLayout.canHide(.metadata, hidden: allButMetadata))
         #expect(SearchResultSectionLayout.canHide(.metadata, hidden: allButMetadata.subtracting([.lyrics])))
-        // Apple Music 不算本机结果,它开着也挡不住最后一块本机结果被保留。
+        // Apple Music 与媒体服务器搜索不算本机结果,它们开着也挡不住最后一块本机结果被保留。
         #expect(SearchResultSectionLayout.canHide(.appleMusic, hidden: allButMetadata))
+        #expect(SearchResultSectionLayout.canHide(.serverSearch, hidden: allButMetadata))
     }
 
     @Test("A store that hides every local section keeps the first one visible")
@@ -132,7 +133,7 @@ struct SearchResultSectionLayoutTests {
             fromOffsets: IndexSet(integer: 4),
             toOffset: 0
         )
-        #expect(moved == [.lyrics, .albums, .artists, .metadata, .path, .fuzzy, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord, .ambient])
+        #expect(moved == [.lyrics, .albums, .artists, .metadata, .path, .fuzzy, .intelligent, .appleMusic, .serverSearch, .playlists, .folders, .radio, .spokenWord, .ambient])
 
         // 把 albums 拖到 metadata 之后(目标下标按移走前算)。
         let down = SearchResultSectionLayout.reordering(
@@ -141,13 +142,13 @@ struct SearchResultSectionLayoutTests {
             fromOffsets: IndexSet(integer: 0),
             toOffset: 3
         )
-        #expect(down == [.artists, .metadata, .albums, .path, .lyrics, .fuzzy, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord, .ambient])
+        #expect(down == [.artists, .metadata, .albums, .path, .lyrics, .fuzzy, .intelligent, .appleMusic, .serverSearch, .playlists, .folders, .radio, .spokenWord, .ambient])
     }
 
     @Test("Rows the editor does not list keep their place while the others move")
     func reorderSkipsUndisplayedRows() {
         let order = SearchResultSectionLayout.defaultOrder
-        let displayed = order.filter { $0 != .intelligent && $0 != .appleMusic && ![.playlists, .folders, .radio, .spokenWord, .ambient].contains($0) }
+        let displayed = order.filter { $0 != .intelligent && $0 != .appleMusic && $0 != .serverSearch && ![.playlists, .folders, .radio, .spokenWord, .ambient].contains($0) }
         // 列出来的最后一行 fuzzy 拖到最前面。
         let moved = SearchResultSectionLayout.reordering(
             order,
@@ -155,7 +156,7 @@ struct SearchResultSectionLayoutTests {
             fromOffsets: IndexSet(integer: displayed.count - 1),
             toOffset: 0
         )
-        #expect(moved == [.fuzzy, .albums, .artists, .metadata, .path, .lyrics, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord, .ambient])
+        #expect(moved == [.fuzzy, .albums, .artists, .metadata, .path, .lyrics, .intelligent, .appleMusic, .serverSearch, .playlists, .folders, .radio, .spokenWord, .ambient])
     }
 
     @Test("Out-of-range moves leave the order untouched")
@@ -212,8 +213,8 @@ struct SearchResultPageLayoutTests {
             [.metadata, .path, .lyrics],
             [.fuzzy, .intelligent],
             [.appleMusic],
-            [.playlists, .folders, .radio],
-            [.spokenWord, .ambient],
+            [.serverSearch, .playlists, .folders],
+            [.radio, .spokenWord, .ambient],
         ])
     }
 

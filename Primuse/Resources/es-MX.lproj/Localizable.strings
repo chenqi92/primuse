@@ -8090,6 +8090,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "Cuatro titeritos de papel se mecen, cantan y tocan la batería en un escenario pintado en acuarela, con una toma nueva en cada línea de la letra";
 "fullscreen_effect_watercolor_theater_motion" = "Los movimientos siguen el ritmo, la energía y la letra · Trazos de tinta redibujados 12 veces por segundo";
 "immersive_theater_greeting" = "¡Hola!";
+"search_section_server" = "Servidores multimedia";
+"search_server_searching" = "Buscando en servidores multimedia…";
 "spoken_word_repeat_chapter" = "Repetir capítulo";
 "spoken_word_repeat_chapter_short" = "Repetir";
 "spoken_word_repeat_chapter_play" = "Repetir este capítulo";

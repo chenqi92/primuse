@@ -8161,6 +8161,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "四個紙偶小夥伴在手繪水彩舞台上跟著歌搖擺、跟唱、打鼓，每句歌詞換一個鏡頭";
 "fullscreen_effect_watercolor_theater_motion" = "隨拍子、能量和歌詞換動作 · 墨線每秒抖動十二次";
 "immersive_theater_greeting" = "嗨！";
+"search_section_server" = "媒體伺服器";
+"search_server_searching" = "正在搜尋媒體伺服器…";
 "spoken_word_repeat_chapter" = "單章循環";
 "spoken_word_repeat_chapter_short" = "循環";
 "spoken_word_repeat_chapter_play" = "單章循環播放";

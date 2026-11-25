@@ -279,12 +279,26 @@ public enum SynologyAudioStationAPI {
 
     /// 按标题排序:几份资料都列了这个排序键。翻页期间曲库若有增删,`total`
     /// 会变、条目会挪位,由 `SynologyAudioStationCatalogPagination` 记成漂移。
-    public static func songListCall(offset: Int, limit: Int) -> SynologyAudioStationCall {
-        SynologyAudioStationCall(interface: .song, method: "list", parameters: [
+    public static func songListCall(offset: Int, limit: Int, keyword: String? = nil) -> SynologyAudioStationCall {
+        var parameters = [
             SynologyAudioStationParameter("library", library),
             SynologyAudioStationParameter("additional", songAdditional),
             SynologyAudioStationParameter("sort_by", "title"),
             SynologyAudioStationParameter("sort_direction", "ASC"),
+            SynologyAudioStationParameter("offset", String(offset)),
+            SynologyAudioStationParameter("limit", String(limit)),
+        ]
+        if let keyword = keyword?.trimmingCharacters(in: .whitespacesAndNewlines), !keyword.isEmpty {
+            parameters.append(SynologyAudioStationParameter("keyword", keyword))
+        }
+        return SynologyAudioStationCall(interface: .song, method: "list", parameters: parameters)
+    }
+
+    public static func songSearchCall(keyword: String, offset: Int = 0, limit: Int) -> SynologyAudioStationCall {
+        SynologyAudioStationCall(interface: .song, method: "search", parameters: [
+            SynologyAudioStationParameter("library", library),
+            SynologyAudioStationParameter("additional", songAdditional),
+            SynologyAudioStationParameter("keyword", keyword),
             SynologyAudioStationParameter("offset", String(offset)),
             SynologyAudioStationParameter("limit", String(limit)),
         ])

@@ -41,6 +41,7 @@ enum OfflineSettingsCatalog {
         ScreenIdleHoldMode.storageKey,
         AppleMusicFeatureSettings.autoAddToSmartPlaylistsKey,
         AppleMusicFeatureSettings.catalogSearchEnabledKey, AppleMusicFeatureSettings.syncUserLibraryKey,
+        ServerSearchFeatureSettings.enabledKey,
         MusicScraperService.sidecarCoverWriteEnabledKey, MusicScraperService.sidecarLyricsWriteEnabledKey,
         MusicScraperService.sidecarWriteTimeoutKey, UserNotificationService.notifyLongTasksKey,
         "primuse.lyrics.translation.settings.v1", "primuse.scrobble.settings.v1",

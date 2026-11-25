@@ -800,6 +800,7 @@ private extension LANSettingsCategory {
         switch self {
         case .scraping: return PMString("ext.lanSettings.category.scraping")
         case .lyricsServers: return PMString("ext.lanSettings.category.lyricsServers")
+        case .commentServers: return PMString("ext.lanSettings.category.commentServers")
         case .intelligence: return PMString("ext.tv.settings.intelligence")
         case .artistNames: return PMString("artist_name_settings_title")
         case .playerEffect: return PMString("ext.tv.settings.immersive")

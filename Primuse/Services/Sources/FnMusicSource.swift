@@ -826,6 +826,26 @@ extension FnMusicSource: CatalogDriftReportingConnector {
     }
 }
 
+extension FnMusicSource: ServerSongSearchingConnector {
+    func searchServerSongs(query: String, limit: Int) async throws -> [Song] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(query) else { return [] }
+        let capped = max(1, min(limit, FnMusicPagingPolicy.pageSize))
+        try await connect()
+        let tracks: [FnMusicTrack]
+        do {
+            tracks = try await api.searchTracks(query: trimmed, limit: capped)
+        } catch SourceError.authenticationFailed {
+            try await connect()
+            tracks = try await api.searchTracks(query: trimmed, limit: capped)
+        }
+        var seen = Set<String>()
+        return tracks.compactMap { track -> Song? in
+            guard seen.insert(track.guid).inserted else { return nil }
+            return track.makeSong(sourceID: sourceID, albumArtistName: nil)
+        }
+    }
+}
+
 extension FnMusicSource: ServerSongPathProvidingConnector {
     func fetchServerFilePath(for path: String) async throws -> String? {
         guard let guid = FnMusicAPIProtocol.trackGUID(from: path) else { return nil }

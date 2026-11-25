@@ -430,6 +430,21 @@ extension DaoLiYuSource: CatalogDriftReportingConnector {
     }
 }
 
+extension DaoLiYuSource: ServerSongSearchingConnector {
+    func searchServerSongs(query: String, limit: Int) async throws -> [Song] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(query) else { return [] }
+        let capped = max(1, min(limit, 500))
+        try await connect()
+        guard let serverBaseURL else { throw DaoLiYuServiceError.invalidURL }
+        let tracks = try await client.searchTracks(query: trimmed, limit: capped)
+        var seen = Set<String>()
+        return tracks.compactMap { track -> Song? in
+            guard seen.insert(track.id).inserted else { return nil }
+            return track.makeSong(sourceID: sourceID, serverBaseURL: serverBaseURL)
+        }
+    }
+}
+
 extension DaoLiYuSource: ServerSongPathProvidingConnector {
     func fetchServerFilePath(for path: String) async throws -> String? {
         guard let id = DaoLiYuAPIProtocol.trackID(from: path) else { return nil }

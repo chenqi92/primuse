@@ -8090,6 +8090,8 @@
 "fullscreen_effect_watercolor_theater_subtitle" = "Quatro bonequinhos de papel balançam, cantam junto e tocam bateria num palco pintado em aquarela, com uma cena nova a cada verso";
 "fullscreen_effect_watercolor_theater_motion" = "Os movimentos seguem a batida, a energia e a letra · Traços de nanquim redesenhados 12 vezes por segundo";
 "immersive_theater_greeting" = "Oi!";
+"search_section_server" = "Servidores de mídia";
+"search_server_searching" = "Pesquisando servidores de mídia…";
 "spoken_word_repeat_chapter" = "Repetir capítulo";
 "spoken_word_repeat_chapter_short" = "Repetir";
 "spoken_word_repeat_chapter_play" = "Repetir este capítulo";

@@ -227,6 +227,25 @@ actor FnMusicAPI {
         return FnMusicTrackPage(tracks: tracks, total: total, rawCount: rawList.count)
     }
 
+    func searchTracks(query: String, limit: Int) async throws -> [FnMusicTrack] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(query) else { return [] }
+        let capped = max(1, min(limit, FnMusicPagingPolicy.pageSize))
+        let payload = try await requestJSON(
+            method: "GET",
+            path: "/search/track",
+            queryItems: [
+                URLQueryItem(name: "q", value: trimmed),
+                URLQueryItem(name: "page", value: "1"),
+                URLQueryItem(name: "size", value: String(capped)),
+            ]
+        )
+        guard let dictionary = payload as? [String: Any],
+              let rawList = dictionary["list"] as? [[String: Any]] else {
+            throw SourceError.connectionFailed(PMString("error.catalog.missingList"))
+        }
+        return Array(rawList.compactMap(FnMusicTrack.init(json:)).prefix(capped))
+    }
+
     /// `/album/list` 一页就带回一批专辑的 `artists`, 比一张张问详情省得多。
     /// 服务端不认这个端点时由调用方退回 `albumArtistName(albumGUID:)`。
     func albumPage(page: Int, size: Int) async throws -> FnMusicAlbumPage {

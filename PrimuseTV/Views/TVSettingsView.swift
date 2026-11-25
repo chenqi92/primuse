@@ -112,6 +112,8 @@ struct TVSettingsView: View {
     @AppStorage(TVHomeSceneRow.nightSleepTimerKey) private var nightSceneSleepTimer = true
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
+    @AppStorage(ServerSearchFeatureSettings.enabledKey)
+    private var serverSearchEnabled = false
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
     @State private var showsThemePicker = tvDebugShowsThemePicker
     @State private var showsAppIconPicker = false
@@ -441,6 +443,15 @@ struct TVSettingsView: View {
                                 note: .app("library_review_feature_description"),
                                 isOn: $ratingsAndCommentsEnabled
                             )
+                            if ServerSearchAvailabilityPolicy.hasSearchableSource(in: store.sourcesStore.sources) {
+                                settingDivider
+                                toggleRow(
+                                    "server.rack",
+                                    PMString("ext.tv.settings.serverSearch"),
+                                    isOn: $serverSearchEnabled
+                                )
+                                .accessibilityIdentifier("tv.settings.serverSearch")
+                            }
                             settingDivider
                             navRow("arrow.clockwise", String(localized: "metadata"), PMString("tv_metadata_reread"),
                                    note: .kit("tv_metadata_reread_body")) {

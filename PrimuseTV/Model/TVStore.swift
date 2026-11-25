@@ -1876,7 +1876,27 @@ final class TVStore {
         _ = albumArtworkPaletteRevision
         return library.visibleAlbum(id: id).map(albumMapper.map)
     }
-    func song(_ id: String) -> TVSong? { library.visibleSong(id: id).map(songMapper.map) }
+    /// 媒体服务器实时搜索到的未入库临时曲目，只用于即时流式播放与队列切歌，不写入本地资料库。
+    // crash-pattern: allow library-array-property 仅保存单次服务器搜索结果(每源上限 25 首)，切回本地曲库即清空
+    @ObservationIgnored private var transientServerSongs: [String: Song] = [:]
+    /// 当前搜索页展示的媒体服务器未入库候选，供封面视图按需解析 `sourceID`。
+    // crash-pattern: allow library-array-property 仅保存当前搜索页的服务器候选窗口(每源上限 25 首)，每次搜索替换
+    @ObservationIgnored private var serverSearchPreviewSongs: [String: Song] = [:]
+
+    func registerServerSearchPreviewSongs(_ hits: [ServerSearchHit]) {
+        serverSearchPreviewSongs = Dictionary(
+            hits.map { ($0.song.id, $0.song) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    func playableSong(id: String) -> Song? {
+        library.song(id: id) ?? transientServerSongs[id] ?? serverSearchPreviewSongs[id]
+    }
+
+    func song(_ id: String) -> TVSong? {
+        (library.visibleSong(id: id) ?? transientServerSongs[id]).map(songMapper.map)
+    }
     /// 只问在不在可见曲库里:不必像 `song(_:)` 那样整首转成 TVSong(要解析艺人名),
     /// 整张专辑、整个资料库建队列时每首都要问一次。
     func isVisibleSong(_ id: String) -> Bool { library.visibleSong(id: id) != nil }
@@ -5303,10 +5323,18 @@ final class TVStore {
         var candidates = Set(queue)
         candidates.formUnion(canonicalQueue)
         if let currentSongID { candidates.insert(currentSongID) }
-        let staleIDs = candidates.filter { id in
+        var staleIDs: Set<String> = []
+        for id in candidates {
             guard !id.hasPrefix(RadioStation.playbackSongIDPrefix),
-                  !PodcastIdentity.isEpisodeID(id) else { return false }
-            return library.storedSong(id: id) == nil
+                  !PodcastIdentity.isEpisodeID(id) else { continue }
+            if let transient = transientServerSongs[id] {
+                if sourceIDs.contains(transient.sourceID), library.storedSong(id: id) == nil {
+                    staleIDs.insert(id)
+                    transientServerSongs.removeValue(forKey: id)
+                }
+            } else if library.storedSong(id: id) == nil {
+                staleIDs.insert(id)
+            }
         }
         guard !staleIDs.isEmpty else { return }
         removeTransferredSongsFromQueue(staleIDs)
@@ -5498,6 +5526,17 @@ final class TVStore {
         }
         let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         return scanner.fnMusicClient(source: source, credential: credential)
+    }
+
+    /// 供电视端搜索页向单个媒体服务器发起标准曲库实时搜索。
+    func searchServerSongs(source: MusicSource, query: String, limit: Int) async throws -> [Song] {
+        let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        return try await scanner.searchServerSongs(
+            source: source,
+            credential: credential,
+            query: query,
+            limit: limit
+        )
     }
 
     /// 走查选中目录扫描,落库(addSongs 按确定性 id 去重合并)+ 持久化 + 记录已扫目录 + 回传源。
@@ -7762,6 +7801,9 @@ final class TVStore {
     func play(_ song: TVSong) {
         pendingDeepLink = nil
         guard !hasPendingSnapshotRecovery else { return }
+        if transientServerSongs[song.id] == nil {
+            transientServerSongs.removeAll(keepingCapacity: false)
+        }
         // 环境音(搜索、文件夹里点到的白噪音、雨声)单独放,循环着(见 `followAmbientPlayMode`)。
         if library.ambientSongIDs.contains(song.id) {
             parkPlayModeForAmbient()
@@ -7771,6 +7813,31 @@ final class TVStore {
         endMedley()
         setQueueAround(song)
         startPlaying(song)
+    }
+
+    /// 播放媒体服务器实时搜索到的未入库曲目：直接流式起播，并把本次结果作为临时播放队列。
+    func playServerSearchHit(_ hit: ServerSearchHit, in hits: [ServerSearchHit]) {
+        pendingDeepLink = nil
+        guard !hasPendingSnapshotRecovery else { return }
+        let queueHits = hits.isEmpty ? [hit] : hits
+        transientServerSongs = Dictionary(
+            queueHits.map { ($0.song.id, $0.song) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let songIDs = queueHits.map(\.song.id)
+        let startIndex = songIDs.firstIndex(of: hit.song.id) ?? 0
+        endMedley()
+        let plan = TVPlaybackQueuePolicy.plan(
+            count: songIDs.count,
+            selectedIndex: startIndex,
+            shuffled: false,
+            weights: nil,
+            links: .empty,
+            songIDs: songIDs
+        )
+        install(TVQueueInstallation.make(songIDs: songIDs, plan: plan))
+        guard let first = song(hit.song.id) else { return }
+        startPlaying(first)
     }
 
     private func parkPlayModeForAmbient() {
@@ -8323,7 +8390,7 @@ final class TVStore {
         let ids = sleepChapterItemIDs
         guard let index = ids.firstIndex(of: nowPlaying.songID) else { return [] }
         return ids[index...].flatMap { id -> [SpokenWordSleepChapter] in
-            let title = id == nowPlaying.songID ? nowPlaying.title : library.song(id: id)?.title ?? ""
+            let title = id == nowPlaying.songID ? nowPlaying.title : playableSong(id: id)?.title ?? ""
             let chapters = id == nowPlaying.songID ? spokenWordChapters : library.generatedChapters(for: id) ?? []
             return SpokenWordSleepChapter.choices(songID: id, title: title, chapters: chapters)
         }
@@ -8666,7 +8733,7 @@ final class TVStore {
         }
         func items(_ indices: some Sequence<Int>) -> [AlbumFlowNeighbors.Item] {
             indices.compactMap { index in
-                library.song(id: queue[index]).map {
+                playableSong(id: queue[index]).map {
                     AlbumFlowNeighbors.Item(id: "\(index):\(queue[index])", song: $0, queueIndex: index)
                 }
             }
@@ -8956,7 +9023,7 @@ final class TVStore {
                 preferMusicVideo: self.isMusicVideoModeEnabled,
                 startAt: startTime,
                 autoPlay: autoPlay,
-                playbackSongOverride: rangedSong
+                playbackSongOverride: rangedSong ?? self.transientServerSongs[song.id]
             )
             guard self.isCurrentPlaybackRequest(
                 requestID,
@@ -8969,7 +9036,7 @@ final class TVStore {
 
     private func presentSelection(_ song: TVSong, startTime: Double) {
         let a = albumOf(song)
-        let rawSong = library.song(id: song.id)
+        let rawSong = playableSong(id: song.id)
         let fallback = Self.tint(song.id)
         let albumPalette = artworkPalettes[song.albumID]
         let songPalette = artworkPalettes[Self.songArtworkPaletteKey(song.id)]

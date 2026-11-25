@@ -5412,6 +5412,7 @@ private struct PlexHistoryItem: Decodable {
 
 private struct PlexAudioItem: Decodable {
     var statisticsLibraryID: String? = nil
+    let librarySectionID: String?
     let ratingKey: String
     let title: String
     /// Epoch seconds the server recorded this track at. Only the catalogue
@@ -5435,6 +5436,7 @@ private struct PlexAudioItem: Decodable {
     let lastViewedAt: Int?
 
     enum CodingKeys: String, CodingKey {
+        case librarySectionID
         case ratingKey
         case title
         case addedAt
@@ -5457,6 +5459,7 @@ private struct PlexAudioItem: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        librarySectionID = try container.decodeLossyStringIfPresent(forKey: .librarySectionID)
         ratingKey = try container.decode(String.self, forKey: .ratingKey)
         title = try container.decode(String.self, forKey: .title)
         // Plex sends this one as a number on some builds and as a numeric
@@ -6157,6 +6160,163 @@ extension MediaServerSource: ServerAdminConnector {
         let current = try await adminRequest("/Users/\(id)")
         let body = try MediaServerUserAdminPayloads.policyUpdate(userData: current, isAdmin: isAdmin, libraryIDs: libraryIDs)
         _ = try await adminRequest("/Users/\(id)/Policy", method: "POST", body: body)
+    }
+}
+
+private struct PlexHubSearchResponse: Decodable {
+    struct Container: Decodable {
+        let hubs: [Hub]
+
+        enum CodingKeys: String, CodingKey {
+            case hubs = "Hub"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            hubs = try container.decodeIfPresent([Hub].self, forKey: .hubs) ?? []
+        }
+    }
+
+    struct Hub: Decodable {
+        let type: String?
+        let metadata: [PlexAudioItem]
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case metadata = "Metadata"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            type = try container.decodeIfPresent(String.self, forKey: .type)
+            metadata = try container.decodeIfPresent([PlexAudioItem].self, forKey: .metadata) ?? []
+        }
+    }
+
+    let mediaContainer: Container
+
+    enum CodingKeys: String, CodingKey {
+        case mediaContainer = "MediaContainer"
+    }
+}
+
+extension MediaServerSource: ServerSongSearchingConnector {
+    func searchServerSongs(query: String, limit: Int) async throws -> [Song] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(query) else { return [] }
+        let capped = max(1, min(limit, 500))
+        try await connect()
+
+        let libraries = preferredLibraries(from: try await fetchLibraries())
+            .filter { $0.contentKind != .audiobooks }
+        guard !libraries.isEmpty else { return [] }
+
+        switch kind {
+        case .jellyfin, .emby:
+            return try await searchJellyfinOrEmbySongs(query: trimmed, libraries: libraries, limit: capped)
+        case .plex:
+            return try await searchPlexSongs(query: trimmed, libraries: libraries, limit: capped)
+        }
+    }
+
+    private func searchJellyfinOrEmbySongs(
+        query: String,
+        libraries: [Library],
+        limit: Int
+    ) async throws -> [Song] {
+        guard let userID else { throw SourceError.authenticationFailed }
+        var songs: [Song] = []
+        var seenIDs = Set<String>()
+
+        for library in libraries {
+            try Task.checkCancellation()
+            let remaining = limit - songs.count
+            guard remaining > 0 else { break }
+            let data = try await performRequest(
+                path: "/Users/\(userID)/Items",
+                queryItems: [
+                    URLQueryItem(name: "ParentId", value: library.id),
+                    URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+                    URLQueryItem(name: "Recursive", value: "true"),
+                    URLQueryItem(name: "searchTerm", value: query),
+                    URLQueryItem(name: "Fields", value: Self.catalogItemFields),
+                    URLQueryItem(name: "EnableUserData", value: "true"),
+                    URLQueryItem(name: "Limit", value: String(remaining)),
+                ]
+            )
+            let response = try decoder.decode(ItemResponse.self, from: data)
+            for item in response.items {
+                guard seenIDs.insert(item.id).inserted else { continue }
+                songs.append(buildSong(from: item, dateAddedFallback: Date(), library: library))
+                if songs.count >= limit { break }
+            }
+        }
+        return songs
+    }
+
+    private func searchPlexSongs(
+        query: String,
+        libraries: [Library],
+        limit: Int
+    ) async throws -> [Song] {
+        let librariesByID = Dictionary(libraries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var songs: [Song] = []
+        var seenIDs = Set<String>()
+
+        do {
+            let data = try await performRequest(
+                path: "/hubs/search",
+                queryItems: [
+                    URLQueryItem(name: "query", value: query),
+                    URLQueryItem(name: "limit", value: String(limit)),
+                ]
+            )
+            let response = try decoder.decode(PlexHubSearchResponse.self, from: data)
+            for hub in response.mediaContainer.hubs where hub.type?.lowercased() == "track" {
+                for item in hub.metadata {
+                    guard seenIDs.insert(item.ratingKey).inserted else { continue }
+                    let resolvedLibrary: Library?
+                    if let sectionID = item.librarySectionID, !sectionID.isEmpty {
+                        resolvedLibrary = librariesByID[sectionID]
+                    } else {
+                        resolvedLibrary = libraries.first
+                    }
+                    guard let library = resolvedLibrary else { continue }
+                    plexItems[item.ratingKey] = item
+                    songs.append(buildSong(from: item, library: library))
+                    if songs.count >= limit { return songs }
+                }
+            }
+            return songs
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch SourceError.authenticationFailed {
+            throw SourceError.authenticationFailed
+        } catch {
+            // Fall back to per-section title search when /hubs/search is unavailable.
+        }
+
+        for library in libraries {
+            try Task.checkCancellation()
+            let remaining = limit - songs.count
+            guard remaining > 0 else { break }
+            let data = try await performRequest(
+                path: "/library/sections/\(library.id)/all",
+                queryItems: [
+                    URLQueryItem(name: "type", value: "10"),
+                    URLQueryItem(name: "title", value: query),
+                    URLQueryItem(name: "X-Plex-Container-Start", value: "0"),
+                    URLQueryItem(name: "X-Plex-Container-Size", value: String(remaining)),
+                ]
+            )
+            let response = try decoder.decode(PlexTrackResponse.self, from: data)
+            for item in response.mediaContainer.metadata {
+                guard seenIDs.insert(item.ratingKey).inserted else { continue }
+                plexItems[item.ratingKey] = item
+                songs.append(buildSong(from: item, library: library))
+                if songs.count >= limit { break }
+            }
+        }
+        return songs
     }
 }
 

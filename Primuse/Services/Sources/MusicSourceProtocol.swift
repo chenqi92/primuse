@@ -2060,6 +2060,11 @@ protocol ServerCatalogChangeDetectingConnector: MusicSourceConnector {
     func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus
 }
 
+/// 标准媒体服务器实时曲库搜索能力。仅调用服务端自有标准曲库检索接口。
+protocol ServerSongSearchingConnector: MusicSourceConnector {
+    func searchServerSongs(query: String, limit: Int) async throws -> [Song]
+}
+
 /// 按需读取媒体服务器单曲的真实服务端文件路径。
 protocol ServerSongPathProvidingConnector: MusicSourceConnector {
     func fetchServerFilePath(for path: String) async throws -> String?

@@ -402,6 +402,25 @@ public actor SynologyAudioStationClient {
         return try await perform(SynologyAudioStationAPI.songListCall(offset: offset, limit: limit))
     }
 
+    public func searchSongs(
+        keyword: String,
+        limit: Int = ServerSearchAvailabilityPolicy.perSourceLimit
+    ) async throws -> [SynologyAudioStationSong] {
+        guard let trimmed = ServerSearchAvailabilityPolicy.normalizedQuery(keyword) else { return [] }
+        let capped = max(1, min(limit, 5_000))
+        do {
+            let page: SynologyAudioStationSongPage = try await perform(
+                SynologyAudioStationAPI.songSearchCall(keyword: trimmed, offset: 0, limit: capped)
+            )
+            return Array(page.songs.prefix(capped))
+        } catch SynologyAudioStationError.apiNotFound {
+            let page: SynologyAudioStationSongPage = try await perform(
+                SynologyAudioStationAPI.songListCall(offset: 0, limit: capped, keyword: trimmed)
+            )
+            return Array(page.songs.prefix(capped))
+        }
+    }
+
     /// 整库逐页拉取。格式不对的页以 `invalidResponse` 结束;走查期间曲库在变
     /// (总数变化、重复 id、中途短页、走完后总数又变了)则照常走完,只把这件事
     /// 记下来,调用方用 `takeCatalogDriftObservation()` 取走,据此不删歌。

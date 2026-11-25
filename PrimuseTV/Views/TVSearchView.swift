@@ -36,6 +36,8 @@ final class TVSearchMemory {
     fileprivate var semanticFeedback: TVSemanticSearchFeedback = .idle
     /// Apple Music 目录结果跟着查询词走,也留在这里,回来不必重新请求。
     let appleMusic = TVAppleMusicCatalog()
+    /// 媒体服务器实时搜索结果同样保留在这里。
+    let serverSearch = TVServerSearchCatalog()
     var lastFocusedResultID: String?
     /// 从搜索结果里的专辑页开始播放:专辑 id 与点的那首。
     var albumDetailID: String?
@@ -109,7 +111,9 @@ struct TVSearchView: View {
     @FocusState private var inputActive: Bool
     @FocusState private var focusedResultID: String?
 
+    @AppStorage(ServerSearchFeatureSettings.enabledKey) private var serverSearchEnabled = false
     private var appleMusic: TVAppleMusicCatalog { memory.appleMusic }
+    private var serverSearch: TVServerSearchCatalog { memory.serverSearch }
 
     init(
         openPlayer: @escaping () -> Void = {},
@@ -162,6 +166,17 @@ struct TVSearchView: View {
         )
     }
 
+    private var serverSearchActive: Bool {
+        ServerSearchAvailabilityPolicy.isEnabled(
+            featureEnabled: serverSearchEnabled,
+            sources: store.sourcesStore.sources
+        )
+    }
+
+    private var serverSearchResults: [ServerSearchHit] {
+        serverSearchActive ? serverSearch.hits : []
+    }
+
     private var resultFocusIDs: [String] {
         artistResults.map(Self.artistFocusID)
             + albumResults.map(Self.albumFocusID)
@@ -171,6 +186,7 @@ struct TVSearchView: View {
             + appleMusic.albums.map(Self.appleMusicAlbumFocusID)
             + appleMusicResults.map(Self.appleMusicFocusID)
             + (canRequestAppleMusicAuthorization ? [Self.appleMusicAuthFocusID] : [])
+            + serverSearchResults.map(Self.serverSearchFocusID)
     }
 
     /// 未授权时用授权入口顶替内容。目录搜索不会主动弹授权框,这一行是
@@ -189,10 +205,14 @@ struct TVSearchView: View {
         !appleMusicResults.isEmpty || !appleMusic.albums.isEmpty || !appleMusic.artists.isEmpty
     }
 
+    private var hasServerSearchContent: Bool {
+        !serverSearchResults.isEmpty
+    }
+
     private var hasResults: Bool { !resultFocusIDs.isEmpty }
 
     private var showsNoMatch: Bool {
-        !trimmed.isEmpty && !isSearching && !hasResults
+        !trimmed.isEmpty && !isSearching && !(serverSearchActive && serverSearch.isSearching) && !hasResults
     }
 
     private static func artistFocusID(_ artist: TVArtist) -> String { "artist:" + artist.id }
@@ -206,6 +226,9 @@ struct TVSearchView: View {
     }
     private static func appleMusicArtistFocusID(_ hit: AppleMusicCatalogArtistHit) -> String {
         "appleMusicArtist:" + hit.id
+    }
+    private static func serverSearchFocusID(_ hit: ServerSearchHit) -> String {
+        "serverSearch:" + hit.id
     }
     private static let appleMusicAuthFocusID = "appleMusicAuth"
 
@@ -248,6 +271,13 @@ struct TVSearchView: View {
             memory.lastFocusedResultID = value
         }
         .onChange(of: query) { _, value in memory.query = value }
+        .onChange(of: serverSearchActive) { _, isActive in
+            if isActive {
+                serverSearch.search(trimmed, store: store)
+            } else {
+                serverSearch.clear()
+            }
+        }
         .onChange(of: inputActive) { _, active in
             if active { focusZone = .field }
         }
@@ -388,6 +418,21 @@ struct TVSearchView: View {
                             if !appleMusic.artists.isEmpty { appleMusicArtistCarousel }
                             if !appleMusic.albums.isEmpty { appleMusicAlbumCarousel }
                             if !appleMusicResults.isEmpty { appleMusicList }
+                        }
+                    }
+                    if serverSearchActive && (hasServerSearchContent || serverSearch.isSearching) {
+                        TVEyebrow(text: PMString("ext.tv.search.server"))
+                            .padding(.top, 22)
+                            .padding(.bottom, 8)
+                        if !hasServerSearchContent, serverSearch.isSearching {
+                            HStack(spacing: 12) {
+                                ProgressView().tint(TVColor.brand)
+                                Text(PMString("ext.tv.search.serverSearching"))
+                                    .tvFont(.caption).foregroundStyle(TVColor.textFaint)
+                            }
+                            .padding(.vertical, 10)
+                        } else if !serverSearchResults.isEmpty {
+                            serverSearchList
                         }
                     }
                     if showsNoMatch {
@@ -554,6 +599,23 @@ struct TVSearchView: View {
         }
     }
 
+    private var serverSearchList: some View {
+        let hits = serverSearchResults
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(hits.enumerated()), id: \.element.id) { index, hit in
+                TVServerSearchRow(
+                    hit: hit,
+                    allHits: hits,
+                    ordinal: index + 1,
+                    largestOrdinal: hits.count,
+                    focusedResultID: $focusedResultID,
+                    focusID: Self.serverSearchFocusID(hit),
+                    action: openPlayer
+                )
+            }
+        }
+    }
+
     private func songList(_ hits: [TVStore.TVSearchHit]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(hits.enumerated()), id: \.element.id) { index, hit in
@@ -650,6 +712,11 @@ struct TVSearchView: View {
         // 目录搜索与曲库搜索并行:它自带防抖,未授权时直接不发请求,
         // 所以每次输入变化交给它即可。
         appleMusic.search(requestedQuery)
+        if serverSearchActive {
+            serverSearch.search(requestedQuery, store: store)
+        } else {
+            serverSearch.clear()
+        }
         guard !requestedQuery.isEmpty else {
             results = nil
             isSearching = false
@@ -973,6 +1040,67 @@ private struct TVAppleMusicSearchRow: View {
             }
             .frame(width: 56, height: 56)
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+}
+
+/// 媒体服务器实时搜索到的未入库曲目行。点击直接流式起播。
+private struct TVServerSearchRow: View {
+    @Environment(TVStore.self) private var store
+    let hit: ServerSearchHit
+    let allHits: [ServerSearchHit]
+    let ordinal: Int
+    let largestOrdinal: Int
+    @FocusState.Binding var focusedResultID: String?
+    let focusID: String
+    var action: () -> Void = {}
+
+    var body: some View {
+        let song = hit.song
+        let subtitle = [song.artistName, song.albumTitle]
+            .compactMap { value -> String? in
+                let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            .joined(separator: " · ")
+        TVFocusButton(radius: 10, scale: 1.0, lift: 0,
+                      action: { store.playServerSearchHit(hit, in: allHits); action() }) { focused in
+            HStack(spacing: 16) {
+                TVArtworkView(
+                    coverKey: "",
+                    artist: song.artistName ?? "",
+                    album: song.albumTitle ?? "",
+                    songID: song.id,
+                    coverRef: song.coverArtFileName,
+                    tint: TVColor.brand,
+                    tint2: .black,
+                    glyph: "♪",
+                    size: 56,
+                    radius: 6
+                )
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        TVSongOrdinal(number: ordinal, largestNumber: largestOrdinal)
+                        Text(verbatim: song.title).tvFont(.cardTitle)
+                            .foregroundStyle(TVColor.text).lineLimit(1)
+                    }
+                    if !subtitle.isEmpty {
+                        Text(verbatim: subtitle)
+                            .tvFont(.caption).foregroundStyle(TVColor.textFaint).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                Text(verbatim: hit.sourceName)
+                    .tvFont(.meta, weight: .semibold)
+                    .foregroundStyle(TVColor.textMuted)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(TVColor.surface, in: Capsule())
+                Image(systemName: "play.fill").tvFont(.caption).foregroundStyle(TVColor.textFaint)
+            }
+            .padding(14).frame(maxWidth: .infinity)
+            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
+        }
+        .focused($focusedResultID, equals: focusID)
+        .accessibilityLabel(Text(subtitle.isEmpty ? song.title : "\(song.title) · \(subtitle)"))
     }
 }
 #endif

@@ -1157,7 +1157,7 @@ struct TVArtworkView: View {
 
     private var sourceArtworkSong: Song? {
         if let requestedSongID, !requestedSongID.isEmpty {
-            return store.library.song(id: requestedSongID)
+            return store.playableSong(id: requestedSongID)
         }
         // 只随这张专辑自己的首选封面失效, 扫描入库时整墙格子不跟着重算。
         return store.library.scopedPreferredArtworkSong(forAlbumID: coverKey)
@@ -1198,7 +1198,7 @@ struct TVArtworkView: View {
     private var artworkIdentity: String {
         let overrideSuffix = albumArtworkOverrideIdentity.map { "|override:\($0)" } ?? ""
         let refreshSuffix = self.refreshSuffix + "|fresh:" + MetadataAssetStore.shared.artworkFreshnessToken(
-            sourceID: songID.flatMap { store.library.song(id: $0)?.sourceID }, reference: coverRef
+            sourceID: songID.flatMap { store.playableSong(id: $0)?.sourceID }, reference: coverRef
         ) + "|pixels:\(Int(max(size, height ?? size) * 2))"
         if !coverKey.isEmpty {
             guard let songID, !songID.isEmpty else { return "album:\(coverKey)\(overrideSuffix)\(refreshSuffix)" }
@@ -1258,7 +1258,7 @@ struct TVArtworkView: View {
     }
 
     private var songSourceAnimationDiskKey: String {
-        let song = songID.flatMap { store.library.song(id: $0) }
+        let song = songID.flatMap { store.playableSong(id: $0) }
         return songAnimationDiskKey(
             songID: songID,
             sourceID: song?.sourceID,
@@ -1279,7 +1279,7 @@ struct TVArtworkView: View {
 
     private var hasServerCoverReference: Bool {
         SourceArtworkPolicy.cacheID(
-            sourceID: songID.flatMap { store.library.song(id: $0)?.sourceID },
+            sourceID: songID.flatMap { store.playableSong(id: $0)?.sourceID },
             reference: coverRef, maximumPixels: 480
         ) != nil
     }
@@ -1875,7 +1875,7 @@ struct TVArtworkView: View {
         }
 
         guard let songID, !songID.isEmpty else { return nil }
-        let sourceID = store.library.song(id: songID)?.sourceID
+        let sourceID = store.playableSong(id: songID)?.sourceID
         return await TVArtworkLoader.shared.originalAnimationCandidate(
             songID: songID,
             coverRef: coverRef,
