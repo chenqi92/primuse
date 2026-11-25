@@ -284,7 +284,8 @@ struct TVLibraryView: View {
             hidesSingleOnlyAlbumArtists: hidesSingleOnlyAlbumArtists,
             revision: filter == .albums || filter == .years
                 ? store.albumBrowseRevision(wallOrder)
-                : filter == .artists ? store.artistBrowseRevision(artistBrowseMode) : store.libraryBrowseRevision
+                : filter == .artists ? store.artistBrowseRevision(artistBrowseMode)
+                : filter == .songs ? store.songBrowseRevision : store.libraryBrowseRevision
         )) {
             switch filter {
             case .albums, .years: await store.prepareAlbumBrowseLayout(wallOrder)
@@ -595,10 +596,8 @@ struct TVLibraryView: View {
     private static func songFocusID(_ id: String) -> String { "song:" + id }
 
     /// 歌曲页上次聚焦的那首在当前列表里的位置;记下的位置对不上(曲库变了)才逐个找。
-    private func rememberedSongIndex(in ids: [String]) -> Int? {
-        guard let id = browseMemory.songID else { return nil }
-        if let index = browseMemory.songIndex, ids.indices.contains(index), ids[index] == id { return index }
-        return ids.firstIndex(of: id)
+    private func rememberedSongIndex(in ids: TVSongIDList) -> Int? {
+        ids.index(ofID: browseMemory.songID, near: browseMemory.songIndex)
     }
 
     private func rememberedMusicVideoIndex(in ids: [String]) -> Int? {
@@ -1077,8 +1076,10 @@ struct TVLibraryView: View {
             // 几千首也能按右侧字母栏跳:按标题读音排好、分段,只渲染一个窗口(同艺人墙)。
             if let layout = store.songBrowseLayout() {
                 let songIDs = layout.items
+                // 目录排的那一页不常驻整份 id:点歌时 `playFromSongsPage` 在后台取好整份再排队。
+                let servesFromCatalog = songIDs.catalog != nil
                 TVIndexedGrid(
-                    items: TVSongIDItems(ids: songIDs), sections: layout.sections,
+                    items: TVSongIDItems(list: songIDs), sections: layout.sections,
                     columns: [GridItem(.flexible())], spacing: 10,
                     revealingIndex: rememberedSongIndex(in: songIDs),
                     jumpRequest: gridJumpRequest,
@@ -1091,7 +1092,8 @@ struct TVLibraryView: View {
                             song: song,
                             ordinal: index + 1,
                             largestOrdinal: songIDs.count,
-                            queueSongIDs: songIDs,
+                            queueSongIDs: servesFromCatalog ? nil : songIDs.source,
+                            playInList: servesFromCatalog ? { await store.playFromSongsPage($0) } : nil,
                             action: openPlayer,
                             onFocusChanged: { focused in
                                 focusChanged(focused)
@@ -2478,6 +2480,8 @@ struct TVSongRow: View {
     var largestOrdinal: Int = 1
     var reason: String? = nil
     var queueSongIDs: [String]? = nil
+    /// 队列要先在后台取的列表(目录排的「歌曲」页):给了就不看 `queueSongIDs`,放上了才调 `action`。
+    var playInList: (@MainActor (TVSong) async -> Bool)? = nil
     /// 资料库「MV」页里的行:点了按 MV 放(带同名 MV 的歌也直接出画面)。
     var playsMusicVideo = false
     var action: () -> Void = {}
@@ -2495,6 +2499,13 @@ struct TVSongRow: View {
                           // 列表内点歌保持该列表为队列,并沿用当前随机开关;
                           // 没给列表时按可见曲库顺序续播。
                           if playsMusicVideo { store.prefersMusicVideoForNextPlay() }
+                          if let playInList {
+                              Task { @MainActor in
+                                  guard await playInList(song) else { return }
+                                  action()
+                              }
+                              return
+                          }
                           if let queueSongIDs {
                               guard store.play(song, in: queueSongIDs) else { return }
                           } else { store.play(song) }
@@ -2623,10 +2634,19 @@ struct TVSongIDItems: RandomAccessCollection {
         let id: String
     }
 
-    let ids: [String]
-    var startIndex: Int { ids.startIndex }
-    var endIndex: Int { ids.endIndex }
-    subscript(position: Int) -> Item { Item(id: ids[position]) }
+    let list: TVSongIDList
+
+    init(list: TVSongIDList) {
+        self.list = list
+    }
+
+    init(ids: [String]) {
+        list = TVSongIDList(source: ids)
+    }
+
+    var startIndex: Int { list.startIndex }
+    var endIndex: Int { list.endIndex }
+    subscript(position: Int) -> Item { Item(id: list[position]) }
 }
 
 /// 由歌曲 ID 列表驱动的分页歌曲列表。

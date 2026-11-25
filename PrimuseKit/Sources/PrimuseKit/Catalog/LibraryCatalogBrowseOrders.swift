@@ -182,6 +182,33 @@ extension LibraryCatalog {
         }
     }
 
+    /// 歌曲 id → 行号。没有这首歌时为 nil。
+    public func songRowid(id: String) throws -> Int32? {
+        try pool.read { db in
+            try Int64.fetchOne(db, sql: "SELECT rowid FROM song WHERE id = ?", arguments: [id]).map(Self.rowid32)
+        }
+    }
+
+    /// 一页行号对应的歌曲 id,与输入一一对应;已删掉的行为 nil(电视「歌曲」页按页取条目)。
+    public func songIDs(atRowids rowids: [Int32]) throws -> [String?] {
+        guard !rowids.isEmpty else { return [] }
+        var byRowid: [Int32: String] = [:]
+        byRowid.reserveCapacity(rowids.count)
+        try pool.read { db in
+            for chunk in Self.chunks(of: rowids) {
+                let rows = try Row.fetchCursor(
+                    db,
+                    sql: "SELECT rowid, id FROM song WHERE rowid IN (\(Self.placeholders(chunk.count)))",
+                    arguments: StatementArguments(chunk.map(Int64.init))
+                )
+                while let row = try rows.next() {
+                    byRowid[try Self.rowid32(row[0])] = row[1]
+                }
+            }
+        }
+        return rowids.map { byRowid[$0] }
+    }
+
     // MARK: - CarPlay lists
 
     /// 车机歌曲列表:按标题(Foundation 的 `localizedCaseInsensitiveCompare`)排的前 `limit` 首,

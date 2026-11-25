@@ -39,7 +39,7 @@ public enum LibraryCollationPolicy {
     }
 
     /// 同系列曲目的标题可能有很长的相同前缀，要比较完整读音才能排对后面的曲名。
-    static func songTitleKey(for title: String) -> Key {
+    public static func songTitleKey(for title: String) -> Key {
         let key = key(for: trimmedScalars(title))
         return key.text.isEmpty ? trailingKey : key
     }

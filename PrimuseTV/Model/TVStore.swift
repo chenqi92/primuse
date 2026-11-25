@@ -1456,6 +1456,10 @@ final class TVStore {
     /// 目录排好的专辑墙 / 艺人墙(P3):目录可读、排法目录排得出时用,这时内存里那份不排也不留。
     @ObservationIgnored private var catalogAlbumWall: (order: LibraryAlbumBrowseOrder, wall: TVCatalogWall<Album>)?
     @ObservationIgnored private var catalogArtistWall: TVCatalogWall<Artist>?
+    /// 目录排好的「歌曲」页(P3):目录可读时用,这时内存里那一整份排好的 id 不排也不留。
+    @ObservationIgnored private var catalogSongPage: TVCatalogSongPage?
+    /// 「歌曲」页点歌要先在后台取整份 id;后点的那一下作废先点的。
+    @ObservationIgnored private var songsPageQueueRequest = 0
     /// 后台排好一份浏览布局就加一,让读布局的视图重算。
     private var browseLayoutRevision = 0
     private var songArtworkPaletteRevision = 0
@@ -1967,12 +1971,22 @@ final class TVStore {
     }
     /// 「歌曲」页:全部音乐按标题(拼音)排好、带首字母分段,条目是歌曲 id;
     /// 同一份 id 也是点歌时的整份队列。规则同 `albumBrowseLayout`。
-    func songBrowseLayout() -> LibraryBrowseLayout<String>? {
+    func songBrowseLayout() -> TVSongBrowseLayout? {
         _ = browseLayoutRevision
-        return songBrowseLayoutCache?.layout
+        if catalogLookups.isReadable, let page = catalogSongPage {
+            return TVSongBrowseLayout(items: TVSongIDList(catalog: page.rows), sections: page.sections)
+        }
+        guard let cached = songBrowseLayoutCache else { return nil }
+        return TVSongBrowseLayout(items: TVSongIDList(source: cached.layout.items), sections: cached.layout.sections)
+    }
+
+    /// 「歌曲」页跟着曲库变;目录比内存晚几毫秒落地,目录排的那一份也跟着目录变。
+    var songBrowseRevision: Int {
+        libraryContentRevision &+ Int(truncatingIfNeeded: library.catalogHost?.revisions.songs ?? 0)
     }
 
     func prepareSongBrowseLayout() async {
+        if await prepareCatalogSongPage() { return }
         let revision = libraryContentRevision
         let cached = songBrowseLayoutCache
         if let cached, cached.revision == revision { return }
@@ -1992,8 +2006,59 @@ final class TVStore {
             return
         }
         songBrowseLayoutCache = (revision, result.fingerprint, layout)
+        catalogSongPage = nil
         browseLayoutRevision &+= 1
         plog("TV song layout songs=\(songs.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+    }
+
+    /// 目录可读时「歌曲」页由目录排(同手机歌曲页按标题的目录路径),只留行号与分段。
+    /// 返回 false 时调用方照旧在内存里排。
+    private func prepareCatalogSongPage() async -> Bool {
+        guard let host = library.catalogHost, host.revisions.isReadable,
+              let catalog = host.mirror.readableCatalog else { return false }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let list: LibraryRowList
+        do {
+            list = try await host.reader.read { try $0.songRowList(order: .title, scope: .visibleMusic) }
+        } catch {
+            plog("TV song layout catalog read failed (\(error)); sorting the in-memory songs")
+            return false
+        }
+        guard !Task.isCancelled else { return true }
+        if let cached = catalogSongPage, cached.catalogRevision == list.revision { return true }
+        catalogSongPage = TVCatalogSongPage(
+            catalogRevision: list.revision,
+            rowids: list.rowids,
+            rows: TVCatalogWalls.songIDRows(list.rowids, catalog: catalog),
+            sections: TVCatalogWalls.songSections(list.sections, count: list.rowids.count)
+        )
+        // 内存里排好的那一整份 id 不再留着。
+        songBrowseLayoutCache = nil
+        browseLayoutRevision &+= 1
+        plog("TV song layout songs=\(list.rowids.count) sections=\(catalogSongPage?.sections.count ?? 0) catalog=yes ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+        return true
+    }
+
+    /// 目录那一份「歌曲」页的整份 id(点歌时的队列):在主线程外按行号取,交给队列后就放掉。
+    /// 目录读不了、这一页不是目录排的时为 nil。
+    func catalogSongsPageQueue() async -> [String]? {
+        guard let page = catalogSongPage, let host = library.catalogHost, host.revisions.isReadable else { return nil }
+        return try? await host.reader.songIDs(rowids: page.rowids, scope: .visibleMusic)
+    }
+
+    /// 在目录排的「歌曲」页上点歌:队列是整页(同内存那一份的 `play(_:in:)`),id 先在后台取好。
+    /// 取不到时按可见曲库续播(同没给列表时)。后点的一下作废先点的。
+    @discardableResult
+    func playFromSongsPage(_ song: TVSong) async -> Bool {
+        songsPageQueueRequest &+= 1
+        let request = songsPageQueueRequest
+        let ids = await catalogSongsPageQueue()
+        guard request == songsPageQueueRequest, !Task.isCancelled else { return false }
+        guard let ids else {
+            play(song)
+            return true
+        }
+        return play(song, in: ids)
     }
 
     private var songMapper: TVSongMapper {

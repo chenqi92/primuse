@@ -313,3 +313,70 @@ enum TVCatalogWalls {
         )
     }
 }
+
+// MARK: - Songs page on the catalog (P3)
+
+/// 「歌曲」页的条目(歌曲 id)。目录可读时由目录按标题读音排好(`songRowList(order: .title)`,
+/// 同手机歌曲页的目录路径),常驻的只有行号(4 字节一首),id 按页从目录取;否则是内存里排好的整份 id。
+struct TVSongIDList: RandomAccessCollection {
+    let source: [String]
+    let catalog: TVCatalogRows<String>?
+
+    init(source: [String]) {
+        self.source = source
+        catalog = nil
+    }
+
+    init(catalog: TVCatalogRows<String>) {
+        source = []
+        self.catalog = catalog
+    }
+
+    var startIndex: Int { 0 }
+    var endIndex: Int { catalog?.count ?? source.count }
+    subscript(position: Int) -> String { catalog?.element(at: position) ?? source[position] }
+
+    /// 记住的那一首现在在第几位:先认记下的位置,对不上(曲库变了)再整页找。
+    func index(ofID id: String?, near hint: Int?) -> Int? {
+        guard let id else { return nil }
+        if let hint, indices.contains(hint), self[hint] == id { return hint }
+        if let catalog { return catalog.index(ofID: id) }
+        return source.firstIndex(of: id)
+    }
+}
+
+struct TVSongBrowseLayout {
+    let items: TVSongIDList
+    let sections: [LibraryBrowseSection]
+}
+
+/// 目录那一份「歌曲」页:行号(点歌时据此在主线程外取整份 id 当队列)、按页取 id 的行、字母分段。
+struct TVCatalogSongPage {
+    let catalogRevision: Int64
+    let rowids: ContiguousArray<Int32>
+    let rows: TVCatalogRows<String>
+    let sections: [LibraryBrowseSection]
+}
+
+extension TVCatalogWalls {
+    static func songIDRows(_ rowids: ContiguousArray<Int32>, catalog: LibraryCatalog) -> TVCatalogRows<String> {
+        TVCatalogRows(
+            keys: rowids,
+            fetch: { pageKeys in (try? catalog.songIDs(atRowids: pageKeys)) ?? [] },
+            keyForID: { id in (try? catalog.songRowid(id: id)) ?? nil },
+            // 读不到的(刚删掉的)给一个对不上歌的 id:行视图取不到歌就不画。
+            placeholder: { key in "tv-missing-song-\(key)" }
+        )
+    }
+
+    /// 歌曲列表的字母索引(每个字母第一首的位置,没有歌的字母也占一格)→ 首尾相接的分段。
+    static func songSections(_ entries: [SongListSectionIndexEntry], count: Int) -> [LibraryBrowseSection] {
+        let starts = entries.filter(\.isAvailable).sorted { $0.rowOffset < $1.rowOffset }
+        return starts.indices.compactMap { index in
+            let start = starts[index].rowOffset
+            let end = index + 1 < starts.count ? starts[index + 1].rowOffset : count
+            guard start < end else { return nil }
+            return LibraryBrowseSection(bucket: starts[index].label, range: start..<end)
+        }
+    }
+}
