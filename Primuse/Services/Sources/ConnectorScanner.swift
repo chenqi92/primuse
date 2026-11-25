@@ -563,15 +563,14 @@ actor ConnectorScanner {
                     // avoids walking every directory twice (saved ~50% list-API time
                     // on large cloud trees).
                     let totalCount = 0
-                    var allSongs = existingSongs
+                    // 累积表与已有的歌共用同一份数组,改过的行另记(`ScanSongAccumulator`):
+                    // 原来第一次改一行就写时复制出整个源的歌曲数组,整场扫描两份并存。
+                    var allSongs = ScanSongAccumulator(existingSongs)
                     lazy var discTracksByPath = existingDiscTracksByPath(existingSongs)
                     var existingByID = IndexedSongSnapshot(
                         existingSongs,
                         matchingOriginalPathsForSourceID: connector is any SongScanningConnector ? nil : sourceID
                     )
-                    var allSongIndexByID: [String: Int] = [:]
-                    allSongIndexByID.reserveCapacity(existingSongs.count)
-                    for (i, song) in allSongs.enumerated() { allSongIndexByID[song.id] = i }
                     let initialCount = max(existingSongs.count, startingCount)
                     var scannedCount = totalCount > 0 ? min(initialCount, totalCount) : initialCount
                     var addedCount = 0
@@ -646,7 +645,7 @@ actor ConnectorScanner {
                                 mutationCount: mutationCount,
                                 totalCount: totalCount,
                                 currentFile: "",
-                                songs: allSongs
+                                songs: allSongs.songs
                             )
                         )
                     }
@@ -725,7 +724,7 @@ actor ConnectorScanner {
                                                     incoming: scannedSong.song
                                                 )
                                                 if refreshed != existing,
-                                                   let idx = allSongIndexByID[scannedSong.song.id] {
+                                                   let idx = allSongs.index(ofID: scannedSong.song.id) {
                                                     allSongs[idx] = refreshed
                                                     recordRow(refreshed, for: scannedSong.song.id)
                                                 }
@@ -745,7 +744,7 @@ actor ConnectorScanner {
                                                 existing: existing, incoming: scannedSong.song, into: replacement
                                             )
                                         }
-                                        if let idx = allSongIndexByID[scannedSong.song.id] {
+                                        if let idx = allSongs.index(ofID: scannedSong.song.id) {
                                             allSongs[idx] = replacement
                                         }
                                         recordRow(replacement, for: scannedSong.song.id)
@@ -755,7 +754,6 @@ actor ConnectorScanner {
                                     scannedCount += 1
                                     addedCount += 1
                                     allSongs.append(scannedSong.song)
-                                    allSongIndexByID[scannedSong.song.id] = allSongs.count - 1
                                     recordRow(scannedSong.song, for: scannedSong.song.id)
 
                                     // Server-side song scanners can enumerate
@@ -828,7 +826,7 @@ actor ConnectorScanner {
                                 mutationCount: mutationCount,
                                 totalCount: totalCount,
                                 currentFile: "",
-                                songs: allSongs
+                                songs: allSongs.songs
                             )
                         )
                         if let firstDirectoryError {
@@ -1013,7 +1011,7 @@ actor ConnectorScanner {
                                         walk.insertSongIDs(ids)
                                         recordSyncItem(item, songIDs: ids, seenEpoch: scanEpoch, in: &walk)
                                         for song in tracks where existingByID[song.id] != song {
-                                            if let index = allSongIndexByID[song.id] { allSongs[index] = song }
+                                            if let index = allSongs.index(ofID: song.id) { allSongs[index] = song }
                                             recordRow(song, for: song.id)
                                         }
                                         continue
@@ -1047,7 +1045,7 @@ actor ConnectorScanner {
                                                 seenEpoch: scanEpoch,
                                                 in: &walk
                                             )
-                                            if let idx = allSongIndexByID[songID] {
+                                            if let idx = allSongs.index(ofID: songID) {
                                                 var refreshed = existing
                                                 refreshed.filePath = item.path
                                                 refreshed.lastModified = existing.lastModified ?? item.modifiedDate
@@ -1081,7 +1079,7 @@ actor ConnectorScanner {
                                         )
                                         if let existing = existingByID[songID] {
                                             if songContentChanged(existing: existing, incoming: descriptorSong),
-                                               let idx = allSongIndexByID[songID] {
+                                               let idx = allSongs.index(ofID: songID) {
                                                 var replacement = descriptorSong
                                                 replacement.dateAdded = existing.dateAdded
                                                 replacement = SongUserMetadataPolicy.preservingUserEdits(
@@ -1090,7 +1088,7 @@ actor ConnectorScanner {
                                                 )
                                                 allSongs[idx] = replacement
                                                 recordRow(replacement, for: songID)
-                                            } else if let idx = allSongIndexByID[songID] {
+                                            } else if let idx = allSongs.index(ofID: songID) {
                                                 var refreshed = existing
                                                 refreshed.filePath = descriptorSong.filePath
                                                 refreshed.lastModified = existing.lastModified ?? descriptorSong.lastModified
@@ -1100,7 +1098,6 @@ actor ConnectorScanner {
                                             }
                                         } else {
                                             allSongs.append(descriptorSong)
-                                            allSongIndexByID[songID] = allSongs.count - 1
                                             recordRow(descriptorSong, for: songID)
                                             scannedCount += 1
                                             addedCount += 1
@@ -1132,7 +1129,7 @@ actor ConnectorScanner {
                                         for cueSong in cueSongs {
                                             walk.insertSongID(cueSong.id)
                                             if let existing = existingByID[cueSong.id] {
-                                                if let index = allSongIndexByID[cueSong.id] {
+                                                if let index = allSongs.index(ofID: cueSong.id) {
                                                     let carried = carriedOverCueTrack(
                                                         existing: existing,
                                                         rebuilt: cueSong,
@@ -1144,7 +1141,6 @@ actor ConnectorScanner {
                                                 continue
                                             }
                                             allSongs.append(cueSong)
-                                            allSongIndexByID[cueSong.id] = allSongs.count - 1
                                             recordRow(cueSong, for: cueSong.id)
                                             scannedCount += 1
                                             addedCount += 1
@@ -1169,7 +1165,7 @@ actor ConnectorScanner {
                                         // and a same-size overwrite would slip past the
                                         // first two checks.
                                         if !Self.fileIdentityChanged(existing: existing, item: item) {
-                                            if let idx = allSongIndexByID[songID] {
+                                            if let idx = allSongs.index(ofID: songID) {
                                                 var refreshed = existing
                                                 refreshed.filePath = item.path
                                                 if item.size > 0 { refreshed.fileSize = item.size }
@@ -1200,7 +1196,7 @@ actor ConnectorScanner {
                                             continue
                                         }
                                         let refreshed = buildBareSong(from: item, songID: songID)
-                                        if let idx = allSongIndexByID[songID] {
+                                        if let idx = allSongs.index(ofID: songID) {
                                             var replacement = refreshed
                                             replacement.dateAdded = existing.dateAdded
                                             replacement = SongUserMetadataPolicy.preservingUserEdits(
@@ -1216,7 +1212,6 @@ actor ConnectorScanner {
                                     let bareSong = buildBareSong(from: item, songID: songID)
                                     let newSong = adoptingPeerSeed(onto: bareSong) ?? bareSong
                                     allSongs.append(newSong)
-                                    allSongIndexByID[songID] = allSongs.count - 1
                                     recordRow(newSong, for: songID)
                                     scannedCount += 1
                                     addedCount += 1
@@ -1398,7 +1393,7 @@ actor ConnectorScanner {
                             mutationCount: mutationCount,
                             totalCount: totalCount,
                             currentFile: "",
-                            songs: allSongs,
+                            songs: allSongs.songs,
                             resumeState: walkResumeState(pendingDirectories + failedDirectories)
                         )
                     )

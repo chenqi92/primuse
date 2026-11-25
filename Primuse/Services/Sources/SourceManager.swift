@@ -8721,6 +8721,17 @@ final class SourceManager {
         }
     }
 
+    /// `offlineSourceCacheEstimate(for:)` 的结果。
+    struct OfflineSourceCacheEstimate: Sendable, Equatable {
+        var totalCount: Int
+        var remainingCount = 0
+        var alreadyCachedCount = 0
+        /// 上次下载失败、这次还要下的(也算在 `remainingCount` 里)。
+        var failedCount = 0
+        var knownBytes: Int64 = 0
+        var unknownCount = 0
+    }
+
     private struct OfflineSnapshotProbe: Sendable {
         let relativePath: String
         let isReadable: Bool
@@ -8780,14 +8791,148 @@ final class SourceManager {
             return (matched, pending)
         }.value
         guard !unknown.isEmpty else { return known }
-        await prepareOfflineAudioSnapshots(for: unknown)
+        // 还没探测过的成批探测,只为命中的那些(已下载、已在本机的,以下载与缓存的数量为界)和有歌曲行
+        // 正看着的那些(观察节点有上限)留状态:原来为整库每首都留一份状态和歌曲副本。缓存变化只推给
+        // 状态表里有的歌,所以行正看着的那首不留状态的话,之后放完、下完那一行就不变。
+        // 结果与原来相同(探测期间别处先探完、开始下载的以它们为准)。
         var matched = known
-        for song in unknown {
-            if let snapshot = offlineAudioSnapshots[song.id], predicate(snapshot) {
-                matched.insert(song.id)
+        for chunkStart in stride(from: 0, to: unknown.count, by: Self.offlineSnapshotProbeBatchSize) {
+            guard !Task.isCancelled else { break }
+            let chunk = Array(unknown[chunkStart..<min(unknown.count, chunkStart + Self.offlineSnapshotProbeBatchSize)])
+            let probed = await probeOfflineAudioSnapshots(for: chunk)
+            for (song, snapshot) in zip(chunk, probed) {
+                guard let current = currentOfflineSnapshot(for: song, probed: snapshot) else { continue }
+                let matches = predicate(current)
+                if matches { matched.insert(song.id) }
+                guard matches || offlineAudioSnapshotEntries[song.id] != nil,
+                      offlineAudioSnapshots[song.id] == nil else { continue }
+                observeOfflineAudioSong(song)
+                setOfflineAudioSnapshot(current, for: song.id)
             }
         }
         return matched
+    }
+
+    /// 探测结果与此刻状态表里的合起来:读不了这个源时没有状态(原来不写表、不算命中);
+    /// 表里已有的以表为准。
+    private func currentOfflineSnapshot(
+        for song: Song,
+        probed: OfflineAudioCacheSnapshot?
+    ) -> OfflineAudioCacheSnapshot? {
+        guard let probed else { return .notCached }
+        guard audioCacheReadsAreAllowed(for: song.sourceID) else { return nil }
+        return offlineAudioSnapshots[song.id] ?? probed
+    }
+
+    /// 后台成批探测一批歌的离线状态(范围按源校验一次,路径与文件检查在后台整批做),不往状态表里写。
+    /// 结果与输入一一对应;范围校验没过的源是 nil(调用方当作 notCached)。
+    private func probeOfflineAudioSnapshots(for songs: [Song]) async -> [OfflineAudioCacheSnapshot?] {
+        guard !songs.isEmpty else { return [] }
+        var readableSourceIDs: Set<String> = []
+        for sourceID in Set(songs.map(\.sourceID)) where await ensureAudioCacheScopeValidated(for: sourceID) {
+            readableSourceIDs.insert(sourceID)
+        }
+        let readable = readableSourceIDs
+        var result: [OfflineAudioCacheSnapshot?] = []
+        result.reserveCapacity(songs.count)
+        for chunkStart in stride(from: 0, to: songs.count, by: Self.offlineSnapshotProbeBatchSize) {
+            let chunk = Array(songs[chunkStart..<min(chunkStart + Self.offlineSnapshotProbeBatchSize, songs.count)])
+            let probes = await Task.detached(priority: .utility) {
+                chunk.map { song -> OfflineSnapshotProbe in
+                    autoreleasepool {
+                        let fileName = Self.cacheFileName(for: song)
+                        let relativePath = "\(song.sourceID)/\(fileName)"
+                        guard readable.contains(song.sourceID) else {
+                            return OfflineSnapshotProbe(relativePath: relativePath, isReadable: false, exists: false, byteCount: nil)
+                        }
+                        let url = Self.audioCacheDirectoryURL(for: song.sourceID)
+                            .appendingPathComponent(fileName, isDirectory: false)
+                        let info = Self.offlineFileInfo(at: url, expectedSize: song.fileSize)
+                        return OfflineSnapshotProbe(
+                            relativePath: relativePath,
+                            isReadable: true,
+                            exists: info.exists,
+                            byteCount: info.byteCount
+                        )
+                    }
+                }
+            }.value
+            let snapshots = await AudioCacheManager.shared.snapshots(
+                for: probes.map { ($0.relativePath, $0.exists, $0.byteCount) }
+            )
+            for (probe, snapshot) in zip(probes, snapshots) {
+                result.append(probe.isReadable ? snapshot : nil)
+            }
+        }
+        return result
+    }
+
+    /// 整源缓存确认框要的估算:每首此刻是不是已在本机。已知状态的以状态为准,其余后台成批探测,
+    /// 探测结果不往逐首状态表里留(原来为整个源每首留一份状态和歌曲副本)。计数口径与原来逐首读
+    /// `offlineAudioSnapshot(for:)` 相同。
+    func offlineSourceCacheEstimate(for songs: [Song]) async -> OfflineSourceCacheEstimate {
+        var estimate = OfflineSourceCacheEstimate(totalCount: songs.count)
+        func record(_ song: Song, _ state: OfflineAudioCacheState) {
+            switch state {
+            case .cached, .pinned:
+                estimate.alreadyCachedCount += 1
+            case .notCached, .downloading, .failed:
+                estimate.remainingCount += 1
+                if state == .failed { estimate.failedCount += 1 }
+                if song.fileSize > 0 {
+                    estimate.knownBytes += song.fileSize
+                } else {
+                    estimate.unknownCount += 1
+                }
+            }
+        }
+        // 与原来一样先按源校验缓存范围,再逐首定状态。
+        for sourceID in Set(songs.map(\.sourceID)) {
+            _ = await ensureAudioCacheScopeValidated(for: sourceID)
+        }
+        var unknown: [Song] = []
+        for song in songs {
+            guard audioCacheReadsAreAllowed(for: song.sourceID) else {
+                record(song, .notCached)
+                continue
+            }
+            if let snapshot = offlineAudioSnapshots[song.id] {
+                record(song, snapshot.state)
+            } else {
+                unknown.append(song)
+            }
+        }
+        for chunkStart in stride(from: 0, to: unknown.count, by: Self.offlineSnapshotProbeBatchSize) {
+            let chunk = Array(unknown[chunkStart..<min(unknown.count, chunkStart + Self.offlineSnapshotProbeBatchSize)])
+            let probed = await probeOfflineAudioSnapshots(for: chunk)
+            for (song, snapshot) in zip(chunk, probed) {
+                let current = audioCacheReadsAreAllowed(for: song.sourceID)
+                    ? (offlineAudioSnapshots[song.id] ?? snapshot ?? .notCached)
+                    : .notCached
+                record(song, current.state)
+            }
+        }
+        return estimate
+    }
+
+    /// 一批歌此刻在本机有没有完整音频(下载或播放缓存),与输入一一对应;不往状态表里留。
+    func locallyAvailableStates(of songs: [Song]) async -> [Bool] {
+        var result = [Bool](repeating: false, count: songs.count)
+        var unknownPositions: [Int] = []
+        for (position, song) in songs.enumerated() {
+            if let snapshot = offlineAudioSnapshots[song.id], audioCacheReadsAreAllowed(for: song.sourceID) {
+                result[position] = snapshot.isAvailableLocally
+            } else {
+                unknownPositions.append(position)
+            }
+        }
+        guard !unknownPositions.isEmpty else { return result }
+        let unknown = unknownPositions.map { songs[$0] }
+        let probed = await probeOfflineAudioSnapshots(for: unknown)
+        for (position, (song, snapshot)) in zip(unknownPositions, zip(unknown, probed)) {
+            result[position] = currentOfflineSnapshot(for: song, probed: snapshot)?.isAvailableLocally ?? false
+        }
+        return result
     }
 
     private nonisolated static func isUsableCacheFile(

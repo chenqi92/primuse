@@ -3148,6 +3148,9 @@ final class MetadataBackfillService {
         let spokenWordSongIDs: Set<String>
         /// 只为这个源收展示行(状态页);nil 时只算计数与展示行指纹。
         var displaySourceID: String?
+        /// 目录可读、账也在目录里时:歌连同记账行从目录流式读(`forEachSongMaintenance`),
+        /// 不逐首点查;读目录出错就退回 `songs`。
+        var catalog: LibraryCatalog?
     }
 
     private struct RemainingCountsState: Equatable {
@@ -3206,7 +3209,10 @@ final class MetadataBackfillService {
             sourceTransientFailureCounts: sourceTransientFailureCounts,
             isWaitingForWiFi: isWaitingForWiFi,
             spokenWordSongIDs: library.spokenWordSongIDs,
-            displaySourceID: nil
+            displaySourceID: nil,
+            catalog: maintenance.usesCatalog && maintenance.isReady && library.catalogHost?.revisions.isReadable == true
+                ? library.catalogHost?.mirror.readableCatalog
+                : nil
         )
     }
 
@@ -3381,11 +3387,8 @@ final class MetadataBackfillService {
         var deferredTotal = 0
         var statusTotal = 0
         var failedTotal = 0
-        forEachWithMaintenance(
-            input.songs,
-            store: input.maintenance,
-            where: { input.sourceIDs.contains($0.sourceID) }
-        ) { song, row in
+        // 一首一首的判定,目录流式与内存走查共用。
+        func visit(_ song: Song, _ row: LibraryCatalogMaintenanceRow) -> Bool {
             let workReasons = Self.workReasons(
                 song,
                 restrictToBareRows: MetadataBackfillEligibilityPolicy.restrictsToBareRows(
@@ -3479,6 +3482,42 @@ final class MetadataBackfillService {
             bySource[song.sourceID, default: 0] += 1
             total += 1
             return true
+        }
+        var streamedFromCatalog = false
+        if let catalog = input.catalog {
+            // 只问一个源(状态页)时按源查;否则整库按库内顺序。叠上还没落库的记账改动。内存只占一批。
+            let scope: LibrarySongScope = input.sourceIDs.count == 1
+                ? .source(input.sourceIDs.first!)
+                : .everything
+            do {
+                try catalog.forEachSongMaintenance(scope) { _, song, row in
+                    guard input.sourceIDs.contains(song.sourceID) else { return true }
+                    return visit(song, input.maintenance.overlaid(row, for: song.id))
+                }
+                streamedFromCatalog = true
+            } catch {
+                // 读到一半出错:已经数进去的作废,整轮改数内存里的整库。
+                plog("⚠️ Backfill: counting from the catalog failed, counting the in-memory library: \(error.localizedDescription)")
+                bySource = [:]
+                deferredBySource = [:]
+                statusBySource = [:]
+                summaries = [:]
+                displayItems = []
+                displayItemsSignature = MetadataBackfillStatusSignature()
+                for sourceID in input.sourceIDs { displayItemsSignature.combine(sourceID: sourceID) }
+                total = 0
+                deferredTotal = 0
+                statusTotal = 0
+                failedTotal = 0
+            }
+        }
+        if !streamedFromCatalog {
+            forEachWithMaintenance(
+                input.songs,
+                store: input.maintenance,
+                where: { input.sourceIDs.contains($0.sourceID) },
+                visit
+            )
         }
         return RemainingCountsComputation(
             remainingBySource: bySource,

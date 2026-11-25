@@ -57,14 +57,8 @@ private struct SourceCacheCompletion: Identifiable {
     let result: OfflineDownloadBatchResult
 }
 
-private struct SourceCacheEstimate {
-    let totalCount: Int
-    let remainingCount: Int
-    let alreadyCachedCount: Int
-    let knownBytes: Int64
-    let unknownCount: Int
-    let remainingSongIDs: Set<String>
-}
+/// 整源缓存的估算(`SourceManager.offlineSourceCacheEstimate`):只有计数,不再带整源还没缓存的歌曲 id。
+private typealias SourceCacheEstimate = SourceManager.OfflineSourceCacheEstimate
 
 /// Shown on a source card while none of its addresses answers on the current
 /// network. A source that only has a local address also gets the one piece of
@@ -1895,14 +1889,15 @@ struct SourcesContentView: View {
         cachePreparationTask?.cancel()
         preparingCacheSourceID = source.id
         cachePreparationTask = Task { @MainActor in
-            await sourceManager.prepareOfflineAudioSnapshots(for: songs)
+            // 在后台成批探测,结果不往逐首状态表里留(原来为整源每首留一份状态与歌曲副本)。
+            let estimate = await sourceManager.offlineSourceCacheEstimate(for: songs)
             guard !Task.isCancelled, preparingCacheSourceID == source.id else { return }
             preparingCacheSourceID = nil
             cachePreparationTask = nil
             sourceAlert = .confirm(SourceCacheRequest(
                 source: source,
                 songs: songs,
-                estimate: sourceCacheEstimate(for: songs)
+                estimate: estimate
             ))
         }
     }
@@ -1972,38 +1967,6 @@ struct SourcesContentView: View {
         return nil
     }
 
-    private func sourceCacheEstimate(for songs: [Song]) -> SourceCacheEstimate {
-        var remainingCount = 0
-        var alreadyCachedCount = 0
-        var knownBytes: Int64 = 0
-        var unknownCount = 0
-        var remainingSongIDs = Set<String>()
-
-        for song in songs {
-            switch sourceManager.offlineAudioSnapshot(for: song).state {
-            case .cached, .pinned:
-                alreadyCachedCount += 1
-            case .notCached, .downloading, .failed:
-                remainingCount += 1
-                remainingSongIDs.insert(song.id)
-                if song.fileSize > 0 {
-                    knownBytes += song.fileSize
-                } else {
-                    unknownCount += 1
-                }
-            }
-        }
-
-        return SourceCacheEstimate(
-            totalCount: songs.count,
-            remainingCount: remainingCount,
-            alreadyCachedCount: alreadyCachedCount,
-            knownBytes: knownBytes,
-            unknownCount: unknownCount,
-            remainingSongIDs: remainingSongIDs
-        )
-    }
-
     private func startCaching(_ request: SourceCacheRequest) {
         let run = SourceCacheRun(
             sourceID: request.source.id,
@@ -2035,56 +1998,22 @@ struct SourcesContentView: View {
         hasExplicitBatch: Bool
     ) -> SourceCacheProgressState? {
         // 整源缓存跑着时由 `SourceCacheTallyReader` 读 SourceManager 里这一轮的计数,走不到这里;
-        // 这里只剩 SourceManager 登记这一轮之前的那一下。
+        // 这里只剩 SourceManager 登记这一轮之前的那一下:按确认时的估算给出起点,不逐首去查状态。
+        // SourceManager 登记批次与这一轮的计数是同一步,有批次就有计数,`hasExplicitBatch` 时不会走到这里。
         if let run = activeCacheRun, run.sourceID == source.id {
-            return sourceCacheProgress(songs: run.songs, estimate: run.estimate)
+            return sourceCacheProgress(estimate: run.estimate)
         }
-
-        // A re-created source screen can recover a real user-confirmed batch
-        // from SourceManager. Incidental one-song playback downloads never
-        // enter that aggregate and therefore cannot fabricate whole-source
-        // progress.
-        guard hasExplicitBatch else { return nil }
-
-        let songs = playableSongs(for: source)
-        return sourceCacheProgress(songs: songs, estimate: sourceCacheEstimate(for: songs))
+        return nil
     }
 
-    private func sourceCacheProgress(songs: [Song], estimate: SourceCacheEstimate) -> SourceCacheProgressState {
-        var handledCount = 0
-        var completedCount = 0
-        var failedCount = 0
-        var downloadedKnownBytes: Int64 = 0
-
-        for song in songs {
-            let snapshot = sourceManager.offlineAudioSnapshot(for: song)
-            switch snapshot.state {
-            case .cached, .pinned:
-                handledCount += 1
-                completedCount += 1
-                if estimate.remainingSongIDs.contains(song.id) {
-                    downloadedKnownBytes += snapshot.byteCount ?? max(song.fileSize, 0)
-                }
-            case .failed:
-                handledCount += 1
-                failedCount += 1
-            case .downloading:
-                if estimate.remainingSongIDs.contains(song.id),
-                   song.fileSize > 0,
-                   let progress = snapshot.progress {
-                    downloadedKnownBytes += Int64(Double(song.fileSize) * min(1, max(0, progress)))
-                }
-            case .notCached:
-                break
-            }
-        }
-
-        return SourceCacheProgressState(
-            handledCount: handledCount,
-            completedCount: completedCount,
-            failedCount: failedCount,
+    private func sourceCacheProgress(estimate: SourceCacheEstimate) -> SourceCacheProgressState {
+        // 起点:已在本机的算完成,上次失败的算失败,还没开始下,下到的字节为 0。
+        SourceCacheProgressState(
+            handledCount: estimate.alreadyCachedCount + estimate.failedCount,
+            completedCount: estimate.alreadyCachedCount,
+            failedCount: estimate.failedCount,
             totalCount: estimate.totalCount,
-            downloadedKnownBytes: downloadedKnownBytes,
+            downloadedKnownBytes: 0,
             estimatedKnownBytes: estimate.knownBytes,
             unknownCount: estimate.unknownCount
         )

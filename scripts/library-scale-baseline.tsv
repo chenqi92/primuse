@@ -282,7 +282,6 @@ song-id-collection-property	Primuse/Views/Mac/MacHomeView.swift	1
 song-id-collection-property	Primuse/Views/Search/LibrarySearchCatalog.swift	2
 song-id-collection-property	Primuse/Views/Search/SearchView.swift	1
 song-id-collection-property	Primuse/Views/Settings/DuplicateSongsView.swift	2
-song-id-collection-property	Primuse/Views/Sources/SourcesView.swift	1
 song-id-collection-property	Primuse/Views/Sources/WiFiTransferSendView.swift	1
 song-id-collection-property	PrimuseKit/Sources/PrimuseKit/AmbientSoundPolicy.swift	1
 song-id-collection-property	PrimuseKit/Sources/PrimuseKit/ArtworkAnimation.swift	1

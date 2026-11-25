@@ -3855,8 +3855,9 @@ final class ScanService {
             if allowsAuthoritativeCatalogPrune,
                let previousState = workingState,
                !(connector is any ResumableSnapshotMusicSourceConnector) {
-                let existingIDs = Set(knownExisting.map(\.id))
-                let snapshotIDs = Set(lastSongs.map(\.id))
+                // 不先拼出整源的 id 数组再建集合。
+                let existingIDs = Set(knownExisting.lazy.map(\.id))
+                let snapshotIDs = Set(lastSongs.lazy.map(\.id))
                 let plan = ServerCatalogDeletionConfirmationPolicy.plan(
                     existingSongIDs: existingIDs,
                     authoritativeSongIDs: snapshotIDs,
@@ -5660,7 +5661,7 @@ final class ScanService {
         var catalogAuthoritativeSongIDs = authoritativeSongIDs
         // 只在服务端歌单里的歌不在走查里, 整源替换时照留; 走查列出来的那些已经是曲库里的歌,
         // 不再算仅歌单, 目录没别的变化、下面不提交时也要放回歌曲列表。
-        let walkedSongIDs = Set(songs.map(\.id))
+        let walkedSongIDs = Set(songs.lazy.map(\.id))
         let trackedCollectionOnlyIDs = CollectionOnlySongStore.shared.songIDs(forSourceID: sourceID)
         if !trackedCollectionOnlyIDs.isDisjoint(with: walkedSongIDs) {
             CollectionOnlySongStore.shared.replace(

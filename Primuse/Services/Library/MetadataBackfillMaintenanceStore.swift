@@ -257,6 +257,13 @@ final class MetadataBackfillMaintenanceStore: @unchecked Sendable {
         return zip(ids, resolved).map { overlay($0.0).applied(to: $0.1) }
     }
 
+    /// 从目录里连着歌一起读出的那一行,叠上还没落库的改动(`.catalog` 存法的整库对账用)。
+    func overlaid(_ row: LibraryCatalogMaintenanceRow, for id: String) -> LibraryCatalogMaintenanceRow {
+        lock.withLock {
+            state.storage == .catalog ? overlay(id).applied(to: row) : legacyRow(id)
+        }
+    }
+
     func contains(_ id: String, _ flag: Flags) -> Bool {
         row(id).flags.contains(flag)
     }

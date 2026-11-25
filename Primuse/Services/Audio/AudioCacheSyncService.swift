@@ -964,6 +964,92 @@ final class AudioCacheSyncService {
         let title: String
     }
 
+    /// 一批在本机有完整音频的歌并进清单草稿:同一个缓存文件的几首合成一项(至多 64 个 id),
+    /// 标题和目标路径取第一首。
+    private nonisolated static func appendDrafts(
+        for songs: some Sequence<Song>,
+        sourceByID: [String: MusicSource],
+        draftsByID: inout [String: LocalDraft],
+        fingerprintsBySourceID: inout [String: String]
+    ) {
+        for song in songs {
+            guard let source = sourceByID[song.sourceID] else { continue }
+            let cacheFileName = CacheFileNamePolicy.make(
+                path: song.filePath,
+                preferredExtension: song.fileFormat.rawValue
+            )
+            guard AudioCacheSyncPolicy.isSafeCacheFileName(cacheFileName) else { continue }
+            let id = AudioCacheSyncPolicy.itemID(
+                sourceID: song.sourceID,
+                cacheFileName: cacheFileName
+            )
+            if var existing = draftsByID[id] {
+                if existing.songIDs.count < 64, !existing.songIDs.contains(song.id) {
+                    existing.songIDs.append(song.id)
+                }
+                existing.catalogByteCount = max(existing.catalogByteCount, song.fileSize)
+                draftsByID[id] = existing
+            } else {
+                let fingerprint = fingerprintsBySourceID[source.id]
+                    ?? MusicSourceScopeFingerprint.make(for: source, includeSourceID: true)
+                fingerprintsBySourceID[source.id] = fingerprint
+                draftsByID[id] = LocalDraft(
+                    songIDs: [song.id],
+                    sourceID: song.sourceID,
+                    sourceFingerprint: fingerprint,
+                    cacheFileName: cacheFileName,
+                    catalogByteCount: song.fileSize,
+                    url: SourceManager.audioCacheTargetURL(for: song),
+                    title: song.title
+                )
+            }
+        }
+    }
+
+    /// 目录可读时的清单草稿:按库内顺序一页页读目录(与内存里的整库数组同一顺序),每页一批问
+    /// SourceManager 哪些在本机,只为在本机的那些算缓存文件名。读目录出错返回 nil,调用方照旧走内存。
+    private func catalogManifestDrafts(
+        reader: LibraryCatalogReader,
+        sourceIDs: Set<String>,
+        sourceByID: [String: MusicSource],
+        sourceManager: SourceManager
+    ) async -> [(String, LocalDraft)]? {
+        let pageSize = LibraryScale.importBatchSize
+        let worker = Task.detached(priority: .utility) { () -> [(String, LocalDraft)]? in
+            var draftsByID: [String: LocalDraft] = [:]
+            var fingerprintsBySourceID: [String: String] = [:]
+            var cursor: Int32 = 0
+            do {
+                while !Task.isCancelled {
+                    let page = try await reader.songPage(.everything, after: cursor, limit: pageSize)
+                    guard let last = page.last else { break }
+                    cursor = last.rowid
+                    let candidates = page.map(\.song).filter {
+                        sourceIDs.contains($0.sourceID) && !$0.isStreamDescriptor && !$0.isDiscImageTrack
+                    }
+                    if !candidates.isEmpty {
+                        let available = await sourceManager.locallyAvailableStates(of: candidates)
+                        Self.appendDrafts(
+                            for: zip(candidates, available).lazy.filter { $0.1 }.map { $0.0 },
+                            sourceByID: sourceByID,
+                            draftsByID: &draftsByID,
+                            fingerprintsBySourceID: &fingerprintsBySourceID
+                        )
+                    }
+                    if page.count < pageSize { break }
+                }
+            } catch {
+                plog("⚠️ Cache sync manifest falls back to the in-memory library: \(error.localizedDescription)")
+                return nil
+            }
+            return draftsByID.map { ($0.key, $0.value) }
+        }
+        return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+    }
+
+    /// 对端清单里每项至多 64 个 id、至多 `maximumManifestItems` 项。
+    private static let incomingSongIDLimit = AudioCacheSyncPolicy.maximumManifestItems * 64
+
     private func buildLocalManifest() async -> AudioCacheSyncLocalManifest {
         guard let sourceManager, let sourcesStore, let library else {
             return AudioCacheSyncLocalManifest(files: [])
@@ -984,61 +1070,44 @@ final class AudioCacheSyncService {
                 .map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        // 整库逐首判断(含扩展名小写化)放到后台,打开同步页时不占主线程。
-        let allSongs = library.songs
         let sourceIDs = Set(sourceByID.keys)
-        let songs = await Task.detached(priority: .utility) {
-            allSongs.filter {
-                sourceIDs.contains($0.sourceID) && !$0.isStreamDescriptor && !$0.isDiscImageTrack
-            }
-        }.value
-        guard !Task.isCancelled, !songs.isEmpty else { return AudioCacheSyncLocalManifest(files: []) }
-
-        // 播放留下的缓存和手动下载都发: 下载和缓存分开存放以后, 只认下载会让
-        // 听过但没点下载的歌全不在清单里, 对端看起来一直「已是最新」。
-        let availableIDs = await sourceManager.locallyAvailableSongIDs(in: songs)
-        guard !Task.isCancelled else { return AudioCacheSyncLocalManifest(files: []) }
-
-        // 逐首算缓存文件名、目标路径和源指纹也放到后台: 已缓存的歌一多, 在主线程上
-        // 算完才能打开同步页。
-        let drafts = await Task.detached(priority: .utility) {
-            var fingerprintsBySourceID: [String: String] = [:]
-            var draftsByID: [String: LocalDraft] = [:]
-            draftsByID.reserveCapacity(availableIDs.count)
-            for song in songs where availableIDs.contains(song.id) {
-                guard let source = sourceByID[song.sourceID] else { continue }
-                let cacheFileName = CacheFileNamePolicy.make(
-                    path: song.filePath,
-                    preferredExtension: song.fileFormat.rawValue
-                )
-                guard AudioCacheSyncPolicy.isSafeCacheFileName(cacheFileName) else { continue }
-                let id = AudioCacheSyncPolicy.itemID(
-                    sourceID: song.sourceID,
-                    cacheFileName: cacheFileName
-                )
-                if var existing = draftsByID[id] {
-                    if existing.songIDs.count < 64, !existing.songIDs.contains(song.id) {
-                        existing.songIDs.append(song.id)
-                    }
-                    existing.catalogByteCount = max(existing.catalogByteCount, song.fileSize)
-                    draftsByID[id] = existing
-                } else {
-                    let fingerprint = fingerprintsBySourceID[source.id]
-                        ?? MusicSourceScopeFingerprint.make(for: source, includeSourceID: true)
-                    fingerprintsBySourceID[source.id] = fingerprint
-                    draftsByID[id] = LocalDraft(
-                        songIDs: [song.id],
-                        sourceID: song.sourceID,
-                        sourceFingerprint: fingerprint,
-                        cacheFileName: cacheFileName,
-                        catalogByteCount: song.fileSize,
-                        url: SourceManager.audioCacheTargetURL(for: song),
-                        title: song.title
-                    )
+        let drafts: [(String, LocalDraft)]
+        if let host = library.catalogHost, host.revisions.isReadable,
+           let fromCatalog = await catalogManifestDrafts(
+               reader: host.reader, sourceIDs: sourceIDs, sourceByID: sourceByID, sourceManager: sourceManager
+           ) {
+            // 目录可读:按页流式走歌,每页一批探测本机缓存,不拼整库的歌曲数组,也不往逐首状态表里留。
+            drafts = fromCatalog
+        } else {
+            // 整库逐首判断(含扩展名小写化)放到后台,打开同步页时不占主线程。
+            let allSongs = library.songs
+            let songs = await Task.detached(priority: .utility) {
+                allSongs.filter {
+                    sourceIDs.contains($0.sourceID) && !$0.isStreamDescriptor && !$0.isDiscImageTrack
                 }
-            }
-            return draftsByID.map { ($0.key, $0.value) }
-        }.value
+            }.value
+            guard !Task.isCancelled, !songs.isEmpty else { return AudioCacheSyncLocalManifest(files: []) }
+
+            // 播放留下的缓存和手动下载都发: 下载和缓存分开存放以后, 只认下载会让
+            // 听过但没点下载的歌全不在清单里, 对端看起来一直「已是最新」。
+            let availableIDs = await sourceManager.locallyAvailableSongIDs(in: songs)
+            guard !Task.isCancelled else { return AudioCacheSyncLocalManifest(files: []) }
+
+            // 逐首算缓存文件名、目标路径和源指纹也放到后台: 已缓存的歌一多, 在主线程上
+            // 算完才能打开同步页。
+            drafts = await Task.detached(priority: .utility) {
+                var fingerprintsBySourceID: [String: String] = [:]
+                var draftsByID: [String: LocalDraft] = [:]
+                draftsByID.reserveCapacity(availableIDs.count)
+                Self.appendDrafts(
+                    for: songs.lazy.filter { availableIDs.contains($0.id) },
+                    sourceByID: sourceByID,
+                    draftsByID: &draftsByID,
+                    fingerprintsBySourceID: &fingerprintsBySourceID
+                )
+                return draftsByID.map { ($0.key, $0.value) }
+            }.value
+        }
         guard !Task.isCancelled else { return AudioCacheSyncLocalManifest(files: []) }
 
         let downloads = AudioCacheManager.shared.downloadStore
@@ -1119,10 +1188,19 @@ final class AudioCacheSyncService {
             }.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let songsByID = Dictionary(
-            library.songs.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        // 对端推来的条目里提到的歌:目录可读时按 id 取这几首(以清单为界),否则照旧从整库建表。
+        let songsByID: [String: Song]
+        if let host = library.catalogHost, host.revisions.isReadable,
+           let fetched = try? await host.reader.songsByID(
+               Array(request.items.lazy.flatMap(\.songIDs).prefix(Self.incomingSongIDLimit))
+           ) {
+            songsByID = fetched
+        } else {
+            songsByID = Dictionary(
+                library.songs.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
         var candidates: [(AudioCacheSyncWireItem, Song)] = []
         var seenItemIDs = Set<String>()
         var rejectedCount = 0
@@ -1159,15 +1237,14 @@ final class AudioCacheSyncService {
             candidates.append((item, song))
         }
 
-        await sourceManager.prepareOfflineAudioSnapshots(
-            for: candidates.map(\.1)
-        )
+        // 已在本机的不要了:成批探测,不往逐首状态表里留(口径与原来逐首读状态相同)。
+        let availability = await sourceManager.locallyAvailableStates(of: candidates.map(\.1))
         var missingItemIDs: [String] = []
         var acceptedSongs: [String: Song] = [:]
         var acceptedItems: [String: AudioCacheSyncWireItem] = [:]
         var alreadyPresentCount = 0
-        for (item, song) in candidates {
-            if sourceManager.offlineAudioSnapshot(for: song).isAvailableLocally {
+        for ((item, song), isAvailable) in zip(candidates, availability) {
+            if isAvailable {
                 alreadyPresentCount += 1
             } else {
                 missingItemIDs.append(item.id)
