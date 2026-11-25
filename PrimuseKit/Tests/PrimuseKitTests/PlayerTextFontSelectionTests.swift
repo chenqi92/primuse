@@ -333,6 +333,22 @@ struct ImportedFontCatalogPolicyTests {
                 ".PingFangSC-Regular", ".PingFangSC-Bold",
             ]) == [0, 1]
         )
+        #expect(
+            ImportedFontCatalogPolicy.selectVisibleFaceIndices(postScriptNames: [
+                "PingFangHK-Regular", "PingFangTC-Regular", "PingFangSC-Regular", ".PingFangSC-Regular",
+            ]) == [2, 0, 1]
+        )
+    }
+
+    @Test("Fallback weight inference recovers weight tokens when modded fonts leave OS/2 weight at 0")
+    func fallbackWeightInference() {
+        #expect(ImportedFontCatalogPolicy.resolvedWeight(coreTextWeight: 0, rawPostScriptName: "PingFangSC-Ultralight") == -0.8)
+        #expect(ImportedFontCatalogPolicy.resolvedWeight(coreTextWeight: 0, rawPostScriptName: "PingFangSC-Light") == -0.4)
+        #expect(ImportedFontCatalogPolicy.resolvedWeight(coreTextWeight: 0, rawPostScriptName: "PingFangSC-Regular") == 0.0)
+        #expect(ImportedFontCatalogPolicy.resolvedWeight(coreTextWeight: 0, rawPostScriptName: "PingFangSC-Medium") == 0.23)
+        #expect(ImportedFontCatalogPolicy.resolvedWeight(coreTextWeight: 0, rawPostScriptName: "PingFangSC-Semibold") == 0.3)
+        #expect(ImportedFontCatalogPolicy.resolvedWeight(coreTextWeight: 0, rawPostScriptName: "PingFangSC-Bold") == 0.4)
+        #expect(ImportedFontCatalogPolicy.resolvedWeight(coreTextWeight: 0.4, rawPostScriptName: "PingFangSC-Light") == 0.4)
     }
 
     @Test("Face identity preserves normal PostScript names and stabilizes synthetic or system-masked fonts")
@@ -405,6 +421,15 @@ struct ImportedFontCatalogPolicyTests {
             contentHashHex: "1111111111111111aaaa",
             faceIndex: 1
         )
+        let maskedOneHK = ImportedFontCatalogPolicy.resolveFaceIdentity(
+            rawPostScriptName: "PingFangHK-Regular",
+            rawFamilyName: "PingFang HK",
+            localizedFamilyName: "苹方-港",
+            localizedDisplayName: "苹方-港 常规体",
+            fileName: "超级花伦丸.ttf",
+            contentHashHex: "1111111111111111aaaa",
+            faceIndex: 2
+        )
         let maskedTwo = ImportedFontCatalogPolicy.resolveFaceIdentity(
             rawPostScriptName: "PingFangSC-Regular",
             rawFamilyName: "PingFang SC",
@@ -416,6 +441,7 @@ struct ImportedFontCatalogPolicyTests {
         )
         #expect(maskedOne?.postScriptName != maskedTwo?.postScriptName)
         #expect(maskedOne?.familyName == maskedOneBold?.familyName)
+        #expect(maskedOne?.familyName == maskedOneHK?.familyName)
         #expect(maskedOne?.familyName != maskedTwo?.familyName)
         #expect(maskedOne?.localizedFamilyName == "超级花伦丸")
         #expect(maskedTwo?.localizedFamilyName == "冬青丸pro")
@@ -430,7 +456,7 @@ struct ImportedFontCatalogPolicyTests {
             faceIndex: 0
         )
         #expect(leakedFamily?.postScriptName == "SuperHuaLunWan-Regular")
-        #expect(leakedFamily?.familyName == "PingFang SC#3333333333333333")
+        #expect(leakedFamily?.familyName == "masked#3333333333333333")
         #expect(leakedFamily?.localizedFamilyName == "超级花伦丸")
     }
 

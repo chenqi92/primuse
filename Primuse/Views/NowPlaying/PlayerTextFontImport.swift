@@ -163,7 +163,11 @@ enum ImportedPlayerTextFontFiles {
             ) else { return nil }
 
             let traits = CTFontCopyTraits(font) as NSDictionary
-            let weight = (traits[kCTFontWeightTrait as String] as? NSNumber)?.doubleValue ?? 0
+            let rawWeight = (traits[kCTFontWeightTrait as String] as? NSNumber)?.doubleValue ?? 0
+            let weight = ImportedFontCatalogPolicy.resolvedWeight(
+                coreTextWeight: rawWeight,
+                rawPostScriptName: rawNames[index]
+            )
             let isItalic = CTFontGetSymbolicTraits(font).contains(.traitItalic)
             let characters = CTFontCopyCharacterSet(font)
             func covers(_ scalar: UInt32) -> Bool { CFCharacterSetIsLongCharacterMember(characters, scalar) }

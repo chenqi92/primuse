@@ -299,13 +299,41 @@ public enum ImportedFontCatalogPolicy {
     }
 
     /// 同一字体集合同时包含普通字面与 `.` 开头私有系统字面时，跳过私有副本避免列表重复；
-    /// 若整个文件只有 `.` 开头字面则全部保留。
+    /// 若整个文件只有 `.` 开头字面则全部保留。苹方集合同时包含港/台/简多个地区变体时优先排简体字面。
     public static func selectVisibleFaceIndices(postScriptNames: [String?]) -> [Int] {
         let nonPrivate = postScriptNames.indices.filter { index in
             guard let name = postScriptNames[index] else { return true }
             return !name.hasPrefix(".")
         }
-        return nonPrivate.isEmpty ? Array(postScriptNames.indices) : nonPrivate
+        let selected = nonPrivate.isEmpty ? Array(postScriptNames.indices) : nonPrivate
+        let hasPingFangSC = selected.contains { index in
+            postScriptNames[index]?.lowercased().hasPrefix("pingfangsc") == true
+        }
+        guard hasPingFangSC else { return selected }
+        return selected.filter { postScriptNames[$0]?.lowercased().hasPrefix("pingfangsc") == true }
+            + selected.filter { postScriptNames[$0]?.lowercased().hasPrefix("pingfangsc") != true }
+    }
+
+    /// 部分魔改字库把各字重字面的 `OS/2 usWeightClass` 都留成了 400（CoreText 读出 0），
+    /// 仅在 PostScript 名后缀保留字重词；当 CoreText 字重为 0 时按常见后缀补推。
+    public static func resolvedWeight(coreTextWeight: Double, rawPostScriptName: String?) -> Double {
+        guard abs(coreTextWeight) < 0.001, let raw = rawPostScriptName?.lowercased() else {
+            return coreTextWeight
+        }
+        let tokens = raw.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        guard let tail = tokens.last else { return coreTextWeight }
+        switch tail {
+        case "ultralight", "extralight": return -0.8
+        case "thin": return -0.6
+        case "light": return -0.4
+        case "regular", "normal", "book", "roman": return 0.0
+        case "medium": return 0.23
+        case "semibold", "demibold": return 0.3
+        case "bold": return 0.4
+        case "heavy", "extrabold": return 0.56
+        case "black", "extrablack", "ultra": return 0.62
+        default: return coreTextWeight
+        }
     }
 
     /// 苹果系统私有或常被手机美化包借壳替换的系统字体标识（`.` 前缀与苹方家族）。
@@ -378,8 +406,7 @@ public enum ImportedFontCatalogPolicy {
         let displayLocalizedFamily: String?
         let displayLocalizedFull: String?
         if isMaskedPS || isMaskedFamily, !hashPrefix.isEmpty {
-            let baseFamily = trimmedFamily.isEmpty ? "masked" : trimmedFamily
-            scopedFamily = "\(baseFamily)#\(hashPrefix)"
+            scopedFamily = "masked#\(hashPrefix)"
             displayLocalizedFamily = stem.isEmpty ? localizedFamilyName : stem
             displayLocalizedFull = stem.isEmpty ? localizedDisplayName : stem
         } else {
