@@ -1389,8 +1389,6 @@ final class TVStore {
     // 下面几份是按查找修订号懒建的小索引:第一次用到才建,修订号一变就作废。
     @ObservationIgnored private var musicSongIDsCache: (revision: UInt64, ids: [String])?
     @ObservationIgnored private var musicSongIDSetCache: (revision: UInt64, ids: Set<String>)?
-    @ObservationIgnored private var albumSongIDsIndex: [String: [String]]?
-    @ObservationIgnored private var sortedAlbumSongIDs: [String: [String]] = [:]
     @ObservationIgnored private var recentlyAddedAlbumIDsCache: (includesExternal: Bool, ids: [String])?
     @ObservationIgnored private var cachedNormalPlaylists: [TVPlaylist] = []
     @ObservationIgnored private var cachedSmartPlaylists: [TVPlaylist] = []
@@ -2379,18 +2377,13 @@ final class TVStore {
 
     private func inMemorySortedSongIDs(forAlbum id: String) -> [String] {
         _ = libraryContentRevision
-        if sortedAlbumSongIDs[id] == nil {
-            let index = albumSongIDsIndex ?? {
-                // 专辑 → 曲目 id 只在第一次有人问时整库分一次组,之后 O(1)。
-                var index: [String: [String]] = [:]
-                for song in library.visibleSongs { index[song.albumID ?? "", default: []].append(song.id) }
-                albumSongIDsIndex = index
-                return index
-            }()
-            let songs = (index[id] ?? []).compactMap { library.visibleSong(id: $0) }
-            sortedAlbumSongIDs[id] = AlbumTrackOrder.sorted(songs).map(\.id)
+        // 曲库自己按专辑分好了组、排好了碟号曲号(`songs(forAlbum:)`,带有界缓存),
+        // 不在这里再存一份整库的专辑 → 曲目 id 表。没有专辑的歌(专辑 id 为空)照旧现找。
+        guard !id.isEmpty else {
+            return AlbumTrackOrder.sorted(library.visibleSongs.filter { $0.albumID == nil }).map(\.id)
         }
-        return sortedAlbumSongIDs[id] ?? []
+        // crash-pattern: allow legacy-library-api songs(forAlbum:) 只取一张专辑的歌,不是整库数组
+        return library.songs(forAlbum: id).map(\.id)
     }
 
     var recentlyPlayed: [TVSong] {
@@ -5181,8 +5174,6 @@ final class TVStore {
         // 不再整库映射成 TVSong / TVAlbum / TVArtist:浏览数据按需现转(`TVLibraryList`)。
         // 这里只作废按修订号懒建的几份小索引,下一次有人问才重建。
         musicSongIDsCache = nil
-        albumSongIDsIndex = nil
-        sortedAlbumSongIDs.removeAll(keepingCapacity: true)
         recentlyAddedAlbumIDsCache = nil
         plog("TV lookup ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songs=\(library.visibleSongs.count) trigger=\(trigger)")
         lookupRevision = revision

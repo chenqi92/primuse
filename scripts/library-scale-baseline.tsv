@@ -311,7 +311,7 @@ song-id-collection-property	PrimuseKit/Sources/PrimuseKit/SpokenWordSyncPolicy.s
 song-id-collection-property	PrimuseKit/Sources/PrimuseKit/Streaming/SynologyAudioStationAPI.swift	1
 song-id-collection-property	PrimuseKit/Sources/PrimuseKit/SubsonicCatalogPagingPolicy.swift	2
 song-id-collection-property	PrimuseTV/Audio/TVPlaybackCoordinator.swift	1
-song-id-collection-property	PrimuseTV/Model/TVStore.swift	7
+song-id-collection-property	PrimuseTV/Model/TVStore.swift	5
 song-id-collection-property	PrimuseTV/Services/Protocol/TVSourceScanner.swift	1
 song-id-collection-property	PrimuseTV/Views/TVComponents.swift	2
 song-id-collection-property	PrimuseTV/Views/TVLibraryBrowseView.swift	1
