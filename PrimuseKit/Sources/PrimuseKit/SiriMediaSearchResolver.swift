@@ -475,6 +475,99 @@ public enum SiriMediaSearchResolver {
         return resolve(query: query, songs: spokenWordSongs, songMatching: songMatching)
     }
 
+    /// 大曲库不把整库交给 `resolve`:按库内顺序流式地把歌交给 `body`(可以走好几遍),这里只留下
+    /// 可能命中的那些。把结果当 `songs` 交给 `resolve`、`resolvePreferringMusic`、
+    /// `SiriUntypedRequestResolver.resolve`,与交整库的结果相同(任何一档歌名匹配):
+    /// - 点了 id 的:歌、专辑、艺人、流派任一对得上的;
+    /// - 专辑、艺人:先走一遍,按每组第一首能放的歌打分(同 `resolve` 的分组),再走一遍取回命中的组的全部歌;
+    /// - 流派:流派有分的;
+    /// - 歌名:严格或宽松任一档有分的(艺人、专辑的附加条件留给 `resolve`);
+    /// - 什么都没说的「播放音乐」要整库:全部能放的歌。
+    ///
+    /// 结果按交出的先后,只含能放的歌。
+    public static func candidateSongs(
+        query: SiriMediaSearchQuery,
+        resolvedItemIDs: [String] = [],
+        forEachSong: (_ body: (Song) throws -> Void) throws -> Void
+    ) throws -> [Song] {
+        var result: [Song] = []
+        func collect(_ includes: @escaping (Song) -> Bool) throws {
+            try forEachSong { song in
+                if song.isPlayable, includes(song) { result.append(song) }
+            }
+        }
+        if !resolvedItemIDs.isEmpty {
+            let songIDs = Set(SiriMediaIdentifier.values(from: resolvedItemIDs, expectedNamespace: "song"))
+            let albumIDs = Set(SiriMediaIdentifier.values(from: resolvedItemIDs, expectedNamespace: "album"))
+            let artistIDs = Set(SiriMediaIdentifier.values(from: resolvedItemIDs, expectedNamespace: "artist"))
+            let genres = Set(SiriMediaIdentifier.values(from: resolvedItemIDs, expectedNamespace: "genre").map(normalized))
+            var genreMatches: [String: Bool] = [:]
+            try collect { song in
+                if songIDs.contains(song.id) { return true }
+                if let albumID = song.albumID, albumIDs.contains(albumID) { return true }
+                if let artistID = song.artistID, artistIDs.contains(artistID) { return true }
+                guard !genres.isEmpty, let genre = song.genre else { return false }
+                let memoKey = GenreSlashConvention.applies(to: song.fileFormat) ? "\u{1}" + genre : genre
+                if let known = genreMatches[memoKey] { return known }
+                let matches = GenreTagValues.browseNames(for: song).contains { genres.contains(normalized($0)) }
+                genreMatches[memoKey] = matches
+                return matches
+            }
+            return result
+        }
+        switch inferredKind(for: query) {
+        case .album:
+            guard let requestedAlbum = query.albumName ?? query.mediaName else { return [] }
+            let matched = try matchedGroups(forEachSong: forEachSong, key: albumGroupKey) {
+                albumGroupScore($0, requestedAlbum: requestedAlbum, artistName: query.artistName) != nil
+            }
+            guard !matched.isEmpty else { return [] }
+            try collect { matched.contains(albumGroupKey($0)) }
+        case .artist:
+            guard let requestedArtist = query.artistName ?? query.mediaName else { return [] }
+            let matched = try matchedGroups(forEachSong: forEachSong, key: artistGroupKey) {
+                artistGroupScore($0, requestedArtist: requestedArtist) != nil
+            }
+            guard !matched.isEmpty else { return [] }
+            try collect { matched.contains(artistGroupKey($0)) }
+        case .genre:
+            let requested = requestedGenres(for: query)
+            guard !requested.isEmpty else { return [] }
+            var memo: [String: Int] = [:]
+            try collect { genreScore($0, requestedGenres: requested, memo: &memo) > 0 }
+        case .music:
+            // 推断出 `.music` 就是什么都没说(说了名字的按歌名找):整库能放的歌。
+            try collect { _ in true }
+        case .song:
+            guard let requestedTitle = requestedSongTitle(for: query) else { return [] }
+            try collect { song in
+                songTitleScore(song, requestedTitle: requestedTitle, relaxed: false) > 0
+                    || songTitleScore(song, requestedTitle: requestedTitle, relaxed: true) > 0
+            }
+        case .playlist, .radioStation, .algorithmicRadioStation, .audiobook, .podcast, .unsupported:
+            return []
+        }
+        return result
+    }
+
+    /// 按库内顺序走一遍,每组只看第一首能放的歌(同 `Dictionary(grouping:)` 后的 `group.first`),
+    /// 返回它命中的那些组。组的个数以专辑、艺人数为界。
+    private static func matchedGroups(
+        forEachSong: (_ body: (Song) throws -> Void) throws -> Void,
+        key: @escaping (Song) -> String,
+        matches: @escaping (Song) -> Bool
+    ) throws -> Set<String> {
+        var seen = Set<String>()
+        var matched = Set<String>()
+        try forEachSong { song in
+            guard song.isPlayable else { return }
+            let groupKey = key(song)
+            guard seen.insert(groupKey).inserted else { return }
+            if matches(song) { matched.insert(groupKey) }
+        }
+        return matched
+    }
+
     private static func identifierResolution(
         kind: SiriMediaSearchKind,
         identifiers: [String],
@@ -609,28 +702,34 @@ public enum SiriMediaSearchResolver {
         }
     }
 
+    /// 一首歌的流派对请求的流派打几分。多个流派的歌按其中最好的算;整库的流派写法只有几十种,
+    /// 每种只拆一次(ID3 格式的歌另按斜杠惯例拆,记忆的键带上这一位)。
+    private static func genreScore(_ song: Song, requestedGenres: [String], memo: inout [String: Int]) -> Int {
+        guard let genre = song.genre else { return 0 }
+        let memoKey = GenreSlashConvention.applies(to: song.fileFormat) ? "\u{1}" + genre : genre
+        if let known = memo[memoKey] { return known }
+        let score = GenreTagValues.browseNames(for: song).flatMap { label in
+            requestedGenres.map { matchScore(requested: $0, candidate: label) }
+        }.max() ?? 0
+        memo[memoKey] = score
+        return score
+    }
+
+    /// 请求的流派:点名的流派,没有就是说出来的名字。
+    private static func requestedGenres(for query: SiriMediaSearchQuery) -> [String] {
+        query.genreNames.isEmpty ? [query.mediaName].compactMap { $0 } : query.genreNames
+    }
+
     private static func genreResolution(
         query: SiriMediaSearchQuery,
         songs: [Song]
     ) -> SiriMediaSearchResolution? {
-        let requestedGenres = query.genreNames.isEmpty
-            ? [query.mediaName].compactMap { $0 }
-            : query.genreNames
+        let requestedGenres = requestedGenres(for: query)
         guard !requestedGenres.isEmpty else { return nil }
 
         var scoreByGenre: [String: Int] = [:]
         let ranked = songs.compactMap { song -> (song: Song, score: Int)? in
-            guard let genre = song.genre else { return nil }
-            let memoKey = GenreSlashConvention.applies(to: song.fileFormat) ? "\u{1}" + genre : genre
-            let score: Int
-            if let known = scoreByGenre[memoKey] {
-                score = known
-            } else {
-                score = GenreTagValues.browseNames(for: song).flatMap { label in
-                    requestedGenres.map { matchScore(requested: $0, candidate: label) }
-                }.max() ?? 0
-                scoreByGenre[memoKey] = score
-            }
+            let score = genreScore(song, requestedGenres: requestedGenres, memo: &scoreByGenre)
             return score > 0 ? (song, score) : nil
         }.sorted(by: rankedBefore)
 
@@ -648,7 +747,7 @@ public enum SiriMediaSearchResolver {
         songs: [Song],
         tiers: SiriSongMatchTiers
     ) -> SiriMediaSearchResolution? {
-        guard let requestedTitle = query.mediaName ?? query.albumName ?? query.artistName else {
+        guard let requestedTitle = requestedSongTitle(for: query) else {
             return nil
         }
         // Exact/prefix/substring first, so relaxed matching can never outrank a
@@ -673,6 +772,15 @@ public enum SiriMediaSearchResolver {
         )
     }
 
+    private static func songTitleScore(_ song: Song, requestedTitle: String, relaxed: Bool) -> Int {
+        bestScore(requestedTitle, candidates: [song.title, song.titlePinyin], relaxed: relaxed)
+    }
+
+    /// 歌名查找说的那个名字(同 `songResolution`)。
+    private static func requestedSongTitle(for query: SiriMediaSearchQuery) -> String? {
+        query.mediaName ?? query.albumName ?? query.artistName
+    }
+
     private static func rankedSongResolution(
         requestedTitle: String,
         query: SiriMediaSearchQuery,
@@ -680,11 +788,7 @@ public enum SiriMediaSearchResolver {
         relaxed: Bool
     ) -> SiriMediaSearchResolution? {
         let ranked = songs.compactMap { song -> (song: Song, score: Int)? in
-            let titleScore = bestScore(
-                requestedTitle,
-                candidates: [song.title, song.titlePinyin],
-                relaxed: relaxed
-            )
+            let titleScore = songTitleScore(song, requestedTitle: requestedTitle, relaxed: relaxed)
             guard titleScore > 0 else { return nil }
 
             var score = titleScore * 100
@@ -729,22 +833,9 @@ public enum SiriMediaSearchResolver {
         let groups = Dictionary(grouping: songs, by: albumGroupKey)
 
         let ranked = groups.values.compactMap { group -> (songs: [Song], score: Int)? in
-            guard let representative = group.first else { return nil }
-            let albumScore = bestScore(
-                requestedAlbum,
-                candidates: [representative.albumTitle, representative.albumPinyin]
-            )
-            guard albumScore > 0 else { return nil }
-
-            var score = albumScore * 10
-            if let artistName = query.artistName {
-                let artistScore = bestScore(
-                    artistName,
-                    candidates: [representative.artistName, representative.artistPinyin]
-                )
-                guard artistScore > 0 else { return nil }
-                score += artistScore
-            }
+            guard let representative = group.first,
+                  let score = albumGroupScore(representative, requestedAlbum: requestedAlbum, artistName: query.artistName)
+            else { return nil }
             return (sortedAlbumSongs(group), score)
         }.sorted { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
@@ -767,12 +858,9 @@ public enum SiriMediaSearchResolver {
         let groups = Dictionary(grouping: songs, by: artistGroupKey)
 
         let ranked = groups.values.compactMap { group -> (songs: [Song], score: Int)? in
-            guard let representative = group.first else { return nil }
-            let score = bestScore(
-                requestedArtist,
-                candidates: [representative.artistName, representative.artistPinyin]
-            )
-            guard score > 0 else { return nil }
+            guard let representative = group.first,
+                  let score = artistGroupScore(representative, requestedArtist: requestedArtist)
+            else { return nil }
             return (group.sorted(by: artistQueueBefore), score)
         }.sorted { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
@@ -785,6 +873,34 @@ public enum SiriMediaSearchResolver {
             candidates: best.songs,
             needsDisambiguation: false
         )
+    }
+
+    /// 专辑组按组里第一首(能放的)歌打分;不算命中时为 nil。
+    private static func albumGroupScore(_ representative: Song, requestedAlbum: String, artistName: String?) -> Int? {
+        let albumScore = bestScore(
+            requestedAlbum,
+            candidates: [representative.albumTitle, representative.albumPinyin]
+        )
+        guard albumScore > 0 else { return nil }
+        var score = albumScore * 10
+        if let artistName {
+            let artistScore = bestScore(
+                artistName,
+                candidates: [representative.artistName, representative.artistPinyin]
+            )
+            guard artistScore > 0 else { return nil }
+            score += artistScore
+        }
+        return score
+    }
+
+    /// 艺人组按组里第一首(能放的)歌打分;不算命中时为 nil。
+    private static func artistGroupScore(_ representative: Song, requestedArtist: String) -> Int? {
+        let score = bestScore(
+            requestedArtist,
+            candidates: [representative.artistName, representative.artistPinyin]
+        )
+        return score > 0 ? score : nil
     }
 
     private static func bestScore(

@@ -29,6 +29,7 @@
 		8A77656A25386D4B5DECE8C0 /* LibraryCatalogReader+P2c.swift in Sources */ = {isa = PBXBuildFile; fileRef = F55F8A34159C9A767CF57E67 /* LibraryCatalogReader+P2c.swift */; };
 		CC582087164FF97146EEFBA6 /* LibraryCatalogReader+P2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3717F9EF0396ECAD1AFCA92 /* LibraryCatalogReader+P2b.swift */; };
 		4CF8B4B900BDCD68AA30AF65 /* LibraryCatalogReader+P2a.swift in Sources */ = {isa = PBXBuildFile; fileRef = A974891B8C92BCAB11319BC7 /* LibraryCatalogReader+P2a.swift */; };
+		77413A4B579326A18FBE7FA8 /* LibraryCatalogReader+Siri.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04AE58F0D2A74ED7BF9DEA7C /* LibraryCatalogReader+Siri.swift */; };
 		AE6FECFDEF427D900A2C9C8B /* LibraryCatalogReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE64C7EC6FBFA6219655A24 /* LibraryCatalogReader.swift */; };
 		5CF97652A8A07A2EECDC56BA /* LibraryCatalogReader+P2d.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F08594064775938781B51CF /* LibraryCatalogReader+P2d.swift */; };
 		78CFBF8F74EC63A88E0A95A5 /* LibraryCatalogReader+P4b.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1466BA28AFFFEB269F54E32A /* LibraryCatalogReader+P4b.swift */; };
@@ -37,6 +38,7 @@
 		34197FD9C89D790F88ACEC8A /* LibraryCatalogReader+P2c.swift in Sources */ = {isa = PBXBuildFile; fileRef = F55F8A34159C9A767CF57E67 /* LibraryCatalogReader+P2c.swift */; };
 		98978DE3AD2C697D67A5464E /* LibraryCatalogReader+P2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3717F9EF0396ECAD1AFCA92 /* LibraryCatalogReader+P2b.swift */; };
 		AB931843FDCDFB47FE3183DC /* LibraryCatalogReader+P2a.swift in Sources */ = {isa = PBXBuildFile; fileRef = A974891B8C92BCAB11319BC7 /* LibraryCatalogReader+P2a.swift */; };
+		F312BCDFE25B42F12A9A462A /* LibraryCatalogReader+Siri.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04AE58F0D2A74ED7BF9DEA7C /* LibraryCatalogReader+Siri.swift */; };
 		59610BE535657B29C2CD5D8B /* LibraryCatalogReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE64C7EC6FBFA6219655A24 /* LibraryCatalogReader.swift */; };
 		6F812B61805740BADDCFA5C6 /* LibraryCatalogReader+P2d.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F08594064775938781B51CF /* LibraryCatalogReader+P2d.swift */; };
 		542AE77B24F7F5FE64EEC61D /* LibraryCatalogReader+P4b.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1466BA28AFFFEB269F54E32A /* LibraryCatalogReader+P4b.swift */; };
@@ -45,6 +47,7 @@
 		8CBFF940F5998D973113EF53 /* LibraryCatalogReader+P2c.swift in Sources */ = {isa = PBXBuildFile; fileRef = F55F8A34159C9A767CF57E67 /* LibraryCatalogReader+P2c.swift */; };
 		B17F69EA5EBF601D1C550D41 /* LibraryCatalogReader+P2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3717F9EF0396ECAD1AFCA92 /* LibraryCatalogReader+P2b.swift */; };
 		3062610393675DF640F482D5 /* LibraryCatalogReader+P2a.swift in Sources */ = {isa = PBXBuildFile; fileRef = A974891B8C92BCAB11319BC7 /* LibraryCatalogReader+P2a.swift */; };
+		62D3CAC535DA4D23A4782FBB /* LibraryCatalogReader+Siri.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04AE58F0D2A74ED7BF9DEA7C /* LibraryCatalogReader+Siri.swift */; };
 		D746DEF990B85BF3B04EC2C9 /* LibraryCatalogShadowVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E3B6395C39441730516C60E /* LibraryCatalogShadowVerifier.swift */; };
 		A2B10F2D2AAD327AB2F554E8 /* LibraryCatalogShadowVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E3B6395C39441730516C60E /* LibraryCatalogShadowVerifier.swift */; };
 		790EFFF9DAABEBA5DA38BD6A /* LibraryCatalogShadowVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E3B6395C39441730516C60E /* LibraryCatalogShadowVerifier.swift */; };
@@ -2925,6 +2928,7 @@
 		F55F8A34159C9A767CF57E67 /* LibraryCatalogReader+P2c.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryCatalogReader+P2c.swift"; sourceTree = "<group>"; };
 		B3717F9EF0396ECAD1AFCA92 /* LibraryCatalogReader+P2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryCatalogReader+P2b.swift"; sourceTree = "<group>"; };
 		A974891B8C92BCAB11319BC7 /* LibraryCatalogReader+P2a.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryCatalogReader+P2a.swift"; sourceTree = "<group>"; };
+		04AE58F0D2A74ED7BF9DEA7C /* LibraryCatalogReader+Siri.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryCatalogReader+Siri.swift"; sourceTree = "<group>"; };
 		8E3B6395C39441730516C60E /* LibraryCatalogShadowVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogShadowVerifier.swift; sourceTree = "<group>"; };
 		F0FB492FE3BB57E3E10A7739 /* LibraryCatalogMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogMirror.swift; sourceTree = "<group>"; };
 		9584E43D34340B5C01E45B88 /* LibraryCatalogMirrorSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogMirrorSupport.swift; sourceTree = "<group>"; };
@@ -4919,6 +4923,7 @@
 				F55F8A34159C9A767CF57E67 /* LibraryCatalogReader+P2c.swift */,
 				B3717F9EF0396ECAD1AFCA92 /* LibraryCatalogReader+P2b.swift */,
 				A974891B8C92BCAB11319BC7 /* LibraryCatalogReader+P2a.swift */,
+				04AE58F0D2A74ED7BF9DEA7C /* LibraryCatalogReader+Siri.swift */,
 				8E3B6395C39441730516C60E /* LibraryCatalogShadowVerifier.swift */,
 				F0FB492FE3BB57E3E10A7739 /* LibraryCatalogMirror.swift */,
 			);
@@ -8838,6 +8843,7 @@
 				34197FD9C89D790F88ACEC8A /* LibraryCatalogReader+P2c.swift in Sources */,
 				98978DE3AD2C697D67A5464E /* LibraryCatalogReader+P2b.swift in Sources */,
 				AB931843FDCDFB47FE3183DC /* LibraryCatalogReader+P2a.swift in Sources */,
+				F312BCDFE25B42F12A9A462A /* LibraryCatalogReader+Siri.swift in Sources */,
 				A2B10F2D2AAD327AB2F554E8 /* LibraryCatalogShadowVerifier.swift in Sources */,
 				EF75AFF30E67AD9693F6974C /* LibraryCatalogMirror.swift in Sources */,
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
@@ -9523,6 +9529,7 @@
 				8A77656A25386D4B5DECE8C0 /* LibraryCatalogReader+P2c.swift in Sources */,
 				CC582087164FF97146EEFBA6 /* LibraryCatalogReader+P2b.swift in Sources */,
 				4CF8B4B900BDCD68AA30AF65 /* LibraryCatalogReader+P2a.swift in Sources */,
+				77413A4B579326A18FBE7FA8 /* LibraryCatalogReader+Siri.swift in Sources */,
 				D746DEF990B85BF3B04EC2C9 /* LibraryCatalogShadowVerifier.swift in Sources */,
 				4E41E8A80AC736928A00A46E /* LibraryCatalogMirror.swift in Sources */,
 				09EE11D6ADFC5A50BF5744AE /* AICredentialStore.swift in Sources */,
@@ -9802,6 +9809,7 @@
 				8CBFF940F5998D973113EF53 /* LibraryCatalogReader+P2c.swift in Sources */,
 				B17F69EA5EBF601D1C550D41 /* LibraryCatalogReader+P2b.swift in Sources */,
 				3062610393675DF640F482D5 /* LibraryCatalogReader+P2a.swift in Sources */,
+				62D3CAC535DA4D23A4782FBB /* LibraryCatalogReader+Siri.swift in Sources */,
 				790EFFF9DAABEBA5DA38BD6A /* LibraryCatalogShadowVerifier.swift in Sources */,
 				FD284EBA68B258C9137C311D /* LibraryCatalogMirror.swift in Sources */,
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,

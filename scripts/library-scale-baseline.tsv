@@ -5,7 +5,7 @@ legacy-library-api	Primuse/App/AppServices.swift	22
 legacy-library-api	Primuse/App/CarPlaySceneDelegate.swift	17
 legacy-library-api	Primuse/App/DebugAccessibilityScript.swift	5
 legacy-library-api	Primuse/App/HomeScreenQuickActions.swift	2
-legacy-library-api	Primuse/App/PlayMediaIntentHandler.swift	17
+legacy-library-api	Primuse/App/PlayMediaIntentHandler.swift	10
 legacy-library-api	Primuse/App/PrimuseApp.swift	12
 legacy-library-api	Primuse/Services/AI/LibraryInsightBatchFill.swift	2
 legacy-library-api	Primuse/Services/AppleMusic/AppleMusicLibraryService.swift	1
@@ -128,7 +128,7 @@ legacy-library-api	PrimuseTV/Model/TVKaraokeSession.swift	2
 legacy-library-api	PrimuseTV/Model/TVStore+Catalog.swift	4
 legacy-library-api	PrimuseTV/Model/TVStore.swift	74
 legacy-library-api	PrimuseTV/Services/TVMetadataScrapeService.swift	2
-legacy-library-api	PrimuseTV/Services/TVPlayMediaIntentHandler.swift	19
+legacy-library-api	PrimuseTV/Services/TVPlayMediaIntentHandler.swift	14
 legacy-library-api	PrimuseTV/Views/TVLibraryBrowseView.swift	3
 legacy-library-api	PrimuseTV/Views/TVLibraryView.swift	3
 legacy-library-api	PrimuseTV/Views/TVPlayerShelf.swift	5

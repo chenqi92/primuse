@@ -657,4 +657,58 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertEqual(installs, 0)
         await musicMemory.waitForPendingPersistence()
     }
+
+    /// Siri 按名字、按 id 找歌:目录可读时只从目录取候选(主线程外流式挑出),交给各解析入口与交内存里
+    /// 整库数组的结果相同 —— 歌名(含错字)、专辑(按组里第一首打分,整组取回)、艺人、流派、点了 id 的。
+    func testSiriCandidatesFromTheCatalogResolveLikeTheWholeLibrary() async throws {
+        let library = makeLibrary()
+        let songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        XCTAssertEqual(library.catalogHost?.revisions.isReadable, true)
+
+        func summary(_ resolution: SiriMediaSearchResolution?) -> String {
+            guard let resolution else { return "nil" }
+            return "q=\(resolution.queue.map(\.id)) c=\(resolution.candidates.map(\.id)) d=\(resolution.needsDisambiguation)"
+        }
+        let blueAlbumID = try XCTUnwrap(library.visibleSongs.first { $0.albumTitle == "Blue Room" }?.albumID)
+        let adaArtistID = try XCTUnwrap(library.visibleSongs.first { $0.artistName == "Ada" }?.artistID)
+        let cases: [(SiriMediaSearchQuery, [String])] = [
+            (SiriMediaSearchQuery(kind: .song, mediaName: "Blue 2"), []),
+            (SiriMediaSearchQuery(kind: .song, mediaName: "Blue B"), []),
+            (SiriMediaSearchQuery(kind: .music, mediaName: "Blux Room"), []),
+            (SiriMediaSearchQuery(kind: .music, mediaName: "play loose track"), []),
+            (SiriMediaSearchQuery(kind: .album, albumName: "Blue Room"), []),
+            (SiriMediaSearchQuery(kind: .album, artistName: "Artist 1", albumName: "Mixtape"), []),
+            (SiriMediaSearchQuery(kind: .artist, artistName: "ada"), []),
+            (SiriMediaSearchQuery(kind: .genre, genreNames: ["Pop"]), []),
+            (SiriMediaSearchQuery(kind: .music, artistName: "Ada"), []),
+            (SiriMediaSearchQuery(kind: .song, mediaName: "Nothing Like This"), []),
+            (SiriMediaSearchQuery(kind: .music), [SiriMediaIdentifier.namespaced(songs[0].id, as: "song")]),
+            (SiriMediaSearchQuery(kind: .music), [SiriMediaIdentifier.namespaced(blueAlbumID, as: "album")]),
+            (SiriMediaSearchQuery(kind: .artist), [SiriMediaIdentifier.namespaced(adaArtistID, as: "artist")]),
+            (SiriMediaSearchQuery(kind: .music), [SiriMediaIdentifier.namespaced("Pop", as: "genre"), "song:missing"]),
+        ]
+        for (query, ids) in cases {
+            for scope in [SiriLibrarySongs.Scope.music, .visible] {
+                let whole = scope == .music ? library.musicSongs : library.visibleSongs
+                let candidates = await SiriLibrarySongs.candidates(
+                    for: query, identifiers: ids, in: scope, library: library
+                )
+                XCTAssertLessThanOrEqual(candidates.count, whole.count)
+                for tiers in [SiriSongMatchTiers.strictThenRelaxed, .strictOnly, .relaxedOnly] {
+                    XCTAssertEqual(
+                        summary(SiriMediaSearchResolver.resolve(query: query, resolvedItemIDs: ids, songs: candidates, songMatching: tiers)),
+                        summary(SiriMediaSearchResolver.resolve(query: query, resolvedItemIDs: ids, songs: whole, songMatching: tiers)),
+                        "\(query) ids=\(ids) scope=\(scope) tiers=\(tiers)"
+                    )
+                }
+            }
+        }
+        // 说了名字的只取回可能命中的那几首,不是整库。
+        let named = await SiriLibrarySongs.candidates(
+            for: SiriMediaSearchQuery(kind: .song, mediaName: "Loose Track"), in: .music, library: library
+        )
+        XCTAssertEqual(named.map(\.id), songs.filter { $0.title == "Loose Track" }.map(\.id))
+    }
 }

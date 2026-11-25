@@ -93,7 +93,7 @@ final class PlayMediaIntentHandler: NSObject,
                 await AppServices.shared.waitForSiriPodcastCatalog(query: query.mediaName, identifiers: identifiers)
             }
 
-            guard let target = Self.resolveTarget(
+            guard let target = await Self.resolveTarget(
                 intent: intent,
                 query: query,
                 identifierGroups: identifierGroups
@@ -450,9 +450,10 @@ final class PlayMediaIntentHandler: NSObject,
                 // name may belong to a saved station or a book rather than a
                 // song. The music answers first.
                 let bookItems = SiriListeningCatalog.namedItems(books: AppServices.shared.siriSpokenWordBooks)
+                let musicCandidates = await SiriLibrarySongs.candidates(for: query, in: .music, library: library)
                 switch SiriUntypedRequestResolver.resolve(
                     query: query,
-                    songs: library.musicSongs,
+                    songs: musicCandidates,
                     radioItems: Self.radioItems(),
                     bookItems: bookItems,
                     spokenWordSongs: library.spokenWordSongs
@@ -479,14 +480,18 @@ final class PlayMediaIntentHandler: NSObject,
                 songResult = SiriMediaSearchResolver.resolvePreferringMusic(
                     query: query,
                     // 什么都没点名的「播放音乐」是替人挑歌,不挑不喜欢的歌(#193)。
-                    musicSongs: query.hasSearchTerm ? library.musicSongs : library.musicSongsExcludingDisliked,
+                    musicSongs: query.hasSearchTerm
+                        ? await SiriLibrarySongs.candidates(for: query, in: .music, library: library)
+                        : library.musicSongsExcludingDisliked,
                     spokenWordSongs: library.spokenWordSongs
                 )
             } else {
                 songResult = Self.resolveSongs(
                     query: query,
                     identifierGroups: identifierGroups,
-                    songs: library.visibleSongs
+                    songs: await SiriLibrarySongs.candidates(
+                        for: query, identifiers: identifiers, in: .visible, library: library
+                    )
                 )
             }
             guard let result = songResult, !result.candidates.isEmpty else {
@@ -775,7 +780,7 @@ final class PlayMediaIntentHandler: NSObject,
         intent: INPlayMediaIntent,
         query: SiriMediaSearchQuery,
         identifierGroups: [[String]]
-    ) -> IntentTarget? {
+    ) async -> IntentTarget? {
         let identifiers = identifierGroups.flatMap { $0 }
         if query.kind == .playlist {
             return resolvePlaylist(query: query.mediaName, identifiers: identifiers, intent: intent)
@@ -788,7 +793,7 @@ final class PlayMediaIntentHandler: NSObject,
             )
         }
         if query.kind == .algorithmicRadioStation {
-            return resolveSongRadio(query: query, identifierGroups: identifierGroups)
+            return await resolveSongRadio(query: query, identifierGroups: identifierGroups)
         }
         if query.kind == .audiobook {
             return resolveBook(query: query.mediaName, identifiers: identifiers)
@@ -810,6 +815,8 @@ final class PlayMediaIntentHandler: NSObject,
                 albumName: query.albumName,
                 genreNames: query.genreNames
             )
+            // 点了 id 的各组共用一份候选(所有组的 id 合起来挑,每组照旧只认自己的 id)。
+            var visibleCandidates: [Song]?
             for group in identifierGroups {
                 let namespace = group.lazy.compactMap {
                     SiriMediaIdentifier.namespace(from: $0)
@@ -831,10 +838,15 @@ final class PlayMediaIntentHandler: NSObject,
                    let target = resolveBook(query: nil, identifiers: group) {
                     return target
                 }
+                if visibleCandidates == nil {
+                    visibleCandidates = await SiriLibrarySongs.candidates(
+                        for: mediaQuery, identifiers: identifiers, in: .visible, library: library
+                    )
+                }
                 if let resolution = SiriMediaSearchResolver.resolve(
                     query: mediaQuery,
                     resolvedItemIDs: group,
-                    songs: library.visibleSongs
+                    songs: visibleCandidates ?? []
                 ) {
                     return songsTarget(
                         requestedSongs(resolution.queue, query: query, identifiers: group),
@@ -856,9 +868,10 @@ final class PlayMediaIntentHandler: NSObject,
                 // A name with no media type may be a saved station's or a
                 // book's; the music answers first.
                 let books = AppServices.shared.siriSpokenWordBooks
+                let musicCandidates = await SiriLibrarySongs.candidates(for: query, in: .music, library: library)
                 switch SiriUntypedRequestResolver.resolve(
                     query: query,
-                    songs: library.musicSongs,
+                    songs: musicCandidates,
                     radioItems: radioItems(),
                     bookItems: SiriListeningCatalog.namedItems(books: books),
                     spokenWordSongs: library.spokenWordSongs
@@ -896,14 +909,18 @@ final class PlayMediaIntentHandler: NSObject,
             resolution = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: query,
                 // 什么都没点名的「播放音乐」是替人挑歌,不挑不喜欢的歌(#193)。
-                musicSongs: query.hasSearchTerm ? library.musicSongs : library.musicSongsExcludingDisliked,
+                musicSongs: query.hasSearchTerm
+                    ? await SiriLibrarySongs.candidates(for: query, in: .music, library: library)
+                    : library.musicSongsExcludingDisliked,
                 spokenWordSongs: library.spokenWordSongs
             )
         } else {
             resolution = resolveSongs(
                 query: query,
                 identifierGroups: identifierGroups,
-                songs: library.visibleSongs
+                songs: await SiriLibrarySongs.candidates(
+                    for: query, identifiers: identifiers, in: .visible, library: library
+                )
             )
         }
         guard let resolution else { return nil }
@@ -1063,24 +1080,29 @@ final class PlayMediaIntentHandler: NSObject,
     private static func resolveSongRadio(
         query: SiriMediaSearchQuery,
         identifierGroups: [[String]]
-    ) -> IntentTarget? {
+    ) async -> IntentTarget? {
         let services = AppServices.shared
         let seed: Song?
         if !identifierGroups.isEmpty {
+            let seedQuery = SiriMediaSearchQuery(kind: .song)
             seed = resolveSongs(
-                query: SiriMediaSearchQuery(kind: .song),
+                query: seedQuery,
                 identifierGroups: identifierGroups,
-                songs: services.musicLibrary.musicSongs
+                songs: await SiriLibrarySongs.candidates(
+                    for: seedQuery, identifiers: identifierGroups.flatMap { $0 }, in: .music,
+                    library: services.musicLibrary
+                )
             )?.queue.first
         } else if query.hasSearchTerm {
+            let seedQuery = SiriMediaSearchQuery(
+                kind: .song,
+                mediaName: query.mediaName,
+                artistName: query.artistName,
+                albumName: query.albumName
+            )
             seed = SiriMediaSearchResolver.resolve(
-                query: SiriMediaSearchQuery(
-                    kind: .song,
-                    mediaName: query.mediaName,
-                    artistName: query.artistName,
-                    albumName: query.albumName
-                ),
-                songs: services.musicLibrary.musicSongs
+                query: seedQuery,
+                songs: await SiriLibrarySongs.candidates(for: seedQuery, in: .music, library: services.musicLibrary)
             )?.queue.first
         } else {
             // While a book, an episode or a station plays: the song the music
