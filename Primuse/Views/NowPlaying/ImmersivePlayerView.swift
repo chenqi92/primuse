@@ -14,7 +14,7 @@ struct ImmersivePlayerView: View {
     var companionTracks: LyricBundledTranslationPolicy.Tracks = []
     /// Resolved by the player, which is the only place that knows whether a
     /// translation exists for the current target language.
-    let lyricCompanions: (LyricLine) -> [String]
+    let lyricCompanions: (LyricLine) -> [ImmersiveStageCompanion]
     let lyricsWritingDirection: LyricWritingDirection
     /// 歌词结果还没回来。空歌词此时是"还不知道", 不是"没有"。
     let isResolvingLyrics: Bool

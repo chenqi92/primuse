@@ -1510,4 +1510,200 @@ struct LyricsContentParserTests {
         #expect(decoded.syllables?.first?.text == "It's")
         #expect(decoded.manualTranslation?.text == "\"是\"")
     }
+
+    @Test("LyricsFileConverter detects every supported source format")
+    func detectsAllSupportedSourceFormats() {
+        let qrcEnvelope = #"<QrcInfos><LyricInfo><Lyric_1 LyricType="1" LyricContent="[1000,1000]Hello(1000,500) world(1500,500)"/></LyricInfo></QrcInfos>"#
+        let krc = "[1000,1000]<0,500,0>Hi <500,500,0>there"
+        let yrc = "[1000,1000](1000,500,0)Hi (1500,500,0)there"
+        let lys = "[0]Hi (1000,500)there(1500,500)"
+        let lyl = "[type:LyricifyLines]\n[1000,2000]Hello world"
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello"
+        let srt = "1\n00:00:01,000 --> 00:00:03,000\nHello"
+        let ass = "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Hello"
+
+        #expect(LyricsFileConverter.detectFormat("   \n") == .empty)
+        #expect(LyricsFileConverter.detectFormat("[00:01.00]Hello") == .lrc)
+        #expect(LyricsFileConverter.detectFormat("[00:01.00]<00:01.00>Hello <00:01.50>world") == .elrc)
+        #expect(LyricsFileConverter.detectFormat(keyedAppleTTML) == .ttml)
+        #expect(LyricsFileConverter.detectFormat(lys) == .lys)
+        #expect(LyricsFileConverter.detectFormat(yrc) == .yrc)
+        #expect(LyricsFileConverter.detectFormat("[1000,1000]Hi(1000,500) there(1500,500)") == .qrc)
+        #expect(LyricsFileConverter.detectFormat(qrcEnvelope) == .qrc)
+        #expect(LyricsFileConverter.detectFormat(krc) == .krc)
+        #expect(LyricsFileConverter.detectFormat(lyl) == .lyl)
+        #expect(LyricsFileConverter.detectFormat(vtt) == .webVTT)
+        #expect(LyricsFileConverter.detectFormat(srt) == .subRip)
+        #expect(LyricsFileConverter.detectFormat(ass) == .substationAlpha)
+        #expect(LyricsFileConverter.detectFormat("Plain line one\nPlain line two") == .plain)
+        #expect(LyricsFileConverter.detectFormat("<tt><body><p begin=\"1s\">Broken</body></tt>") == .invalid)
+        #expect(LyricsFileConverter.detectFormat("<QrcInfos><Lyric_1 LyricContent=\"\"/></QrcInfos>") == .invalid)
+
+        #expect(LyricsFormat.detect(lyl) == .lineLevel)
+    }
+
+    @Test("LyricsFileConverter converts KRC, YRC, QRC, LYS, LYL and subtitles cleanly")
+    func convertsAllSupportedFormatsAcrossTargets() throws {
+        let languageJSON = #"{"content":[{"language":0,"type":1,"lyricContent":[["你好世界"]]},{"language":0,"type":0,"lyricContent":[["ni ","hao "]]}],"version":1}"#
+        let krc = "[language:\(Data(languageJSON.utf8).base64EncodedString())]\n[1000,1000]<0,400,0>你<400,600,0>好"
+
+        let krcToTTML = try LyricsFileConverter.convert(krc, to: .ttml)
+        #expect(krcToTTML.detectedFormat == .krc)
+        #expect(!krcToTTML.flattensVoices)
+        #expect(!krcToTTML.dropsCompanionWordTiming)
+        #expect(krcToTTML.output.contains("ttm:role=\"x-roman\""))
+        #expect(krcToTTML.output.contains("ttm:role=\"x-translation\""))
+        #expect(krcToTTML.output.contains("end=\"00:00:02.000\""))
+        let reparsedKRC = try #require(LyricsContentParser.parseText(krcToTTML.output).first)
+        #expect(reparsedKRC.romanization == "ni hao")
+        #expect(reparsedKRC.romanizationSyllables?.map(\.text) == ["ni ", "hao"])
+        #expect(reparsedKRC.romanizationSyllables?.map(\.start) == [1.0, 1.4])
+        #expect(reparsedKRC.manualTranslation?.text == "你好世界")
+
+        let krcToLRC = try LyricsFileConverter.convert(krc, to: .lrc)
+        #expect(krcToLRC.dropsCompanionWordTiming)
+        #expect(krcToLRC.output.contains("[00:01.000]ni hao"))
+        #expect(krcToLRC.output.contains("[00:01.000]你好世界"))
+
+        let krcToSRT = try LyricsFileConverter.convert(krc, to: .srt)
+        #expect(krcToSRT.output.contains("00:00:01,000 --> 00:00:02,000\n你好\nni hao\n你好世界"))
+
+        let qrcXML = #"<QrcInfos><LyricInfo><Lyric_1 LyricType="1" LyricContent="[1000,1000]It&apos;s(1000,500) fine(1500,500)"/></LyricInfo></QrcInfos>"#
+        let qrcToTTML = try LyricsFileConverter.convert(qrcXML, to: .ttml)
+        #expect(qrcToTTML.detectedFormat == .qrc)
+        #expect(LyricsContentParser.parseText(qrcToTTML.output).first?.text == "It's fine")
+
+        let yrc = "[1000,1000](1000,500,0)Hello (1500,500,0)world"
+        let yrcToSRT = try LyricsFileConverter.convert(yrc, to: .srt)
+        #expect(yrcToSRT.detectedFormat == .yrc)
+        #expect(yrcToSRT.output.contains("00:00:01,000 --> 00:00:02,000\nHello world"))
+
+        let elrc = "[00:01.00]<00:01.00>Hello <00:01.50>world<00:02.00>"
+        let elrcToTTML = try LyricsFileConverter.convert(elrc, to: .ttml)
+        #expect(elrcToTTML.detectedFormat == .elrc)
+        #expect(elrcToTTML.output.contains("end=\"00:00:02.000\""))
+
+        let lys = "[1]Lead(1000,1000)\n[7](echo)(1200,800)"
+        let lysToTTML = try LyricsFileConverter.convert(lys, to: .ttml)
+        #expect(lysToTTML.detectedFormat == .lys)
+        #expect(!lysToTTML.flattensVoices)
+        #expect(lysToTTML.output.contains("ttm:role=\"x-bg\""))
+        let lysToLRC = try LyricsFileConverter.convert(lys, to: .lrc)
+        #expect(lysToLRC.flattensVoices)
+
+        let lyl = "[type:LyricifyLines]\n[1000,3000]First line\n[4000,6000]Second line"
+        let lylToSRT = try LyricsFileConverter.convert(lyl, to: .srt)
+        #expect(lylToSRT.detectedFormat == .lyl)
+        #expect(lylToSRT.output.contains("00:00:01,000 --> 00:00:04,000\nFirst line"))
+
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.500\nSubtitle line"
+        let vttToTTML = try LyricsFileConverter.convert(vtt, to: .ttml)
+        #expect(vttToTTML.detectedFormat == .webVTT)
+        #expect(vttToTTML.output.contains("begin=\"00:00:01.000\" end=\"00:00:02.500\""))
+    }
+
+    @Test("TTML to TTML preserves nested backing vocals and companion word timing")
+    func ttmlToTTMLPreservesStructureAndCompanionTiming() throws {
+        let converted = try LyricsFileConverter.convert(keyedAppleTTML, to: .ttml)
+        #expect(converted.detectedFormat == .ttml)
+        #expect(!converted.flattensVoices)
+        #expect(!converted.dropsCompanionWordTiming)
+        #expect(converted.output.contains("ttm:role=\"x-bg\""))
+
+        let reparsed = LyricsContentParser.parseText(converted.output)
+        let first = try #require(reparsed.first)
+        #expect(first.background?.first?.text == "호")
+        #expect(first.romanizationSyllables?.map(\.start) == [2.1, 2.3])
+        #expect(first.manualTranslation?.syllables?.map(\.start) == [2.0, 2.4])
+        #expect(first.alternateManualTranslations.map(\.text) == ["First line"])
+
+        let toLRC = try LyricsFileConverter.convert(keyedAppleTTML, to: .lrc)
+        #expect(toLRC.flattensVoices)
+        #expect(toLRC.dropsCompanionWordTiming)
+        #expect(toLRC.output.contains("ha na"))
+        #expect(toLRC.output.contains("第一行"))
+        #expect(toLRC.output.contains("First line"))
+    }
+
+    @Test("Bilingual LRC reading rows are promoted to x-roman when exporting to TTML")
+    func promotesBilingualLRCReadingRowsInTTML() throws {
+        let content = """
+        [00:01.00]夢の中で
+        [00:01.00]yume no naka de
+        [00:01.00]在梦境之中
+        [00:05.00]君の声
+        [00:05.00]kimi no koe
+        [00:05.00]你的声音
+        [00:09.00]星が降る
+        [00:09.00]hoshi ga furu
+        [00:09.00]繁星飘落
+        [00:13.00]風が吹く
+        [00:13.00]kaze ga fuku
+        [00:13.00]微风轻拂
+        [00:17.00]空を見る
+        [00:17.00]sora wo miru
+        [00:17.00]仰望天空
+        [00:21.00]夜が明ける
+        [00:21.00]yoru ga akeru
+        [00:21.00]天色破晓
+        """
+        let converted = try LyricsFileConverter.convert(content, to: .ttml)
+        #expect(converted.output.contains("ttm:role=\"x-roman\">yume no naka de</span>"))
+        #expect(converted.output.contains("ttm:role=\"x-translation\">在梦境之中</span>"))
+        let reparsed = LyricsContentParser.parseText(converted.output)
+        #expect(reparsed.prefix(3).map(\.romanization) == ["yume no naka de", "kimi no koe", "hoshi ga furu"])
+        #expect(reparsed.prefix(3).map { $0.manualTranslation?.text } == ["在梦境之中", "你的声音", "繁星飘落"])
+    }
+
+    @Test("Converter rejects untimed SRT, malformed QRC XML, encrypted KRC, and binary files")
+    func handlesConverterEdgeCasesAndDecodeErrors() throws {
+        #expect(throws: LyricsFileConversionError.requiresTiming) {
+            try LyricsFileConverter.convert("Line one\nLine two", to: .srt)
+        }
+        let untimedTTML = try LyricsFileConverter.convert("Line one\nLine two", to: .ttml)
+        #expect(untimedTTML.detectedFormat == .plain)
+        #expect(untimedTTML.output.contains(">Line one</p>"))
+        #expect(!untimedTTML.output.contains("begin="))
+
+        #expect(throws: LyricsFileConversionError.invalidContent) {
+            try LyricsFileConverter.convert("<QrcInfos><Lyric_1 LyricContent=\"\"/></QrcInfos>", to: .lrc)
+        }
+
+        // UTF-8 BOM
+        let bomUTF8 = Data([0xEF, 0xBB, 0xBF]) + Data("[00:01.00]你好".utf8)
+        #expect(try LyricsFileConverter.decodeText(from: bomUTF8) == "[00:01.00]你好")
+
+        // UTF-16LE with BOM
+        let utf16LE = try #require("[00:01.00]Hello".data(using: .utf16LittleEndian))
+        #expect(try LyricsFileConverter.decodeText(from: Data([0xFF, 0xFE]) + utf16LE) == "[00:01.00]Hello")
+
+        // GB18030
+        let gbEncoding = String.Encoding(
+            rawValue: CFStringConvertEncodingToNSStringEncoding(
+                CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+            )
+        )
+        let gbData = try #require("[00:01.00]粤语测试".data(using: gbEncoding))
+        #expect(try LyricsFileConverter.decodeText(from: gbData) == "[00:01.00]粤语测试")
+
+        // Encrypted KRC
+        let encryptedKRC = Data([0x6B, 0x72, 0x63, 0x31, 0x40, 0x47, 0x61, 0x77])
+        #expect(throws: LyricsFileDecodeError.encryptedKRC) {
+            try LyricsFileConverter.decodeText(from: encryptedKRC)
+        }
+
+        // Binary PNG header & raw NUL payload
+        let pngData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00])
+        #expect(throws: LyricsFileDecodeError.binaryOrUnreadable) {
+            try LyricsFileConverter.decodeText(from: pngData)
+        }
+
+        // Empty & oversized
+        #expect(throws: LyricsFileDecodeError.emptyFile) {
+            try LyricsFileConverter.decodeText(from: Data())
+        }
+        #expect(throws: LyricsFileDecodeError.tooLarge) {
+            try LyricsFileConverter.decodeText(from: Data(repeating: 0x41, count: 4 * 1024 * 1024 + 1))
+        }
+    }
 }

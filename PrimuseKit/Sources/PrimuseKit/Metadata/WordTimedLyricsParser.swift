@@ -615,10 +615,10 @@ public enum WordTimedLyricsParser {
                     Self.row(in: $0, row: entry.row, order: order, rowCount: rowCount, lineCount: placements.count)
                 }
                 .flatMap(Self.translationText)
-                let romanization = romanizations.flatMap {
+                let romanizationRow = romanizations.flatMap {
                     Self.row(in: $0, row: entry.row, order: order, rowCount: rowCount, lineCount: placements.count)
                 }
-                .flatMap(Self.romanizationText)
+                let romanization = romanizationRow.flatMap(Self.romanizationText)
                 guard translation != nil || romanization != nil else { continue }
                 Self.update(&lines, at: entry.placement) { line in
                     if let translation {
@@ -627,7 +627,16 @@ public enum WordTimedLyricsParser {
                             source: .embeddedField
                         )
                     }
-                    if let romanization { line.romanization = romanization }
+                    if let romanization {
+                        line.romanization = romanization
+                        if let romanizationRow {
+                            line.romanizationSyllables = Self.romanizationSyllables(
+                                from: romanizationRow,
+                                matching: line.syllables,
+                                expectedText: romanization
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -660,6 +669,44 @@ public enum WordTimedLyricsParser {
                 .split(whereSeparator: \.isWhitespace)
                 .joined(separator: " ")
             return text.isEmpty ? nil : text
+        }
+
+        /// Maps per-word KRC readings onto the sung line's word timings when
+        /// the reading array aligns 1:1 with the line's syllables. Mismatched
+        /// counts safely fall back to nil so line-level romanization remains intact.
+        private static func romanizationSyllables(
+            from row: [String],
+            matching syllables: [LyricSyllable]?,
+            expectedText: String
+        ) -> [LyricSyllable]? {
+            guard let syllables, !syllables.isEmpty else { return nil }
+            let normalizedTokens: (String) -> String = { piece in
+                piece.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            }
+            let pairs: [(text: String, syllable: LyricSyllable)]
+            if row.count == syllables.count {
+                pairs = zip(row, syllables).compactMap { piece, syllable in
+                    let cleaned = normalizedTokens(piece)
+                    return cleaned.isEmpty ? nil : (cleaned, syllable)
+                }
+            } else {
+                let nonEmpty = row.map(normalizedTokens).filter { !$0.isEmpty }
+                guard nonEmpty.count == syllables.count else { return nil }
+                pairs = Array(zip(nonEmpty, syllables))
+            }
+            guard !pairs.isEmpty else { return nil }
+            let mapped = pairs.enumerated().map { index, pair in
+                let isLast = index == pairs.count - 1
+                return LyricSyllable(
+                    text: isLast ? pair.text : pair.text + " ",
+                    start: pair.syllable.start,
+                    end: pair.syllable.end,
+                    endTiming: pair.syllable.endTiming
+                )
+            }
+            let joined = mapped.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard joined == expectedText else { return nil }
+            return mapped
         }
 
         private static func update(

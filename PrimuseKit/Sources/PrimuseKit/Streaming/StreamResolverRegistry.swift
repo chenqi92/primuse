@@ -157,12 +157,14 @@ public actor StreamResolverRegistry {
         guard let resolver = resolvers[source.type] else {
             throw StreamResolveError.unsupportedSourceType(source.type)
         }
-        return try await withRoutedSource(source, resolver: resolver) { routedSource in
-            try await resolver.streamURL(
-                for: song,
-                source: routedSource,
-                credential: credential
-            )
+        return try await withGatewayContext(source: source, credential: credential) {
+            try await self.withRoutedSource(source, resolver: resolver) { routedSource in
+                try await resolver.streamURL(
+                    for: song,
+                    source: routedSource,
+                    credential: credential
+                )
+            }
         }
     }
 
@@ -172,12 +174,15 @@ public actor StreamResolverRegistry {
         guard let resolver = resolvers[source.type] else {
             throw StreamResolveError.unsupportedSourceType(source.type)
         }
-        return try await withRoutedSource(source, resolver: resolver) { routedSource in
-            try await resolver.resolve(
-                for: song,
-                source: routedSource,
-                credential: credential
-            )
+        return try await withGatewayContext(source: source, credential: credential) {
+            let stream = try await self.withRoutedSource(source, resolver: resolver) { routedSource in
+                try await resolver.resolve(
+                    for: song,
+                    source: routedSource,
+                    credential: credential
+                )
+            }
+            return try await Self.attachingFnConnectGatewayHeaders(to: stream, source: source)
         }
     }
 
@@ -188,18 +193,21 @@ public actor StreamResolverRegistry {
         guard let resolver = resolvers[source.type] else {
             throw StreamResolveError.unsupportedSourceType(source.type)
         }
-        let result = try await routedOperation(source, resolver: resolver) { routedSource in
-            try await resolver.resolve(
-                for: song,
-                source: routedSource,
-                credential: credential
+        return try await withGatewayContext(source: source, credential: credential) {
+            let result = try await self.routedOperation(source, resolver: resolver) { routedSource in
+                try await resolver.resolve(
+                    for: song,
+                    source: routedSource,
+                    credential: credential
+                )
+            }
+            let stream = try await Self.attachingFnConnectGatewayHeaders(to: result.value, source: source)
+            return PreparedResolution(
+                stream: stream,
+                routeGeneration: result.routeGeneration,
+                sessionEpoch: result.sessionEpoch
             )
         }
-        return PreparedResolution(
-            stream: result.value,
-            routeGeneration: result.routeGeneration,
-            sessionEpoch: result.sessionEpoch
-        )
     }
 
     public func routeGeneration() async -> UInt64 {
@@ -228,6 +236,12 @@ public actor StreamResolverRegistry {
     public func invalidateSession(for source: MusicSource) async {
         externalInvalidations[source.id, default: 0] &+= 1
         await resolvers[source.type]?.invalidateSession(sourceID: source.id)
+        if let binding = source.fnConnectGateway {
+            await FnConnectGatewaySessionStore.shared.invalidate(
+                fnID: binding.fnID,
+                username: binding.username
+            )
+        }
         routedResolverStates[source.id] = nil
         routeEvidence[source.id] = nil
         sessionEpochs[source.id, default: 0] &+= 1
@@ -241,13 +255,52 @@ public actor StreamResolverRegistry {
         guard let resolver = resolvers[source.type] else {
             throw StreamResolveError.unsupportedSourceType(source.type)
         }
-        return try await withRoutedSource(source, resolver: resolver) { routedSource in
-            try await resolver.loginForDeviceToken(
-                source: routedSource,
-                credential: credential,
-                otp: otp
-            )
+        return try await withGatewayContext(source: source, credential: credential) {
+            try await self.withRoutedSource(source, resolver: resolver) { routedSource in
+                try await resolver.loginForDeviceToken(
+                    source: routedSource,
+                    credential: credential,
+                    otp: otp
+                )
+            }
         }
+    }
+
+    private func withGatewayContext<T: Sendable>(
+        source: MusicSource,
+        credential: SourceCredential?,
+        operation: () async throws -> T
+    ) async throws -> T {
+        let gatewayCredential: FnConnectGatewayCredential? = {
+            guard source.type != .fnMusic,
+                  let encoded = credential?.extra[FnConnectGatewayProtocol.credentialExtraKey] else {
+                return nil
+            }
+            return FnConnectGatewayCredential.decode(from: encoded)
+        }()
+        return try await FnConnectGatewayContext.$overrideCredential.withValue(gatewayCredential) {
+            try await FnConnectGatewayContext.$sourceID.withValue(source.id) {
+                try await operation()
+            }
+        }
+    }
+
+    private static func attachingFnConnectGatewayHeaders(
+        to stream: ResolvedStream,
+        source: MusicSource
+    ) async throws -> ResolvedStream {
+        guard source.type != .fnMusic,
+              FnConnectGatewayAddress.interceptedAddress(for: stream.url) != nil,
+              let gatewayHeaders = try await FnConnectGatewaySessionStore.shared.headers(for: stream.url),
+              !gatewayHeaders.isEmpty else {
+            return stream
+        }
+        var updated = stream
+        updated.headers = FnConnectGatewayProtocol.mergeHeaders(
+            existing: updated.headers,
+            gatewayHeaders: gatewayHeaders
+        )
+        return updated
     }
 
     private func withRoutedSource<T: Sendable>(

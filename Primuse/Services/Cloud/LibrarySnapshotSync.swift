@@ -2017,6 +2017,14 @@ final class LibrarySnapshotSync: Sendable {
                !accountToken.isEmpty {
                 entry.extra[PlexAccountAPI.accountTokenCredentialKey] = accountToken
             }
+            if source.type != .fnMusic,
+               let gatewayCredential = FnConnectGatewayCredentialStore.loadEffectiveCredential(
+                   for: source,
+                   allSources: sources
+               ),
+               let encodedGateway = gatewayCredential.encodedJSONString() {
+                entry.extra[FnConnectGatewayProtocol.credentialExtraKey] = encodedGateway
+            }
             let tokenManager = CloudTokenManager(sourceID: source.id)
             switch await tokenManager.lookupTokens() {
             case .found(let tokens):

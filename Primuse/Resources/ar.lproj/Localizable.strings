@@ -2029,7 +2029,7 @@
 "lyrics_converter_copied" = "تم نسخ الكلمات المحولة";
 "lyrics_converter_copy" = "نسخ كلمات الأغاني المحولة";
 "lyrics_converter_decode_failed" = "Primuse تعذر فك تشفير ملف الكلمات الغنائية هذا كنص.";
-"lyrics_converter_drop_hint" = "يدعم .lrc، .ttml، .xml، و.txt";
+"lyrics_converter_drop_hint" = "يدعم .lrc و.elrc و.ttml و.xml و.lys و.yrc و.qrc و.krc و.vtt و.srt و.ass و.ssa و.lyl و.txt";
 "lyrics_converter_drop_title" = "قم بإسقاط ملف كلمات الأغنية، أو الصقه هنا";
 "lyrics_converter_empty_notice" = "اختر ملفًا أو الصق الكلمات. التحويل يبقى على هذا Mac.";
 "lyrics_converter_error_title" = "فشل تحويل الكلمات";
@@ -2046,11 +2046,14 @@
 "lyrics_converter_overview_empty" = "قم بإسقاط ملف كلمات الأغاني أو لصق محتوياته للبدء";
 "lyrics_converter_plain_notice" = "يزيل إخراج النص العادي معلومات التوقيت والصوت.";
 "lyrics_converter_preserve_notice" = "سيتم الحفاظ على توقيت السطر والكلمة الموجود.";
-"lyrics_converter_subtitle" = "تحويل LRC وTTML ونص عادي دون ترك Primuse";
+"lyrics_converter_subtitle" = "حوّل بين LRC وTTML وSRT والنص العادي دون مغادرة Primuse";
 "lyrics_converter_summary_format" = "%1$d أسطر · %2$d متزامن · %3$d بتوقيت الكلمات";
 "lyrics_converter_title" = "محول الأغاني";
 "lyrics_converter_ttml_help" = "Apple Music-متوافق مع TTML";
 "lyrics_converter_txt_help" = "نص عادي بدون توقيت";
+"lyrics_converter_companion_timing_notice" = "يُحتفظ بالنص، لكن التوقيت على مستوى الكلمات للنطق أو الترجمة يُحفظ في TTML فقط.";
+"lyrics_converter_encrypted_krc" = "لا يمكن فك تشفير ملفات KRC الثنائية المشفرة كنص مباشرة.";
+"lyrics_converter_srt_help" = "ترجمات SubRip (.srt) بتوقيت الأسطر";
 "lyrics_converter_voice_notice" = "LRC يحتفظ بكل سطر، لكن محاذاة صوت TTML مسطحة.";
 "lyrics_display_section" = "العرض";
 "lyrics_editor_add_line" = "إضافة سطر";
@@ -8189,3 +8192,15 @@
 "player_audio_info_show_equalizer" = "إظهار معلومات المعادل";
 "player_audio_info_show_equalizer_footer" = "يعرض إعداد المعادل النشط أسفل شريط التقدم عند تفعيله وعدم تجاوزه.";
 "now_playing_audio_eq_bypassed" = "%@ (تم تجاوزه في وضع الدقة العالية)";
+
+"source_address_reading_fnconnect_gateway %@" = "بوابة FN Connect (%@)";
+"fnconnect_gateway_section" = "بوابة FN Connect";
+"fnconnect_gateway_account" = "حساب البوابة";
+"fnconnect_gateway_reuse_option %@ %@" = "إعادة استخدام %@ · %@";
+"fnconnect_gateway_other_account" = "استخدام حساب آخر…";
+"fnconnect_gateway_username" = "اسم مستخدم NAS";
+"fnconnect_gateway_password" = "كلمة مرور NAS";
+"fnconnect_gateway_access_code" = "رمز الوصول (اختياري)";
+"fnconnect_gateway_2fa_title" = "التحقق من FN Connect";
+"fnconnect_gateway_2fa_code" = "رمز من 6 أرقام";
+"fnconnect_gateway_2fa_verify" = "تحقق";

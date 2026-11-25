@@ -3177,6 +3177,7 @@ struct LyricsFormatConverterView: View {
             HStack(spacing: PMSpace.s) {
                 converterHeaderPill("LRC")
                 converterHeaderPill("TTML")
+                converterHeaderPill("SRT")
                 converterHeaderPill("TXT")
             }
         }
@@ -3406,12 +3407,18 @@ struct LyricsFormatConverterView: View {
                         .padding(PMSpace.m16)
                 } else {
                     VStack(spacing: PMSpace.s8) {
-                        Image(systemName: conversionIssue == nil ? "text.document" : "exclamationmark.triangle")
+                        Image(systemName: conversionIssue == nil
+                              ? "text.document"
+                              : (conversionIssue == .requiresTiming ? "clock.badge.exclamationmark" : "exclamationmark.triangle"))
                             .font(.system(size: 30, weight: .regular))
-                            .foregroundStyle(conversionIssue == nil ? PMColor.textFaint : PMColor.bad)
+                            .foregroundStyle(conversionIssue == nil
+                                             ? PMColor.textFaint
+                                             : (conversionIssue == .requiresTiming ? PMColor.warn : PMColor.bad))
                         Text(conversionIssue == nil
                              ? String(localized: "lyrics_converter_output_placeholder")
-                             : String(localized: "lyrics_converter_invalid_notice"))
+                             : (conversionIssue == .requiresTiming
+                                ? String(localized: "lyrics_converter_no_timing_notice")
+                                : String(localized: "lyrics_converter_invalid_notice")))
                             .font(PMFont.bodyM)
                             .foregroundStyle(PMColor.textMuted)
                             .multilineTextAlignment(.center)
@@ -3534,29 +3541,9 @@ struct LyricsFormatConverterView: View {
 
     // MARK: Conversion state
 
-    private var detectedSourceFormat: MacLyricsDetectedFormat {
-        guard !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .empty
-        }
-        if LyricsContentParser.isTTML(sourceText) {
-            return conversion == nil ? .invalid : .ttml
-        }
-        // A subtitle document parses into line- or word-timed lyrics, so the
-        // conversion alone can no longer tell what the user pasted in.
-        if let subtitle = SubtitleLyricsParser.detect(sourceText) {
-            guard conversion != nil else { return .invalid }
-            switch subtitle {
-            case .webVTT: return .webVTT
-            case .subRip: return .subRip
-            case .substationAlpha: return .substationAlpha
-            }
-        }
-        guard let conversion else { return .invalid }
-        switch conversion.sourceFormat {
-        case .plain: return .plain
-        case .lineLevel: return .lrc
-        case .wordLevel: return .elrc
-        }
+    private var detectedSourceFormat: LyricsDetectedSourceFormat {
+        if let conversion { return conversion.detectedFormat }
+        return LyricsFileConverter.detectFormat(sourceText)
     }
 
     private var currentNotice: LyricsConverterNotice {
@@ -3565,6 +3552,13 @@ struct LyricsFormatConverterView: View {
                 icon: "info.circle",
                 color: PMColor.textFaint,
                 text: String(localized: "lyrics_converter_empty_notice")
+            )
+        }
+        if conversionIssue == .requiresTiming {
+            return LyricsConverterNotice(
+                icon: "clock.badge.exclamationmark",
+                color: PMColor.warn,
+                text: String(localized: "lyrics_converter_no_timing_notice")
             )
         }
         guard let conversion else {
@@ -3577,17 +3571,21 @@ struct LyricsFormatConverterView: View {
 
         let lines = conversion.lines
         let hasTiming = lines.contains(where: \.isSynchronized)
-        let hasVoices = lines.contains { line in
-            line.voice == .secondary || !(line.background?.isEmpty ?? true)
-        }
-        if targetFormat == .plainText, hasTiming || hasVoices {
+        if targetFormat == .plainText, hasTiming || conversion.flattensVoices {
             return LyricsConverterNotice(
                 icon: "exclamationmark.triangle.fill",
                 color: PMColor.warn,
                 text: String(localized: "lyrics_converter_plain_notice")
             )
         }
-        if targetFormat == .lrc, hasVoices {
+        if conversion.dropsCompanionWordTiming {
+            return LyricsConverterNotice(
+                icon: "waveform.badge.exclamationmark",
+                color: PMColor.warn,
+                text: String(localized: "lyrics_converter_companion_timing_notice")
+            )
+        }
+        if conversion.flattensVoices {
             return LyricsConverterNotice(
                 icon: "person.2.wave.2",
                 color: PMColor.warn,
@@ -3613,7 +3611,7 @@ struct LyricsFormatConverterView: View {
             format: String(localized: "lyrics_converter_summary_format"),
             lines.count,
             lines.filter(\.isSynchronized).count,
-            lines.filter(\.isWordLevel).count
+            lines.filter(\.containsWordLevelContent).count
         )
     }
 
@@ -3652,14 +3650,20 @@ struct LyricsFormatConverterView: View {
             defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
 
             if let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-               size > 4 * 1_024 * 1_024 {
+               size > LyricsFileConverter.maximumFileBytes {
                 throw LyricsConverterFileError.tooLarge
             }
             let data = try Data(contentsOf: url)
-            guard var decoded = Self.decodeLyricsText(data) else {
+            let decoded: String
+            do {
+                decoded = try LyricsFileConverter.decodeText(from: data)
+            } catch LyricsFileDecodeError.tooLarge {
+                throw LyricsConverterFileError.tooLarge
+            } catch LyricsFileDecodeError.encryptedKRC {
+                throw LyricsConverterFileError.encryptedKRC
+            } catch {
                 throw LyricsConverterFileError.cannotDecode
             }
-            if decoded.first == "\u{FEFF}" { decoded.removeFirst() }
 
             sourceFileName = url.lastPathComponent
             sourceText = decoded
@@ -3668,24 +3672,6 @@ struct LyricsFormatConverterView: View {
         } catch {
             alertMessage = error.localizedDescription
         }
-    }
-
-    private static func decodeLyricsText(_ data: Data) -> String? {
-        TextEncodingRepair.bestDecoding(
-            of: data,
-            encodings: [
-                .utf8,
-                .utf16,
-                .utf16LittleEndian,
-                .utf16BigEndian,
-                TextEncodingRepair.gb18030,
-                TextEncodingRepair.big5,
-                .shiftJIS,
-                TextEncodingRepair.eucKR,
-                .windowsCP1252,
-                .isoLatin1,
-            ]
-        )
     }
 
     private func copyOutput() {
@@ -3710,23 +3696,18 @@ struct LyricsFormatConverterView: View {
     }
 }
 
-private enum MacLyricsDetectedFormat {
-    case empty
-    case lrc
-    case elrc
-    case ttml
-    case webVTT
-    case subRip
-    case substationAlpha
-    case plain
-    case invalid
-
+private extension LyricsDetectedSourceFormat {
     var label: String {
         switch self {
         case .empty: "—"
         case .lrc: "LRC"
         case .elrc: "ELRC"
         case .ttml: "TTML"
+        case .lys: "LYS"
+        case .yrc: "YRC"
+        case .qrc: "QRC"
+        case .krc: "KRC"
+        case .lyl: "LYL"
         case .webVTT: "VTT"
         case .subRip: "SRT"
         case .substationAlpha: "ASS"
@@ -3739,12 +3720,11 @@ private enum MacLyricsDetectedFormat {
     var color: Color {
         switch self {
         case .empty: PMColor.textFaint
-        case .lrc: PMColor.ok
-        case .elrc: PMColor.dsd
+        case .lrc, .lyl: PMColor.ok
+        case .elrc, .lys, .yrc, .qrc, .krc: PMColor.dsd
         case .ttml: PMColor.brand
         case .webVTT: PMColor.flac
-        case .subRip: PMColor.warn
-        case .substationAlpha: PMColor.warn
+        case .subRip, .substationAlpha: PMColor.warn
         case .plain: PMColor.textMuted
         case .invalid: PMColor.bad
         }
@@ -3759,11 +3739,13 @@ private struct LyricsConverterNotice {
 
 private enum LyricsConverterFileError: LocalizedError {
     case tooLarge
+    case encryptedKRC
     case cannotDecode
 
     var errorDescription: String? {
         switch self {
         case .tooLarge: String(localized: "lyrics_converter_file_too_large")
+        case .encryptedKRC: String(localized: "lyrics_converter_encrypted_krc")
         case .cannotDecode: String(localized: "lyrics_converter_decode_failed")
         }
     }
@@ -3771,13 +3753,16 @@ private enum LyricsConverterFileError: LocalizedError {
 
 private struct LyricsConverterDocument: FileDocument {
     static var readableContentTypes: [UTType] {
-        // Subtitle documents are readable input only; the converter still
-        // writes LRC, TTML or plain text.
-        [.primuseLRC, .primuseTTML, .primuseWebVTT, .primuseSubRip, .primuseSubStationAlpha, .xml, .plainText]
+        [
+            .primuseLRC, .primuseELRC, .primuseTTML,
+            .primuseLYS, .primuseYRC, .primuseQRC, .primuseKRC, .primuseLYL,
+            .primuseWebVTT, .primuseSubRip, .primuseSubStationAlpha, .primuseSSA,
+            .xml, .plainText,
+        ]
     }
 
     static var writableContentTypes: [UTType] {
-        [.primuseLRC, .primuseTTML, .plainText]
+        [.primuseLRC, .primuseTTML, .primuseSubRip, .plainText]
     }
 
     var text: String = ""
@@ -3788,7 +3773,7 @@ private struct LyricsConverterDocument: FileDocument {
 
     init(configuration: ReadConfiguration) throws {
         guard let data = configuration.file.regularFileContents,
-              let value = String(data: data, encoding: .utf8) else {
+              let value = try? LyricsFileConverter.decodeText(from: data) else {
             throw LyricsConverterFileError.cannotDecode
         }
         text = value
@@ -3801,12 +3786,20 @@ private struct LyricsConverterDocument: FileDocument {
 
 private extension UTType {
     static let primuseLRC = UTType(filenameExtension: "lrc", conformingTo: .plainText) ?? .plainText
+    static let primuseELRC = UTType(filenameExtension: "elrc", conformingTo: .plainText) ?? .plainText
     static let primuseTTML = UTType(filenameExtension: "ttml", conformingTo: .xml) ?? .xml
+    static let primuseLYS = UTType(filenameExtension: "lys", conformingTo: .plainText) ?? .plainText
+    static let primuseYRC = UTType(filenameExtension: "yrc", conformingTo: .plainText) ?? .plainText
+    static let primuseQRC = UTType(filenameExtension: "qrc", conformingTo: .plainText) ?? .plainText
+    static let primuseKRC = UTType(filenameExtension: "krc", conformingTo: .data) ?? .data
+    static let primuseLYL = UTType(filenameExtension: "lyl", conformingTo: .plainText) ?? .plainText
     static let primuseWebVTT = UTType(filenameExtension: "vtt", conformingTo: .plainText)
         ?? .plainText
     static let primuseSubRip = UTType(filenameExtension: "srt", conformingTo: .plainText)
         ?? .plainText
     static let primuseSubStationAlpha = UTType(filenameExtension: "ass", conformingTo: .plainText)
+        ?? .plainText
+    static let primuseSSA = UTType(filenameExtension: "ssa", conformingTo: .plainText)
         ?? .plainText
 }
 
@@ -3815,6 +3808,7 @@ private extension LyricsFileFormat {
         switch self {
         case .lrc: "LRC"
         case .ttml: "TTML"
+        case .srt: "SRT"
         case .plainText: "TXT"
         }
     }
@@ -3823,6 +3817,7 @@ private extension LyricsFileFormat {
         switch self {
         case .lrc: "lrc"
         case .ttml: "ttml"
+        case .srt: "srt"
         case .plainText: "txt"
         }
     }
@@ -3831,6 +3826,7 @@ private extension LyricsFileFormat {
         switch self {
         case .lrc: .primuseLRC
         case .ttml: .primuseTTML
+        case .srt: .primuseSubRip
         case .plainText: .plainText
         }
     }
@@ -3839,6 +3835,7 @@ private extension LyricsFileFormat {
         switch self {
         case .lrc: "text.badge.checkmark"
         case .ttml: "chevron.left.forwardslash.chevron.right"
+        case .srt: "captions.bubble"
         case .plainText: "text.alignleft"
         }
     }
@@ -3847,6 +3844,7 @@ private extension LyricsFileFormat {
         switch self {
         case .lrc: String(localized: "lyrics_converter_lrc_help")
         case .ttml: String(localized: "lyrics_converter_ttml_help")
+        case .srt: String(localized: "lyrics_converter_srt_help")
         case .plainText: String(localized: "lyrics_converter_txt_help")
         }
     }

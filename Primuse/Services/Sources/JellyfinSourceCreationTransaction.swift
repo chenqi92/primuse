@@ -34,6 +34,13 @@ struct MediaServerSourceCreationFailure: Identifiable, Equatable, Sendable {
     let message: String
 
     static func connection(_ error: any Error) -> Self {
+        if let gatewayError = error as? FnConnectGatewayError {
+            return Self(
+                kind: .authentication,
+                title: String(localized: "fnconnect_gateway_section"),
+                message: gatewayError.localizedDescription
+            )
+        }
         if let sourceError = error as? SourceError {
             switch sourceError {
             case .authenticationFailed:
@@ -209,6 +216,7 @@ final class MediaServerSourceCreationTransaction {
     func submit(
         source: MusicSource,
         secret: String,
+        gatewayCredential: FnConnectGatewayCredential? = nil,
         persistCredential: @escaping @MainActor (String, String) -> Bool,
         removeCredential: @escaping @MainActor (String) -> Bool,
         persistSource: @escaping @MainActor (MusicSource) throws -> Void,
@@ -225,8 +233,12 @@ final class MediaServerSourceCreationTransaction {
 
         task = Task { @MainActor [weak self] in
             do {
-                try await AsyncOperationTimeout.run(seconds: timeout) {
-                    try await preflight(source, secret)
+                try await FnConnectGatewayContext.$overrideCredential.withValue(gatewayCredential) {
+                    try await FnConnectGatewayContext.$sourceID.withValue(source.id) {
+                        try await AsyncOperationTimeout.run(seconds: timeout) {
+                            try await preflight(source, secret)
+                        }
+                    }
                 }
             } catch {
                 guard let self, self.generation == requestGeneration else { return }

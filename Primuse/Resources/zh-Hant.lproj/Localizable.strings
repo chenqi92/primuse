@@ -3408,14 +3408,14 @@
 
 /* MARK: - macOS 歌詞格式轉換 */
 "lyrics_converter_title" = "歌詞格式轉換";
-"lyrics_converter_subtitle" = "在 LRC、TTML 與純文字之間轉換";
+"lyrics_converter_subtitle" = "在 LRC、TTML、SRT 與純文字之間轉換";
 "lyrics_converter_input" = "輸入";
 "lyrics_converter_output" = "輸出";
 "lyrics_converter_overview_empty" = "拖入歌詞檔案或貼上內容即可開始";
 "lyrics_converter_choose_file" = "選擇檔案";
 "lyrics_converter_change_file" = "更換";
 "lyrics_converter_drop_title" = "拖入歌詞檔案，或直接貼上";
-"lyrics_converter_drop_hint" = "支援 .lrc、.ttml、.xml 和 .txt";
+"lyrics_converter_drop_hint" = "支援 .lrc、.elrc、.ttml、.xml、.lys、.yrc、.qrc、.krc、.vtt、.srt、.ass、.ssa、.lyl 和 .txt";
 "lyrics_converter_output_placeholder" = "轉換結果會即時顯示在這裡";
 "lyrics_converter_empty_notice" = "請選擇檔案或貼上歌詞，轉換只在本機完成。";
 "lyrics_converter_invalid_notice" = "無法解析歌詞，請檢查文件結構和時間標記。";
@@ -3434,6 +3434,9 @@
 "lyrics_converter_lrc_help" = "LRC；逐字時間會保留為增強 LRC";
 "lyrics_converter_ttml_help" = "相容 Apple Music 的 TTML";
 "lyrics_converter_txt_help" = "不含時間軸的純文字";
+"lyrics_converter_companion_timing_notice" = "目標格式會保留原文與羅馬音/譯文文字，但附屬軌的逐字時間軸僅在 TTML 中保留。";
+"lyrics_converter_encrypted_krc" = "加密的二進位 KRC 檔案無法直接解碼為文字，請先解密為明文 KRC。";
+"lyrics_converter_srt_help" = "SRT 字幕，保留行級時間軸與內附譯文/羅馬音";
 "reread_album_cover" = "補讀專輯封面";
 "reread_album_cover_done" = "專輯封面已就緒";
 "reread_album_cover_not_found" = "在這張專輯中找不到可用的封面";
@@ -8260,3 +8263,15 @@
 "player_audio_info_show_equalizer" = "顯示等化器資訊";
 "player_audio_info_show_equalizer_footer" = "等化器開啟且未直通時，在進度條下方顯示目前生效的等化器預設名稱。";
 "now_playing_audio_eq_bypassed" = "%@（高保真直通已略過）";
+
+"source_address_reading_fnconnect_gateway %@" = "FN Connect 閘道 (%@)";
+"fnconnect_gateway_section" = "FN Connect 閘道";
+"fnconnect_gateway_account" = "閘道帳號";
+"fnconnect_gateway_reuse_option %@ %@" = "重複使用 %@ · %@";
+"fnconnect_gateway_other_account" = "使用其他帳號…";
+"fnconnect_gateway_username" = "NAS 帳號";
+"fnconnect_gateway_password" = "NAS 密碼";
+"fnconnect_gateway_access_code" = "存取碼（選填）";
+"fnconnect_gateway_2fa_title" = "FN Connect 兩步驟驗證";
+"fnconnect_gateway_2fa_code" = "6 位數驗證碼";
+"fnconnect_gateway_2fa_verify" = "驗證";

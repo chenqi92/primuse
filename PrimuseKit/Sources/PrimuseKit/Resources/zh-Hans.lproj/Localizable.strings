@@ -1103,3 +1103,11 @@
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "评论 API 服务";
+
+"error.fnConnectGateway.missingCredential" = "缺少 FN Connect 网关账号或密码。";
+"error.fnConnectGateway.authenticationFailed" = "FN Connect 网关登录失败，请检查 NAS 账号和密码。";
+"error.fnConnectGateway.ipBanned" = "登录尝试次数过多，IP 已被 NAS 暂时封禁，请稍后再试。";
+"error.fnConnectGateway.twoFactorRequired" = "该 NAS 账号已开启两步验证，请重新编辑该来源完成验证。";
+"error.fnConnectGateway.twoFactorSetupRequired" = "该 NAS 要求先在网页端绑定两步验证后才能登录。";
+"error.fnConnectGateway.invalidTwoFactorCode" = "验证码无效或已过期，请重试。";
+"error.fnConnectGateway.entryTokenUnavailable" = "FN Connect 网关未能签发服务访问令牌。";

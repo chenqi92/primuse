@@ -38,6 +38,16 @@ extension SourceFileDeletionFailureReason {
         if let refusal = error as? MusicServerDeletionError {
             return refusal.deletionFailureReason
         }
+        if let gatewayError = error as? FnConnectGatewayError {
+            switch gatewayError {
+            case .missingCredential, .accessCodeRequired, .accessCodeRejected,
+                 .authenticationFailed, .ipBanned, .twoFactorRequired,
+                 .twoFactorSetupRequired, .invalidTwoFactorCode:
+                return .authenticationRequired
+            case .entryTokenUnavailable, .invalidResponse, .unreachable:
+                return .unavailable
+            }
+        }
         switch error {
         case SourceFileMutationError.permissionDenied: return .permissionDenied
         case SourceFileMutationError.readOnly: return .readOnly
@@ -331,6 +341,16 @@ enum AutomaticOfflineFailureClassifier {
             case .artifactLeased:
                 return .transient
             case .unboundedAutomaticTransfer:
+                return .sourceUnavailable
+            }
+        }
+        if let error = error as? FnConnectGatewayError {
+            switch error {
+            case .missingCredential, .accessCodeRequired, .accessCodeRejected,
+                 .authenticationFailed, .ipBanned, .twoFactorRequired,
+                 .twoFactorSetupRequired, .invalidTwoFactorCode:
+                return .authentication
+            case .entryTokenUnavailable, .invalidResponse, .unreachable:
                 return .sourceUnavailable
             }
         }
@@ -17719,6 +17739,7 @@ final class SourceManager {
         }
         try MusicSourceSecurityRevision.commitChange(for: sourceID)
         credentialChangesInProgress.remove(sourceID)
+        FnConnectGatewayCredentialStore.invalidateSession(forSourceID: sourceID)
         audioCacheSourceConfigurationsDidChange([sourceID])
     }
 
@@ -17798,6 +17819,7 @@ final class SourceManager {
         connectorScopeValidationPendingSourceIDs.removeAll()
         connectorScopeValidationGenerationBySourceID.removeAll()
         activeConnectionRoutes.removeAll()
+        await FnConnectGatewaySessionStore.shared.invalidateAll()
         lastSuccessfulConnectionRoutes.removeAll()
         connectionRouteOwners.removeAll()
         playbackSourceAvailability = PlaybackSourceAvailabilityPolicy()

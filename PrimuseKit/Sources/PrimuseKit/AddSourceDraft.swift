@@ -66,6 +66,8 @@ public struct AddSourceDraft: Codable, Equatable, Sendable {
     public var rememberDevice: Bool
     public var addressRows: [AddressRow]
     public var selectedAddressRowID: UUID?
+    public var fnConnectGatewayScope: String?
+    public var fnConnectGatewayUsername: String?
 
     public init(
         sourceType: String,
@@ -93,7 +95,9 @@ public struct AddSourceDraft: Codable, Equatable, Sendable {
         autoConnect: Bool,
         rememberDevice: Bool,
         addressRows: [AddressRow],
-        selectedAddressRowID: UUID? = nil
+        selectedAddressRowID: UUID? = nil,
+        fnConnectGatewayScope: String? = nil,
+        fnConnectGatewayUsername: String? = nil
     ) {
         self.sourceType = sourceType
         self.editingSourceID = editingSourceID
@@ -121,6 +125,8 @@ public struct AddSourceDraft: Codable, Equatable, Sendable {
         self.rememberDevice = rememberDevice
         self.addressRows = addressRows
         self.selectedAddressRowID = selectedAddressRowID
+        self.fnConnectGatewayScope = fnConnectGatewayScope
+        self.fnConnectGatewayUsername = fnConnectGatewayUsername
     }
 }
 
@@ -130,15 +136,29 @@ public struct AddSourceDraftSecrets: Equatable, Sendable {
     public var password: String
     public var sshKey: String
     public var fnConnectAccessCode: String
+    public var fnConnectGatewayPassword: String
+    public var fnConnectGatewayAccessCode: String
 
-    public init(password: String = "", sshKey: String = "", fnConnectAccessCode: String = "") {
+    public init(
+        password: String = "",
+        sshKey: String = "",
+        fnConnectAccessCode: String = "",
+        fnConnectGatewayPassword: String = "",
+        fnConnectGatewayAccessCode: String = ""
+    ) {
         self.password = password
         self.sshKey = sshKey
         self.fnConnectAccessCode = fnConnectAccessCode
+        self.fnConnectGatewayPassword = fnConnectGatewayPassword
+        self.fnConnectGatewayAccessCode = fnConnectGatewayAccessCode
     }
 
     public var isEmpty: Bool {
-        password.isEmpty && sshKey.isEmpty && fnConnectAccessCode.isEmpty
+        password.isEmpty
+            && sshKey.isEmpty
+            && fnConnectAccessCode.isEmpty
+            && fnConnectGatewayPassword.isEmpty
+            && fnConnectGatewayAccessCode.isEmpty
     }
 }
 

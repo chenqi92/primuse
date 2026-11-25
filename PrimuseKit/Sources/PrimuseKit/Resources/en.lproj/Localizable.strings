@@ -1104,3 +1104,11 @@
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "Comment API servers";
+
+"error.fnConnectGateway.missingCredential" = "FN Connect gateway credentials are missing.";
+"error.fnConnectGateway.authenticationFailed" = "FN Connect gateway sign-in failed. Check your NAS username and password.";
+"error.fnConnectGateway.ipBanned" = "Too many sign-in attempts. Your IP is temporarily blocked by the NAS.";
+"error.fnConnectGateway.twoFactorRequired" = "Two-factor verification is required for this NAS account. Edit this source to verify.";
+"error.fnConnectGateway.twoFactorSetupRequired" = "This NAS requires binding two-factor authentication in the web portal first.";
+"error.fnConnectGateway.invalidTwoFactorCode" = "The verification code is invalid or expired. Try again.";
+"error.fnConnectGateway.entryTokenUnavailable" = "FN Connect gateway did not issue a service access token.";

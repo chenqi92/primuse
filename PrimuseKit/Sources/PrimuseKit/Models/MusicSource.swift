@@ -1907,6 +1907,9 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     /// Optional adaptive routing configuration. A missing value means a legacy
     /// single-route record and is projected without changing its behavior.
     public var connectionConfiguration: SourceConnectionConfiguration?
+    /// Optional FN Connect gateway authentication binding for third-party HTTP
+    /// services accessed through fnOS remote relay domains (`*.<fnID>.fnos.net`).
+    public var fnConnectGateway: FnConnectGatewayBinding?
     public var username: String?
     // Password stored in Keychain
     public var basePath: String?
@@ -1963,6 +1966,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         synologyConnectionMode: SynologyConnectionMode? = nil,
         fnMusicConnectionMode: FnMusicConnectionMode? = nil,
         connectionConfiguration: SourceConnectionConfiguration? = nil,
+        fnConnectGateway: FnConnectGatewayBinding? = nil,
         username: String? = nil,
         basePath: String? = nil,
         shareName: String? = nil,
@@ -1997,6 +2001,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.synologyConnectionMode = synologyConnectionMode
         self.fnMusicConnectionMode = fnMusicConnectionMode
         self.connectionConfiguration = connectionConfiguration
+        self.fnConnectGateway = fnConnectGateway
         self.username = username
         self.basePath = basePath
         self.shareName = shareName
@@ -2046,6 +2051,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
             SourceConnectionConfiguration.self,
             forKey: .connectionConfiguration
         )
+        self.fnConnectGateway = (try? c.decodeIfPresent(
+            FnConnectGatewayBinding.self,
+            forKey: .fnConnectGateway
+        )) ?? nil
         self.username = try c.decodeIfPresent(String.self, forKey: .username)
         self.basePath = try c.decodeIfPresent(String.self, forKey: .basePath)
         self.shareName = try c.decodeIfPresent(String.self, forKey: .shareName)
@@ -2492,6 +2501,37 @@ public extension MusicSource {
     var effectiveFnMusicConnectionMode: FnMusicConnectionMode {
         if let fnMusicConnectionMode { return fnMusicConnectionMode }
         return .address
+    }
+
+    /// FN Connect gateway hosts referenced by this source's configured endpoints.
+    /// Excludes `.fnMusic`, which uses Feiniu Music's own direct/relay API.
+    var fnConnectGatewayAddresses: [FnConnectGatewayAddress] {
+        guard type != .fnMusic, type.usesHTTPTransport else { return [] }
+        var rawHosts: [String] = []
+        if effectiveConnectionConfiguration != nil {
+            for candidate in configuredConnectionCandidates {
+                if let endpoint = candidate.endpoint, endpoint.isUsable {
+                    rawHosts.append(endpoint.host)
+                }
+            }
+        }
+        if rawHosts.isEmpty, let host = host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty {
+            rawHosts.append(host)
+        }
+        var seen = Set<String>()
+        var result: [FnConnectGatewayAddress] = []
+        for raw in rawHosts {
+            let hostValue: String
+            if raw.contains("://"), let urlHost = URL(string: raw)?.host {
+                hostValue = urlHost
+            } else {
+                hostValue = raw
+            }
+            guard let parsed = FnConnectGatewayAddress.parseHost(hostValue),
+                  seen.insert(parsed.host).inserted else { continue }
+            result.append(parsed)
+        }
+        return result
     }
 
     /// Explicit multi-route data when present; otherwise a compatibility view

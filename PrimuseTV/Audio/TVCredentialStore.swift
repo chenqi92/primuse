@@ -106,6 +106,38 @@ enum TVCredentialStore {
                 cred.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey] = accessCode
             }
         }
+        if source.type != .fnMusic, source.type.usesHTTPTransport {
+            installGatewaySessionStoreIfNeeded()
+            if cred.extra[FnConnectGatewayProtocol.credentialExtraKey] == nil {
+                let encodedGateway: String? = {
+                    if let binding = source.fnConnectGateway {
+                        switch binding.scope {
+                        case .dedicated:
+                            if let dedicated = keychainPassword(
+                                account: FnConnectGatewayProtocol.sourceCredentialAccount(sourceID: source.id)
+                            ) {
+                                return dedicated
+                            }
+                        case .shared:
+                            if let shared = keychainPassword(
+                                account: FnConnectGatewayProtocol.sharedCredentialAccount(fnID: binding.fnID)
+                            ) {
+                                return shared
+                            }
+                        }
+                    }
+                    if let fnID = source.fnConnectGateway?.fnID ?? source.fnConnectGatewayAddresses.first?.fnID {
+                        return keychainPassword(
+                            account: FnConnectGatewayProtocol.sharedCredentialAccount(fnID: fnID)
+                        )
+                    }
+                    return nil
+                }()
+                if let encodedGateway, !encodedGateway.isEmpty {
+                    cred.extra[FnConnectGatewayProtocol.credentialExtraKey] = encodedGateway
+                }
+            }
+        }
         if let relay = bundle?.relay, RelayStreamResolver.relayTypes.contains(source.type) {
             cred.extra["relay_host"] = relay.host
             cred.extra["relay_port"] = String(relay.port)
@@ -486,6 +518,70 @@ enum TVCredentialStore {
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
               let data = result as? Data else { return nil }
         return CredentialBundle.decode(data)
+    }
+
+    private static let gatewayProviderInstalledLock = NSLock()
+    nonisolated(unsafe) private static var gatewayProviderInstalled = false
+
+    static func installGatewaySessionStoreIfNeeded() {
+        gatewayProviderInstalledLock.lock()
+        let shouldInstall = !gatewayProviderInstalled
+        if shouldInstall { gatewayProviderInstalled = true }
+        gatewayProviderInstalledLock.unlock()
+        guard shouldInstall else { return }
+
+        Task {
+            await FnConnectGatewaySessionStore.shared.configure(
+                credentialResolver: { _, fnID, _, explicitSourceID in
+                    if let sourceID = explicitSourceID,
+                       let raw = keychainPassword(account: FnConnectGatewayProtocol.sourceCredentialAccount(sourceID: sourceID)),
+                       let cred = FnConnectGatewayCredential.decode(from: raw) {
+                        return cred
+                    }
+                    if let raw = keychainPassword(account: FnConnectGatewayProtocol.sharedCredentialAccount(fnID: fnID)),
+                       let cred = FnConnectGatewayCredential.decode(from: raw) {
+                        return cred
+                    }
+                    return nil
+                },
+                sessionLoader: { fnID, username in
+                    let account = FnConnectGatewayProtocol.localSessionAccount(fnID: fnID, username: username)
+                    let query: [String: Any] = [
+                        kSecClass as String: kSecClassGenericPassword,
+                        kSecAttrService as String: PrimuseConstants.keychainServiceName,
+                        kSecAttrAccount as String: account,
+                        kSecReturnData as String: true,
+                        kSecMatchLimit as String: kSecMatchLimitOne,
+                        kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+                    ]
+                    var result: AnyObject?
+                    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+                          let data = result as? Data,
+                          let text = String(data: data, encoding: .utf8) else {
+                        return nil
+                    }
+                    return FnConnectGatewayPersistedSession.decode(from: text)
+                },
+                sessionSaver: { session in
+                    guard let encoded = session.encodedJSONString() else { return }
+                    let account = FnConnectGatewayProtocol.localSessionAccount(
+                        fnID: session.fnID,
+                        username: session.username
+                    )
+                    _ = upsert(data: Data(encoded.utf8), account: account)
+                },
+                sessionRemover: { fnID, username in
+                    let account = FnConnectGatewayProtocol.localSessionAccount(fnID: fnID, username: username)
+                    let query: [String: Any] = [
+                        kSecClass as String: kSecClassGenericPassword,
+                        kSecAttrService as String: PrimuseConstants.keychainServiceName,
+                        kSecAttrAccount as String: account,
+                        kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+                    ]
+                    _ = SecItemDelete(query as CFDictionary)
+                }
+            )
+        }
     }
 
     /// service = `PrimuseConstants.keychainServiceName`,account = sourceID。

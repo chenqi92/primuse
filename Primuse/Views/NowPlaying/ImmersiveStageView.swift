@@ -2,6 +2,44 @@ import Foundation
 import PrimuseKit
 import SwiftUI
 
+struct ImmersiveStageCompanion: Equatable {
+    let text: String
+    let syllables: [LyricSyllable]?
+    let writingDirection: LyricWritingDirection?
+
+    init(
+        text: String,
+        syllables: [LyricSyllable]? = nil,
+        writingDirection: LyricWritingDirection? = nil
+    ) {
+        self.text = text
+        self.syllables = syllables?.isEmpty == false ? syllables : nil
+        self.writingDirection = writingDirection
+    }
+
+    static func items(
+        for line: LyricLine,
+        translatedText: String?,
+        documentFallback: LyricWritingDirection
+    ) -> [ImmersiveStageCompanion] {
+        LyricCompanionTextPolicy.items(for: line, translatedText: translatedText).map { item in
+            let direction = LyricWritingDirectionPolicy.resolvePresentationDirection(
+                for: LyricLine(
+                    timestamp: line.timestamp,
+                    text: item.text,
+                    languageCode: item.languageCode
+                ),
+                documentFallback: documentFallback
+            )
+            return ImmersiveStageCompanion(
+                text: item.syllables != nil ? item.text : LyricCompanionTextPolicy.displayText(item.text),
+                syllables: item.syllables,
+                writingDirection: direction
+            )
+        }
+    }
+}
+
 struct ImmersiveStageLyric: Identifiable, Equatable {
     let id: Int
     let text: String
@@ -16,10 +54,9 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
     /// so they are nested instead of taking a row of their own — a row of
     /// their own would compete with the lead line for the current position.
     let background: [ImmersiveStageBackgroundLyric]
-    /// Authored rows that belong to this line but are not sung: a romanization
-    /// first, then a translation. They are resolved by the platform container,
-    /// which knows whether a translation is available at all.
-    let companions: [String]
+    /// Authored rows that belong to this line: a romanization first, then
+    /// translations, carrying optional per-word timing when authored.
+    let companions: [ImmersiveStageCompanion]
 
     init(
         id: Int,
@@ -32,7 +69,7 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
         endTime: TimeInterval? = nil,
         writingDirection: LyricWritingDirection? = nil,
         background: [ImmersiveStageBackgroundLyric] = [],
-        companions: [String] = []
+        companions: [ImmersiveStageCompanion] = []
     ) {
         self.id = id
         self.text = text
@@ -44,9 +81,14 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
         self.endTime = endTime
         self.writingDirection = writingDirection
         self.background = background
-        self.companions = companions.compactMap {
-            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+        self.companions = companions.compactMap { item in
+            let trimmed = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return ImmersiveStageCompanion(
+                text: trimmed,
+                syllables: item.syllables,
+                writingDirection: item.writingDirection
+            )
         }
     }
 }
@@ -60,7 +102,7 @@ struct ImmersiveStageBackgroundLyric: Identifiable, Equatable {
     let startTime: TimeInterval?
     let endTime: TimeInterval?
     let writingDirection: LyricWritingDirection?
-    let companions: [String]
+    let companions: [ImmersiveStageCompanion]
 
     init(
         id: String,
@@ -69,7 +111,7 @@ struct ImmersiveStageBackgroundLyric: Identifiable, Equatable {
         startTime: TimeInterval? = nil,
         endTime: TimeInterval? = nil,
         writingDirection: LyricWritingDirection? = nil,
-        companions: [String] = []
+        companions: [ImmersiveStageCompanion] = []
     ) {
         self.id = id
         self.text = text
@@ -77,7 +119,15 @@ struct ImmersiveStageBackgroundLyric: Identifiable, Equatable {
         self.startTime = startTime
         self.endTime = endTime
         self.writingDirection = writingDirection
-        self.companions = companions
+        self.companions = companions.compactMap { item in
+            let trimmed = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return ImmersiveStageCompanion(
+                text: trimmed,
+                syllables: item.syllables,
+                writingDirection: item.writingDirection
+            )
+        }
     }
 }
 
@@ -86,7 +136,7 @@ extension ImmersiveStageBackgroundLyric {
     static func rows(
         for line: LyricLine,
         documentFallback: LyricWritingDirection,
-        companions: (LyricLine) -> [String]
+        companions: (LyricLine) -> [ImmersiveStageCompanion]
     ) -> [ImmersiveStageBackgroundLyric] {
         (line.background ?? []).compactMap { background in
             let text = background.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1437,10 +1487,10 @@ struct ImmersiveStageView<Artwork: View>: View {
                     .opacity(0.78)
                     .accessibilityHidden(true)
                 }
-                kineticCompanions(background.companions, fontSize: fontSize * 0.7, appearance: companion)
+                kineticCompanions(background.companions, fontSize: fontSize * 0.7, appearance: companion, time: time, availableWidth: width)
             }
 
-            kineticCompanions(line.companions, fontSize: fontSize, appearance: companion)
+            kineticCompanions(line.companions, fontSize: fontSize, appearance: companion, time: time, availableWidth: width)
         }
         .frame(width: width)
         .environment(\.layoutDirection, layoutDirection(for: line))
@@ -2246,18 +2296,43 @@ struct ImmersiveStageView<Artwork: View>: View {
     }
 
     @ViewBuilder
-    private func kineticCompanions(_ texts: [String], fontSize: CGFloat, appearance: ImmersiveKineticLyricsPolicy.Appearance) -> some View {
-        ForEach(texts.indices, id: \.self) { slot in
-            lyricsTypeface.text(texts[slot], size: fontSize * 0.42, weight: .medium)
-                .foregroundStyle(ImmersiveStagePalette.text.opacity(0.72))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.72)
-                .fixedSize(horizontal: false, vertical: true)
-                .opacity(appearance.opacity)
-                .offset(y: CGFloat(appearance.offset) * fontSize * 0.5)
-                .blur(radius: CGFloat(appearance.blur) * fontSize * 0.5)
-                .accessibilityHidden(true)
+    private func kineticCompanions(
+        _ items: [ImmersiveStageCompanion],
+        fontSize: CGFloat,
+        appearance: ImmersiveKineticLyricsPolicy.Appearance,
+        time: TimeInterval,
+        availableWidth: CGFloat
+    ) -> some View {
+        ForEach(items.indices, id: \.self) { slot in
+            let item = items[slot]
+            Group {
+                if #available(tvOS 18.0, *), let syllables = item.syllables {
+                    ImmersiveSyllableCrestText(
+                        syllables: syllables,
+                        time: time,
+                        fontSize: fontSize * 0.42,
+                        lineLimit: 2,
+                        textAlignment: .center,
+                        isRightToLeft: item.writingDirection == .rightToLeft,
+                        glowColor: palette.primary,
+                        showsCrest: false,
+                        availableWidth: availableWidth,
+                        fontWeight: .medium,
+                        foregroundColor: ImmersiveStagePalette.text.opacity(0.84)
+                    )
+                } else {
+                    lyricsTypeface.text(item.text, size: fontSize * 0.42, weight: .medium)
+                        .foregroundStyle(ImmersiveStagePalette.text.opacity(0.72))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .opacity(appearance.opacity)
+            .offset(y: CGFloat(appearance.offset) * fontSize * 0.5)
+            .blur(radius: CGFloat(appearance.blur) * fontSize * 0.5)
+            .accessibilityHidden(true)
         }
     }
 
@@ -2288,24 +2363,79 @@ struct ImmersiveStageView<Artwork: View>: View {
                     availableWidth: availableWidth
                 )
                 stageCompanions(background.companions, fontSize: fontSize * 0.7, isActive: line.isActive,
-                                lineLimit: lineLimit, alignment: textAlignment)
+                                lineLimit: lineLimit, alignment: textAlignment, availableWidth: availableWidth)
             }
             stageCompanions(line.companions, fontSize: fontSize, isActive: line.isActive,
-                            lineLimit: lineLimit, alignment: textAlignment)
+                            lineLimit: lineLimit, alignment: textAlignment, availableWidth: availableWidth)
         }
         .environment(\.layoutDirection, layoutDirection(for: line))
     }
 
-    private func stageCompanions(_ texts: [String], fontSize: CGFloat, isActive: Bool,
-                                 lineLimit: Int, alignment: TextAlignment) -> some View {
-        ForEach(texts.indices, id: \.self) { slot in
-            lyricsTypeface.text(texts[slot], size: fontSize * 0.55, weight: .medium)
-                .foregroundStyle(ImmersiveStagePalette.text.opacity(isActive ? 0.62 : 0.34))
-                .multilineTextAlignment(alignment)
-                .lineLimit(lineLimit)
-                .minimumScaleFactor(0.72)
-                .fixedSize(horizontal: false, vertical: true)
+    @ViewBuilder
+    private func stageCompanions(
+        _ items: [ImmersiveStageCompanion],
+        fontSize: CGFloat,
+        isActive: Bool,
+        lineLimit: Int,
+        alignment: TextAlignment,
+        availableWidth: CGFloat? = nil
+    ) -> some View {
+        let companionSize = fontSize * 0.55
+        ForEach(items.indices, id: \.self) { slot in
+            let item = items[slot]
+            if isActive, let syllables = item.syllables {
+                TimelineView(.animation(
+                    minimumInterval: reduceMotion ? 0.10 : frameRate.minimumInterval(base: 1 / 30),
+                    paused: !playbackClockIsActive || isResting
+                )) { _ in
+                    let now = playbackTime?() ?? track.elapsed
+                    if #available(tvOS 18.0, *) {
+                        ImmersiveSyllableCrestText(
+                            syllables: syllables,
+                            time: now,
+                            fontSize: companionSize,
+                            lineLimit: lineLimit,
+                            textAlignment: alignment,
+                            isRightToLeft: item.writingDirection == .rightToLeft,
+                            glowColor: palette.primary,
+                            showsCrest: false,
+                            availableWidth: availableWidth,
+                            fontWeight: .medium,
+                            foregroundColor: ImmersiveStagePalette.text.opacity(0.76)
+                        )
+                    } else {
+                        let progress = ImmersiveLyricHighlightProgressPolicy.progress(in: syllables, at: now)
+                        let baseText = lyricsTypeface.text(item.text, size: companionSize, weight: .medium)
+                            .multilineTextAlignment(alignment)
+                            .lineLimit(lineLimit)
+                            .minimumScaleFactor(0.72)
+                            .fixedSize(horizontal: false, vertical: true)
+                        baseText
+                            .foregroundStyle(ImmersiveStagePalette.text.opacity(0.32))
+                            .overlay {
+                                baseText
+                                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.76))
+                                    .mask {
+                                        ImmersiveLyricFillMask(
+                                            progress: min(1, max(0, progress)),
+                                            text: item.text,
+                                            fontSize: companionSize,
+                                            isRightToLeft: item.writingDirection == .rightToLeft
+                                        )
+                                    }
+                            }
+                    }
+                }
                 .accessibilityHidden(true)
+            } else {
+                lyricsTypeface.text(item.text, size: companionSize, weight: .medium)
+                    .foregroundStyle(ImmersiveStagePalette.text.opacity(isActive ? 0.62 : 0.34))
+                    .multilineTextAlignment(alignment)
+                    .lineLimit(lineLimit)
+                    .minimumScaleFactor(0.72)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
+            }
         }
     }
 

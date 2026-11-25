@@ -1053,3 +1053,11 @@
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "Серверы API комментариев";
+
+"error.fnConnectGateway.missingCredential" = "Отсутствуют учётные данные шлюза FN Connect.";
+"error.fnConnectGateway.authenticationFailed" = "Не удалось войти в шлюз FN Connect. Проверьте имя пользователя и пароль NAS.";
+"error.fnConnectGateway.ipBanned" = "Слишком много попыток входа. Ваш IP временно заблокирован NAS.";
+"error.fnConnectGateway.twoFactorRequired" = "Для этой учётной записи NAS требуется двухфакторная проверка. Отредактируйте источник для подтверждения.";
+"error.fnConnectGateway.twoFactorSetupRequired" = "На этом NAS сначала нужно настроить двухфакторную аутентификацию в веб-интерфейсе.";
+"error.fnConnectGateway.invalidTwoFactorCode" = "Неверный или просроченный код подтверждения. Попробуйте ещё раз.";
+"error.fnConnectGateway.entryTokenUnavailable" = "Шлюз FN Connect не выдал токен доступа к сервису.";

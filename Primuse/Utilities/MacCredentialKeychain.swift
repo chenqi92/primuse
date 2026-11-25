@@ -288,6 +288,14 @@ final class MacCredentialKeychain: @unchecked Sendable {
         guard source.type.requiresCredentials, source.authType != .none else { return false }
         var accounts = [source.id]
         if source.type == .fnMusic { accounts.append(FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)) }
+        if source.type != .fnMusic, let binding = source.fnConnectGateway {
+            switch binding.scope {
+            case .dedicated:
+                accounts.append(FnConnectGatewayProtocol.sourceCredentialAccount(sourceID: source.id))
+            case .shared:
+                accounts.append(FnConnectGatewayProtocol.sharedCredentialAccount(fnID: binding.fnID))
+            }
+        }
         if source.type == .plex { accounts.append(PlexAccountAPI.accountTokenKeychainAccount(sourceID: source.id)) }
         var recovered = false
         for account in accounts {

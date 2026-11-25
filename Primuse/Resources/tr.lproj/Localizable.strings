@@ -167,7 +167,7 @@
 "lyrics_editor_info_line_badge" = "Bilgi";
 "lyrics_editor_plain_text" = "Zaman damgasız şarkı sözleri";
 "immersive_demo_lyric_01" = "Müzik şu anda tüm odayı dolduruyor";
-"lyrics_converter_subtitle" = "LRC, TTML ve düz metni Primuse'den ayrılmadan dönüştürün";
+"lyrics_converter_subtitle" = "Primuse'den ayrılmadan LRC, TTML, SRT ve düz metin arasında dönüştürün";
 "format_label" = "Biçim";
 "cloud_guide_google" = "OAuth kimlik bilgileri oluşturmak için console.cloud.google.com adresine gidin";
 "source_connection_public_direct" = "İnternet adresi";
@@ -745,6 +745,9 @@
 "yearly_personality_lfnm_name" = "Mehtaplı Adanmış";
 "lyrics_translation_cache_section" = "Çeviri Önbelleği";
 "lyrics_converter_txt_help" = "Zamanlama olmadan düz metin";
+"lyrics_converter_companion_timing_notice" = "Metin korunur, ancak okunuş veya çevirilerdeki kelime düzeyinde zamanlama yalnızca TTML içinde korunur.";
+"lyrics_converter_encrypted_krc" = "Şifreli ikili KRC dosyaları doğrudan metin olarak çözülemez.";
+"lyrics_converter_srt_help" = "Satır zamanlamalı SubRip (.srt) altyazıları";
 "date_added_label" = "Eklenme Tarihi";
 "Source Status" = "Kaynak Durumu";
 "tag_editor_field_file_size" = "Dosya Boyutu";
@@ -3200,7 +3203,7 @@
 "theme_color_mode_fixed" = "Sabit Renk";
 "home_pipeline_metadata_done" = "Bitti";
 "theme_color_mode_auto" = "Kapak Resminden";
-"lyrics_converter_drop_hint" = ".lrc, .ttml, .xml ve .txt'yi destekler";
+"lyrics_converter_drop_hint" = ".lrc, .elrc, .ttml, .xml, .lys, .yrc, .qrc, .krc, .vtt, .srt, .ass, .ssa, .lyl ve .txt desteklenir";
 "metadata_status_continue_started" = "Okuma devam ediyor. Okunamayan şarkılar kaydedilecek ve atlanacaktır.";
 "cloud_setup_step_create_app" = "Bir uygulama oluşturun ve Müşteri Kimliğini (ve Müşteri Sırrını) edinin";
 "desktop_widget_sync_explanation_title" = "Masaüstü widget senkronizasyonunu etkinleştir";
@@ -8189,3 +8192,15 @@
 "player_audio_info_show_equalizer" = "Ekolayzer Bilgisini Göster";
 "player_audio_info_show_equalizer_footer" = "EQ açık ve atlanmamışken ilerleme çubuğunun altında etkin ekolayzer ön ayarını gösterir.";
 "now_playing_audio_eq_bypassed" = "%@ (Yüksek Doğruluk Modunda Atlandı)";
+
+"source_address_reading_fnconnect_gateway %@" = "FN Connect Ağ Geçidi (%@)";
+"fnconnect_gateway_section" = "FN Connect Ağ Geçidi";
+"fnconnect_gateway_account" = "Ağ Geçidi Hesabı";
+"fnconnect_gateway_reuse_option %@ %@" = "%@ · %@ yeniden kullan";
+"fnconnect_gateway_other_account" = "Başka hesap kullan…";
+"fnconnect_gateway_username" = "NAS Kullanıcı Adı";
+"fnconnect_gateway_password" = "NAS Parolası";
+"fnconnect_gateway_access_code" = "Erişim Kodu (İsteğe Bağlı)";
+"fnconnect_gateway_2fa_title" = "FN Connect Doğrulaması";
+"fnconnect_gateway_2fa_code" = "6 Haneli Kod";
+"fnconnect_gateway_2fa_verify" = "Doğrula";

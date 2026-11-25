@@ -1540,16 +1540,22 @@ struct MacImmersivePlayerView: View {
                 background: ImmersiveStageBackgroundLyric.rows(
                     for: line,
                     documentFallback: documentDirection,
-                    companions: lyricCompanions
+                    companions: { lyricCompanions($0, documentDirection: documentDirection) }
                 ),
-                companions: lyricCompanions(line)
+                companions: lyricCompanions(line, documentDirection: documentDirection)
             )
         }
     }
 
-    private func lyricCompanions(_ line: LyricLine) -> [String] {
-        LyricCompanionTextPolicy.texts(for: line, translatedText: translatedTextByLineID[line.id])
-            .map(LyricCompanionTextPolicy.displayText)
+    private func lyricCompanions(
+        _ line: LyricLine,
+        documentDirection: LyricWritingDirection
+    ) -> [ImmersiveStageCompanion] {
+        ImmersiveStageCompanion.items(
+            for: line,
+            translatedText: translatedTextByLineID[line.id],
+            documentFallback: documentDirection
+        )
     }
 
     private func immersiveLineEnd(at position: Int) -> TimeInterval? {

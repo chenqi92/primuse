@@ -1106,3 +1106,11 @@
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "Kommentar-API-Server";
+
+"error.fnConnectGateway.missingCredential" = "Anmeldedaten für das FN Connect-Gateway fehlen.";
+"error.fnConnectGateway.authenticationFailed" = "Anmeldung am FN Connect-Gateway fehlgeschlagen. Prüfe NAS-Benutzername und Passwort.";
+"error.fnConnectGateway.ipBanned" = "Zu viele Anmeldeversuche. Deine IP wurde vom NAS vorübergehend gesperrt.";
+"error.fnConnectGateway.twoFactorRequired" = "Für dieses NAS-Konto ist eine Zwei-Faktor-Verifizierung erforderlich. Bearbeite die Quelle zur Verifizierung.";
+"error.fnConnectGateway.twoFactorSetupRequired" = "Dieses NAS erfordert zuerst die Einrichtung der Zwei-Faktor-Authentifizierung im Webportal.";
+"error.fnConnectGateway.invalidTwoFactorCode" = "Der Bestätigungscode ist ungültig oder abgelaufen. Bitte erneut versuchen.";
+"error.fnConnectGateway.entryTokenUnavailable" = "Das FN Connect-Gateway hat kein Dienst-Zugriffstoken ausgestellt.";

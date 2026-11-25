@@ -340,7 +340,11 @@ public enum StreamResolverHTTPTransport {
         redirectMode: StreamResolverHTTPRedirectMode = .safe
     ) async throws -> (URL, URLResponse) {
         guard requiresPlainHTTPTransport(request.url ?? URL(fileURLWithPath: "/")) else {
-            return try await session.download(for: request)
+            return try await downloadHTTPSWithFnConnectGateway(
+                for: request,
+                session: session,
+                maximumBytes: maximumBytes
+            )
         }
 
         let destination = FileManager.default.temporaryDirectory
@@ -456,23 +460,82 @@ public enum StreamResolverHTTPTransport {
                             return
                         }
 
-                        let (bytes, response) = try await session.bytes(for: currentRequest)
-                        guard let http = response as? HTTPURLResponse else {
-                            throw URLError(.badServerResponse)
-                        }
-                        continuation.yield(.response(http))
-                        var chunk = Data()
-                        chunk.reserveCapacity(64 * 1_024)
-                        for try await byte in bytes {
-                            chunk.append(byte)
-                            if chunk.count == 64 * 1_024 {
-                                continuation.yield(.data(chunk))
-                                chunk.removeAll(keepingCapacity: true)
+                        let prepared = try await FnConnectGatewaySessionStore.shared.applyingHeaders(to: currentRequest)
+                        let attemptRequest = prepared.request
+                        var didRetryGateway = false
+                        var activeRequest = attemptRequest
+                        while true {
+                            let (bytes, response) = try await session.bytes(for: activeRequest)
+                            guard let http = response as? HTTPURLResponse else {
+                                throw URLError(.badServerResponse)
                             }
+                            if prepared.applied, !didRetryGateway, let reqURL = activeRequest.url {
+                                let contentType = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+                                if (http.statusCode == 403 || http.statusCode == 401) && contentType.contains("text/html") {
+                                    var prefix = Data()
+                                    prefix.reserveCapacity(4096)
+                                    var iterator = bytes.makeAsyncIterator()
+                                    while prefix.count < 4096, let byte = try await iterator.next() {
+                                        prefix.append(byte)
+                                    }
+                                    if let rejection = FnConnectGatewayAddress.gatewayRejection(
+                                        for: reqURL,
+                                        method: activeRequest.httpMethod,
+                                        response: http,
+                                        bodyPrefix: prefix
+                                    ),
+                                       let refreshed = try await FnConnectGatewaySessionStore.shared.refreshRequestAfterRejection(
+                                           currentRequest,
+                                           rejection: rejection
+                                       ) {
+                                        didRetryGateway = true
+                                        activeRequest = refreshed
+                                        continue
+                                    }
+                                    continuation.yield(.response(http))
+                                    if !prefix.isEmpty { continuation.yield(.data(prefix)) }
+                                    var chunk = Data()
+                                    chunk.reserveCapacity(64 * 1_024)
+                                    while let byte = try await iterator.next() {
+                                        chunk.append(byte)
+                                        if chunk.count == 64 * 1_024 {
+                                            continuation.yield(.data(chunk))
+                                            chunk.removeAll(keepingCapacity: true)
+                                        }
+                                    }
+                                    if !chunk.isEmpty { continuation.yield(.data(chunk)) }
+                                    continuation.finish()
+                                    return
+                                }
+                                if let rejection = FnConnectGatewayAddress.gatewayRejection(
+                                    for: reqURL,
+                                    method: activeRequest.httpMethod,
+                                    response: http,
+                                    bodyPrefix: nil
+                                ),
+                                   let refreshed = try await FnConnectGatewaySessionStore.shared.refreshRequestAfterRejection(
+                                       currentRequest,
+                                       rejection: rejection
+                                   ) {
+                                    didRetryGateway = true
+                                    activeRequest = refreshed
+                                    continue
+                                }
+                            }
+                            continuation.yield(.response(http))
+                            var chunk = Data()
+                            chunk.reserveCapacity(64 * 1_024)
+                            for try await byte in bytes {
+                                chunk.append(byte)
+                                if chunk.count == 64 * 1_024 {
+                                    continuation.yield(.data(chunk))
+                                    chunk.removeAll(keepingCapacity: true)
+                                }
+                            }
+                            if !chunk.isEmpty { continuation.yield(.data(chunk)) }
+                            continuation.finish()
+                            return
                         }
-                        if !chunk.isEmpty { continuation.yield(.data(chunk)) }
-                        continuation.finish()
-                        return
                     }
                 } catch {
                     continuation.finish(throwing: error)
@@ -480,6 +543,60 @@ public enum StreamResolverHTTPTransport {
             }
             continuation.onTermination = { @Sendable _ in driver.cancel() }
         }
+    }
+
+    private static func downloadHTTPSWithFnConnectGateway(
+        for request: URLRequest,
+        session: URLSession,
+        maximumBytes: Int64?
+    ) async throws -> (URL, URLResponse) {
+        let prepared = try await FnConnectGatewaySessionStore.shared.applyingHeaders(to: request)
+        var result = try await session.download(for: prepared.request)
+        if prepared.applied,
+           let url = prepared.request.url,
+           let http = result.1 as? HTTPURLResponse,
+           let rejection = gatewayRejectionForDownload(
+               url: url,
+               method: prepared.request.httpMethod,
+               response: http,
+               fileURL: result.0
+           ) {
+            try? FileManager.default.removeItem(at: result.0)
+            if let refreshed = try await FnConnectGatewaySessionStore.shared.refreshRequestAfterRejection(
+                request,
+                rejection: rejection
+            ) {
+                result = try await session.download(for: refreshed)
+            }
+        }
+        if let maximumBytes,
+           let size = try? result.0.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+           Int64(size) > maximumBytes {
+            try? FileManager.default.removeItem(at: result.0)
+            throw URLError(.dataLengthExceedsMaximum)
+        }
+        return result
+    }
+
+    private static func gatewayRejectionForDownload(
+        url: URL,
+        method: String?,
+        response: HTTPURLResponse,
+        fileURL: URL
+    ) -> FnConnectGatewayRejection? {
+        let contentType = response.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+        var prefix: Data?
+        if (response.statusCode == 403 || response.statusCode == 401) && contentType.contains("text/html"),
+           let handle = try? FileHandle(forReadingFrom: fileURL) {
+            defer { try? handle.close() }
+            prefix = try? handle.read(upToCount: 4096)
+        }
+        return FnConnectGatewayAddress.gatewayRejection(
+            for: url,
+            method: method,
+            response: response,
+            bodyPrefix: prefix
+        )
     }
 
     private static func redirectedRequest(
@@ -891,7 +1008,23 @@ public enum StreamResolverHTTPTransport {
         redirectMode: StreamResolverHTTPRedirectMode = .safe
     ) async throws -> (Data, URLResponse) {
         guard maximumBytes > 0 else { throw URLError(.dataLengthExceedsMaximum) }
-        let (data, response) = try await session.data(for: request)
+        let prepared = try await FnConnectGatewaySessionStore.shared.applyingHeaders(to: request)
+        var (data, response) = try await session.data(for: prepared.request)
+        if prepared.applied,
+           let url = prepared.request.url,
+           let http = response as? HTTPURLResponse,
+           let rejection = FnConnectGatewayAddress.gatewayRejection(
+               for: url,
+               method: prepared.request.httpMethod,
+               response: http,
+               bodyPrefix: data
+           ),
+           let refreshed = try await FnConnectGatewaySessionStore.shared.refreshRequestAfterRejection(
+               request,
+               rejection: rejection
+           ) {
+            (data, response) = try await session.data(for: refreshed)
+        }
         guard data.count <= maximumBytes else { throw URLError(.dataLengthExceedsMaximum) }
         return (data, response)
     }
@@ -916,7 +1049,33 @@ public enum StreamResolverHTTPTransport {
         maximumBytes: Int64? = nil,
         redirectMode: StreamResolverHTTPRedirectMode = .safe
     ) async throws -> (URL, URLResponse) {
-        let result = try await session.download(for: request)
+        let prepared = try await FnConnectGatewaySessionStore.shared.applyingHeaders(to: request)
+        var result = try await session.download(for: prepared.request)
+        if prepared.applied,
+           let url = prepared.request.url,
+           let http = result.1 as? HTTPURLResponse {
+            let contentType = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+            var prefix: Data?
+            if (http.statusCode == 403 || http.statusCode == 401) && contentType.contains("text/html"),
+               let handle = try? FileHandle(forReadingFrom: result.0) {
+                defer { try? handle.close() }
+                prefix = try? handle.read(upToCount: 4096)
+            }
+            if let rejection = FnConnectGatewayAddress.gatewayRejection(
+                for: url,
+                method: prepared.request.httpMethod,
+                response: http,
+                bodyPrefix: prefix
+            ) {
+                try? FileManager.default.removeItem(at: result.0)
+                if let refreshed = try await FnConnectGatewaySessionStore.shared.refreshRequestAfterRejection(
+                    request,
+                    rejection: rejection
+                ) {
+                    result = try await session.download(for: refreshed)
+                }
+            }
+        }
         if let maximumBytes,
            let size = try? result.0.resourceValues(forKeys: [.fileSizeKey]).fileSize,
            Int64(size) > maximumBytes {

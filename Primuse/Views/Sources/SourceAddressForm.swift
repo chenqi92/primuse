@@ -148,7 +148,8 @@ final class SourceAddressProbeController {
         rows: [SourceAddressRow],
         reading: SourceAddressFormPolicy.FormReading,
         sourceType: MusicSourceType,
-        probing: Set<UUID>
+        probing: Set<UUID>,
+        extraHeaders: (@Sendable (URL) -> [String: String])? = nil
     ) async -> Outcome {
         let plans = Self.plans(rows: rows, reading: reading, probing: probing)
         guard plans.isEmpty == false else { return Outcome() }
@@ -162,7 +163,7 @@ final class SourceAddressProbeController {
                 + "candidates=\(plans.map(\.candidates.count))"
         )
 
-        let resolver = SourceEndpointResolver(load: session.loader())
+        let resolver = SourceEndpointResolver(load: session.loader(extraHeaders: extraHeaders))
         var resolutions: [UUID: SourceEndpointResolver.Resolution] = [:]
         await withTaskGroup(of: (UUID, SourceEndpointResolver.Resolution?).self) { group in
             // 两行地址并发探,而不是一行等完再探下一行:每一轮最长要二十几秒,
@@ -347,6 +348,18 @@ enum SourceAddressReadingText {
         guard let candidate = endpoint.preferred else {
             return String(localized: "source_address_reading_unused")
         }
+        if sourceType != .fnMusic,
+           sourceType.usesHTTPTransport,
+           let gateway = FnConnectGatewayAddress.parseHost(endpoint.input.host) {
+            let gatewayLabel = String(
+                format: String(localized: "source_address_reading_fnconnect_gateway %@"),
+                gateway.fnID
+            )
+            guard endpoint.slot != nil else {
+                return "\(gatewayLabel)\n\(String(localized: "source_address_reading_unused"))"
+            }
+            return "\(hostClassText(endpoint.hostClass)) · \(gatewayLabel)"
+        }
         let format = endpoint.isAutomatic
             ? String(localized: "source_address_reading_auto %@ %@")
             : String(localized: "source_address_reading %@ %@")
@@ -491,6 +504,7 @@ struct SourceConnectionFailureReport: Equatable, Sendable {
     /// 只按它们本来就会抛出的那几种错误来判断,**不另立一套错误分类**。
     /// 认不出来的一律给按钮:少一个出口比多一个按钮更糟。
     static func errorSuggestsAddressEdit(_ error: Error) -> Bool {
+        if error is FnConnectGatewayError { return true }
         // 用户拒了明文连接 —— 换成 https 的地址就是正当出路。
         if error is TrustedHTTPTransportError { return true }
         // 某条路由已经连上服务并被业务拒绝了。

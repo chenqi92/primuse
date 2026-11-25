@@ -1660,6 +1660,7 @@
 		9FDEDBFD536FF5692980CD5F /* BatchAddToPlaylistSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06924D96CB41F49216C2FF95 /* BatchAddToPlaylistSheet.swift */; };
 		9FE02F5BE86D879AA5937B53 /* ShuffleWeighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3960617C3D665E949A8171 /* ShuffleWeighting.swift */; };
 		A01C763CCAD36B4CAA4AD13B /* FnMusicAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F902B402DE1BC8F053FF24 /* FnMusicAPIProtocol.swift */; };
+		F1C0763CCAD36B4CAA4AD13B /* FnConnectGateway.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C002B402DE1BC8F053FF24 /* FnConnectGateway.swift */; };
 		A034DE213A909E3F96623C4F /* PalveniDiagnosticsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257E9CF86D994DA59DEEBDC /* PalveniDiagnosticsClient.swift */; };
 		A035DDA5762A4B9BF0BA5E15 /* LANCloudAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = FABA25380E65408B1259872B /* LANCloudAuthorization.swift */; };
 		A03AFF7FC66D108ED4DAF0D6 /* MediaServerSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D799C291E3FDAA06B4A33EBA /* MediaServerSource.swift */; };
@@ -3205,6 +3206,7 @@
 		228E9AF235163595E752F32C /* ServerMediaShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerMediaShareSheet.swift; sourceTree = "<group>"; };
 		22A23FA3D5BB75184A2297D3 /* AlbumFolderImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumFolderImages.swift; sourceTree = "<group>"; };
 		22F902B402DE1BC8F053FF24 /* FnMusicAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnMusicAPIProtocol.swift; sourceTree = "<group>"; };
+		F1C002B402DE1BC8F053FF24 /* FnConnectGateway.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnConnectGateway.swift; sourceTree = "<group>"; };
 		2307E7F4A6A9B42D29CB7F9D /* ListenBrainzProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenBrainzProvider.swift; sourceTree = "<group>"; };
 		234C5E25758071CA1B4DEE7D /* SearchResultLayoutEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultLayoutEditor.swift; sourceTree = "<group>"; };
 		234F77E6A0C27BA007ACD7C8 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -7250,6 +7252,7 @@
 				A33B7C9895A3CC7E7CCD3DD0 /* DaoLiYuServiceClient.swift */,
 				6AD50002EC6A6A3B5C6C70D2 /* DaoLiYuStreamResolver.swift */,
 				546D19974F6A389BCC097DA9 /* DrimeAPIProtocol.swift */,
+				F1C002B402DE1BC8F053FF24 /* FnConnectGateway.swift */,
 				22F902B402DE1BC8F053FF24 /* FnMusicAPIProtocol.swift */,
 				A13E6D6C650C45976A4F3108 /* FnMusicLibraryClient.swift */,
 				1752AC46DEDF73266BBAA581 /* FnMusicLyricSelection.swift */,
@@ -8245,6 +8248,7 @@
 				351DFF5C1EF633786246A0E1 /* FireflySwarmSimulation.swift in Sources */,
 				D30F45C7D75AC421CA393294 /* FloatingInputPanelClearancePolicy.swift in Sources */,
 				79135D916D55902CB14B9671 /* FlyAuditoryCircuit.swift in Sources */,
+				F1C0763CCAD36B4CAA4AD13B /* FnConnectGateway.swift in Sources */,
 				A01C763CCAD36B4CAA4AD13B /* FnMusicAPIProtocol.swift in Sources */,
 				06CB44F745B4CEFFE99F02A3 /* FnMusicLibraryClient.swift in Sources */,
 				3CA5E754E7EC6D2280E46C2C /* FnMusicLyricSelection.swift in Sources */,

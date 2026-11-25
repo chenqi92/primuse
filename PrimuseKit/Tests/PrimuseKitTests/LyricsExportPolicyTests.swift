@@ -74,6 +74,20 @@ struct LyricsExportPolicyTests {
         #expect(output.contains("Bonjour tout le monde\nHello everyone\n"))
     }
 
+    @Test("SRT includes romanization before deduplicated translations")
+    func subRipRomanizationAndMultipleTranslations() throws {
+        var line = Self.timed(2, "夢の中")
+        line.romanization = "yume no naka"
+        line.manualTranslation = LyricManualTranslation(text: "在梦中", source: .embeddedField)
+        line.alternateManualTranslations = [
+            LyricManualTranslation(text: "在梦中", source: .bilingualLRC),
+            LyricManualTranslation(text: "In a\ndream", source: .embeddedField),
+            LyricManualTranslation(text: "夢の中", source: .embeddedField),
+        ]
+        let output = try #require(LyricsExportPolicy.render([line], as: .srt, readsAsProse: false))
+        #expect(output.contains("夢の中\nyume no naka\n在梦中\nIn a dream\n"))
+    }
+
     @Test("Lyrics stay line by line, with one blank row between stanzas")
     func plainLyrics() throws {
         let lines = [

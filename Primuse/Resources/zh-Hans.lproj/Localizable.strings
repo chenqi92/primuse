@@ -3524,14 +3524,14 @@
 
 /* MARK: - macOS 歌词格式转换 */
 "lyrics_converter_title" = "歌词格式转换";
-"lyrics_converter_subtitle" = "在 LRC、TTML 与纯文本之间转换";
+"lyrics_converter_subtitle" = "在 LRC、TTML、SRT 与纯文本之间转换";
 "lyrics_converter_input" = "输入";
 "lyrics_converter_output" = "输出";
 "lyrics_converter_overview_empty" = "拖入歌词文件或粘贴内容即可开始";
 "lyrics_converter_choose_file" = "选择文件";
 "lyrics_converter_change_file" = "更换";
 "lyrics_converter_drop_title" = "拖入歌词文件，或直接粘贴";
-"lyrics_converter_drop_hint" = "支持 .lrc、.ttml、.xml 和 .txt";
+"lyrics_converter_drop_hint" = "支持 .lrc、.elrc、.ttml、.xml、.lys、.yrc、.qrc、.krc、.vtt、.srt、.ass、.ssa、.lyl 和 .txt";
 "lyrics_converter_output_placeholder" = "转换结果会实时显示在这里";
 "lyrics_converter_empty_notice" = "请选择文件或粘贴歌词，转换仅在本机完成。";
 "lyrics_converter_invalid_notice" = "无法解析歌词，请检查文档结构和时间标记。";
@@ -3550,6 +3550,9 @@
 "lyrics_converter_lrc_help" = "LRC；逐字时间会保留为增强 LRC";
 "lyrics_converter_ttml_help" = "兼容 Apple Music 的 TTML";
 "lyrics_converter_txt_help" = "不含时间轴的纯文本";
+"lyrics_converter_companion_timing_notice" = "目标格式会保留原文与罗马音/译文文字，但附属轨的逐字时间轴仅在 TTML 中保留。";
+"lyrics_converter_encrypted_krc" = "加密的二进制 KRC 文件无法直接作为文本解码，请先解密为明文 KRC。";
+"lyrics_converter_srt_help" = "SRT 字幕，保留行级时间轴与自带译文/罗马音";
 "reread_album_cover" = "补读专辑封面";
 "reread_album_cover_done" = "专辑封面已就绪";
 "reread_album_cover_not_found" = "这张专辑中未找到可用封面";
@@ -8376,3 +8379,15 @@
 "player_audio_info_show_equalizer" = "显示均衡器信息";
 "player_audio_info_show_equalizer_footer" = "均衡器开启且未直通时，在进度条下方显示当前生效的均衡器预设名。";
 "now_playing_audio_eq_bypassed" = "%@（高保真直通已旁路）";
+
+"source_address_reading_fnconnect_gateway %@" = "FN Connect 网关 (%@)";
+"fnconnect_gateway_section" = "FN Connect 网关";
+"fnconnect_gateway_account" = "网关账号";
+"fnconnect_gateway_reuse_option %@ %@" = "复用 %@ · %@";
+"fnconnect_gateway_other_account" = "使用其他账号…";
+"fnconnect_gateway_username" = "NAS 账号";
+"fnconnect_gateway_password" = "NAS 密码";
+"fnconnect_gateway_access_code" = "访问码（可选）";
+"fnconnect_gateway_2fa_title" = "FN Connect 两步验证";
+"fnconnect_gateway_2fa_code" = "6 位验证码";
+"fnconnect_gateway_2fa_verify" = "验证";

@@ -337,14 +337,19 @@ struct ExternalDisplayImmersiveView: View {
 
     var body: some View {
         let presentation = displayedLyrics
+        let documentDirection = LyricWritingDirectionPolicy.resolve(in: presentation.lines)
         ImmersivePlayerView(
             effect: effect,
             lyrics: presentation.lines,
             showsSimulatedWordTiming: presentation.isSimulated,
             lyricCompanions: {
-                LyricsScrollView.companionTexts(for: $0, translatedTextByLineID: [:])
+                ImmersiveStageCompanion.items(
+                    for: $0,
+                    translatedText: nil,
+                    documentFallback: documentDirection
+                )
             },
-            lyricsWritingDirection: LyricWritingDirectionPolicy.resolve(in: presentation.lines),
+            lyricsWritingDirection: documentDirection,
             isResolvingLyrics: isResolvingLyrics,
             // 外接屏不接受触摸，系统可能一直把它当成「在前台但不活跃」；退到后台才停下来。
             isSceneActive: scenePhase != .background,

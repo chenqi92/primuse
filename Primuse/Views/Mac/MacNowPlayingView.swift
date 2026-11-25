@@ -1677,8 +1677,11 @@ struct MacNowPlayingView: View {
                 )
                 macLyricCompanions(
                     for: line,
+                    index: index,
+                    isActive: isActive,
                     fontSize: companionSize,
-                    textAlignment: textAlignment
+                    textAlignment: textAlignment,
+                    deactivationTime: line.voice == .secondary ? line.endTime : nil
                 )
             }
             .contentShape(Rectangle())
@@ -1695,17 +1698,25 @@ struct MacNowPlayingView: View {
             ))
             if let backgrounds = line.background {
                 ForEach(backgrounds) { background in
+                    let isBackgroundActive = activeInterludeAnchor == nil && activeBackgroundLineIDs.contains(background.id)
                     VStack(alignment: horizontal, spacing: 3) {
                         macSingleLyricLine(
                             line: background,
                             index: index,
-                            isActive: activeInterludeAnchor == nil && activeBackgroundLineIDs.contains(background.id),
+                            isActive: isBackgroundActive,
                             fontSize: scaledSize * 0.7,
                             weight: .medium,
                             tint: tint,
                             textAlignment: textAlignment
                         )
-                        macLyricCompanions(for: background, fontSize: companionSize * 0.7, textAlignment: textAlignment)
+                        macLyricCompanions(
+                            for: background,
+                            index: index,
+                            isActive: isBackgroundActive,
+                            fontSize: companionSize * 0.7,
+                            textAlignment: textAlignment,
+                            deactivationTime: background.endTime
+                        )
                     }
                     .opacity(0.72)
                     .contentShape(Rectangle())
@@ -1741,23 +1752,57 @@ struct MacNowPlayingView: View {
     }
 
     /// Romanization, translations written in the lyrics, and the translation
-    /// task's result, smaller and dimmer under the sung line.
+    /// task's result, smaller and dimmer under the sung line. Word-timed
+    /// companions sweep alongside the sung line without bounce or glow.
     @ViewBuilder
     private func macLyricCompanions(
         for line: LyricLine,
+        index: Int,
+        isActive: Bool,
         fontSize: CGFloat,
-        textAlignment: TextAlignment
+        textAlignment: TextAlignment,
+        deactivationTime: TimeInterval? = nil
     ) -> some View {
-        let companions = LyricCompanionTextPolicy.texts(
+        let companions = LyricCompanionTextPolicy.items(
             for: line,
             translatedText: lyricTranslationsByLineID[line.id]
         )
         ForEach(companions.indices, id: \.self) { slot in
-            lyricsTypeface.text(LyricCompanionTextPolicy.displayText(companions[slot]), size: fontSize * 0.62, weight: .medium)
-                .foregroundStyle(playerSecondaryColor)
-                .lineSpacing(1)
-                .multilineTextAlignment(textAlignment)
-                .fixedSize(horizontal: false, vertical: true)
+            let item = companions[slot]
+            if item.isWordLevel {
+                let companionLine = item.lyricLine(for: line, slot: slot)
+                if shouldRenderWordTimeline(line: companionLine, index: index, isActive: isActive) {
+                    KaraokeLineView(
+                        line: companionLine,
+                        isDuet: lyricsDocument.isDuet,
+                        fontSize: fontSize * 0.62,
+                        weight: .medium,
+                        activeStyle: AnyShapeStyle(playerSecondaryColor),
+                        inactiveColor: playerSecondaryColor.opacity(0.42),
+                        textAlignment: textAlignment,
+                        writingDirection: lyricsWritingDirection,
+                        timeAt: { date in player.interpolatedTime(at: date) },
+                        isPlaybackActive: player.isPlaybackActive,
+                        isAnimationEnabled: isActive,
+                        animatesSyllableBounce: false,
+                        isolatesAnimatedProgressFromLayout: true,
+                        deactivationTime: deactivationTime,
+                        glowsSungSyllables: false
+                    )
+                } else {
+                    lyricsTypeface.text(LyricCompanionTextPolicy.displayText(item.text), size: fontSize * 0.62, weight: .medium)
+                        .foregroundStyle(playerSecondaryColor)
+                        .lineSpacing(1)
+                        .multilineTextAlignment(textAlignment)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                lyricsTypeface.text(LyricCompanionTextPolicy.displayText(item.text), size: fontSize * 0.62, weight: .medium)
+                    .foregroundStyle(playerSecondaryColor)
+                    .lineSpacing(1)
+                    .multilineTextAlignment(textAlignment)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

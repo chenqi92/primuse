@@ -80,7 +80,7 @@ enum TrustedHTTPTransport {
             _ = try await trustedPublicHTTPHost(for: url)
             return try await PlainHTTPClient.data(for: request, maxBytes: maxBytes)
         }
-        return try await boundedSessionData(for: request, session: session, maxBytes: maxBytes)
+        return try await sessionDataWithFnConnectGateway(for: request, session: session, maxBytes: maxBytes)
     }
 
     /// The media session rejects implicit redirects so every hop uses the
@@ -161,14 +161,12 @@ enum TrustedHTTPTransport {
                 wholeResponsePrefixLimit: wholeResponsePrefixLimit
             )
         }
-        if maximumRangedBodyBytes != nil || wholeResponsePrefixLimit != nil {
-            return try await boundedSessionDownload(
-                for: request, session: session,
-                maximumRangedBodyBytes: maximumRangedBodyBytes,
-                wholeResponsePrefixLimit: wholeResponsePrefixLimit
-            )
-        }
-        return try await session.download(for: request)
+        return try await sessionDownloadWithFnConnectGateway(
+            for: request,
+            session: session,
+            maximumRangedBodyBytes: maximumRangedBodyBytes,
+            wholeResponsePrefixLimit: wholeResponsePrefixLimit
+        )
     }
 
     static func trustTarget(for url: URL) -> String? {
@@ -202,7 +200,7 @@ enum TrustedHTTPTransport {
         let maxBytes = SpeculativeRangeRead.effectiveLimit(maxBytes)
         guard let url = request.url else { throw URLError(.badURL) }
         guard requiresPlainSocket(for: url) else {
-            return try await boundedSessionData(
+            return try await sessionDataWithFnConnectGateway(
                 for: request,
                 session: session,
                 maxBytes: maxBytes
@@ -295,15 +293,12 @@ enum TrustedHTTPTransport {
     ) async throws -> (URL, URLResponse) {
         guard let url = request.url else { throw URLError(.badURL) }
         guard requiresPlainSocket(for: url) else {
-            if maximumRangedBodyBytes != nil || wholeResponsePrefixLimit != nil {
-                return try await boundedSessionDownload(
-                    for: request,
-                    session: session,
-                    maximumRangedBodyBytes: maximumRangedBodyBytes,
-                    wholeResponsePrefixLimit: wholeResponsePrefixLimit
-                )
-            }
-            return try await session.download(for: request)
+            return try await sessionDownloadWithFnConnectGateway(
+                for: request,
+                session: session,
+                maximumRangedBodyBytes: maximumRangedBodyBytes,
+                wholeResponsePrefixLimit: wholeResponsePrefixLimit
+            )
         }
         let host = try await trustedPublicHTTPHost(for: url)
         plog("⚠️ Trusted cleartext HTTP download host=\(host)")
@@ -400,6 +395,116 @@ enum TrustedHTTPTransport {
         closedFile = true
         returnedFile = true
         return (fileURL, response)
+    }
+
+    private static func sessionDataWithFnConnectGateway(
+        for request: URLRequest,
+        session: URLSession,
+        maxBytes: Int
+    ) async throws -> (Data, URLResponse) {
+        let prepared = try await FnConnectGatewaySessionStore.shared.applyingHeaders(to: request)
+        let first = try await boundedSessionData(
+            for: prepared.request,
+            session: session,
+            maxBytes: maxBytes
+        )
+        guard prepared.applied,
+              let url = prepared.request.url,
+              let http = first.1 as? HTTPURLResponse,
+              let rejection = FnConnectGatewayAddress.gatewayRejection(
+                  for: url,
+                  method: prepared.request.httpMethod,
+                  response: http,
+                  bodyPrefix: first.0
+              ),
+              let refreshed = try await FnConnectGatewaySessionStore.shared.refreshRequestAfterRejection(
+                  request,
+                  rejection: rejection
+              ) else {
+            return first
+        }
+        return try await boundedSessionData(
+            for: refreshed,
+            session: session,
+            maxBytes: maxBytes
+        )
+    }
+
+    private static func sessionDownloadWithFnConnectGateway(
+        for request: URLRequest,
+        session: URLSession,
+        maximumRangedBodyBytes: Int?,
+        wholeResponsePrefixLimit: Int?
+    ) async throws -> (URL, URLResponse) {
+        let prepared = try await FnConnectGatewaySessionStore.shared.applyingHeaders(to: request)
+        let first = try await executeHTTPSDownload(
+            for: prepared.request,
+            session: session,
+            maximumRangedBodyBytes: maximumRangedBodyBytes,
+            wholeResponsePrefixLimit: wholeResponsePrefixLimit
+        )
+        guard prepared.applied,
+              let url = prepared.request.url,
+              let http = first.1 as? HTTPURLResponse,
+              let rejection = gatewayRejectionForDownload(
+                  url: url,
+                  method: prepared.request.httpMethod,
+                  response: http,
+                  fileURL: first.0
+              ) else {
+            return first
+        }
+        try? FileManager.default.removeItem(at: first.0)
+        guard let refreshed = try await FnConnectGatewaySessionStore.shared.refreshRequestAfterRejection(
+            request,
+            rejection: rejection
+        ) else {
+            throw FnConnectGatewayError.authenticationFailed(nil)
+        }
+        return try await executeHTTPSDownload(
+            for: refreshed,
+            session: session,
+            maximumRangedBodyBytes: maximumRangedBodyBytes,
+            wholeResponsePrefixLimit: wholeResponsePrefixLimit
+        )
+    }
+
+    private static func executeHTTPSDownload(
+        for request: URLRequest,
+        session: URLSession,
+        maximumRangedBodyBytes: Int?,
+        wholeResponsePrefixLimit: Int?
+    ) async throws -> (URL, URLResponse) {
+        if maximumRangedBodyBytes != nil || wholeResponsePrefixLimit != nil {
+            return try await boundedSessionDownload(
+                for: request,
+                session: session,
+                maximumRangedBodyBytes: maximumRangedBodyBytes,
+                wholeResponsePrefixLimit: wholeResponsePrefixLimit
+            )
+        }
+        return try await session.download(for: request)
+    }
+
+    private static func gatewayRejectionForDownload(
+        url: URL,
+        method: String?,
+        response: HTTPURLResponse,
+        fileURL: URL
+    ) -> FnConnectGatewayRejection? {
+        let contentType = response.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+        var prefix: Data?
+        if (response.statusCode == 403 || response.statusCode == 401) && contentType.contains("text/html"),
+           let handle = try? FileHandle(forReadingFrom: fileURL) {
+            defer { try? handle.close() }
+            prefix = try? handle.read(upToCount: 4096)
+        }
+        return FnConnectGatewayAddress.gatewayRejection(
+            for: url,
+            method: method,
+            response: response,
+            bodyPrefix: prefix
+        )
     }
 
     private static func trustedPublicHTTPHost(for url: URL) async throws -> String {

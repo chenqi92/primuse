@@ -21,14 +21,16 @@ struct ImmersiveSyllableCrestText: View {
     let showsCrest: Bool
     /// 这一句能占多宽；给了就按它把字号算到放得下（最小到 0.72 倍）。
     var availableWidth: CGFloat?
+    var fontWeight: Font.Weight = .bold
+    var foregroundColor: Color = ImmersiveStagePalette.ink
 
     @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     var body: some View {
         let size = fittedFontSize
         indexedText
-            .font(lyricsTypeface.font(size: size, weight: .bold))
-            .foregroundStyle(ImmersiveStagePalette.ink)
+            .font(lyricsTypeface.font(size: size, weight: fontWeight))
+            .foregroundStyle(foregroundColor)
             .multilineTextAlignment(textAlignment)
             .lineLimit(lineLimit)
             .fixedSize(horizontal: false, vertical: true)
@@ -57,7 +59,7 @@ struct ImmersiveSyllableCrestText: View {
         let cjkLanguage = LyricsFontLanguage.cjkLanguage(in: syllables.map(\.text).joined())
         let size = fittedFontSize
         return syllables.indices.reduce(Text(verbatim: "")) { text, index in
-            let syllable = lyricsTypeface.text(syllables[index].text, size: size, weight: .bold, cjkLanguage: cjkLanguage)
+            let syllable = lyricsTypeface.text(syllables[index].text, size: size, weight: fontWeight, cjkLanguage: cjkLanguage)
                 .customAttribute(ImmersiveSyllableIndex(index: index))
             return Text("\(text)\(syllable)")
         }

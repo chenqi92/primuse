@@ -468,6 +468,7 @@ enum KeychainService {
         let accounts = [
             sourceID,
             FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: sourceID),
+            FnConnectGatewayProtocol.sourceCredentialAccount(sourceID: sourceID),
             PlexAccountAPI.accountTokenKeychainAccount(sourceID: sourceID),
         ]
         for account in accounts {

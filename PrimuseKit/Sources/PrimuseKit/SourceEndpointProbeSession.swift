@@ -41,18 +41,24 @@ public final class SourceEndpointProbeSession: @unchecked Sendable {
     }
 
     /// 闭包持有 self,所以只要加载器还在用,会话就活着;两边都释放后 deinit 作废它。
-    public func loader() -> SourceEndpointResolver.Loader {
-        { [self] probe in try await run(probe) }
+    public func loader(
+        extraHeaders: (@Sendable (URL) -> [String: String])? = nil
+    ) -> SourceEndpointResolver.Loader {
+        { [self] probe in try await run(probe, extraHeaders: extraHeaders) }
     }
 
     private func run(
-        _ probe: SourceEndpointResolver.Probe
+        _ probe: SourceEndpointResolver.Probe,
+        extraHeaders: (@Sendable (URL) -> [String: String])?
     ) async throws -> SourceServiceFingerprint.ProbeResponse {
         var request = URLRequest(url: probe.url)
         request.httpMethod = probe.method
         request.timeoutInterval = probe.timeout
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         request.httpShouldHandleCookies = false
+        if let headers = extraHeaders?(probe.url), !headers.isEmpty {
+            request = FnConnectGatewayProtocol.applyingHeaders(headers, to: request)
+        }
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {

@@ -3419,14 +3419,14 @@
 
 /* MARK: - macOS 歌詞形式コンバーター */
 "lyrics_converter_title" = "歌詞形式コンバーター";
-"lyrics_converter_subtitle" = "LRC、TTML、プレーンテキストをPrimuse内で変換";
+"lyrics_converter_subtitle" = "Primuse 内で LRC、TTML、SRT、プレーンテキストを相互変換します";
 "lyrics_converter_input" = "入力";
 "lyrics_converter_output" = "出力";
 "lyrics_converter_overview_empty" = "歌詞ファイルをドロップするか内容を貼り付けてください";
 "lyrics_converter_choose_file" = "ファイルを選択";
 "lyrics_converter_change_file" = "変更";
 "lyrics_converter_drop_title" = "歌詞ファイルをドロップ、またはここに貼り付け";
-"lyrics_converter_drop_hint" = ".lrc、.ttml、.xml、.txtに対応";
+"lyrics_converter_drop_hint" = ".lrc、.elrc、.ttml、.xml、.lys、.yrc、.qrc、.krc、.vtt、.srt、.ass、.ssa、.lyl、.txt に対応";
 "lyrics_converter_output_placeholder" = "変換した歌詞がここに表示されます";
 "lyrics_converter_empty_notice" = "ファイルを選択するか歌詞を貼り付けてください。処理はこのMac内で完結します。";
 "lyrics_converter_invalid_notice" = "歌詞を解析できません。文書構造とタイムマーカーを確認してください。";
@@ -3445,6 +3445,9 @@
 "lyrics_converter_lrc_help" = "LRC。単語タイミングは拡張LRCとして保持";
 "lyrics_converter_ttml_help" = "Apple Music互換のTTML";
 "lyrics_converter_txt_help" = "時間情報のないプレーンテキスト";
+"lyrics_converter_companion_timing_notice" = "本文とローマ字・翻訳は保持されますが、補助トラックの文字単位タイミングは TTML のみ保持されます。";
+"lyrics_converter_encrypted_krc" = "暗号化されたバイナリ KRC ファイルはテキストとして直接読み込めません。";
+"lyrics_converter_srt_help" = "行単位のタイムコード付き SubRip (.srt) 字幕";
 "reread_album_cover" = "アルバムアートワークを再読み込み";
 "reread_album_cover_done" = "アルバムアートワークを読み込みました";
 "reread_album_cover_not_found" = "このアルバムのアートワークが見つかりませんでした";
@@ -8284,3 +8287,15 @@
 "player_audio_info_show_equalizer" = "イコライザー情報を表示";
 "player_audio_info_show_equalizer_footer" = "イコライザーが有効かつバイパスされていないとき、プログレスバー下にプリセット名を表示します。";
 "now_playing_audio_eq_bypassed" = "%@（高忠実度モードでバイパス中）";
+
+"source_address_reading_fnconnect_gateway %@" = "FN Connect ゲートウェイ (%@)";
+"fnconnect_gateway_section" = "FN Connect ゲートウェイ";
+"fnconnect_gateway_account" = "ゲートウェイアカウント";
+"fnconnect_gateway_reuse_option %@ %@" = "%@ · %@ を再利用";
+"fnconnect_gateway_other_account" = "別のアカウントを使用…";
+"fnconnect_gateway_username" = "NAS ユーザー名";
+"fnconnect_gateway_password" = "NAS パスワード";
+"fnconnect_gateway_access_code" = "アクセスコード（任意）";
+"fnconnect_gateway_2fa_title" = "FN Connect 2段階認証";
+"fnconnect_gateway_2fa_code" = "6 桁の確認コード";
+"fnconnect_gateway_2fa_verify" = "確認";

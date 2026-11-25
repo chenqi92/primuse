@@ -255,8 +255,38 @@ struct WordTimedLyricsParserTests {
         #expect(lines[1].manualTranslation == nil)
         #expect(lines[2].manualTranslation == nil)
         #expect(lines.map(\.romanization) == ["rai to", "se kon", "sa do"])
+        #expect(lines[0].romanizationSyllables?.map(\.text) == ["rai ", "to"])
+        #expect(lines[0].romanizationSyllables?.map(\.start) == [1.0, 1.5])
+        #expect(lines[0].romanizationSyllables?.map(\.end) == [1.5, 2.0])
+        #expect(lines[1].romanizationSyllables?.map(\.text) == ["se ", "kon"])
+        #expect(lines[1].romanizationSyllables?.map(\.start) == [3.0, 3.5])
+        #expect(lines[1].romanizationSyllables?.map(\.end) == [3.5, 4.0])
+        // Mismatched word count (1 sung syllable vs 2 readings) safely stays line-level.
+        #expect(lines[2].romanizationSyllables == nil)
         // The block is read once and does not travel on as a header.
         #expect(lines[0].metadataLines == ["[ti:Demo]"])
+    }
+
+    @Test("KRC per-word romanization handles offset shifts and empty reading chunks")
+    func mapsKRCRomanizationWithOffsetAndBlankChunks() throws {
+        let tag = languageTag(
+            #"{"content":[{"language":0,"type":0,"lyricContent":[["ni ","","hao "],["","wo ","men "]]}],"version":1}"#
+        )
+        let lines = LyricsContentParser.parseText("""
+        [offset:+500]
+        \(tag)
+        [2000,1000]<0,400,0>你<400,600,0>好
+        [4000,1000]<0,500,0>我<500,500,0>们
+        """)
+        #expect(lines.count == 2)
+        #expect(lines[0].romanization == "ni hao")
+        #expect(lines[0].romanizationSyllables?.map(\.text) == ["ni ", "hao"])
+        #expect(lines[0].romanizationSyllables?.map(\.start) == [1.5, 1.9])
+        #expect(lines[0].romanizationSyllables?.map(\.end) == [1.9, 2.5])
+        #expect(lines[1].romanization == "wo men")
+        #expect(lines[1].romanizationSyllables?.map(\.text) == ["wo ", "men"])
+        #expect(lines[1].romanizationSyllables?.map(\.start) == [3.5, 4.0])
+        #expect(lines[1].romanizationSyllables?.map(\.end) == [4.0, 4.5])
     }
 
     @Test("A translation-only block skips rows that carry no words")

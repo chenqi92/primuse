@@ -3418,14 +3418,14 @@
 
 /* MARK: - macOS Liedtextkonverter */
 "lyrics_converter_title" = "Liedtextkonverter";
-"lyrics_converter_subtitle" = "LRC, TTML und Klartext direkt in Primuse konvertieren";
+"lyrics_converter_subtitle" = "LRC, TTML, SRT und Klartext direkt in Primuse konvertieren";
 "lyrics_converter_input" = "Eingabe";
 "lyrics_converter_output" = "Ausgabe";
 "lyrics_converter_overview_empty" = "Liedtextdatei ablegen oder Inhalt einfügen";
 "lyrics_converter_choose_file" = "Datei wählen";
 "lyrics_converter_change_file" = "Ändern";
 "lyrics_converter_drop_title" = "Liedtextdatei ablegen oder hier einfügen";
-"lyrics_converter_drop_hint" = "Unterstützt .lrc, .ttml, .xml und .txt";
+"lyrics_converter_drop_hint" = "Unterstützt .lrc, .elrc, .ttml, .xml, .lys, .yrc, .qrc, .krc, .vtt, .srt, .ass, .ssa, .lyl und .txt";
 "lyrics_converter_output_placeholder" = "Der konvertierte Liedtext erscheint hier";
 "lyrics_converter_empty_notice" = "Datei wählen oder Liedtext einfügen. Die Verarbeitung erfolgt lokal.";
 "lyrics_converter_invalid_notice" = "Der Liedtext konnte nicht gelesen werden. Struktur und Zeitmarken prüfen.";
@@ -3444,6 +3444,9 @@
 "lyrics_converter_lrc_help" = "LRC; Wortzeiten bleiben als erweitertes LRC erhalten";
 "lyrics_converter_ttml_help" = "Mit Apple Music kompatibles TTML";
 "lyrics_converter_txt_help" = "Klartext ohne Zeitangaben";
+"lyrics_converter_companion_timing_notice" = "Der Text bleibt erhalten, aber Wortzeiten für Romanisierung oder Übersetzungen bleiben nur in TTML erhalten.";
+"lyrics_converter_encrypted_krc" = "Verschlüsselte binäre KRC-Dateien können nicht direkt als Text dekodiert werden.";
+"lyrics_converter_srt_help" = "SubRip-Untertitel (.srt) mit Zeilenzeitangaben";
 "reread_album_cover" = "Albumcover erneut laden";
 "reread_album_cover_done" = "Das Albumcover ist bereit";
 "reread_album_cover_not_found" = "Für dieses Album wurde kein Cover gefunden";
@@ -8283,3 +8286,15 @@
 "player_audio_info_show_equalizer" = "Equalizer-Info anzeigen";
 "player_audio_info_show_equalizer_footer" = "Zeigt das aktive Equalizer-Preset unter der Fortschrittsleiste an, wenn der EQ aktiv und nicht umgangen ist.";
 "now_playing_audio_eq_bypassed" = "%@ (Im Hi-Fi-Direktmodus umgangen)";
+
+"source_address_reading_fnconnect_gateway %@" = "FN Connect-Gateway (%@)";
+"fnconnect_gateway_section" = "FN Connect-Gateway";
+"fnconnect_gateway_account" = "Gateway-Konto";
+"fnconnect_gateway_reuse_option %@ %@" = "%@ · %@ verwenden";
+"fnconnect_gateway_other_account" = "Anderes Konto verwenden…";
+"fnconnect_gateway_username" = "NAS-Benutzername";
+"fnconnect_gateway_password" = "NAS-Passwort";
+"fnconnect_gateway_access_code" = "Zugangscode (Optional)";
+"fnconnect_gateway_2fa_title" = "FN Connect-Verifizierung";
+"fnconnect_gateway_2fa_code" = "6-stelliger Code";
+"fnconnect_gateway_2fa_verify" = "Bestätigen";

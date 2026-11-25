@@ -2029,7 +2029,7 @@
 "lyrics_converter_copied" = "คัดลอกเนื้อเพลงที่แปลงแล้ว";
 "lyrics_converter_copy" = "คัดลอกเนื้อเพลงที่แปลงแล้ว";
 "lyrics_converter_decode_failed" = "Primuse ไม่สามารถถอดรหัสไฟล์เนื้อเพลงนี้เป็นข้อความได้";
-"lyrics_converter_drop_hint" = "รองรับ .lrc, .ttml, .xml และ .txt";
+"lyrics_converter_drop_hint" = "รองรับ .lrc, .elrc, .ttml, .xml, .lys, .yrc, .qrc, .krc, .vtt, .srt, .ass, .ssa, .lyl และ .txt";
 "lyrics_converter_drop_title" = "วางไฟล์เนื้อเพลงหรือวางที่นี่";
 "lyrics_converter_empty_notice" = "เลือกไฟล์หรือวางเนื้อเพลง การแปลงยังคงอยู่ที่ Mac นี้";
 "lyrics_converter_error_title" = "การแปลงเนื้อเพลงล้มเหลว";
@@ -2046,11 +2046,14 @@
 "lyrics_converter_overview_empty" = "วางไฟล์เนื้อเพลงหรือวางเนื้อหาเพื่อเริ่มต้น";
 "lyrics_converter_plain_notice" = "เอาต์พุตข้อความธรรมดาจะลบข้อมูลเวลาและข้อมูลเสียงออก";
 "lyrics_converter_preserve_notice" = "การกำหนดเวลาบรรทัดและคำที่มีอยู่จะยังคงอยู่";
-"lyrics_converter_subtitle" = "แปลง LRC, TTML และข้อความธรรมดาโดยไม่ทิ้ง Primuse";
+"lyrics_converter_subtitle" = "แปลง LRC, TTML, SRT และข้อความธรรมดาได้ใน Primuse";
 "lyrics_converter_summary_format" = "%1$d บรรทัด · %2$d ซิงค์แล้ว · %3$d ซิงค์รายคำ";
 "lyrics_converter_title" = "แปลงเนื้อเพลง";
 "lyrics_converter_ttml_help" = "TTML ที่เข้ากันได้กับ Apple Music";
 "lyrics_converter_txt_help" = "ข้อความธรรมดาที่ไม่มีกำหนดเวลา";
+"lyrics_converter_companion_timing_notice" = "ข้อความจะยังคงอยู่ แต่เวลาระดับคำของคำอ่านหรือคำแปลจะเก็บไว้ได้เฉพาะใน TTML เท่านั้น";
+"lyrics_converter_encrypted_krc" = "ไม่สามารถถอดรหัสไฟล์ KRC แบบไบนารีที่เข้ารหัสเป็นข้อความได้โดยตรง";
+"lyrics_converter_srt_help" = "คำบรรยาย SubRip (.srt) พร้อมเวลาตามบรรทัด";
 "lyrics_converter_voice_notice" = "LRC เก็บทุกบรรทัด แต่การจัดตำแหน่งเสียง TTML เรียบลง";
 "lyrics_display_section" = "การแสดงผล";
 "lyrics_editor_add_line" = "เพิ่มบรรทัด";
@@ -8189,3 +8192,15 @@
 "player_audio_info_show_equalizer" = "แสดงข้อมูลอีควอไลเซอร์";
 "player_audio_info_show_equalizer_footer" = "แสดงพรีเซ็ตอีควอไลเซอร์ที่ใช้งานอยู่ใต้แถบความคืบหน้าเมื่อเปิด EQ และไม่ได้บายพาส";
 "now_playing_audio_eq_bypassed" = "%@ (บายพาสในโหมดความเที่ยงตรงสูง)";
+
+"source_address_reading_fnconnect_gateway %@" = "เกตเวย์ FN Connect (%@)";
+"fnconnect_gateway_section" = "เกตเวย์ FN Connect";
+"fnconnect_gateway_account" = "บัญชีเกตเวย์";
+"fnconnect_gateway_reuse_option %@ %@" = "ใช้ซ้ำ %@ · %@";
+"fnconnect_gateway_other_account" = "ใช้บัญชีอื่น…";
+"fnconnect_gateway_username" = "ชื่อผู้ใช้ NAS";
+"fnconnect_gateway_password" = "รหัสผ่าน NAS";
+"fnconnect_gateway_access_code" = "รหัสเข้าถึง (ไม่บังคับ)";
+"fnconnect_gateway_2fa_title" = "การยืนยัน FN Connect";
+"fnconnect_gateway_2fa_code" = "รหัส 6 หลัก";
+"fnconnect_gateway_2fa_verify" = "ยืนยัน";

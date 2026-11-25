@@ -9,6 +9,28 @@ import AppKit
 enum SourceFormField: Hashable {
     case name, host, port, publicHost, publicPort, vendorIdentifier
     case basePath, publicBasePath, shareName, exportPath, username, password, sshKey
+    case gatewayUsername, gatewayPassword, gatewayAccessCode
+}
+
+private enum FnConnectGatewayAccountMode: String, Hashable {
+    case reuse
+    case custom
+}
+
+private struct PreparedFnConnectGatewaySave {
+    let binding: FnConnectGatewayBinding
+    let credential: FnConnectGatewayCredential?
+}
+
+private struct PendingFnConnectGatewayTwoFactor: Identifiable {
+    let id: UUID
+    let challenge: FnConnectTwoFactorChallenge
+    let gateway: FnConnectGatewayAddress
+    let credential: FnConnectGatewayCredential
+    let scope: FnConnectGatewayScope
+    let reading: SourceAddressFormPolicy.FormReading
+    let probing: Set<UUID>
+    let submittedSignature: String
 }
 
 enum AddSourceSubmitIntent {
@@ -93,6 +115,17 @@ struct AddSourceView: View {
     @State private var addressBaseline: [SourceAddressFormPolicy.AddressDraft]?
     @State private var addressProbe = SourceAddressProbeController()
     @State private var addressSubmitTask: Task<Void, Never>?
+    @State private var gatewayAccountMode: FnConnectGatewayAccountMode = .custom
+    @State private var gatewayReusableCandidate: FnConnectGatewayCredentialStore.ReusableCandidate?
+    @State private var gatewayUsername = ""
+    @State private var gatewayPassword = ""
+    @State private var gatewayAccessCode = ""
+    @State private var editingSourceHasStoredGatewaySecret = false
+    @State private var initialGatewaySignature = ""
+    @State private var isAuthenticatingGateway = false
+    @State private var gatewayAuthError: String?
+    @State private var pendingGatewayTwoFactor: PendingFnConnectGatewayTwoFactor?
+    @State private var pendingSaveGatewayPayload: PreparedFnConnectGatewaySave?
     #if os(macOS)
     /// Captures the URL chosen via NSOpenPanel so we can persist a
     /// security-scoped bookmark once the source has an ID.
@@ -169,6 +202,47 @@ struct AddSourceView: View {
             : remoteUsesVendor
     }
 
+    private var detectedFnConnectGateway: FnConnectGatewayAddress? {
+        guard sourceType != .fnMusic, sourceType.usesHTTPTransport, supportsAdaptiveConnections else {
+            return nil
+        }
+        for row in addressReading.rows {
+            if case let .endpoint(endpoint) = row,
+               endpoint.slot != nil,
+               let gateway = FnConnectGatewayAddress.parseHost(endpoint.input.host) {
+                return gateway
+            }
+        }
+        return nil
+    }
+
+    private var detectedFnConnectGatewayID: String? {
+        detectedFnConnectGateway?.fnID
+    }
+
+    private var currentGatewayInputSignature: String {
+        [
+            detectedFnConnectGateway?.fnID ?? "",
+            gatewayAccountMode.rawValue,
+            gatewayUsername.trimmingCharacters(in: .whitespacesAndNewlines),
+            gatewayPassword.isEmpty ? "0" : "1",
+            gatewayAccessCode.isEmpty ? "0" : "1",
+        ].joined(separator: "\u{1}")
+    }
+
+    private var fnConnectGatewayCanSave: Bool {
+        guard let gateway = detectedFnConnectGateway else { return true }
+        if gatewayAccountMode == .reuse, gatewayReusableCandidate != nil {
+            return true
+        }
+        guard !gatewayUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        let hasStored = editingSourceHasStoredGatewaySecret
+            && editingSource?.fnConnectGateway?.fnID == gateway.fnID
+        return !gatewayPassword.isEmpty || hasStored
+    }
+
     /// 钥匙串里有没有这个源的密钥。**不要在 body 里直接查钥匙串** ——
     /// `SecItemCopyMatching` 是一次同步的 securityd 往返(读不到时还要查两遍,
     /// 并且不进内存缓存),而这个判断被 `canSave` 带进每一次界面更新里:
@@ -195,6 +269,7 @@ struct AddSourceView: View {
         if sourceType.requiresHost {
             if supportsAdaptiveConnections {
                 guard addressFormIsValid else { return false }
+                guard fnConnectGatewayCanSave else { return false }
             } else {
                 let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmedHost.isEmpty else { return false }
@@ -273,6 +348,9 @@ struct AddSourceView: View {
         .onChange(of: addressProbeSignature) { _, _ in
             cancelAddressProbe()
         }
+        .onChange(of: detectedFnConnectGatewayID) { _, newFNID in
+            refreshFnConnectGatewayCandidate(for: newFNID, preserveUserEdits: false)
+        }
         .onChange(of: synologyConnectionMode) { _, newValue in
             guard !supportsAdaptiveConnections,
                   sourceType == .synology,
@@ -318,6 +396,38 @@ struct AddSourceView: View {
             Button("ok", role: .cancel) { infiniCloudError = nil }
         } message: {
             Text(infiniCloudError ?? "")
+        }
+        .alert(String(localized: "fnconnect_gateway_section"), isPresented: Binding(
+            get: { gatewayAuthError != nil },
+            set: { if !$0 { gatewayAuthError = nil } }
+        )) {
+            Button("ok", role: .cancel) { gatewayAuthError = nil }
+        } message: {
+            Text(gatewayAuthError ?? "")
+        }
+        .sheet(item: $pendingGatewayTwoFactor) { pending in
+            FnConnectGatewayTwoFactorSheet(
+                challenge: pending.challenge,
+                onSuccess: { session in
+                    pendingGatewayTwoFactor = nil
+                    continueAfterGatewayAuthentication(
+                        session: session,
+                        gateway: pending.gateway,
+                        credential: pending.credential,
+                        scope: pending.scope,
+                        reading: pending.reading,
+                        probing: pending.probing,
+                        submittedSignature: pending.submittedSignature
+                    )
+                },
+                onCancel: {
+                    let challengeID = pending.challenge.id
+                    pendingGatewayTwoFactor = nil
+                    Task {
+                        await FnConnectGatewaySessionStore.shared.cancelTwoFactor(challengeID: challengeID)
+                    }
+                }
+            )
         }
         .onDisappear {
             addressSubmitTask?.cancel()
@@ -408,7 +518,7 @@ struct AddSourceView: View {
     private var iOSBody: some View {
         NavigationStack {
             Form { formSections }
-            .disabled(isResolvingInfiniCloud || mediaServerCreationTransaction.isRunning)
+            .disabled(isResolvingInfiniCloud || isAuthenticatingGateway || mediaServerCreationTransaction.isRunning)
             .scrollDismissesKeyboard(.interactively)
             .floatingInputPanelClearance()
             .navigationTitle(isEditing ? String(localized: "edit_source") : sourceType.displayName)
@@ -435,7 +545,7 @@ struct AddSourceView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     macFormContent
-                        .disabled(isResolvingInfiniCloud || mediaServerCreationTransaction.isRunning)
+                        .disabled(isResolvingInfiniCloud || isAuthenticatingGateway || mediaServerCreationTransaction.isRunning)
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
@@ -443,7 +553,7 @@ struct AddSourceView: View {
             }
 
             HStack(spacing: 8) {
-                if isResolvingInfiniCloud { ProgressView().controlSize(.small) }
+                if isResolvingInfiniCloud || isAuthenticatingGateway { ProgressView().controlSize(.small) }
                 Spacer()
                 Button("cancel") { cancelAndDismiss() }
                     .buttonStyle(.plain)
@@ -562,6 +672,10 @@ struct AddSourceView: View {
         }
 
         macTypeSpecificSections
+
+        if let gateway = detectedFnConnectGateway {
+            macFnConnectGatewaySection(gateway)
+        }
 
         if sourceType.requiresCredentials {
             macSection("credentials") {
@@ -830,6 +944,41 @@ struct AddSourceView: View {
                 macInfoText(note)
             }
             macInfoRow("source_address_section_footer")
+        }
+    }
+
+    @ViewBuilder
+    private func macFnConnectGatewaySection(_ gateway: FnConnectGatewayAddress) -> some View {
+        macSection("fnconnect_gateway_section") {
+            if let candidate = gatewayReusableCandidate {
+                macCustomRow("fnconnect_gateway_account") {
+                    Picker("", selection: $gatewayAccountMode) {
+                        Text(String(
+                            format: String(localized: "fnconnect_gateway_reuse_option %@ %@"),
+                            candidate.username,
+                            candidate.fnID
+                        ))
+                        .tag(FnConnectGatewayAccountMode.reuse)
+                        Text("fnconnect_gateway_other_account")
+                            .tag(FnConnectGatewayAccountMode.custom)
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 280, alignment: .trailing)
+                }
+            }
+            if gatewayReusableCandidate == nil || gatewayAccountMode == .custom {
+                macTextRow("fnconnect_gateway_username", text: $gatewayUsername, focus: .gatewayUsername)
+                macCustomRow("fnconnect_gateway_password") {
+                    RevealableSecureField(title: "fnconnect_gateway_password", text: $gatewayPassword)
+                        .focused($focusedField, equals: .gatewayPassword)
+                        .frame(maxWidth: 280)
+                }
+                macCustomRow("fnconnect_gateway_access_code") {
+                    RevealableSecureField(title: "fnconnect_gateway_access_code", text: $gatewayAccessCode)
+                        .focused($focusedField, equals: .gatewayAccessCode)
+                        .frame(maxWidth: 280)
+                }
+            }
         }
     }
 
@@ -1249,6 +1398,10 @@ struct AddSourceView: View {
 
         typeSpecificSection
 
+        if let gateway = detectedFnConnectGateway {
+            iOSFnConnectGatewaySection(gateway)
+        }
+
         if sourceType.requiresCredentials {
             Section("credentials") {
                 if sourceType == .sftp || supportsAPIKeyAuth || sourceType.supportsAnonymous {
@@ -1413,6 +1566,41 @@ struct AddSourceView: View {
             addressActionRows
         } footer: {
             Text("source_address_section_footer")
+        }
+    }
+
+    @ViewBuilder
+    private func iOSFnConnectGatewaySection(_ gateway: FnConnectGatewayAddress) -> some View {
+        Section("fnconnect_gateway_section") {
+            if let candidate = gatewayReusableCandidate {
+                Picker("fnconnect_gateway_account", selection: $gatewayAccountMode) {
+                    Text(String(
+                        format: String(localized: "fnconnect_gateway_reuse_option %@ %@"),
+                        candidate.username,
+                        candidate.fnID
+                    ))
+                    .tag(FnConnectGatewayAccountMode.reuse)
+                    Text("fnconnect_gateway_other_account")
+                        .tag(FnConnectGatewayAccountMode.custom)
+                }
+                .pickerStyle(.menu)
+            }
+            if gatewayReusableCandidate == nil || gatewayAccountMode == .custom {
+                TextField("fnconnect_gateway_username", text: $gatewayUsername)
+                    .focused($focusedField, equals: .gatewayUsername)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .gatewayPassword }
+                RevealableSecureField(title: "fnconnect_gateway_password", text: $gatewayPassword)
+                    .focused($focusedField, equals: .gatewayPassword)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .gatewayAccessCode }
+                RevealableSecureField(title: "fnconnect_gateway_access_code", text: $gatewayAccessCode)
+                    .focused($focusedField, equals: .gatewayAccessCode)
+                    .submitLabel(.done)
+                    .onSubmit { focusedField = nil }
+            }
         }
     }
 
@@ -1627,6 +1815,28 @@ struct AddSourceView: View {
             ftpEncryption = s.ftpEncryption ?? .none; nfsVersion = s.nfsVersion ?? .auto
             ftpDataConnectionMode = s.ftpDataConnectionMode ?? .automatic
             editingSourceHasStoredSecret = Self.readStoredSecretExists(for: s.id)
+            if let binding = s.fnConnectGateway {
+                gatewayUsername = binding.username
+                switch binding.scope {
+                case .dedicated:
+                    editingSourceHasStoredGatewaySecret =
+                        FnConnectGatewayCredentialStore.loadDedicatedCredential(sourceID: s.id) != nil
+                    gatewayAccountMode = .custom
+                case .shared:
+                    editingSourceHasStoredGatewaySecret =
+                        FnConnectGatewayCredentialStore.loadSharedCredential(fnID: binding.fnID) != nil
+                    gatewayAccountMode = .reuse
+                }
+            }
+            refreshFnConnectGatewayCandidate(
+                for: detectedFnConnectGateway?.fnID ?? s.fnConnectGateway?.fnID,
+                preserveUserEdits: s.fnConnectGateway != nil
+            )
+            if let binding = s.fnConnectGateway,
+               binding.scope == .shared,
+               gatewayReusableCandidate?.username.caseInsensitiveCompare(binding.username) != .orderedSame {
+                gatewayAccountMode = .custom
+            }
         } else if let device = prefillDevice {
             name = device.name
             host = device.host
@@ -1682,6 +1892,7 @@ struct AddSourceView: View {
             plog("📝 Restored unfinished source form type=\(sourceType.rawValue) editing=\(isEditing)")
         }
         #endif
+        initialGatewaySignature = currentGatewayInputSignature
         isInitialized = true
     }
 
@@ -1723,7 +1934,9 @@ struct AddSourceView: View {
                     savedRoute: $0.savedRoute
                 )
             },
-            selectedAddressRowID: selectedAddressRowID
+            selectedAddressRowID: selectedAddressRowID,
+            fnConnectGatewayScope: gatewayAccountMode.rawValue,
+            fnConnectGatewayUsername: gatewayUsername
         )
     }
 
@@ -1731,7 +1944,9 @@ struct AddSourceView: View {
         AddSourceDraftSecrets(
             password: password,
             sshKey: sshKey,
-            fnConnectAccessCode: fnConnectAccessCode
+            fnConnectAccessCode: fnConnectAccessCode,
+            fnConnectGatewayPassword: gatewayPassword,
+            fnConnectGatewayAccessCode: gatewayAccessCode
         )
     }
 
@@ -1790,6 +2005,16 @@ struct AddSourceView: View {
         password = restored.secrets.password
         sshKey = restored.secrets.sshKey
         fnConnectAccessCode = restored.secrets.fnConnectAccessCode
+        if let savedScope = draft.fnConnectGatewayScope,
+           let mode = FnConnectGatewayAccountMode(rawValue: savedScope) {
+            gatewayAccountMode = mode
+        }
+        if let savedGatewayUsername = draft.fnConnectGatewayUsername {
+            gatewayUsername = savedGatewayUsername
+        }
+        gatewayPassword = restored.secrets.fnConnectGatewayPassword
+        gatewayAccessCode = restored.secrets.fnConnectGatewayAccessCode
+        refreshFnConnectGatewayCandidate(for: detectedFnConnectGateway?.fnID, preserveUserEdits: true)
     }
     #endif
 
@@ -1846,7 +2071,75 @@ struct AddSourceView: View {
         canSave == false
             || mediaServerCreationTransaction.isRunning
             || addressProbe.isProbing
+            || isAuthenticatingGateway
             || isResolvingInfiniCloud
+    }
+
+    private func refreshFnConnectGatewayCandidate(
+        for fnID: String?,
+        preserveUserEdits: Bool
+    ) {
+        guard let fnID, !fnID.isEmpty else {
+            gatewayReusableCandidate = nil
+            return
+        }
+        let candidate = FnConnectGatewayCredentialStore.reusableCandidate(
+            forFNID: fnID,
+            sources: AppServices.shared.sourcesStore.sources
+        )
+        gatewayReusableCandidate = candidate
+        guard !preserveUserEdits else { return }
+        if candidate != nil {
+            gatewayAccountMode = .reuse
+        } else {
+            gatewayAccountMode = .custom
+        }
+    }
+
+    private func resolvedGatewayInput(
+        for gateway: FnConnectGatewayAddress
+    ) -> (credential: FnConnectGatewayCredential, scope: FnConnectGatewayScope)? {
+        if gatewayAccountMode == .reuse,
+           let candidate = gatewayReusableCandidate,
+           candidate.fnID == gateway.fnID,
+           let resolved = FnConnectGatewayCredentialStore.resolveCredential(for: candidate) {
+            return (resolved, .shared)
+        }
+        let trimmedUsername = gatewayUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedUsername.isEmpty else { return nil }
+
+        let existingStored: FnConnectGatewayCredential? = {
+            guard let editingSource, editingSource.fnConnectGateway?.fnID == gateway.fnID else { return nil }
+            if editingSource.fnConnectGateway?.scope == .dedicated {
+                return FnConnectGatewayCredentialStore.loadDedicatedCredential(sourceID: editingSource.id)
+            }
+            return FnConnectGatewayCredentialStore.loadSharedCredential(fnID: gateway.fnID)
+        }()
+
+        let effectivePassword = gatewayPassword.isEmpty ? (existingStored?.password ?? "") : gatewayPassword
+        guard !effectivePassword.isEmpty else { return nil }
+        let trimmedAccessCode = gatewayAccessCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveAccessCode = trimmedAccessCode.isEmpty
+            ? existingStored?.accessCode
+            : trimmedAccessCode
+
+        let scope: FnConnectGatewayScope
+        if let candidate = gatewayReusableCandidate, candidate.fnID == gateway.fnID {
+            let sameAsExistingShared = editingSource?.fnConnectGateway?.scope == .shared
+                && editingSource?.fnConnectGateway?.fnID == gateway.fnID
+                && candidate.username.caseInsensitiveCompare(trimmedUsername) == .orderedSame
+            scope = sameAsExistingShared ? .shared : .dedicated
+        } else {
+            scope = .shared
+        }
+
+        let credential = FnConnectGatewayCredential(
+            fnID: gateway.fnID,
+            username: trimmedUsername,
+            password: effectivePassword,
+            accessCode: effectiveAccessCode
+        )
+        return (credential, scope)
     }
 
     private func addressRowReading(
@@ -1943,6 +2236,40 @@ struct AddSourceView: View {
             "🔎 Source address submit type=\(sourceType.rawValue) editing=\(editingSource != nil) "
                 + "rows=\(addressRows.count) probing=\(probing.count)"
         )
+        let submittedSignature = addressProbeSignature
+        if let gateway = detectedFnConnectGateway {
+            guard let input = resolvedGatewayInput(for: gateway) else {
+                showCredentialSaveError = true
+                return
+            }
+            let gatewayChanged = currentGatewayInputSignature != initialGatewaySignature
+                || editingSource?.fnConnectGateway?.fnID != gateway.fnID
+            let needsGatewayAuth = !isEditing || !probing.isEmpty || gatewayChanged
+            guard needsGatewayAuth else {
+                pendingSaveGatewayPayload = PreparedFnConnectGatewaySave(
+                    binding: FnConnectGatewayBinding(
+                        fnID: gateway.fnID,
+                        username: input.credential.username,
+                        scope: input.scope
+                    ),
+                    credential: nil
+                )
+                applyAddressPlan(reading, selected: [:])
+                saveSource()
+                return
+            }
+            authenticateGatewayAndContinue(
+                gateway: gateway,
+                credential: input.credential,
+                scope: input.scope,
+                reading: reading,
+                probing: probing,
+                submittedSignature: submittedSignature
+            )
+            return
+        }
+
+        pendingSaveGatewayPayload = nil
         guard probing.isEmpty == false else {
             // 编辑已有源且地址没动过:已存的端口与协议本来就是明确的,原样留着。
             applyAddressPlan(reading, selected: [:])
@@ -1950,7 +2277,112 @@ struct AddSourceView: View {
             return
         }
 
-        let submittedSignature = addressProbeSignature
+        runAddressProbeAndSave(
+            reading: reading,
+            probing: probing,
+            submittedSignature: submittedSignature,
+            extraHeaders: nil
+        )
+    }
+
+    private func authenticateGatewayAndContinue(
+        gateway: FnConnectGatewayAddress,
+        credential: FnConnectGatewayCredential,
+        scope: FnConnectGatewayScope,
+        reading: SourceAddressFormPolicy.FormReading,
+        probing: Set<UUID>,
+        submittedSignature: String
+    ) {
+        addressSubmitTask?.cancel()
+        isAuthenticatingGateway = true
+        gatewayAuthError = nil
+        addressSubmitTask = Task { @MainActor in
+            do {
+                let session = try await FnConnectGatewaySessionStore.shared.authenticate(
+                    gatewayHost: gateway.gatewayHost,
+                    credential: credential
+                )
+                guard !Task.isCancelled, submittedSignature == addressProbeSignature else {
+                    isAuthenticatingGateway = false
+                    return
+                }
+                isAuthenticatingGateway = false
+                continueAfterGatewayAuthentication(
+                    session: session,
+                    gateway: gateway,
+                    credential: credential,
+                    scope: scope,
+                    reading: reading,
+                    probing: probing,
+                    submittedSignature: submittedSignature
+                )
+            } catch FnConnectGatewayError.twoFactorRequired(let challenge) {
+                isAuthenticatingGateway = false
+                guard !Task.isCancelled, submittedSignature == addressProbeSignature else { return }
+                pendingGatewayTwoFactor = PendingFnConnectGatewayTwoFactor(
+                    id: challenge.id,
+                    challenge: challenge,
+                    gateway: gateway,
+                    credential: credential,
+                    scope: scope,
+                    reading: reading,
+                    probing: probing,
+                    submittedSignature: submittedSignature
+                )
+            } catch {
+                isAuthenticatingGateway = false
+                if !OperationCancellationPolicy.isCancellation(error) {
+                    gatewayAuthError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func continueAfterGatewayAuthentication(
+        session: FnConnectGatewayPersistedSession,
+        gateway: FnConnectGatewayAddress,
+        credential: FnConnectGatewayCredential,
+        scope: FnConnectGatewayScope,
+        reading: SourceAddressFormPolicy.FormReading,
+        probing: Set<UUID>,
+        submittedSignature: String
+    ) {
+        pendingSaveGatewayPayload = PreparedFnConnectGatewaySave(
+            binding: FnConnectGatewayBinding(
+                fnID: gateway.fnID,
+                username: credential.username,
+                scope: scope
+            ),
+            credential: credential
+        )
+        guard probing.isEmpty == false else {
+            applyAddressPlan(reading, selected: [:])
+            saveSource()
+            return
+        }
+        let gatewayHeaders = session.headers(accessCode: credential.accessCode)
+        let targetFNID = gateway.fnID
+        let headerProvider: @Sendable (URL) -> [String: String] = { url in
+            guard let parsed = FnConnectGatewayAddress.interceptedAddress(for: url),
+                  parsed.fnID == targetFNID else {
+                return [:]
+            }
+            return gatewayHeaders
+        }
+        runAddressProbeAndSave(
+            reading: reading,
+            probing: probing,
+            submittedSignature: submittedSignature,
+            extraHeaders: headerProvider
+        )
+    }
+
+    private func runAddressProbeAndSave(
+        reading: SourceAddressFormPolicy.FormReading,
+        probing: Set<UUID>,
+        submittedSignature: String,
+        extraHeaders: (@Sendable (URL) -> [String: String])?
+    ) {
         addressSubmitTask?.cancel()
         addressSubmitTask = Task { @MainActor in
             guard !Task.isCancelled, submittedSignature == addressProbeSignature else { return }
@@ -1958,7 +2390,8 @@ struct AddSourceView: View {
                 rows: addressRows,
                 reading: reading,
                 sourceType: sourceType,
-                probing: probing
+                probing: probing,
+                extraHeaders: extraHeaders
             )
             guard !outcome.isCancelled, !Task.isCancelled, submittedSignature == addressProbeSignature else {
                 plog("🔎 Source address submit cancelled")
@@ -1987,6 +2420,18 @@ struct AddSourceView: View {
     private func saveWithoutProbing() {
         guard canSave else { return }
         let reading = addressReading
+        if pendingSaveGatewayPayload == nil,
+           let gateway = detectedFnConnectGateway,
+           let input = resolvedGatewayInput(for: gateway) {
+            pendingSaveGatewayPayload = PreparedFnConnectGatewaySave(
+                binding: FnConnectGatewayBinding(
+                    fnID: gateway.fnID,
+                    username: input.credential.username,
+                    scope: input.scope
+                ),
+                credential: input.credential
+            )
+        }
         // `cancelAddressProbe` 会清掉控制器上的结论,先取出来再取消。
         let selected = addressProbe.selectedCandidates
         plog("🔎 Source address saved without a full probe verdict resolved=\(selected.count)")
@@ -2196,6 +2641,9 @@ struct AddSourceView: View {
                 : nil
         }
 
+        let gatewayPayload = pendingSaveGatewayPayload
+        pendingSaveGatewayPayload = nil
+
         var source = MusicSource(
             id: editingSource?.id ?? UUID().uuidString,
             name: name, type: sourceType,
@@ -2217,6 +2665,7 @@ struct AddSourceView: View {
             synologyConnectionMode: sourceType.usesSynologyConnectionMode ? synologyConnectionMode : nil,
             fnMusicConnectionMode: sourceType == .fnMusic ? fnMusicConnectionMode : nil,
             connectionConfiguration: adaptiveConfiguration,
+            fnConnectGateway: sourceType != .fnMusic ? gatewayPayload?.binding : nil,
             username: finalUsername,
             basePath: finalBasePath,
             shareName: finalShareName,
@@ -2260,6 +2709,7 @@ struct AddSourceView: View {
             mediaServerCreationTransaction.submit(
                 source: source,
                 secret: password,
+                gatewayCredential: gatewayPayload?.credential,
                 persistCredential: { sourceID, secret in
                     guard (try? sourceManager.credentialsWillChange(for: sourceID)) != nil else {
                         return false
@@ -2270,7 +2720,8 @@ struct AddSourceView: View {
                     } else {
                         persisted = KeychainService.setPassword(secret, for: sourceID)
                     }
-                    guard persisted else {
+                    guard persisted,
+                          Self.persistFnConnectGatewayCredential(gatewayPayload, sourceID: sourceID) else {
                         // Bool cannot distinguish an unchanged failure from a
                         // durable target write followed by cleanup failure.
                         // Keep the prepared scope blocked in either case.
@@ -2290,7 +2741,8 @@ struct AddSourceView: View {
                     // write left a prepared transition active, commit that
                     // transition after deletion instead of trusting old bytes.
                     _ = try? sourceManager.credentialsWillChange(for: sourceID)
-                    guard KeychainService.deletePassword(for: sourceID) else {
+                    let dedicatedDeleted = FnConnectGatewayCredentialStore.deleteDedicatedCredential(sourceID: sourceID)
+                    guard KeychainService.deletePassword(for: sourceID), dedicatedDeleted else {
                         sourceManager.credentialsChangeOutcomeUncertain(for: sourceID)
                         return false
                     }
@@ -2457,6 +2909,19 @@ struct AddSourceView: View {
             }
         }
 
+        if sourceType != .fnMusic, gatewayPayload?.credential != nil || editingSource?.fnConnectGateway != nil {
+            if gatewayPayload?.credential != nil {
+                guard prepareCredentialChange() else { return }
+            }
+            guard Self.persistFnConnectGatewayCredential(gatewayPayload, sourceID: source.id) else {
+                if preparedCredentialChange {
+                    sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                }
+                showCredentialSaveError = true
+                return
+            }
+        }
+
         if preparedCredentialChange {
             do {
                 try sourceManager.credentialsDidChange(for: source.id)
@@ -2484,6 +2949,25 @@ struct AddSourceView: View {
         #endif
 
         completeSave(source)
+    }
+
+    private static func persistFnConnectGatewayCredential(
+        _ payload: PreparedFnConnectGatewaySave?,
+        sourceID: String
+    ) -> Bool {
+        guard let payload else {
+            return FnConnectGatewayCredentialStore.deleteDedicatedCredential(sourceID: sourceID)
+        }
+        guard let credential = payload.credential else {
+            return true
+        }
+        switch payload.binding.scope {
+        case .shared:
+            guard FnConnectGatewayCredentialStore.saveSharedCredential(credential) else { return false }
+            return FnConnectGatewayCredentialStore.deleteDedicatedCredential(sourceID: sourceID)
+        case .dedicated:
+            return FnConnectGatewayCredentialStore.saveDedicatedCredential(credential, sourceID: sourceID)
+        }
     }
 
     private func cancelAndDismiss() {
@@ -2551,6 +3035,8 @@ enum AddSourceDraftStore {
     private static let passwordItem = "primuse.addSourceDraft.password"
     private static let sshKeyItem = "primuse.addSourceDraft.sshKey"
     private static let accessCodeItem = "primuse.addSourceDraft.fnAccessCode"
+    private static let gatewayPasswordItem = "primuse.addSourceDraft.fnGatewayPassword"
+    private static let gatewayAccessCodeItem = "primuse.addSourceDraft.fnGatewayAccessCode"
 
     /// 先写记录再写密钥, 清除时反过来: 有密钥就一定有记录, 清除只看记录在不在,
     /// 不用每次关表单都去敲三次钥匙串。
@@ -2560,6 +3046,8 @@ enum AddSourceDraftStore {
         storeSecret(secrets.password, item: passwordItem)
         storeSecret(secrets.sshKey, item: sshKeyItem)
         storeSecret(secrets.fnConnectAccessCode, item: accessCodeItem)
+        storeSecret(secrets.fnConnectGatewayPassword, item: gatewayPasswordItem)
+        storeSecret(secrets.fnConnectGatewayAccessCode, item: gatewayAccessCodeItem)
     }
 
     /// 还值得接着填的那份; 过期或读不出来的当场连密钥一起删掉。
@@ -2575,14 +3063,16 @@ enum AddSourceDraftStore {
             secrets: AddSourceDraftSecrets(
                 password: readSecret(passwordItem),
                 sshKey: readSecret(sshKeyItem),
-                fnConnectAccessCode: readSecret(accessCodeItem)
+                fnConnectAccessCode: readSecret(accessCodeItem),
+                fnConnectGatewayPassword: readSecret(gatewayPasswordItem),
+                fnConnectGatewayAccessCode: readSecret(gatewayAccessCodeItem)
             )
         )
     }
 
     static func clear() {
         guard UserDefaults.standard.object(forKey: recordKey) != nil else { return }
-        for item in [passwordItem, sshKeyItem, accessCodeItem] {
+        for item in [passwordItem, sshKeyItem, accessCodeItem, gatewayPasswordItem, gatewayAccessCodeItem] {
             _ = KeychainService.deletePassword(for: item)
         }
         UserDefaults.standard.removeObject(forKey: recordKey)
@@ -2712,3 +3202,123 @@ private struct MacSourceICloudSyncRow: View {
     }
 }
 #endif
+
+// MARK: - FN Connect Gateway 2FA Sheet
+
+private struct FnConnectGatewayTwoFactorSheet: View {
+    let challenge: FnConnectTwoFactorChallenge
+    let onSuccess: (FnConnectGatewayPersistedSession) -> Void
+    let onCancel: () -> Void
+
+    @State private var code = ""
+    @State private var trustDevice = true
+    @State private var isVerifying = false
+    @State private var errorMessage: String?
+    @FocusState private var isCodeFocused: Bool
+
+    private var trimmedCode: String {
+        code.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        #if os(iOS)
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("fnconnect_gateway_2fa_code", text: $code)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .focused($isCodeFocused)
+                        .submitLabel(.done)
+                        .onSubmit { verify() }
+                    Toggle("remember_device", isOn: $trustDevice)
+                } header: {
+                    Text(verbatim: "\(challenge.username) · \(challenge.fnID)")
+                }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .disabled(isVerifying)
+            .navigationTitle(String(localized: "fnconnect_gateway_2fa_title"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { onCancel() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isVerifying {
+                        ProgressView()
+                    } else {
+                        Button("fnconnect_gateway_2fa_verify") { verify() }
+                            .disabled(trimmedCode.isEmpty)
+                            .fontWeight(.semibold)
+                    }
+                }
+            }
+            .onAppear { isCodeFocused = true }
+        }
+        .interactiveDismissDisabled(isVerifying)
+        #else
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("fnconnect_gateway_2fa_title")
+                    .font(.headline)
+                Text(verbatim: "\(challenge.username) · \(challenge.fnID)")
+                    .font(.caption)
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            TextField("fnconnect_gateway_2fa_code", text: $code)
+                .textFieldStyle(.roundedBorder)
+                .focused($isCodeFocused)
+                .onSubmit { verify() }
+            Toggle("remember_device", isOn: $trustDevice)
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+            HStack {
+                if isVerifying { ProgressView().controlSize(.small) }
+                Spacer()
+                Button("cancel") { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+                Button("fnconnect_gateway_2fa_verify") { verify() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmedCode.isEmpty || isVerifying)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+        .disabled(isVerifying)
+        .onAppear { isCodeFocused = true }
+        #endif
+    }
+
+    private func verify() {
+        let otp = trimmedCode
+        guard !otp.isEmpty, !isVerifying else { return }
+        isVerifying = true
+        errorMessage = nil
+        Task { @MainActor in
+            do {
+                let session = try await FnConnectGatewaySessionStore.shared.verifyTwoFactor(
+                    challenge: challenge,
+                    code: otp,
+                    trustDevice: trustDevice
+                )
+                isVerifying = false
+                onSuccess(session)
+            } catch {
+                isVerifying = false
+                if !OperationCancellationPolicy.isCancellation(error) {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+}

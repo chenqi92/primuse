@@ -1409,6 +1409,9 @@ public enum LyricsFormat: String, Codable, Sendable, CaseIterable {
         if content.range(of: #"\[\d+:\d+(?:[.:]\d+)?\]"#, options: .regularExpression) != nil {
             return .lineLevel
         }
+        if LyricsContentParser.looksLikeLyricifyLines(content) {
+            return .lineLevel
+        }
         return .plain
     }
 
@@ -1466,44 +1469,179 @@ public struct LyricsEditableValidation: Sendable, Hashable {
     }
 }
 
-/// File containers exposed by the macOS lyrics conversion tool. `lrc`
-/// preserves word timing as enhanced LRC when the source carries syllables;
-/// `plainText` intentionally removes every timing marker.
+/// File containers exposed by the lyrics conversion tool. `lrc` preserves word
+/// timing as enhanced LRC when the source carries syllables; `srt` writes
+/// SubRip cues for timed documents; `plainText` removes every timing marker.
 public enum LyricsFileFormat: String, Codable, Sendable, CaseIterable {
     case lrc
     case ttml
+    case srt
     case plainText
+}
+
+/// Concrete source container detected for display and diagnostics in the
+/// lyrics converter.
+public enum LyricsDetectedSourceFormat: String, Equatable, Hashable, Sendable {
+    case empty
+    case lrc
+    case elrc
+    case ttml
+    case lys
+    case yrc
+    case qrc
+    case krc
+    case lyl
+    case webVTT
+    case subRip
+    case substationAlpha
+    case plain
+    case invalid
 }
 
 public enum LyricsFileConversionError: Error, Equatable, Sendable {
     case emptyInput
     case invalidContent
+    case requiresTiming
+}
+
+public enum LyricsFileDecodeError: Error, Equatable, Sendable {
+    case emptyFile
+    case tooLarge
+    case encryptedKRC
+    case binaryOrUnreadable
 }
 
 public struct LyricsFileConversionResult: Equatable, Sendable {
     public let sourceFormat: LyricsFormat
+    public let detectedFormat: LyricsDetectedSourceFormat
     public let targetFormat: LyricsFileFormat
     public let lines: [LyricLine]
     public let output: String
+    public let flattensVoices: Bool
+    public let dropsCompanionWordTiming: Bool
 
     public init(
         sourceFormat: LyricsFormat,
+        detectedFormat: LyricsDetectedSourceFormat = .lrc,
         targetFormat: LyricsFileFormat,
         lines: [LyricLine],
-        output: String
+        output: String,
+        flattensVoices: Bool = false,
+        dropsCompanionWordTiming: Bool = false
     ) {
         self.sourceFormat = sourceFormat
+        self.detectedFormat = detectedFormat
         self.targetFormat = targetFormat
         self.lines = lines
         self.output = output
+        self.flattensVoices = flattensVoices
+        self.dropsCompanionWordTiming = dropsCompanionWordTiming
     }
 }
 
 /// Converts between the lyric formats that the shared parser can represent.
-/// Structured targets preserve line and syllable timing. Formats without a
-/// voice concept keep secondary/background text but cannot keep its visual
-/// alignment; the macOS tool explains that limitation.
+/// Structured targets preserve line and syllable timing. TTML retains nested
+/// backing vocals, duet voices, and companion word timings; flat targets
+/// (LRC, SRT, plain text) flatten voice alignment and companion word cues.
 public enum LyricsFileConverter {
+    public static let maximumFileBytes = 4 * 1_024 * 1_024
+
+    /// Known binary container headers that must never be coerced into Latin-1
+    /// plain text when opened in the converter.
+    private static let binaryMagicPrefixes: [[UInt8]] = [
+        [0x89, 0x50, 0x4E, 0x47], // PNG
+        [0xFF, 0xD8, 0xFF],       // JPEG
+        [0x50, 0x4B, 0x03, 0x04], // ZIP / Office / JAR
+        [0x25, 0x50, 0x44, 0x46], // PDF
+        [0x1F, 0x8B],             // GZIP
+        [0x49, 0x44, 0x33],       // ID3
+        [0x66, 0x4C, 0x61, 0x43], // FLAC
+        [0x4F, 0x67, 0x67, 0x53], // OGG
+        [0x52, 0x49, 0x46, 0x46], // RIFF / WAV / WEBP
+    ]
+
+    private static let encryptedKRCMagic: [UInt8] = [0x6B, 0x72, 0x63, 0x31] // "krc1"
+
+    /// Decodes a standalone lyric file into text while rejecting encrypted KRC
+    /// binaries and arbitrary binary files that Latin-1 would otherwise decode
+    /// as mojibake.
+    public static func decodeText(from data: Data) throws -> String {
+        guard !data.isEmpty else { throw LyricsFileDecodeError.emptyFile }
+        guard data.count <= maximumFileBytes else { throw LyricsFileDecodeError.tooLarge }
+
+        let head = Array(data.prefix(8))
+        if head.starts(with: encryptedKRCMagic) {
+            throw LyricsFileDecodeError.encryptedKRC
+        }
+        if binaryMagicPrefixes.contains(where: { head.starts(with: $0) }) {
+            throw LyricsFileDecodeError.binaryOrUnreadable
+        }
+
+        // UTF-16 with explicit BOM.
+        if head.starts(with: [0xFF, 0xFE]) || head.starts(with: [0xFE, 0xFF]) {
+            guard var text = String(data: data, encoding: .utf16),
+                  !containsDisallowedControlScalars(text, rejectC1Controls: false) else {
+                throw LyricsFileDecodeError.binaryOrUnreadable
+            }
+            if text.first == "\u{FEFF}" { text.removeFirst() }
+            return text
+        }
+
+        // UTF-8 (with or without BOM).
+        if var utf8 = String(data: data, encoding: .utf8) {
+            guard !containsDisallowedControlScalars(utf8, rejectC1Controls: false) else {
+                throw LyricsFileDecodeError.binaryOrUnreadable
+            }
+            if utf8.first == "\u{FEFF}" { utf8.removeFirst() }
+            return utf8
+        }
+
+        // Non-UTF-8 data containing raw NUL bytes is either BOM-less UTF-16 or binary.
+        if data.contains(0x00) {
+            if data.count.isMultiple(of: 2) {
+                for encoding in [String.Encoding.utf16LittleEndian, .utf16BigEndian] {
+                    if var candidate = String(data: data, encoding: encoding),
+                       !candidate.contains("\u{FFFD}"),
+                       !containsDisallowedControlScalars(candidate, rejectC1Controls: true) {
+                        if candidate.first == "\u{FEFF}" { candidate.removeFirst() }
+                        return candidate
+                    }
+                }
+            }
+            throw LyricsFileDecodeError.binaryOrUnreadable
+        }
+
+        guard var decoded = TextEncodingRepair.bestDecoding(
+            of: data,
+            encodings: [
+                TextEncodingRepair.gb18030,
+                TextEncodingRepair.big5,
+                .shiftJIS,
+                TextEncodingRepair.eucKR,
+                .windowsCP1252,
+                .isoLatin1,
+            ]
+        ),
+        !containsDisallowedControlScalars(decoded, rejectC1Controls: true) else {
+            throw LyricsFileDecodeError.binaryOrUnreadable
+        }
+        if decoded.first == "\u{FEFF}" { decoded.removeFirst() }
+        return decoded
+    }
+
+    /// Identifies the concrete input lyric format using the exact same parser
+    /// precedence as `convert(_:to:)`.
+    public static func detectFormat(_ content: String) -> LyricsDetectedSourceFormat {
+        let normalized = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return .empty }
+        let validation = LyricsContentParser.validateEditableText(normalized)
+        guard validation.isValid else { return .invalid }
+        return detectedFormat(forNormalized: normalized, validation: validation)
+    }
+
     public static func convert(
         _ content: String,
         to targetFormat: LyricsFileFormat
@@ -1517,28 +1655,128 @@ public enum LyricsFileConverter {
         let validation = LyricsContentParser.validateEditableText(normalized)
         guard validation.isValid else { throw LyricsFileConversionError.invalidContent }
 
-        let expandedLines = LyricVoiceTimelinePolicy.flattenedLines(validation.lines)
+        let detected = detectedFormat(forNormalized: normalized, validation: validation)
+        let hasVoices = validation.lines.contains { line in
+            line.voice == .secondary || !(line.background?.isEmpty ?? true)
+        }
+        let hasCompanionWordTiming = validation.lines.contains(where: carriesCompanionWordTiming)
+
         let output: String
         switch targetFormat {
         case .lrc:
+            let expandedLines = LyricVoiceTimelinePolicy.flattenedLines(validation.lines)
             output = LyricsContentParser.serialize(expandedLines)
         case .ttml:
-            output = LyricsContentParser.serializeTTML(expandedLines)
+            let prepared = prepareForTTML(validation.lines)
+            output = LyricsContentParser.serializeTTML(prepared)
+        case .srt:
+            let expandedLines = LyricVoiceTimelinePolicy.flattenedLines(validation.lines)
+            guard let subRip = LyricsExportPolicy.subRip(expandedLines) else {
+                throw LyricsFileConversionError.requiresTiming
+            }
+            output = subRip.trimmingCharacters(in: .newlines)
         case .plainText:
+            let expandedLines = LyricVoiceTimelinePolicy.flattenedLines(validation.lines)
             output = expandedLines.map(\.text).joined(separator: "\n")
         }
 
         guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw LyricsFileConversionError.invalidContent
         }
+        let preservesStructure = targetFormat == .ttml
         return LyricsFileConversionResult(
             sourceFormat: validation.format,
+            detectedFormat: detected,
             targetFormat: targetFormat,
             lines: validation.lines,
-            output: output
+            output: output,
+            flattensVoices: !preservesStructure && hasVoices,
+            dropsCompanionWordTiming: !preservesStructure && hasCompanionWordTiming
         )
     }
 
+    private static func detectedFormat(
+        forNormalized normalized: String,
+        validation: LyricsEditableValidation
+    ) -> LyricsDetectedSourceFormat {
+        if LyricsContentParser.isTTML(normalized) { return .ttml }
+        if let wordTimed = WordTimedLyricsParser.detect(normalized) {
+            switch wordTimed {
+            case .lys: return .lys
+            case .yrc: return .yrc
+            case .qrc: return .qrc
+            case .krc: return .krc
+            }
+        }
+        if let subtitle = SubtitleLyricsParser.detect(normalized) {
+            switch subtitle {
+            case .webVTT: return .webVTT
+            case .subRip: return .subRip
+            case .substationAlpha: return .substationAlpha
+            }
+        }
+        if LyricsContentParser.looksLikeLyricifyLines(normalized) { return .lyl }
+        switch validation.format {
+        case .plain: return .plain
+        case .lineLevel: return .lrc
+        case .wordLevel: return .elrc
+        }
+    }
+
+    /// Prepares parsed lines for TTML export without losing nested backing vocals:
+    /// promotes bilingual LRC romanized reading rows into `x-roman` and fills
+    /// missing `<p end="...">` attributes from word-level end times.
+    private static func prepareForTTML(_ lines: [LyricLine]) -> [LyricLine] {
+        let readingIDs = LyricRomanizedReadingPolicy.readingIDs(
+            in: LyricVoiceTimelinePolicy.flattenedLines(lines)
+        )
+        return lines.map { prepareLineForTTML($0, readingIDs: readingIDs) }
+    }
+
+    private static func prepareLineForTTML(
+        _ line: LyricLine,
+        readingIDs: Set<String>
+    ) -> LyricLine {
+        var prepared = line
+        if prepared.romanization?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+           !readingIDs.isEmpty,
+           let readingIndex = prepared.allManualTranslations.firstIndex(where: { readingIDs.contains($0.id) }) {
+            var remaining = prepared.allManualTranslations
+            let reading = remaining.remove(at: readingIndex)
+            prepared.romanization = reading.text
+            prepared.romanizationSyllables = reading.syllables
+            prepared.manualTranslation = remaining.first
+            prepared.alternateManualTranslations = Array(remaining.dropFirst())
+        }
+        if prepared.endTimestamp == nil,
+           let inferredEnd = prepared.endTime,
+           inferredEnd >= prepared.timestamp {
+            prepared.endTimestamp = inferredEnd
+        }
+        if let background = prepared.background {
+            prepared.background = background.map { prepareLineForTTML($0, readingIDs: readingIDs) }
+        }
+        return prepared
+    }
+
+    private static func carriesCompanionWordTiming(_ line: LyricLine) -> Bool {
+        if line.romanizationSyllables?.isEmpty == false { return true }
+        if line.allManualTranslations.contains(where: { $0.syllables?.isEmpty == false }) { return true }
+        return line.background?.contains(where: carriesCompanionWordTiming) ?? false
+    }
+
+    private static func containsDisallowedControlScalars(
+        _ text: String,
+        rejectC1Controls: Bool
+    ) -> Bool {
+        for scalar in text.unicodeScalars {
+            let value = scalar.value
+            if value == 0x09 || value == 0x0A || value == 0x0D { continue }
+            if value < 0x20 || value == 0x7F { return true }
+            if rejectC1Controls, (0x80...0x9F).contains(value) { return true }
+        }
+        return false
+    }
 }
 
 /// Some servers and lyric sites hand out LRC text that was XML-escaped once
@@ -1846,6 +2084,39 @@ public enum LyricsContentParser {
         return String(text.unicodeScalars.dropFirst())
     }
 
+    /// Whether the document uses Lyricify Lines millisecond line windows
+    /// (`[startMs,endMs]text`) without millisecond word-timed markers.
+    public static func looksLikeLyricifyLines(_ content: String) -> Bool {
+        guard !TTMLLyricsParser.looksLikeTTML(content),
+              WordTimedLyricsParser.detect(content) == nil,
+              SubtitleLyricsParser.detect(content) == nil else { return false }
+        var relativeCount = 0
+        var lrcCount = 0
+        for raw in content.components(separatedBy: .newlines) {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, trimmed.firstMatch(of: metadataPattern) == nil else { continue }
+            if trimmed.firstMatch(of: relativeLineHeadPattern) != nil {
+                relativeCount += 1
+            } else if trimmed.firstMatch(of: lineHeadPattern) != nil {
+                lrcCount += 1
+            }
+        }
+        return relativeCount > 0 && relativeCount >= lrcCount
+    }
+
+    private static func looksLikeMalformedQRCEnvelope(_ content: String) -> Bool {
+        let trimmed = content.drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" })
+        guard trimmed.first == "<" else { return false }
+        let prefix = String(trimmed.prefix(256)).lowercased()
+        if prefix.contains("<qrcinfos") || prefix.contains("<lyric_1") {
+            return true
+        }
+        if prefix.hasPrefix("<?xml") && content.range(of: #"\bLyricContent\s*="#, options: [.regularExpression, .caseInsensitive]) != nil {
+            return true
+        }
+        return false
+    }
+
     /// Convert editable lyric models back to a text representation without
     /// flattening synchronization data. Plain lyrics remain plain, line-level
     /// lyrics use LRC timestamps, and syllable lyrics use ELRC word markers.
@@ -1856,19 +2127,26 @@ public enum LyricsContentParser {
         let body = lines.flatMap { line -> [String] in
             var serializedLines = [serializeLine(line)]
             if includeManualTranslations {
-                // 同一时间戳上的相邻行读进来时并入了原文，写回去要按原样还原。
-                // 只写首选译文的话，「原文 + 注音 + 译文」会在一次回写之后
-                // 退化成两行，注音就永久丢了。
-                let companions = (line.manualTranslation.map { [$0] } ?? [])
-                    + line.alternateManualTranslations.filter { $0.source == .bilingualLRC }
-                for companion in companions
-                where !companion.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let primaryText = flattenedCompanionText(line.text)
+                var seen: Set<String> = primaryText.isEmpty ? [] : [primaryText]
+                var companionRows: [String] = []
+                if let romanization = line.romanization.map(flattenedCompanionText),
+                   !romanization.isEmpty,
+                   seen.insert(romanization).inserted {
+                    companionRows.append(romanization)
+                }
+                for companion in line.allManualTranslations {
+                    let text = flattenedCompanionText(companion.text)
+                    guard !text.isEmpty, seen.insert(text).inserted else { continue }
+                    companionRows.append(text)
+                }
+                for companionText in companionRows {
                     if line.isSynchronized {
                         serializedLines.append(
-                            "[\(formatTimestamp(line.timestamp))]\(companion.text)"
+                            "[\(formatTimestamp(line.timestamp))]\(companionText)"
                         )
                     } else {
-                        serializedLines.append(companion.text)
+                        serializedLines.append(companionText)
                     }
                 }
             }
@@ -1878,6 +2156,13 @@ public enum LyricsContentParser {
             return body
         }
         return (metadata + [body]).joined(separator: "\n")
+    }
+
+    private static func flattenedCompanionText(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     private static func serializeLine(_ line: LyricLine) -> String {
@@ -1929,13 +2214,39 @@ public enum LyricsContentParser {
             let lines = TTMLLyricsParser.parse(normalized)
             return LyricsEditableValidation(
                 normalizedContent: normalized,
-                format: lines.contains(where: \.isWordLevel)
+                format: lines.contains(where: \.containsWordLevelContent)
                     ? .wordLevel
                     : (lines.contains(where: \.isSynchronized) ? .lineLevel : .plain),
                 lines: lines,
                 issues: lines.isEmpty
                     ? [.init(lineNumber: 1, kind: .invalidTimestamp)]
                     : []
+            )
+        }
+
+        if WordTimedLyricsParser.detect(normalized) != nil {
+            // Millisecond word-timed documents (`.lys`, `.yrc`, `.qrc`, `.krc`)
+            // have their own grammar and may carry XML envelopes, JSON credit
+            // rows, or overlapping backing rows that LRC line validation would
+            // misreport as broken timestamps.
+            return LyricsEditableValidation(
+                normalizedContent: normalized,
+                format: parsedLines.contains(where: \.containsWordLevelContent)
+                    ? .wordLevel
+                    : (parsedLines.contains(where: \.isSynchronized) ? .lineLevel : .plain),
+                lines: parsedLines,
+                issues: parsedLines.isEmpty
+                    ? [.init(lineNumber: 1, kind: .invalidTimestamp)]
+                    : []
+            )
+        }
+
+        if looksLikeMalformedQRCEnvelope(normalized) {
+            return LyricsEditableValidation(
+                normalizedContent: normalized,
+                format: .plain,
+                lines: [],
+                issues: [.init(lineNumber: 1, kind: .invalidTimestamp)]
             )
         }
 

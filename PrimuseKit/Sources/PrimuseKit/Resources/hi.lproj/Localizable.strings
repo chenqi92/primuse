@@ -1053,3 +1053,11 @@
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "टिप्पणी API सर्वर";
+
+"error.fnConnectGateway.missingCredential" = "FN Connect गेटवे क्रेडेंशियल उपलब्ध नहीं हैं।";
+"error.fnConnectGateway.authenticationFailed" = "FN Connect गेटवे साइन-इन विफल रहा। NAS उपयोगकर्ता नाम और पासवर्ड जाँचें।";
+"error.fnConnectGateway.ipBanned" = "बहुत अधिक साइन-इन प्रयास। NAS ने आपका IP अस्थायी रूप से अवरुद्ध कर दिया है।";
+"error.fnConnectGateway.twoFactorRequired" = "इस NAS खाते के लिए दो-चरणीय सत्यापन आवश्यक है। सत्यापित करने के लिए स्रोत संपादित करें।";
+"error.fnConnectGateway.twoFactorSetupRequired" = "इस NAS के लिए पहले वेब पोर्टल में दो-चरणीय प्रमाणीकरण सेट करना आवश्यक है।";
+"error.fnConnectGateway.invalidTwoFactorCode" = "सत्यापन कोड अमान्य या समाप्त हो गया है। फिर से प्रयास करें।";
+"error.fnConnectGateway.entryTokenUnavailable" = "FN Connect गेटवे सेवा एक्सेस टोकन जारी नहीं कर सका।";

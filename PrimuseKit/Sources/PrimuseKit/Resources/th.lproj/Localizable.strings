@@ -1053,3 +1053,11 @@
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "เซิร์ฟเวอร์ API ความคิดเห็น";
+
+"error.fnConnectGateway.missingCredential" = "ไม่พบข้อมูลรับรองเกตเวย์ FN Connect";
+"error.fnConnectGateway.authenticationFailed" = "ลงชื่อเข้าใช้เกตเวย์ FN Connect ไม่สำเร็จ โปรดตรวจสอบชื่อผู้ใช้และรหัสผ่าน NAS";
+"error.fnConnectGateway.ipBanned" = "พยายามลงชื่อเข้าใช้มากเกินไป IP ของคุณถูก NAS บล็อกชั่วคราว";
+"error.fnConnectGateway.twoFactorRequired" = "บัญชี NAS นี้ต้องยืนยันตัวตนแบบสองขั้นตอน โปรดแก้ไขแหล่งข้อมูลนี้เพื่อยืนยัน";
+"error.fnConnectGateway.twoFactorSetupRequired" = "NAS นี้ต้องตั้งค่าการยืนยันตัวตนแบบสองขั้นตอนบนเว็บก่อน";
+"error.fnConnectGateway.invalidTwoFactorCode" = "รหัสยืนยันไม่ถูกต้องหรือหมดอายุแล้ว โปรดลองอีกครั้ง";
+"error.fnConnectGateway.entryTokenUnavailable" = "เกตเวย์ FN Connect ไม่สามารถออกโทเค็นเข้าถึงบริการได้";

@@ -3193,14 +3193,14 @@
 
 /* MARK: - macOS lyrics converter */
 "lyrics_converter_title" = "Lyrics Converter";
-"lyrics_converter_subtitle" = "Convert LRC, TTML, and plain text without leaving Primuse";
+"lyrics_converter_subtitle" = "Convert LRC, TTML, SRT, and plain text without leaving Primuse";
 "lyrics_converter_input" = "Input";
 "lyrics_converter_output" = "Output";
 "lyrics_converter_overview_empty" = "Drop a lyric file or paste its contents to begin";
 "lyrics_converter_choose_file" = "Choose File";
 "lyrics_converter_change_file" = "Change";
 "lyrics_converter_drop_title" = "Drop a lyric file, or paste here";
-"lyrics_converter_drop_hint" = "Supports .lrc, .ttml, .xml, and .txt";
+"lyrics_converter_drop_hint" = "Supports .lrc, .elrc, .ttml, .xml, .lys, .yrc, .qrc, .krc, .vtt, .srt, .ass, .ssa, .lyl, and .txt";
 "lyrics_converter_output_placeholder" = "The converted lyrics will appear here";
 "lyrics_converter_empty_notice" = "Choose a file or paste lyrics. Conversion stays on this Mac.";
 "lyrics_converter_invalid_notice" = "These lyrics could not be parsed. Check the document structure and time markers.";
@@ -3219,6 +3219,9 @@
 "lyrics_converter_lrc_help" = "LRC; word timing is kept as enhanced LRC";
 "lyrics_converter_ttml_help" = "Apple Music-compatible TTML";
 "lyrics_converter_txt_help" = "Plain text without timing";
+"lyrics_converter_companion_timing_notice" = "Text is kept, but word-level timing on romanization or translations is only preserved in TTML.";
+"lyrics_converter_encrypted_krc" = "Encrypted binary KRC files cannot be decoded directly as text.";
+"lyrics_converter_srt_help" = "SubRip (.srt) subtitles with line timing";
 "reread_album_cover" = "Reload Album Artwork";
 "reread_album_cover_done" = "Album artwork is ready";
 "reread_album_cover_not_found" = "No artwork was found for this album";
@@ -8044,3 +8047,15 @@
 "player_audio_info_show_equalizer" = "Show Equalizer Info";
 "player_audio_info_show_equalizer_footer" = "Shows the active equalizer preset below the progress bar when EQ is enabled and not bypassed.";
 "now_playing_audio_eq_bypassed" = "%@ (Bypassed in High-Fidelity Mode)";
+
+"source_address_reading_fnconnect_gateway %@" = "FN Connect Gateway (%@)";
+"fnconnect_gateway_section" = "FN Connect Gateway";
+"fnconnect_gateway_account" = "Gateway Account";
+"fnconnect_gateway_reuse_option %@ %@" = "Reuse %@ · %@";
+"fnconnect_gateway_other_account" = "Use Another Account…";
+"fnconnect_gateway_username" = "NAS Username";
+"fnconnect_gateway_password" = "NAS Password";
+"fnconnect_gateway_access_code" = "Access Code (Optional)";
+"fnconnect_gateway_2fa_title" = "FN Connect Verification";
+"fnconnect_gateway_2fa_code" = "6-Digit Code";
+"fnconnect_gateway_2fa_verify" = "Verify";

@@ -1458,29 +1458,108 @@ public enum LyricManualTranslationPolicy {
     }
 }
 
+/// 一句歌词下面的一条附属文本，保留其类型及可能自带的逐字时间轴。
+public struct LyricCompanionItem: Equatable, Hashable, Sendable {
+    public enum Kind: String, Equatable, Hashable, Sendable {
+        case romanization
+        case translation
+    }
+
+    public let kind: Kind
+    public let text: String
+    public let syllables: [LyricSyllable]?
+    public let languageCode: String?
+
+    public init(
+        kind: Kind,
+        text: String,
+        syllables: [LyricSyllable]? = nil,
+        languageCode: String? = nil
+    ) {
+        self.kind = kind
+        self.text = text
+        self.syllables = syllables?.isEmpty == false ? syllables : nil
+        self.languageCode = languageCode
+    }
+
+    public var isWordLevel: Bool { syllables?.isEmpty == false }
+
+    /// 供逐字渲染组件复用的轻量行模型，不改写原始歌词行。
+    public func lyricLine(for parent: LyricLine, slot: Int) -> LyricLine {
+        LyricLine(
+            id: "\(parent.id)#companion:\(slot)",
+            timestamp: syllables?.first?.start ?? parent.timestamp,
+            text: text,
+            isSynchronized: parent.isSynchronized || isWordLevel,
+            syllables: syllables,
+            endTimestamp: syllables?.last?.end ?? parent.endTime,
+            voice: parent.voice,
+            languageCode: languageCode
+        )
+    }
+}
+
 /// 一句歌词下面要显示的附属文本，顺序与歌词文件里写的一致。
 public enum LyricCompanionTextPolicy {
+    /// 结构化附属条目：罗马音在前，然后是文件里同一时间戳写下的各行（注音、译文），
+    /// 最后是翻译任务或首选自带译文。保留与正文匹配的逐字时间轴，供界面与原文同步逐字播放。
+    public static func items(for line: LyricLine, translatedText: String?) -> [LyricCompanionItem] {
+        var companions: [LyricCompanionItem] = []
+        if let romanization = normalized(line.romanization) {
+            companions.append(LyricCompanionItem(
+                kind: .romanization,
+                text: romanization,
+                syllables: validatedSyllables(line.romanizationSyllables, matching: romanization),
+                languageCode: nil
+            ))
+        }
+        for translation in line.allManualTranslations where translation.source == .bilingualLRC {
+            if let text = normalized(translation.text) {
+                companions.append(LyricCompanionItem(
+                    kind: .translation,
+                    text: text,
+                    syllables: validatedSyllables(translation.syllables, matching: text),
+                    languageCode: translation.languageCode
+                ))
+            }
+        }
+        guard let translated = normalized(translatedText) ?? normalized(line.manualTranslation?.text),
+              translated != normalized(line.text),
+              !companions.contains(where: { $0.text == translated }) else {
+            return companions
+        }
+        let matchingAuthored = line.allManualTranslations.first { normalized($0.text) == translated }
+        companions.append(LyricCompanionItem(
+            kind: .translation,
+            text: translated,
+            syllables: validatedSyllables(matchingAuthored?.syllables, matching: translated),
+            languageCode: matchingAuthored?.languageCode
+        ))
+        return companions
+    }
+
     /// 罗马音在前，然后是文件里同一时间戳写下的各行（注音、译文），最后才是
     /// 翻译任务给出的那一条。文件自带的行不管是不是目标语言都要列出来，不能把
     /// 注音或别的语言的译文藏掉；机翻只在确实是新内容时追加 —— 和某一行自带文本
     /// 相同（首选译文本来就是其中一行）、或和原文相同就不重复。
     public static func texts(for line: LyricLine, translatedText: String?) -> [String] {
-        var companions: [String] = []
-        if let romanization = normalized(line.romanization) {
-            companions.append(romanization)
+        items(for: line, translatedText: translatedText).map(\.text)
+    }
+
+    private static func validatedSyllables(
+        _ syllables: [LyricSyllable]?,
+        matching expectedText: String
+    ) -> [LyricSyllable]? {
+        guard let syllables, !syllables.isEmpty else { return nil }
+        guard syllables.allSatisfy({ $0.start.isFinite && $0.end.isFinite && $0.end >= $0.start }) else {
+            return nil
         }
-        for translation in line.allManualTranslations where translation.source == .bilingualLRC {
-            if let text = normalized(translation.text) {
-                companions.append(text)
-            }
+        guard !zip(syllables, syllables.dropFirst()).contains(where: { $0.start > $1.start }) else {
+            return nil
         }
-        guard let translated = normalized(translatedText) ?? normalized(line.manualTranslation?.text),
-              translated != normalized(line.text),
-              !companions.contains(translated) else {
-            return companions
-        }
-        companions.append(translated)
-        return companions
+        let joined = syllables.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard joined == expectedText else { return nil }
+        return syllables
     }
 
     /// 这一句只要一条译文时用哪条：翻译结果里有就用它（文件自带的优先、其次机翻，同歌词页那份），

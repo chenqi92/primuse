@@ -1106,3 +1106,11 @@
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "コメント API サーバ";
+
+"error.fnConnectGateway.missingCredential" = "FN Connect ゲートウェイの認証情報がありません。";
+"error.fnConnectGateway.authenticationFailed" = "FN Connect ゲートウェイへのサインインに失敗しました。NAS のユーザー名とパスワードを確認してください。";
+"error.fnConnectGateway.ipBanned" = "ログイン試行回数が多すぎます。IP が NAS により一時的にブロックされました。";
+"error.fnConnectGateway.twoFactorRequired" = "この NAS アカウントには 2 段階認証が必要です。ソースを編集して認証してください。";
+"error.fnConnectGateway.twoFactorSetupRequired" = "この NAS では先に Web ポータルで 2 段階認証を設定する必要があります。";
+"error.fnConnectGateway.invalidTwoFactorCode" = "確認コードが無効または期限切れです。もう一度お試しください。";
+"error.fnConnectGateway.entryTokenUnavailable" = "FN Connect ゲートウェイからサービスアクセストークンを取得できませんでした。";

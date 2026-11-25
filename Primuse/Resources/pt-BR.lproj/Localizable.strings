@@ -2029,7 +2029,7 @@
 "lyrics_converter_copied" = "Letras convertidas copiadas";
 "lyrics_converter_copy" = "Copiar letras convertidas";
 "lyrics_converter_decode_failed" = "Primuse não conseguiu decodificar este arquivo de letra como texto.";
-"lyrics_converter_drop_hint" = "Suporta .lrc, .ttml, .xml e .txt";
+"lyrics_converter_drop_hint" = "Compatível com .lrc, .elrc, .ttml, .xml, .lys, .yrc, .qrc, .krc, .vtt, .srt, .ass, .ssa, .lyl e .txt";
 "lyrics_converter_drop_title" = "Solte um arquivo de letra ou cole aqui";
 "lyrics_converter_empty_notice" = "Escolha um arquivo ou cole letras. A conversão é feita neste Mac.";
 "lyrics_converter_error_title" = "Não foi possível converter a letra";
@@ -2046,11 +2046,14 @@
 "lyrics_converter_overview_empty" = "Solte um arquivo de letra ou cole seu conteúdo para começar";
 "lyrics_converter_plain_notice" = "A saída em texto simples remove a sincronização e as informações de vozes.";
 "lyrics_converter_preserve_notice" = "A sincronização existente de linhas e palavras será preservada.";
-"lyrics_converter_subtitle" = "Converta LRC, TTML e texto simples sem sair de Primuse";
+"lyrics_converter_subtitle" = "Converta LRC, TTML, SRT e texto simples sem sair do Primuse";
 "lyrics_converter_summary_format" = "Linhas %1$d · %2$d sincronizado · %3$d cronometrado por palavra";
 "lyrics_converter_title" = "Conversor de letras";
 "lyrics_converter_ttml_help" = "TTML compatível com Apple Music";
 "lyrics_converter_txt_help" = "Texto sem marcações de tempo";
+"lyrics_converter_companion_timing_notice" = "O texto é mantido, mas a sincronização palavra por palavra da romanização ou tradução só é preservada em TTML.";
+"lyrics_converter_encrypted_krc" = "Arquivos KRC binários criptografados não podem ser decodificados diretamente como texto.";
+"lyrics_converter_srt_help" = "Legendas SubRip (.srt) com sincronização por linha";
 "lyrics_converter_voice_notice" = "LRC mantém todas as linhas, mas o alinhamento de voz do TTML é nivelado.";
 "lyrics_display_section" = "Exibição";
 "lyrics_editor_add_line" = "Adicionar linha";
@@ -8189,3 +8192,15 @@
 "player_audio_info_show_equalizer" = "Mostrar equalizador";
 "player_audio_info_show_equalizer_footer" = "Exibe a predefinição ativa do equalizador abaixo da barra de progresso quando o EQ está ativo e não ignorado.";
 "now_playing_audio_eq_bypassed" = "%@ (ignorado no modo alta fidelidade)";
+
+"source_address_reading_fnconnect_gateway %@" = "Gateway FN Connect (%@)";
+"fnconnect_gateway_section" = "Gateway FN Connect";
+"fnconnect_gateway_account" = "Conta do gateway";
+"fnconnect_gateway_reuse_option %@ %@" = "Reutilizar %@ · %@";
+"fnconnect_gateway_other_account" = "Usar outra conta…";
+"fnconnect_gateway_username" = "Usuário do NAS";
+"fnconnect_gateway_password" = "Senha do NAS";
+"fnconnect_gateway_access_code" = "Código de acesso (Opcional)";
+"fnconnect_gateway_2fa_title" = "Verificação FN Connect";
+"fnconnect_gateway_2fa_code" = "Código de 6 dígitos";
+"fnconnect_gateway_2fa_verify" = "Verificar";

@@ -1053,3 +1053,11 @@
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "Servidores de API de comentarios";
+
+"error.fnConnectGateway.missingCredential" = "Faltan las credenciales de la puerta de enlace FN Connect.";
+"error.fnConnectGateway.authenticationFailed" = "No se pudo iniciar sesión en FN Connect. Verifica el usuario y la contraseña del NAS.";
+"error.fnConnectGateway.ipBanned" = "Demasiados intentos de inicio de sesión. El NAS bloqueó temporalmente tu IP.";
+"error.fnConnectGateway.twoFactorRequired" = "Esta cuenta NAS requiere verificación en dos pasos. Edita esta fuente para verificar.";
+"error.fnConnectGateway.twoFactorSetupRequired" = "Este NAS requiere configurar primero la verificación en dos pasos en el portal web.";
+"error.fnConnectGateway.invalidTwoFactorCode" = "El código de verificación no es válido o expiró. Inténtalo de nuevo.";
+"error.fnConnectGateway.entryTokenUnavailable" = "La puerta de enlace FN Connect no emitió un token de acceso al servicio.";

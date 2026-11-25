@@ -1827,9 +1827,23 @@ struct TVNowPlayingView: View {
                         .foregroundStyle(lyricsColors.style(defaultColor: TVColor.text, isActive: isCur, opacity: 0.62, layoutDirection: lyricLayoutDirection(for: background.writingDirection)))
                         .multilineTextAlignment(textAlignment)
                 }
-                lyricCompanions(for: background, size: companionSize * 0.7, alignment: textAlignment)
+                lyricCompanions(
+                    for: background,
+                    isActive: isCur,
+                    size: companionSize * 0.7,
+                    alignment: textAlignment,
+                    flowAlignment: flowAlignment,
+                    handoverTime: background.endTime
+                )
             }
-            lyricCompanions(for: ln, size: companionSize, alignment: textAlignment)
+            lyricCompanions(
+                for: ln,
+                isActive: isCur,
+                size: companionSize,
+                alignment: textAlignment,
+                flowAlignment: flowAlignment,
+                handoverTime: nextLineTime
+            )
         }
         .scaleEffect(scale, anchor: isTrailing ? .trailing : .leading)
         .opacity(opacity)
@@ -1850,16 +1864,76 @@ struct TVNowPlayingView: View {
     }
 
     @ViewBuilder
-    private func lyricCompanions(for line: TVLyricLine, size: CGFloat, alignment: TextAlignment) -> some View {
+    private func lyricCompanions(
+        for line: TVLyricLine,
+        isActive: Bool,
+        size: CGFloat,
+        alignment: TextAlignment,
+        flowAlignment: LyricFlowHorizontalAlignment,
+        handoverTime: TimeInterval?
+    ) -> some View {
         if !line.romanization.isEmpty {
-            TVLyricCompanionText(text: line.romanization, size: size)
-                .foregroundStyle(TVColor.textFaint)
-                .multilineTextAlignment(alignment)
+            if isActive, !line.romanizationSyllables.isEmpty {
+                let direction = LyricWritingDirectionPolicy.resolvePresentationDirection(
+                    for: LyricLine(timestamp: line.time, text: line.romanization),
+                    documentFallback: line.writingDirection
+                )
+                TimelineView(.animation(
+                    minimumInterval: reduceMotion ? 0.10 : 1 / 30,
+                    paused: !store.isPlaying || isCoveredByImmersive
+                )) { context in
+                    TVKaraokeLine(
+                        syllables: line.romanizationSyllables,
+                        currentTime: karaokeTime(at: context.date),
+                        size: size,
+                        tint: store.nowPlaying.tint,
+                        activeStyle: AnyShapeStyle(TVColor.textMuted),
+                        inactiveColor: TVColor.textGhost.opacity(0.58),
+                        writingDirection: direction,
+                        alignment: flowAlignment,
+                        handoverTime: handoverTime,
+                        weight: .medium,
+                        animatesLift: false,
+                        showsGlow: false
+                    )
+                }
+            } else {
+                TVLyricCompanionText(text: line.romanization, size: size)
+                    .foregroundStyle(TVColor.textFaint)
+                    .multilineTextAlignment(alignment)
+            }
         }
         if !line.translation.isEmpty {
-            TVLyricCompanionText(text: LyricCompanionTextPolicy.displayText(line.translation), size: size, italic: true)
-                .foregroundStyle(TVColor.textFaint)
-                .multilineTextAlignment(alignment)
+            if isActive, !line.translationSyllables.isEmpty {
+                let direction = LyricWritingDirectionPolicy.resolvePresentationDirection(
+                    for: LyricLine(timestamp: line.time, text: line.translation),
+                    documentFallback: line.writingDirection
+                )
+                TimelineView(.animation(
+                    minimumInterval: reduceMotion ? 0.10 : 1 / 30,
+                    paused: !store.isPlaying || isCoveredByImmersive
+                )) { context in
+                    TVKaraokeLine(
+                        syllables: line.translationSyllables,
+                        currentTime: karaokeTime(at: context.date),
+                        size: size,
+                        tint: store.nowPlaying.tint,
+                        activeStyle: AnyShapeStyle(TVColor.textMuted),
+                        inactiveColor: TVColor.textGhost.opacity(0.58),
+                        writingDirection: direction,
+                        alignment: flowAlignment,
+                        handoverTime: handoverTime,
+                        weight: .medium,
+                        italic: true,
+                        animatesLift: false,
+                        showsGlow: false
+                    )
+                }
+            } else {
+                TVLyricCompanionText(text: LyricCompanionTextPolicy.displayText(line.translation), size: size, italic: true)
+                    .foregroundStyle(TVColor.textFaint)
+                    .multilineTextAlignment(alignment)
+            }
         }
     }
 }
@@ -1912,10 +1986,15 @@ struct TVKaraokeLine: View {
     let size: CGFloat
     let tint: Color
     var activeStyle = AnyShapeStyle(TVColor.text)
+    var inactiveColor: Color = TVColor.textGhost
     let writingDirection: LyricWritingDirection
     var alignment: LyricFlowHorizontalAlignment = .leading
     /// 下一句接手的时刻；唱过的字在那之前落回原大小。
     var handoverTime: TimeInterval?
+    var weight: Font.Weight = .bold
+    var italic: Bool = false
+    var animatesLift: Bool = true
+    var showsGlow: Bool = true
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1938,7 +2017,7 @@ struct TVKaraokeLine: View {
             : lyricSyllables.map { TVSyllable(w: $0.text, start: $0.start, end: $0.end, endTiming: $0.endTiming) }
         let state = TVSyllableHighlightPolicy.state(in: units, at: currentTime)
         // 唱到的字浮起后停在那里，整句唱完再一起落回（与 iPhone 同一套强调曲线）。
-        let hold = reduceMotion
+        let hold = (!animatesLift || reduceMotion)
             ? 0
             : LyricSyllableEmphasisPolicy.lineHold(
                 syllables: lyricSyllables,
@@ -1946,7 +2025,7 @@ struct TVKaraokeLine: View {
                 at: currentTime
             )
         let cjkLanguage = LyricsFontLanguage.cjkLanguage(in: units.map(\.w).joined())
-        let overhang = (size * LyricSyllableEmphasisPolicy.raisedLiftRatio).rounded(.up) + 1
+        let overhang = animatesLift ? (size * LyricSyllableEmphasisPolicy.raisedLiftRatio).rounded(.up) + 1 : 0
         syllableLayer(units: units, lyricSyllables: lyricSyllables, state: state, hold: hold,
                       cjkLanguage: cjkLanguage, highlighted: false)
             .overlay {
@@ -1957,10 +2036,10 @@ struct TVKaraokeLine: View {
                             .padding(overhang)
                     }
                     .padding(-overhang)
-                    .modifier(TVLyricGlow(color: tint.opacity(0.8), radius: 12))
+                    .modifier(TVLyricGlow(color: showsGlow ? tint.opacity(0.8) : .clear, radius: 12))
             }
-            .font(lyricsTypeface.font(size: size, weight: .bold))
-            .modifier(TVLyricGlow(color: tint.opacity(0.4), radius: 16, y: 2))
+            .font(lyricsTypeface.font(size: size, weight: weight))
+            .modifier(TVLyricGlow(color: showsGlow ? tint.opacity(0.4) : .clear, radius: 16, y: 2))
             .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
@@ -1980,7 +2059,7 @@ struct TVKaraokeLine: View {
                         at: currentTime
                     ) * hold
                     : 0
-                let glyph = lyricsTypeface.text(s.w, size: size, weight: .bold, cjkLanguage: cjkLanguage)
+                let glyph = lyricsTypeface.text(s.w, size: size, weight: weight, cjkLanguage: cjkLanguage).italic(italic)
                 Group {
                     if highlighted {
                         glyph.foregroundStyle(.white)
@@ -1994,7 +2073,7 @@ struct TVKaraokeLine: View {
                                 .environment(\.layoutDirection, .leftToRight)
                             }
                     } else {
-                        glyph.foregroundStyle(TVColor.textGhost)
+                        glyph.foregroundStyle(inactiveColor)
                     }
                 }
                 .scaleEffect(1 + LyricSyllableEmphasisPolicy.raisedScale * raise, anchor: .bottom)

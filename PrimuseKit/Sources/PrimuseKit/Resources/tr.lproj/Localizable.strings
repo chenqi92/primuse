@@ -1053,3 +1053,11 @@
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "Yorum API sunucuları";
+
+"error.fnConnectGateway.missingCredential" = "FN Connect ağ geçidi kimlik bilgileri eksik.";
+"error.fnConnectGateway.authenticationFailed" = "FN Connect ağ geçidi oturumu açılamadı. NAS kullanıcı adını ve parolasını kontrol edin.";
+"error.fnConnectGateway.ipBanned" = "Çok fazla oturum açma denemesi. IP adresiniz NAS tarafından geçici olarak engellendi.";
+"error.fnConnectGateway.twoFactorRequired" = "Bu NAS hesabı iki faktörlü doğrulama gerektiriyor. Doğrulamak için bu kaynağı düzenleyin.";
+"error.fnConnectGateway.twoFactorSetupRequired" = "Bu NAS önce web portalında iki faktörlü doğrulamanın etkinleştirilmesini gerektirir.";
+"error.fnConnectGateway.invalidTwoFactorCode" = "Doğrulama kodu geçersiz veya süresi dolmuş. Tekrar deneyin.";
+"error.fnConnectGateway.entryTokenUnavailable" = "FN Connect ağ geçidi hizmet erişim belirteci vermedi.";

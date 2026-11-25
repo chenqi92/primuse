@@ -3602,7 +3602,16 @@ final class TVPlaybackCoordinator {
         _ line: LyricLine,
         documentWritingDirection: LyricWritingDirection
     ) -> TVLyricLine {
-        TVLyricLine(id: line.id,
+        let companionItems = LyricCompanionTextPolicy.items(for: line, translatedText: nil)
+        let validatedRomanizationSyllables = companionItems
+            .first { $0.kind == .romanization }?
+            .syllables ?? []
+        let translationText = line.manualTranslation?.text ?? ""
+        let trimmedTranslation = translationText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let validatedTranslationSyllables = companionItems
+            .first { $0.kind == .translation && $0.text == trimmedTranslation }?
+            .syllables ?? []
+        return TVLyricLine(id: line.id,
                         time: line.timestamp,
                         text: line.text,
                         isSynchronized: line.isSynchronized,
@@ -3615,9 +3624,12 @@ final class TVPlaybackCoordinator {
                                 endTiming: $0.endTiming
                             )
                         },
-                        translation: line.manualTranslation?.text ?? "",
+                        translation: translationText,
+                        translationSyllables: validatedTranslationSyllables.map {
+                            TVSyllable(w: $0.text, start: $0.start, end: $0.end, endTiming: $0.endTiming)
+                        },
                         romanization: line.romanization ?? "",
-                        romanizationSyllables: (line.romanizationSyllables ?? []).map {
+                        romanizationSyllables: validatedRomanizationSyllables.map {
                             TVSyllable(w: $0.text, start: $0.start, end: $0.end, endTiming: $0.endTiming)
                         },
                         writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(

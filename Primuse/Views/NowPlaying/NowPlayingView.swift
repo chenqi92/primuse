@@ -5235,9 +5235,10 @@ struct NowPlayingView: View {
                         showsSimulatedWordTiming: usesSimulatedWordTiming,
                         companionTracks: availableCompanionTracks,
                         lyricCompanions: {
-                            LyricsScrollView.companionTexts(
+                            ImmersiveStageCompanion.items(
                                 for: $0,
-                                translatedTextByLineID: lyricTranslationsByLineID
+                                translatedText: lyricTranslationsByLineID[$0.id],
+                                documentFallback: romanizedLyricsWritingDirection
                             )
                         },
                         lyricsWritingDirection: romanizedLyricsWritingDirection,
@@ -20624,6 +20625,16 @@ struct LyricsScrollView: View, @MainActor Equatable {
         ).map(LyricCompanionTextPolicy.displayText)
     }
 
+    static func companionItems(
+        for line: LyricLine,
+        translatedTextByLineID: [String: String]
+    ) -> [LyricCompanionItem] {
+        LyricCompanionTextPolicy.items(
+            for: line,
+            translatedText: translatedTextByLineID[line.id]
+        )
+    }
+
     /// dimmedByAmbient: 统一动效模式调用时传 true ── 表明行整体明暗由外层
     /// opacity 接管, row 内部不要再按 isActive 离散切换颜色,否则跟外层
     /// .opacity multiply 会双重叠加 + 跳变。
@@ -20645,7 +20656,8 @@ struct LyricsScrollView: View, @MainActor Equatable {
         let weight: Font.Weight = dimmedByAmbient ? .semibold : (isActive ? .bold : .semibold)
         let alignment = rowAlignment.horizontalAlignment
         let frameAlignment = rowAlignment.frameAlignment
-        let companions = Self.companionTexts(for: line, translatedTextByLineID: translatedTextByLineID)
+        let companions = Self.companionItems(for: line, translatedTextByLineID: translatedTextByLineID)
+        let deactivationTime = wordLevelDeactivationTime(for: index)
 
         // 组内(原文与其译文)贴紧，组间(不同时间轴的两句)拉开 —— 两者此前都是
         // 4pt，一句歌词和它的译文看起来跟相邻的另一句一样远，读的时候要自己
@@ -20661,7 +20673,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
                     textAlignment: rowAlignment.textAlignment,
                     dimmedByAmbient: dimmedByAmbient,
                     timelineTime: timelineTime,
-                    deactivationTime: wordLevelDeactivationTime(for: index)
+                    deactivationTime: deactivationTime
                 )
                     .contentShape(Rectangle())
                     .if(canSeekToLyricLine(line)) { view in
@@ -20680,27 +20692,27 @@ struct LyricsScrollView: View, @MainActor Equatable {
                 // 共用一个时间戳时两条都属于这一句, 按文件里的先后顺序依次排在原文下面。
                 if !companions.isEmpty {
                     ForEach(companions.indices, id: \.self) { slot in
-                        lyricsTypeface.text(companions[slot], size: companionFontSize, weight: .medium)
-                            .foregroundStyle(
-                                dimmedByAmbient
-                                    ? appearance.secondary
-                                    : isActive ? appearance.secondary
-                                    : isPastRow(index)
-                                        ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
-                                        : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72)
-                            )
-                            .multilineTextAlignment(rowAlignment.textAlignment)
-                            // 长翻译在窄屏 / 大字号下要 wrap 多行。不加 fixedSize 时 SwiftUI
-                            // 会优先单行 + 截断显示省略号。
-                            .fixedSize(horizontal: false, vertical: true)
-                            .contentShape(Rectangle())
-                            .if(canSeekToLyricLine(line)) { view in
-                                view
-                                    .onTapGesture { seekToLyricLine(line) }
-                                    .accessibilityAddTraits(.isButton)
-                                    .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
-                            }
-                            .frame(width: availableWidth, alignment: frameAlignment)
+                        companionLineContent(
+                            companions[slot],
+                            parent: line,
+                            slot: slot,
+                            isActive: isActive,
+                            index: index,
+                            fontSize: companionFontSize,
+                            textAlignment: rowAlignment.textAlignment,
+                            dimmedByAmbient: dimmedByAmbient,
+                            timelineTime: timelineTime,
+                            deactivationTime: deactivationTime,
+                            isBackground: false
+                        )
+                        .contentShape(Rectangle())
+                        .if(canSeekToLyricLine(line)) { view in
+                            view
+                                .onTapGesture { seekToLyricLine(line) }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                        }
+                        .frame(width: availableWidth, alignment: frameAlignment)
                     }
                 }
             }
@@ -20741,22 +20753,31 @@ struct LyricsScrollView: View, @MainActor Equatable {
                             }
                             .frame(width: availableWidth, alignment: frameAlignment)
 
-                        let backgroundCompanions = Self.companionTexts(for: bg, translatedTextByLineID: translatedTextByLineID)
+                        let backgroundCompanions = Self.companionItems(for: bg, translatedTextByLineID: translatedTextByLineID)
                         if !backgroundCompanions.isEmpty {
                             ForEach(backgroundCompanions.indices, id: \.self) { slot in
-                                lyricsTypeface.text(backgroundCompanions[slot], size: companionFontSize * 0.7, weight: .medium)
-                                    .foregroundStyle(appearance.secondary)
-                                    .multilineTextAlignment(rowAlignment.textAlignment)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .contentShape(Rectangle())
-                                    .if(canSeekToLyricLine(bg)) { view in
-                                        view
-                                            .onTapGesture { seekToLyricLine(bg) }
-                                            .accessibilityAddTraits(.isButton)
-                                            .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
-                                    }
-                                    .frame(width: availableWidth, alignment: frameAlignment)
-                                    .opacity(0.7)
+                                companionLineContent(
+                                    backgroundCompanions[slot],
+                                    parent: bg,
+                                    slot: slot,
+                                    isActive: isBackgroundActive,
+                                    index: index,
+                                    fontSize: companionFontSize * 0.7,
+                                    textAlignment: rowAlignment.textAlignment,
+                                    dimmedByAmbient: dimmedByAmbient,
+                                    timelineTime: timelineTime,
+                                    deactivationTime: bg.endTime,
+                                    isBackground: true
+                                )
+                                .contentShape(Rectangle())
+                                .if(canSeekToLyricLine(bg)) { view in
+                                    view
+                                        .onTapGesture { seekToLyricLine(bg) }
+                                        .accessibilityAddTraits(.isButton)
+                                        .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                                }
+                                .frame(width: availableWidth, alignment: frameAlignment)
+                                .opacity(0.7)
                             }
                         }
                     }
@@ -20800,6 +20821,72 @@ struct LyricsScrollView: View, @MainActor Equatable {
             settingEnabled: tapLyricsToSeek,
             lineIsSynchronized: line.isSynchronized
         )
+    }
+
+    @ViewBuilder
+    private func companionLineContent(
+        _ item: LyricCompanionItem,
+        parent: LyricLine,
+        slot: Int,
+        isActive: Bool,
+        index: Int,
+        fontSize: CGFloat,
+        textAlignment: TextAlignment,
+        dimmedByAmbient: Bool,
+        timelineTime: TimeInterval?,
+        deactivationTime: TimeInterval?,
+        isBackground: Bool
+    ) -> some View {
+        let staticColor: Color = isBackground
+            ? appearance.secondary
+            : (dimmedByAmbient
+                ? appearance.secondary
+                : isActive ? appearance.secondary
+                : isPastRow(index)
+                    ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
+                    : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72))
+        if item.isWordLevel, highlightsWords {
+            let companionLine = item.lyricLine(for: parent, slot: slot)
+            let animatesWords = shouldRenderWordTimeline(
+                line: companionLine,
+                index: index,
+                isActive: isActive,
+                dimmedByAmbient: dimmedByAmbient
+            )
+            let usesLiveTimeline = animatesWords && visualActivityPolicy.shouldRunWordTimeline
+            let fixedPlaybackTime = usesLiveTimeline
+                ? timelineTime
+                : (timelineTime ?? visualPlaybackTime)
+            let inactiveColor: Color = (dimmedByAmbient || isActive)
+                ? appearance.primary.opacity(appearance.inactiveSyllableOpacity * 0.72)
+                : staticColor
+            KaraokeLineView(
+                line: companionLine,
+                isDuet: isDuetLyrics,
+                fontSize: fontSize,
+                weight: .medium,
+                activeStyle: AnyShapeStyle(staticColor),
+                inactiveColor: inactiveColor,
+                textAlignment: textAlignment,
+                writingDirection: lyricsWritingDirection,
+                timeAt: { date in player.interpolatedTime(at: date) },
+                fixedTime: fixedPlaybackTime,
+                isPlaybackActive: usesLiveTimeline,
+                isAnimationEnabled: animatesWords,
+                animatesSyllableBounce: false,
+                isolatesAnimatedProgressFromLayout: true,
+                minimumProgressInterval: isSpokenWordTranscript ? Self.spokenWordProgressInterval : nil,
+                deactivationTime: dimmedByAmbient ? deactivationTime : nil,
+                glowsSungSyllables: false
+            )
+        } else {
+            lyricsTypeface.text(LyricCompanionTextPolicy.displayText(item.text), size: fontSize, weight: .medium)
+                .foregroundStyle(staticColor)
+                .multilineTextAlignment(textAlignment)
+                // 长翻译在窄屏 / 大字号下要 wrap 多行。不加 fixedSize 时 SwiftUI
+                // 会优先单行 + 截断显示省略号。
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder

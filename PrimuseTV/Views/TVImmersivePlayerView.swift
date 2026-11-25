@@ -1361,16 +1361,43 @@ struct TVImmersivePlayerView: View {
                             LyricSyllablePlaybackTimingPolicy.effectiveEnd(for: $0.lyricSyllable)
                         },
                         writingDirection: background.writingDirection,
-                        companions: [background.romanization, background.translation]
-                            .filter { !$0.isEmpty }.map(LyricCompanionTextPolicy.displayText)
+                        companions: immersiveCompanions(for: background)
                     )
                 },
-                companions: [
-                    line.romanization,
-                    line.translation,
-                ].map(LyricCompanionTextPolicy.displayText)
+                companions: immersiveCompanions(for: line)
             )
         }
+    }
+
+    private func immersiveCompanions(for line: TVLyricLine) -> [ImmersiveStageCompanion] {
+        var result: [ImmersiveStageCompanion] = []
+        let trimmedRomanization = line.romanization.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedRomanization.isEmpty {
+            let syllables = line.romanizationSyllables.isEmpty ? nil : line.romanizationSyllables.map(\.lyricSyllable)
+            let direction = LyricWritingDirectionPolicy.resolvePresentationDirection(
+                for: LyricLine(timestamp: line.time, text: trimmedRomanization),
+                documentFallback: line.writingDirection
+            )
+            result.append(ImmersiveStageCompanion(
+                text: syllables != nil ? trimmedRomanization : LyricCompanionTextPolicy.displayText(trimmedRomanization),
+                syllables: syllables,
+                writingDirection: direction
+            ))
+        }
+        let trimmedTranslation = line.translation.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTranslation.isEmpty {
+            let syllables = line.translationSyllables.isEmpty ? nil : line.translationSyllables.map(\.lyricSyllable)
+            let direction = LyricWritingDirectionPolicy.resolvePresentationDirection(
+                for: LyricLine(timestamp: line.time, text: trimmedTranslation),
+                documentFallback: line.writingDirection
+            )
+            result.append(ImmersiveStageCompanion(
+                text: syllables != nil ? trimmedTranslation : LyricCompanionTextPolicy.displayText(trimmedTranslation),
+                syllables: syllables,
+                writingDirection: direction
+            ))
+        }
+        return result
     }
 
     private func immersiveLineEnd(at position: Int, line: TVLyricLine) -> TimeInterval? {

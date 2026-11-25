@@ -167,7 +167,7 @@
 "lyrics_editor_info_line_badge" = "Информация";
 "lyrics_editor_plain_text" = "Текст без временных меток";
 "immersive_demo_lyric_01" = "В этот момент музыка наполняет всю комнату.";
-"lyrics_converter_subtitle" = "Конвертируйте LRC, TTML и обычный текст, не выходя из Primuse.";
+"lyrics_converter_subtitle" = "Конвертируйте LRC, TTML, SRT и обычный текст, не выходя из Primuse";
 "format_label" = "Формат";
 "cloud_guide_google" = "Перейдите на console.cloud.google.com, чтобы создать учетные данные OAuth.";
 "source_connection_public_direct" = "Публичный адрес";
@@ -745,6 +745,9 @@
 "yearly_personality_lfnm_name" = "Лунный преданный";
 "lyrics_translation_cache_section" = "Кэш переводов";
 "lyrics_converter_txt_help" = "Простой текст без синхронизации.";
+"lyrics_converter_companion_timing_notice" = "Текст сохраняется, но пословная синхронизация транскрипции и переводов сохраняется только в TTML.";
+"lyrics_converter_encrypted_krc" = "Зашифрованные двоичные файлы KRC нельзя декодировать напрямую как текст.";
+"lyrics_converter_srt_help" = "Субтитры SubRip (.srt) с построчной синхронизацией";
 "date_added_label" = "Дата добавления";
 "Source Status" = "Статус источника";
 "tag_editor_field_file_size" = "Размер файла";
@@ -3200,7 +3203,7 @@
 "theme_color_mode_fixed" = "Фиксированный цвет";
 "home_pipeline_metadata_done" = "Готово";
 "theme_color_mode_auto" = "С обложки";
-"lyrics_converter_drop_hint" = "Поддерживает .lrc, .ttml, .xml и .txt.";
+"lyrics_converter_drop_hint" = "Поддерживает .lrc, .elrc, .ttml, .xml, .lys, .yrc, .qrc, .krc, .vtt, .srt, .ass, .ssa, .lyl и .txt";
 "metadata_status_continue_started" = "Чтение продолжается. Нечитаемые песни будут записаны и пропущены.";
 "cloud_setup_step_create_app" = "Создайте приложение и получите идентификатор клиента (и секрет клиента).";
 "desktop_widget_sync_explanation_title" = "Включить синхронизацию виджетов рабочего стола.";
@@ -8189,3 +8192,15 @@
 "player_audio_info_show_equalizer" = "Показывать эквалайзер";
 "player_audio_info_show_equalizer_footer" = "Показывает активный пресет эквалайзера под полосой прогресса, когда EQ включён и не в обходе.";
 "now_playing_audio_eq_bypassed" = "%@ (обход в режиме Hi-Fi)";
+
+"source_address_reading_fnconnect_gateway %@" = "Шлюз FN Connect (%@)";
+"fnconnect_gateway_section" = "Шлюз FN Connect";
+"fnconnect_gateway_account" = "Учётная запись шлюза";
+"fnconnect_gateway_reuse_option %@ %@" = "Использовать %@ · %@";
+"fnconnect_gateway_other_account" = "Другая учётная запись…";
+"fnconnect_gateway_username" = "Имя пользователя NAS";
+"fnconnect_gateway_password" = "Пароль NAS";
+"fnconnect_gateway_access_code" = "Код доступа (необязательно)";
+"fnconnect_gateway_2fa_title" = "Проверка FN Connect";
+"fnconnect_gateway_2fa_code" = "6-значный код";
+"fnconnect_gateway_2fa_verify" = "Подтвердить";

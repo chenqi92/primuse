@@ -64,6 +64,15 @@ public enum SourceConnectionCandidatePlanner {
         let fixedPort = input.explicitPort ?? manualPort
         let portOrigin: CandidateOrigin = input.explicitPort != nil ? .explicitAddress : .manualOverride
 
+        // FN Connect relay domains serve third-party apps on HTTPS :443 only.
+        // Skipping fallback service ports avoids 20s+ timeouts against unreachable ports.
+        if sourceType != .fnMusic,
+           fixedPort == nil,
+           fixedSsl != false,
+           FnConnectGatewayAddress.parseHost(input.host) != nil {
+            return [Candidate(useSsl: true, port: 443, origin: .schemeDefaultPort)]
+        }
+
         let planned: [Candidate]
         switch (fixedSsl, fixedPort) {
         case (let ssl?, let port?):

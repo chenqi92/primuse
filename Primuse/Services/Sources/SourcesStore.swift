@@ -12,6 +12,7 @@ enum SourceCloudSyncOptOutRegistry {
         for sourceID in optedOutSourceIDs {
             expanded.insert(sourceID)
             expanded.insert(FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: sourceID))
+            expanded.insert(FnConnectGatewayProtocol.sourceCredentialAccount(sourceID: sourceID))
             expanded.insert(PlexAccountAPI.accountTokenKeychainAccount(sourceID: sourceID))
         }
         let snapshot = expanded
@@ -31,10 +32,364 @@ extension Notification.Name {
         Notification.Name("primuse.sourceCloudSyncPreferenceDidChange")
 }
 
+#if os(iOS) || os(macOS)
+enum FnConnectGatewayCredentialStore {
+    struct ReusableCandidate: Equatable, Sendable {
+        enum Origin: Equatable, Sendable {
+            case sharedProfile
+            case fnMusicSource(sourceID: String)
+        }
+
+        let fnID: String
+        let username: String
+        let origin: Origin
+    }
+
+    private struct RegistryState {
+        var sourceBindingsByID: [String: FnConnectGatewayBinding] = [:]
+        var sourceIDByHost: [String: String] = [:]
+        var fnMusicSourcesByFNID: [String: (sourceID: String, username: String)] = [:]
+        var installedProvider = false
+    }
+
+    private static let state = OSAllocatedUnfairLock<RegistryState>(initialState: RegistryState())
+
+    static func installSessionStoreProviderIfNeeded() {
+        let shouldInstall = state.withLock { current -> Bool in
+            guard !current.installedProvider else { return false }
+            current.installedProvider = true
+            return true
+        }
+        guard shouldInstall else { return }
+        Task {
+            await FnConnectGatewaySessionStore.shared.configure(
+                credentialResolver: { _, fnID, requestHost, explicitSourceID in
+                    resolveCredentialForRequest(
+                        fnID: fnID,
+                        requestHost: requestHost,
+                        explicitSourceID: explicitSourceID
+                    )
+                },
+                sessionLoader: { fnID, username in
+                    loadLocalSession(fnID: fnID, username: username)
+                },
+                sessionSaver: { session in
+                    saveLocalSession(session)
+                },
+                sessionRemover: { fnID, username in
+                    deleteLocalSession(fnID: fnID, username: username)
+                }
+            )
+        }
+    }
+
+    static func updateSources(_ sources: [MusicSource]) {
+        var bindings: [String: FnConnectGatewayBinding] = [:]
+        var hostMap: [String: String] = [:]
+        var fnMusicMap: [String: (sourceID: String, username: String)] = [:]
+
+        for source in sources where !source.isDeleted {
+            if source.type == .fnMusic {
+                if let fnID = fnIDForFnMusicSource(source),
+                   let username = source.username?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !username.isEmpty,
+                   fnMusicMap[fnID] == nil {
+                    fnMusicMap[fnID] = (source.id, username)
+                }
+                continue
+            }
+            if let binding = source.fnConnectGateway {
+                bindings[source.id] = binding
+            }
+            for address in source.fnConnectGatewayAddresses {
+                if hostMap[address.host] == nil || source.fnConnectGateway != nil {
+                    hostMap[address.host] = source.id
+                }
+            }
+        }
+
+        let bindingsSnapshot = bindings
+        let hostMapSnapshot = hostMap
+        let fnMusicMapSnapshot = fnMusicMap
+        state.withLock { current in
+            current.sourceBindingsByID = bindingsSnapshot
+            current.sourceIDByHost = hostMapSnapshot
+            current.fnMusicSourcesByFNID = fnMusicMapSnapshot
+        }
+    }
+
+    static func fnIDForFnMusicSource(_ source: MusicSource) -> String? {
+        guard source.type == .fnMusic else { return nil }
+        if let vendor = source.effectiveConnectionConfiguration?.vendorIdentifier,
+           let parsed = FnConnectResolver.fnID(from: vendor) {
+            return parsed
+        }
+        if source.effectiveFnMusicConnectionMode == .fnConnect,
+           let host = source.host,
+           let parsed = FnConnectResolver.fnID(from: host) {
+            return parsed
+        }
+        if let host = source.host,
+           let address = FnConnectGatewayAddress.parseHost(host) {
+            return address.fnID
+        }
+        if let publicHost = source.effectiveConnectionConfiguration?.publicEndpoint?.host,
+           let address = FnConnectGatewayAddress.parseHost(publicHost) {
+            return address.fnID
+        }
+        return nil
+    }
+
+    static func reusableCandidate(
+        forFNID rawFNID: String,
+        sources: [MusicSource]
+    ) -> ReusableCandidate? {
+        let fnID = rawFNID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !fnID.isEmpty else { return nil }
+
+        if let shared = loadSharedCredential(fnID: fnID),
+           !shared.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !shared.password.isEmpty {
+            return ReusableCandidate(
+                fnID: fnID,
+                username: shared.username,
+                origin: .sharedProfile
+            )
+        }
+
+        for source in sources where !source.isDeleted && source.type == .fnMusic {
+            guard fnIDForFnMusicSource(source) == fnID,
+                  let username = source.username?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !username.isEmpty else { continue }
+            if case .found(let password) = KeychainService.passwordLookup(for: source.id),
+               !password.isEmpty {
+                return ReusableCandidate(
+                    fnID: fnID,
+                    username: username,
+                    origin: .fnMusicSource(sourceID: source.id)
+                )
+            }
+        }
+        return nil
+    }
+
+    static func resolveCredential(for candidate: ReusableCandidate) -> FnConnectGatewayCredential? {
+        switch candidate.origin {
+        case .sharedProfile:
+            return loadSharedCredential(fnID: candidate.fnID)
+        case .fnMusicSource(let sourceID):
+            guard case .found(let password) = KeychainService.passwordLookup(for: sourceID),
+                  !password.isEmpty else {
+                return nil
+            }
+            let accessCode: String?
+            if case .found(let code) = KeychainService.passwordLookup(
+                for: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: sourceID)
+            ), !code.isEmpty {
+                accessCode = code
+            } else {
+                accessCode = nil
+            }
+            return FnConnectGatewayCredential(
+                fnID: candidate.fnID,
+                username: candidate.username,
+                password: password,
+                accessCode: accessCode
+            )
+        }
+    }
+
+    static func loadSharedCredential(fnID: String) -> FnConnectGatewayCredential? {
+        let account = FnConnectGatewayProtocol.sharedCredentialAccount(fnID: fnID)
+        guard case .found(let encoded) = KeychainService.passwordLookup(for: account) else {
+            return nil
+        }
+        return FnConnectGatewayCredential.decode(from: encoded)
+    }
+
+    static func loadDedicatedCredential(sourceID: String) -> FnConnectGatewayCredential? {
+        let account = FnConnectGatewayProtocol.sourceCredentialAccount(sourceID: sourceID)
+        guard case .found(let encoded) = KeychainService.passwordLookup(for: account) else {
+            return nil
+        }
+        return FnConnectGatewayCredential.decode(from: encoded)
+    }
+
+    @discardableResult
+    static func saveSharedCredential(_ credential: FnConnectGatewayCredential) -> Bool {
+        guard let encoded = credential.encodedJSONString() else { return false }
+        return KeychainService.setPassword(
+            encoded,
+            for: FnConnectGatewayProtocol.sharedCredentialAccount(fnID: credential.fnID)
+        )
+    }
+
+    @discardableResult
+    static func saveDedicatedCredential(
+        _ credential: FnConnectGatewayCredential,
+        sourceID: String
+    ) -> Bool {
+        guard let encoded = credential.encodedJSONString() else { return false }
+        return KeychainService.setPassword(
+            encoded,
+            for: FnConnectGatewayProtocol.sourceCredentialAccount(sourceID: sourceID)
+        )
+    }
+
+    @discardableResult
+    static func deleteDedicatedCredential(sourceID: String) -> Bool {
+        KeychainService.deletePassword(
+            for: FnConnectGatewayProtocol.sourceCredentialAccount(sourceID: sourceID)
+        )
+    }
+
+    static func loadEffectiveCredential(
+        for source: MusicSource,
+        allSources: [MusicSource]
+    ) -> FnConnectGatewayCredential? {
+        guard source.type != .fnMusic, source.type.usesHTTPTransport else { return nil }
+        if let binding = source.fnConnectGateway {
+            switch binding.scope {
+            case .dedicated:
+                if let dedicated = loadDedicatedCredential(sourceID: source.id) {
+                    return dedicated
+                }
+            case .shared:
+                if let shared = loadSharedCredential(fnID: binding.fnID) {
+                    return shared
+                }
+            }
+            if let candidate = reusableCandidate(forFNID: binding.fnID, sources: allSources) {
+                return resolveCredential(for: candidate)
+            }
+            return nil
+        }
+        guard let address = source.fnConnectGatewayAddresses.first else { return nil }
+        if let shared = loadSharedCredential(fnID: address.fnID) {
+            return shared
+        }
+        if let candidate = reusableCandidate(forFNID: address.fnID, sources: allSources) {
+            return resolveCredential(for: candidate)
+        }
+        return nil
+    }
+
+    static func invalidateSession(forSourceID sourceID: String) {
+        let binding = state.withLock { $0.sourceBindingsByID[sourceID] }
+        guard let binding else { return }
+        Task {
+            await FnConnectGatewaySessionStore.shared.invalidate(
+                fnID: binding.fnID,
+                username: binding.username
+            )
+        }
+    }
+
+    static func deleteCredentialsOnPermanentDelete(
+        _ source: MusicSource,
+        remainingSources: [MusicSource]
+    ) -> Bool {
+        guard source.type != .fnMusic else { return true }
+        let dedicatedDeleted = deleteDedicatedCredential(sourceID: source.id)
+        guard dedicatedDeleted else { return false }
+
+        if let binding = source.fnConnectGateway {
+            let stillReferenced = remainingSources.contains { other in
+                guard other.id != source.id, !other.isDeleted, other.type != .fnMusic else {
+                    return false
+                }
+                if other.fnConnectGateway?.fnID == binding.fnID { return true }
+                return other.fnConnectGatewayAddresses.contains { $0.fnID == binding.fnID }
+            }
+            if !stillReferenced {
+                if binding.scope == .shared, !SourceCloudSyncOptOutRegistry.isOptedOut(account: source.id) {
+                    let sharedDeleted = KeychainService.deletePassword(
+                        for: FnConnectGatewayProtocol.sharedCredentialAccount(fnID: binding.fnID)
+                    )
+                    guard sharedDeleted else { return false }
+                }
+                Task {
+                    await FnConnectGatewaySessionStore.shared.invalidate(
+                        fnID: binding.fnID,
+                        username: binding.username,
+                        clearPersisted: true
+                    )
+                }
+            }
+        }
+        return true
+    }
+
+    private static func resolveCredentialForRequest(
+        fnID: String,
+        requestHost: String,
+        explicitSourceID: String?
+    ) -> FnConnectGatewayCredential? {
+        let normalizedFNID = fnID.lowercased()
+        let normalizedHost = requestHost.lowercased()
+        let snapshot = state.withLock { current -> (sourceID: String?, binding: FnConnectGatewayBinding?, fnMusic: (sourceID: String, username: String)?) in
+            let resolvedSourceID = explicitSourceID ?? current.sourceIDByHost[normalizedHost]
+            let binding = resolvedSourceID.flatMap { current.sourceBindingsByID[$0] }
+            return (resolvedSourceID, binding, current.fnMusicSourcesByFNID[normalizedFNID])
+        }
+
+        if let sourceID = snapshot.sourceID,
+           snapshot.binding?.scope == .dedicated,
+           let dedicated = loadDedicatedCredential(sourceID: sourceID) {
+            return dedicated
+        }
+        if let shared = loadSharedCredential(fnID: normalizedFNID) {
+            return shared
+        }
+        if let fnMusic = snapshot.fnMusic,
+           case .found(let password) = KeychainService.passwordLookup(for: fnMusic.sourceID),
+           !password.isEmpty {
+            let accessCode: String?
+            if case .found(let code) = KeychainService.passwordLookup(
+                for: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: fnMusic.sourceID)
+            ), !code.isEmpty {
+                accessCode = code
+            } else {
+                accessCode = nil
+            }
+            return FnConnectGatewayCredential(
+                fnID: normalizedFNID,
+                username: fnMusic.username,
+                password: password,
+                accessCode: accessCode
+            )
+        }
+        return nil
+    }
+
+    private static func loadLocalSession(fnID: String, username: String) -> FnConnectGatewayPersistedSession? {
+        let account = FnConnectGatewayProtocol.localSessionAccount(fnID: fnID, username: username)
+        guard case .found(let encoded) = KeychainService.localOnlyPasswordLookup(for: account) else {
+            return nil
+        }
+        return FnConnectGatewayPersistedSession.decode(from: encoded)
+    }
+
+    private static func saveLocalSession(_ session: FnConnectGatewayPersistedSession) {
+        guard let encoded = session.encodedJSONString() else { return }
+        let account = FnConnectGatewayProtocol.localSessionAccount(
+            fnID: session.fnID,
+            username: session.username
+        )
+        _ = KeychainService.setLocalOnlyPassword(encoded, for: account)
+    }
+
+    private static func deleteLocalSession(fnID: String, username: String) {
+        let account = FnConnectGatewayProtocol.localSessionAccount(fnID: fnID, username: username)
+        _ = KeychainService.deletePassword(for: account)
+    }
+}
+#endif
+
 private actor SourceCredentialPurgeExecutor {
     static let shared = SourceCredentialPurgeExecutor()
 
-    func purge(_ source: MusicSource) -> Bool {
+    func purge(_ source: MusicSource, remainingSources: [MusicSource]) -> Bool {
         #if os(iOS) || os(macOS)
         let requiredStores = SourcePermanentDeletionPolicy.requiredCredentialStores(
             for: source.type,
@@ -46,6 +401,10 @@ private actor SourceCredentialPurgeExecutor {
             || KeychainService.deletePassword(
                 for: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)
             )
+        let fnConnectGatewayDeleted = FnConnectGatewayCredentialStore.deleteCredentialsOnPermanentDelete(
+            source,
+            remainingSources: remainingSources
+        )
         let plexAccountTokenDeleted = source.type != .plex
             || KeychainService.deletePassword(
                 for: PlexAccountAPI.accountTokenKeychainAccount(sourceID: source.id)
@@ -60,7 +419,7 @@ private actor SourceCredentialPurgeExecutor {
             requiredStores: requiredStores,
             passwordDeleted: passwordDeleted,
             cloudCredentialsDeleted: cloudCredentialsDeleted
-        ), fnConnectAccessCodeDeleted, plexAccountTokenDeleted else { return false }
+        ), fnConnectAccessCodeDeleted, fnConnectGatewayDeleted, plexAccountTokenDeleted else { return false }
         LocalBookmarkStore.remove(sourceID: source.id)
         CloudDirectoryNameStore.deleteAll(for: source.id)
         #endif
@@ -148,6 +507,7 @@ final class SourcesStore {
     private let publishesKeychainOptOuts: Bool
     private let sourceDataWriter: (Data, URL) throws -> Void
     private let credentialPurger: CredentialPurger
+    private let isUsingDefaultCredentialPurger: Bool
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -195,8 +555,9 @@ final class SourcesStore {
         self.deviceSettingsURL = directory.appendingPathComponent(MusicSourceDeviceSettings.fileName)
         self.publishesKeychainOptOuts = publishesKeychainOptOuts ?? (storageDirectoryURL == nil)
         self.sourceDataWriter = sourceDataWriter
+        self.isUsingDefaultCredentialPurger = credentialPurger == nil
         self.credentialPurger = credentialPurger ?? { source in
-            await SourceCredentialPurgeExecutor.shared.purge(source)
+            await SourceCredentialPurgeExecutor.shared.purge(source, remainingSources: [])
         }
         self.allSources = []
         self.allAccounts = []
@@ -214,6 +575,12 @@ final class SourcesStore {
         loadAccounts()
         loadSourcesCreatedOnThisDevice()
         loadDeviceSettings()
+        #if os(iOS) || os(macOS)
+        if self.publishesKeychainOptOuts {
+            FnConnectGatewayCredentialStore.installSessionStoreProviderIfNeeded()
+            FnConnectGatewayCredentialStore.updateSources(allSources)
+        }
+        #endif
     }
 
     func source(id: String) -> MusicSource? {
@@ -240,6 +607,11 @@ final class SourcesStore {
         loadAccounts()
         loadSourcesCreatedOnThisDevice()
         loadDeviceSettings()
+        #if os(iOS) || os(macOS)
+        if publishesKeychainOptOuts {
+            FnConnectGatewayCredentialStore.updateSources(allSources)
+        }
+        #endif
     }
 
     func sourceDeletionRecord(id: String) -> MusicSourceDeletionRecord? {
@@ -585,8 +957,16 @@ final class SourcesStore {
         // the main actor. The default purger is additionally serialized by its
         // own actor to avoid concurrent mutations of the same credential store.
         let purge = credentialPurger
+        let useDefaultPurger = isUsingDefaultCredentialPurger
+        let remainingSnapshot = allSources
         let credentialsDeleted = await Task.detached(priority: .utility) {
-            await purge(tombstone)
+            if useDefaultPurger {
+                return await SourceCredentialPurgeExecutor.shared.purge(
+                    tombstone,
+                    remainingSources: remainingSnapshot
+                )
+            }
+            return await purge(tombstone)
         }.value
 
         // The await above permits cloud reconciliation and other source updates.
@@ -1237,6 +1617,11 @@ final class SourcesStore {
         #endif
         let data = try encoder.encode(allSources)
         try sourceDataWriter(data, storeURL)
+        #if os(iOS) || os(macOS)
+        if publishesKeychainOptOuts {
+            FnConnectGatewayCredentialStore.updateSources(allSources)
+        }
+        #endif
         // Whatever a coalesced counter was still waiting to write is part of
         // `allSources` already, so this write subsumes it. Only a write that
         // actually landed disarms it — a failed one must stay armed to retry.

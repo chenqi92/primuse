@@ -1053,3 +1053,11 @@
 
 /* Comment API Servers */
 "ext.lanSettings.category.commentServers" = "خوادم API للتعليقات";
+
+"error.fnConnectGateway.missingCredential" = "بيانات اعتماد بوابة FN Connect مفقودة.";
+"error.fnConnectGateway.authenticationFailed" = "فشل تسجيل الدخول إلى بوابة FN Connect. تحقق من اسم المستخدم وكلمة المرور لـ NAS.";
+"error.fnConnectGateway.ipBanned" = "محاولات تسجيل دخول كثيرة جداً. تم حظر عنوان IP مؤقتاً بواسطة NAS.";
+"error.fnConnectGateway.twoFactorRequired" = "يتطلب حساب NAS هذا التحقق بخطوتين. عدّل هذا المصدر لإكمال التحقق.";
+"error.fnConnectGateway.twoFactorSetupRequired" = "يتطلب هذا الـ NAS إعداد التحقق بخطوتين عبر الويب أولاً.";
+"error.fnConnectGateway.invalidTwoFactorCode" = "رمز التحقق غير صالح أو منتهي الصلاحية. حاول مرة أخرى.";
+"error.fnConnectGateway.entryTokenUnavailable" = "لم تصدر بوابة FN Connect رمز وصول للخدمة.";

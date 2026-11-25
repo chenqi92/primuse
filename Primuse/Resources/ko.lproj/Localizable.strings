@@ -3418,14 +3418,14 @@
 
 /* MARK: - macOS 가사 형식 변환 */
 "lyrics_converter_title" = "가사 형식 변환";
-"lyrics_converter_subtitle" = "Primuse에서 LRC, TTML 및 일반 텍스트 변환";
+"lyrics_converter_subtitle" = "Primuse에서 LRC, TTML, SRT 및 일반 텍스트를 변환합니다";
 "lyrics_converter_input" = "입력";
 "lyrics_converter_output" = "출력";
 "lyrics_converter_overview_empty" = "가사 파일을 놓거나 내용을 붙여넣어 시작하세요";
 "lyrics_converter_choose_file" = "파일 선택";
 "lyrics_converter_change_file" = "변경";
 "lyrics_converter_drop_title" = "가사 파일을 놓거나 여기에 붙여넣기";
-"lyrics_converter_drop_hint" = ".lrc, .ttml, .xml 및 .txt 지원";
+"lyrics_converter_drop_hint" = ".lrc, .elrc, .ttml, .xml, .lys, .yrc, .qrc, .krc, .vtt, .srt, .ass, .ssa, .lyl 및 .txt 지원";
 "lyrics_converter_output_placeholder" = "변환된 가사가 여기에 표시됩니다";
 "lyrics_converter_empty_notice" = "파일을 선택하거나 가사를 붙여넣으세요. 변환은 이 Mac에서만 처리됩니다.";
 "lyrics_converter_invalid_notice" = "가사를 분석할 수 없습니다. 문서 구조와 시간 표시를 확인하세요.";
@@ -3444,6 +3444,9 @@
 "lyrics_converter_lrc_help" = "LRC; 단어 타이밍은 확장 LRC로 유지";
 "lyrics_converter_ttml_help" = "Apple Music 호환 TTML";
 "lyrics_converter_txt_help" = "시간 정보 없는 일반 텍스트";
+"lyrics_converter_companion_timing_notice" = "텍스트는 유지되지만 발음 표기나 번역의 단어별 시간은 TTML에서만 유지됩니다.";
+"lyrics_converter_encrypted_krc" = "암호화된 바이너리 KRC 파일은 텍스트로 직접 디코딩할 수 없습니다.";
+"lyrics_converter_srt_help" = "줄 단위 시간 정보가 포함된 SubRip(.srt) 자막";
 "reread_album_cover" = "앨범 표지 다시 불러오기";
 "reread_album_cover_done" = "앨범 표지를 불러왔습니다";
 "reread_album_cover_not_found" = "이 앨범의 표지를 찾을 수 없습니다";
@@ -8283,3 +8286,15 @@
 "player_audio_info_show_equalizer" = "이퀄라이저 정보 표시";
 "player_audio_info_show_equalizer_footer" = "이퀄라이저가 켜져 있고 우회되지 않았을 때 진행 막대 아래에 현재 프리셋 이름을 표시합니다.";
 "now_playing_audio_eq_bypassed" = "%@ (고충실도 모드에서 우회됨)";
+
+"source_address_reading_fnconnect_gateway %@" = "FN Connect 게이트웨이 (%@)";
+"fnconnect_gateway_section" = "FN Connect 게이트웨이";
+"fnconnect_gateway_account" = "게이트웨이 계정";
+"fnconnect_gateway_reuse_option %@ %@" = "%@ · %@ 재사용";
+"fnconnect_gateway_other_account" = "다른 계정 사용…";
+"fnconnect_gateway_username" = "NAS 사용자 이름";
+"fnconnect_gateway_password" = "NAS 암호";
+"fnconnect_gateway_access_code" = "액세스 코드(선택 사항)";
+"fnconnect_gateway_2fa_title" = "FN Connect 2단계 인증";
+"fnconnect_gateway_2fa_code" = "6자리 인증 코드";
+"fnconnect_gateway_2fa_verify" = "확인";

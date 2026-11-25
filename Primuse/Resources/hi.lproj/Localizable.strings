@@ -2029,7 +2029,7 @@
 "lyrics_converter_copied" = "रूपांतरित गीत के बोल कॉपी किए गए";
 "lyrics_converter_copy" = "परिवर्तित गीत के बोल कॉपी करें";
 "lyrics_converter_decode_failed" = "Primuse इस गीत के बोल फ़ाइल को पाठ के रूप में डिकोड नहीं कर सका।";
-"lyrics_converter_drop_hint" = ".lrc, .ttml, .xml, और .txt का समर्थन करता है";
+"lyrics_converter_drop_hint" = ".lrc, .elrc, .ttml, .xml, .lys, .yrc, .qrc, .krc, .vtt, .srt, .ass, .ssa, .lyl और .txt समर्थित हैं";
 "lyrics_converter_drop_title" = "एक गीत के बोल फ़ाइल छोड़ें, या यहां पेस्ट करें";
 "lyrics_converter_empty_notice" = "एक फ़ाइल चुनें या गीत के बोल पेस्ट करें। इस Mac पर रूपांतरण रहता है।";
 "lyrics_converter_error_title" = "गीत के बोल रूपांतरण विफल";
@@ -2046,11 +2046,14 @@
 "lyrics_converter_overview_empty" = "शुरू करने के लिए एक गीत के बोल फ़ाइल छोड़ें या उसकी सामग्री चिपकाएँ";
 "lyrics_converter_plain_notice" = "सादा-पाठ आउटपुट समय और आवाज की जानकारी को हटा देता है।";
 "lyrics_converter_preserve_notice" = "मौजूदा पंक्ति और शब्द समय को संरक्षित किया जाएगा।";
-"lyrics_converter_subtitle" = "Primuse को छोड़े बिना LRC, टीटीएमएल, और सादे पाठ को रूपांतरित करें";
+"lyrics_converter_subtitle" = "Primuse छोड़े बिना LRC, TTML, SRT और सादा पाठ बदलें";
 "lyrics_converter_summary_format" = "%1$d पंक्तियाँ · %2$d समन्वयित · %3$d शब्द-स्तर पर समयबद्ध";
 "lyrics_converter_title" = "गीत के बोल परिवर्तक";
 "lyrics_converter_ttml_help" = "Apple Music-संगत टीटीएमएल";
 "lyrics_converter_txt_help" = "बिना समय के सादा पाठ";
+"lyrics_converter_companion_timing_notice" = "पाठ सुरक्षित रहता है, लेकिन उच्चारण या अनुवाद का शब्द-दर-शब्द समय केवल TTML में सुरक्षित रहता है।";
+"lyrics_converter_encrypted_krc" = "एन्क्रिप्टेड बाइनरी KRC फ़ाइलों को सीधे पाठ के रूप में डिकोड नहीं किया जा सकता।";
+"lyrics_converter_srt_help" = "पंक्ति-स्तरीय समय के साथ SubRip (.srt) उपशीर्षक";
 "lyrics_converter_voice_notice" = "LRC प्रत्येक पंक्ति को रखता है, लेकिन टीटीएमएल ध्वनि संरेखण चपटा है।";
 "lyrics_display_section" = "प्रदर्शन";
 "lyrics_editor_add_line" = "पंक्ति जोड़ें";
@@ -8189,3 +8192,15 @@
 "player_audio_info_show_equalizer" = "इक्वलाइज़र जानकारी दिखाएँ";
 "player_audio_info_show_equalizer_footer" = "EQ चालू और बायपास न होने पर प्रोग्रेस बार के नीचे सक्रिय इक्वलाइज़र प्रीसेट दिखाता है।";
 "now_playing_audio_eq_bypassed" = "%@ (हाई-फ़िडेलिटी मोड में बायपास)";
+
+"source_address_reading_fnconnect_gateway %@" = "FN Connect गेटवे (%@)";
+"fnconnect_gateway_section" = "FN Connect गेटवे";
+"fnconnect_gateway_account" = "गेटवे खाता";
+"fnconnect_gateway_reuse_option %@ %@" = "%@ · %@ का पुनः उपयोग";
+"fnconnect_gateway_other_account" = "अन्य खाते का उपयोग करें…";
+"fnconnect_gateway_username" = "NAS उपयोगकर्ता नाम";
+"fnconnect_gateway_password" = "NAS पासवर्ड";
+"fnconnect_gateway_access_code" = "एक्सेस कोड (वैकल्पिक)";
+"fnconnect_gateway_2fa_title" = "FN Connect सत्यापन";
+"fnconnect_gateway_2fa_code" = "6-अंकीय कोड";
+"fnconnect_gateway_2fa_verify" = "सत्यापित करें";

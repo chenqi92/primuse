@@ -112,6 +112,7 @@ extension TVLyricLine {
             isSynchronized: isSynchronized,
             syllables: replacement == nil ? syllables : authoredCues,
             translation: translation,
+            translationSyllables: translationSyllables,
             romanization: companion,
             romanizationSyllables: companion == romanization ? romanizationSyllables : [],
             writingDirection: replacement == nil ? writingDirection : .leftToRight,
@@ -176,7 +177,8 @@ enum TVSimulatedWordLyrics {
             syllables: resolvedSyllables.map {
                 TVSyllable(w: $0.text, start: $0.start, end: $0.end, endTiming: $0.endTiming)
             },
-            translation: line.translation, romanization: line.romanization,
+            translation: line.translation, translationSyllables: line.translationSyllables,
+            romanization: line.romanization,
             romanizationSyllables: line.romanizationSyllables,
             writingDirection: line.writingDirection, voice: line.voice,
             background: line.background, endTimestamp: line.endTimestamp

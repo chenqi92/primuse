@@ -169,6 +169,7 @@ public enum SourceScanContentScopePolicy {
         fields.synologyConnectionMode = nil
         fields.fnMusicConnectionMode = nil
         fields.connectionConfiguration = nil
+        fields.fnConnectGateway = nil
         fields.lastScannedAt = nil
         fields.songCount = 0
         fields.modifiedAt = .distantPast

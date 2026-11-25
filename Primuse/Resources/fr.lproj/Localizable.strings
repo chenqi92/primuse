@@ -3418,14 +3418,14 @@
 
 /* MARK: - Convertisseur de paroles macOS */
 "lyrics_converter_title" = "Convertisseur de paroles";
-"lyrics_converter_subtitle" = "Convertissez LRC, TTML et texte brut dans Primuse";
+"lyrics_converter_subtitle" = "Convertissez LRC, TTML, SRT et texte brut dans Primuse";
 "lyrics_converter_input" = "Entrée";
 "lyrics_converter_output" = "Sortie";
 "lyrics_converter_overview_empty" = "Déposez un fichier de paroles ou collez son contenu";
 "lyrics_converter_choose_file" = "Choisir un fichier";
 "lyrics_converter_change_file" = "Changer";
 "lyrics_converter_drop_title" = "Déposez un fichier de paroles ou collez ici";
-"lyrics_converter_drop_hint" = "Prend en charge .lrc, .ttml, .xml et .txt";
+"lyrics_converter_drop_hint" = "Prend en charge .lrc, .elrc, .ttml, .xml, .lys, .yrc, .qrc, .krc, .vtt, .srt, .ass, .ssa, .lyl et .txt";
 "lyrics_converter_output_placeholder" = "Les paroles converties apparaîtront ici";
 "lyrics_converter_empty_notice" = "Choisissez un fichier ou collez des paroles. Le traitement reste local.";
 "lyrics_converter_invalid_notice" = "Impossible d’analyser ces paroles. Vérifiez la structure et les repères temporels.";
@@ -3444,6 +3444,9 @@
 "lyrics_converter_lrc_help" = "LRC; le minutage des mots reste en LRC amélioré";
 "lyrics_converter_ttml_help" = "TTML compatible avec Apple Music";
 "lyrics_converter_txt_help" = "Texte brut sans minutage";
+"lyrics_converter_companion_timing_notice" = "Le texte est conservé, mais le minutage mot à mot de la romanisation ou des traductions n’est préservé qu’en TTML.";
+"lyrics_converter_encrypted_krc" = "Les fichiers KRC binaires chiffrés ne peuvent pas être décodés directement en texte.";
+"lyrics_converter_srt_help" = "Sous-titres SubRip (.srt) avec minutage par ligne";
 "reread_album_cover" = "Recharger la pochette";
 "reread_album_cover_done" = "La pochette de l’album est prête";
 "reread_album_cover_not_found" = "Aucune pochette trouvée pour cet album";
@@ -8283,3 +8286,15 @@
 "player_audio_info_show_equalizer" = "Afficher l’égaliseur";
 "player_audio_info_show_equalizer_footer" = "Affiche le préréglage d’égaliseur actif sous la barre de progression lorsqu’il est activé et non contourné.";
 "now_playing_audio_eq_bypassed" = "%@ (contourné en mode haute fidélité)";
+
+"source_address_reading_fnconnect_gateway %@" = "Passerelle FN Connect (%@)";
+"fnconnect_gateway_section" = "Passerelle FN Connect";
+"fnconnect_gateway_account" = "Compte de passerelle";
+"fnconnect_gateway_reuse_option %@ %@" = "Réutiliser %@ · %@";
+"fnconnect_gateway_other_account" = "Utiliser un autre compte…";
+"fnconnect_gateway_username" = "Identifiant NAS";
+"fnconnect_gateway_password" = "Mot de passe NAS";
+"fnconnect_gateway_access_code" = "Code d’accès (Facultatif)";
+"fnconnect_gateway_2fa_title" = "Vérification FN Connect";
+"fnconnect_gateway_2fa_code" = "Code à 6 chiffres";
+"fnconnect_gateway_2fa_verify" = "Vérifier";

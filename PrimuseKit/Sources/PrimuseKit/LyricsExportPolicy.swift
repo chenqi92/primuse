@@ -93,13 +93,23 @@ public enum LyricsExportPolicy {
         return cues.joined(separator: "\n\n") + "\n"
     }
 
-    /// 一条字幕的字:原文,自带译文时另起一行跟在下面。
+    /// 一条字幕的字:原文,自带罗马音和译文时依次另起一行跟在下面。
     private static func cueText(_ line: LyricLine) -> String {
-        var rows = [singleLine(line.text)]
-        if let translation = line.manualTranslation.map({ singleLine($0.text) }), !translation.isEmpty {
-            rows.append(translation)
+        let primary = singleLine(line.text)
+        var rows = primary.isEmpty ? [] : [primary]
+        var seen: Set<String> = primary.isEmpty ? [] : [primary]
+        if let romanization = line.romanization.map(singleLine),
+           !romanization.isEmpty,
+           seen.insert(romanization).inserted {
+            rows.append(romanization)
         }
-        return rows.filter { !$0.isEmpty }.joined(separator: "\n")
+        for translation in line.allManualTranslations {
+            let text = singleLine(translation.text)
+            if !text.isEmpty, seen.insert(text).inserted {
+                rows.append(text)
+            }
+        }
+        return rows.joined(separator: "\n")
     }
 
     /// SRT 里空行是字幕之间的分隔,一条字幕内部不能有空行。
