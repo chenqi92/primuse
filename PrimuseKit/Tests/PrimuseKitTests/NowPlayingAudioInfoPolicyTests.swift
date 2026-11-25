@@ -96,4 +96,79 @@ struct NowPlayingAudioInfoPolicyTests {
         #expect(NowPlayingAudioInfoTextPolicy.output(sourceSampleRate: hiRes?.sampleRate, outputSampleRate: 48_000)
                 == .init(rateText: "48kHz", match: .sourceUnknown))
     }
+
+    @Test("Badge policy resolves style, unrestricted symbols, and equalizer modes without duplicate or empty tags")
+    func badgePolicyModes() {
+        // 默认规格模式 + 开启图标 + 独立均衡器标签
+        let specsWithEQ = NowPlayingAudioTagBadgePolicy.resolve(
+            showsAudio: true,
+            showsSymbol: true,
+            detailMode: .specs,
+            showsEqualizerBadge: true,
+            quality: .hiRes,
+            isTranscoded: false,
+            qualityLabel: "Hi-Res",
+            specDetail: "24/48",
+            dolbyAtmosLabel: nil,
+            activeEqualizerName: "沉浸低音"
+        )
+        #expect(specsWithEQ.audioSymbol == "waveform.badge.plus")
+        #expect(specsWithEQ.audioTitle == "Hi-Res")
+        #expect(specsWithEQ.audioDetail == "24/48")
+        #expect(specsWithEQ.separateEqualizerName == "沉浸低音")
+
+        // 均衡器合入副段：如 Hi-Res | 沉浸低音，不再重复生成独立均衡器标签
+        let embeddedEQ = NowPlayingAudioTagBadgePolicy.resolve(
+            showsAudio: true,
+            showsSymbol: true,
+            detailMode: .equalizer,
+            showsEqualizerBadge: true,
+            quality: .hiRes,
+            isTranscoded: false,
+            qualityLabel: "Hi-Res",
+            specDetail: "24/48",
+            dolbyAtmosLabel: nil,
+            activeEqualizerName: "沉浸低音"
+        )
+        #expect(embeddedEQ.audioTitle == "Hi-Res")
+        #expect(embeddedEQ.audioDetail == "沉浸低音")
+        #expect(embeddedEQ.separateEqualizerName == nil)
+
+        // 均衡器关闭或被旁路时，不留空竖线，仍保留音质等级
+        let eqOff = NowPlayingAudioTagBadgePolicy.resolve(
+            showsAudio: true,
+            showsSymbol: false,
+            detailMode: .equalizer,
+            showsEqualizerBadge: true,
+            quality: .lossless,
+            isTranscoded: false,
+            qualityLabel: "无损",
+            specDetail: "16/44.1",
+            dolbyAtmosLabel: nil,
+            activeEqualizerName: nil
+        )
+        #expect(eqOff.audioSymbol == nil)
+        #expect(eqOff.audioTitle == "无损")
+        #expect(eqOff.audioDetail == nil)
+        #expect(eqOff.separateEqualizerName == nil)
+
+        // 普通有损曲目关闭音质标签但开启均衡器标签时，仍单独显示均衡器预设
+        let eqOnly = NowPlayingAudioTagBadgePolicy.resolve(
+            showsAudio: false,
+            showsSymbol: true,
+            detailMode: .specs,
+            showsEqualizerBadge: true,
+            quality: .standard,
+            isTranscoded: false,
+            qualityLabel: nil,
+            specDetail: "AAC 256k",
+            dolbyAtmosLabel: nil,
+            activeEqualizerName: "人声"
+        )
+        #expect(!eqOnly.hasAudioTag)
+        #expect(eqOnly.separateEqualizerName == "人声")
+
+        #expect(NowPlayingAudioTagBadgePolicy.symbolName(for: .dsd, isTranscoded: false) == "waveform.circle")
+        #expect(NowPlayingAudioTagBadgePolicy.symbolName(for: .hiRes, isTranscoded: true) == "waveform.path")
+    }
 }

@@ -56,11 +56,47 @@ enum PlayerBackdropImaging {
             .clampedToExtent()
             .applyingGaussianBlur(sigma: Double(radius))
             .applyingFilter("CIColorControls", parameters: [
-                kCIInputSaturationKey: 1.18,
-                kCIInputBrightnessKey: -0.02,
+                kCIInputSaturationKey: 1.22,
+                kCIInputBrightnessKey: 0.0,
             ])
             .cropped(to: extent)
         return ciContext.createCGImage(blurred, from: extent)
+    }
+
+    /// 估算背景图（或铺满延伸底图）的代表相对亮度（0…1，取 70 分位以反映高光压字区域同时忽略极小亮斑）。
+    /// 只在后台解码/模糊后算一次，结果随位图缓存在 `PlayerBackdropMemoryCache` 中。
+    nonisolated static func estimatedLuminance(of image: CGImage) -> Double {
+        let side = 16
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                  data: nil,
+                  width: side,
+                  height: side,
+                  bitsPerComponent: 8,
+                  bytesPerRow: side * 4,
+                  space: colorSpace,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return 0.26 }
+        context.interpolationQuality = .low
+        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let data = context.data else { return 0.26 }
+        let bytes = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
+        func linear(_ value: Double) -> Double {
+            value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        var samples: [Double] = []
+        samples.reserveCapacity(side * side)
+        for index in 0..<(side * side) {
+            let offset = index * 4
+            let r = linear(Double(bytes[offset]) / 255)
+            let g = linear(Double(bytes[offset + 1]) / 255)
+            let b = linear(Double(bytes[offset + 2]) / 255)
+            samples.append(0.2126 * r + 0.7152 * g + 0.0722 * b)
+        }
+        samples.sort()
+        guard !samples.isEmpty else { return 0.26 }
+        let p70 = min(samples.count - 1, Int(Double(samples.count - 1) * 0.70))
+        return samples[p70]
     }
 
     /// 卡片流动背景(`CoverFlowBackdrop`)的一层:封面裁成居中方图缩到 96 像素,大半径模糊、
@@ -145,7 +181,7 @@ enum PlayerBackdropImaging {
         let blurred = combined
             .clampedToExtent()
             .applyingGaussianBlur(sigma: Double(extent.width * 0.06))
-            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.1])
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.16])
             .cropped(to: extent)
         return ciContext.createCGImage(blurred, from: extent)
     }
@@ -345,7 +381,11 @@ final class PlayerBackdropMemoryCache: @unchecked Sendable {
 
     private final class Box {
         let image: CGImage
-        init(_ image: CGImage) { self.image = image }
+        let luminance: Double?
+        init(_ image: CGImage, luminance: Double? = nil) {
+            self.image = image
+            self.luminance = luminance
+        }
     }
 
     private let cache: NSCache<NSString, Box> = {
@@ -366,8 +406,13 @@ final class PlayerBackdropMemoryCache: @unchecked Sendable {
         cache.object(forKey: key as NSString)?.image
     }
 
-    nonisolated func insert(_ image: CGImage, forKey key: String) {
-        cache.setObject(Box(image), forKey: key as NSString, cost: image.bytesPerRow * image.height)
+    nonisolated func entry(forKey key: String) -> (image: CGImage, luminance: Double?)? {
+        guard let box = cache.object(forKey: key as NSString) else { return nil }
+        return (box.image, box.luminance)
+    }
+
+    nonisolated func insert(_ image: CGImage, luminance: Double? = nil, forKey key: String) {
+        cache.setObject(Box(image, luminance: luminance), forKey: key as NSString, cost: image.bytesPerRow * image.height)
     }
 
     nonisolated func removeAll() {

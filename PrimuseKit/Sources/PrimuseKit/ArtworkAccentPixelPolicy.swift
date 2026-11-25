@@ -43,6 +43,8 @@ public enum ArtworkAccentPixelPolicy {
     static let markMinimumSaturation = 0.45
     /// 暗部的噪点通道差一点饱和度就很高,小块颜色要看得见才算。
     static let markMinimumBrightness = 0.40
+    /// 黑白封面的压缩色偏往往饱和度略高但色度（S×B）不足；真正的小块彩色字/标色度明显更高。
+    static let markMinimumChroma = 0.28
 
     public static func kind(saturation: Double, brightness: Double) -> Kind? {
         guard brightness > minimumBrightness else { return nil }
@@ -68,9 +70,12 @@ public enum ArtworkAccentPixelPolicy {
         if !regular.isEmpty { return regular }
         let marks = summarize(vivid) { bucket in
             let count = Double(bucket.count)
+            let meanSat = bucket.reduce(0) { $0 + $1.saturation } / count
+            let meanBright = bucket.reduce(0) { $0 + $1.brightness } / count
             return bucket.count >= markMinimumPixels
-                && bucket.reduce(0) { $0 + $1.saturation } / count >= markMinimumSaturation
-                && bucket.reduce(0) { $0 + $1.brightness } / count >= markMinimumBrightness
+                && meanSat >= markMinimumSaturation
+                && meanBright >= markMinimumBrightness
+                && (meanSat * meanBright) >= markMinimumChroma
         }
         if !marks.isEmpty { return marks }
         return summarize(pastel) { Double($0.count) >= Double(pixels.count) * pastelMinimumShare }
@@ -83,7 +88,9 @@ public enum ArtworkAccentPixelPolicy {
             var hueX = 0.0, hueY = 0.0, saturation = 0.0, brightness = 0.0, total = 0.0
             for pixel in bucket {
                 // 饱和度加权:大片米色、肤色、纸色不会让不相干的封面都变成棕色。
-                let weight = pixel.saturation * pixel.saturation * (0.55 + 0.45 * pixel.brightness)
+                // 亮度权重在 0.45 封顶,避免高亮度米黄压过低亮度深绿/深蓝等真正的主色调。
+                let brightnessFactor = 0.72 + 0.28 * min(pixel.brightness / 0.45, 1.0)
+                let weight = pixel.saturation * pixel.saturation * brightnessFactor
                 let angle = pixel.hue * 2 * .pi
                 hueX += cos(angle) * weight
                 hueY += sin(angle) * weight

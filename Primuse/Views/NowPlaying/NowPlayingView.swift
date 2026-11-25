@@ -279,6 +279,62 @@ extension View {
     }
 }
 
+/// 播放页标题行右侧辅助键（收藏、更多菜单、AirPlay）的可选圆底样式。
+/// 保留 Primuse 自身的心形语义与玻璃圆底语言，不改变命中区大小。
+struct NowPlayingHeaderButtonChrome: ViewModifier {
+    let style: NowPlayingHeaderButtonStyle
+    let appearance: NowPlayingAppearance
+    let tint: Color
+    var isSelected = false
+    var diameter: CGFloat = 34
+    var hitWidth: CGFloat = 40
+    var hitHeight: CGFloat = 44
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch style {
+        case .plain:
+            content
+                .frame(width: hitWidth, height: hitHeight)
+                .contentShape(Rectangle())
+        case .tintedCircle:
+            content
+                .frame(width: diameter, height: diameter)
+                .background {
+                    Circle().fill(tintedFill)
+                }
+                .overlay {
+                    if isSelected {
+                        Circle().strokeBorder(
+                            tint.opacity(appearance.isLight ? 0.30 : 0.38),
+                            lineWidth: 0.75
+                        )
+                    }
+                }
+                .frame(width: hitWidth, height: hitHeight)
+                .contentShape(Rectangle())
+        case .glassCircle:
+            content
+                .frame(width: diameter, height: diameter)
+                .nowPlayingAdaptiveGlass(
+                    Circle(),
+                    appearance: appearance,
+                    tint: tint,
+                    isSelected: isSelected
+                )
+                .frame(width: hitWidth, height: hitHeight)
+                .contentShape(Rectangle())
+        }
+    }
+
+    private var tintedFill: Color {
+        if isSelected {
+            return tint.opacity(appearance.isLight ? 0.16 : 0.22)
+        }
+        return appearance.isLight ? .black.opacity(0.07) : .white.opacity(0.12)
+    }
+}
+
 /// `ImmersiveGlassActionLabel` 的自适应版本。尺寸与字重照抄，只换底。
 private struct NowPlayingGlassActionLabel: View {
     var symbol: String
@@ -2242,6 +2298,8 @@ struct NowPlayingView: View {
     private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
     private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
+    @AppStorage(PlayerAppearancePreferences.headerButtonStyleKey)
+    private var headerButtonStyleRawValue = NowPlayingHeaderButtonStyle.plain.rawValue
     /// 音量条的画法(#338);「跟进度条一致」时照进度条的画法与发光画。
     @AppStorage(PlayerAppearancePreferences.volumeBarStyleKey)
     private var volumeBarStyleRawValue = NowPlayingVolumeBarStyle.system.rawValue
@@ -3329,19 +3387,29 @@ struct NowPlayingView: View {
         }
     }
 
+    private var headerButtonStyle: NowPlayingHeaderButtonStyle {
+        PlayerAppearancePreferences.headerButtonStyle(rawValue: headerButtonStyleRawValue)
+    }
+
     private func nowPlayingActionIcon(
         symbol: String,
         tint: Color,
         isSelected: Bool = false
     ) -> some View {
-        // 与旁边的隔空播放键同一种写法:只有图标,不垫圆底也不描边。选中态由图标本身
-        // (实心符号、红心)表达。
-        Image(systemName: symbol)
-            .font(.system(size: 18, weight: .semibold))
+        let style = headerButtonStyle
+        let glyphSize: CGFloat = style == .plain ? 18 : 15
+        return Image(systemName: symbol)
+            .font(.system(size: glyphSize, weight: .semibold))
             .foregroundStyle(tint)
             .contentTransition(.symbolEffect(.replace))
-            .frame(width: 38, height: 38)
-            .contentShape(Rectangle())
+            .modifier(NowPlayingHeaderButtonChrome(
+                style: style,
+                appearance: appearance,
+                tint: tint,
+                isSelected: isSelected,
+                hitWidth: style == .plain ? 38 : 40,
+                hitHeight: style == .plain ? 38 : 44
+            ))
     }
 
 
@@ -11658,6 +11726,10 @@ struct NowPlayingView: View {
     private func progressAudioTags(showsSource: Bool) -> some View {
         if let song = player.currentSong {
             let isSpokenWord = usesSpokenWordTransport
+            let eq = player.equalizerService
+            let isEQBypassed = player.outputMode(for: song) == .highFidelity || player.isAppleMusicMode
+            let activeEQ = (!isSpokenWord && eq.isEnabled && !isEQBypassed) ? eq.currentPreset.localizedName : nil
+            let bypassedEQ = (!isSpokenWord && eq.isEnabled && isEQBypassed) ? eq.currentPreset.localizedName : nil
             NowPlayingAudioTagRow(
                 song: song,
                 showsAudio: !isSpokenWord && audioInfoMode.showsSummary(for: song.audioQuality),
@@ -11670,6 +11742,8 @@ struct NowPlayingView: View {
                 transcodePlan: player.activeTranscodePlan,
                 replayGain: player.replayGainPlaybackInfo,
                 showsReplayGain: !isSpokenWord && showsReplayGainBadge,
+                activeEqualizerName: activeEQ,
+                bypassedEqualizerName: bypassedEQ,
                 tint: appearance.tertiary
             )
         }
@@ -12134,9 +12208,15 @@ struct NowPlayingView: View {
                 .frame(width: itemSize * 0.62, height: itemSize * 0.62)
                 .frame(width: itemSize, height: itemSize)
         case .header:
-            AirPlayButton(glyphFont: .system(size: 18, weight: .semibold))
+            AirPlayButton(glyphFont: .system(size: headerButtonStyle == .plain ? 18 : 15, weight: .semibold))
                 .frame(width: 30, height: 30)
-                .frame(width: 44, height: 44)
+                .modifier(NowPlayingHeaderButtonChrome(
+                    style: headerButtonStyle,
+                    appearance: appearance,
+                    tint: appearance.primary,
+                    hitWidth: 44,
+                    hitHeight: 44
+                ))
         case .bar, .wideBar, .edge:
             // 底排的图标都没单独定字号,跟着那一排的 `.body`;贴边那种自己写了 `.body`。
             AirPlayButton(glyphFont: style == .edge ? .body : nil)
@@ -14564,6 +14644,8 @@ struct ProgressSlider: View {
     private let baseTrackStyle: TrackStyle
     @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
     private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressOpacityKey)
+    private var storedFillOpacity = PlayerAppearancePreferences.progressOpacityByDefault
     private var trackStyle: TrackStyle {
         baseTrackStyle.applyingThickness(.resolved(thicknessRawValue))
     }
@@ -14631,15 +14713,42 @@ struct ProgressSlider: View {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
     }
 
+    private var effectiveFillOpacity: Double {
+        let increased = colorSchemeContrast == .increased
+        return isActive
+            ? PlayerTrackOpacityPolicy.activeOpacity(stored: storedFillOpacity, usesIncreasedContrast: increased)
+            : PlayerTrackOpacityPolicy.restingOpacity(stored: storedFillOpacity, usesIncreasedContrast: increased)
+    }
+
+    private var resolvedTrackColor: Color {
+        if let customTrack = trackStyle.trackColor { return customTrack }
+        let increased = colorSchemeContrast == .increased
+        let baseAlpha = increased ? 0.28 : 0.18
+        let adjusted = PlayerTrackOpacityPolicy.trackOpacity(
+            baseTrackOpacity: baseAlpha,
+            fillOpacity: effectiveFillOpacity,
+            usesIncreasedContrast: increased
+        )
+        return appearance.primary.opacity(adjusted)
+    }
+
     private var fillColor: Color {
-        if let fillTint { return fillTint }
-        guard theme.colorID != "default" else { return appearance.primary }
-        return appearance.isLight ? theme.darkAccent : theme.accentColor
+        let base: Color
+        if let fillTint {
+            base = fillTint
+        } else if theme.colorID == "default" {
+            base = appearance.primary
+        } else {
+            base = appearance.isLight ? theme.darkAccent : theme.accentColor
+        }
+        return base.opacity(effectiveFillOpacity)
     }
 
     /// 填充段从起点到播放头的颜色:封面取色时是渐变,否则一种。
     private var fillColors: [Color] {
-        fillGradient.count >= 2 ? fillGradient : [fillColor]
+        fillGradient.count >= 2
+            ? fillGradient.map { $0.opacity(effectiveFillOpacity) }
+            : [fillColor]
     }
 
     /// 播放头那头的颜色:圆点、波浪的竖条、光晕都用它。
@@ -14713,7 +14822,7 @@ struct ProgressSlider: View {
     private func waveTrack(width: CGFloat, filledWidth: CGFloat, trackHeight: CGFloat) -> some View {
         ZStack(alignment: .leading) {
             Capsule()
-                .fill(trackStyle.trackColor ?? appearance.track)
+                .fill(resolvedTrackColor)
                 .frame(width: max(0, width - filledWidth), height: trackHeight)
                 .offset(x: filledWidth)
                 .animation(fillAnimation, value: progress)
@@ -14778,7 +14887,7 @@ struct ProgressSlider: View {
                 } else {
                     // Background track
                     Capsule()
-                        .fill(trackStyle.trackColor ?? appearance.track)
+                        .fill(resolvedTrackColor)
                         .frame(height: trackHeight)
 
                     #if os(iOS) || os(macOS)
@@ -15217,6 +15326,8 @@ struct SystemVolumeSlider: UIViewRepresentable {
 
     @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
     private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.volumeOpacityKey)
+    private var storedFillOpacity = PlayerAppearancePreferences.volumeOpacityByDefault
     var trackStyle: PlayerVolumeTrackStyle = .system
     var fillTint: Color? = nil
     /// 「跟进度条一致」且进度条用封面取色时的渐变;不到两种颜色时用 `fillTint`。
@@ -15260,6 +15371,9 @@ struct SystemVolumeSlider: UIViewRepresentable {
                     ? styleKey.fillGradient.map { UIColor($0).cgColor }
                     : []
                 volumeView.trackView.track = UIColor(styleKey.trackStyle.trackColor ?? appearance.track)
+                volumeView.trackView.hasCustomTrackColor = styleKey.trackStyle.trackColor != nil
+                volumeView.trackView.usesIncreasedContrast = styleKey.usesIncreasedContrast
+                volumeView.trackView.storedFillOpacity = styleKey.fillOpacity
                 volumeView.trackView.reduceMotion = styleKey.reduceMotion
             }
             if volumeObservation == nil {
@@ -15405,6 +15519,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
         let trackStyle: PlayerVolumeTrackStyle
         let fillTint: Color?
         let fillGradient: [Color]
+        var fillOpacity: Double = PlayerAppearancePreferences.volumeOpacityByDefault
         let reduceMotion: Bool
     }
 
@@ -15448,6 +15563,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
             trackStyle: trackStyle.applyingThickness(.resolved(thicknessRawValue)),
             fillTint: fillTint,
             fillGradient: fillGradient,
+            fillOpacity: storedFillOpacity,
             reduceMotion: reduceMotion
         )
     }
@@ -15558,6 +15674,9 @@ final class SystemVolumeTrackView: UIView {
     /// 两种以上颜色时填充段从起点到圆钮画渐变。
     var gradient: [CGColor] = []
     var track: UIColor = .white.withAlphaComponent(0.18)
+    var hasCustomTrackColor = false
+    var usesIncreasedContrast = false
+    var storedFillOpacity = PlayerAppearancePreferences.volumeOpacityByDefault
     var reduceMotion = false
     private(set) var isActive = false
     private var start = CGPoint.zero
@@ -15619,10 +15738,32 @@ final class SystemVolumeTrackView: UIView {
             context.addPath(Capsule().path(in: rect).cgPath)
             context.fillPath()
         }
-        capsule(x: style.isWave ? filledWidth : 0, width: style.isWave ? width - filledWidth : width, color: track)
+        let effectiveOpacity = isActive
+            ? PlayerTrackOpacityPolicy.activeOpacity(stored: storedFillOpacity, usesIncreasedContrast: usesIncreasedContrast)
+            : PlayerTrackOpacityPolicy.restingOpacity(stored: storedFillOpacity, usesIncreasedContrast: usesIncreasedContrast)
+        var fillAlpha: CGFloat = 1
+        fill.getWhite(nil, alpha: &fillAlpha)
+        let resolvedFill = fill.withAlphaComponent(fillAlpha * effectiveOpacity)
+        let resolvedGradient: [CGColor] = gradient.map { cg in
+            cg.copy(alpha: cg.alpha * effectiveOpacity) ?? cg
+        }
+        let resolvedTrack: UIColor
+        if hasCustomTrackColor {
+            resolvedTrack = track
+        } else {
+            var trackAlpha: CGFloat = 0.18
+            track.getWhite(nil, alpha: &trackAlpha)
+            let adjustedTrackAlpha = PlayerTrackOpacityPolicy.trackOpacity(
+                baseTrackOpacity: Double(trackAlpha),
+                fillOpacity: effectiveOpacity,
+                usesIncreasedContrast: usesIncreasedContrast
+            )
+            resolvedTrack = track.withAlphaComponent(adjustedTrackAlpha)
+        }
+        capsule(x: style.isWave ? filledWidth : 0, width: style.isWave ? width - filledWidth : width, color: resolvedTrack)
 
         if style.glows {
-            context.setShadow(offset: .zero, blur: 6, color: fill.withAlphaComponent(0.85).cgColor)
+            context.setShadow(offset: .zero, blur: 6, color: resolvedFill.withAlphaComponent(0.85 * effectiveOpacity).cgColor)
         }
         let wavePath: CGPath? = style.isWave && filledWidth > 0
             ? ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
@@ -15630,17 +15771,17 @@ final class SystemVolumeTrackView: UIView {
             : nil
         if let wavePath {
             context.addPath(wavePath)
-            context.setStrokeColor(fill.cgColor)
+            context.setStrokeColor(resolvedFill.cgColor)
             context.setLineWidth(height)
             context.setLineCap(.round)
             context.setLineJoin(.round)
             context.strokePath()
         } else {
-            capsule(x: 0, width: filledWidth, color: fill)
+            capsule(x: 0, width: filledWidth, color: resolvedFill)
         }
         // 渐变盖在上面那层单色(连同它的光晕)之上,光晕仍是播放头那头的颜色。
-        if gradient.count >= 2, filledWidth > 0,
-           let shading = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: gradient as CFArray, locations: nil) {
+        if resolvedGradient.count >= 2, filledWidth > 0,
+           let shading = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: resolvedGradient as CFArray, locations: nil) {
             context.saveGState()
             context.setShadow(offset: .zero, blur: 0, color: nil)
             if let wavePath {
@@ -15658,7 +15799,7 @@ final class SystemVolumeTrackView: UIView {
             context.restoreGState()
         }
         if let knob = style.knob(isActive: isActive, reduceMotion: reduceMotion) {
-            context.setFillColor(fill.cgColor)
+            context.setFillColor(resolvedFill.cgColor)
             context.fillEllipse(in: alignedRect(CGRect(x: filledWidth - knob / 2, y: -knob / 2, width: knob, height: knob)))
         }
     }
@@ -15668,6 +15809,8 @@ final class SystemVolumeTrackView: UIView {
 struct VolumeSlider: View {
     @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
     private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.volumeOpacityKey)
+    private var storedFillOpacity = PlayerAppearancePreferences.volumeOpacityByDefault
     @Binding var value: Double
     var trackStyle: PlayerVolumeTrackStyle = .system
     /// 填充与圆钮的颜色;nil 时用前景色。
@@ -15701,18 +15844,35 @@ struct VolumeSlider: View {
         GeometryReader { geo in
             let width = geo.size.width
             let progress = CGFloat(max(0, min(1, displayValue)))
+            let isInteracting = isDragging || isPressing
             let trackHeight = trackStyle.height(isActive: isDragging, reduceMotion: reduceMotion)
             let filledWidth = max(0, min(width, width * progress))
-            let fill = fillGradient.last ?? fillTint ?? appearance.primary
+            let increased = colorSchemeContrast == .increased
+            let effectiveOpacity = isInteracting
+                ? PlayerTrackOpacityPolicy.activeOpacity(stored: storedFillOpacity, usesIncreasedContrast: increased)
+                : PlayerTrackOpacityPolicy.restingOpacity(stored: storedFillOpacity, usesIncreasedContrast: increased)
+            let baseFill = fillGradient.last ?? fillTint ?? appearance.primary
+            let fill = baseFill.opacity(effectiveOpacity)
             let fillStyle = fillGradient.count >= 2
-                ? AnyShapeStyle(LinearGradient(colors: fillGradient, startPoint: .leading, endPoint: .trailing))
+                ? AnyShapeStyle(LinearGradient(
+                    colors: fillGradient.map { $0.opacity(effectiveOpacity) },
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ))
                 : AnyShapeStyle(fill)
+            let resolvedTrackColor: Color = trackStyle.trackColor ?? appearance.primary.opacity(
+                PlayerTrackOpacityPolicy.trackOpacity(
+                    baseTrackOpacity: increased ? 0.28 : 0.18,
+                    fillOpacity: effectiveOpacity,
+                    usesIncreasedContrast: increased
+                )
+            )
             let glow = ProgressGlow(color: fill, isEnabled: trackStyle.glows, isLit: true, isLight: appearance.isLight)
 
             ZStack(alignment: .leading) {
                 if trackStyle.isWave {
                     Capsule()
-                        .fill(trackStyle.trackColor ?? appearance.track)
+                        .fill(resolvedTrackColor)
                         .frame(width: max(0, width - filledWidth), height: trackHeight)
                         .offset(x: filledWidth)
                     ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
@@ -15721,7 +15881,7 @@ struct VolumeSlider: View {
                         .modifier(glow)
                 } else {
                     Capsule()
-                        .fill(trackStyle.trackColor ?? appearance.track)
+                        .fill(resolvedTrackColor)
                         .frame(height: trackHeight)
 
                     Capsule()
@@ -16584,15 +16744,22 @@ struct AirPlayButton: View {
     @Environment(AudioPlayerService.self) private var player
     @AppStorage(PlayerAppearancePreferences.airPlayShowsOutputDeviceKey)
     private var followsOutputDevice = PlayerAppearancePreferences.airPlayShowsOutputDeviceByDefault
+    @AppStorage(PlayerAppearancePreferences.airPlayIconOpacityKey)
+    private var iconOpacity = PlayerAppearancePreferences.airPlayIconOpacityByDefault
+    @AppStorage(PlayerAppearancePreferences.airPlayBluetoothGlyphKey)
+    private var bluetoothGlyphRawValue = EQOutputDevice.BluetoothGlyphPreference.automatic.rawValue
 
     var body: some View {
         // 开关关着时不读输出设备,换耳机、连车载也不重画这颗键。
         let device = showsDeviceGlyph && followsOutputDevice ? NowPlayingOutputDevice.current(player) : nil
-        let symbol = device?.playerSymbolName.flatMap { $0 == "airplayaudio" ? nil : $0 }
-        SystemRoutePicker(drawsGlyph: symbol == nil)
+        let bluetoothPreference = PlayerAppearancePreferences.airPlayBluetoothGlyph(rawValue: bluetoothGlyphRawValue)
+        let symbol = device?
+            .playerSymbolName(bluetoothPreference: bluetoothPreference)
+            .flatMap { $0 == "airplayaudio" ? nil : $0 }
+        SystemRoutePicker(drawsGlyph: symbol == nil, iconOpacity: iconOpacity)
             .overlay {
                 if let symbol {
-                    AirPlayDeviceGlyph(symbol: symbol, font: glyphFont)
+                    AirPlayDeviceGlyph(symbol: symbol, font: glyphFont, iconOpacity: iconOpacity)
                 }
             }
             .accessibilityValue(Text(verbatim: symbol == nil ? "" : device?.eqDisplayName ?? ""))
@@ -16602,6 +16769,7 @@ struct AirPlayButton: View {
 /// 系统投放键本身。`drawsGlyph` 为 false 时图标着成透明,上面另画设备图标。
 private struct SystemRoutePicker: UIViewRepresentable {
     let drawsGlyph: Bool
+    let iconOpacity: Double
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
@@ -16622,32 +16790,41 @@ private struct SystemRoutePicker: UIViewRepresentable {
             view.activeTintColor = .clear
             return
         }
-        let tint = AirPlayButtonTint(colorScheme: colorScheme, contrast: colorSchemeContrast)
+        let tint = AirPlayButtonTint(
+            colorScheme: colorScheme,
+            contrast: colorSchemeContrast,
+            activeOpacity: iconOpacity
+        )
         view.tintColor = tint.idle
         view.activeTintColor = tint.active
     }
 }
 
-/// 投放键的两档颜色:平时淡一些,声音投到别的设备上时亮起来(和系统那颗的 tint / activeTint 一致)。
+/// 投放键的两档颜色:平时淡一些,声音投到别的设备上时按设置里的不透明度柔和呈现(不再刺眼纯白)。
 /// UIKit `withAlphaComponent` 是替换透明度不是相乘,所以平时那档是同一个颜色换成 0.52(增强对比 0.72)。
 private struct AirPlayButtonTint {
     let idle: UIColor
     let active: UIColor
 
-    init(colorScheme: ColorScheme, contrast: ColorSchemeContrast) {
-        let foreground = colorScheme == .light
-            ? UIColor.black.withAlphaComponent(contrast == .increased ? 0.96 : 0.88)
-            : UIColor.white
-        idle = foreground.withAlphaComponent(contrast == .increased ? 0.72 : 0.52)
-        active = foreground
+    init(colorScheme: ColorScheme, contrast: ColorSchemeContrast, activeOpacity: Double = PlayerTrackOpacityPolicy.airPlayDefaultOpacity) {
+        let baseColor = colorScheme == .light ? UIColor.black : UIColor.white
+        let activeAlpha = PlayerTrackOpacityPolicy.airPlayOpacity(
+            stored: activeOpacity,
+            usesIncreasedContrast: contrast == .increased
+        )
+        let lightCeiling: Double = contrast == .increased ? 0.96 : 0.88
+        let resolvedActive = colorScheme == .light ? min(activeAlpha, lightCeiling) : activeAlpha
+        idle = baseColor.withAlphaComponent(contrast == .increased ? 0.72 : min(0.52, resolvedActive))
+        active = baseColor.withAlphaComponent(resolvedActive)
     }
 }
 
 /// 盖在透明的系统投放键上的设备图标。投放键的框给得比图标大(要留点按范围),按框撑满画会比旁边的
-/// 按钮大一圈;所以用同一排按钮的字号画,换成 AirPods、HomePod 也和旁边一般大。
+/// 按钮大一圈;所以用同一排按钮的字号画,换成耳机、HomePod 也和旁边一般大。
 private struct AirPlayDeviceGlyph: View {
     let symbol: String
     let font: Font?
+    let iconOpacity: Double
     @Environment(\.font) private var inheritedFont
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -16656,7 +16833,11 @@ private struct AirPlayDeviceGlyph: View {
         Image(systemName: symbol)
             .font(font ?? inheritedFont)
             .imageScale(.medium)
-            .foregroundStyle(Color(uiColor: AirPlayButtonTint(colorScheme: colorScheme, contrast: colorSchemeContrast).active))
+            .foregroundStyle(Color(uiColor: AirPlayButtonTint(
+                colorScheme: colorScheme,
+                contrast: colorSchemeContrast,
+                activeOpacity: iconOpacity
+            ).active))
             .contentTransition(.symbolEffect(.replace))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
@@ -17917,6 +18098,8 @@ private struct NowPlayingMoreMenuLabel: View {
     let chromeGlass: NowPlayingChromeGlass
     var plainLabel: NowPlayingMoreMenuPlainLabel?
     let appearance: NowPlayingAppearance
+    @AppStorage(PlayerAppearancePreferences.headerButtonStyleKey)
+    private var headerButtonStyleRawValue = NowPlayingHeaderButtonStyle.plain.rawValue
 
     @ViewBuilder
     var body: some View {
@@ -17948,12 +18131,17 @@ private struct NowPlayingMoreMenuLabel: View {
                 .frame(width: 44, height: plainLabel.height)
                 .contentShape(Rectangle())
         } else {
-            // 只有图标,和隔空播放键一样不垫圆底。
+            let style = PlayerAppearancePreferences.headerButtonStyle(rawValue: headerButtonStyleRawValue)
             Image(systemName: "ellipsis")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(appearance.secondary)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+                .font(.system(size: style == .plain ? 18 : 15, weight: .semibold))
+                .foregroundStyle(style == .plain ? appearance.secondary : appearance.primary.opacity(0.88))
+                .modifier(NowPlayingHeaderButtonChrome(
+                    style: style,
+                    appearance: appearance,
+                    tint: appearance.primary,
+                    hitWidth: 44,
+                    hitHeight: 44
+                ))
         }
     }
 
@@ -19036,6 +19224,8 @@ struct LyricsScrollView: View, @MainActor Equatable {
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
     private var showsLyricsInterludeAlways = PlayerAppearancePreferences.showsLyricsInterludeAlwaysByDefault
+    @AppStorage(PlayerAppearancePreferences.lyricsSyllableGlowKey)
+    private var lyricsSyllableGlow = PlayerAppearancePreferences.lyricsSyllableGlowByDefault
     @AppStorage(PlayerAppearancePreferences.lyricsMotionKey)
     private var lyricsMotionRawValue = PlayerLyricsMotion.defaultValue.rawValue
     /// 「层叠弹性」时每一格额外的纵向偏移:换句那一刻整份歌词瞬间滚到位、各格先补回这段滚动差
@@ -20669,7 +20859,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
                 isolatesAnimatedProgressFromLayout: isSpokenWordTranscript,
                 minimumProgressInterval: isSpokenWordTranscript ? Self.spokenWordProgressInterval : nil,
                 deactivationTime: dimmedByAmbient ? deactivationTime : nil,
-                glowsSungSyllables: !appearance.isLight
+                glowsSungSyllables: lyricsSyllableGlow && !appearance.isLight
             )
         } else {
             lyricsTypeface.text(line.text, size: fontSize, weight: weight)
@@ -21520,10 +21710,19 @@ struct NowPlayingStatusLine: View {
     @AppStorage(NowPlayingControlLayout.musicStorageKey) private var storage = ""
     @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
     private var showsActivity = WordLyricsDiscoveryPreferences.showsActivityByDefault
+    @AppStorage(PlayerAppearancePreferences.airPlayShowsOutputDeviceKey)
+    private var airPlayShowsOutputDevice = PlayerAppearancePreferences.airPlayShowsOutputDeviceByDefault
+    @AppStorage(PlayerAppearancePreferences.airPlayBluetoothGlyphKey)
+    private var bluetoothGlyphRawValue = EQOutputDevice.BluetoothGlyphPreference.automatic.rawValue
 
     var body: some View {
         let layout = NowPlayingControlLayout.decode(storage)
         let output = showsOutput ? self.output : nil
+        // 上方底栏的 AirPlay 键已换成当前设备图标时，状态行只保留设备名，避免上下叠两个重复图标。
+        let hidesDuplicateOutputSymbol = airPlayShowsOutputDevice
+            && layout.bar.contains(.airPlay)
+            && player.castingRenderer == nil
+            && output.map { $0.symbol != "airplayaudio" } == true
         let showsSleep = showsSleepTimer && player.isSleepTimerActive
         let activity = showsActivity ? PlayerActivityStore.shared.status(for: player.currentSong?.id) : nil
         let items = layout.statusItems.filter { item in
@@ -21544,8 +21743,12 @@ struct NowPlayingStatusLine: View {
                 }
             case .output:
                 if let output {
-                    Label(output.name, systemImage: output.symbol)
-                        .labelStyle(.titleAndIcon)
+                    if hidesDuplicateOutputSymbol {
+                        Text(verbatim: output.name)
+                    } else {
+                        Label(output.name, systemImage: output.symbol)
+                            .labelStyle(.titleAndIcon)
+                    }
                 }
             case .sleepTimer:
                 sleepLabel.fixedSize().layoutPriority(1)
@@ -21599,7 +21802,9 @@ struct NowPlayingStatusLine: View {
             return Output(symbol: "hifispeaker", name: renderer.friendlyName)
         }
         guard let device = NowPlayingOutputDevice.current(player),
-              let symbol = device.playerSymbolName else { return nil }
+              let symbol = device.playerSymbolName(
+                bluetoothPreference: PlayerAppearancePreferences.airPlayBluetoothGlyph(rawValue: bluetoothGlyphRawValue)
+              ) else { return nil }
         let name = device.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
         return Output(symbol: symbol, name: name)

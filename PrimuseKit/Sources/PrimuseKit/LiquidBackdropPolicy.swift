@@ -247,8 +247,25 @@ public enum LiquidBackdropPalettePolicy {
         swatches = swatches.filter { $0.population >= minimumPopulation }
         guard let dominant = swatches.max(by: { $0.population < $1.population }) else { return [] }
         let maxPopulation = Double(dominant.population)
+        let significant = max(minimumPopulation, pixels.count * 3 / 100)
 
-        var picked: [Swatch] = [dominant]
+        // 当占比最多的格子接近无彩色（大片白天空、黑底、灰底）时，如果封面里存在大面积彩色块，
+        // 优先让主彩色站在调色板最前，避免 Mesh 中央顶点被灰白/米灰占掉。纯黑白封面照旧保留原样。
+        let lead: Swatch
+        if !isChromatic(dominant),
+           let chromaticLead = swatches
+            .filter({ $0.population >= significant && isChromatic($0) })
+            .max(by: {
+                let lhsScore = Double($0.population) * (0.45 + 0.55 * $0.saturation)
+                let rhsScore = Double($1.population) * (0.45 + 0.55 * $1.saturation)
+                return lhsScore < rhsScore
+            }) {
+            lead = chromaticLead
+        } else {
+            lead = dominant
+        }
+
+        var picked: [Swatch] = [lead]
         for target in targets {
             let candidates = swatches.filter { swatch in
                 target.lightness.contains(swatch.lightness)
@@ -260,7 +277,6 @@ public enum LiquidBackdropPalettePolicy {
         }
         // 每一类目标只挑一个:几块同样鲜艳的大色块拼成的封面(蓝、橙、洋红)只会留下一种。目标挑完后,
         // 占比 3% 以上、和已选颜色差得开的也补上,补到上限,封面里的每种主要颜色都能出场。
-        let significant = max(minimumPopulation, pixels.count * 3 / 100)
         for swatch in swatches.sorted(by: { $0.population > $1.population })
         where picked.count < maximumCount
             && swatch.population >= significant
@@ -298,14 +314,27 @@ public enum LiquidBackdropPalettePolicy {
         return (0..<count).map { palette[$0 % palette.count] }
     }
 
+    private static func isChromatic(_ swatch: Swatch) -> Bool {
+        let chroma = max(swatch.color.red, swatch.color.green, swatch.color.blue)
+            - min(swatch.color.red, swatch.color.green, swatch.color.blue)
+        return swatch.saturation >= 0.16 && chroma >= 0.05
+    }
+
     private static func score(_ swatch: Swatch, _ target: Target, _ maxPopulation: Double) -> Double {
         let saturation = 1 - abs(swatch.saturation - target.targetSaturation)
         let lightness = 1 - abs(swatch.lightness - target.targetLightness)
         let population = Double(swatch.population) / maxPopulation
-        return saturation * 0.24 + lightness * 0.52 + population * 0.24
+        return saturation * 0.30 + lightness * 0.36 + population * 0.34
     }
 
     private static func isSimilar(_ lhs: Swatch, _ rhs: Swatch) -> Bool {
+        // 两个都带明显色度但色相明显不同（如暗橄榄绿 vs 暗棕色）时，即使在暗部 RGB 距离小也不应合并。
+        if isChromatic(lhs), isChromatic(rhs) {
+            let hueDistance = min(abs(lhs.hue - rhs.hue), 1 - abs(lhs.hue - rhs.hue))
+            if hueDistance >= 0.08 {
+                return false
+            }
+        }
         let dr = lhs.color.red - rhs.color.red
         let dg = lhs.color.green - rhs.color.green
         let db = lhs.color.blue - rhs.color.blue

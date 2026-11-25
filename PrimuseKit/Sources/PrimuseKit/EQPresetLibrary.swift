@@ -27,11 +27,27 @@ public struct EQOutputDevice: Codable, Hashable, Sendable, Identifiable {
     /// iPhone 的扬声器与听筒是同一台设备的两个出口,合成一个身份。
     public static let builtInID = "builtin"
 
+    /// 通用蓝牙耳机在播放页的默认图标形态（仅影响非 Apple / 非 Beats 的普通蓝牙耳机，
+    /// 不改写 AirPods / Beats / HomePod 等受限品牌符号的匹配边界）。
+    public enum BluetoothGlyphPreference: String, CaseIterable, Codable, Sendable {
+        case automatic
+        case earbuds
+        case headphones
+
+        public static func resolved(rawValue: String?) -> Self {
+            rawValue.flatMap(Self.init(rawValue:)) ?? .automatic
+        }
+    }
+
     /// 播放页上代表这台设备的 SF Symbol:隔空播放键换成它,底部状态行写设备名时配它。
-    /// 系统不告诉 App 设备型号,只能按名字认几种常见的(AirPods、Beats、HomePod、Apple TV、音箱),
+    /// 系统不告诉 App 设备型号,只能按名字认几种常见的(AirPods、Beats、HomePod、Apple TV、音箱、入耳耳机),
     /// 认不出按种类给。手机自己的扬声器是 nil;隔空播放认不出型号时是 `airplayaudio`
     /// (HomePod、Apple TV 默认按房间起名,多半认不出)。
     public var playerSymbolName: String? {
+        playerSymbolName(bluetoothPreference: .automatic)
+    }
+
+    public func playerSymbolName(bluetoothPreference: BluetoothGlyphPreference) -> String? {
         let lowered = name.lowercased()
         switch kind {
         case .builtInSpeaker:
@@ -48,6 +64,18 @@ public struct EQOutputDevice: Codable, Hashable, Sendable, Identifiable {
             if lowered.contains("beats") { return "beats.headphones" }
             let speakerWords = ["speaker", "soundbar", "soundlink", "音箱", "音響", "喇叭"]
             if kind == .bluetooth, speakerWords.contains(where: lowered.contains) { return "hifispeaker" }
+            if kind == .bluetooth {
+                switch bluetoothPreference {
+                case .earbuds:
+                    return "earbuds"
+                case .headphones:
+                    return "headphones"
+                case .automatic:
+                    if Self.matchesGenericEarbudsName(lowered) {
+                        return "earbuds"
+                    }
+                }
+            }
             return "headphones"
         case .usb:
             return "cable.connector"
@@ -58,6 +86,16 @@ public struct EQOutputDevice: Codable, Hashable, Sendable, Identifiable {
         case .other:
             return "hifispeaker"
         }
+    }
+
+    /// 常见第三方真无线 / 入耳式耳机关键词；命中时只返回无限制通用符号 `earbuds`，不冒用 AirPods 符号。
+    private static func matchesGenericEarbudsName(_ lowered: String) -> Bool {
+        let keywords = [
+            "earbud", "buds", "tws", "airplus", "airdots", "freebuds", "flipbuds",
+            "encofree", "enco ", "linkbuds", "earfun", "wf-", "pods",
+            "入耳", "耳塞", "豆"
+        ]
+        return keywords.contains(where: lowered.contains)
     }
 }
 

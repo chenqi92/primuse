@@ -973,8 +973,13 @@ final class ThemeService {
     ) -> ColorResult {
         // Keep the accent vivid enough for ambient use while bounding its
         // brightness so downstream surfaces can maintain reliable contrast.
+        // 极暗封面（中位相对亮度很低）保留深邃明度，不强行拉亮成中灰/土棕；
+        // 按钮与文字用的 `legibleAccent` 另由 `ThemeAccentContrastPolicy` 保证 4.5:1 对比度。
+        let darkCoverRatio = min(max(luminance / 0.14, 0), 1)
+        let accentBrightnessFloor = 0.24 + 0.26 * darkCoverRatio
+        let secondaryBrightnessFloor = 0.20 + 0.22 * darkCoverRatio
         let accentS = min(max(primary.saturation * 1.08, 0.35), 0.92)
-        let accentB = min(max(primary.brightness, 0.50), 0.85)
+        let accentB = min(max(primary.brightness, accentBrightnessFloor), 0.85)
         let accent = Color(hue: primary.hue, saturation: accentS, brightness: accentB)
 
         let secondaryHue = secondary?.hue ?? primary.hue
@@ -982,7 +987,7 @@ final class ThemeService {
             min(max($0.saturation * 1.04, 0.28), 0.84)
         } ?? accentS
         let secondaryBrightness = secondary.map {
-            min(max($0.brightness, 0.42), 0.72)
+            min(max($0.brightness, secondaryBrightnessFloor), 0.72)
         } ?? accentB * 0.78
         let secondaryAccent = Color(
             hue: secondaryHue,

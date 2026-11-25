@@ -162,6 +162,20 @@ import Testing
         #expect(has { $0.red > 0.8 && $0.green > 0.7 })                    // 黄
     }
 
+    @Test func darkOliveGreenAndWarmBrownStayDistinctInPalette() {
+        // 模拟深绿树丛 + 暖米/暗棕人像 + 浅灰天空的封面：暗绿与暗棕即使 RGB 欧氏距离较小也应同时保留。
+        let pixels = image([
+            ((220, 224, 220), 600), // 浅灰白天空
+            ((42, 66, 30), 500),    // 深黄绿树影
+            ((62, 48, 32), 450),    // 暗棕阴影
+            ((205, 185, 148), 350), // 浅米黄衣物
+        ])
+        let palette = LiquidBackdropPalettePolicy.palette(fromRGB: pixels)
+        // 主导色不应被浅灰天空占掉，且黄绿色调必须保留在调色板里。
+        #expect(palette.contains { $0.green > $0.red && $0.green > $0.blue })
+        #expect(palette.first.map { $0.hsl.saturation >= 0.16 } == true)
+    }
+
     @Test func solidArtworkKeepsItsColorAndTinyImagesFallBack() {
         let gray = LiquidBackdropPalettePolicy.palette(fromRGB: image([((90, 90, 90), 1000)]))
         #expect(gray.count == 1)

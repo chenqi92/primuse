@@ -14,6 +14,7 @@ struct NowPlayingAudioTag: View {
     var symbol: String? = nil
     var title: String? = nil
     var detail: String? = nil
+    var tagStyle: NowPlayingAudioTagStyle = .outlined
     let tint: Color
     var pulsesSymbol = false
 
@@ -42,11 +43,24 @@ struct NowPlayingAudioTag: View {
         }
         .font(.caption2.monospacedDigit())
         .lineLimit(1)
-        .padding(.horizontal, 5)
+        .padding(.horizontal, tagStyle == .plain ? 2 : 5)
         .padding(.vertical, 2)
         .foregroundStyle(tint)
-        .background(tint.opacity(0.08), in: shape)
-        .overlay { shape.strokeBorder(tint.opacity(0.5), lineWidth: 0.75) }
+        .background {
+            switch tagStyle {
+            case .outlined:
+                shape.fill(tint.opacity(0.08))
+            case .filled:
+                shape.fill(tint.opacity(0.16))
+            case .plain:
+                Color.clear
+            }
+        }
+        .overlay {
+            if tagStyle == .outlined {
+                shape.strokeBorder(tint.opacity(0.5), lineWidth: 0.75)
+            }
+        }
     }
 }
 
@@ -70,12 +84,51 @@ struct NowPlayingAudioTagRow: View {
     var transcodePlan: SourceTranscodePlan = .original
     var replayGain: ReplayGainPlaybackInfo = .init(enabled: false)
     var showsReplayGain = true
+    /// 生效中的均衡器预设名（未开启、高保真直通或 Apple Music 模式时为 nil）。
+    var activeEqualizerName: String? = nil
+    /// 均衡器开启但被当前输出模式旁路（高保真直通）时用于详情卡提示。
+    var bypassedEqualizerName: String? = nil
     let tint: Color
+
+    @AppStorage(PlayerAppearancePreferences.audioInfoTagStyleKey)
+    private var tagStyleRawValue = NowPlayingAudioTagStyle.outlined.rawValue
+    @AppStorage(PlayerAppearancePreferences.audioInfoShowsSymbolKey)
+    private var showsSymbol = PlayerAppearancePreferences.audioInfoShowsSymbolByDefault
+    @AppStorage(PlayerAppearancePreferences.audioInfoDetailModeKey)
+    private var detailModeRawValue = NowPlayingAudioInfoDetailMode.specs.rawValue
+    @AppStorage(PlayerAppearancePreferences.audioInfoShowsEqualizerKey)
+    private var showsEqualizerBadge = PlayerAppearancePreferences.audioInfoShowsEqualizerByDefault
 
     @State private var showsDetails = false
 
-    /// 来源名最宽到这里,再长就截断。
+    /// 来源名与均衡器名最宽到这里,再长就截断。
     static let sourceMaxWidth: CGFloat = 96
+    static let equalizerMaxWidth: CGFloat = 88
+
+    private var tagStyle: NowPlayingAudioTagStyle {
+        PlayerAppearancePreferences.audioInfoTagStyle(rawValue: tagStyleRawValue)
+    }
+
+    private var detailMode: NowPlayingAudioInfoDetailMode {
+        PlayerAppearancePreferences.audioInfoDetailMode(rawValue: detailModeRawValue)
+    }
+
+    private var resolvedBadges: NowPlayingAudioTagBadgePolicy.Resolved {
+        NowPlayingAudioTagBadgePolicy.resolve(
+            showsAudio: showsAudio,
+            showsSymbol: showsSymbol,
+            detailMode: detailMode,
+            showsEqualizerBadge: showsEqualizerBadge,
+            quality: song.audioQuality,
+            isTranscoded: transcodedStream != nil,
+            qualityLabel: qualityLabel,
+            specDetail: tagDetail,
+            dolbyAtmosLabel: song.audioVariants?.offersDolbyAtmos == true
+                ? PMString(AudioVariant.dolbyAtmos.localizationKey)
+                : nil,
+            activeEqualizerName: activeEqualizerName
+        )
+    }
     #if DEBUG
     /// 取证用:启动时带 `PRIMUSE_DEBUG_AUDIO_INFO_OUTPUT=1` 就一出现便打开信息卡。
     private static let debugOpensDetails =
@@ -88,12 +141,13 @@ struct NowPlayingAudioTagRow: View {
                 NowPlayingAudioTag(
                     symbol: "icloud.and.arrow.down",
                     title: String(localized: "playback_icloud_downloading"),
+                    tagStyle: tagStyle,
                     tint: tint,
                     pulsesSymbol: true
                 )
                 .accessibilityElement(children: .combine)
                 .transition(.opacity)
-            } else if audioTag != nil || replayGainTag != nil || taggedSource != nil {
+            } else if audioTag != nil || equalizerTag != nil || replayGainTag != nil || taggedSource != nil {
                 Button { showsDetails = true } label: {
                     tags
                         // 牌子只有 17pt 高,命中区往下补到够手指点;上面紧挨着进度条,不往上补。
@@ -130,13 +184,27 @@ struct NowPlayingAudioTagRow: View {
         #endif
     }
 
-    /// 窄屏或大字号下优先保留响度状态,完整音质仍可点开查看。
+    /// 窄屏或大字号下优先保留响度状态与核心音质/均衡器标签,完整音质仍可点开查看。
     private var tags: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 6) {
                 audioTag
+                equalizerTag
                 replayGainTag
                 sourceTag
+            }
+            if audioTag != nil || equalizerTag != nil || replayGainTag != nil {
+                HStack(spacing: 6) {
+                    audioTag
+                    equalizerTag
+                    replayGainTag
+                }
+            }
+            if audioTag != nil || equalizerTag != nil {
+                HStack(spacing: 6) {
+                    audioTag
+                    equalizerTag
+                }
             }
             if audioTag != nil || replayGainTag != nil {
                 HStack(spacing: 6) {
@@ -148,6 +216,8 @@ struct NowPlayingAudioTagRow: View {
                 replayGainTag
             } else if let audioTag {
                 audioTag
+            } else if let equalizerTag {
+                equalizerTag
             } else {
                 sourceTag
             }
@@ -156,13 +226,35 @@ struct NowPlayingAudioTagRow: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var audioTag: NowPlayingAudioTag? {
-        guard showsAudio else { return nil }
-        let detail = tagDetail ?? (song.audioVariants?.offersDolbyAtmos == true
-            ? PMString(AudioVariant.dolbyAtmos.localizationKey)
-            : nil)
-        guard qualityLabel != nil || detail != nil else { return nil }
-        return NowPlayingAudioTag(title: qualityLabel, detail: detail, tint: tint)
+    private var audioTag: AnyView? {
+        let resolved = resolvedBadges
+        guard resolved.hasAudioTag else { return nil }
+        let tag = NowPlayingAudioTag(
+            symbol: resolved.audioSymbol,
+            title: resolved.audioTitle,
+            detail: resolved.audioDetail,
+            tagStyle: tagStyle,
+            tint: tint
+        )
+        if detailMode == .equalizer, resolved.audioDetail != nil {
+            return AnyView(NowPlayingWidthCap(maxWidth: 180) { tag })
+        }
+        return AnyView(tag)
+    }
+
+    private var equalizerTag: AnyView? {
+        guard let name = resolvedBadges.separateEqualizerName else { return nil }
+        return AnyView(
+            NowPlayingWidthCap(maxWidth: Self.equalizerMaxWidth) {
+                NowPlayingAudioTag(
+                    symbol: "slider.horizontal.3",
+                    title: nil,
+                    detail: name,
+                    tagStyle: tagStyle,
+                    tint: tint
+                )
+            }
+        )
     }
 
     private var taggedSource: NowPlayingSourceLabel? {
@@ -178,7 +270,7 @@ struct NowPlayingAudioTagRow: View {
     private var sourceTag: some View {
         if let source = taggedSource {
             NowPlayingWidthCap(maxWidth: Self.sourceMaxWidth) {
-                NowPlayingAudioTag(symbol: source.iconName, title: nil, detail: source.name, tint: tint)
+                NowPlayingAudioTag(symbol: source.iconName, title: nil, detail: source.name, tagStyle: tagStyle, tint: tint)
             }
         }
     }
@@ -202,6 +294,23 @@ struct NowPlayingAudioTagRow: View {
                 Text(verbatim: outputText)
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
+            }
+            if let activeEqualizerName, !activeEqualizerName.isEmpty {
+                Label {
+                    Text(verbatim: activeEqualizerName)
+                } icon: {
+                    Image(systemName: "slider.horizontal.3")
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            } else if let bypassedEqualizerName, !bypassedEqualizerName.isEmpty {
+                Label {
+                    Text(verbatim: String(format: String(localized: "now_playing_audio_eq_bypassed"), bypassedEqualizerName))
+                } icon: {
+                    Image(systemName: "slider.horizontal.3")
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             }
             if let source {
                 Label {
@@ -284,8 +393,12 @@ struct NowPlayingAudioTagRow: View {
 
     private var accessibilityText: String {
         var parts: [String] = []
-        if let audioTag {
-            parts.append(contentsOf: [audioTag.title, audioTag.detail].compactMap { $0 })
+        let resolved = resolvedBadges
+        if resolved.hasAudioTag {
+            parts.append(contentsOf: [resolved.audioTitle, resolved.audioDetail].compactMap { $0 })
+        }
+        if let eqName = resolved.separateEqualizerName {
+            parts.append(eqName)
         }
         if let taggedSource { parts.append(taggedSource.name) }
         if replayGainTag != nil {

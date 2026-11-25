@@ -30,6 +30,26 @@ struct EQPresetLibraryTests {
         #expect(dac.playerSymbolName == "cable.connector")
     }
 
+    @Test func thirdPartyEarbudsUseUnrestrictedEarbudsSymbolAndRespectPreference() {
+        func symbol(
+            _ name: String,
+            _ kind: EQOutputDevice.Kind = .bluetooth,
+            preference: EQOutputDevice.BluetoothGlyphPreference = .automatic
+        ) -> String? {
+            EQOutputDevice(id: name, name: name, kind: kind).playerSymbolName(bluetoothPreference: preference)
+        }
+        // 第三方真无线耳机只返回无限制通用符号 earbuds，绝不冒用受限的 airpods 符号。
+        for name in ["Airplus4", "Galaxy Buds2 Pro", "Sony WF-1000XM5", "HUAWEI FreeBuds Pro", "无线耳塞"] {
+            #expect(symbol(name) == "earbuds", "\(name)")
+        }
+        // 用户显式指定蓝牙图标偏好时对通用蓝牙耳机生效，但不改写苹果/Beats/音箱。
+        #expect(symbol("WH-1000XM5", preference: .earbuds) == "earbuds")
+        #expect(symbol("Airplus4", preference: .headphones) == "headphones")
+        #expect(symbol("AirPods Pro", preference: .headphones) == "airpodspro")
+        #expect(symbol("JBL Flip 6 Speaker", preference: .earbuds) == "hifispeaker")
+        #expect(EQOutputDevice.BluetoothGlyphPreference.resolved(rawValue: "unknown") == .automatic)
+    }
+
     @Test func namesAreTrimmedCollapsedAndCapped() {
         #expect(EQPresetLibrary.normalizedName("  My \n  Buds  ") == "My Buds")
         #expect(EQPresetLibrary.normalizedName("   ") == nil)

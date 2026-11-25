@@ -6037,6 +6037,8 @@ private struct MacSTLyricsView: View {
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
     private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.lyricsSyllableGlowKey)
+    private var lyricsSyllableGlow = PlayerAppearancePreferences.lyricsSyllableGlowByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsSourceKey)
     private var showsLyricsSource = PlayerAppearancePreferences.showsLyricsSourceByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
@@ -6322,6 +6324,16 @@ private struct MacSTLyricsView: View {
                             .accessibilityIdentifier("simulatedWordLyricsToggle")
                     }
                     .settingsAnchor("lyrics.simulatedWordTiming")
+                    MacSTRow(
+                        String(localized: "player_lyrics_syllable_glow"),
+                        hint: String(localized: "player_lyrics_syllable_glow_description"),
+                        hintLineLimit: 3
+                    ) {
+                        MacSTToggle(isOn: $lyricsSyllableGlow)
+                            .accessibilityLabel(Text("player_lyrics_syllable_glow"))
+                            .accessibilityHint(Text("player_lyrics_syllable_glow_description"))
+                    }
+                    .settingsAnchor("lyrics.syllableGlow")
                     if LyricsAlignmentModel.isSystemSupported,
                        simulatesWordLyrics || WordLyricsAlignmentService.shared.modelState != .notDownloaded {
                         MacSTRow(String(localized: "word_alignment_model_title")) {

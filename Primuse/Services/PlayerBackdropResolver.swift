@@ -18,6 +18,7 @@ final class PlayerBackdropResolver {
         let id: String
         let source: PlayerBackdropSource
         let image: CGImage
+        let luminance: Double?
     }
 
     struct Request: Equatable {
@@ -226,9 +227,9 @@ final class PlayerBackdropResolver {
             if loadingKey != nil, loadingKey != key { cancelLoading() }
             return
         }
-        if let cached = PlayerBackdropMemoryCache.shared.image(forKey: key) {
+        if let cached = PlayerBackdropMemoryCache.shared.entry(forKey: key) {
             cancelLoading()
-            setFrame(Frame(id: key, source: source, image: cached))
+            setFrame(Frame(id: key, source: source, image: cached.image, luminance: cached.luminance))
             return
         }
         if let failedAt = failedKeys[key] {
@@ -243,12 +244,16 @@ final class PlayerBackdropResolver {
         cancelLoading()
         loadingKey = key
         loadTask = Task { [weak self] in
-            let image = await Task.detached(priority: .userInitiated) { await load() }.value
+            let resolved: (CGImage, Double)? = await Task.detached(priority: .userInitiated) {
+                guard let image = await load() else { return nil }
+                let luminance = PlayerBackdropImaging.estimatedLuminance(of: image)
+                return (image, luminance)
+            }.value
             guard let self, !Task.isCancelled, self.loadingKey == key else { return }
             self.loadingKey = nil
-            if let image {
-                PlayerBackdropMemoryCache.shared.insert(image, forKey: key)
-                self.setFrame(Frame(id: key, source: source, image: image))
+            if let (image, luminance) = resolved {
+                PlayerBackdropMemoryCache.shared.insert(image, luminance: luminance, forKey: key)
+                self.setFrame(Frame(id: key, source: source, image: image, luminance: luminance))
             } else {
                 self.failedKeys[key] = Date()
                 self.setFrame(nil)

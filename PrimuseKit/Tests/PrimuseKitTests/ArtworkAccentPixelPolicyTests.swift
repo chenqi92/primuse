@@ -68,4 +68,18 @@ struct ArtworkAccentPixelPolicyTests {
         let paleGreen = Pixel(hue: 0.37, saturation: 0.11, brightness: 0.93)
         #expect(ArtworkAccentPixelPolicy.candidateBuckets(cover([(paleGreen, 200)])).isEmpty)
     }
+
+    @Test("大片深绿树影不被高亮度米黄肤色压过")
+    func richDarkGreenBeatsBrightBeige() throws {
+        let deepOliveGreen = Pixel(hue: 0.28, saturation: 0.38, brightness: 0.28)
+        let warmBeige = Pixel(hue: 0.10, saturation: 0.34, brightness: 0.78)
+        let hue = try #require(dominantHue(cover([(deepOliveGreen, 420), (warmBeige, 380)])))
+        #expect(hueDistance(hue, 0.28) < 0.05)
+    }
+
+    @Test("黑白封面上的低色度偏色噪点不误判为主色")
+    func monochromeCompressionFringeIsIgnored() {
+        let faintBlueNoise = Pixel(hue: 0.60, saturation: 0.48, brightness: 0.45) // chroma = 0.216 < 0.28
+        #expect(ArtworkAccentPixelPolicy.candidateBuckets(cover([(faintBlueNoise, 5)])).isEmpty)
+    }
 }

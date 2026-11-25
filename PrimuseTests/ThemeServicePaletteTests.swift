@@ -136,6 +136,16 @@ final class ThemeServicePaletteTests: XCTestCase {
         XCTAssertNil(ThemeService.extractDominantColor(from: image))
     }
 
+    func testDarkCoverKeepsDeepAmbientBrightnessInsteadOfWashingOut() throws {
+        let image = splitImage(
+            primary: UIColor(white: 0.04, alpha: 1),
+            secondary: UIColor(hue: 0.04, saturation: 0.55, brightness: 0.28, alpha: 1),
+            primaryFraction: 0.75
+        )
+        let result = try XCTUnwrap(ThemeService.extractDominantColor(from: image))
+        XCTAssertLessThan(brightness(of: result.accent), 0.42)
+    }
+
     func testPortraitBackgroundKeepsDarkSurroundingsInsteadOfSkinTone() throws {
         let image = splitImage(primary: UIColor(white: 0.07, alpha: 1),
                                secondary: UIColor(red: 0.8, green: 0.5, blue: 0.3, alpha: 1),

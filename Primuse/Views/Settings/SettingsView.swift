@@ -372,6 +372,8 @@ struct LyricsAppearanceSections: View {
     @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.lyricsSyllableGlowKey)
+    private var lyricsSyllableGlow = PlayerAppearancePreferences.lyricsSyllableGlowByDefault
     @AppStorage(PlayerAppearancePreferences.lyricsMotionKey)
     private var lyricsMotionRawValue = PlayerLyricsMotion.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
@@ -580,6 +582,14 @@ struct LyricsAppearanceSections: View {
             .settingsAnchor("lyrics.blurInactive")
                 .accessibilityHint(Text("player_blur_inactive_lyrics_description"))
 
+            Toggle(isOn: $lyricsSyllableGlow) {
+                SettingsInfoLabel("player_lyrics_syllable_glow") {
+                    Text("player_lyrics_syllable_glow_description")
+                }
+            }
+            .settingsAnchor("lyrics.syllableGlow")
+            .accessibilityIdentifier("playerLyricsSyllableGlowToggle")
+
             Picker(selection: $lyricsMotionRawValue) {
                 ForEach(PlayerLyricsMotion.allCases) { motion in
                     Text(motion.localizedTitle).tag(motion.rawValue)
@@ -689,6 +699,14 @@ private struct PlayerAppearanceSettingsView: View {
     private var lockScreenFullScreenArtwork = PlayerAppearancePreferences.lockScreenFullScreenArtworkByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
+    @AppStorage(PlayerAppearancePreferences.audioInfoTagStyleKey)
+    private var audioInfoTagStyleRawValue = NowPlayingAudioTagStyle.outlined.rawValue
+    @AppStorage(PlayerAppearancePreferences.audioInfoShowsSymbolKey)
+    private var audioInfoShowsSymbol = PlayerAppearancePreferences.audioInfoShowsSymbolByDefault
+    @AppStorage(PlayerAppearancePreferences.audioInfoDetailModeKey)
+    private var audioInfoDetailModeRawValue = NowPlayingAudioInfoDetailMode.specs.rawValue
+    @AppStorage(PlayerAppearancePreferences.audioInfoShowsEqualizerKey)
+    private var audioInfoShowsEqualizer = PlayerAppearancePreferences.audioInfoShowsEqualizerByDefault
     @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
     private var showsReplayGainBadge = PlayerAppearancePreferences.showsReplayGainBadgeByDefault
     @AppStorage(PlayerAppearancePreferences.tapArtworkOpensLyricsKey)
@@ -804,6 +822,35 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                 }
                 .settingsAnchor("appearance.audioInfo")
+                if audioInfoModeBinding.wrappedValue != .off {
+                    Picker("player_audio_info_style_title", selection: Binding(
+                        get: { PlayerAppearancePreferences.audioInfoTagStyle(rawValue: audioInfoTagStyleRawValue) },
+                        set: { audioInfoTagStyleRawValue = $0.rawValue }
+                    )) {
+                        ForEach(NowPlayingAudioTagStyle.allCases, id: \.self) { style in
+                            Text(LocalizedStringKey(style.titleKey)).tag(style)
+                        }
+                    }
+                    Toggle("player_audio_info_shows_symbol", isOn: $audioInfoShowsSymbol)
+                    Picker(selection: Binding(
+                        get: { PlayerAppearancePreferences.audioInfoDetailMode(rawValue: audioInfoDetailModeRawValue) },
+                        set: { audioInfoDetailModeRawValue = $0.rawValue }
+                    )) {
+                        ForEach(NowPlayingAudioInfoDetailMode.allCases, id: \.self) { detail in
+                            Text(LocalizedStringKey(detail.titleKey)).tag(detail)
+                        }
+                    } label: {
+                        SettingsInfoLabel("player_audio_info_detail_title") {
+                            Text("player_audio_info_detail_footer")
+                        }
+                    }
+                }
+                Toggle(isOn: $audioInfoShowsEqualizer) {
+                    SettingsInfoLabel("player_audio_info_show_equalizer") {
+                        Text("player_audio_info_show_equalizer_footer")
+                    }
+                }
+                .settingsAnchor("appearance.audioInfoEqualizer")
                 Toggle("rg_show_badge", isOn: $showsReplayGainBadge)
                     .settingsAnchor("appearance.replayGainBadge")
                     .accessibilityIdentifier("replayGain.badgeToggle")

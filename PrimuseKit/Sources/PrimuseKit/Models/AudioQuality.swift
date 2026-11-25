@@ -175,6 +175,116 @@ public enum NowPlayingAudioInfoMode: String, CaseIterable, Sendable {
     }
 }
 
+/// 播放页音频标签的外观样式。
+public enum NowPlayingAudioTagStyle: String, CaseIterable, Sendable {
+    /// 默认细描边小牌。
+    case outlined
+    /// 柔和半透明实底胶囊。
+    case filled
+    /// 无边框纯文字与图标。
+    case plain
+
+    public static func resolved(rawValue: String?) -> Self {
+        rawValue.flatMap(Self.init(rawValue:)) ?? .outlined
+    }
+}
+
+/// 播放页音频标签分隔线右侧显示什么。
+public enum NowPlayingAudioInfoDetailMode: String, CaseIterable, Sendable {
+    /// 音频规格简写（例如 24/96、DSD64、AAC 256k）。
+    case specs
+    /// 生效中的均衡器预设名（例如 Hi-Res | 沉浸低音）；均衡器关闭或直通时不留空竖线。
+    case equalizer
+    /// 仅显示音质等级（完整规格仍可在轻点详情卡查看）。
+    case hidden
+
+    public static func resolved(rawValue: String?) -> Self {
+        rawValue.flatMap(Self.init(rawValue:)) ?? .specs
+    }
+}
+
+/// 播放页音频标签与均衡器标签的组合策略（纯逻辑，仅使用无限制通用 SF Symbols）。
+public enum NowPlayingAudioTagBadgePolicy {
+    public struct Resolved: Equatable, Sendable {
+        public let audioSymbol: String?
+        public let audioTitle: String?
+        public let audioDetail: String?
+        public let separateEqualizerName: String?
+
+        public var hasAudioTag: Bool { audioTitle != nil || audioDetail != nil }
+    }
+
+    public static func symbolName(for quality: AudioQuality, isTranscoded: Bool) -> String {
+        if isTranscoded { return "waveform.path" }
+        switch quality {
+        case .dsd: return "waveform.circle"
+        case .hiRes: return "waveform.badge.plus"
+        case .lossless: return "waveform"
+        case .standard: return "waveform.path"
+        }
+    }
+
+    public static func resolve(
+        showsAudio: Bool,
+        showsSymbol: Bool,
+        detailMode: NowPlayingAudioInfoDetailMode,
+        showsEqualizerBadge: Bool,
+        quality: AudioQuality,
+        isTranscoded: Bool,
+        qualityLabel: String?,
+        specDetail: String?,
+        dolbyAtmosLabel: String?,
+        activeEqualizerName: String?
+    ) -> Resolved {
+        let trimmedEQ = activeEqualizerName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveEQ = (trimmedEQ?.isEmpty == false) ? trimmedEQ : nil
+
+        guard showsAudio else {
+            return Resolved(
+                audioSymbol: nil,
+                audioTitle: nil,
+                audioDetail: nil,
+                separateEqualizerName: showsEqualizerBadge ? effectiveEQ : nil
+            )
+        }
+
+        let resolvedDetail: String?
+        let embedsEqualizerInAudioTag: Bool
+        switch detailMode {
+        case .specs:
+            resolvedDetail = specDetail ?? dolbyAtmosLabel
+            embedsEqualizerInAudioTag = false
+        case .equalizer:
+            if let effectiveEQ, qualityLabel != nil {
+                resolvedDetail = effectiveEQ
+                embedsEqualizerInAudioTag = true
+            } else if qualityLabel != nil {
+                resolvedDetail = nil
+                embedsEqualizerInAudioTag = false
+            } else {
+                // 有损曲目或转码流没有音质等级前缀时，保留规格或直接展示 EQ，避免整个标签消失。
+                resolvedDetail = effectiveEQ ?? specDetail ?? dolbyAtmosLabel
+                embedsEqualizerInAudioTag = effectiveEQ != nil
+            }
+        case .hidden:
+            resolvedDetail = qualityLabel == nil ? (specDetail ?? dolbyAtmosLabel) : nil
+            embedsEqualizerInAudioTag = false
+        }
+
+        let hasAudio = qualityLabel != nil || resolvedDetail != nil
+        let symbol = (hasAudio && showsSymbol)
+            ? symbolName(for: quality, isTranscoded: isTranscoded)
+            : nil
+        let separateEQ = (showsEqualizerBadge && !embedsEqualizerInAudioTag) ? effectiveEQ : nil
+        return Resolved(
+            audioSymbol: symbol,
+            audioTitle: qualityLabel,
+            audioDetail: resolvedDetail,
+            separateEqualizerName: separateEQ
+        )
+    }
+}
+
 public struct CarPlayAudioQualityText: Equatable, Sendable {
     public let badgeLines: [String]
     public let badgeSymbol: String?

@@ -384,7 +384,8 @@ public enum PlayerBackdropScrimPolicy {
     public static func scrim(
         isLight: Bool,
         strength: Double,
-        usesIncreasedContrast: Bool
+        usesIncreasedContrast: Bool,
+        imageLuminance: Double? = nil
     ) -> PlayerBackdropScrim {
         let value = min(max(strength.isFinite ? strength : 0.7, 0), 1)
         let faint: PlayerBackdropScrim
@@ -400,11 +401,84 @@ public enum PlayerBackdropScrimPolicy {
         func mix(_ a: Double, _ b: Double) -> Double {
             min(0.92, a + (b - a) * value + boost)
         }
+        var top = mix(faint.topOpacity, vivid.topOpacity)
+        var middle = mix(faint.middleOpacity, vivid.middleOpacity)
+        var bottom = mix(faint.bottomOpacity, vivid.bottomOpacity)
+
+        // 拿到背景图实际相对亮度时按明暗自适应:
+        // 深色外观下,暗封面少叠黑罩避免一片漆黑,亮封面在底部控件区加强保护而保持中上部通透;
+        // 浅色外观下相反,亮封面少叠白罩,暗封面加强白罩护深色字。
+        if let rawLuminance = imageLuminance, rawLuminance.isFinite {
+            let luma = min(max(rawLuminance, 0), 1)
+            let floorTop = usesIncreasedContrast ? 0.16 : 0.06
+            let floorMiddle = usesIncreasedContrast ? 0.22 : 0.10
+            let floorBottom = usesIncreasedContrast ? 0.34 : 0.16
+            if isLight {
+                // luma 越低(暗封面)越需要白罩;luma 很高(亮封面)时减薄。
+                let darkness = 1 - luma
+                let factor = 0.52 + 0.62 * darkness
+                let darkBoost = max(0, 0.42 - luma) * 0.45
+                top = min(0.92, max(floorTop, top * factor + darkBoost * 0.5))
+                middle = min(0.92, max(floorMiddle, middle * factor + darkBoost * 0.7))
+                bottom = min(0.92, max(floorBottom, bottom * factor + darkBoost))
+            } else {
+                // 深色外观:基准点约 0.26;暗封面(luma < 0.12)大幅减薄黑罩,保留深邃原色;
+                // 亮封面(luma > 0.35)重点保护底部控件和白字,顶部和中部保留柔和光感。
+                let topFactor = 0.28 + 0.88 * pow(luma, 0.65)
+                let midFactor = 0.32 + 0.88 * pow(luma, 0.62)
+                let botFactor = 0.42 + 0.85 * pow(luma, 0.55)
+                let brightBottomGuard = max(0, luma - 0.32) * 0.38
+                top = min(0.92, max(floorTop, top * topFactor))
+                middle = min(0.92, max(floorMiddle, middle * midFactor + brightBottomGuard * 0.4))
+                bottom = min(0.92, max(floorBottom, bottom * botFactor + brightBottomGuard))
+            }
+        }
+
         return PlayerBackdropScrim(
-            topOpacity: mix(faint.topOpacity, vivid.topOpacity),
-            middleOpacity: mix(faint.middleOpacity, vivid.middleOpacity),
-            bottomOpacity: mix(faint.bottomOpacity, vivid.bottomOpacity)
+            topOpacity: top,
+            middleOpacity: middle,
+            bottomOpacity: bottom
         )
+    }
+}
+
+/// 播放页进度条、音量条与 AirPlay 图标的不透明度规范。
+/// 保留安全下限与无障碍「增强对比度」保护，拖动时临时提亮以保持精确交互反馈。
+public enum PlayerTrackOpacityPolicy {
+    public static let minimumOpacity: Double = 0.35
+    public static let increasedContrastMinimumOpacity: Double = 0.65
+    public static let defaultOpacity: Double = 1.0
+    public static let airPlayMinimumOpacity: Double = 0.40
+    public static let airPlayDefaultOpacity: Double = 0.72
+
+    public static func normalized(_ value: Double, minimum: Double = minimumOpacity, fallback: Double = defaultOpacity) -> Double {
+        guard value.isFinite else { return fallback }
+        return min(max(value, minimum), 1)
+    }
+
+    public static func restingOpacity(stored: Double, usesIncreasedContrast: Bool) -> Double {
+        let floor = usesIncreasedContrast ? increasedContrastMinimumOpacity : minimumOpacity
+        return max(floor, normalized(stored))
+    }
+
+    public static func activeOpacity(stored: Double, usesIncreasedContrast: Bool) -> Double {
+        let resting = restingOpacity(stored: stored, usesIncreasedContrast: usesIncreasedContrast)
+        return min(1, max(resting + 0.28, 0.85))
+    }
+
+    /// 填充条调淡时，未播底轨也温和收淡一点，保持“已播段明显高于底轨”的层次。
+    public static func trackOpacity(baseTrackOpacity: Double, fillOpacity: Double, usesIncreasedContrast: Bool) -> Double {
+        guard !usesIncreasedContrast else { return baseTrackOpacity }
+        let normalizedFill = normalized(fillOpacity)
+        guard normalizedFill < 0.75 else { return baseTrackOpacity }
+        let t = (normalizedFill - minimumOpacity) / (0.75 - minimumOpacity)
+        let scale = 0.68 + 0.32 * min(max(t, 0), 1)
+        return baseTrackOpacity * scale
+    }
+
+    public static func airPlayOpacity(stored: Double, usesIncreasedContrast: Bool) -> Double {
+        let floor = usesIncreasedContrast ? increasedContrastMinimumOpacity : airPlayMinimumOpacity
+        return max(floor, normalized(stored, minimum: airPlayMinimumOpacity, fallback: airPlayDefaultOpacity))
     }
 }
 

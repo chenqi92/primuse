@@ -90,6 +90,8 @@ struct NowPlayingControlsEditorView: View {
     private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
     @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
     private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.headerButtonStyleKey)
+    private var headerButtonStyleRawValue = NowPlayingHeaderButtonStyle.plain.rawValue
     @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
     private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
     @AppStorage(PlayerAppearancePreferences.followsDeviceOrientationKey)
@@ -99,6 +101,10 @@ struct NowPlayingControlsEditorView: View {
     @State private var showsFixedOrientationNote = false
     @AppStorage(PlayerAppearancePreferences.airPlayShowsOutputDeviceKey)
     private var airPlayShowsOutputDevice = PlayerAppearancePreferences.airPlayShowsOutputDeviceByDefault
+    @AppStorage(PlayerAppearancePreferences.airPlayIconOpacityKey)
+    private var airPlayIconOpacity = PlayerAppearancePreferences.airPlayIconOpacityByDefault
+    @AppStorage(PlayerAppearancePreferences.airPlayBluetoothGlyphKey)
+    private var airPlayBluetoothGlyphRawValue = EQOutputDevice.BluetoothGlyphPreference.automatic.rawValue
     @State private var page: Page = Self.initialPage
     @State private var surface: MusicSurface = Self.initialSurface
     /// 全局那一页的预览看哪一种播放页。
@@ -168,9 +174,9 @@ struct NowPlayingControlsEditorView: View {
     /// 设置搜索跳过来的几项在全局那一页,先切过去再定位。
     private static let globalAnchors: Set<String> = [
         "appearance.playerFollowsDeviceOrientation", "appearance.playerAirPlayDeviceIcon",
-        "appearance.playerProgressStyle", "appearance.playerProgressThickness", "appearance.playerProgressGlow",
+        "appearance.playerProgressStyle", "appearance.playerProgressThickness", "appearance.playerProgressOpacity", "appearance.playerProgressGlow",
         "appearance.playerProgressArtworkColors", "appearance.playerProgressMotion",
-        "appearance.volumeBar", "appearance.playerVolumeStyle", "appearance.playerVolumeThickness",
+        "appearance.volumeBar", "appearance.playerVolumeStyle", "appearance.playerVolumeThickness", "appearance.playerVolumeOpacity",
         "appearance.playerControlTint", "appearance.playerAlwaysDark", "appearance.vividMesh",
         "appearance.playerBackdrop", "appearance.ambientStrength",
     ]
@@ -361,6 +367,22 @@ struct NowPlayingControlsEditorView: View {
                 anchorID: "appearance.playerTransportIcons"
             )
 
+            Section {
+                Picker(selection: Binding(
+                    get: { PlayerAppearancePreferences.headerButtonStyle(rawValue: headerButtonStyleRawValue) },
+                    set: { headerButtonStyleRawValue = $0.rawValue }
+                )) {
+                    ForEach(NowPlayingHeaderButtonStyle.allCases, id: \.self) { style in
+                        Text(LocalizedStringKey(style.titleKey)).tag(style)
+                    }
+                } label: {
+                    SettingsInfoLabel("player_header_button_style_title") {
+                        Text("player_header_button_style_footer")
+                    }
+                }
+                .settingsAnchor("appearance.playerHeaderButtonStyle")
+            }
+
             MusicArtworkStyleSections()
 
             Section {
@@ -382,11 +404,13 @@ struct NowPlayingControlsEditorView: View {
                     storage = layout.resettingActions().encoded()
                     playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
                     skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
+                    headerButtonStyleRawValue = NowPlayingHeaderButtonStyle.plain.rawValue
                 }
                 .disabled(
                     layout.buttonsAreDefault
                         && playButtonStyleBinding.wrappedValue == .filledCircle
                         && skipButtonStyleBinding.wrappedValue == .standard
+                        && PlayerAppearancePreferences.headerButtonStyle(rawValue: headerButtonStyleRawValue) == .plain
                 )
             } footer: {
                 Text("player_controls_duo_footer")
@@ -455,6 +479,44 @@ struct NowPlayingControlsEditorView: View {
                 }
             }
             .settingsAnchor("appearance.playerAirPlayDeviceIcon")
+            if airPlayShowsOutputDevice {
+                Picker(selection: Binding(
+                    get: { PlayerAppearancePreferences.airPlayBluetoothGlyph(rawValue: airPlayBluetoothGlyphRawValue) },
+                    set: { airPlayBluetoothGlyphRawValue = $0.rawValue }
+                )) {
+                    ForEach(EQOutputDevice.BluetoothGlyphPreference.allCases, id: \.self) { option in
+                        Text(LocalizedStringKey(option.titleKey)).tag(option)
+                    }
+                } label: {
+                    SettingsInfoLabel("player_airplay_bluetooth_glyph_title") {
+                        Text("player_airplay_bluetooth_glyph_footer")
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("player_airplay_icon_opacity")
+                    Spacer()
+                    Text(verbatim: "\(Int((PlayerTrackOpacityPolicy.normalized(airPlayIconOpacity, minimum: PlayerTrackOpacityPolicy.airPlayMinimumOpacity, fallback: PlayerTrackOpacityPolicy.airPlayDefaultOpacity) * 100).rounded()))%")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Slider(
+                    value: Binding(
+                        get: {
+                            PlayerTrackOpacityPolicy.normalized(
+                                airPlayIconOpacity,
+                                minimum: PlayerTrackOpacityPolicy.airPlayMinimumOpacity,
+                                fallback: PlayerTrackOpacityPolicy.airPlayDefaultOpacity
+                            )
+                        },
+                        set: { airPlayIconOpacity = $0 }
+                    ),
+                    in: PlayerTrackOpacityPolicy.airPlayMinimumOpacity...1,
+                    step: 0.05
+                )
+            }
+            .padding(.vertical, 2)
         }
 
         PlayerSharedLookSettingsSections()
@@ -740,8 +802,12 @@ private struct MusicArtworkStyleSections: View {
 private struct PlayerSharedLookSettingsSections: View {
     @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
     private var progressThickness = PlayerTrackThickness.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressOpacityKey)
+    private var progressOpacity = PlayerAppearancePreferences.progressOpacityByDefault
     @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
     private var volumeThickness = PlayerTrackThickness.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.volumeOpacityKey)
+    private var volumeOpacity = PlayerAppearancePreferences.volumeOpacityByDefault
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
@@ -783,6 +849,25 @@ private struct PlayerSharedLookSettingsSections: View {
                 }
             }
             .settingsAnchor("appearance.playerProgressThickness")
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("player_progress_opacity")
+                    Spacer()
+                    Text(verbatim: "\(Int((PlayerTrackOpacityPolicy.normalized(progressOpacity) * 100).rounded()))%")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Slider(
+                    value: Binding(
+                        get: { PlayerTrackOpacityPolicy.normalized(progressOpacity) },
+                        set: { progressOpacity = $0 }
+                    ),
+                    in: PlayerTrackOpacityPolicy.minimumOpacity...1,
+                    step: 0.05
+                )
+            }
+            .padding(.vertical, 2)
+            .settingsAnchor("appearance.playerProgressOpacity")
             Toggle("player_progress_glow", isOn: $progressGlows)
                 .settingsAnchor("appearance.playerProgressGlow")
                 .accessibilityHint(Text("player_progress_glow_description"))
@@ -843,6 +928,25 @@ private struct PlayerSharedLookSettingsSections: View {
                     }
                 }
                 .settingsAnchor("appearance.playerVolumeThickness")
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("player_volume_opacity")
+                        Spacer()
+                        Text(verbatim: "\(Int((PlayerTrackOpacityPolicy.normalized(volumeOpacity) * 100).rounded()))%")
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { PlayerTrackOpacityPolicy.normalized(volumeOpacity) },
+                            set: { volumeOpacity = $0 }
+                        ),
+                        in: PlayerTrackOpacityPolicy.minimumOpacity...1,
+                        step: 0.05
+                    )
+                }
+                .padding(.vertical, 2)
+                .settingsAnchor("appearance.playerVolumeOpacity")
             }
         }
 

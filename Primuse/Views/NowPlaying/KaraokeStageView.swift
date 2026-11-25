@@ -309,6 +309,8 @@ struct KaraokeLyricsStage: View {
     @Environment(\.pmHeightClass) private var heightClass
     /// 歌词字体跟播放页一样(#332);正在唱的那句由 `KaraokeLineView` 自己读。
     @Environment(\.lyricsTypeface) private var lyricsTypeface
+    @AppStorage(PlayerAppearancePreferences.lyricsSyllableGlowKey)
+    private var lyricsSyllableGlow = PlayerAppearancePreferences.lyricsSyllableGlowByDefault
 
     /// 主声部与播放页歌词同样扫成白色；对唱的另一声部用暖粉色区分。
     private static let primaryColor = Color.white
@@ -420,7 +422,7 @@ struct KaraokeLyricsStage: View {
                     fixedTime: time,
                     isPlaybackActive: isPlaying,
                     animatesSyllableBounce: isPlaying,
-                    glowsSungSyllables: true
+                    glowsSungSyllables: lyricsSyllableGlow
                 )
             case .previous, .next:
                 lyricsTypeface.text(line.text, size: fontSize, weight: .semibold)

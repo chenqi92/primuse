@@ -335,6 +335,48 @@ enum PlayerAppearancePreferences {
     /// 键名不带点号(见 #344 的教训)。
     static let airPlayShowsOutputDeviceKey = "playerAirPlayShowsOutputDevice"
     static let airPlayShowsOutputDeviceByDefault = false
+    /// 隔空播放键设备图标的不透明度（0.40…1.0，默认 0.72 与底栏其余图标和谐对齐）。
+    static let airPlayIconOpacityKey = "playerAirPlayIconOpacity"
+    static let airPlayIconOpacityByDefault = PlayerTrackOpacityPolicy.airPlayDefaultOpacity
+    /// 普通蓝牙耳机在隔空播放键上的默认图标形态（自动 / 入耳式 / 头戴式）。
+    static let airPlayBluetoothGlyphKey = "playerAirPlayBluetoothGlyph"
+
+    static func airPlayBluetoothGlyph(rawValue: String) -> EQOutputDevice.BluetoothGlyphPreference {
+        .resolved(rawValue: rawValue)
+    }
+
+    /// 播放页标题栏右侧辅助键（收藏、更多菜单等）的按钮样式。
+    static let headerButtonStyleKey = "playerHeaderButtonStyle"
+
+    static func headerButtonStyle(rawValue: String) -> NowPlayingHeaderButtonStyle {
+        NowPlayingHeaderButtonStyle(rawValue: rawValue) ?? .plain
+    }
+
+    /// 逐字歌词正在唱的字是否带柔光（仅深色外观生效，默认开）。
+    static let lyricsSyllableGlowKey = "playerLyricsSyllableGlow"
+    static let lyricsSyllableGlowByDefault = true
+
+    /// 进度条与音量条填充段不透明度（安全下限 0.35，默认 1.0）。
+    static let progressOpacityKey = "playerProgressOpacity"
+    static let progressOpacityByDefault = PlayerTrackOpacityPolicy.defaultOpacity
+    static let volumeOpacityKey = "playerVolumeOpacity"
+    static let volumeOpacityByDefault = PlayerTrackOpacityPolicy.defaultOpacity
+
+    /// 播放页音频信息标签的外观、前缀图标与副段内容（规格 / 均衡器 / 隐藏）及独立均衡器标签开关。
+    static let audioInfoTagStyleKey = "playerAudioInfoTagStyle"
+    static let audioInfoShowsSymbolKey = "playerAudioInfoShowsSymbol"
+    static let audioInfoShowsSymbolByDefault = false
+    static let audioInfoDetailModeKey = "playerAudioInfoDetailMode"
+    static let audioInfoShowsEqualizerKey = "playerAudioInfoShowsEqualizer"
+    static let audioInfoShowsEqualizerByDefault = false
+
+    static func audioInfoTagStyle(rawValue: String) -> NowPlayingAudioTagStyle {
+        .resolved(rawValue: rawValue)
+    }
+
+    static func audioInfoDetailMode(rawValue: String) -> NowPlayingAudioInfoDetailMode {
+        .resolved(rawValue: rawValue)
+    }
     /// 播放页歌名下面那一行带不带专辑名(#338、#101):专辑名长的时候那一行总被截断、滚动。关掉后只写艺人,
     /// 点开那一行的菜单里照样能去专辑。只管音乐;有声书、播客那一行的书名、节目名照旧。
     static let showsAlbumInSubtitleKey = "primuse.player.showsAlbumInSubtitle"
@@ -529,6 +571,54 @@ extension NowPlayingAudioInfoMode {
         case .off: "player_audio_info_off"
         case .nonStandardOnly: "player_audio_info_lossless_only"
         case .always: "player_audio_info_always"
+        }
+    }
+}
+
+extension NowPlayingAudioTagStyle {
+    var titleKey: String {
+        switch self {
+        case .outlined: "player_audio_info_style_outlined"
+        case .filled: "player_audio_info_style_filled"
+        case .plain: "player_audio_info_style_plain"
+        }
+    }
+}
+
+extension NowPlayingAudioInfoDetailMode {
+    var titleKey: String {
+        switch self {
+        case .specs: "player_audio_info_detail_specs"
+        case .equalizer: "player_audio_info_detail_equalizer"
+        case .hidden: "player_audio_info_detail_hidden"
+        }
+    }
+}
+
+extension EQOutputDevice.BluetoothGlyphPreference {
+    var titleKey: String {
+        switch self {
+        case .automatic: "player_airplay_bluetooth_glyph_auto"
+        case .earbuds: "player_airplay_bluetooth_glyph_earbuds"
+        case .headphones: "player_airplay_bluetooth_glyph_headphones"
+        }
+    }
+}
+
+/// 播放页标题行右侧辅助按钮（收藏、更多等）的外观样式。
+enum NowPlayingHeaderButtonStyle: String, CaseIterable, Sendable {
+    /// 默认裸图标，无底板。
+    case plain
+    /// 柔和半透明圆底，选中态轻染主题/红心色。
+    case tintedCircle
+    /// 自适应玻璃圆底（与横屏/全屏玻璃键同一套视觉语言）。
+    case glassCircle
+
+    var titleKey: String {
+        switch self {
+        case .plain: "player_header_button_style_plain"
+        case .tintedCircle: "player_header_button_style_tinted_circle"
+        case .glassCircle: "player_header_button_style_glass_circle"
         }
     }
 }

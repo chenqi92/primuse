@@ -289,6 +289,38 @@ struct PlayerBackdropTests {
         #expect(light.topOpacity > 0)
     }
 
+    @Test("Adaptive scrim keeps dark covers deep while protecting white text on bright covers")
+    func adaptiveScrim() {
+        let darkCover = PlayerBackdropScrimPolicy.scrim(
+            isLight: false, strength: 0.7, usesIncreasedContrast: false, imageLuminance: 0.04
+        )
+        let brightCover = PlayerBackdropScrimPolicy.scrim(
+            isLight: false, strength: 0.7, usesIncreasedContrast: false, imageLuminance: 0.65
+        )
+        #expect(darkCover.bottomOpacity < brightCover.bottomOpacity - 0.15)
+        #expect(darkCover.topOpacity < brightCover.topOpacity - 0.10)
+        #expect(brightCover.bottomOpacity <= 0.92)
+
+        let lightDarkCover = PlayerBackdropScrimPolicy.scrim(
+            isLight: true, strength: 0.7, usesIncreasedContrast: false, imageLuminance: 0.05
+        )
+        let lightBrightCover = PlayerBackdropScrimPolicy.scrim(
+            isLight: true, strength: 0.7, usesIncreasedContrast: false, imageLuminance: 0.85
+        )
+        #expect(lightDarkCover.bottomOpacity > lightBrightCover.bottomOpacity + 0.15)
+    }
+
+    @Test("Track opacity enforces safe legibility floors and brightens during scrubbing")
+    func trackOpacityPolicy() {
+        #expect(PlayerTrackOpacityPolicy.restingOpacity(stored: 0.0, usesIncreasedContrast: false) == PlayerTrackOpacityPolicy.minimumOpacity)
+        #expect(PlayerTrackOpacityPolicy.restingOpacity(stored: 0.2, usesIncreasedContrast: true) == PlayerTrackOpacityPolicy.increasedContrastMinimumOpacity)
+        #expect(PlayerTrackOpacityPolicy.activeOpacity(stored: 0.4, usesIncreasedContrast: false) >= 0.85)
+        #expect(PlayerTrackOpacityPolicy.trackOpacity(baseTrackOpacity: 0.18, fillOpacity: 0.4, usesIncreasedContrast: false) < 0.18)
+        #expect(PlayerTrackOpacityPolicy.trackOpacity(baseTrackOpacity: 0.28, fillOpacity: 0.4, usesIncreasedContrast: true) == 0.28)
+        #expect(PlayerTrackOpacityPolicy.airPlayOpacity(stored: 0.1, usesIncreasedContrast: false) == PlayerTrackOpacityPolicy.airPlayMinimumOpacity)
+        #expect(PlayerTrackOpacityPolicy.airPlayOpacity(stored: .nan, usesIncreasedContrast: false) == PlayerTrackOpacityPolicy.airPlayDefaultOpacity)
+    }
+
     @Test("Storage size follows the display, bucketed and bounded")
     func pixelPolicy() {
         #expect(PlayerBackdropPixelPolicy.storagePixel(forDisplayLongSide: 2868) == 3072)

@@ -379,6 +379,8 @@ struct PreviewVolumeRow: View {
 
     @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
     private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.volumeOpacityKey)
+    private var storedFillOpacity = PlayerAppearancePreferences.volumeOpacityByDefault
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @AppStorage(PlayerAppearancePreferences.volumeBarStyleKey)
     private var volumeBarStyleRawValue = NowPlayingVolumeBarStyle.system.rawValue
@@ -426,18 +428,28 @@ struct PreviewVolumeRow: View {
     }
 
     private var systemTrack: some View {
-        GeometryReader { track in
+        let increased = colorSchemeContrast == .increased
+        let effectiveOpacity = PlayerTrackOpacityPolicy.restingOpacity(
+            stored: storedFillOpacity,
+            usesIncreasedContrast: increased
+        )
+        let trackAlpha = PlayerTrackOpacityPolicy.trackOpacity(
+            baseTrackOpacity: increased ? 0.3 : 0.2,
+            fillOpacity: effectiveOpacity,
+            usesIncreasedContrast: increased
+        )
+        return GeometryReader { track in
             let filled = track.size.width * 0.62
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(primary.opacity(colorSchemeContrast == .increased ? 0.3 : 0.2))
+                    .fill(primary.opacity(trackAlpha))
                     .frame(height: 4 * PlayerTrackThickness.resolved(thicknessRawValue).scale)
                 Capsule()
-                    .fill(primary)
+                    .fill(primary.opacity(effectiveOpacity))
                     .frame(width: filled, height: 4 * PlayerTrackThickness.resolved(thicknessRawValue).scale)
                 let knob = PlayerVolumeTrackStyle.system.knobDiameter ?? 9
                 Circle()
-                    .fill(primary)
+                    .fill(primary.opacity(effectiveOpacity))
                     .frame(width: knob, height: knob)
                     .offset(x: filled - knob / 2)
             }
@@ -611,6 +623,14 @@ private struct MusicPortraitPreviewScreen: View {
     @AppStorage(NowPlayingArtworkCardSize.musicKey) private var cardScale = NowPlayingArtworkCardSize.defaultScale
     @AppStorage(PlayerAppearancePreferences.controlTintKey)
     private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
+    @AppStorage(PlayerAppearancePreferences.headerButtonStyleKey)
+    private var headerButtonStyleRawValue = NowPlayingHeaderButtonStyle.plain.rawValue
+    @AppStorage(PlayerAppearancePreferences.airPlayShowsOutputDeviceKey)
+    private var airPlayShowsOutputDevice = PlayerAppearancePreferences.airPlayShowsOutputDeviceByDefault
+    @AppStorage(PlayerAppearancePreferences.airPlayIconOpacityKey)
+    private var airPlayIconOpacity = PlayerAppearancePreferences.airPlayIconOpacityByDefault
+    @AppStorage(PlayerAppearancePreferences.airPlayBluetoothGlyphKey)
+    private var airPlayBluetoothGlyphRawValue = EQOutputDevice.BluetoothGlyphPreference.automatic.rawValue
     @AppStorage(AppThemePreferences.ambientStrengthKey)
     private var ambientStrength = AppThemePreferences.defaultAmbientStrength
 
@@ -945,11 +965,22 @@ private struct MusicPortraitPreviewScreen: View {
         }
     }
 
+    private var headerButtonStyle: NowPlayingHeaderButtonStyle {
+        PlayerAppearancePreferences.headerButtonStyle(rawValue: headerButtonStyleRawValue)
+    }
+
     private var moreButton: some View {
-        Image(systemName: "ellipsis")
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(appearance.secondary)
-            .frame(width: 44, height: 44)
+        let style = headerButtonStyle
+        return Image(systemName: "ellipsis")
+            .font(.system(size: style == .plain ? 18 : 15, weight: .semibold))
+            .foregroundStyle(style == .plain ? appearance.secondary : appearance.primary.opacity(0.88))
+            .modifier(NowPlayingHeaderButtonChrome(
+                style: style,
+                appearance: appearance,
+                tint: appearance.primary,
+                hitWidth: 44,
+                hitHeight: 44
+            ))
             .accessibilityHidden(true)
     }
 
@@ -957,6 +988,10 @@ private struct MusicPortraitPreviewScreen: View {
         let shown = coverLayout.statusItems.filter {
             coverLayout.showsStatusItem($0) && ($0 != .activity || showsActivity)
         }
+        let hidesOutputSymbol = airPlayShowsOutputDevice && coverLayout.bar.contains(.airPlay)
+        let previewOutputSymbol = PlayerAppearancePreferences.airPlayBluetoothGlyph(rawValue: airPlayBluetoothGlyphRawValue) == .earbuds
+            ? "earbuds"
+            : "headphones"
         return PlayerStatusItemsRow(items: shown) { item in
             if item == .activity {
                 PlayerActivityStatusView(status: .init(
@@ -965,8 +1000,10 @@ private struct MusicPortraitPreviewScreen: View {
                 ))
             } else {
                 HStack(spacing: 3) {
-                    Image(systemName: item == .source ? "externaldrive"
-                        : (item == .output ? "headphones" : "moon.zzz.fill"))
+                    if !(item == .output && hidesOutputSymbol) {
+                        Image(systemName: item == .source ? "externaldrive"
+                            : (item == .output ? previewOutputSymbol : "moon.zzz.fill"))
+                    }
                     Capsule()
                         .fill(appearance.tertiary.opacity(0.6))
                         .frame(width: 38, height: 5)
@@ -1005,14 +1042,39 @@ private struct MusicPortraitPreviewScreen: View {
             if let action {
                 let tint = style == .header ? appearance.secondary : appearance.tertiary
                 if action == .airPlay {
-                    Image(systemName: "airplayaudio")
-                        .font(.system(size: style == .header ? 18 : 20))
-                        .foregroundStyle(tint)
+                    let bluetoothPref = PlayerAppearancePreferences.airPlayBluetoothGlyph(rawValue: airPlayBluetoothGlyphRawValue)
+                    let symbol = airPlayShowsOutputDevice
+                        ? (bluetoothPref == .earbuds ? "earbuds" : "headphones")
+                        : "airplayaudio"
+                    let resolvedOpacity = PlayerTrackOpacityPolicy.airPlayOpacity(
+                        stored: airPlayIconOpacity,
+                        usesIncreasedContrast: colorSchemeContrast == .increased
+                    )
+                    let airPlayTint = airPlayShowsOutputDevice
+                        ? appearance.primary.opacity(resolvedOpacity)
+                        : tint
+                    Image(systemName: symbol)
+                        .font(.system(size: style == .header ? (headerButtonStyle == .plain ? 18 : 15) : 20))
+                        .foregroundStyle(airPlayTint)
+                        .modifier(NowPlayingHeaderButtonChrome(
+                            style: style == .header ? headerButtonStyle : .plain,
+                            appearance: appearance,
+                            tint: appearance.primary,
+                            hitWidth: 44,
+                            hitHeight: 44
+                        ))
                 } else if style == .header {
+                    let headerStyle = headerButtonStyle
                     Image(systemName: action.editorSymbol)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(tint)
-                        .frame(width: 38, height: 38)
+                        .font(.system(size: headerStyle == .plain ? 18 : 15, weight: .semibold))
+                        .foregroundStyle(headerStyle == .plain ? tint : appearance.primary.opacity(0.88))
+                        .modifier(NowPlayingHeaderButtonChrome(
+                            style: headerStyle,
+                            appearance: appearance,
+                            tint: appearance.primary,
+                            hitWidth: headerStyle == .plain ? 38 : 40,
+                            hitHeight: headerStyle == .plain ? 38 : 44
+                        ))
                 } else {
                     Image(systemName: action.editorSymbol)
                         .font(.body)

@@ -97,7 +97,7 @@ struct PlayerBackdropImageHost: View {
                 } else {
                     image.pmAppearFade(.ambient)
                 }
-                scrim
+                scrim(imageLuminance: frame.luminance)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -113,11 +113,12 @@ struct PlayerBackdropImageHost: View {
             .clipped()
     }
 
-    private var scrim: some View {
+    private func scrim(imageLuminance: Double?) -> some View {
         let value = PlayerBackdropScrimPolicy.scrim(
             isLight: isLight,
             strength: strength,
-            usesIncreasedContrast: usesIncreasedContrast
+            usesIncreasedContrast: usesIncreasedContrast,
+            imageLuminance: imageLuminance
         )
         let base: Color = isLight ? .white : .black
         return LinearGradient(
@@ -638,7 +639,12 @@ struct FullBleedArtworkExtension: View {
                 .frame(width: width, height: lowerHeight)
         }
         .overlay {
-            scrim(seam: fadeHeight / total, settle: min(1, fadeHeight * 1.6 / total), along: .vertical)
+            scrim(
+                seam: fadeHeight / total,
+                settle: min(1, fadeHeight * 1.6 / total),
+                along: .vertical,
+                imageLuminance: images.luminance
+            )
         }
         .mask { overlapFade(fraction: fadeHeight / total, along: .vertical) }
         .frame(width: width, height: total)
@@ -662,7 +668,12 @@ struct FullBleedArtworkExtension: View {
                 .frame(width: farWidth, height: height)
         }
         .overlay {
-            scrim(seam: fadeWidth / total, settle: min(1, fadeWidth * 1.6 / total), along: .horizontal)
+            scrim(
+                seam: fadeWidth / total,
+                settle: min(1, fadeWidth * 1.6 / total),
+                along: .horizontal,
+                imageLuminance: images.luminance
+            )
         }
         .mask { overlapFade(fraction: fadeWidth / total, along: .horizontal) }
         .frame(width: total, height: height)
@@ -687,11 +698,12 @@ struct FullBleedArtworkExtension: View {
 
     /// 渐隐那段从无到有，封面下沿处到背景图遮罩的中段，再往下一点到底部那一档：
     /// 歌名、进度条和按钮压在上面和压在模糊封面背景上一样看得清。
-    private func scrim(seam: CGFloat, settle: CGFloat, along axis: Axis) -> some View {
+    private func scrim(seam: CGFloat, settle: CGFloat, along axis: Axis, imageLuminance: Double?) -> some View {
         let value = PlayerBackdropScrimPolicy.scrim(
             isLight: isLight,
             strength: strength,
-            usesIncreasedContrast: usesIncreasedContrast
+            usesIncreasedContrast: usesIncreasedContrast,
+            imageLuminance: imageLuminance
         )
         let base: Color = isLight ? .white : .black
         let opacityScale = usesIncreasedContrast ? 1.0 : 0.35
@@ -717,8 +729,9 @@ struct FullBleedArtworkExtensionImages: Sendable {
     let upper: CGImage
     /// 往外铺到屏幕边的半张。
     let lower: CGImage
+    let luminance: Double?
 
-    private init?(key: String, combined: CGImage, edge: FullBleedArtworkExtension.Edge, aspectRatio: CGFloat) {
+    private init?(key: String, combined: CGImage, luminance: Double?, edge: FullBleedArtworkExtension.Edge, aspectRatio: CGFloat) {
         self.aspectRatio = aspectRatio
         self.edge = edge
         let near: CGRect
@@ -739,6 +752,7 @@ struct FullBleedArtworkExtensionImages: Sendable {
         self.key = key
         self.upper = upper
         self.lower = lower
+        self.luminance = luminance
     }
 
     static func cacheKey(song: Song, coverRevision: Int, edge: FullBleedArtworkExtension.Edge = .bottom, aspectRatio: CGFloat = 1, fraction: CGFloat = FullBleedArtworkExtension.fadeFraction) -> String {
@@ -754,8 +768,8 @@ struct FullBleedArtworkExtensionImages: Sendable {
         fraction: CGFloat = FullBleedArtworkExtension.fadeFraction
     ) -> FullBleedArtworkExtensionImages? {
         let key = cacheKey(song: song, coverRevision: coverRevision, edge: edge, aspectRatio: aspectRatio, fraction: fraction)
-        guard let image = PlayerBackdropMemoryCache.shared.image(forKey: key) else { return nil }
-        return FullBleedArtworkExtensionImages(key: key, combined: image, edge: edge, aspectRatio: aspectRatio)
+        guard let entry = PlayerBackdropMemoryCache.shared.entry(forKey: key) else { return nil }
+        return FullBleedArtworkExtensionImages(key: key, combined: entry.image, luminance: entry.luminance, edge: edge, aspectRatio: aspectRatio)
     }
 
     /// 取封面小图、在后台做一次模糊，结果放进背景图的内存缓存。
@@ -780,15 +794,19 @@ struct FullBleedArtworkExtensionImages: Sendable {
             cacheDiscriminator: String(coverRevision)
         )
         guard !Task.isCancelled, let image = cover?.platformCGImage else { return nil }
-        let combined = await Task.detached(priority: .userInitiated) {
+        let resolved: (CGImage, Double)? = await Task.detached(priority: .userInitiated) {
+            let combined: CGImage?
             switch edge {
-            case .bottom: PlayerBackdropImaging.fullBleedExtension(from: image, fraction: fraction, aspectRatio: aspectRatio)
-            case .trailing: PlayerBackdropImaging.fullBleedTrailingExtension(from: image, fraction: fraction, aspectRatio: aspectRatio)
+            case .bottom: combined = PlayerBackdropImaging.fullBleedExtension(from: image, fraction: fraction, aspectRatio: aspectRatio)
+            case .trailing: combined = PlayerBackdropImaging.fullBleedTrailingExtension(from: image, fraction: fraction, aspectRatio: aspectRatio)
             }
+            guard let combined else { return nil }
+            let luminance = PlayerBackdropImaging.estimatedLuminance(of: combined)
+            return (combined, luminance)
         }.value
-        guard let combined else { return nil }
-        PlayerBackdropMemoryCache.shared.insert(combined, forKey: key)
-        return FullBleedArtworkExtensionImages(key: key, combined: combined, edge: edge, aspectRatio: aspectRatio)
+        guard let (combined, luminance) = resolved else { return nil }
+        PlayerBackdropMemoryCache.shared.insert(combined, luminance: luminance, forKey: key)
+        return FullBleedArtworkExtensionImages(key: key, combined: combined, luminance: luminance, edge: edge, aspectRatio: aspectRatio)
     }
 }
 
