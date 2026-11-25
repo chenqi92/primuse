@@ -172,6 +172,17 @@ public enum PlayerTextFontSelection: Hashable, Sendable {
             CharacterSet.newlines.contains(scalar) || CharacterSet.controlCharacters.contains(scalar)
         }
     }
+
+    /// CoreText 在字体的 PostScript 名缺失、含非 ASCII 字符或 MacRoman 乱码时，
+    /// 会按当前秒级时间生成形如 `font0000000030b6595a` 的临时名，跨秒或重启即变。
+    public static func isSyntheticCoreTextPostScriptName(_ name: String) -> Bool {
+        guard name.count == 20, name.hasPrefix("font") else { return false }
+        return name.dropFirst(4).unicodeScalars.allSatisfy { scalar in
+            (0x30...0x39).contains(scalar.value)
+                || (0x41...0x46).contains(scalar.value)
+                || (0x61...0x66).contains(scalar.value)
+        }
+    }
 }
 
 /// 字体块上的样字用哪种文字写:中文字体写「字」,日文写「あ」,韩文写「가」,其余写 Aa。
@@ -268,6 +279,144 @@ public struct ImportedFontEntry: Hashable, Sendable, Identifiable {
 
 /// 导入字体的几条规则:哪些算重复、选择器里怎么列、叫什么名字、拷进来存成什么文件名。
 public enum ImportedFontCatalogPolicy {
+    public struct ResolvedFaceIdentity: Equatable, Sendable {
+        public var postScriptName: String
+        public var familyName: String
+        public var localizedFamilyName: String?
+        public var localizedDisplayName: String?
+
+        public init(
+            postScriptName: String,
+            familyName: String,
+            localizedFamilyName: String? = nil,
+            localizedDisplayName: String? = nil
+        ) {
+            self.postScriptName = postScriptName
+            self.familyName = familyName
+            self.localizedFamilyName = localizedFamilyName
+            self.localizedDisplayName = localizedDisplayName
+        }
+    }
+
+    /// 同一字体集合同时包含普通字面与 `.` 开头私有系统字面时，跳过私有副本避免列表重复；
+    /// 若整个文件只有 `.` 开头字面则全部保留。
+    public static func selectVisibleFaceIndices(postScriptNames: [String?]) -> [Int] {
+        let nonPrivate = postScriptNames.indices.filter { index in
+            guard let name = postScriptNames[index] else { return true }
+            return !name.hasPrefix(".")
+        }
+        return nonPrivate.isEmpty ? Array(postScriptNames.indices) : nonPrivate
+    }
+
+    /// 苹果系统私有或常被手机美化包借壳替换的系统字体标识（`.` 前缀与苹方家族）。
+    public static func isSystemMaskedPostScriptName(_ name: String) -> Bool {
+        if name.hasPrefix(".") { return true }
+        let lower = name.lowercased()
+        return lower.hasPrefix("pingfangsc-")
+            || lower.hasPrefix("pingfangtc-")
+            || lower.hasPrefix("pingfanghk-")
+            || lower.hasPrefix("pingfangmo-")
+            || lower == "pingfangsc"
+            || lower == "pingfangtc"
+            || lower == "pingfanghk"
+            || lower == "pingfangmo"
+    }
+
+    public static func isSystemMaskedFamilyName(_ family: String) -> Bool {
+        let trimmed = family.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix(".") { return true }
+        let lower = trimmed.lowercased()
+        return lower == "pingfang sc"
+            || lower == "pingfang tc"
+            || lower == "pingfang hk"
+            || lower == "pingfang mo"
+            || lower == "苹方-简"
+            || lower == "苹方-繁"
+            || lower == "苹方-港"
+            || lower == "苹方-澳"
+            || lower == "蘋方-簡"
+            || lower == "蘋方-繁"
+            || lower == "蘋方-港"
+            || lower == "蘋方-澳"
+    }
+
+    /// 为导入字面确定跨重启、跨设备一致的标识与归组信息：
+    /// 常规有效 PostScript 名沿用原值；CoreText 动态合成名、缺失/非法名及系统借壳名
+    /// 改用文件内容哈希 + 字面序号，并对借壳系统家族按文件隔离分组、优先以文件名展示。
+    public static func resolveFaceIdentity(
+        rawPostScriptName: String?,
+        rawFamilyName: String,
+        localizedFamilyName: String?,
+        localizedDisplayName: String?,
+        fileName: String,
+        contentHashHex: String,
+        faceIndex: Int
+    ) -> ResolvedFaceIdentity? {
+        let hashPrefix = String(contentHashHex.lowercased().prefix(16))
+        let usableRawName: String? = rawPostScriptName.flatMap { name in
+            PlayerTextFontSelection.isUsablePostScriptName(name) ? name : nil
+        }
+        let isSynthetic = usableRawName.map(PlayerTextFontSelection.isSyntheticCoreTextPostScriptName) ?? true
+        let isMaskedPS = usableRawName.map(isSystemMaskedPostScriptName) ?? false
+        let isMaskedFamily = isSystemMaskedFamilyName(rawFamilyName)
+            || (localizedFamilyName.map(isSystemMaskedFamilyName) ?? false)
+
+        let stableID: String
+        if let usableRawName, !isSynthetic, !isMaskedPS {
+            stableID = usableRawName
+        } else {
+            guard !hashPrefix.isEmpty else { return nil }
+            stableID = "file-\(hashPrefix)-\(faceIndex)"
+        }
+
+        let stem = fileNameStem(for: fileName)
+        let trimmedFamily = rawFamilyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLocalizedFamily = localizedFamilyName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedLocalizedDisplay = localizedDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let scopedFamily: String
+        let displayLocalizedFamily: String?
+        let displayLocalizedFull: String?
+        if isMaskedPS || isMaskedFamily, !hashPrefix.isEmpty {
+            let baseFamily = trimmedFamily.isEmpty ? "masked" : trimmedFamily
+            scopedFamily = "\(baseFamily)#\(hashPrefix)"
+            displayLocalizedFamily = stem.isEmpty ? localizedFamilyName : stem
+            displayLocalizedFull = stem.isEmpty ? localizedDisplayName : stem
+        } else {
+            scopedFamily = rawFamilyName
+            if isSynthetic, trimmedLocalizedFamily.isEmpty, trimmedFamily.isEmpty, trimmedLocalizedDisplay.isEmpty, !stem.isEmpty {
+                displayLocalizedFamily = stem
+            } else {
+                displayLocalizedFamily = localizedFamilyName
+            }
+            displayLocalizedFull = localizedDisplayName
+        }
+
+        return ResolvedFaceIdentity(
+            postScriptName: stableID,
+            familyName: scopedFamily,
+            localizedFamilyName: displayLocalizedFamily,
+            localizedDisplayName: displayLocalizedFull
+        )
+    }
+
+    /// 在同一导入家族的已加载字面中按字重就近择面，优先直体，避免交由系统按家族名重查。
+    public static func matchingFace(
+        in faces: [ImportedFontFace],
+        targetWeight: Double,
+        preferItalic: Bool = false
+    ) -> ImportedFontFace? {
+        faces.enumerated().min { lhs, rhs in
+            let lhsItalicMismatch = lhs.element.isItalic != preferItalic
+            let rhsItalicMismatch = rhs.element.isItalic != preferItalic
+            if lhsItalicMismatch != rhsItalicMismatch { return !lhsItalicMismatch }
+            let lhsDistance = abs(lhs.element.weight - targetWeight)
+            let rhsDistance = abs(rhs.element.weight - targetWeight)
+            if abs(lhsDistance - rhsDistance) > 0.0001 { return lhsDistance < rhsDistance }
+            return lhs.offset < rhs.offset
+        }?.element
+    }
+
     /// 这个文件里还没导入过的字体(同一文件里重名的也只留一个)。空数组 = 整个文件都导入过了。
     public static func addedFaces(
         _ faces: [ImportedFontFace],
@@ -365,6 +514,19 @@ public enum ImportedFontCatalogPolicy {
             counter += 1
         }
         return "\(base) \(counter)\(suffix)"
+    }
+
+    private static func fileNameStem(for fileName: String) -> String {
+        let last = fileName
+            .split(whereSeparator: { $0 == "/" || $0 == "\\" })
+            .last
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !last.isEmpty else { return "" }
+        if let dot = last.lastIndex(of: "."), dot != last.startIndex {
+            return String(last[..<dot]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return last
     }
 
     private static func familyKey(for face: ImportedFontFace) -> String {

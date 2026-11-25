@@ -311,4 +311,144 @@ struct ImportedFontCatalogPolicyTests {
         #expect(ImportedFontCatalogPolicy.storedFileName(for: ".ttf", existing: []) == "font.ttf")
         #expect(ImportedFontCatalogPolicy.storedFileName(for: "", existing: []) == "font")
     }
+
+    @Test("CoreText timestamp-synthesized PostScript names are detected accurately")
+    func syntheticPostScriptNames() {
+        #expect(PlayerTextFontSelection.isSyntheticCoreTextPostScriptName("font0000000030b6595a"))
+        #expect(PlayerTextFontSelection.isSyntheticCoreTextPostScriptName("font0000000030B6595A"))
+        #expect(!PlayerTextFontSelection.isSyntheticCoreTextPostScriptName("AlibabaPuHuiTi-Regular"))
+        #expect(!PlayerTextFontSelection.isSyntheticCoreTextPostScriptName("font1234"))
+        #expect(!PlayerTextFontSelection.isSyntheticCoreTextPostScriptName("font0000000030b6595g"))
+    }
+
+    @Test("Private dot-prefixed clones in a collection are skipped only when regular faces exist")
+    func visibleFaceIndices() {
+        #expect(
+            ImportedFontCatalogPolicy.selectVisibleFaceIndices(postScriptNames: [
+                "PingFangSC-Regular", ".PingFangSC-Regular", "PingFangSC-Bold", ".PingFangSC-Bold",
+            ]) == [0, 2]
+        )
+        #expect(
+            ImportedFontCatalogPolicy.selectVisibleFaceIndices(postScriptNames: [
+                ".PingFangSC-Regular", ".PingFangSC-Bold",
+            ]) == [0, 1]
+        )
+    }
+
+    @Test("Face identity preserves normal PostScript names and stabilizes synthetic or system-masked fonts")
+    func resolveFaceIdentityCases() {
+        let clean = ImportedFontCatalogPolicy.resolveFaceIdentity(
+            rawPostScriptName: "AlibabaPuHuiTi-Regular",
+            rawFamilyName: "Alibaba PuHuiTi",
+            localizedFamilyName: "阿里巴巴普惠体",
+            localizedDisplayName: "阿里巴巴普惠体 Regular",
+            fileName: "AlibabaPuHuiTi-Regular.ttf",
+            contentHashHex: "aaaaaaaaaaaaaaaa1111111111111111",
+            faceIndex: 0
+        )
+        #expect(clean == .init(
+            postScriptName: "AlibabaPuHuiTi-Regular",
+            familyName: "Alibaba PuHuiTi",
+            localizedFamilyName: "阿里巴巴普惠体",
+            localizedDisplayName: "阿里巴巴普惠体 Regular"
+        ))
+
+        let synthA = ImportedFontCatalogPolicy.resolveFaceIdentity(
+            rawPostScriptName: "font0000000030b6595a",
+            rawFamilyName: "经典繁角隶",
+            localizedFamilyName: "经典繁角隶",
+            localizedDisplayName: nil,
+            fileName: "经典繁角隶.ttf",
+            contentHashHex: "1234567890abcdef0000",
+            faceIndex: 0
+        )
+        let synthB = ImportedFontCatalogPolicy.resolveFaceIdentity(
+            rawPostScriptName: "font0000000030b65999",
+            rawFamilyName: "经典繁角隶",
+            localizedFamilyName: "经典繁角隶",
+            localizedDisplayName: nil,
+            fileName: "经典繁角隶.ttf",
+            contentHashHex: "1234567890abcdef0000",
+            faceIndex: 0
+        )
+        #expect(synthA == synthB)
+        #expect(synthA?.postScriptName == "file-1234567890abcdef-0")
+        #expect(synthA?.familyName == "经典繁角隶")
+
+        let unnamedSynth = ImportedFontCatalogPolicy.resolveFaceIdentity(
+            rawPostScriptName: nil,
+            rawFamilyName: "",
+            localizedFamilyName: nil,
+            localizedDisplayName: nil,
+            fileName: "角隶.ttf",
+            contentHashHex: "fedcba98765432100000",
+            faceIndex: 0
+        )
+        #expect(unnamedSynth?.postScriptName == "file-fedcba9876543210-0")
+        #expect(unnamedSynth?.localizedFamilyName == "角隶")
+
+        let maskedOne = ImportedFontCatalogPolicy.resolveFaceIdentity(
+            rawPostScriptName: "PingFangSC-Regular",
+            rawFamilyName: "PingFang SC",
+            localizedFamilyName: "苹方-简",
+            localizedDisplayName: "苹方-简 常规体",
+            fileName: "超级花伦丸.ttf",
+            contentHashHex: "1111111111111111aaaa",
+            faceIndex: 0
+        )
+        let maskedOneBold = ImportedFontCatalogPolicy.resolveFaceIdentity(
+            rawPostScriptName: "PingFangSC-Bold",
+            rawFamilyName: "PingFang SC",
+            localizedFamilyName: "苹方-简",
+            localizedDisplayName: "苹方-简 粗体",
+            fileName: "超级花伦丸.ttf",
+            contentHashHex: "1111111111111111aaaa",
+            faceIndex: 1
+        )
+        let maskedTwo = ImportedFontCatalogPolicy.resolveFaceIdentity(
+            rawPostScriptName: "PingFangSC-Regular",
+            rawFamilyName: "PingFang SC",
+            localizedFamilyName: "苹方-简",
+            localizedDisplayName: "苹方-简 常规体",
+            fileName: "冬青丸pro.ttf",
+            contentHashHex: "2222222222222222bbbb",
+            faceIndex: 0
+        )
+        #expect(maskedOne?.postScriptName != maskedTwo?.postScriptName)
+        #expect(maskedOne?.familyName == maskedOneBold?.familyName)
+        #expect(maskedOne?.familyName != maskedTwo?.familyName)
+        #expect(maskedOne?.localizedFamilyName == "超级花伦丸")
+        #expect(maskedTwo?.localizedFamilyName == "冬青丸pro")
+
+        let leakedFamily = ImportedFontCatalogPolicy.resolveFaceIdentity(
+            rawPostScriptName: "SuperHuaLunWan-Regular",
+            rawFamilyName: "PingFang SC",
+            localizedFamilyName: "PingFang SC",
+            localizedDisplayName: "SuperHuaLunWan",
+            fileName: "超级花伦丸.ttf",
+            contentHashHex: "3333333333333333cccc",
+            faceIndex: 0
+        )
+        #expect(leakedFamily?.postScriptName == "SuperHuaLunWan-Regular")
+        #expect(leakedFamily?.familyName == "PingFang SC#3333333333333333")
+        #expect(leakedFamily?.localizedFamilyName == "超级花伦丸")
+    }
+
+    @Test("Matching face selects the closest upright weight inside the imported family")
+    func matchingFaceByWeight() {
+        let faces = [
+            Self.face("Ali-Light", family: "Ali", weight: -0.4, file: "Ali-Light.ttf"),
+            Self.face("Ali-Regular", family: "Ali", weight: 0.0, file: "Ali-Regular.ttf", minute: 1),
+            Self.face("Ali-Italic", family: "Ali", weight: 0.0, italic: true, file: "Ali-Italic.ttf", minute: 2),
+            Self.face("Ali-Bold", family: "Ali", weight: 0.4, file: "Ali-Bold.ttf", minute: 3),
+        ]
+        #expect(ImportedFontCatalogPolicy.matchingFace(in: faces, targetWeight: -0.4)?.postScriptName == "Ali-Light")
+        #expect(ImportedFontCatalogPolicy.matchingFace(in: faces, targetWeight: 0.0)?.postScriptName == "Ali-Regular")
+        #expect(ImportedFontCatalogPolicy.matchingFace(in: faces, targetWeight: 0.3)?.postScriptName == "Ali-Bold")
+        #expect(ImportedFontCatalogPolicy.matchingFace(in: faces, targetWeight: 0.4)?.postScriptName == "Ali-Bold")
+        #expect(ImportedFontCatalogPolicy.matchingFace(in: faces, targetWeight: 0.0, preferItalic: true)?.postScriptName == "Ali-Italic")
+
+        let single = [Self.face("JiaoLi", family: "JiaoLi", weight: 0.0, file: "JiaoLi.ttf")]
+        #expect(ImportedFontCatalogPolicy.matchingFace(in: single, targetWeight: 0.4)?.postScriptName == "JiaoLi")
+    }
 }

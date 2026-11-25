@@ -50,8 +50,14 @@ enum PlayerTextFont: Hashable, Identifiable {
         case let .builtin(builtin):
             return builtin.font(size: size, weight: weight)
         case let .imported(postScriptName):
-            // 同一家族导入了几种字重时由系统按字重就近取;只有一种时就是它。
-            return .custom(postScriptName, fixedSize: size).weight(weight)
+            if let ctFont = ImportedFontDescriptorStore.shared.ctFont(
+                for: postScriptName,
+                size: size,
+                targetWeight: PlayerTextFont.coreTextWeight(for: weight)
+            ) {
+                return Font(ctFont)
+            }
+            return .custom(postScriptName, fixedSize: size)
         }
     }
 
@@ -269,6 +275,85 @@ extension PlayerTextFont {
         default: "PingFangSC-Regular"
         }
     }
+
+    /// SwiftUI 字重对应的 CoreText 数值标度（与 `kCTFontWeightTrait` 一致）。
+    static func coreTextWeight(for weight: Font.Weight) -> Double {
+        switch weight {
+        case .ultraLight: -0.8
+        case .thin: -0.6
+        case .light: -0.4
+        case .medium: 0.23
+        case .semibold: 0.3
+        case .bold: 0.4
+        case .heavy: 0.56
+        case .black: 0.62
+        default: 0.0
+        }
+    }
+}
+
+/// 已加载导入字体的 CoreText 描述符快照（指向 `ImportedFonts/` 本地副本）。
+/// 渲染直接用 `CTFontCreateWithFontDescriptor` + `Font(ctFont)`，不经系统字体库按名/按家族重查，
+/// 避免与系统字体重名时被劫持或污染内置字体，也支持非 ASCII 合成名与 `.` 前缀字面。
+final class ImportedFontDescriptorStore: @unchecked Sendable {
+    struct Face: @unchecked Sendable {
+        let metadata: ImportedFontFace
+        let descriptor: CTFontDescriptor
+    }
+
+    static let shared = ImportedFontDescriptorStore()
+
+    private let lock = NSLock()
+    private var familyFacesByID: [String: [Face]] = [:]
+    private var descriptorByID: [String: CTFontDescriptor] = [:]
+
+    struct Snapshot: @unchecked Sendable {
+        fileprivate let familyFacesByID: [String: [Face]]
+        fileprivate let descriptorByID: [String: CTFontDescriptor]
+    }
+
+    func snapshot() -> Snapshot {
+        lock.withLock { Snapshot(familyFacesByID: familyFacesByID, descriptorByID: descriptorByID) }
+    }
+
+    func restore(_ snapshot: Snapshot) {
+        lock.withLock {
+            familyFacesByID = snapshot.familyFacesByID
+            descriptorByID = snapshot.descriptorByID
+        }
+    }
+
+    func replaceAll(faces: [Face], entries: [ImportedFontEntry]) {
+        let faceByID = Dictionary(faces.map { ($0.metadata.postScriptName, $0) }, uniquingKeysWith: { first, _ in first })
+        var families: [String: [Face]] = [:]
+        for entry in entries {
+            let members = entry.memberPostScriptNames.compactMap { faceByID[$0] }
+            guard !members.isEmpty else { continue }
+            for id in entry.memberPostScriptNames {
+                families[id] = members
+            }
+        }
+        lock.withLock {
+            familyFacesByID = families
+            descriptorByID = faceByID.mapValues(\.descriptor)
+        }
+    }
+
+    func ctFont(for identifier: String, size: CGFloat, targetWeight: Double) -> CTFont? {
+        let descriptor: CTFontDescriptor? = lock.withLock {
+            if let family = familyFacesByID[identifier],
+               let matched = ImportedFontCatalogPolicy.matchingFace(
+                   in: family.map(\.metadata),
+                   targetWeight: targetWeight
+               ),
+               let face = family.first(where: { $0.metadata.postScriptName == matched.postScriptName }) {
+                return face.descriptor
+            }
+            return descriptorByID[identifier]
+        }
+        guard let descriptor else { return nil }
+        return CTFontCreateWithFontDescriptor(descriptor, size, nil)
+    }
 }
 
 /// 按需下载的内置字体与用户导入的字体。宋体、楷体、圆体与手写、书法那几种在 iOS 上不预装,选了才去系统字体库里下;
@@ -287,7 +372,7 @@ final class PlayerTextFontLibrary {
         case unavailable
     }
 
-    static let shared = PlayerTextFontLibrary()
+    static let shared = PlayerTextFontLibrary(descriptorStore: .shared)
 
     /// 下载中、失败与这次启动里下好的。字体块上的进度与标记读它。
     private var states: [String: State] = [:]
@@ -300,14 +385,20 @@ final class PlayerTextFontLibrary {
 
     /// 用户导入的字体,一个家族一项(选择器「我导入的」那一组)。
     var importedFonts: [ImportedFontEntry] = []
-    /// 启动时读完、注册完导入的字体之前是 false:这一小会儿里选中的导入字体先画系统字体,不报「这台设备没有」。
+    /// 启动时读完、加载完导入的字体之前是 false:这一小会儿里选中的导入字体先画系统字体,不报「这台设备没有」。
     var importedFontsLoaded = false
-    /// 正在导入(拷文件、注册)。导入按钮转圈,不重复发起。
+    /// 正在导入(拷文件、校验)。导入按钮转圈,不重复发起。
     var isImporting = false
     /// 导入目录里每个文件读出来的每个字体,`importedFonts` 由它排出来。
     @ObservationIgnored var importedFaces: [ImportedFontFace] = []
+    @ObservationIgnored var importedFaceDescriptors: [ImportedFontDescriptorStore.Face] = []
+    @ObservationIgnored let descriptorStore: ImportedFontDescriptorStore
 
-    init(loadsImportedFonts: Bool = true) {
+    init(
+        loadsImportedFonts: Bool = true,
+        descriptorStore: ImportedFontDescriptorStore = ImportedFontDescriptorStore()
+    ) {
+        self.descriptorStore = descriptorStore
         #if os(iOS) || os(macOS)
         if loadsImportedFonts { loadImportedFonts() }
         #else
@@ -616,7 +707,14 @@ extension LyricsTypeface {
             let name = builtin.postScriptName ?? builtin.familyName ?? ""
             return Self.named(name, size: size, bold: isBold && !builtin.ignoresWeight) ?? system
         case let .imported(postScriptName):
-            return Self.named(postScriptName, size: size, bold: isBold) ?? system
+            if let ctFont = ImportedFontDescriptorStore.shared.ctFont(
+                for: postScriptName,
+                size: size,
+                targetWeight: PlayerTextFont.coreTextWeight(for: weight)
+            ) {
+                return ctFont as NSFont
+            }
+            return Self.named(postScriptName, size: size, bold: false) ?? system
         }
     }
 

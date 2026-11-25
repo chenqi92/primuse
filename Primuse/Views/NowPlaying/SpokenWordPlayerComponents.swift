@@ -1870,7 +1870,7 @@ struct SpokenWordTranscriptReader: View {
         return Row.Style(
             font: font.font(size: size, weight: fontWeight, isAvailable: isAvailable),
             // 章节名不跟正文的字重走,细体正文配半粗的标题。
-            headingFont: font.font(size: headingSize, isAvailable: isAvailable).weight(.semibold),
+            headingFont: font.font(size: headingSize, weight: .semibold, isAvailable: isAvailable),
             translationFont: font.font(size: translationSize, weight: fontWeight, isAvailable: isAvailable),
             lineSpacing: lineSpacing.lineSpacing(fontSize: size),
             translationLineSpacing: lineSpacing.lineSpacing(fontSize: translationSize),
