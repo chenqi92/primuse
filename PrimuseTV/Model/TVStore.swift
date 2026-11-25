@@ -307,12 +307,108 @@ protocol TVLibraryMapper {
 struct TVLibraryList<Mapper: TVLibraryMapper>: RandomAccessCollection {
     typealias Index = Int
     typealias Indices = Range<Int>
+    /// 内存路径的整份数组;目录路径(`catalog`)时为空。
     let source: [Mapper.Source]
     let mapper: Mapper
+    /// 目录路径(P3):排好的键,按页同步物化(见 `TVCatalogRows`)。
+    private let catalog: TVCatalogRows<Mapper.Source>?
 
-    var startIndex: Int { source.startIndex }
-    var endIndex: Int { source.endIndex }
-    subscript(position: Int) -> Mapper.Element { mapper.map(source[position]) }
+    init(source: [Mapper.Source], mapper: Mapper) {
+        self.source = source
+        self.mapper = mapper
+        catalog = nil
+    }
+
+    init(catalog: TVCatalogRows<Mapper.Source>, mapper: Mapper) {
+        source = []
+        self.mapper = mapper
+        self.catalog = catalog
+    }
+
+    var startIndex: Int { 0 }
+    var endIndex: Int { catalog?.count ?? source.count }
+    subscript(position: Int) -> Mapper.Element {
+        mapper.map(catalog?.element(at: position) ?? source[position])
+    }
+}
+
+extension TVLibraryList where Mapper.Element: Identifiable, Mapper.Element.ID == String {
+    /// 记住的那一项现在在第几位:先认记下的位置,对不上(曲库变了)再整墙找。
+    func index(ofID id: String?, near hint: Int?) -> Int? {
+        guard let id else { return nil }
+        if let hint, indices.contains(hint), self[hint].id == id { return hint }
+        if let catalog { return catalog.index(ofID: id) }
+        return firstIndex { $0.id == id }
+    }
+}
+
+/// 专辑墙、艺人墙的目录路径:排好的键常驻(4 字节一项),条目按页从目录同步取,只留最近用到的页。
+/// 电视网格只渲染一个窗口,一页一百多项在 NVMe 上几毫秒;不用占位卡片,焦点不会因换身份而跳。
+/// 窗口随焦点往下续页、不往回收,所以留的页数盖住一次物化的上限(`LibraryScale.maxMaterializedRows`),
+/// 一路按到底也不会每次重画都重取。
+final class TVCatalogRows<Source>: @unchecked Sendable {
+    static var pageSize: Int { 120 }
+    private static var retainedPages: Int { LibraryScale.maxMaterializedRows / pageSize + 1 }
+
+    let keys: ContiguousArray<Int32>
+    /// 按键取一页(保持顺序;读不到的键给 nil)。
+    private let fetch: ([Int32]) -> [Source?]
+    /// id → 键(找回记住的那一项)。
+    private let keyForID: (String) -> Int32?
+    /// 读不到时的占位(id 唯一)。
+    private let placeholder: (Int32) -> Source
+    private let lock = NSLock()
+    private var pages: [Int: [Source]] = [:]
+    private var recency: [Int] = []
+
+    init(
+        keys: ContiguousArray<Int32>,
+        fetch: @escaping ([Int32]) -> [Source?],
+        keyForID: @escaping (String) -> Int32?,
+        placeholder: @escaping (Int32) -> Source
+    ) {
+        self.keys = keys
+        self.fetch = fetch
+        self.keyForID = keyForID
+        self.placeholder = placeholder
+    }
+
+    var count: Int { keys.count }
+
+    func element(at index: Int) -> Source {
+        let page = index / Self.pageSize
+        let offset = index % Self.pageSize
+        lock.lock()
+        if let rows = pages[page] {
+            touch(page)
+            lock.unlock()
+            return rows[offset]
+        }
+        lock.unlock()
+        let start = page * Self.pageSize
+        let pageKeys = Array(keys[start..<min(keys.count, start + Self.pageSize)])
+        let fetched = fetch(pageKeys)
+        let rows = pageKeys.indices.map { fetched.indices.contains($0) ? (fetched[$0] ?? placeholder(pageKeys[$0])) : placeholder(pageKeys[$0]) }
+        lock.lock()
+        pages[page] = rows
+        touch(page)
+        while recency.count > Self.retainedPages {
+            pages.removeValue(forKey: recency.removeFirst())
+        }
+        lock.unlock()
+        return rows[offset]
+    }
+
+    func index(ofID id: String) -> Int? {
+        guard let key = keyForID(id) else { return nil }
+        return keys.firstIndex(of: key)
+    }
+
+    /// 调用时持锁。
+    private func touch(_ page: Int) {
+        recency.removeAll { $0 == page }
+        recency.append(page)
+    }
 }
 
 struct TVSongMapper: TVLibraryMapper {
@@ -1359,6 +1455,9 @@ final class TVStore {
     }
     @ObservationIgnored private var songBrowseLayoutCache:
         (revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<String>)?
+    /// 目录排好的专辑墙 / 艺人墙(P3):目录可读、排法目录排得出时用,这时内存里那份不排也不留。
+    @ObservationIgnored private var catalogAlbumWall: (order: LibraryAlbumBrowseOrder, wall: TVCatalogWall<Album>)?
+    @ObservationIgnored private var catalogArtistWall: TVCatalogWall<Artist>?
     /// 后台排好一份浏览布局就加一,让读布局的视图重算。
     private var browseLayoutRevision = 0
     private var songArtworkPaletteRevision = 0
@@ -1628,6 +1727,13 @@ final class TVStore {
     func albumBrowseLayout(_ order: LibraryAlbumBrowseOrder) -> TVBrowseLayout<TVAlbumMapper>? {
         _ = browseLayoutRevision
         _ = albumArtworkPaletteRevision
+        if TVCatalogWalls.servesAlbums(order), catalogLookups.isReadable,
+           let cached = catalogAlbumWall, cached.order == order {
+            return TVBrowseLayout(
+                items: TVAlbumList(catalog: cached.wall.rows, mapper: albumMapper),
+                sections: cached.wall.sections
+            )
+        }
         guard let cached = albumBrowseLayoutCache, cached.order == order else { return nil }
         return TVBrowseLayout(
             items: TVAlbumList(source: cached.layout.items, mapper: albumMapper),
@@ -1637,6 +1743,7 @@ final class TVStore {
 
     /// 当前修订号的专辑墙还没排好就放到后台排(拼音转写与排序不进主线程)。
     func prepareAlbumBrowseLayout(_ order: LibraryAlbumBrowseOrder) async {
+        if TVCatalogWalls.servesAlbums(order), await prepareCatalogAlbumWall(order) { return }
         let revision = albumBrowseRevision(order)
         let cached = albumBrowseLayoutCache?.order == order ? albumBrowseLayoutCache : nil
         if let cached, cached.revision == revision { return }
@@ -1667,11 +1774,47 @@ final class TVStore {
         plog("TV album layout order=\(order.rawValue) albums=\(albums.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
     }
 
+    /// 目录可读时在目录上排专辑墙(读音键与分段在主线程外取,条目按页同步取)。排好或没变返回 true;
+    /// 目录不能读、读失败返回 false,调用方照旧在内存里排。
+    private func prepareCatalogAlbumWall(_ order: LibraryAlbumBrowseOrder) async -> Bool {
+        guard let host = library.catalogHost, host.revisions.isReadable,
+              let catalog = host.mirror.readableCatalog else { return false }
+        let unknownArtistName = String(localized: "unknown_artist")
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let browse: LibraryCatalogBrowseKeys
+        do {
+            guard let keys = try await host.reader.read({
+                try $0.albumBrowseKeys(order: order, unknownArtistName: unknownArtistName, currentYear: currentYear)
+            }) else { return false }
+            browse = keys
+        } catch {
+            plog("TV album layout catalog read failed (\(error)); sorting the in-memory albums")
+            return false
+        }
+        guard !Task.isCancelled else { return true }
+        if let cached = catalogAlbumWall, cached.order == order, cached.wall.catalogRevision == browse.revision {
+            return true
+        }
+        catalogAlbumWall = (order, TVCatalogWall(
+            catalogRevision: browse.revision,
+            rows: TVCatalogWalls.albumRows(browse.keys, catalog: catalog),
+            sections: browse.sections
+        ))
+        // 内存里排好的那一整份专辑不再留着。
+        albumBrowseLayoutCache = nil
+        browseLayoutRevision &+= 1
+        plog("TV album layout order=\(order.rawValue) albums=\(browse.keys.count) sections=\(browse.sections.count) catalog=yes ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+        return true
+    }
+
     /// 歌曲的标签先入库，专辑索引稍后发布。专辑墙要跟随后一次更新才能显示新的年份。
+    /// 目录排的那几种排法也跟着目录变(目录比内存晚几毫秒落地)。
     func albumBrowseRevision(_ order: LibraryAlbumBrowseOrder) -> Int {
         let albums = library.visibleAlbumsRevision
         switch order {
-        case .artist, .title, .year: return albums
+        case .artist, .title, .year:
+            return albums &+ Int(truncatingIfNeeded: library.catalogHost?.revisions.albums ?? 0)
         case .recentlyAdded: return albums &+ libraryContentRevision
         case .liked: return albums &+ LibraryFavoritesStore.shared.revision
         }
@@ -1749,6 +1892,9 @@ final class TVStore {
     /// 按名字(拼音)排好、带首字母分段的艺人墙;规则同 `albumBrowseLayout`。
     func artistBrowseLayout(_ mode: ArtistBrowseMode) -> TVBrowseLayout<TVArtistMapper>? {
         _ = browseLayoutRevision
+        if mode == .allArtists, catalogLookups.isReadable, let wall = catalogArtistWall {
+            return TVBrowseLayout(items: TVArtistList(catalog: wall.rows, mapper: TVArtistMapper()), sections: wall.sections)
+        }
         guard let cached = artistBrowseLayoutCache, cached.mode == mode,
               cached.hidesSingleOnly == hidesSingleOnlyAlbumArtists else { return nil }
         return TVBrowseLayout(
@@ -1757,7 +1903,40 @@ final class TVStore {
         )
     }
 
+    /// 艺人墙「全部艺人」在目录上排;规则同 `prepareCatalogAlbumWall`。「专辑艺人」列法照旧在内存里排。
+    private func prepareCatalogArtistWall() async -> Bool {
+        guard let host = library.catalogHost, host.revisions.isReadable,
+              let catalog = host.mirror.readableCatalog else { return false }
+        let unknownArtistName = String(localized: "unknown_artist")
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let browse: LibraryCatalogBrowseKeys
+        do {
+            browse = try await host.reader.read { try $0.artistBrowseKeys(unknownArtistName: unknownArtistName) }
+        } catch {
+            plog("TV artist layout catalog read failed (\(error)); sorting the in-memory artists")
+            return false
+        }
+        guard !Task.isCancelled else { return true }
+        if let cached = catalogArtistWall, cached.catalogRevision == browse.revision { return true }
+        catalogArtistWall = TVCatalogWall(
+            catalogRevision: browse.revision,
+            rows: TVCatalogWalls.artistRows(browse.keys, catalog: catalog),
+            sections: browse.sections
+        )
+        if artistBrowseLayoutCache?.mode == .allArtists { artistBrowseLayoutCache = nil }
+        browseLayoutRevision &+= 1
+        plog("TV artist layout mode=allArtists artists=\(browse.keys.count) sections=\(browse.sections.count) catalog=yes ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+        return true
+    }
+
+    /// 艺人墙跟着曲库变;「全部艺人」在目录上排时也跟着目录变。
+    func artistBrowseRevision(_ mode: ArtistBrowseMode) -> Int {
+        guard mode == .allArtists else { return libraryContentRevision }
+        return libraryContentRevision &+ Int(truncatingIfNeeded: library.catalogHost?.revisions.artists ?? 0)
+    }
+
     func prepareArtistBrowseLayout(_ mode: ArtistBrowseMode) async {
+        if mode == .allArtists, await prepareCatalogArtistWall() { return }
         let revision = libraryContentRevision
         let hidesSingleOnly = hidesSingleOnlyAlbumArtists
         let cached = artistBrowseLayoutCache.flatMap {

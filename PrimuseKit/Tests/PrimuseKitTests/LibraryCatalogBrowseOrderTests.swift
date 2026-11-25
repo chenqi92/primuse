@@ -42,6 +42,9 @@ struct LibraryCatalogBrowseOrderTests {
                     let context = "seed \(seed) disabled \(disabled.sorted()) visibleOnly \(visibleOnly) order \(order)"
                     #expect(actualIDs == expected.items.map(\.id), "\(context): order")
                     #expect(actual.sections == expected.sections, "\(context): sections")
+                    if let id = actualIDs.last {
+                        #expect(try catalog.albumKey(id: id) == actual.keys.last, "\(context): key for id")
+                    }
                 }
             }
         }
@@ -59,6 +62,10 @@ struct LibraryCatalogBrowseOrderTests {
                 let actual = try catalog.artistBrowseKeys(unknownArtistName: Self.unknownArtist, visibleOnly: visibleOnly)
                 let actualIDs = try catalog.artists(keys: actual.keys, visibleCounts: visibleOnly).map(\.id)
                 let context = "seed \(seed) disabled \(disabled.sorted()) visibleOnly \(visibleOnly)"
+                if let id = actualIDs.first {
+                    #expect(try catalog.artistKey(id: id) == actual.keys.first, "\(context): key for id")
+                }
+                #expect(try catalog.albumKey(id: "no-such-album") == nil)
                 #expect(actualIDs == expected.items.map(\.id), "\(context): order")
                 #expect(actual.sections == expected.sections, "\(context): sections")
             }

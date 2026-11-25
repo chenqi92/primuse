@@ -168,6 +168,20 @@ extension LibraryCatalog {
         }
     }
 
+    /// 专辑 id → 专辑键(电视墙找回记住的那一张)。没有这张专辑时为 nil。
+    public func albumKey(id: String) throws -> Int32? {
+        try pool.read { db in
+            try Int64.fetchOne(db, sql: "SELECT key FROM album WHERE id = ?", arguments: [id]).map(Self.rowid32)
+        }
+    }
+
+    /// 艺人 id → 艺人键。没有这位艺人时为 nil。
+    public func artistKey(id: String) throws -> Int32? {
+        try pool.read { db in
+            try Int64.fetchOne(db, sql: "SELECT key FROM artist WHERE id = ? LIMIT 1", arguments: [id]).map(Self.rowid32)
+        }
+    }
+
     /// 排序键的第一个字节是首字母桶(0–25 是 A–Z,26 是 "#")。
     static func bucketIndex(of key: Data) -> Int {
         guard let first = key.first else { return LibraryCollationPolicy.letterBuckets.count }

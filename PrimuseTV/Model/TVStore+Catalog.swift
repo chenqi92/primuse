@@ -269,3 +269,47 @@ extension TVStore {
     }
 }
 #endif
+
+// MARK: - Album and artist walls on the catalog (P3)
+
+/// 专辑墙、艺人墙的目录那一份:读音排好的键与分段(`albumBrowseKeys` / `artistBrowseKeys`),
+/// 条目按页从目录同步取(`TVCatalogRows`)。`catalogRevision` 是排它时目录的修订号。
+struct TVCatalogWall<Source> {
+    let catalogRevision: Int64
+    let rows: TVCatalogRows<Source>
+    let sections: [LibraryBrowseSection]
+}
+
+enum TVCatalogWalls {
+    /// 目录排得出的专辑墙排法(其余照旧在内存里排)。
+    static func servesAlbums(_ order: LibraryAlbumBrowseOrder) -> Bool {
+        order == .artist || order == .title || order == .year
+    }
+
+    static func albumRows(_ keys: ContiguousArray<Int32>, catalog: LibraryCatalog) -> TVCatalogRows<Album> {
+        TVCatalogRows(
+            keys: keys,
+            fetch: { pageKeys in
+                // `albums(keys:)` 保持顺序、跳过不在的键:数目对得上就按位置对回,否则一个个取。
+                guard let albums = try? catalog.albums(keys: pageKeys, visibleCounts: true) else { return [] }
+                if albums.count == pageKeys.count { return albums }
+                return pageKeys.map { key in (try? catalog.albums(keys: [key], visibleCounts: true))?.first }
+            },
+            keyForID: { id in (try? catalog.albumKey(id: id)) ?? nil },
+            placeholder: { key in Album(id: "tv-missing-album-\(key)", title: "") }
+        )
+    }
+
+    static func artistRows(_ keys: ContiguousArray<Int32>, catalog: LibraryCatalog) -> TVCatalogRows<Artist> {
+        TVCatalogRows(
+            keys: keys,
+            fetch: { pageKeys in
+                guard let artists = try? catalog.artists(keys: pageKeys, visibleCounts: true) else { return [] }
+                if artists.count == pageKeys.count { return artists }
+                return pageKeys.map { key in (try? catalog.artists(keys: [key], visibleCounts: true))?.first }
+            },
+            keyForID: { id in (try? catalog.artistKey(id: id)) ?? nil },
+            placeholder: { key in Artist(id: "tv-missing-artist-\(key)", name: "") }
+        )
+    }
+}
