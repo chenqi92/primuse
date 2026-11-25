@@ -342,7 +342,7 @@ struct FnConnectGatewayTests {
             gen.standardOutput = genOut
             gen.standardError = Pipe()
             try gen.run()
-            let pem = genOut.fileHandleForReading.readDataToEndOfFile()
+            let pem = try genOut.fileHandleForReading.readToEnd() ?? Data()
             gen.waitUntilExit()
 
             let conv = Process()
@@ -354,9 +354,9 @@ struct FnConnectGatewayTests {
             conv.standardOutput = convOut
             conv.standardError = Pipe()
             try conv.run()
-            convIn.fileHandleForWriting.write(pem)
+            try convIn.fileHandleForWriting.write(contentsOf: pem)
             try? convIn.fileHandleForWriting.close()
-            let der = convOut.fileHandleForReading.readDataToEndOfFile()
+            let der = try convOut.fileHandleForReading.readToEnd() ?? Data()
             conv.waitUntilExit()
 
             guard let imported = SecKeyCreateWithData(

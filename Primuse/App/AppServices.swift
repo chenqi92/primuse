@@ -1675,14 +1675,7 @@ final class AppServices {
             }
             // 服务端自己记进度的源(Audiobookshelf):把别的客户端听到的位置带回本机。
             if let manager, let library, await manager.supportsServerListeningProgress(for: source), applyFence() {
-                let songIDsByPath: [String: String] = await MainActor.run {
-                    Dictionary(
-                        library.visibleSongs.lazy
-                            .filter { $0.sourceID == source.id }
-                            .map { ($0.filePath, $0.id) },
-                        uniquingKeysWith: { first, _ in first }
-                    )
-                }
+                let songIDsByPath = await Self.visibleSongIDsByPath(sourceID: source.id, library: library)
                 let progress = await manager.fetchServerListeningProgress(for: source, songPaths: Array(songIDsByPath.keys))
                 guard applyFence(), !progress.isEmpty else { return }
                 let follower = player
@@ -2041,6 +2034,34 @@ final class AppServices {
         // 正在放的书换了 id:倍速按新 id 上的那份再对一次(两边都设过时留下的是新近的那份)。
         if let current = playerService.currentBookID, books.values.contains(current) || shows.values.contains(current) {
             playerService.applyPlaybackRate()
+        }
+    }
+
+    /// 一个源里可见歌曲的路径 → id(同一路径取库内第一首)。目录可读时在主线程外按库内顺序从目录取
+    /// (只读 id 与路径),读不了时照旧从内存里的整库数组筛。
+    private static func visibleSongIDsByPath(sourceID: String, library: MusicLibrary) async -> [String: String] {
+        if let reader = await MainActor.run(body: { PlaybackCatalogAccess.reader(for: library) }) {
+            do {
+                return try await reader.read { catalog in
+                    var byPath: [String: String] = [:]
+                    try catalog.forEachSongIdentity(.source(sourceID, includesDisabled: false)) { _, id, path in
+                        if byPath[path] == nil { byPath[path] = id }
+                        return true
+                    }
+                    return byPath
+                }
+            } catch {
+                plog("📚 catalog song paths for \(sourceID) failed, using memory: \(error)")
+            }
+        }
+        return await MainActor.run {
+            Dictionary(
+                // crash-pattern: allow legacy-library-api 目录读不了时的后备,同原来从整库筛
+                library.visibleSongs.lazy
+                    .filter { $0.sourceID == sourceID }
+                    .map { ($0.filePath, $0.id) },
+                uniquingKeysWith: { first, _ in first }
+            )
         }
     }
 
@@ -3463,9 +3484,11 @@ final class AppServices {
             )
             // 歌曲先挑;只有书里的章节叫这个名字时,才去书里从那一章接着听。点名要一段环境音
             // (「用 Primuse 放雨声」)时最后在环境音里找,找到了照样循环着放。
+            // 目录可读时只取可能命中的歌(主线程外流式挑出),同交整库的结果。
+            let musicCandidates = await SiriLibrarySongs.candidates(for: query, in: .music, library: library)
             guard let match = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: query,
-                musicSongs: library.musicSongs,
+                musicSongs: musicCandidates,
                 spokenWordSongs: library.spokenWordSongs
             ) ?? SiriMediaSearchResolver.resolvePreferringMusic(
                 query: query,
@@ -3501,13 +3524,10 @@ final class AppServices {
 
         bridge.playAlbum = { [self] title, artist in
             await awaitLibraryForIntent()
+            let query = SiriMediaSearchQuery(kind: .album, mediaName: title, artistName: artist)
             guard let result = SiriMediaSearchResolver.resolvePreferringMusic(
-                query: SiriMediaSearchQuery(
-                    kind: .album,
-                    mediaName: title,
-                    artistName: artist
-                ),
-                musicSongs: library.musicSongs,
+                query: query,
+                musicSongs: await SiriLibrarySongs.candidates(for: query, in: .music, library: library),
                 spokenWordSongs: library.spokenWordSongs
             ) else {
                 return nil
@@ -3541,9 +3561,10 @@ final class AppServices {
 
         bridge.playArtist = { [self] name in
             await awaitLibraryForIntent()
+            let query = SiriMediaSearchQuery(kind: .artist, mediaName: name)
             guard let result = SiriMediaSearchResolver.resolvePreferringMusic(
-                query: SiriMediaSearchQuery(kind: .artist, mediaName: name),
-                musicSongs: library.musicSongs,
+                query: query,
+                musicSongs: await SiriLibrarySongs.candidates(for: query, in: .music, library: library),
                 spokenWordSongs: library.spokenWordSongs
             ) else {
                 return nil
@@ -3562,9 +3583,10 @@ final class AppServices {
 
         bridge.playGenre = { [self] name in
             await awaitLibraryForIntent()
+            let query = SiriMediaSearchQuery(kind: .genre, genreNames: [name])
             guard let result = SiriMediaSearchResolver.resolvePreferringMusic(
-                query: SiriMediaSearchQuery(kind: .genre, genreNames: [name]),
-                musicSongs: library.musicSongs,
+                query: query,
+                musicSongs: await SiriLibrarySongs.candidates(for: query, in: .music, library: library),
                 spokenWordSongs: library.spokenWordSongs
             ) else {
                 return nil
