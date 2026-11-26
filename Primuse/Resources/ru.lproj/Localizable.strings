@@ -8225,3 +8225,7 @@
 "playback_error_source_offline_skipped_format" = "Пропущены некэшированные треки из «%@» в офлайн-режиме";
 "filter_offline_available" = "Доступно офлайн";
 "filter_offline_available_empty_desc" = "Здесь отображаются загруженные, кэшированные и локальные треки.";
+
+"song_radio_building" = "Создание радио по треку…";
+"song_radio_started_format" = "Радио запущено · далее %d";
+"song_radio_no_matches" = "Похожих треков больше не найдено";

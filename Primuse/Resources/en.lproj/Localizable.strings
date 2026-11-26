@@ -8080,3 +8080,7 @@
 "playback_error_source_offline_skipped_format" = "Skipped uncached songs from \"%@\" in Offline Mode";
 "filter_offline_available" = "Available Offline";
 "filter_offline_available_empty_desc" = "Downloaded, cached, and on-device songs appear here.";
+
+"song_radio_building" = "Building Song Radio…";
+"song_radio_started_format" = "Song Radio started · %d up next";
+"song_radio_no_matches" = "No more similar songs found";

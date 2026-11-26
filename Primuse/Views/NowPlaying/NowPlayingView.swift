@@ -2524,6 +2524,9 @@ struct NowPlayingView: View {
     @State private var lyricsEditorTargetSong: Song?
     @State private var lyricsEditorAutoStartsAudioTranscription = false
     @State private var showSimilarSongs = false
+    @State private var isStartingSongRadio = false
+    @State private var songRadioNoticeMessage: String?
+    @State private var songRadioNoticeTask: Task<Void, Never>?
     @State private var showMusicVideoFullScreen = false
     #if os(iOS)
     @State private var windowSafeAreaInsets = UIEdgeInsets.zero
@@ -8420,6 +8423,9 @@ struct NowPlayingView: View {
                     if (retainsCompactLyricsMiddle || !showLyrics || !isLyricsImmersive), !fullBleedArtwork,
                        let error = player.lastPlaybackError {
                         playbackErrorToast(error)
+                    } else if (retainsCompactLyricsMiddle || !showLyrics || !isLyricsImmersive), !fullBleedArtwork,
+                              let radioNotice = songRadioNoticeMessage {
+                        songRadioToast(radioNotice)
                     }
                     // 文字稿那一页空着时进度就画在那一页上,这里不再重复。
                     if !retainsCompactLyricsMiddle, !showLyrics || (!isLyricsImmersive && !lyrics.isEmpty) {
@@ -8450,6 +8456,8 @@ struct NowPlayingView: View {
                             VStack(spacing: 0) {
                                 if usesFullBleedArtwork, let error = player.lastPlaybackError {
                                     playbackErrorToast(error)
+                                } else if usesFullBleedArtwork, let radioNotice = songRadioNoticeMessage {
+                                    songRadioToast(radioNotice)
                                 }
                                 portraitCompactLyricsHeader(
                                     insets: insets,
@@ -10001,6 +10009,56 @@ struct NowPlayingView: View {
         .pmToastTransition(edge: .top)
     }
 
+    private func songRadioToast(_ message: String) -> some View {
+        PMToastCapsule(
+            message: message,
+            systemImage: "dot.radiowaves.left.and.right",
+            tone: .standard,
+            showsProgress: isStartingSongRadio,
+            isCompact: true
+        ) {
+            EmptyView()
+        }
+        .padding(.horizontal, 16)
+        .pmToastTransition(edge: .top)
+    }
+
+    private func startSongRadioForCurrentSong() {
+        guard !isStartingSongRadio,
+              !usesSpokenWordTransport,
+              !player.isLiveRadio,
+              let seed = player.currentSong else { return }
+        isStartingSongRadio = true
+        songRadioNoticeTask?.cancel()
+        songRadioNoticeMessage = String(localized: "song_radio_building")
+        Task { @MainActor in
+            await Task.yield()
+            let queue = await SongRadioBuilder.queue(from: seed, in: library, limit: 48).filteredPlayable()
+            isStartingSongRadio = false
+            guard queue.count > 1 else {
+                showSongRadioNotice(String(localized: "song_radio_no_matches"))
+                return
+            }
+            player.shuffleEnabled = false
+            await player.play(queue: queue, startingAt: 0)
+            showSongRadioNotice(
+                String(format: String(localized: "song_radio_started_format"), queue.count - 1)
+            )
+        }
+    }
+
+    private func showSongRadioNotice(_ message: String) {
+        songRadioNoticeTask?.cancel()
+        songRadioNoticeMessage = message
+        songRadioNoticeTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.4))
+            guard !Task.isCancelled else { return }
+            if songRadioNoticeMessage == message {
+                songRadioNoticeMessage = nil
+            }
+        }
+    }
+
     private func playbackErrorToastButton(
         _ title: LocalizedStringKey,
         action: @escaping () -> Void
@@ -10945,6 +11003,9 @@ struct NowPlayingView: View {
                 ? nil
                 : player.currentSong.flatMap { ShuffleLinkMenuState(songID: $0.id, library: library) },
             showsScrape: shows(.scrape),
+            showsSongRadio: !isSpokenWord && !player.isLiveRadio
+                && !menuSuppressed.contains(.songRadio) && shows(.songRadio),
+            isStartingSongRadio: isStartingSongRadio,
             showsSimilarSongs: shows(.similarSongs),
             showsComments: commentControlAvailable && !menuSuppressed.contains(.comments) && shows(.comments),
             showsTagEditor: shows(.editTags) && (!player.isAppleMusicMode || tagEditorSong != nil),
@@ -10974,6 +11035,7 @@ struct NowPlayingView: View {
             onAddToPlaylist: { addCurrentSongToPlaylist() },
             onScrape: { openScrapeForCurrentSong() },
             onReloadLyricsFromSource: { reloadLyricsFromSource() },
+            onStartSongRadio: { startSongRadioForCurrentSong() },
             onShowSimilarSongs: { showSimilarSongs = true },
             onShowComments: { showComments = true },
             onEditTags: { showTagEditor = true },
@@ -12896,6 +12958,13 @@ struct NowPlayingView: View {
                 label: String(localized: "comments_view_action"),
                 requiresSong: true
             )
+        case .songRadio:
+            return NowPlayingControlFace(
+                symbol: "dot.radiowaves.left.and.right",
+                label: String(localized: "start_song_radio"),
+                isActive: isStartingSongRadio,
+                requiresSong: true
+            )
         }
     }
 
@@ -13005,6 +13074,7 @@ struct NowPlayingView: View {
         case .cast: showCastPicker = true
         case .orientation: togglePlayerOrientation()
         case .comments: showComments = true
+        case .songRadio: startSongRadioForCurrentSong()
         case .airPlay, .playbackSpeed: break
         }
     }
@@ -17119,6 +17189,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let shuffleLink: ShuffleLinkMenuState?
     /// 下面几项在「播放页按钮 › 『更多』菜单」里可以关掉(#198)。
     let showsScrape: Bool
+    let showsSongRadio: Bool
+    let isStartingSongRadio: Bool
     let showsSimilarSongs: Bool
     let showsComments: Bool
     let showsTagEditor: Bool
@@ -17423,6 +17495,7 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
     let onAddToPlaylist: () -> Void
     let onScrape: () -> Void
     let onReloadLyricsFromSource: () -> Void
+    let onStartSongRadio: () -> Void
     let onShowSimilarSongs: () -> Void
     let onShowComments: () -> Void
     let onEditTags: () -> Void
@@ -17871,6 +17944,13 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
                         )
                     }
                     .disabled(snapshot.isReloadingLyricsFromSource)
+                }
+
+                if !snapshot.isSpokenWord, snapshot.showsSongRadio {
+                    Button(action: onStartSongRadio) {
+                        Label(String(localized: "start_song_radio"), systemImage: "dot.radiowaves.left.and.right")
+                    }
+                    .disabled(!snapshot.hasSong || snapshot.isStartingSongRadio)
                 }
 
                 if !snapshot.isSpokenWord, snapshot.showsSimilarSongs {

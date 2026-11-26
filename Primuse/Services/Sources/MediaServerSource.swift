@@ -4,7 +4,7 @@ import PrimuseKit
 
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistCreatingConnector,
-    ServerFavoriteConnector, ServerRadioConnector, ServerCollectionFavoriteConnector,
+    ServerFavoriteConnector, ServerRadioConnector, ServerSimilarSongsConnector, ServerCollectionFavoriteConnector,
     ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     NetworkAdaptiveTranscodingConnector,
     IncrementalSongCatalogConnector, ServerLibraryListingConnector {
@@ -2575,6 +2575,32 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
         try await connect()
         return try radioPlaybackURL(for: stationID)
+    }
+
+    nonisolated func serverSongID(for path: String) -> String? {
+        let lastComponent = (path as NSString).lastPathComponent
+        guard !lastComponent.isEmpty else { return nil }
+        return (lastComponent as NSString).deletingPathExtension
+    }
+
+    /// Jellyfin / Emby 原生即时混音 (`/Items/{id}/InstantMix`)。
+    func fetchSimilarSongIDs(for path: String, limit: Int) async throws -> [String] {
+        guard kind != .plex,
+              let seedID = itemID(from: path), !seedID.isEmpty,
+              limit > 0 else { return [] }
+        try await connect()
+        guard let userID else { throw SourceError.authenticationFailed }
+        let clampedLimit = max(1, min(limit, 100))
+        let data = try await performRequest(
+            path: "/Items/\(seedID)/InstantMix",
+            queryItems: [
+                URLQueryItem(name: "UserId", value: userID),
+                URLQueryItem(name: "Limit", value: String(clampedLimit)),
+            ]
+        )
+        let page = try decoder.decode(MediaServerItemPage<AudioItem>.self, from: data)
+        var seen: Set<String> = [seedID]
+        return page.items.map(\.id).filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     private func fetchJellyfinOrEmbyPlaylists(

@@ -549,4 +549,17 @@ import Testing
         #expect(removed.action(in: .leadingEdge) == nil)
         #expect(!removed.placedActions.contains(.orientation))
     }
+
+    @Test func songRadioCanBePlacedAndSuppressesDuplicateMenuItem() {
+        #expect(NowPlayingControlAction.songRadio.duplicatesMenuItem)
+        #expect(NowPlayingEffectPlayerControls.allows(.songRadio))
+        let placed = Layout.default.placing(.songRadio, at: .bar(3))
+        #expect(placed.bar.last == .songRadio)
+        #expect(placed.menuSuppressed(on: .portrait).contains(.songRadio))
+        #expect(Layout.decode(placed.encoded()) == placed)
+
+        let hiddenMenu = Layout.default.settingMenuItem(.songRadio, visible: false)
+        #expect(!hiddenMenu.showsMenuItem(.songRadio))
+        #expect(Layout.decode(hiddenMenu.encoded()) == hiddenMenu)
+    }
 }

@@ -8296,3 +8296,7 @@
 "playback_error_source_offline_skipped_format" = "已略過「%@」離線模式下未快取的歌曲";
 "filter_offline_available" = "離線可用";
 "filter_offline_available_empty_desc" = "已下載、已快取或本機的歌曲會顯示在這裡。";
+
+"song_radio_building" = "正在建立歌曲電台…";
+"song_radio_started_format" = "已啟動歌曲電台 · 接下來 %d 首";
+"song_radio_no_matches" = "目前找不到更多相似歌曲";

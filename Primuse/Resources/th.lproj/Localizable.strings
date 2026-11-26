@@ -8225,3 +8225,7 @@
 "playback_error_source_offline_skipped_format" = "ข้ามเพลงที่ไม่ได้แคชจาก \"%@\" ในโหมดออฟไลน์แล้ว";
 "filter_offline_available" = "เล่นออฟไลน์ได้";
 "filter_offline_available_empty_desc" = "เพลงที่ดาวน์โหลด แคชไว้ และอยู่ในเครื่องจะแสดงที่นี่";
+
+"song_radio_building" = "กำลังสร้างวิทยุเพลง…";
+"song_radio_started_format" = "เริ่มวิทยุเพลงแล้ว · ถัดไป %d เพลง";
+"song_radio_no_matches" = "ไม่พบเพลงที่คล้ายกันเพิ่มเติม";

@@ -8225,3 +8225,7 @@
 "playback_error_source_offline_skipped_format" = "Pominięto niezapisane utwory z „%@” w trybie offline";
 "filter_offline_available" = "Dostępne offline";
 "filter_offline_available_empty_desc" = "Tutaj pojawią się pobrane, zapisane w pamięci podręcznej i lokalne utwory.";
+
+"song_radio_building" = "Tworzenie radia utworu…";
+"song_radio_started_format" = "Radio uruchomione · następnych: %d";
+"song_radio_no_matches" = "Nie znaleziono więcej podobnych utworów";

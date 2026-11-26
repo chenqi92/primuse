@@ -8225,3 +8225,7 @@
 "playback_error_source_offline_skipped_format" = "ऑफ़लाइन मोड में \"%@\" के बिना कैश वाले गाने छोड़ दिए गए";
 "filter_offline_available" = "ऑफ़लाइन उपलब्ध";
 "filter_offline_available_empty_desc" = "डाउनलोड, कैश्ड और डिवाइस के गाने यहाँ दिखाई देते हैं।";
+
+"song_radio_building" = "सॉन्ग रेडियो बनाया जा रहा है…";
+"song_radio_started_format" = "सॉन्ग रेडियो शुरू हुआ · आगे %d गाने";
+"song_radio_no_matches" = "और मिलते-जुलते गाने नहीं मिले";

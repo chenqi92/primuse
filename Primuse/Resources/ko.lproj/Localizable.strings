@@ -8319,3 +8319,7 @@
 "playback_error_source_offline_skipped_format" = "오프라인 모드에서 \"%@\"의 캐시되지 않은 곡을 건너뛰었습니다";
 "filter_offline_available" = "오프라인 재생 가능";
 "filter_offline_available_empty_desc" = "다운로드됨, 캐시됨 및 기기에 저장된 곡이 여기에 표시됩니다.";
+
+"song_radio_building" = "곡 라디오 생성 중…";
+"song_radio_started_format" = "곡 라디오 시작됨 · 다음 %d곡";
+"song_radio_no_matches" = "비슷한 곡을 더 찾을 수 없습니다";

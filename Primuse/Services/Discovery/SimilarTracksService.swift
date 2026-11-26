@@ -292,37 +292,108 @@ struct SimilarTracksCandidate: Identifiable, Sendable {
     var isPlayable: Bool { librarySong != nil }
 }
 
-/// 「歌曲电台」:Last.fm 相似歌曲、Last.fm 相似艺人的歌、本地按标签算的相似歌三路轮流,
-/// 按专辑和艺人限量(`SongRadioMixPolicy`)。Last.fm 用不了(没配置、断网、限流、
-/// 几秒内没回)时只用本地的,本地那一路同样限量。
+/// 「歌曲电台」: 音乐源原生推荐（Subsonic/Navidrome `getSimilarSongs2`、Jellyfin/Emby `InstantMix`）、
+/// Last.fm 相似歌曲、本地按标签算的相似歌、Last.fm 相似艺人四路轮流，按专辑和艺人限量 (`SongRadioMixPolicy`)。
+/// 任一外部源不可用或超时时自动降级到本地相似度；离线模式下只保留本地可播放曲目。
 @MainActor
 enum SongRadioBuilder {
-    /// 等 Last.fm 最多这么久;过了就先用本地的起播,结果照样进缓存,下次直接用。
+    /// 等 Last.fm / 服务端推荐最多这么久; 过了就先用已有结果起播。
     static let lastFmWait: Duration = .seconds(5)
+    static let serverWait: Duration = .seconds(4)
 
     static func queue(from seed: Song, in library: MusicLibrary, limit: Int = 48) async -> [Song] {
         guard seed.isPlayable, limit > 0 else { return [] }
-        // 先把 Last.fm 请求发出去,本地相似度在主线程上算的同时它在后台等网络。
-        let fetch = lastFmFetch(for: seed, in: library)
+        let sourceManager = AppServices.shared.sourceManager
+        let seedOffline = sourceManager.isSourceManuallyOffline(seed.sourceID)
+        let globalOffline = sourceManager.isGlobalOfflineMode
+
+        // 并行发起音乐源原生电台接口与 Last.fm 查询，本地相似度同时在主线程算。
+        let serverFetch = seedOffline ? nil : serverSimilarFetch(for: seed, in: library, limit: limit)
+        let lastFmFetchTask = globalOffline ? nil : lastFmFetch(for: seed, in: library)
         let local = MusicDiscoveryEngine.songRadio(from: seed, in: library, limit: limit)
-        let fetched = await fetch?.value
-        guard let lastFm = fetched ?? nil, !lastFm.isEmpty, !Task.isCancelled else {
-            fetch?.cancel()
-            return local.map(\.song)
+
+        let serverSongs = await serverFetch?.value ?? []
+        let fetchedLastFm = await lastFmFetchTask?.value ?? nil
+        guard !Task.isCancelled else {
+            serverFetch?.cancel()
+            lastFmFetchTask?.cancel()
+            return []
+        }
+
+        func toResults(_ songs: [Song]) -> [MusicDiscoveryResult] {
+            songs.filter(\.isPlayable).map { MusicDiscoveryResult(song: $0, score: 0, reasons: []) }
         }
         func results(_ ids: [String]) -> [MusicDiscoveryResult] {
             ids.compactMap { library.song(id: $0) }
                 .filter(\.isPlayable)
                 .map { MusicDiscoveryResult(song: $0, score: 0, reasons: []) }
         }
-        let mixed = MusicDiscoveryEngine.mixed(
-            seed: seed,
-            sources: [results(lastFm.trackSongIDs), Array(local.dropFirst()), results(lastFm.artistSongIDs)],
-            excluding: library.dislikedSongIDs,
-            limit: limit - 1,
-            limits: .radio
-        )
-        return [seed] + mixed.map(\.song)
+
+        let rawQueue: [Song]
+        if serverSongs.isEmpty && (fetchedLastFm == nil || fetchedLastFm?.isEmpty == true) {
+            rawQueue = local.map(\.song)
+        } else {
+            var channels: [[MusicDiscoveryResult]] = []
+            if !serverSongs.isEmpty {
+                channels.append(toResults(serverSongs))
+            }
+            if let lastFm = fetchedLastFm, !lastFm.trackSongIDs.isEmpty {
+                channels.append(results(lastFm.trackSongIDs))
+            }
+            channels.append(Array(local.dropFirst()))
+            if let lastFm = fetchedLastFm, !lastFm.artistSongIDs.isEmpty {
+                channels.append(results(lastFm.artistSongIDs))
+            }
+            let mixed = MusicDiscoveryEngine.mixed(
+                seed: seed,
+                sources: channels,
+                excluding: library.dislikedSongIDs,
+                limit: limit - 1,
+                limits: .radio
+            )
+            rawQueue = [seed] + mixed.map(\.song)
+        }
+
+        guard sourceManager.hasActiveManualOfflineMode else { return rawQueue }
+        return rawQueue.enumerated().compactMap { index, song in
+            if index == 0 { return song }
+            guard !sourceManager.isSourceManuallyOffline(song.sourceID)
+                    || sourceManager.hasUsableCachedAudioForPlayback(song) else {
+                return nil
+            }
+            return song
+        }
+    }
+
+    private static func serverSimilarFetch(
+        for seed: Song,
+        in library: MusicLibrary,
+        limit: Int
+    ) -> Task<[Song], Never> {
+        let wait = serverWait
+        let fetchTask = Task { @MainActor in
+            await AppServices.shared.sourceManager.fetchServerSimilarSongs(
+                for: seed,
+                in: library,
+                limit: limit
+            )
+        }
+        return Task { @MainActor in
+            let result = await withTaskGroup(of: [Song]?.self) { group in
+                group.addTask { await fetchTask.value }
+                group.addTask {
+                    try? await Task.sleep(for: wait)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+            if result == nil {
+                fetchTask.cancel()
+            }
+            return result ?? []
+        }
     }
 
     private static func lastFmFetch(

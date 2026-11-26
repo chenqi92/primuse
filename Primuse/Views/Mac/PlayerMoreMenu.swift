@@ -377,6 +377,22 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
             }
             if !isSpokenWord {
+                if !player.isLiveRadio {
+                    menuRow(
+                        title: "start_song_radio",
+                        symbol: "dot.radiowaves.left.and.right",
+                        disabled: player.currentSong == nil
+                    ) {
+                        guard let seed = player.currentSong else { return }
+                        menuShown = false
+                        Task { @MainActor in
+                            let queue = await SongRadioBuilder.queue(from: seed, in: library, limit: 48).filteredPlayable()
+                            guard queue.count > 1 else { return }
+                            player.shuffleEnabled = false
+                            await player.play(queue: queue, startingAt: 0)
+                        }
+                    }
+                }
                 // 相似歌曲 —— 飞出二级浮层 (和字号子菜单一致),点外部自动消失,
                 // 不是之前那个没关闭按钮的固定 sheet。整行 hit-testable。
                 Button {

@@ -8225,3 +8225,7 @@
 "playback_error_source_offline_skipped_format" = "Se omitieron canciones sin caché de «%@» en modo sin conexión";
 "filter_offline_available" = "Disponible sin conexión";
 "filter_offline_available_empty_desc" = "Aquí aparecen las canciones descargadas, en caché y locales.";
+
+"song_radio_building" = "Creando radio de la canción…";
+"song_radio_started_format" = "Radio iniciada · %d a continuación";
+"song_radio_no_matches" = "No se encontraron más canciones similares";

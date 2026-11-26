@@ -8319,3 +8319,7 @@
 "playback_error_source_offline_skipped_format" = "Morceaux non en cache de « %@ » ignorés en mode hors ligne";
 "filter_offline_available" = "Disponible hors ligne";
 "filter_offline_available_empty_desc" = "Les morceaux téléchargés, en cache et locaux apparaissent ici.";
+
+"song_radio_building" = "Création de la radio du titre…";
+"song_radio_started_format" = "Radio lancée · %d titres à suivre";
+"song_radio_no_matches" = "Aucun autre titre similaire trouvé";

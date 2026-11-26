@@ -8225,3 +8225,7 @@
 "playback_error_source_offline_skipped_format" = "تم تخطي الأغاني غير المخزّنة من \"%@\" في الوضع دون اتصال";
 "filter_offline_available" = "متاح دون اتصال";
 "filter_offline_available_empty_desc" = "تظهر هنا الأغاني المنزّلة والمخزّنة مؤقتاً والمحلية.";
+
+"song_radio_building" = "جارٍ إنشاء راديو الأغنية…";
+"song_radio_started_format" = "بدأ راديو الأغنية · التالي %d";
+"song_radio_no_matches" = "لم يتم العثور على مزيد من الأغاني المشابهة";

@@ -8412,3 +8412,7 @@
 "playback_error_source_offline_skipped_format" = "已跳过「%@」离线模式下未缓存的歌曲";
 "filter_offline_available" = "离线可用";
 "filter_offline_available_empty_desc" = "已下载、已缓存或本机的歌曲会显示在这里。";
+
+"song_radio_building" = "正在生成歌曲电台…";
+"song_radio_started_format" = "已启动歌曲电台 · 接下来 %d 首";
+"song_radio_no_matches" = "暂时没有找到更多相似歌曲";

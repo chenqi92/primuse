@@ -8320,3 +8320,7 @@
 "playback_error_source_offline_skipped_format" = "オフラインモード中の「%@」の未キャッシュ曲をスキップしました";
 "filter_offline_available" = "オフライン再生可能";
 "filter_offline_available_empty_desc" = "ダウンロード済み、キャッシュ済み、および端末内の曲がここに表示されます。";
+
+"song_radio_building" = "ソングラジオを作成中…";
+"song_radio_started_format" = "ソングラジオを開始 · 次は %d 曲";
+"song_radio_no_matches" = "類似する曲がこれ以上見つかりませんでした";

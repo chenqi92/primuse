@@ -2131,7 +2131,7 @@ private struct NowPlayingMenuItemsEditor: View {
         ("player_menu_group_quick", [.like, .fullScreen, .immersiveFaceToggle, .share, .addToPlaylist, .delete]),
         ("player_menu_group_modes", [.shuffle, .shufflePreference, .repeatMode, .karaoke, .singAlong, .medley, .continueMedley]),
         ("player_menu_group_song", [
-            .scrape, .reloadLyrics, .similarSongs, .comments, .dislike, .playbackRange, .clipExport, .shuffleLink,
+            .scrape, .reloadLyrics, .songRadio, .similarSongs, .comments, .dislike, .playbackRange, .clipExport, .shuffleLink,
             .editTags, .editLyrics, .exportText,
         ]),
         ("player_menu_group_go", [.showInLibrary, .songInfo, .goToAlbum, .goToArtist, .openInAppleMusic]),
@@ -2313,6 +2313,7 @@ extension NowPlayingMenuItem {
         case .orientation: "rectangle.landscape.rotate"
         case .repeatChapter: "repeat.1"
         case .comments: "bubble.left.and.text.bubble.right"
+        case .songRadio: "dot.radiowaves.left.and.right"
         }
     }
 
@@ -2391,6 +2392,7 @@ extension NowPlayingMenuItem {
         case .orientation: "player_controls_action_orientation"
         case .repeatChapter: "spoken_word_repeat_chapter"
         case .comments: "comments_view_action"
+        case .songRadio: "start_song_radio"
         }
     }
 }
@@ -2619,6 +2621,7 @@ extension NowPlayingControlAction {
         case .queueBookmark: "bookmark"
         case .orientation: "rectangle.landscape.rotate"
         case .comments: "bubble.left.and.text.bubble.right"
+        case .songRadio: "dot.radiowaves.left.and.right"
         }
     }
 
@@ -2654,6 +2657,7 @@ extension NowPlayingControlAction {
         case .queueBookmark: "queue_bookmark_save"
         case .orientation: "player_controls_action_orientation"
         case .comments: "comments_view_action"
+        case .songRadio: "start_song_radio"
         }
     }
 }

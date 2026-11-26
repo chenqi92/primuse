@@ -2862,6 +2862,13 @@ protocol ServerRadioConnector: MusicSourceConnector {
     func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot?
 }
 
+/// 音乐服务器原生相似歌曲 / 即时电台接口（Subsonic / Navidrome `getSimilarSongs2`，
+/// Jellyfin / Emby `/Items/{id}/InstantMix`）。不支持或无结果时返回空数组，调用方回退本地相似度。
+protocol ServerSimilarSongsConnector: MusicSourceConnector {
+    func fetchSimilarSongIDs(for path: String, limit: Int) async throws -> [String]
+    func serverSongID(for path: String) -> String?
+}
+
 /// Authenticated radio streams are resolved at the last possible moment so a
 /// token or route-specific session URL never enters local/CloudKit snapshots.
 protocol ServerRadioStreamResolvingConnector: MusicSourceConnector {

@@ -8225,3 +8225,7 @@
 "playback_error_source_offline_skipped_format" = "Músicas sem cache de \"%@\" ignoradas no modo offline";
 "filter_offline_available" = "Disponível offline";
 "filter_offline_available_empty_desc" = "Músicas baixadas, em cache e no dispositivo aparecem aqui.";
+
+"song_radio_building" = "Criando rádio da música…";
+"song_radio_started_format" = "Rádio iniciada · %d a seguir";
+"song_radio_no_matches" = "Nenhuma outra música semelhante encontrada";

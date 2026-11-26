@@ -31,6 +31,8 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
     case orientation
     /// 查看歌曲评论:仅在配置并启用评论 API 服务时显示,点开底部弹框。
     case comments
+    /// 启动歌曲电台:基于当前歌曲生成相似队列并无缝替换后续播放列表。
+    case songRadio
 
     public var id: String { rawValue }
 
@@ -56,7 +58,7 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
     public var duplicatesMenuItem: Bool {
         switch self {
         case .dislike, .sleepTimer, .equalizer, .playbackSpeed, .karaoke,
-             .fullScreen, .addToPlaylist, .share, .cast, .comments:
+             .fullScreen, .addToPlaylist, .share, .cast, .comments, .songRadio:
             true
         case .like, .lyrics, .airPlay, .queue, .shuffle, .repeatMode, .playMode, .abRepeat, .queueBookmark,
              .orientation:
@@ -224,6 +226,8 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case repeatChapter
     /// 查看歌曲评论:仅在配置并启用评论 API 服务时出现。
     case comments
+    /// 启动歌曲电台:一键生成当前歌曲的相似电台队列。
+    case songRadio
 
     public var id: String { rawValue }
 

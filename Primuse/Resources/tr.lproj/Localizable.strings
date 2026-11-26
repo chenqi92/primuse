@@ -8225,3 +8225,7 @@
 "playback_error_source_offline_skipped_format" = "Çevrimdışı Modda \"%@\" kaynağındaki önbelleksiz şarkılar atlandı";
 "filter_offline_available" = "Çevrimdışı Kullanılabilir";
 "filter_offline_available_empty_desc" = "İndirilen, önbelleğe alınan ve cihazdaki şarkılar burada görünür.";
+
+"song_radio_building" = "Şarkı Radyosu oluşturuluyor…";
+"song_radio_started_format" = "Şarkı Radyosu başlatıldı · sırada %d şarkı";
+"song_radio_no_matches" = "Başka benzer şarkı bulunamadı";

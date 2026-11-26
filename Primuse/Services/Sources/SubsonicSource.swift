@@ -22,7 +22,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     ResumablePagedSongCatalogConnector, ServerCatalogEnrichingConnector,
     ServerPlaylistConnector, ServerPlaylistRemovingConnector, ServerPlaylistReorderingConnector,
     ServerPlaylistCreatingConnector, ServerPlaylistDescriptionConnector,
-    ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
+    ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector, ServerSimilarSongsConnector,
     ServerListeningStatsConnector, ServerRatingConnector, MediaServerWritebackConnector,
     ServerLibraryListingConnector {
     let sourceID: String
@@ -2549,6 +2549,40 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return ServerRadioStationSnapshot(stations: stations)
     }
 
+    // MARK: - Similar songs (Song Radio)
+
+    nonisolated func serverSongID(for path: String) -> String? {
+        let last = (path as NSString).lastPathComponent
+        guard !last.isEmpty else { return nil }
+        return (last as NSString).deletingPathExtension
+    }
+
+    /// 优先调用 OpenSubsonic / Subsonic ID3 接口 `getSimilarSongs2`，若无结果或旧服务端不支持则回退 `getSimilarSongs`。
+    func fetchSimilarSongIDs(for path: String, limit: Int) async throws -> [String] {
+        guard let seedID = songID(from: path), !seedID.isEmpty, limit > 0 else { return [] }
+        try await connect()
+        let count = String(max(1, min(limit, 100)))
+        let query = [
+            URLQueryItem(name: "id", value: seedID),
+            URLQueryItem(name: "count", value: count),
+        ]
+
+        var rawIDs: [String] = []
+        do {
+            let v2: SimilarSongs2Container = try await requestJSON("getSimilarSongs2", query: query)
+            rawIDs = (v2.similarSongs2?.song ?? []).map(\.id)
+        } catch {
+            // 部分旧版 Subsonic 服务端只实现 getSimilarSongs，继续回退尝试。
+        }
+        if rawIDs.isEmpty {
+            if let v1: SimilarSongsContainer = try? await requestJSON("getSimilarSongs", query: query) {
+                rawIDs = (v1.similarSongs?.song ?? []).map(\.id)
+            }
+        }
+        var seen: Set<String> = [seedID]
+        return rawIDs.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
     // MARK: - Song construction
 
     private func buildSong(
@@ -3925,6 +3959,22 @@ private struct InternetRadioStationsContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
     let internetRadioStations: InternetRadioStationList?
+}
+
+private struct SimilarSongs2Container: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let similarSongs2: SimilarSongList?
+}
+
+private struct SimilarSongsContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let similarSongs: SimilarSongList?
+}
+
+private struct SimilarSongList: Decodable {
+    let song: [SubsonicChild]?
 }
 
 private struct InternetRadioStationList: Decodable {
