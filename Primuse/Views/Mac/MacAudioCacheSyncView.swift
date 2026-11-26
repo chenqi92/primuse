@@ -656,9 +656,11 @@ struct AudioCacheSyncView: View {
                     if issue == .permissionDenied {
                         Button(text("cache_sync_open_settings"), systemImage: "gear") {
                             #if os(iOS)
-                            openURL(URL(string: UIApplication.openSettingsURLString)!)
+                            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                             #else
-                            openURL(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")!)
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork") {
+                                openURL(url)
+                            }
                             #endif
                         }
                     }

@@ -114,10 +114,8 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
             _ = library.artistNameConfiguration
             _ = player.currentSong?.coverArtFileName
             _ = player.coverRevision
+            // 电台时不跟歌词(`reloadLyricsIfNeeded`); 台名、电台正在放的标题这里不显示, 不用盯。
             _ = player.isLiveRadio
-            _ = player.currentRadioStation?.id
-            _ = player.currentRadioStation?.name
-            _ = player.radioMetadataTitle
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshStatusItem()
@@ -173,6 +171,24 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
                 self.refreshStatusTitle()
             }
         })
+        // 封面常常在换歌之后才落盘(列表、底栏的封面视图取回来再存)。这时歌、封面引用、封面版本都没变,
+        // 上面的观察不会响: 正在放的这首(或整库广播)存下封面时重读一次。
+        notificationTokens.append(center.addObserver(
+            forName: .primuseArtworkDidCache,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let songID = note.object as? String
+            let isForAllSongs = note.userInfo?["all"] as? Bool == true
+            MainActor.assumeIsolated {
+                guard let self,
+                      let currentID = AppServices.shared.playerService.currentSong?.id,
+                      isForAllSongs || songID == currentID else { return }
+                self.cachedArtworkKey = nil
+                self.cachedArtworkImage = nil
+                self.refreshStatusItem()
+            }
+        })
     }
 
     /// 没有封面时使用 template image, 交给系统按菜单栏状态自动着色。
@@ -190,10 +206,9 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
             return nil
         }
         let key = ArtworkCacheKey(songID: song.id, coverFileName: song.coverArtFileName, coverRevision: coverRevision)
-        if cachedArtworkKey == key {
+        if cachedArtworkKey == key, let cachedArtworkImage {
             return cachedArtworkImage
         }
-        cachedArtworkKey = key
         let store = MetadataAssetStore.shared
         let candidates = [
             store.expectedCoverFileName(for: song.id),
@@ -205,9 +220,12 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
                   let image = NSImage(data: data) else { continue }
             image.size = NSSize(width: 18, height: 18)
             image.isTemplate = false
+            cachedArtworkKey = key
             cachedArtworkImage = image
             return image
         }
+        // 没读到的不记: 记下来的话, 封面稍后才落盘的这首歌会一直是品牌图标。
+        cachedArtworkKey = nil
         cachedArtworkImage = nil
         return nil
     }

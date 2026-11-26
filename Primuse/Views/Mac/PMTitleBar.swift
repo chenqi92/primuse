@@ -511,11 +511,16 @@ struct MacFavoritesPopover: View {
                         Text("sidebar_liked_songs")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(PMColor.text)
-                        Text(verbatim: songs.count == 1
-                            ? String(localized: "song_count_singular")
-                            : "\(songs.count) \(String(localized: "songs_count"))")
-                            .font(.system(size: 11))
-                            .foregroundStyle(PMColor.textFaint)
+                        // 只有一首时用单数那句; 其余照旧走 `album_pick_tracks %lld`, 语序和量词各语言自己定。
+                        if songs.count == 1 {
+                            Text("song_count_singular")
+                                .font(.system(size: 11))
+                                .foregroundStyle(PMColor.textFaint)
+                        } else {
+                            Text("album_pick_tracks \(songs.count)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(PMColor.textFaint)
+                        }
                     }
                     Spacer(minLength: 0)
                 }

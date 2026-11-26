@@ -679,7 +679,7 @@ extension ListeningStatsView {
                 artist: $0.artistName,
                 album: $0.albumTitle,
                 playedAt: $0.playedAt,
-                seconds: $0.listenedSec
+                seconds: $0.listenedSec.isFinite ? max(0, $0.listenedSec) : 0
             )
         }
         return Snapshot(

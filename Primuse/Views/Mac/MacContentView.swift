@@ -264,7 +264,8 @@ struct MacContentView: View {
                         songLocationRequest: $songLocationRequest,
                         spokenWordBookRequest: $spokenWordBookRequest,
                         onShowSongInLibrary: showSongInLibrary,
-                        onOpenLibrarySongs: { selectRoute(.section(.songs)) }
+                        onOpenLibrarySongs: { selectRoute(.section(.songs)) },
+                        onOpenSources: { requestRoute(.sources) }
                     )
                         .background(PMColor.bg.ignoresSafeArea())
                         .accessibilityElement(children: .contain)
@@ -364,23 +365,11 @@ struct MacContentView: View {
                     .zIndex(2)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .trailing) {
-                    MacTrailingPanelsHost(
-                        queuePresented: $queuePresented,
-                        showsRecommendationsPanel: $showsRecommendationsPanel,
-                        onToggleRecommendations: toggleRecommendationsPanel
-                    )
-                }
                 .modifier(MacPanelCommandReceiver(
                     onOpenTool: { activeTool = $0 },
                     onToggleRecommendations: toggleRecommendationsPanel,
                     onOpenListeningStats: openListeningStats,
-                    onFocusSearch: {
-                        if isFullScreenNowPlaying {
-                            exitFullScreenPlayer(in: hostWindow)
-                        }
-                        closeNowPlayingForSearch()
-                    }
+                    onFocusSearch: focusSearchFromFullScreenPlayer
                 ))
                 .modifier(MacSongListPrewarm())
                 #if DEBUG
@@ -397,6 +386,13 @@ struct MacContentView: View {
                     }
                 }
                 #endif
+
+                // 队列和推荐并排占右边一列, 不盖在正文和播放页上(见 `MacTrailingPanelsHost`)。
+                MacTrailingPanelsHost(
+                    queuePresented: $queuePresented,
+                    showsRecommendationsPanel: $showsRecommendationsPanel,
+                    onToggleRecommendations: toggleRecommendationsPanel
+                )
             }
             // 侧栏、播放页、右侧面板的底色照这个高度垫到标题栏下面(`macExtendsUnderTitleBar`)。
             .environment(\.macTitleBarUnderlap, titleBarUnderlap)
@@ -529,11 +525,7 @@ struct MacContentView: View {
         }
         .onChange(of: player.currentSong?.id) { oldID, newID in
             if oldID != nil, newID == nil {
-                if isFullScreenNowPlaying {
-                    exitFullScreenPlayer(in: hostWindow)
-                } else {
-                    nowPlayingPresented = false
-                }
+                nowPlayingPresented = false
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseSidebarRequestNewPlaylist)) { _ in
@@ -584,12 +576,10 @@ struct MacContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenAlbum)) { note in
             guard note.object is Album else { return }
-            if isFullScreenNowPlaying { exitFullScreenPlayer(in: hostWindow) }
             nowPlayingPresented = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenArtist)) { note in
             guard note.object is Artist else { return }
-            if isFullScreenNowPlaying { exitFullScreenPlayer(in: hostWindow) }
             nowPlayingPresented = false
         }
         // 在 Spotlight 里点开的一项:歌直接放,专辑、艺人、歌单打开详情;「在 Primuse 中搜索」带着字进搜索页。
@@ -883,9 +873,9 @@ struct MacContentView: View {
     private func startCurrentSongLyricsScrapeWithEnabledSource(_ displayedSong: Song) {
         guard displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID else {
             handleAutomaticLyricsScrapeStart(
-                scraperService.startOnlineLyricsOnlyScrape(song: displayedSong, in: library),
+                scraperService.startSingleScrape(song: displayedSong, in: library),
                 song: displayedSong,
-                lyricsOnly: true
+                lyricsOnly: false
             )
             return
         }
@@ -1052,6 +1042,18 @@ struct MacContentView: View {
         }
     }
 
+    /// 全屏播放时标题栏没挂着(`windowLayout`), 搜索框收不到 `.primuseFocusSearch`。
+    /// 这里只收起播放页(窗口留在系统全屏里, 和点专辑名、艺人名一样, 不切系统全屏), 等这一轮把标题栏
+    /// 装上以后再补发一次: 补发的那次标题栏接得到, 这里因为已经不在全屏播放而直接返回, 不会转圈。
+    /// 窗口版里标题栏一直在, 聚焦和收起播放页都由它自己处理, 这里不插手。
+    private func focusSearchFromFullScreenPlayer() {
+        guard isFullScreenNowPlaying else { return }
+        closeNowPlayingForSearch()
+        MacFrameCommit.afterCurrentCommit {
+            NotificationCenter.default.post(name: .primuseFocusSearch, object: nil)
+        }
+    }
+
     private func openListeningStats() {
         #if DEBUG
         PMWindowChromeTrace.start("stats sheet")
@@ -1148,6 +1150,7 @@ private struct MacDetailHost: View {
     @Binding var spokenWordBookRequest: String?
     let onShowSongInLibrary: (Song) -> Void
     let onOpenLibrarySongs: () -> Void
+    let onOpenSources: () -> Void
 
     var body: some View {
         MacDetailContainer(
@@ -1158,7 +1161,8 @@ private struct MacDetailHost: View {
             songLocationRequest: $songLocationRequest,
             spokenWordBookRequest: $spokenWordBookRequest,
             onShowSongInLibrary: onShowSongInLibrary,
-            onOpenLibrarySongs: onOpenLibrarySongs
+            onOpenLibrarySongs: onOpenLibrarySongs,
+            onOpenSources: onOpenSources
         )
             // 入场要挂在 `.id` 之前: `.id` 只重置它下面那棵子树, 修饰符
             // 写在后面的话 @State 留在 id 之上, 换页时不会重新入场。
@@ -1338,6 +1342,8 @@ private struct MacCoveredContentScope: ViewModifier {
     }
 }
 
+/// 底栏的全屏效果面板开着时盖住标题栏、侧栏: 它们不接点按、对旁白隐藏, 点在上面只把面板收起来
+/// (和正文区那层遮罩一样), 不会点了没反应。
 private struct MacModalCoverScope: ViewModifier {
     @Binding var isCovered: Bool
 
@@ -1345,9 +1351,23 @@ private struct MacModalCoverScope: ViewModifier {
         content
             .allowsHitTesting(!isCovered)
             .accessibilityHidden(isCovered)
+            .overlay {
+                if isCovered {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            pmWithAnimation(.panel) {
+                                isCovered = false
+                            }
+                        }
+                        .accessibilityHidden(true)
+                }
+            }
     }
 }
 
+/// 右边那一列的队列 / 推荐面板, 和侧栏、正文并排放在同一个 HStack 里。只在这里读两个开关,
+/// 开合面板不让整个主界面重算。
 private struct MacTrailingPanelsHost: View {
     @Binding var queuePresented: Bool
     @Binding var showsRecommendationsPanel: Bool
@@ -1362,12 +1382,11 @@ private struct MacTrailingPanelsHost: View {
                     }
                 })
                 .frame(width: 380)
-                .shadow(color: .black.opacity(0.14), radius: 14, x: -4)
                 .transition(.move(edge: .trailing))
             } else if showsRecommendationsPanel {
+                // 和队列同一个位置, 一次只开一个: 左边照常能逛, 不盖住正在看的页。
                 MacRecommendationsPanel(onClose: onToggleRecommendations)
                     .frame(width: 380)
-                    .shadow(color: .black.opacity(0.14), radius: 14, x: -4)
                     .transition(.move(edge: .trailing))
             }
         }

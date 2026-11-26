@@ -889,6 +889,11 @@ private struct MacSTGroup<Content: View>: View {
     }
 }
 
+extension EnvironmentValues {
+    @Entry var macSettingRowLabel: String = ""
+    @Entry var macSettingRowHint: String? = nil
+}
+
 private struct MacSTRow<Content: View>: View {
     let label: String
     let hint: String?
@@ -914,6 +919,13 @@ private struct MacSTRow<Content: View>: View {
         self.content = content()
     }
 
+    private var accessibleLabel: String { PMTextWithoutDesignCodes(label) }
+    private var accessibleHint: String? {
+        guard let hint else { return nil }
+        let clean = PMTextWithoutDesignCodes(hint)
+        return clean.isEmpty ? nil : clean
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if divider {
@@ -924,6 +936,8 @@ private struct MacSTRow<Content: View>: View {
                 VStack(alignment: .leading, spacing: 0) {
                     rowLabel
                     content
+                        .environment(\.macSettingRowLabel, accessibleLabel)
+                        .environment(\.macSettingRowHint, accessibleHint)
                         .padding(.top, 10)
                 }
                 .padding(.horizontal, 14)
@@ -933,6 +947,8 @@ private struct MacSTRow<Content: View>: View {
                     rowLabel
                     Spacer(minLength: 12)
                     content
+                        .environment(\.macSettingRowLabel, accessibleLabel)
+                        .environment(\.macSettingRowHint, accessibleHint)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -943,7 +959,7 @@ private struct MacSTRow<Content: View>: View {
 
     private var rowLabel: some View {
         VStack(alignment: .leading, spacing: 2) {
-            let visibleLabel = PMTextWithoutDesignCodes(label)
+            let visibleLabel = accessibleLabel
             if !visibleLabel.isEmpty {
                 HStack(spacing: 6) {
                     Text(verbatim: visibleLabel)
@@ -955,41 +971,62 @@ private struct MacSTRow<Content: View>: View {
                     }
                 }
             }
-            if let hint {
-                let visibleHint = PMTextWithoutDesignCodes(hint)
-                if !visibleHint.isEmpty {
-                    Text(verbatim: visibleHint)
-                        .font(.system(size: 11))
-                        .foregroundStyle(PMColor.textFaint)
-                        .lineLimit(hintLineLimit)
-                }
+            if let visibleHint = accessibleHint {
+                Text(verbatim: visibleHint)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(hintLineLimit)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-private struct MacSTToggle: View {
-    @Binding var isOn: Bool
+private struct MacSTToggleStyle: ToggleStyle {
+    @Environment(\.isEnabled) private var isEnabled
 
-    var body: some View {
+    func makeBody(configuration: Configuration) -> some View {
         Button {
             withAnimation(.spring(response: 0.18, dampingFraction: 0.9)) {
-                isOn.toggle()
+                configuration.isOn.toggle()
             }
         } label: {
             Capsule()
-                .fill(isOn ? Color(red: 0.20, green: 0.78, blue: 0.35) : PMColor.dividerStrong)
+                .fill(configuration.isOn ? Color(red: 0.20, green: 0.78, blue: 0.35) : PMColor.dividerStrong)
                 .frame(width: 32, height: 18)
-                .overlay(alignment: isOn ? .trailing : .leading) {
+                .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                     Circle()
                         .fill(.white)
                         .frame(width: 14, height: 14)
                         .shadow(color: .black.opacity(0.22), radius: 2, y: 1)
                         .padding(2)
                 }
+                .opacity(isEnabled ? 1 : 0.45)
         }
         .buttonStyle(.plain)
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) {
+                configuration.label
+            }
+        }
+    }
+}
+
+private struct MacSTToggle: View {
+    @Binding var isOn: Bool
+    @Environment(\.macSettingRowLabel) private var rowLabel
+    @Environment(\.macSettingRowHint) private var rowHint
+
+    var body: some View {
+        let toggle = Toggle(isOn: $isOn) {
+            Text(verbatim: rowLabel)
+        }
+        .toggleStyle(MacSTToggleStyle())
+        if let rowHint {
+            toggle.accessibilityHint(Text(verbatim: rowHint))
+        } else {
+            toggle
+        }
     }
 }
 
@@ -998,6 +1035,8 @@ private struct MacSTSlider: View {
     let range: ClosedRange<Double>
     let width: CGFloat
     let formatter: (Double) -> String
+    @Environment(\.macSettingRowLabel) private var rowLabel
+    @Environment(\.isEnabled) private var isEnabled
 
     init(value: Binding<Double>,
          in range: ClosedRange<Double> = 0...100,
@@ -1011,16 +1050,23 @@ private struct MacSTSlider: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Slider(value: $value, in: range)
-                .tint(PMColor.brand)
-                .controlSize(.small)
+            Slider(value: $value, in: range) {
+                Text(verbatim: rowLabel)
+            }
+            .labelsHidden()
+            .tint(PMColor.brand)
+            .controlSize(.small)
+            .accessibilityLabel(Text(verbatim: rowLabel))
+            .accessibilityValue(Text(verbatim: formatter(value)))
             Text(verbatim: formatter(value))
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(PMColor.textMuted)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(minWidth: 36, alignment: .trailing)
+                .accessibilityHidden(true)
         }
+        .opacity(isEnabled ? 1 : 0.45)
         .frame(width: width)
     }
 }
@@ -1030,15 +1076,18 @@ private struct MacSTPicker<T: Hashable>: View {
     @Binding var selection: T
     let options: [(value: T, label: String)]
     var width: CGFloat = 200
+    @Environment(\.macSettingRowLabel) private var rowLabel
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
+        let localizedCurrent = PMLocalizedOrVerbatim(currentLabel)
         Menu {
             ForEach(Array(options.enumerated()), id: \.offset) { _, opt in
                 Button(PMLocalizedOrVerbatim(opt.label)) { selection = opt.value }
             }
         } label: {
             HStack(spacing: 6) {
-                Text(verbatim: PMLocalizedOrVerbatim(currentLabel))
+                Text(verbatim: localizedCurrent)
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
@@ -1046,6 +1095,7 @@ private struct MacSTPicker<T: Hashable>: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(PMColor.textFaint)
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, 10)
             .frame(width: width, height: 22)
@@ -1054,6 +1104,7 @@ private struct MacSTPicker<T: Hashable>: View {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
             }
+            .opacity(isEnabled ? 1 : 0.45)
             .contentShape(.rect(cornerRadius: 5))
         }
         // `.borderlessButton` 会丢掉自定义 label, 退化成原生「⌄ 标题」下拉;
@@ -1063,6 +1114,8 @@ private struct MacSTPicker<T: Hashable>: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
+        .accessibilityLabel(Text(verbatim: rowLabel.isEmpty ? localizedCurrent : rowLabel))
+        .accessibilityValue(Text(verbatim: localizedCurrent))
     }
 
     private var currentLabel: String {
@@ -1128,6 +1181,8 @@ private struct MacAIChoiceMenu<Items: View>: View {
     let title: String
     var width: CGFloat = 260
     private let items: Items
+    @Environment(\.macSettingRowLabel) private var rowLabel
+    @Environment(\.isEnabled) private var isEnabled
 
     init(title: String, width: CGFloat = 260, @ViewBuilder items: () -> Items) {
         self.title = title
@@ -1149,6 +1204,7 @@ private struct MacAIChoiceMenu<Items: View>: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(PMColor.textFaint)
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, 10)
             .frame(width: width, height: 22)
@@ -1157,12 +1213,15 @@ private struct MacAIChoiceMenu<Items: View>: View {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
             }
+            .opacity(isEnabled ? 1 : 0.45)
             .contentShape(.rect(cornerRadius: 5))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
+        .accessibilityLabel(Text(verbatim: rowLabel.isEmpty ? title : rowLabel))
+        .accessibilityValue(Text(verbatim: title))
     }
 }
 
@@ -1601,6 +1660,7 @@ private struct MacSTButton: View {
     var prominent = false
     var destructive = false
     var action: () -> Void = {}
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
@@ -1617,6 +1677,7 @@ private struct MacSTButton: View {
             .frame(height: 24)
             .foregroundStyle(foreground)
             .background(background, in: .rect(cornerRadius: 5))
+            .opacity(isEnabled ? 1 : 0.45)
         }
         .buttonStyle(.plain)
     }
@@ -1639,6 +1700,7 @@ private struct MacSTTextField: View {
     let prompt: String
     var secure = false
     var width: CGFloat = 360
+    @Environment(\.macSettingRowLabel) private var rowLabel
 
     var body: some View {
         Group {
@@ -1658,6 +1720,7 @@ private struct MacSTTextField: View {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
         }
+        .accessibilityLabel(Text(verbatim: rowLabel.isEmpty ? prompt : rowLabel))
     }
 }
 
@@ -2996,22 +3059,22 @@ private struct MacSTPlaybackView: View {
             MacSTGroup {
                 MacSTRow(String(localized: "playback_autoplay_on_launch"), divider: false) {
                     MacSTToggle(isOn: $autoplayOnLaunch)
+                        .accessibilityIdentifier("playback.autoplayOnLaunch")
                 }
                 .settingsAnchor("playback.autoplayOnLaunch")
-                .accessibilityIdentifier("playback.autoplayOnLaunch")
                 MacSTRow(String(localized: "playback_open_now_playing_on_play")) {
                     MacSTToggle(isOn: $opensNowPlayingOnPlay)
+                        .accessibilityIdentifier("playback.opensNowPlayingOnPlay")
                 }
                 .settingsAnchor("playback.opensNowPlayingOnPlay")
-                .accessibilityIdentifier("playback.opensNowPlayingOnPlay")
                 MacSTRow(
                     String(localized: "music_video_starts_full_screen"),
                     hint: String(localized: "music_video_starts_full_screen_hint")
                 ) {
                     MacSTToggle(isOn: $musicVideoStartsFullScreen)
+                        .accessibilityIdentifier("playback.musicVideoStartsFullScreen")
                 }
                 .settingsAnchor("playback.musicVideoStartsFullScreen")
-                .accessibilityIdentifier("playback.musicVideoStartsFullScreen")
             }
         }
 
@@ -3037,8 +3100,8 @@ private struct MacSTPlaybackView: View {
                 .settingsAnchor("playback.dsdMode")
                 MacSTRow(Lz("Match Hardware Sample Rate"), hint: Lz("Switches the output device to each song's sample rate; some devices ignore it")) {
                     MacSTToggle(isOn: Binding(
-                        get: { s.outputMode == .highFidelity || s.matchOutputSampleRate },
-                        set: { s.matchOutputSampleRate = $0 }
+                        snapshot: s.outputMode == .highFidelity || s.matchOutputSampleRate,
+                        set: { store.matchOutputSampleRate = $0 }
                     ))
                 }
                 .settingsAnchor("playback.matchSampleRate")
@@ -3247,7 +3310,7 @@ private struct MacSTPlaybackView: View {
                     hintLineLimit: 2
                 ) {
                     MacSTToggle(isOn: Binding(
-                        get: { !medleyDataPromptDisabled },
+                        snapshot: !medleyDataPromptDisabled,
                         set: { medleyDataPromptDisabled = !$0 }
                     ))
                 }
@@ -3293,9 +3356,9 @@ private struct MacSTPlaybackView: View {
                 .settingsAnchor("playback.previousRestarts")
                 MacSTRow(Lz("Gapless Playback")) {
                     MacSTToggle(isOn: $s.gaplessEnabled)
-                        .accessibilityHint(Text(verbatim: Lz("P-16 · On by Default")))
                 }
                 .settingsAnchor("playback.gapless")
+                .disabled(s.outputMode == .highFidelity)
                 // 只有音效模式会在同一张专辑里先重采样保持连续；高保真直通总是切换。
                 if s.gaplessEnabled, s.outputMode == .effects, s.matchOutputSampleRate {
                     MacSTRow(
@@ -3328,6 +3391,7 @@ private struct MacSTPlaybackView: View {
                             width: 160
                         )
                     }
+                    .disabled(s.outputMode == .highFidelity)
                     .pmSlideTransition(edge: .top)
                     MacSTRow(
                         s.crossfadeMode == .smart
@@ -3341,18 +3405,20 @@ private struct MacSTPlaybackView: View {
                             formatter: { "\(Int($0))s" }
                         )
                     }
+                    .disabled(s.outputMode == .highFidelity)
                     .pmSlideTransition(edge: .top)
                 }
                 MacSTRow(Lz("Skip leading silence")) {
                     MacSTToggle(isOn: $s.skipLeadingSilenceEnabled)
                 }
                 .settingsAnchor("playback.skipLeadingSilence")
+                .disabled(s.outputMode == .highFidelity)
                 MacSTRow(Lz("Skip trailing silence")) {
                     MacSTToggle(isOn: $s.skipTrailingSilenceEnabled)
                 }
                 .settingsAnchor("playback.skipTrailingSilence")
+                .disabled(s.outputMode == .highFidelity)
             }
-            .disabled(s.outputMode == .highFidelity)
         }
 
         MacSTSection(Lz("Cache")) {
@@ -4036,6 +4102,7 @@ private struct MacSTEffectsView: View {
                     divider: false
                 ) {
                     MacSTToggle(isOn: $fx.reverbEnabled.pmAnimated())
+                        .accessibilityLabel(Text("a11y_enable_reverb"))
                 }
                 .settingsAnchor("effects.reverb")
                 if fx.reverbEnabled {
@@ -4082,6 +4149,7 @@ private struct MacSTEffectsView: View {
             MacSTGroup {
                 MacSTRow(Lz("Toggle"), divider: false) {
                     MacSTToggle(isOn: $fx.compressorEnabled.pmAnimated())
+                        .accessibilityLabel(Text("a11y_enable_compressor"))
                 }
                 .settingsAnchor("effects.compressor")
                 if fx.compressorEnabled {
@@ -4491,7 +4559,7 @@ private struct MacSTScrapingView: View {
             MacSTGroup {
                 MacSTRow(Lz("Auto-Fetch Online Lyrics"), hint: Lz("When a song has no lyrics locally or in its source, ask the enabled lyrics sources once")) {
                     MacSTToggle(isOn: Binding(
-                        get: { scraperSettings.autoFetchOnlineLyrics },
+                        snapshot: scraperSettings.autoFetchOnlineLyrics,
                         set: { scraperSettings.autoFetchOnlineLyrics = $0 }
                     ))
                 }
@@ -4555,7 +4623,7 @@ private struct MacSTScrapingView: View {
                     hintLineLimit: 3
                 ) {
                     MacSTToggle(isOn: Binding(
-                        get: { insightCommentEnabled },
+                        snapshot: insightCommentEnabled,
                         set: { newValue in
                             if newValue {
                                 confirmsInsightComment = true
@@ -6109,7 +6177,7 @@ private struct MacSTLyricsView: View {
                 MacSTGroup {
                     MacSTRow(String(localized: "lyrics_translation_enabled"), divider: false) {
                         MacSTToggle(isOn: Binding(
-                            get: { settings.isEnabled },
+                            snapshot: settings.isEnabled,
                             set: { settings.isEnabled = $0 }
                         ))
                     }
@@ -6120,7 +6188,7 @@ private struct MacSTLyricsView: View {
                         hintLineLimit: 3
                     ) {
                         MacSTToggle(isOn: Binding(
-                            get: { settings.showsBundledTranslations },
+                            snapshot: settings.showsBundledTranslations,
                             set: { settings.showsBundledTranslations = $0 }
                         ))
                     }
@@ -6296,7 +6364,7 @@ private struct MacSTLyricsView: View {
                     // 译文(和注音)行的字号,默认跟原文一起缩放(#320)。
                     MacSTRow(String(localized: "lyrics_translation_font_follows_original")) {
                         MacSTToggle(isOn: Binding(
-                            get: { lyricsTranslationFontScale <= 0 },
+                            snapshot: lyricsTranslationFontScale <= 0,
                             set: {
                                 lyricsTranslationFontScale = $0 ? 0 : lyricsFontScale
                                 CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsTranslationFontScale)
@@ -6392,12 +6460,9 @@ private struct MacSTLyricsView: View {
                     }
                     MacSTRow(
                         String(localized: "menu_bar_lyrics"),
-                        hint: String(localized: "menu_bar_lyrics_description"),
-                        divider: false
+                        hint: String(localized: "menu_bar_lyrics_description")
                     ) {
                         MacSTToggle(isOn: $menuBarLyricsEnabled)
-                            .accessibilityLabel(Text("menu_bar_lyrics"))
-                            .accessibilityHint(Text("menu_bar_lyrics_description"))
                     }
                     .settingsAnchor("lyrics.menuBar")
                     MacSTRow(String(localized: "desktop_lyrics_click_through")) {
@@ -6410,7 +6475,7 @@ private struct MacSTLyricsView: View {
                         hint: String(localized: "desktop_lyrics_island_description")
                     ) {
                         MacSTToggle(isOn: Binding(
-                            get: { desktopLyricsIsland },
+                            snapshot: desktopLyricsIsland,
                             set: { PrimuseAppDelegate.shared?.setDesktopLyricsIsland($0) }
                         ))
                         .accessibilityLabel(Text("desktop_lyrics_island"))
@@ -6615,16 +6680,19 @@ private struct MacSTAppleMusicView: View {
 
                 Spacer()
 
-                // 未授权 → "授权" 按钮; 已授权 → "去系统设置" (macOS 不让 app 主动撤销)
-                if appleMusic.authState == .authorized {
-                    MacSTButton(title: Lz("Open System Settings")) {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preferences.AppleAccount") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                } else {
+                // 未决定 → 弹窗请求授权; 已授权或被拒/受限 → 前往系统设置 → 隐私与安全性 → 媒体与 Apple Music
+                if appleMusic.authState == .notDetermined {
                     MacSTButton(title: Lz("Authorize"), prominent: true) {
                         Task { await appleMusic.requestAuthorization() }
+                    }
+                } else {
+                    MacSTButton(
+                        title: Lz("Open System Settings"),
+                        prominent: appleMusic.authState != .authorized
+                    ) {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media") {
+                            NSWorkspace.shared.open(url)
+                        }
                     }
                 }
             }
@@ -6633,6 +6701,11 @@ private struct MacSTAppleMusicView: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
+            // 只重读授权状态: `refreshLibraryAccess()` 请求一失败就把订阅信息清掉, 不该由打开设置页来触发。
+            .onAppear { appleMusic.refreshAuthorizationStatus() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                appleMusic.refreshAuthorizationStatus()
             }
         }
         .settingsAnchor("appleMusic.authorize")
@@ -6974,6 +7047,12 @@ private struct MacSTWidgetChecklistRow: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityRepresentation {
+            Toggle(isOn: $isOn) {
+                Text(verbatim: title)
+            }
+            .accessibilityHint(Text(verbatim: detail))
+        }
     }
 }
 
@@ -7623,7 +7702,7 @@ private struct MacSTCloudView: View {
                          hint: String(localized: "icloud_sync_footer"),
                          divider: false) {
                     MacSTToggle(isOn: Binding(
-                        get: { enabled },
+                        snapshot: enabled,
                         set: { newValue in
                             enabled = newValue
                             Task {
@@ -7749,7 +7828,7 @@ private struct MacSTCloudView: View {
                             divider: Bool = true) -> some View {
         MacSTRow(label, divider: divider) {
             MacSTToggle(isOn: Binding(
-                get: { isOn.wrappedValue },
+                snapshot: isOn.wrappedValue,
                 set: { newValue in
                     isOn.wrappedValue = newValue
                     guard newValue, enabled else { return }
@@ -8240,7 +8319,7 @@ private struct MacSTThemeView: View {
 
         MacSTSection(String(localized: "player_appearance_title")) {
             MacSTGroup {
-                MacSTRow(String(localized: "default_artwork_title")) {
+                MacSTRow(String(localized: "default_artwork_title"), divider: false) {
                     MacSTPicker(
                         selection: $missingArtworkStyle,
                         options: MissingArtworkStyle.allCases.map { ($0.rawValue, PMString($0.localizationKey)) },
@@ -8728,7 +8807,7 @@ private struct MacSTThemeView: View {
                     help: String(localized: "ambient_separate_setting_description")
                 ) {
                     MacSTToggle(isOn: Binding(
-                        get: { SpokenWordStore.shared.separatesAmbient },
+                        snapshot: SpokenWordStore.shared.separatesAmbient,
                         set: { SpokenWordStore.shared.setSeparatesAmbient($0) }
                     ))
                 }
@@ -9812,6 +9891,7 @@ private struct MacSTSSLView: View {
                             beginAdd()
                         }
                     }
+                    .settingsAnchor("security.addTrustedDomain")
                 } else {
                     ForEach(Array(certificates.enumerated()), id: \.element.id) { index, info in
                         MacSSLRow(info: info, divider: index != 0) {
@@ -9987,6 +10067,7 @@ private final class MacUpdateCheckWindowController: NSObject, NSWindowDelegate {
         )
         configure(win)
         win.center()
+        win.setFrameAutosaveName("PrimuseUpdateCheck")
         win.delegate = self
         window = win
         NSApp.activate(ignoringOtherApps: true)
@@ -10044,6 +10125,8 @@ private final class MacDiagnosticsWindowController: NSObject, NSWindowDelegate {
             rootView: MacDiagnosticsWindowView(activity: activity)
                 .applyPrimuseEnvironments()
         )
+        // 装好内容再恢复上次的窗口位置: 先恢复的话, 装内容时窗口又会被调回内容的大小。
+        win.setFrameAutosaveName("PrimuseDiagnostics")
         win.delegate = self
         window = win
         NSApp.activate(ignoringOtherApps: true)
@@ -10710,7 +10793,7 @@ private struct MacDiagnosticsWindowView: View {
                 divider: false
             ) {
                 MacSTToggle(isOn: Binding(
-                    get: { diagnosticModeExpiry != nil },
+                    snapshot: diagnosticModeExpiry != nil,
                     set: { enabled in
                         FileLogger.shared.setDiagnosticMode(enabled: enabled)
                         refreshDiagnosticMode()
@@ -11208,11 +11291,13 @@ private struct MacSmartNudgeSettings: View {
                 }
                 .settingsAnchor("playback.smartNudges")
                 if center.isEnabled {
+                    // 各种类的开关在 body 里读好, 行闭包拿的是这次渲染的快照。
+                    let disabledKinds = center.disabledKinds
                     ForEach(SmartNudgeKind.allCases, id: \.self) { kind in
                         MacSTRow(String(localized: String.LocalizationValue(kind.settingsTitleKey))) {
                             MacSTToggle(isOn: Binding(
-                                get: { center.isKindEnabled(kind) },
-                                set: { center.setKind(kind, enabled: $0) }
+                                snapshot: !disabledKinds.contains(kind),
+                                set: { SmartNudgeCenter.shared.setKind(kind, enabled: $0) }
                             ))
                         }
                     }

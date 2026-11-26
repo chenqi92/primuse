@@ -163,6 +163,9 @@ struct MacImmersiveEffectPicker: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("screen_idle_short_title"))
             .accessibilityValue(Text(LocalizedStringKey(screenIdleMode.titleKey)))
+            // 子元素收起之后这一格要自己报成按钮、自己带上「按下」: 旁白才能把档位面板点开。
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { showsScreenIdlePopover.toggle() }
             .accessibilityIdentifier("immersive.screenIdleMenu")
             .popover(isPresented: $showsScreenIdlePopover, arrowEdge: .top) {
                 VStack(alignment: .leading, spacing: 2) {

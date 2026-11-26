@@ -2204,7 +2204,7 @@ private struct MacImmersiveScrubber: View {
         .frame(height: 16)
         .allowsHitTesting(player.duration > 0)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("now_playing"))
+        .accessibilityLabel(Text("desktop_lyrics_island_progress"))
         .accessibilityValue(Text(verbatim: "\(player.currentTime.formattedDuration) / \(player.duration.formattedDuration)"))
         .accessibilityAdjustableAction { direction in
             guard player.duration > 0 else { return }

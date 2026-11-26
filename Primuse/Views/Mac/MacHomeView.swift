@@ -1645,7 +1645,7 @@ struct MacHomeView: View {
                     .foregroundStyle(PMColor.textFaint)
                     .lineLimit(1)
             }
-            Text("\(album.songCount) \(String(localized: "songs_count"))")
+            Text(LibraryCountText.songs(album.songCount))
                 .font(.system(size: 11))
                 .foregroundStyle(PMColor.textFaint)
         }
@@ -1870,7 +1870,7 @@ struct MacHomeView: View {
                 homeCollectionHeader(
                     eyebrow: "library_title",
                     title: LocalizedStringKey(HomeDiscoveryText.string("recent_albums")),
-                    detail: "\(albums.count) \(String(localized: "albums_count"))",
+                    detail: LibraryCountText.albums(albums.count),
                     onBack: onBack
                 )
 
@@ -1903,7 +1903,7 @@ struct MacHomeView: View {
                 homeCollectionHeader(
                     eyebrow: "library_title",
                     title: "recently_played",
-                    detail: "\(songs.count) \(String(localized: "songs_count"))",
+                    detail: LibraryCountText.songs(songs.count),
                     onBack: onBack
                 )
 
@@ -1934,7 +1934,7 @@ struct MacHomeView: View {
             homeCollectionHeader(
                 eyebrow: "library_title",
                 title: "tab_artists",
-                detail: "\(model.snapshot.artists.count) \(String(localized: "artists_count"))",
+                detail: LibraryCountText.artists(model.snapshot.artists.count),
                 onBack: onBack
             )
             .padding(.vertical, 24)
@@ -2104,7 +2104,7 @@ private struct MacHomeSourceStatusCard: View {
     @Environment(MusicScraperService.self) private var scraperService
 
     var body: some View {
-        card(title: "Source Status", spec: "SRC-* · LIB-14/15") {
+        card(title: "home_source_status_title", spec: "SRC-* · LIB-14/15") {
             VStack(alignment: .leading, spacing: PMSpace.m) {
                 HStack(spacing: PMSpace.m) {
                     metric(value: enabledSourcesCount, label: "home_enabled_sources")

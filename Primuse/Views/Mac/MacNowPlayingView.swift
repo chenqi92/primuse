@@ -1261,19 +1261,10 @@ struct MacNowPlayingView: View {
                     Spacer(minLength: isWindowFullScreen ? 120 : 80)
                         .frame(height: isWindowFullScreen ? 120 : 80)
                     if lyrics.isEmpty {
-                        if player.currentSong == nil || isLoadingLyrics {
+                        // 全屏时没有歌词也不写「暂无歌词」、不摆刮削与听写(#423),这两件在「更多」里照旧有。
+                        if player.currentSong == nil || isLoadingLyrics || isWindowFullScreen {
                             Color.clear.frame(height: 1)
                                 .padding(.top, lyricsRowSpacing)
-                        } else if isWindowFullScreen {
-                            VStack(spacing: 10) {
-                                Text("no_lyrics")
-                                    .font(.title2.weight(.medium))
-                                    .foregroundStyle(playerSecondaryColor)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .pmAppearFade(.contentAppear)
-                            .padding(.top, lyricsRowSpacing)
-                            .accessibilityIdentifier("nowPlaying.fullScreenNoLyrics")
                         } else {
                             VStack(spacing: 12) {
                                 Text("no_lyrics")
@@ -1292,7 +1283,7 @@ struct MacNowPlayingView: View {
                                             Image(systemName: "wand.and.stars")
                                                 .transition(.scale.combined(with: .opacity))
                                         }
-                                        Text("find_lyrics_action")
+                                        Text("scrape_song")
                                     }
                                     .font(.system(size: 12.5, weight: .semibold))
                                     .padding(.horizontal, 14)
@@ -2123,9 +2114,10 @@ struct MacNowPlayingView: View {
             }
 
             Button {
-                if isWindowFullScreen, let onExitFullScreen {
-                    onExitFullScreen()
-                } else {
+                // 全屏时标题栏没挂着,搜索框接不到这条通知:播放页交给主窗口收起(只收这一次,不切系统全屏),
+                // 标题栏装上以后由它补发聚焦(见 `MacContentView.focusSearchFromFullScreenPlayer`)。
+                // 这里先收的话,主窗口那边就看不出刚才还在全屏播放,聚焦又丢了。
+                if !(isWindowFullScreen || hostIsFullScreen) {
                     onClose()
                 }
                 NotificationCenter.default.post(name: .primuseFocusSearch, object: nil)
@@ -3497,7 +3489,6 @@ private struct MacNowPlayingFullScreenTransport: View {
         .help(Text(label))
         .accessibilityLabel(Text(label))
         .accessibilityValue(Text(active ? "a11y_value_on" : "a11y_value_off"))
-        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 

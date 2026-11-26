@@ -59,13 +59,13 @@ struct PMVolumeSlider: NSViewRepresentable {
         if slider.isEnabled != isEnabled { slider.isEnabled = isEnabled }
         let trackFillColor = fillColor.map { NSColor($0) }
         if slider.trackFillColor != trackFillColor { slider.trackFillColor = trackFillColor }
-        slider.setAccessibilityLabel(accessibilityLabel)
-        slider.setAccessibilityHelp(accessibilityHelp)
         slider.onEditingChanged = onEditingChanged
         if slider.trackThicknessScale != trackThicknessScale {
             slider.trackThicknessScale = trackThicknessScale
             slider.needsDisplay = true
         }
+        slider.setAccessibilityLabel(accessibilityLabel)
+        slider.setAccessibilityHelp(accessibilityHelp)
         coordinator.updateValue(clampedValue, on: slider)
     }
 
@@ -157,6 +157,8 @@ final class PMWindowSafeSlider: NSSlider {
         if custom, thicknessSliderCell == nil { thicknessSliderCell = PMThicknessSliderCell() }
         guard let replacement = custom ? thicknessSliderCell : systemSliderCell else { return }
         let fill = trackFillColor
+        let savedAccessibilityLabel = current.accessibilityLabel()
+        let savedAccessibilityHelp = current.accessibilityHelp()
         replacement.minValue = current.minValue
         replacement.maxValue = current.maxValue
         replacement.doubleValue = current.doubleValue
@@ -171,6 +173,8 @@ final class PMWindowSafeSlider: NSSlider {
         replacement.numberOfTickMarks = current.numberOfTickMarks
         replacement.tickMarkPosition = current.tickMarkPosition
         replacement.allowsTickMarkValuesOnly = current.allowsTickMarkValuesOnly
+        replacement.setAccessibilityLabel(savedAccessibilityLabel)
+        replacement.setAccessibilityHelp(savedAccessibilityHelp)
         cell = replacement
         trackFillColor = fill
         sendAction(on: [.leftMouseDown, .leftMouseDragged, .leftMouseUp])

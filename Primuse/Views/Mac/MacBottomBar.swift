@@ -331,7 +331,6 @@ struct MacBottomBar: View {
         .buttonStyle(.plain)
         .help(Text(help))
         .accessibilityLabel(Text(help))
-        .accessibilityAddTraits(isToggle && active ? .isSelected : [])
         .accessibilityValue(
             isToggle
                 ? Text(active ? "a11y_value_on" : "a11y_value_off")
@@ -619,7 +618,7 @@ private struct Scrubber: View {
         }
         .allowsHitTesting(isInteractive)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("now_playing"))
+        .accessibilityLabel(Text("desktop_lyrics_island_progress"))
         .accessibilityValue(Text(verbatim: isInteractive ? "\(value.formattedDuration) / \(total.formattedDuration)" : "--:--"))
         .accessibilityAdjustableAction { direction in
             guard isInteractive, total > 0 else { return }

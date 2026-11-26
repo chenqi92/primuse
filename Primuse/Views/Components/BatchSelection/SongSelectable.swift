@@ -136,13 +136,25 @@ private struct SongSelectableModifier: ViewModifier {
     }
     #endif
 
+    @ViewBuilder
     private func inactiveContent(_ content: Content) -> some View {
-        content
+        let base = content
             .contentShape(Rectangle())
             .accessibilityElement(children: .combine)
             .accessibilityAction(named: Text("batch_select")) {
                 selection.activate(seed: songID)
             }
+        #if os(macOS)
+        if let defaultAction {
+            base
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(.default, defaultAction)
+        } else {
+            base
+        }
+        #else
+        base
+        #endif
     }
 
     @ViewBuilder
@@ -259,6 +271,18 @@ private struct SongSelectableModifier: ViewModifier {
         selection.selectOnly(songID)
         #else
         selection.toggle(songID)
+        #endif
+    }
+}
+
+/// 给 `songSelectable(defaultAction:)` 用：只在 Mac 上给默认动作。
+/// iPhone 的多选靠不传默认动作时盖在整行上的勾选层（行尾的「⋯」也被它盖住），传了就没有这一层。
+enum SongSelectableDefaultAction {
+    static func macOnly(_ action: @escaping () -> Void) -> (() -> Void)? {
+        #if os(macOS)
+        return action
+        #else
+        return nil
         #endif
     }
 }

@@ -31,8 +31,8 @@ struct MacQueuePanel: View {
         // 面板永远占满右侧整列: 空态只有一小块内容, 不撑满的话会缩成一个灰块
         // 悬在窗口中间, 上下露出正文的底色。
         .frame(maxHeight: .infinity, alignment: .top)
+        // 容器不另起名字: 里面的标题「队列」已经标成标题, 再起一遍旁白会连读两次。
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("queue_title"))
         .accessibilityIdentifier("macQueuePanel")
         .background {
             ZStack {
@@ -288,7 +288,11 @@ struct MacQueuePanel: View {
                           restriction: AppleMusicPlaybackRestriction? = nil) -> some View {
         let song = displayedSong ?? entry.song
         let isDropTarget = dropTarget == reorderID && reorderID != nil
-        let accessibilityLabel = [ordinal.formatted(), song.title, library.artistDisplayName(for: song)]
+        // 这一行对旁白是一个整体(子元素收起), 源连不上、没订阅放不了时行里那句说明要一起读出来。
+        let playbackNotice: String? = unreachable
+            ? String(localized: "song_row_source_unreachable")
+            : restriction?.rowLabel
+        let accessibilityLabel = [ordinal.formatted(), song.title, library.artistDisplayName(for: song), playbackNotice]
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: ", ")
         let playbackTarget = HStack(alignment: .center, spacing: 8) {

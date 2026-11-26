@@ -217,10 +217,12 @@ final class DesktopLyricsWindowController {
                 sourceType: sourceType
             )
             guard self.isShowing else { return }
+            // 等歌词的这段时间里可能已经换了歌(或换成电台):「这首没有歌词」只对还在放的那一首说。
+            let lacksLyrics = loaded.isEmpty && player.currentSong?.id == song.id && !player.isLiveRadio
             PMToastPresenter.shared.show(
                 PMToastItem(
                     key: key,
-                    message: String(localized: loaded.isEmpty ? "desktop_lyrics_shown_no_lyrics" : "desktop_lyrics_shown"),
+                    message: String(localized: lacksLyrics ? "desktop_lyrics_shown_no_lyrics" : "desktop_lyrics_shown"),
                     systemImage: "captions.bubble.fill"
                 )
             )
@@ -500,7 +502,7 @@ final class DesktopLyricsWindowController {
         // 两条路径同时生效会把同一次拖动算两遍,窗口跑得比鼠标快一倍。
         panel.isMovableByWindowBackground = false
         panel.isFloatingPanel = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.minSize = NSSize(width: 90, height: 70)
         // 让本地监视器在指针压在面板自己头上时也能收到移动事件 —— 面板不

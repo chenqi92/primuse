@@ -140,6 +140,7 @@ extension Optional where Wrapped == DismissAction {
 struct MacSheetCloseButton: View {
     var handlesEscape = true
     let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
@@ -151,6 +152,7 @@ struct MacSheetCloseButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.4)
         .keyboardShortcut(handlesEscape ? .cancelAction : nil)
         .help(Text("close"))
         .accessibilityLabel(Text("close"))

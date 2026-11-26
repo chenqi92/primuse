@@ -35,6 +35,8 @@ struct MacMiniPlayerView: View {
     @State private var settledLyricsIdentity: LyricsLoadTaskIdentity?
     @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var lastManualLyricsScroll = Date.distantPast
+    /// 触控板、滚轮正在滚歌词(`onScrollPhaseChange` 报的阶段)。只在事件里读写, body 不读。
+    @State private var isScrollingLyricsByHand = false
     @State private var lyricsAutoFollowTask: Task<Void, Never>?
     @State private var airPlayShown = false
     @State private var preferences = MacUIPreferences.shared
@@ -480,7 +482,6 @@ struct MacMiniPlayerView: View {
                 .pmPointingHand()
                 .help(Text("shuffle"))
                 .accessibilityLabel(Text("shuffle"))
-                .accessibilityAddTraits(player.shuffleEnabled ? .isSelected : [])
                 .accessibilityValue(Text(player.shuffleEnabled ? "a11y_value_on" : "a11y_value_off"))
             }
 
@@ -570,7 +571,6 @@ struct MacMiniPlayerView: View {
                 .pmPointingHand()
                 .help(Text(isRepeating ? "spoken_word_repeat_chapter_stop" : "spoken_word_repeat_chapter"))
                 .accessibilityLabel(Text(isRepeating ? "spoken_word_repeat_chapter_stop" : "spoken_word_repeat_chapter"))
-                .accessibilityAddTraits(isRepeating ? .isSelected : [])
                 .accessibilityValue(Text(isRepeating ? "a11y_value_on" : "a11y_value_off"))
             } else {
                 Button { cycleRepeat() } label: {
@@ -589,7 +589,6 @@ struct MacMiniPlayerView: View {
                 .pmPointingHand()
                 .help(Text("repeat"))
                 .accessibilityLabel(Text("repeat"))
-                .accessibilityAddTraits(player.repeatMode != .off ? .isSelected : [])
                 .accessibilityValue(Text(player.repeatMode != .off ? "a11y_value_on" : "a11y_value_off"))
             }
         }
@@ -661,18 +660,22 @@ struct MacMiniPlayerView: View {
                 .padding(.horizontal, 4)
             }
             .onChange(of: currentIndex) { _, new in
-                guard Date().timeIntervalSince(lastManualLyricsScroll) >= 3 else { return }
+                guard !isScrollingLyricsByHand,
+                      Date().timeIntervalSince(lastManualLyricsScroll) >= 3 else { return }
                 scrollLyrics(to: new, proxy: proxy, animated: true)
             }
             .onScrollPhaseChange { _, newPhase in
                 switch newPhase {
                 case .interacting, .decelerating:
                     lyricsAutoFollowTask?.cancel()
+                    isScrollingLyricsByHand = true
                     lastManualLyricsScroll = Date()
                 case .idle:
-                    if Date().timeIntervalSince(lastManualLyricsScroll) < 3 {
-                        scheduleLyricsAutoFollow(proxy: proxy)
-                    }
+                    // 阶段只在切换时报一次: 手还在滚的这段时间不管多长都不抢回去, 停下来那一刻起再等 3 秒才自动跟。
+                    guard isScrollingLyricsByHand else { break }
+                    isScrollingLyricsByHand = false
+                    lastManualLyricsScroll = Date()
+                    scheduleLyricsAutoFollow(proxy: proxy)
                 default:
                     break
                 }
@@ -696,6 +699,7 @@ struct MacMiniPlayerView: View {
             }
             .onDisappear {
                 lyricsAutoFollowTask?.cancel()
+                isScrollingLyricsByHand = false
             }
             .pmForceHideScrollers()
         }
@@ -732,7 +736,7 @@ struct MacMiniPlayerView: View {
         lyricsAutoFollowTask?.cancel()
         lyricsAutoFollowTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled,
+            guard !Task.isCancelled, !isScrollingLyricsByHand,
                   Date().timeIntervalSince(lastManualLyricsScroll) >= 3 else { return }
             scrollLyrics(to: currentIndex, proxy: proxy, animated: true)
         }

@@ -861,14 +861,13 @@ private struct MacRadioStationCard<Actions: View>: View {
                     PMRoundBtn(icon: "arrow.up", size: PMSize.smallBtn, iconSize: 11, style: .glass, help: "home_edit_move_up") {
                         onMoveUp()
                     }
+                    // 不能点时由 `PMRoundBtn` 自己压淡, 这里不再叠一层透明度。
                     .disabled(!canMoveUp)
-                    .opacity(canMoveUp ? 1 : 0.35)
 
                     PMRoundBtn(icon: "arrow.down", size: PMSize.smallBtn, iconSize: 11, style: .glass, help: "home_edit_move_down") {
                         onMoveDown()
                     }
                     .disabled(!canMoveDown)
-                    .opacity(canMoveDown ? 1 : 0.35)
 
                     if !station.isServerMirror {
                         PMRoundBtn(icon: "pencil", size: PMSize.smallBtn, iconSize: 11, style: .glass, help: "edit") {
@@ -882,7 +881,7 @@ private struct MacRadioStationCard<Actions: View>: View {
                     size: PMSize.playBtn,
                     iconSize: 13,
                     style: isCurrent ? .accent : .glass,
-                    help: isPlaying ? "pause" : "play"
+                    help: isPlaying ? "radio_stop" : "play"
                 ) {
                     onPlay()
                 }
@@ -940,7 +939,7 @@ private struct MacRadioStationCoverTile<Actions: View>: View {
                             size: PMSize.smallBtn,
                             iconSize: 11,
                             style: isCurrent ? .accent : .glass,
-                            help: isPlaying ? "pause" : "play"
+                            help: isPlaying ? "radio_stop" : "play"
                         ) {
                             onPlay()
                         }

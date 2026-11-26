@@ -43,6 +43,8 @@ struct DesktopLyricsView: View {
     private var lyrics: [LyricLine] { lyricsDocument.lines }
     @State private var currentIndex: Int = -1
     @State private var lyricsLoadRevision: UInt = 0
+    /// 最近一次真正跑完的歌词加载对应的世代。跟当前世代不一致就说明还在加载(和迷你播放器同一个做法)。
+    @State private var settledLyricsIdentity: LyricsLoadTaskIdentity?
     @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var colorPaletteShown = false
     @State private var settingsShown = false
@@ -244,7 +246,13 @@ struct DesktopLyricsView: View {
         .onDisappear {
             interaction.keepsEngaged = false
         }
-        .task(id: lyricsLoadTaskIdentity) { await refreshLyrics() }
+        .task(id: lyricsLoadTaskIdentity) {
+            let identity = lyricsLoadTaskIdentity
+            await refreshLyrics()
+            // 被换歌顶掉的旧任务恢复执行时不能写回旧世代。
+            guard lyricsLoadTaskIdentity == identity else { return }
+            settledLyricsIdentity = identity
+        }
         .background {
             DesktopLyricsTimeObserver { updateIndex(time: $0) }
         }
@@ -343,7 +351,7 @@ struct DesktopLyricsView: View {
                         .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
-                    if player.currentSong != nil && lyrics.isEmpty {
+                    if player.currentSong != nil && lyrics.isEmpty && !isLoadingLyrics {
                         Text("no_lyrics")
                             .font(.system(size: max(12, nextFontSize(in: size) * 0.65), weight: .medium))
                             .foregroundStyle(.white.opacity(0.62))
@@ -363,7 +371,7 @@ struct DesktopLyricsView: View {
                         .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
-                    if player.currentSong != nil && lyrics.isEmpty {
+                    if player.currentSong != nil && lyrics.isEmpty && !isLoadingLyrics {
                         Text("no_lyrics")
                             .font(.system(size: max(12, nextFontSize(in: size) * 0.65), weight: .medium))
                             .foregroundStyle(.white.opacity(0.62))
@@ -884,6 +892,11 @@ struct DesktopLyricsView: View {
             songID: player.currentSong?.id,
             revision: lyricsLoadRevision
         )
+    }
+
+    /// 歌词还在加载。换歌时 `reloadLyrics` 先清空歌词, 这段空窗期不写「暂无歌词」。
+    private var isLoadingLyrics: Bool {
+        settledLyricsIdentity != lyricsLoadTaskIdentity
     }
 
     private func refreshLyrics() async {
