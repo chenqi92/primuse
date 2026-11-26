@@ -822,6 +822,64 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertFalse(genres.isEmpty)
     }
 
+    /// 按艺人取歌在目录可读时问目录,整库的按艺人索引不留;答案与没有目录、按内存索引算的同一个库
+    /// 逐首相同(多艺人署名、只当过专辑艺人、没有艺人、有声书、停用源)。
+    func testArtistSongsFromTheCatalogMatchTheInMemoryIndexWithoutRetainingIt() async throws {
+        let songs = Self.fixture()
+        let library = makeLibrary(disabledSourceIDs: [Self.sourceB])
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        XCTAssertEqual(library.catalogHost?.revisions.isReadable, true)
+
+        let memoryDirectory = directory.appendingPathComponent("memory-only", isDirectory: true)
+        try FileManager.default.createDirectory(at: memoryDirectory, withIntermediateDirectories: true)
+        let reference = MusicLibrary(
+            disabledSourceIDs: [Self.sourceB], storageDirectory: memoryDirectory,
+            artistNameConfiguration: .defaultValue, catalogMirroring: .disabled
+        )
+        libraries.append(reference)
+        reference.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        for _ in 0..<800 where reference.visibleSongs.count != library.visibleSongs.count {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(reference.visibleSongs.map(\.id), library.visibleSongs.map(\.id))
+
+        let artistIDs = Set(reference.visibleArtists.map(\.id) + reference.visibleAlbumArtists.map(\.id)
+            + ["Ada", "Ben", "Host", "Narrator", "Nobody"].map { MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey($0)) })
+        var withSongs = 0
+        for artistID in artistIDs.sorted() {
+            let expected = reference.songs(forArtist: artistID).map(\.id)
+            XCTAssertEqual(library.songs(forArtist: artistID).map(\.id), expected, artistID)
+            XCTAssertEqual(
+                library.scopedAlternateArtworkSong(forArtistID: artistID, excludingSongIDs: [], excludingReferences: [])?.id,
+                reference.scopedAlternateArtworkSong(forArtistID: artistID, excludingSongIDs: [], excludingReferences: [])?.id,
+                artistID
+            )
+            if !expected.isEmpty { withSongs += 1 }
+        }
+        XCTAssertGreaterThan(withSongs, 4)
+        for name in ["Ada", "Ben", "Artist 2", "Narrator", "Host", "Nobody"] {
+            XCTAssertEqual(library.trackSongIDs(forArtistNamed: name), reference.trackSongIDs(forArtistNamed: name), name)
+        }
+        XCTAssertFalse(library.retainsArtistSongIndexForTesting, "the catalog answers; the whole-library index is not kept")
+        XCTAssertTrue(reference.retainsArtistSongIndexForTesting)
+
+        // 改了一首的艺人:目录提交后,按艺人取歌跟着变。
+        var moved = songs[0]
+        moved.artistName = "Ben"
+        library.replaceSong(moved)
+        reference.replaceSong(moved)
+        await library.waitForCatalogMirror()
+        for _ in 0..<400 where library.songs(forArtist: MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey("Ben"))).map(\.id)
+            != reference.songs(forArtist: MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey("Ben"))).map(\.id) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        for name in ["Ada", "Ben"] {
+            let id = MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey(name))
+            XCTAssertEqual(library.songs(forArtist: id).map(\.id), reference.songs(forArtist: id).map(\.id), "after edit: \(name)")
+        }
+    }
+
     /// 目录停下(不再跟写)后不登记、不作答,调用方读内存模型。
     func testCatalogReadsByIDStopWhenTheMirrorStopsFollowing() async throws {
         let library = makeLibrary()

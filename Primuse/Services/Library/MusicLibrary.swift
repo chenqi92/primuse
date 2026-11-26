@@ -4673,7 +4673,11 @@ final class MusicLibrary {
     /// Artist detail bodies can ask for the same slice several times per frame.
     /// Keep stable IDs here and resolve through `lookupVisibleSong` so lightweight
     /// lyrics/artwork patches remain current without rescanning or reparsing the library.
+    /// 可见歌曲按艺人(署名)分的 id。目录可读时不留(按艺人取歌直接问目录的 `songArtistLookup`),
+    /// 只在目录读不了时留着或按需重建(`artistSongIndexIsCurrent`)。
     @ObservationIgnored private var visibleSongIDsByArtistID: [String: [String]] = [:]
+    /// `visibleSongIDsByArtistID` 是不是眼下这份可见歌曲的。
+    @ObservationIgnored private var artistSongIndexIsCurrent = true
     @ObservationIgnored private var visibleSongIDsByGenreID: [String: [String]] = [:]
     @ObservationIgnored private var visibleAlbumIDsByGenreID: [String: [String]] = [:]
     /// Where each source's songs sit in `visibleSongs`, in library order.
@@ -5941,7 +5945,14 @@ final class MusicLibrary {
         albumIDsByAlbumArtistID = prepared.albumArtistIndex.albumIDsByArtistID
         albumArtistCreditsRevision &+= 1
         albumOnlyArtistSongIDsCache = [:]
-        visibleSongIDsByArtistID = prepared.songIDsByArtistID
+        // 目录可读时按艺人取歌直接问目录,整库这张表不留(几十万首时上万个艺人、每首一条 id)。
+        if catalogHost?.revisions.isReadable == true {
+            visibleSongIDsByArtistID = [:]
+            artistSongIndexIsCurrent = false
+        } else {
+            visibleSongIDsByArtistID = prepared.songIDsByArtistID
+            artistSongIndexIsCurrent = true
+        }
         visibleLookupGeneration &+= 1
         visibleSongIDsByGenreID = prepared.songIDsByGenreID
         visibleAlbumIDsByGenreID = prepared.albumIDsByGenreID
@@ -9435,7 +9446,7 @@ final class MusicLibrary {
         excludingReferences: Set<String>
     ) -> Song? {
         _ = artworkLookupToken(for: .artist(artistID)).revision
-        let songIDs = visibleSongIDsByArtistID[artistID] ?? albumOnlyArtistSongIDs(artistID)
+        let songIDs = visibleTrackSongIDs(forArtist: artistID) ?? albumOnlyArtistSongIDs(artistID)
         var best: Song?
         for songID in songIDs {
             guard let song = lookupVisibleSong(songID),
@@ -9635,7 +9646,7 @@ final class MusicLibrary {
             case .album:
                 isEligible = song.albumID == owner.id
             case .artist:
-                isEligible = visibleSongIDsByArtistID[owner.id]?.contains(resolvedSongID) == true
+                isEligible = visibleTrackSongIDs(forArtist: owner.id)?.contains(resolvedSongID) == true
             case .playlist:
                 isEligible = playlistSongIDs[owner.id]?.contains(resolvedSongID) == true
             }
@@ -10089,15 +10100,57 @@ final class MusicLibrary {
 
     func songs(forArtist artistID: String) -> [Song] {
         _ = visibleSongsReference
-        if let songIDs = visibleSongIDsByArtistID[artistID] {
+        if let songIDs = visibleTrackSongIDs(forArtist: artistID) {
             return songIDs.compactMap { lookupVisibleSong($0) }
         }
         return albumOnlyArtistSongIDs(artistID).compactMap { lookupVisibleSong($0) }
     }
 
     func trackSongIDs(forArtistNamed name: String) -> [String] {
-        visibleSongIDsByArtistID[Self.hashID(ArtistIdentityPolicy.groupingKey(name))] ?? []
+        visibleTrackSongIDs(forArtist: Self.hashID(ArtistIdentityPolicy.groupingKey(name))) ?? []
     }
+
+    /// 署名里有这位艺人的可见歌曲 id,库内顺序;这位艺人没有署名的歌时为 nil(只当过专辑艺人)。
+    /// 目录可读时问目录的 `songArtistLookup`(与 `LibraryGroupingReference.makeVisibleLookups` 同一套
+    /// 署名规则),目录跟写内存有一小段滞后,刚改的歌下一次才算进来(读它的界面在目录提交后重画)。
+    /// 目录读不了、读失败时用内存里的表,不是眼下这份就先按可见歌曲重建。
+    private func visibleTrackSongIDs(forArtist artistID: String) -> [String]? {
+        if let host = catalogHost, host.revisions.isReadable, let catalog = host.mirror.readableCatalog {
+            _ = host.revisions.songs
+            _ = host.revisions.membership
+            _ = host.revisions.everything
+            do {
+                let rowids = try catalog.artistSongRowList(artistID: artistID).rowids
+                guard !rowids.isEmpty else { return nil }
+                return try catalog.songIDs(atRowids: Array(rowids)).compactMap { $0 }
+            } catch {
+                plog("📚 artist songs catalog read failed (\(error)); using the in-memory library")
+            }
+        }
+        if !artistSongIndexIsCurrent {
+            visibleSongIDsByArtistID = Self.makeArtistSongIndex(
+                visibleSongsLookupReference.value, configuration: artistNameConfiguration
+            )
+            artistSongIndexIsCurrent = true
+        }
+        return visibleSongIDsByArtistID[artistID]
+    }
+
+    /// 同 `prepareVisibleCache` 里的 `songIDsByArtistID`(只要这一张表的时候)。
+    private nonisolated static func makeArtistSongIndex(
+        _ songs: [Song],
+        configuration: ArtistNameConfiguration
+    ) -> [String: [String]] {
+        LibraryGroupingReference.makeVisibleLookups(
+            songs: songs,
+            artistNameConfiguration: configuration,
+            spokenWordClassification: .empty,
+            unknownArtist: String(localized: "unknown_artist")
+        ).songIDsByArtistID
+    }
+
+    /// 测试:内存里此刻有没有留着整库的按艺人索引。
+    var retainsArtistSongIndexForTesting: Bool { artistSongIndexIsCurrent && !visibleSongIDsByArtistID.isEmpty }
 
     func isAlbum(_ album: Album, creditedToArtist artistID: String) -> Bool {
         _ = albumArtistCreditsRevision
@@ -19519,6 +19572,11 @@ extension MusicLibrary: LibraryCatalogOwner {
     func catalogReadabilityDidChange(_ readable: Bool) {
         // 迁移过的目录在启动后一百来毫秒就可读:影子校验错开冷启动再做。
         if readable { scheduleCatalogShadowVerification(reason: "catalog-ready", after: .seconds(5)) }
+        // 目录能答按艺人取歌了:内存里那张整库表放掉(读不了时再按需重建)。
+        if readable, !visibleSongIDsByArtistID.isEmpty {
+            visibleSongIDsByArtistID = [:]
+            artistSongIndexIsCurrent = false
+        }
     }
 
     /// 曲库就绪后启动目录(打开、迁移都在后台)。重载(电视装快照)时不重复启动。
@@ -19659,7 +19717,9 @@ extension MusicLibrary: LibraryCatalogOwner {
                 visibleArtists: visibleArtists,
                 songs: songs,
                 visibleSongs: visibleSongs,
-                songIDsByArtistID: visibleSongIDsByArtistID,
+                songIDsByArtistID: artistSongIndexIsCurrent
+                    ? visibleSongIDsByArtistID
+                    : Self.makeArtistSongIndex(visibleSongsLookupReference.value, configuration: artistNameConfiguration),
                 spokenWordSongIDs: spokenWordSongIDs,
                 ambientSongIDs: ambientSongIDs,
                 podcastSongIDs: Set(localPodcastSongs.map(\.id)),
