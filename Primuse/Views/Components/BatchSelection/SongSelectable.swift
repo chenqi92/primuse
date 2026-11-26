@@ -275,6 +275,18 @@ private struct SongSelectableModifier: ViewModifier {
     }
 }
 
+/// 给 `songSelectable(defaultAction:)` 用：只在 Mac 上给默认动作。
+/// iPhone 的多选靠不传默认动作时盖在整行上的勾选层（行尾的「⋯」也被它盖住），传了就没有这一层。
+enum SongSelectableDefaultAction {
+    static func macOnly(_ action: @escaping () -> Void) -> (() -> Void)? {
+        #if os(macOS)
+        return action
+        #else
+        return nil
+        #endif
+    }
+}
+
 extension View {
     /// 让一行歌参与多选。非选择模式下完全透明 —— 既不改布局也不拦手势。
     ///

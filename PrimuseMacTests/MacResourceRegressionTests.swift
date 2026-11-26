@@ -1842,32 +1842,51 @@ final class MacLibraryAuditRegressionTests: XCTestCase {
     func testLibraryCountTextSingularPluralAndPlayableRatio() throws {
         let enPath = try XCTUnwrap(Bundle.main.path(forResource: "en", ofType: "lproj"))
         let enBundle = try XCTUnwrap(Bundle(path: enPath))
+        // 数字分组和百分号的写法跟着地区走: 钉住一个地区, 断言才不随跑测试那台机器的设置变。
+        let enUS = Locale(identifier: "en_US")
 
-        XCTAssertEqual(LibraryCountText.songs(1, bundle: enBundle), "1 song")
-        XCTAssertEqual(LibraryCountText.songs(2, bundle: enBundle), "2 songs")
-        XCTAssertEqual(LibraryCountText.albums(1, bundle: enBundle), "1 album")
-        XCTAssertEqual(LibraryCountText.albums(2, bundle: enBundle), "2 albums")
-        XCTAssertEqual(LibraryCountText.artists(1, bundle: enBundle), "1 artist")
-        XCTAssertEqual(LibraryCountText.artists(2, bundle: enBundle), "2 artists")
-        XCTAssertEqual(LibraryCountText.genres(1, bundle: enBundle), "1 genre")
-        XCTAssertEqual(LibraryCountText.genres(2, bundle: enBundle), "2 genres")
-        XCTAssertEqual(LibraryCountText.playlists(1, bundle: enBundle), "1 playlist")
-        XCTAssertEqual(LibraryCountText.playlists(2, bundle: enBundle), "2 playlists")
-        XCTAssertEqual(LibraryCountText.rules(1, bundle: enBundle), "1 rule")
-        XCTAssertEqual(LibraryCountText.rules(2, bundle: enBundle), "2 rules")
+        XCTAssertEqual(LibraryCountText.songs(1, bundle: enBundle, locale: enUS), "1 song")
+        XCTAssertEqual(LibraryCountText.songs(2, bundle: enBundle, locale: enUS), "2 songs")
+        XCTAssertEqual(LibraryCountText.songs(12_345, bundle: enBundle, locale: enUS), "12,345 songs")
+        XCTAssertEqual(LibraryCountText.formattedSongs(12_345, bundle: enBundle, locale: enUS), "12,345 songs")
+        XCTAssertEqual(LibraryCountText.albums(1, bundle: enBundle, locale: enUS), "1 album")
+        XCTAssertEqual(LibraryCountText.albums(2, bundle: enBundle, locale: enUS), "2 albums")
+        XCTAssertEqual(LibraryCountText.formattedAlbums(12_345, bundle: enBundle, locale: enUS), "12,345 albums")
+        XCTAssertEqual(LibraryCountText.artists(1, bundle: enBundle, locale: enUS), "1 artist")
+        XCTAssertEqual(LibraryCountText.artists(2, bundle: enBundle, locale: enUS), "2 artists")
+        XCTAssertEqual(LibraryCountText.artists(23_456, bundle: enBundle, locale: enUS), "23,456 artists")
+        XCTAssertEqual(LibraryCountText.genres(1, bundle: enBundle, locale: enUS), "1 genre")
+        XCTAssertEqual(LibraryCountText.genres(2, bundle: enBundle, locale: enUS), "2 genres")
+        XCTAssertEqual(LibraryCountText.playlists(1, bundle: enBundle, locale: enUS), "1 playlist")
+        XCTAssertEqual(LibraryCountText.playlists(2, bundle: enBundle, locale: enUS), "2 playlists")
+        XCTAssertEqual(LibraryCountText.rules(1, bundle: enBundle, locale: enUS), "1 rule")
+        XCTAssertEqual(LibraryCountText.rules(2, bundle: enBundle, locale: enUS), "2 rules")
         XCTAssertEqual(LibraryCountText.plays(1, bundle: enBundle), "1 play")
         XCTAssertEqual(LibraryCountText.plays(2, bundle: enBundle), "2 plays")
         XCTAssertEqual(LibraryCountText.monthlyPlays(1, bundle: enBundle), "1 play this month")
         XCTAssertEqual(LibraryCountText.monthlyPlays(2, bundle: enBundle), "2 plays this month")
-        XCTAssertEqual(LibraryCountText.results(1, bundle: enBundle), "1 result")
-        XCTAssertEqual(LibraryCountText.results(2, bundle: enBundle), "2 results")
+        XCTAssertEqual(LibraryCountText.results(1, bundle: enBundle, locale: enUS), "1 result")
+        XCTAssertEqual(LibraryCountText.results(2, bundle: enBundle, locale: enUS), "2 results")
+        XCTAssertEqual(LibraryCountText.results(12_345, bundle: enBundle, locale: enUS), "12,345 results")
         XCTAssertEqual(
-            LibraryCountText.folderCounts(subdirectories: 1, songs: 1, bundle: enBundle),
+            LibraryCountText.folderCounts(subdirectories: 1, songs: 1, bundle: enBundle, locale: enUS),
             "1 subdirectory · 1 song"
         )
         XCTAssertEqual(
-            LibraryCountText.playableRatio(playable: 1472, total: 1472, bundle: enBundle),
+            LibraryCountText.folderCounts(subdirectories: 2, songs: 12_345, bundle: enBundle, locale: enUS),
+            "2 subdirectories · 12,345 songs"
+        )
+        XCTAssertEqual(
+            LibraryCountText.playableRatio(playable: 1472, total: 1472, bundle: enBundle, locale: enUS),
             "Playable ratio 100%"
+        )
+        XCTAssertEqual(
+            LibraryCountText.playableRatio(playable: 736, total: 1472, bundle: enBundle, locale: enUS),
+            "Playable ratio 50%"
+        )
+        XCTAssertEqual(
+            LibraryCountText.playableRatio(playable: 0, total: 0, bundle: enBundle, locale: enUS),
+            "Playable ratio 0%"
         )
     }
 

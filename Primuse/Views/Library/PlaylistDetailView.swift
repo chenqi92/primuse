@@ -2072,7 +2072,8 @@ struct PlaylistDetailView: View {
                                         defaultAction: { playSong(song) }
                                     )
                                     .contextMenu {
-                                        macSongContextMenu(for: song, isPinned: rowPinned)
+                                        // 菜单里读曲库、离线状态、多选状态：放进小视图，建行时不读。
+                                        MacDeferredSongMenu { macSongContextMenu(for: song, isPinned: rowPinned) }
                                     }
                             case .pending(let pending):
                                 HStack(spacing: 12) {

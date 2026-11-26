@@ -57,9 +57,12 @@ final class SongListLocation {
     private(set) var highlightedSongID: String?
     private(set) var viewportBounds: CGRect?
     private(set) var hasViewport = false
+    /// 没有定位请求时视口变化（拖窗口大小）不逐帧通知各行；停下来后加一，行按新视口重判一次可见。
+    private(set) var settledViewportRevision = 0
     @ObservationIgnored private var latestViewportBounds: CGRect?
     @ObservationIgnored private var visibleIDs: Set<String> = []
     @ObservationIgnored private var highlightTask: Task<Void, Never>?
+    @ObservationIgnored private var viewportSettleTask: Task<Void, Never>?
     private let highlightDuration: Duration
 
     var currentViewportBounds: CGRect? { latestViewportBounds ?? viewportBounds }
@@ -95,8 +98,20 @@ final class SongListLocation {
             viewportBounds = bounds
         } else if request != nil, viewportBounds != bounds {
             viewportBounds = bounds
+        } else if request == nil, latestViewportBounds != bounds {
+            scheduleViewportSettled()
         }
         latestViewportBounds = bounds
+    }
+
+    /// 视口变了而行自己的位置没变（从下边缘拖矮窗口）时，行不会自己重判可见，`visibleIDs` 里留着
+    /// 按旧视口记下的「可见」，下一次定位就只高亮不滚动。等尺寸停下来补一次通知，不必每一帧都重算所有行。
+    private func scheduleViewportSettled() {
+        viewportSettleTask?.cancel()
+        viewportSettleTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            self?.settledViewportRevision &+= 1
+        }
     }
 
     func reveal(_ songID: String, requestID: UUID?) {
@@ -138,6 +153,8 @@ private struct SongLocationRowModifier: ViewModifier {
     func body(content: Content) -> some View {
         let usesViewport = location?.hasViewport == true
         let activeViewport = location?.request != nil ? location?.viewportBounds : nil
+        // 只为登记观察：视口停下来后这个数加一，下面的可见性探针按新视口重算一次。不量视口的列表（iOS）不读。
+        let _ = usesViewport ? location?.settledViewportRevision : nil
         let highlightID = location?.highlightedSongID == songID ? location?.request?.id : nil
         content
         .environment(\.songLocationEmphasis, emphasis)
@@ -2198,7 +2215,8 @@ struct SongListView: View {
         if showsEmptyLibrary {
             if case .source(let sourceID) = scope, let source = sourcesStore.source(id: sourceID) {
                 EmptyStateView(
-                    titleKey: LocalizedStringKey(source.name),
+                    // 源名是用户起的: 用插值传进去(键是 "%@"), 不拿它当本地化键去查, 也不按 Markdown 解析。
+                    titleKey: "\(source.name)",
                     descriptionKey: "source_empty_desc",
                     systemImage: source.type.iconName,
                     actionLabel: onOpenSources == nil ? nil : "sources_manage_action",
@@ -8032,6 +8050,17 @@ private struct MacSongRowContainer<Content: View & Equatable & Sendable, Menu: V
 #endif
 
 #if os(macOS)
+/// 详情页（专辑、艺人、歌单、智能歌单）曲目行的右键菜单内容。`contextMenu` 在建行时就要拿到菜单内容,
+/// 菜单里读的曲库、离线状态、有声分类和多选状态放进这个小视图自己的 body: 建行时只存下闭包、不读,
+/// 这些状态变了也只重算这一份菜单, 不牵动整页（道理同上面的 `MacSongRowContainer`）。
+struct MacDeferredSongMenu<Items: View>: View {
+    @ViewBuilder let items: () -> Items
+
+    var body: some View {
+        items()
+    }
+}
+
 /// Mac 歌曲列表右键菜单里的「重新读取文件标签」。可用条件、文案和 iPhone 长按菜单「编辑」里那一项一样；
 /// 补读服务的状态只在这个小视图里读，读标签开始、结束只重算这一项，不牵动整行。
 struct MacRereadSongTagsMenuButton: View {

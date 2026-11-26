@@ -240,12 +240,14 @@ struct ArtistDetailView: View {
     }
 
     private var topSongs: [Song] {
-        let played = rankedSongs.filter { effectivePlayCount(for: $0) > 0 }
         #if os(iOS)
-        return Array(played.prefix(6))
+        let limit = 6
         #else
-        return Array(played.prefix(8))
+        let limit = 8
         #endif
+        // `rankSongs` 先按本地次数、再按服务器次数从多到少排，播过的歌都排在最前面：
+        // 只看前几首就够了，不必每次读都把这位艺人的歌全筛一遍。
+        return Array(rankedSongs.prefix(limit).prefix(while: { effectivePlayCount(for: $0) > 0 }))
     }
     private var albumCount: Int { releaseAlbums.count + appearsOnAlbums.count }
     private var selectableSongIDs: [String] { topSongs.map(\.id) }
@@ -943,7 +945,8 @@ struct ArtistDetailView: View {
                         macTopSongRow(
                             song,
                             index: index,
-                            playCount: effectivePlayCount(for: song)
+                            // 这一栏按本地次数排（相同再看服务器次数），显示的也是本地次数，数字才跟着顺序走。
+                            playCount: listeningSnapshot.playCountsBySongID[song.id, default: 0]
                         )
                         .songLocationRow(song.id)
                         .songSelectable(
@@ -953,7 +956,8 @@ struct ArtistDetailView: View {
                             defaultAction: { playSong(song) }
                         )
                         .contextMenu {
-                            macTopSongContextMenu(for: song)
+                            // 菜单里读曲库、离线状态、多选状态：放进小视图，建行时不读。
+                            MacDeferredSongMenu { macTopSongContextMenu(for: song) }
                         }
                     }
                 }
@@ -1416,7 +1420,7 @@ private struct ArtistAllSongsView: View {
                                 songID: song.id,
                                 selection: selection,
                                 orderedIDs: { songs.map(\.id) },
-                                defaultAction: { playSong(song) }
+                                defaultAction: SongSelectableDefaultAction.macOnly { playSong(song) }
                             )
 
                             if index != songs.count - 1 {

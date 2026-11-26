@@ -8326,13 +8326,14 @@
 "stats_server_rank_events" = "Historique horodaté";
 "stats_server_rank_cumulative_footer" = "Agrégé à partir du playCount cumulé par titre (historique non daté inclus), aligné sur « Écoutes cumulées ».";
 "stats_server_rank_events_footer" = "Agrégé à partir des écoutes horodatées du serveur, aligné sur « Écoutes enregistrées » pour cette période.";
+"sources_manage_action" = "Gérer les sources";
+"stats_play_count_singular" = "1 écoute";
 "song_count_singular" = "1 morceau";
 "album_count_singular" = "1 album";
 "artist_count_singular" = "1 artiste";
 "genre_count_singular" = "1 genre";
 "playlist_count_singular" = "1 playlist";
 "rule_count_singular" = "1 règle";
-"stats_play_count_singular" = "1 écoute";
 "artist_monthly_plays_singular" = "1 écoute ce mois-ci";
 "filter_result_singular" = "1 résultat";
 "filter_results_format" = "%d résultats";
@@ -8342,7 +8343,6 @@
 "liked_songs_empty_desc" = "Cliquez sur le cœur d'un morceau pour l'ajouter ici.";
 "playlist_empty_desc" = "Ajoutez des morceaux de votre bibliothèque pour remplir cette playlist.";
 "source_empty_desc" = "Aucun morceau n'a encore été analysé depuis cette source.";
-"sources_manage_action" = "Gérer les sources";
 "artist_most_played_empty" = "Aucune écoute enregistrée pour l'instant. Écoutez des morceaux de cet artiste pour les classer ici.";
 "artist_most_played_period" = "Depuis le début";
 "home_source_status_title" = "État des sources";

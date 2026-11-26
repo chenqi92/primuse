@@ -3410,7 +3410,7 @@ private struct GenreDetailView: View {
                             songID: song.id,
                             selection: selection,
                             orderedIDs: { songIDs },
-                            defaultAction: { playSong(song) }
+                            defaultAction: SongSelectableDefaultAction.macOnly { playSong(song) }
                         )
 
                         if songID != lastID {

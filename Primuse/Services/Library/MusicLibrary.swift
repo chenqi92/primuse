@@ -19693,6 +19693,9 @@ extension MusicLibrary: LibraryCatalogOwner {
         catalogHost?.mirror.updateFileNameIndexes(indexes)
     }
 
+    /// 扫描走查要不要拿曲库目录给「已有的歌」做影子比对(与深度影子校验同一个开关)。
+    var catalogScanLookupShadowEnabled: Bool { catalogHost != nil && catalogShadowMode == .deep }
+
     private var catalogShadowMode: LibraryCatalogShadowRequest.Mode {
         if let catalogShadowModeOverride { return catalogShadowModeOverride }
         if UserDefaults.standard.bool(forKey: Self.catalogDeepShadowDefaultsKey) { return .deep }

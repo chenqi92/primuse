@@ -1257,7 +1257,8 @@ struct AlbumDetailView: View {
                                     defaultAction: { playSong(song) }
                                 )
                                 .contextMenu {
-                                    macTrackContextMenu(for: song)
+                                    // 菜单里读曲库、离线状态、有声分类、多选状态：放进小视图，建行时不读。
+                                    MacDeferredSongMenu { macTrackContextMenu(for: song) }
                                 }
                         }
                     }

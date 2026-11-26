@@ -704,7 +704,7 @@ struct SmartPlaylistDetailView: View {
             darkAccent: Color(red: 0.22, green: 0.24, blue: 0.42),
             onBack: onMacInlineBack,
             backAccessibilityIdentifier: "smartPlaylistInlineBack",
-            canPlay: !matched.filteredPlayable().isEmpty,
+            canPlay: matched.contains(where: \.isPlayable),
             onPlay: { playAll() },
             onShuffle: {
                 playAll(shuffled: true)
@@ -877,7 +877,8 @@ struct SmartPlaylistDetailView: View {
                     macSongRow(row.song, index: window.lowerBound + offset, ordinalWidth: ordinalWidth)
                         .songLocationRow(row.song.id)
                         .contextMenu {
-                            macSmartSongContextMenu(for: row.song)
+                            // 菜单里读曲库、离线状态：放进小视图，建行时不读。
+                            MacDeferredSongMenu { macSmartSongContextMenu(for: row.song) }
                         }
                         .frame(height: Self.macSongRowHeight)
                         .padding(.bottom, Self.macRowSpacing)

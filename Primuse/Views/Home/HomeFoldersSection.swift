@@ -373,12 +373,12 @@ private struct HomeFolderRow: View {
                 Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
                     .labelStyle(.titleAndIcon)
             }
-            .disabled(node.descendantSongCount == 0)
+            .disabled(!HomeDiscoveryPlayback.canEnqueueFolder(songCount: node.descendantSongCount))
             Button { enqueue(.end) } label: {
                 Label("add_to_queue", systemImage: "text.badge.plus")
                     .labelStyle(.titleAndIcon)
             }
-            .disabled(node.descendantSongCount == 0)
+            .disabled(!HomeDiscoveryPlayback.canEnqueueFolder(songCount: node.descendantSongCount))
             HomeFolderCacheMenuButton(
                 node: node, index: model.index, library: library,
                 source: sourcesStore.source(id: node.sourceID),
@@ -429,9 +429,16 @@ private struct HomeFolderRow: View {
 
     private var songCount: some View {
         let childCount = node.displayedChildCount(in: model)
+        // iOS 首页的目录行照旧用 HomeDiscovery 表里的 `folder_counts`，各语言的说法不变；Mac 用拼接的单复数。
+        #if os(iOS)
+        let counts = childCount > 0
+            ? String(format: HomeDiscoveryText.string("folder_counts"), childCount, node.descendantSongCount)
+            : LibraryCountText.formattedSongs(node.descendantSongCount)
+        #else
         let counts = childCount > 0
             ? LibraryCountText.folderCounts(subdirectories: childCount, songs: node.descendantSongCount)
             : LibraryCountText.formattedSongs(node.descendantSongCount)
+        #endif
         let lastPlayed = childCount == 0 ? model.lastPlayedByFolder[node.id] : nil
         let suffix = lastPlayed.map { " · " + $0.formatted(.relative(presentation: .named)) } ?? ""
         return Text(counts + suffix)
@@ -953,12 +960,12 @@ struct HomeFolderBrowser: View {
             Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
                 .labelStyle(.titleAndIcon)
         }
-        .disabled(folder.descendantSongCount == 0)
+        .disabled(!HomeDiscoveryPlayback.canEnqueueFolder(songCount: folder.descendantSongCount))
         Button { enqueueFolder(folder.id, position: .end) } label: {
             Label("add_to_queue", systemImage: "text.badge.plus")
                 .labelStyle(.titleAndIcon)
         }
-        .disabled(folder.descendantSongCount == 0)
+        .disabled(!HomeDiscoveryPlayback.canEnqueueFolder(songCount: folder.descendantSongCount))
         cacheMenuButton(folder)
         FolderPlaylistMenuButton(
             node: folder,
@@ -1292,12 +1299,12 @@ struct HomeFolderBrowser: View {
             Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
                 .labelStyle(.titleAndIcon)
         }
-        .disabled(child.descendantSongCount == 0)
+        .disabled(!HomeDiscoveryPlayback.canEnqueueFolder(songCount: child.descendantSongCount))
         Button { enqueueFolder(child.id, position: .end) } label: {
             Label("add_to_queue", systemImage: "text.badge.plus")
                 .labelStyle(.titleAndIcon)
         }
-        .disabled(child.descendantSongCount == 0)
+        .disabled(!HomeDiscoveryPlayback.canEnqueueFolder(songCount: child.descendantSongCount))
         albumMetadataButton(child)
         cacheMenuButton(child)
         FolderPlaylistMenuButton(
@@ -2271,18 +2278,34 @@ enum HomeDiscoveryPlayback {
         case next, end
     }
 
+    /// 「下一首播放」「加入队列」要把目录里的歌逐首变成队列项，播放器没有只交 id 的入队接口，
+    /// 所以只给 `LibraryScale.maxMaterializedRows` 首以内的目录；更大的目录（整个音乐源）这两项置灰，
+    /// 用「播放」「随机播放」，那两项只交 id、按窗口取歌。
+    static func canEnqueueFolder(songCount: Int) -> Bool {
+        songCount > 0 && songCount <= LibraryScale.maxMaterializedRows
+    }
+
     static func enqueueFolder(
         _ id: LibraryFolderNodeID, position: FolderQueuePosition,
         model: HomeDiscoveryModel, library: MusicLibrary, player: AudioPlayerService
     ) {
-        guard let index = model.index else { return }
+        // 先看节点上的首数，超出上界的目录连 id 列表都不取。
+        guard let index = model.index, let node = index.node(withID: id),
+              canEnqueueFolder(songCount: node.descendantSongCount) else { return }
         let ids = index.songIDs(in: id, scope: .descendants)
-        guard !ids.isEmpty else { return }
-        let folderSongs = ids.compactMap { library.song(id: $0) }
-        guard !folderSongs.isEmpty else { return }
+        guard !ids.isEmpty, ids.count <= LibraryScale.maxMaterializedRows else { return }
         let order = HomeFolderSongOrderPreference.load()
         let spokenWordSongIDs = model.spokenWordSongIDs
+        let reader = PlaybackCatalogAccess.reader(for: library)
         Task {
+            // 目录可读时在主线程外按 id 取；读不了（还没迁完、读失败）才退回内存里按 id 取，数量已有上界。
+            let folderSongs: [Song]
+            if let reader, let catalogSongs = try? await reader.songs(ids: ids, visibility: .visible) {
+                folderSongs = catalogSongs
+            } else {
+                folderSongs = ids.compactMap { library.song(id: $0) }
+            }
+            guard !folderSongs.isEmpty else { return }
             let songs = await Task.detached(priority: .userInitiated) {
                 LibraryFolderBrowsePolicy.sortedSongs(
                     folderSongs,

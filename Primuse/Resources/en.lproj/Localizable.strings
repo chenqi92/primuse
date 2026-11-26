@@ -8087,13 +8087,14 @@
 "stats_server_rank_events" = "Recorded History";
 "stats_server_rank_cumulative_footer" = "Aggregated from server per-track playCount (including undated history), matching All-time Plays.";
 "stats_server_rank_events_footer" = "Aggregated from timestamped server play events, matching Recorded Plays for this range.";
+"sources_manage_action" = "Manage Sources";
+"stats_play_count_singular" = "1 play";
 "song_count_singular" = "1 song";
 "album_count_singular" = "1 album";
 "artist_count_singular" = "1 artist";
 "genre_count_singular" = "1 genre";
 "playlist_count_singular" = "1 playlist";
 "rule_count_singular" = "1 rule";
-"stats_play_count_singular" = "1 play";
 "artist_monthly_plays_singular" = "1 play this month";
 "filter_result_singular" = "1 result";
 "filter_results_format" = "%d results";
@@ -8103,7 +8104,6 @@
 "liked_songs_empty_desc" = "Click the heart on any song to collect it here.";
 "playlist_empty_desc" = "Add songs from your library to build this playlist.";
 "source_empty_desc" = "No songs have been scanned from this source yet.";
-"sources_manage_action" = "Manage Sources";
 "artist_most_played_empty" = "No recorded plays yet. Play songs by this artist to rank them here.";
 "artist_most_played_period" = "All Time";
 "home_source_status_title" = "Source Status";
