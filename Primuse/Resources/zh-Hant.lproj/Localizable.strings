@@ -1983,8 +1983,8 @@
 "immersive_demo_album" = "soundisle";
 "lyrics_full_screen" = "全螢幕歌詞";
 "lyrics_exit_full_screen" = "退出全螢幕歌詞";
-"immersive_lock_controls" = "鎖定沉浸式控制";
-"immersive_unlock_controls" = "解鎖沉浸式控制";
+"immersive_lock_controls" = "鎖定控制";
+"immersive_unlock_controls" = "解鎖";
 "immersive_lyrics_motion_title" = "歌詞動效";
 "immersive_lyrics_motion_subtitle" = "正在唱的字浮起發光，換句時平滑過渡，較長的間奏時暫時隱藏歌詞；只對原生以外的全螢幕效果起作用。關閉後逐字只亮起，歌詞直接切換。";
 "player_landscape_fullscreen_title" = "橫向時進入全螢幕";

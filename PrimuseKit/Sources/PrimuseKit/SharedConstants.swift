@@ -7670,9 +7670,9 @@ public enum ImmersiveControlsAction: Sendable {
     case dismiss
 }
 
-/// Interaction state shared by distraction-free lyrics and media surfaces.
-/// Locking hides the chrome and intercepts content gestures; one content tap
-/// reveals only the unlock affordance so accidental playback changes stay
+/// Interaction state shared by distraction-free lyrics and locked player surfaces.
+/// Locking hides the chrome and intercepts content gestures; tapping the surface
+/// toggles only the unlock affordance so accidental playback changes stay
 /// impossible until the user explicitly unlocks the surface.
 public struct ImmersiveControlsState: Equatable, Sendable {
     public let isVisible: Bool
@@ -7689,14 +7689,16 @@ public struct ImmersiveControlsState: Equatable, Sendable {
         isVisible && isLocked
     }
 
+    public func showsUnlockControl(keepingVisibleForAccessibility: Bool) -> Bool {
+        isLocked && (isVisible || keepingVisibleForAccessibility)
+    }
+
     public func applying(_ action: ImmersiveControlsAction) -> Self {
         switch action {
         case .present:
             return .presented
         case .contentTap:
-            return isLocked
-                ? Self(isVisible: true, isLocked: true)
-                : Self(isVisible: !isVisible, isLocked: false)
+            return Self(isVisible: !isVisible, isLocked: isLocked)
         case .lock:
             return Self(isVisible: false, isLocked: true)
         case .unlock:

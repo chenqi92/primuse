@@ -2405,10 +2405,14 @@ struct NowPlayingView: View {
     @State private var showsImmersiveEffectPicker = false
     /// 「歌词时间」刻度尺开着。
     @State private var showsLyricsTimingRuler = false
-    /// 手机横屏自己的「锁」。竖屏沉浸歌词那套 `immersiveControlsState` 带自动
-    /// 隐藏计时，语义不同，不能共用。离开这个布局时会自动解锁，免得用户在别的
-    /// 布局里找不到解锁入口。
-    @State private var isCompactLandscapeLocked = false
+    /// 手机横屏自己的「锁」。复用 `ImmersiveControlsState` 的锁定 / 点击唤醒 / 自动隐藏语义，
+    /// 生命周期与竖屏沉浸歌词分开，离开横屏布局或播放页休眠时自动解锁。
+    @State private var compactLandscapeLockState = ImmersiveControlsState.inactive
+    @State private var compactLandscapeUnlockAutoHideTask: Task<Void, Never>?
+    private var isCompactLandscapeLocked: Bool { compactLandscapeLockState.isLocked }
+    private var showsCompactLandscapeUnlockControl: Bool {
+        compactLandscapeLockState.showsUnlockControl(keepingVisibleForAccessibility: voiceOverEnabled)
+    }
     /// 手机横屏右栏窄到放不下两端的随机 / 循环时置真，让「更多」菜单补上入口。
     /// 由布局函数在 `onChange` 里写入，`body` 里不做这类赋值。
     @State private var compactLandscapeHidesModeToggles = false
@@ -3204,6 +3208,7 @@ struct NowPlayingView: View {
     private func enterPlayerDormancy() {
         dormantLyricTaskSubject = currentLyricTaskSubject
         immersiveControlsAutoHideTask?.cancel()
+        compactLandscapeUnlockAutoHideTask?.cancel()
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -3212,6 +3217,9 @@ struct NowPlayingView: View {
             if isLyricsImmersive {
                 isLyricsImmersive = false
                 immersiveControlsState = immersiveControlsState.applying(.dismiss)
+            }
+            if compactLandscapeLockState != .inactive {
+                compactLandscapeLockState = .inactive
             }
             isLyricsChromeCollapsed = false
             showsImmersiveEffectPicker = false
@@ -3380,6 +3388,7 @@ struct NowPlayingView: View {
         if debugPlayerMode != nil { return }
         #endif
         guard isVisualSceneActive,
+              !voiceOverEnabled,
               isLyricsImmersive,
               immersiveControlsState.isVisible,
               !showsImmersiveEffectPicker else { return }
@@ -3391,11 +3400,90 @@ struct NowPlayingView: View {
             }
             guard !Task.isCancelled,
                   isVisualSceneActive,
+                  !voiceOverEnabled,
                   isLyricsImmersive,
                   !showsImmersiveEffectPicker else { return }
             withAnimation(.easeOut(duration: 0.25)) {
                 immersiveControlsState = immersiveControlsState.applying(.autoHide)
             }
+        }
+    }
+
+    private func lockCompactLandscapeControls() {
+        immersiveControlsAutoHideTask?.cancel()
+        compactLandscapeUnlockAutoHideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            compactLandscapeLockState = compactLandscapeLockState.applying(.lock)
+        }
+    }
+
+    private func unlockCompactLandscapeControls() {
+        compactLandscapeUnlockAutoHideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            compactLandscapeLockState = compactLandscapeLockState.applying(.dismiss)
+            // 同步竖屏全屏歌词的解锁状态；全屏歌词时圆钮排解锁后重新露出，照旧 4 秒后自己收起。
+            if showLyrics && isLyricsImmersive {
+                immersiveControlsState = immersiveControlsState.applying(.unlock)
+            }
+        }
+        if showLyrics && isLyricsImmersive {
+            scheduleImmersiveControlsAutoHide()
+        }
+    }
+
+    private func handleCompactLandscapeLockedTap() {
+        guard isCompactLandscapeLocked else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            compactLandscapeLockState = compactLandscapeLockState.applying(.contentTap)
+        }
+        if compactLandscapeLockState.showsUnlockControl {
+            scheduleCompactLandscapeUnlockAutoHide()
+        } else {
+            compactLandscapeUnlockAutoHideTask?.cancel()
+        }
+    }
+
+    private func scheduleCompactLandscapeUnlockAutoHide() {
+        compactLandscapeUnlockAutoHideTask?.cancel()
+        #if DEBUG && os(iOS)
+        if debugPlayerMode != nil { return }
+        #endif
+        guard isVisualSceneActive,
+              !voiceOverEnabled,
+              compactLandscapeLockState.showsUnlockControl else { return }
+        compactLandscapeUnlockAutoHideTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(4))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  isVisualSceneActive,
+                  !voiceOverEnabled,
+                  compactLandscapeLockState.showsUnlockControl else { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                compactLandscapeLockState = compactLandscapeLockState.applying(.autoHide)
+            }
+        }
+    }
+
+    private func resetCompactLandscapeLock() {
+        compactLandscapeUnlockAutoHideTask?.cancel()
+        if compactLandscapeLockState != .inactive {
+            compactLandscapeLockState = .inactive
+        }
+    }
+
+    /// 手机横屏锁定时铺在内容之上的透明点击层：锁上先全部藏起，单击任意处露出解锁按钮，
+    /// 再点空白或 4 秒不动收起。
+    @ViewBuilder
+    private var compactLandscapeLockTapShield: some View {
+        if isCompactLandscapeLocked {
+            Color.clear
+                .contentShape(Rectangle())
+                .ignoresSafeArea()
+                .onTapGesture { handleCompactLandscapeLockedTap() }
+                .accessibilityHidden(true)
         }
     }
 
@@ -3981,15 +4069,18 @@ struct NowPlayingView: View {
         overflow.like = headerOverflows && !music
         return VStack(spacing: CGFloat(spacing)) {
             if isCompactLandscapeLocked {
-                // 横屏锁上之后这一列只剩解锁键,控件照旧留在原位不挪。
-                barColumnGroup {
-                    Button {
-                        isCompactLandscapeLocked = false
-                    } label: {
-                        NowPlayingBarColumnIcon(symbol: "lock.open.fill", appearance: appearance, size: itemSize)
+                // 横屏锁上之后先全隐藏；点屏幕才露出解锁键，4 秒不动或再点空白收起，VoiceOver 下常驻。
+                if showsCompactLandscapeUnlockControl {
+                    barColumnGroup {
+                        Button {
+                            unlockCompactLandscapeControls()
+                        } label: {
+                            NowPlayingBarColumnIcon(symbol: "lock.open.fill", appearance: appearance, size: itemSize)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("immersive_unlock_controls"))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("immersive_unlock_controls"))
+                    .pmFadeTransition(motion: .control)
                 }
             } else {
                 barColumnGroup {
@@ -4052,8 +4143,7 @@ struct NowPlayingView: View {
 
                     if offersLock, !overflow.lock {
                         Button {
-                            immersiveControlsAutoHideTask?.cancel()
-                            isCompactLandscapeLocked = true
+                            lockCompactLandscapeControls()
                         } label: {
                             NowPlayingBarColumnIcon(symbol: "lock", appearance: appearance, size: itemSize)
                         }
@@ -4078,7 +4168,8 @@ struct NowPlayingView: View {
         .frame(width: itemSize + CGFloat(capsulePadding) * 2 + 8)
         .position(x: CGFloat(centerX), y: CGFloat(segment.minY + segment.length / 2))
         .frame(width: geo.size.width, height: geo.size.height)
-        .pmAnimation(.control, value: isCompactLandscapeLocked)
+        .allowsHitTesting(!isCompactLandscapeLocked || showsCompactLandscapeUnlockControl)
+        .pmAnimation(.control, value: compactLandscapeLockState)
     }
 
     /// 竖栏那一列里的一组按钮,竖着排在同一个玻璃胶囊里(和系统竖栏的分组一样)。
@@ -4586,6 +4677,10 @@ struct NowPlayingView: View {
                         spokenWordVideoToggleButton(showsVideo: false, compact: rect.width < 220)
                             .frame(width: rect.width, height: rect.height, alignment: .topLeading)
                             .position(x: rect.midX, y: rect.midY)
+                            .opacity(isCompactLandscapeLocked ? 0 : 1)
+                            .allowsHitTesting(!isCompactLandscapeLocked)
+                            .accessibilityHidden(isCompactLandscapeLocked)
+                            .pmAnimation(.control, value: isCompactLandscapeLocked)
                     }
                 }
             }
@@ -5459,11 +5554,28 @@ struct NowPlayingView: View {
                 if isLyricsImmersive, immersiveControlsState.isVisible {
                     scheduleImmersiveControlsAutoHide()
                 }
+                if compactLandscapeLockState.showsUnlockControl {
+                    scheduleCompactLandscapeUnlockAutoHide()
+                }
             } else {
                 immersiveControlsAutoHideTask?.cancel()
+                compactLandscapeUnlockAutoHideTask?.cancel()
                 minimizeDragActivity.axis = nil
                 minimizeDragActivity.startLocation = nil
                 if surfaceMotion.isDragging { surfaceMotion.isDragging = false }
+            }
+        }
+        .onChange(of: voiceOverEnabled) { _, isEnabled in
+            if isEnabled {
+                immersiveControlsAutoHideTask?.cancel()
+                compactLandscapeUnlockAutoHideTask?.cancel()
+            } else {
+                if isLyricsImmersive, immersiveControlsState.isVisible {
+                    scheduleImmersiveControlsAutoHide()
+                }
+                if compactLandscapeLockState.showsUnlockControl {
+                    scheduleCompactLandscapeUnlockAutoHide()
+                }
             }
         }
         .onChange(of: showsImmersiveEffectPicker) { _, isPresented in
@@ -5850,6 +5962,7 @@ struct NowPlayingView: View {
         }
         .onDisappear {
             immersiveControlsAutoHideTask?.cancel()
+            compactLandscapeUnlockAutoHideTask?.cancel()
         }
         // Handoff —— 用户在当前设备播,旁边的 Mac / iPad 在 Spotlight / 任务
         // 切换器底部出现"在 Primuse 中继续"的 chip。打开后通过 ContentView
@@ -6087,7 +6200,7 @@ struct NowPlayingView: View {
 
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
-                // 圆钮排画在上层，这里只占位；锁上之后换成解锁胶囊，下面的内容不跟着挪。
+                // 圆钮排画在上层，这里只占位；锁上之后隐藏并在点屏时露出解锁胶囊，下面的内容不跟着挪。
                 Color.clear
                     .frame(height: CGFloat(metrics.chromeRowHeight + metrics.chromeBottomSpacing))
 
@@ -6109,23 +6222,29 @@ struct NowPlayingView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(!isCompactLandscapeLocked)
+            .padding(.leading, CGFloat(metrics.leadingInset))
+            .padding(.trailing, CGFloat(metrics.trailingInset))
+            .padding(.top, CGFloat(metrics.topInset))
+            .padding(.bottom, CGFloat(metrics.bottomInset))
+            .background(alignment: .topLeading) {
+                if fullBleedLogo {
+                    liveRadioLandscapeFullBleedLogo(
+                        width: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedArtworkWidth(metrics: metrics)),
+                        height: geo.size.height,
+                        occlusions: occlusions
+                    )
+                }
+            }
+
+            compactLandscapeLockTapShield
 
             liveRadioLandscapeChromeLayer()
                 .padding(.leading, chromeLeading)
                 .padding(.trailing, chromeTrailing)
-        }
-        .padding(.leading, CGFloat(metrics.leadingInset))
-        .padding(.trailing, CGFloat(metrics.trailingInset))
-        .padding(.top, CGFloat(metrics.topInset))
-        .padding(.bottom, CGFloat(metrics.bottomInset))
-        .background(alignment: .topLeading) {
-            if fullBleedLogo {
-                liveRadioLandscapeFullBleedLogo(
-                    width: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedArtworkWidth(metrics: metrics)),
-                    height: geo.size.height,
-                    occlusions: occlusions
-                )
-            }
+                .modifier(LandscapeChromeVisibility(isVisible: !isCompactLandscapeLocked || showsCompactLandscapeUnlockControl))
+                .padding(.leading, CGFloat(metrics.leadingInset))
+                .padding(.trailing, CGFloat(metrics.trailingInset))
+                .padding(.top, CGFloat(metrics.topInset))
         }
         .overlay(alignment: .top) {
             // 播放出错的提示压在圆钮排下面、整页居中，不挤动两栏。
@@ -6144,7 +6263,7 @@ struct NowPlayingView: View {
         }
         .onDisappear {
             // 转回竖屏、播放页收起都会走到这里;锁只管这一副横屏骨架。
-            isCompactLandscapeLocked = false
+            resetCompactLandscapeLock()
         }
     }
 
@@ -6301,13 +6420,13 @@ struct NowPlayingView: View {
         .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
     }
 
-    /// 顶上那一排：锁上之后换成解锁胶囊(和音乐、播客横屏共用那一颗)。
+    /// 顶上那一排：锁上之后先隐藏，点屏幕再露出解锁胶囊(和音乐、播客横屏共用那一颗)。
     @ViewBuilder
     private func liveRadioLandscapeChromeLayer() -> some View {
-        if isCompactLandscapeLocked {
+        if showsCompactLandscapeUnlockControl {
             compactLandscapeUnlockControl
                 .pmFadeTransition(motion: .control)
-        } else {
+        } else if !isCompactLandscapeLocked {
             liveRadioLandscapeChromeRow
                 .pmFadeTransition(motion: .control)
         }
@@ -6325,7 +6444,7 @@ struct NowPlayingView: View {
                 tint: appearance.primary,
                 diameter: diameter
             ) {
-                isCompactLandscapeLocked = true
+                lockCompactLandscapeControls()
             }
 
             ForEach(radioBottomRowItems.filter { $0 != .info }) { item in
@@ -6714,7 +6833,7 @@ struct NowPlayingView: View {
 
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
-                // 顶部圆钮排占位：圆钮本身画在上层，锁上之后换成解锁胶囊，
+                // 顶部圆钮排占位：圆钮本身画在上层，锁上之后先隐藏、点屏时露出解锁胶囊，
                 // 下面的内容不跟着挪。圆钮排进了竖栏那一列时不占这一行；全屏歌词时只有左栏让出这一行。
                 Color.clear
                     .frame(height: usesToolColumn || lyricsSpansChrome ? 0 : chromeBand)
@@ -6730,12 +6849,36 @@ struct NowPlayingView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(!isCompactLandscapeLocked)
+            .padding(.leading, CGFloat(metrics.leadingInset))
+            .padding(.trailing, CGFloat(metrics.trailingInset))
+            .padding(.top, CGFloat(metrics.topInset))
+            .padding(.bottom, CGFloat(metrics.bottomInset))
+            // 铺满封面的封面位垫在整个版面底下：从屏幕首侧边缘、上下边缘起，宽到右栏起点。
+            .background(alignment: .topLeading) {
+                if fullBleedArtwork && !showLyrics {
+                    compactLandscapeFullBleedArtworkSlot(
+                        width: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedArtworkWidth(metrics: metrics)),
+                        height: geo.size.height,
+                        // iPhone Duo 外屏横握竖栏在首侧时封面压着那一条,封面上的提示与按钮让开它。
+                        chromeLeading: centersOnFullScreen ? windowInsets.leading : 0
+                    )
+                    .transition(lyricsHandoffArtworkTransition)
+                }
+            }
+            // 铺满封面右边接着往右延伸成模糊的封面，歌名、进度条和按钮压在上面：和竖屏铺满时封面下面那一截
+            // 一样，左右两半是同一张图连过去的，不是封面一块、底色一块。
+            .backgroundPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
+                fullBleedArtworkTrailingExtension(anchor: fullBleedArtwork && !showLyrics ? anchors[.cover] : nil)
+            }
+
+            compactLandscapeLockTapShield
 
             if !usesToolColumn {
                 if fullBleedArtwork {
                     compactLandscapeChromePlaceholder
-                        .padding(.leading, chromeLeading)
-                        .padding(.trailing, chromeTrailing)
+                        .padding(.leading, chromeLeading + CGFloat(metrics.leadingInset))
+                        .padding(.trailing, chromeTrailing + CGFloat(metrics.trailingInset))
+                        .padding(.top, CGFloat(metrics.topInset))
                 } else {
                     compactLandscapeChromeLayer(
                         width: geo.size.width - CGFloat(metrics.leadingInset + metrics.trailingInset)
@@ -6745,37 +6888,19 @@ struct NowPlayingView: View {
                     .padding(.leading, chromeLeading)
                     .padding(.trailing, chromeTrailing)
                     .modifier(LandscapeChromeVisibility(isVisible: chromeVisible))
+                    .padding(.leading, CGFloat(metrics.leadingInset))
+                    .padding(.trailing, CGFloat(metrics.trailingInset))
+                    .padding(.top, CGFloat(metrics.topInset))
                 }
             }
-        }
-        .padding(.leading, CGFloat(metrics.leadingInset))
-        .padding(.trailing, CGFloat(metrics.trailingInset))
-        .padding(.top, CGFloat(metrics.topInset))
-        .padding(.bottom, CGFloat(metrics.bottomInset))
-        // 铺满封面的封面位垫在整个版面底下：从屏幕首侧边缘、上下边缘起，宽到右栏起点。
-        .background(alignment: .topLeading) {
-            if fullBleedArtwork && !showLyrics {
-                compactLandscapeFullBleedArtworkSlot(
-                    width: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedArtworkWidth(metrics: metrics)),
-                    height: geo.size.height,
-                    // iPhone Duo 外屏横握竖栏在首侧时封面压着那一条,封面上的提示与按钮让开它。
-                    chromeLeading: centersOnFullScreen ? windowInsets.leading : 0
-                )
-                .transition(lyricsHandoffArtworkTransition)
-            }
-        }
-        // 铺满封面右边接着往右延伸成模糊的封面，歌名、进度条和按钮压在上面：和竖屏铺满时封面下面那一截
-        // 一样，左右两半是同一张图连过去的，不是封面一块、底色一块。
-        .backgroundPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
-            fullBleedArtworkTrailingExtension(anchor: fullBleedArtwork && !showLyrics ? anchors[.cover] : nil)
         }
         .onChange(of: showsEdgeToggles, initial: true) { _, showsToggles in
             compactLandscapeHidesModeToggles = !showsToggles
         }
         .onAppear {
-            // 竖屏全屏歌词里锁上之后转到横屏：锁换成这副骨架自己的那把，解锁入口留在原位。
+            // 竖屏全屏歌词里锁上之后转到横屏：锁换成这副骨架自己的那把，保持隐藏、点屏幕再露出解锁。
             if immersiveControlsState.isLocked {
-                isCompactLandscapeLocked = true
+                compactLandscapeLockState = compactLandscapeLockState.applying(.lock)
                 immersiveControlsState = immersiveControlsState.applying(.unlock)
             } else if showLyrics, isLyricsImmersive, immersiveControlsState.isVisible {
                 // 全屏歌词里转到横屏：圆钮排照旧 4 秒不动自己收起。
@@ -6784,7 +6909,7 @@ struct NowPlayingView: View {
         }
         .onDisappear {
             // 转回竖屏、进沉浸歌词、进全屏效果、播放页收起都会走到这里。
-            isCompactLandscapeLocked = false
+            resetCompactLandscapeLock()
             compactLandscapeHidesModeToggles = false
         }
     }
@@ -6892,10 +7017,14 @@ struct NowPlayingView: View {
         )
     }
 
-    /// 顶上那排圆钮此刻露不露出来。全屏歌词时跟着沉浸控件走(和竖屏全屏歌词一样:点歌词空白叫出 / 收起,
-    /// 4 秒不动自己收起);锁着时解锁胶囊一直在,否则点不到;VoiceOver 下也不收,收了就摸不到。其它时候一直在。
+    /// 顶上那排圆钮此刻露不露出来。锁着时先全部藏起，点屏幕才露出解锁胶囊、4 秒不动或再点空白收起
+    /// (VoiceOver 下常驻)；未锁定时全屏歌词跟着沉浸控件走(点歌词空白叫出 / 收起，4 秒不动自动收起)，
+    /// VoiceOver 下和普通横屏一样常驻。
     private var compactLandscapeChromeIsVisible: Bool {
-        !(showLyrics && isLyricsImmersive) || isCompactLandscapeLocked || voiceOverEnabled
+        if isCompactLandscapeLocked {
+            return showsCompactLandscapeUnlockControl
+        }
+        return !(showLyrics && isLyricsImmersive) || voiceOverEnabled
             || immersiveControlsState.isVisible
     }
 
@@ -7658,10 +7787,10 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func compactLandscapeChromeLayer(width: CGFloat) -> some View {
         // 两支都钉在同一个 ZStack 的左上角、同框重叠，可以走过渡。
-        if isCompactLandscapeLocked {
+        if showsCompactLandscapeUnlockControl {
             compactLandscapeUnlockControl
                 .pmFadeTransition(motion: .control)
-        } else {
+        } else if !isCompactLandscapeLocked {
             compactLandscapeChromeRow(width: width)
                 .pmFadeTransition(motion: .control)
         }
@@ -7691,8 +7820,7 @@ struct NowPlayingView: View {
                 tint: appearance.primary,
                 diameter: diameter
             ) {
-                immersiveControlsAutoHideTask?.cancel()
-                isCompactLandscapeLocked = true
+                lockCompactLandscapeControls()
             }
 
             if usesSpokenWordTransport {
@@ -7813,12 +7941,7 @@ struct NowPlayingView: View {
         let height = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
         return HStack(spacing: 0) {
             Button {
-                isCompactLandscapeLocked = false
-                // 同步竖屏全屏歌词的解锁状态；全屏歌词时圆钮排解锁后重新露出，照旧 4 秒后自己收起。
-                if showLyrics && isLyricsImmersive {
-                    immersiveControlsState = immersiveControlsState.applying(.unlock)
-                    scheduleImmersiveControlsAutoHide()
-                }
+                unlockCompactLandscapeControls()
             } label: {
                 Label("immersive_unlock_controls", systemImage: "lock.open.fill")
                     .font(.subheadline.weight(.semibold))
@@ -9532,6 +9655,7 @@ struct NowPlayingView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { handleImmersiveContentTap() }
+                    .accessibilityHidden(true)
             }
 
             immersiveLyricsChrome(
@@ -9633,7 +9757,7 @@ struct NowPlayingView: View {
             }
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
             .zIndex(2)
-        } else if immersiveControlsState.showsUnlockControl {
+        } else if immersiveControlsState.showsUnlockControl(keepingVisibleForAccessibility: voiceOverEnabled) {
             HStack {
                 Button { unlockImmersiveControls() } label: {
                     Label("immersive_unlock_controls", systemImage: "lock.open.fill")
@@ -10908,8 +11032,7 @@ struct NowPlayingView: View {
             },
             onAdjustLyricsTiming: { openLyricsTimingRuler() },
             onLockControls: {
-                immersiveControlsAutoHideTask?.cancel()
-                isCompactLandscapeLocked = true
+                lockCompactLandscapeControls()
             },
             onToggleOrientation: { togglePlayerOrientation() },
             onSelectLyricsTranslation: { mode in

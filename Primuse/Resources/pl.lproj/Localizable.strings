@@ -1692,7 +1692,7 @@
 "immersive_demo_lyric_15" = "Ostatnia nuta czeka w błękicie";
 "immersive_demo_lyric_16" = "Dźwięk oddala się i spotyka ponownie";
 "immersive_demo_title" = "Primuse";
-"immersive_lock_controls" = "Zablokuj immersyjne sterowanie";
+"immersive_lock_controls" = "Zablokuj sterowanie";
 "immersive_lyrics_motion_subtitle" = "Śpiewane słowa unoszą się i świecą, wersy zmieniają się płynnie, a podczas długich partii instrumentalnych tekst się ukrywa. Dotyczy efektów pełnoekranowych innych niż Oryginał; po wyłączeniu słowa tylko się podświetlają, a wersy zmieniają się od razu.";
 "player_landscape_fullscreen_title" = "Pełny ekran w poziomie";
 "player_landscape_fullscreen_subtitle" = "Obrócenie iPhone’a poziomo na ekranie odtwarzania otwiera wybrany efekt pełnoekranowy, a powrót do pionu go zamyka.";
@@ -1735,7 +1735,7 @@
 "immersive_now_playing" = "TERAZ GRA";
 "immersive_track_position_format" = "ŚCIEŻKA %02d";
 "immersive_track_position_total_format" = "ŚCIEŻKA %02d / %02d";
-"immersive_unlock_controls" = "Odblokuj wciągające sterowanie";
+"immersive_unlock_controls" = "Odblokuj";
 "import_action" = "Importuj";
 "import_mode" = "Tryb importu";
 "import_scraper_footer" = "Zaimportuj własnego dostawcę metadanych za pomocą konfiguracji JSON lub adresu URL. Odpowiadasz za zgodność importowanych dostawców z obowiązującymi warunkami i prawem autorskim.";

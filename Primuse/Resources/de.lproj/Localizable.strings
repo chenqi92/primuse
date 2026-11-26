@@ -2031,7 +2031,7 @@
 "lyrics_full_screen" = "Songtext im Vollbild";
 "lyrics_exit_full_screen" = "Vollbild-Songtext schließen";
 "immersive_lock_controls" = "Bedienelemente sperren";
-"immersive_unlock_controls" = "Bedienelemente entsperren";
+"immersive_unlock_controls" = "Entsperren";
 "immersive_lyrics_motion_title" = "Liedtextanimation";
 "immersive_lyrics_motion_subtitle" = "Gesungene Wörter heben sich leuchtend ab, Zeilen wechseln weich, und in langen Instrumentalpassagen wird der Liedtext ausgeblendet. Gilt für alle Vollbildeffekte außer Original; ausgeschaltet leuchten Wörter nur auf und Zeilen wechseln sofort.";
 "player_landscape_fullscreen_title" = "Im Querformat Vollbild";

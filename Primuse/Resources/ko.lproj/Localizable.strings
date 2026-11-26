@@ -2030,8 +2030,8 @@
 "immersive_demo_album" = "soundisle";
 "lyrics_full_screen" = "전체 화면 가사";
 "lyrics_exit_full_screen" = "전체 화면 가사 종료";
-"immersive_lock_controls" = "몰입형 컨트롤 잠금";
-"immersive_unlock_controls" = "몰입형 컨트롤 잠금 해제";
+"immersive_lock_controls" = "컨트롤 잠금";
+"immersive_unlock_controls" = "잠금 해제";
 "immersive_lyrics_motion_title" = "가사 애니메이션";
 "immersive_lyrics_motion_subtitle" = "부르는 글자가 떠오르며 빛나고, 줄이 부드럽게 바뀌며, 긴 간주 동안 가사를 잠시 숨깁니다. 기본 외의 전체 화면 효과에 적용되며, 끄면 글자는 밝아지기만 하고 줄이 바로 바뀝니다.";
 "player_landscape_fullscreen_title" = "가로 모드에서 전체 화면";

@@ -2031,8 +2031,8 @@
 "immersive_demo_album" = "soundisle";
 "lyrics_full_screen" = "歌詞を全画面表示";
 "lyrics_exit_full_screen" = "全画面歌詞を終了";
-"immersive_lock_controls" = "没入モードの操作をロック";
-"immersive_unlock_controls" = "没入モードの操作をロック解除";
+"immersive_lock_controls" = "操作をロック";
+"immersive_unlock_controls" = "ロック解除";
 "immersive_lyrics_motion_title" = "歌詞のアニメーション";
 "immersive_lyrics_motion_subtitle" = "歌っている文字が浮き上がって光り、行がなめらかに切り替わり、長い間奏の間は歌詞を一時的に隠します。オリジナル以外の全画面エフェクトで有効です。オフにすると文字は光るだけになり、行はすぐに切り替わります。";
 "player_landscape_fullscreen_title" = "横向きで全画面にする";

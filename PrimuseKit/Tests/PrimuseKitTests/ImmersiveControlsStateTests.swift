@@ -15,17 +15,34 @@ struct ImmersiveControlsStateTests {
         #expect(hidden.applying(.contentTap).showsPrimaryControls)
     }
 
-    @Test("Lock prevents primary controls until explicit unlock")
+    @Test("Lock hides controls and content taps toggle only the unlock control")
     func lockedSurfaceOnlyRevealsUnlock() {
         let locked = ImmersiveControlsState.presented.applying(.lock)
         #expect(locked.isLocked)
         #expect(!locked.isVisible)
+        #expect(!locked.showsUnlockControl)
 
         let revealed = locked.applying(.contentTap)
         #expect(revealed.showsUnlockControl)
         #expect(!revealed.showsPrimaryControls)
 
-        #expect(revealed.applying(.unlock) == .presented)
+        let hiddenAgain = revealed.applying(.contentTap)
+        #expect(hiddenAgain.isLocked)
+        #expect(!hiddenAgain.showsUnlockControl)
+        #expect(!hiddenAgain.showsPrimaryControls)
+
+        let revealedAgain = hiddenAgain.applying(.contentTap)
+        #expect(revealedAgain.showsUnlockControl)
+        #expect(revealedAgain.applying(.unlock) == .presented)
+    }
+
+    @Test("Accessibility keeps unlock control visible whenever locked")
+    func accessibilityKeepsUnlockControlVisible() {
+        let locked = ImmersiveControlsState.inactive.applying(.lock)
+        #expect(!locked.showsUnlockControl)
+        #expect(locked.showsUnlockControl(keepingVisibleForAccessibility: true))
+        #expect(!ImmersiveControlsState.inactive.showsUnlockControl(keepingVisibleForAccessibility: true))
+        #expect(!ImmersiveControlsState.presented.showsUnlockControl(keepingVisibleForAccessibility: true))
     }
 
     @Test("Auto hide preserves the lock and dismiss resets it")

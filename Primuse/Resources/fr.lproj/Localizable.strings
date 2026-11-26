@@ -2031,7 +2031,7 @@
 "lyrics_full_screen" = "Paroles en plein écran";
 "lyrics_exit_full_screen" = "Quitter les paroles en plein écran";
 "immersive_lock_controls" = "Verrouiller les commandes";
-"immersive_unlock_controls" = "Déverrouiller les commandes";
+"immersive_unlock_controls" = "Déverrouiller";
 "immersive_lyrics_motion_title" = "Animation des paroles";
 "immersive_lyrics_motion_subtitle" = "Les mots chantés se soulèvent et brillent, les lignes changent en douceur et les paroles se masquent pendant les longs passages instrumentaux. S'applique aux effets plein écran autres que D’origine ; désactivé, les mots s’allument simplement et les lignes changent instantanément.";
 "player_landscape_fullscreen_title" = "Plein écran en paysage";

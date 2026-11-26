@@ -1692,7 +1692,7 @@
 "immersive_demo_lyric_15" = "अंतिम नोट नीले रंग के अंदर प्रतीक्षा कर रहा है";
 "immersive_demo_lyric_16" = "ध्वनि अलग हो जाती है और फिर यहीं मिल जाती है";
 "immersive_demo_title" = "Primuse";
-"immersive_lock_controls" = "इमर्सिव नियंत्रणों को लॉक करें";
+"immersive_lock_controls" = "नियंत्रण लॉक करें";
 "immersive_lyrics_motion_subtitle" = "गाए जा रहे शब्द ऊपर उठकर चमकते हैं, पंक्तियाँ सहजता से बदलती हैं और लंबे वाद्य अंतराल में बोल छिप जाते हैं। मूल के अलावा फ़ुलस्क्रीन प्रभावों पर लागू होता है; बंद करने पर शब्द केवल रोशन होते हैं और पंक्तियाँ तुरंत बदलती हैं।";
 "player_landscape_fullscreen_title" = "लैंडस्केप में फ़ुल स्क्रीन";
 "player_landscape_fullscreen_subtitle" = "प्लेबैक स्क्रीन पर iPhone को आड़ा करने पर चुना गया फ़ुल-स्क्रीन इफ़ेक्ट खुलता है; फिर सीधा करने पर बंद हो जाता है।";
@@ -1735,7 +1735,7 @@
 "immersive_now_playing" = "अभी चल रहा है";
 "immersive_track_position_format" = "ट्रैक %02d";
 "immersive_track_position_total_format" = "ट्रैक %02d / %02d";
-"immersive_unlock_controls" = "इमर्सिव नियंत्रण अनलॉक करें";
+"immersive_unlock_controls" = "अनलॉक करें";
 "import_action" = "आयात";
 "import_mode" = "आयात मोड";
 "import_scraper_footer" = "JSON कॉन्फ़िगरेशन या URL से कस्टम मेटाडेटा स्रोत आयात करें। आयातित स्रोत लागू शर्तों और कॉपीराइट कानूनों के अनुरूप हों, यह सुनिश्चित करना आपकी ज़िम्मेदारी है।";
