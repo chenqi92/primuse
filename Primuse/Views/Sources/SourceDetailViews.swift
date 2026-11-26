@@ -937,7 +937,10 @@ struct AppleMusicSyncStateRow: View {
         case .denied, .restricted:
             Label("settings_apple_music_denied", systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
-        case .notDetermined, .authorized:
+        case .notDetermined:
+            Label("apple_music_library_not_authorized", systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+        case .authorized:
             switch appleMusicLibrary.state {
             case .idle:
                 Text("apple_music_library_idle").foregroundStyle(.secondary)

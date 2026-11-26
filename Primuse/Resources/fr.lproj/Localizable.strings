@@ -8326,3 +8326,6 @@
 "stats_server_rank_events" = "Historique horodaté";
 "stats_server_rank_cumulative_footer" = "Agrégé à partir du playCount cumulé par titre (historique non daté inclus), aligné sur « Écoutes cumulées ».";
 "stats_server_rank_events_footer" = "Agrégé à partir des écoutes horodatées du serveur, aligné sur « Écoutes enregistrées » pour cette période.";
+"source_disabled_empty_desc" = "Cette source musicale est désactivée sur cet appareil. Activez-la pour parcourir et lire ses morceaux.";
+"source_state_unauthorized" = "Autorisation requise";
+"sources_manage_action" = "Gérer les sources";

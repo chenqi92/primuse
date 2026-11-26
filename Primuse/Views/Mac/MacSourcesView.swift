@@ -15,7 +15,9 @@ struct MacSourcesView: View {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(ThemeService.self) private var theme
+    @Environment(AppleMusicService.self) private var appleMusic
     @Environment(AppleMusicLibraryService.self) private var appleMusicLibrary
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
@@ -270,6 +272,13 @@ struct MacSourcesView: View {
                 .padding(.bottom, 80)
             }
             .background(PMColor.bg.ignoresSafeArea())
+            .onAppear { appleMusic.refreshAuthorizationStatus() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { appleMusic.refreshAuthorizationStatus() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                appleMusic.refreshAuthorizationStatus()
+            }
         }
     }
 
@@ -289,14 +298,14 @@ struct MacSourcesView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 // 写第一个源真实的失败原因：连不上、限流也会进这里，一律说「登录失败」是误导。
-                Text(first.flatMap { scanService.scanStates[$0.id]?.failureMessage } ?? "")
+                Text(verbatim: first.flatMap(attentionMessage(for:)) ?? "")
                     .font(.system(size: 11.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(2)
             }
             Spacer(minLength: 8)
             if let first {
-                Button(attentionActionTitle(for: first)) { connectingSource = first }
+                Button(attentionActionTitle(for: first)) { performAttentionAction(for: first) }
                     .buttonStyle(.plain)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
@@ -315,9 +324,47 @@ struct MacSourcesView: View {
         }
     }
 
+    private func attentionMessage(for source: MusicSource) -> String? {
+        if source.type == .appleMusic {
+            if appleMusic.authState != .authorized {
+                return appleMusic.authState == .denied || appleMusic.authState == .restricted
+                    ? String(localized: "apple_music_notice_denied")
+                    : String(localized: "apple_music_library_not_authorized")
+            }
+            if case .failed(let message) = appleMusicLibrary.state { return message }
+            return nil
+        }
+        return scanService.scanStates[source.id]?.failureMessage
+    }
+
+    private func performAttentionAction(for source: MusicSource) {
+        if source.type == .appleMusic {
+            if appleMusic.authState == .notDetermined {
+                Task { await appleMusic.requestAuthorization() }
+            } else if appleMusic.authState != .authorized {
+                openAppleMusicPrivacySettings()
+            } else {
+                appleMusicLibrary.sync()
+            }
+            return
+        }
+        connectingSource = source
+    }
+
     /// 需要重新登录的 Audio Station 没有目录可选,按钮说它真正做的事。
     private func attentionActionTitle(for source: MusicSource) -> LocalizedStringKey {
-        source.type == .synologyAudioStation ? "audio_station_sign_in" : "connect_select_dirs"
+        if source.type == .appleMusic {
+            if appleMusic.authState == .notDetermined { return "settings_apple_music_connect" }
+            if appleMusic.authState != .authorized { return "open_system_settings" }
+            return appleMusicSyncTitle
+        }
+        return source.type == .synologyAudioStation ? "audio_station_sign_in" : "connect_select_dirs"
+    }
+
+    private func openAppleMusicPrivacySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     // MARK: - Card
@@ -474,8 +521,10 @@ struct MacSourcesView: View {
                 Label(source.isEnabled ? "source_disable_on_this_device" : "source_enable_on_this_device",
                       systemImage: source.isEnabled ? "eye.slash" : "eye")
             }
-            Button { editingSource = source } label: {
-                Label("edit", systemImage: "pencil")
+            if source.type != .appleMusic {
+                Button { editingSource = source } label: {
+                    Label("edit", systemImage: "pencil")
+                }
             }
             // 卡片上的「浏览」换成了文件页,选目录挪到这里和文件页的「更多」里。
             if source.type.continuesToDirectorySelectionAfterCreation {
@@ -488,14 +537,20 @@ struct MacSourcesView: View {
                     Label("audio_station_sign_in", systemImage: "person.badge.key")
                 }
             }
-            Button { diagnosingSource = source } label: {
-                Label("source_diagnostics", systemImage: "stethoscope")
+            if source.type != .appleMusic {
+                Button { diagnosingSource = source } label: {
+                    Label("source_diagnostics", systemImage: "stethoscope")
+                }
             }
-            if source.type.scansEntireLibrary || !dirs.isEmpty {
+            if source.type != .appleMusic, source.type.scansEntireLibrary || !dirs.isEmpty {
                 Button { runDeepScan(source) } label: {
                     Label("source_full_scan", systemImage: "arrow.triangle.2.circlepath.circle")
                 }
-                .disabled(scanService.scanningSourceIDs.contains(source.id))
+                .disabled(
+                    !source.isEnabled
+                        || sourceManager.isSourceManuallyOffline(source)
+                        || scanService.scanningSourceIDs.contains(source.id)
+                )
             }
             Divider()
             Button(role: .destructive) {
@@ -739,6 +794,17 @@ struct MacSourcesView: View {
             // Apple Music 没有连接器, 也就没有目录 / 扫描 / 体检 —— 它的"扫描"
             // 就是同步一次订阅资料库。
             if source.type == .appleMusic {
+                if source.isEnabled && appleMusic.authState != .authorized {
+                    if appleMusic.authState == .notDetermined {
+                        pill("settings_apple_music_connect", systemImage: "person.badge.key", tint: theme.uiAccentColor) {
+                            Task { await appleMusic.requestAuthorization() }
+                        }
+                    } else {
+                        pill("open_system_settings", systemImage: "gear", tint: theme.uiAccentColor) {
+                            openAppleMusicPrivacySettings()
+                        }
+                    }
+                }
                 pill(
                     appleMusicSyncTitle,
                     systemImage: "arrow.triangle.2.circlepath",
@@ -746,7 +812,7 @@ struct MacSourcesView: View {
                 ) {
                     appleMusicLibrary.sync()
                 }
-                .disabled(isAppleMusicSyncing || !source.isEnabled)
+                .disabled(isAppleMusicSyncing || !source.isEnabled || appleMusic.authState != .authorized)
             } else if source.type.scansEntireLibrary {
                 scanPill(source, scanning: scanning)
                 if source.type == .synologyAudioStation {
@@ -767,7 +833,7 @@ struct MacSourcesView: View {
 
             Spacer(minLength: 4)
 
-            macSwitch(isOn: source.isEnabled) { setEnabled(source, $0) }
+            macSwitch(sourceName: source.name, isOn: source.isEnabled) { setEnabled(source, $0) }
         }
     }
 
@@ -784,6 +850,7 @@ struct MacSourcesView: View {
                  tint: PMColor.ok) {
                 runScan(source)
             }
+            .disabled(!source.isEnabled || sourceManager.isSourceManuallyOffline(source))
         }
     }
 
@@ -796,8 +863,9 @@ struct MacSourcesView: View {
         MacPillButton(title: title, systemImage: systemImage, tint: tint, action: action)
     }
 
-    private func macSwitch(isOn: Bool, set: @escaping (Bool) -> Void) -> some View {
-        Button {
+    private func macSwitch(sourceName: String, isOn: Bool, set: @escaping (Bool) -> Void) -> some View {
+        let label = "\(sourceName) · \(String(localized: isOn ? "source_disable_on_this_device" : "source_enable_on_this_device"))"
+        return Button {
             withAnimation(.spring(response: 0.18, dampingFraction: 0.9)) { set(!isOn) }
         } label: {
             Capsule()
@@ -813,14 +881,25 @@ struct MacSourcesView: View {
         }
         .buttonStyle(.plain)
         .help(Text(isOn ? "source_disable_on_this_device" : "source_enable_on_this_device"))
+        .accessibilityRepresentation {
+            Toggle(isOn: Binding(get: { isOn }, set: set)) {
+                Text(verbatim: label)
+            }
+        }
     }
 
     // MARK: - Runtime state
 
-    private enum SourceRuntimeState { case online, offline, scanning, attention, disabled }
+    private enum SourceRuntimeState { case online, offline, scanning, attention, unauthorized, disabled }
 
     private func runtimeState(_ source: MusicSource) -> SourceRuntimeState {
         if !source.isEnabled { return .disabled }
+        if source.type == .appleMusic {
+            if appleMusic.authState != .authorized { return .unauthorized }
+            if case .syncing = appleMusicLibrary.state { return .scanning }
+            if case .failed = appleMusicLibrary.state { return .attention }
+            return .online
+        }
         if scanService.scanStates[source.id]?.isScanning == true { return .scanning }
         if isAttention(source) { return .attention }
         if sourceManager.isSourceOfflineOrUnreachable(source.id) { return .offline }
@@ -831,7 +910,13 @@ struct MacSourcesView: View {
     /// before making progress — a preflight / credential error leaves a
     /// non-resumable state with a message but zero scanned files.
     private func isAttention(_ source: MusicSource) -> Bool {
-        guard source.isEnabled, let s = scanService.scanStates[source.id] else { return false }
+        guard source.isEnabled else { return false }
+        if source.type == .appleMusic {
+            if appleMusic.authState != .authorized { return true }
+            if case .failed = appleMusicLibrary.state { return true }
+            return false
+        }
+        guard let s = scanService.scanStates[source.id] else { return false }
         return !s.isScanning && s.failureMessage?.isEmpty == false
     }
 
@@ -841,6 +926,7 @@ struct MacSourcesView: View {
         case .offline: .orange
         case .scanning: statusBlue
         case .attention: PMColor.bad
+        case .unauthorized: .orange
         case .disabled: PMColor.textFaint
         }
     }
@@ -851,12 +937,16 @@ struct MacSourcesView: View {
         case .offline: "source_state_offline"
         case .scanning: "scanning"
         case .attention: "source_state_attention"
+        case .unauthorized: "source_state_unauthorized"
         case .disabled: "source_disabled_on_this_device"
         }
     }
 
     private var attentionSources: [MusicSource] {
-        sources.filter { runtimeState($0) == .attention }
+        sources.filter {
+            let state = runtimeState($0)
+            return state == .attention || state == .unauthorized
+        }
     }
 
     private var summaryText: String {
@@ -864,6 +954,7 @@ struct MacSourcesView: View {
         let online = sources.filter { runtimeState($0) == .online }.count
         let offline = sources.filter { runtimeState($0) == .offline }.count
         let scanning = sources.filter { runtimeState($0) == .scanning }.count
+        let unauthorized = sources.filter { runtimeState($0) == .unauthorized }.count
         let attention = sources.filter { runtimeState($0) == .attention }.count
         let disabled = sources.filter { !$0.isEnabled }.count
 
@@ -871,6 +962,7 @@ struct MacSourcesView: View {
         if online > 0 { parts.append("\(online) \(String(localized: "source_state_online"))") }
         if offline > 0 { parts.append("\(offline) \(String(localized: "source_state_offline"))") }
         if scanning > 0 { parts.append("\(scanning) \(String(localized: "scanning"))") }
+        if unauthorized > 0 { parts.append("\(unauthorized) \(String(localized: "source_state_unauthorized"))") }
         if attention > 0 { parts.append("\(attention) \(String(localized: "source_state_attention"))") }
         if disabled > 0 { parts.append("\(disabled) \(String(localized: "disabled"))") }
         return parts.joined(separator: " · ")
@@ -915,20 +1007,27 @@ struct MacSourcesView: View {
                     .monospacedDigit()
                 Text(verbatim: "·")
             }
-            switch appleMusicLibrary.state {
-            case .idle:
-                Text("apple_music_library_idle")
-            case .syncing:
-                ProgressView().controlSize(.small)
-                Text("apple_music_library_syncing")
-            case .done(_, let at):
-                Text(verbatim: String(
-                    format: String(localized: "source_synced_ago_format"),
-                    Self.relativeFormatter.localizedString(for: at, relativeTo: Date())
-                ))
-            case .failed(let message):
-                Text(verbatim: message)
-                    .foregroundStyle(PMColor.bad)
+            if appleMusic.authState != .authorized {
+                Text(appleMusic.authState == .denied || appleMusic.authState == .restricted
+                    ? "apple_music_notice_denied"
+                    : "apple_music_library_not_authorized")
+                    .foregroundStyle(.orange)
+            } else {
+                switch appleMusicLibrary.state {
+                case .idle:
+                    Text("apple_music_library_idle")
+                case .syncing:
+                    ProgressView().controlSize(.small)
+                    Text("apple_music_library_syncing")
+                case .done(_, let at):
+                    Text(verbatim: String(
+                        format: String(localized: "source_synced_ago_format"),
+                        Self.relativeFormatter.localizedString(for: at, relativeTo: Date())
+                    ))
+                case .failed(let message):
+                    Text(verbatim: message)
+                        .foregroundStyle(PMColor.bad)
+                }
             }
             Spacer()
         }
@@ -1347,6 +1446,7 @@ private struct MacPillButton: View {
     var tint: Color?
     let action: () -> Void
 
+    @Environment(\.isEnabled) private var isEnabled
     @State private var hover = false
 
     var body: some View {
@@ -1361,7 +1461,8 @@ private struct MacPillButton: View {
             .foregroundStyle(tint ?? PMColor.textMuted)
             .padding(.horizontal, 10)
             .frame(height: 26)
-            .background((tint ?? PMColor.text).opacity(hover ? 0.16 : 0.10), in: .rect(cornerRadius: 7))
+            .background((tint ?? PMColor.text).opacity(isEnabled && hover ? 0.16 : 0.10), in: .rect(cornerRadius: 7))
+            .opacity(isEnabled ? 1 : 0.45)
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }

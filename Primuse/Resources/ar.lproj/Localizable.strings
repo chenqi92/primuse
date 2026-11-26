@@ -8232,3 +8232,6 @@
 "stats_server_rank_events" = "السجل المؤرخ";
 "stats_server_rank_cumulative_footer" = "مجمّع من عداد playCount التراكمي لكل مقطع على الخادم (شاملاً السجل غير المؤرخ)، ومطابق لإجمالي مرات التشغيل.";
 "stats_server_rank_events_footer" = "مجمّع من أحداث التشغيل المؤرخة على الخادم، ومطابق للتشغيلات المسجلة في النطاق المحدد.";
+"source_disabled_empty_desc" = "تم إيقاف مصدر الموسيقى هذا على هذا الجهاز. قم بتفعيله لتصفح أغانيه وتشغيلها.";
+"source_state_unauthorized" = "يلزم التفويض";
+"sources_manage_action" = "إدارة المصادر";

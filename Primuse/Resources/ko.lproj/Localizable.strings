@@ -8326,3 +8326,6 @@
 "stats_server_rank_events" = "개별 기록 순위";
 "stats_server_rank_cumulative_footer" = "서버의 곡별 누적 playCount(날짜 없는 기록 포함)로 집계하며 ‘전체 기간 재생’과 일치합니다.";
 "stats_server_rank_events_footer" = "타임스탬프가 기록된 서버 재생 이벤트로 집계하며 현재 범위의 ‘기록된 재생’과 일치합니다.";
+"source_disabled_empty_desc" = "이 음악 소스는 이 기기에서 꺼져 있습니다. 곡을 탐색하고 재생하려면 활성화하세요.";
+"source_state_unauthorized" = "권한 필요";
+"sources_manage_action" = "소스 관리";

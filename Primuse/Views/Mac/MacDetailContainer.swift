@@ -14,6 +14,7 @@ struct MacDetailContainer: View {
     @Binding var spokenWordBookRequest: String?
     let onShowSongInLibrary: (Song) -> Void
     let onOpenLibrarySongs: () -> Void
+    var onOpenSources: (() -> Void)? = nil
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @State private var path = NavigationPath()
@@ -181,10 +182,7 @@ struct MacDetailContainer: View {
         case .smartPlaylist(let smart):
             SmartPlaylistDetailView(smartPlaylistID: smart.id)
         case .source(let id):
-            // Sources don't yet have a per-source detail view — for now
-            // route the click to the songs filtered by that source.
-            let name = sourcesStore.sources.first(where: { $0.id == id })?.name ?? ""
-            SongListView(sourceID: id)
+            MacSourceDetailView(sourceID: id, onOpenSources: onOpenSources)
         }
     }
 
@@ -229,6 +227,100 @@ struct MacDetailContainer: View {
         withTransaction(transaction) {
             path = NavigationPath()
         }
+    }
+}
+
+/// Per-source detail host on macOS. Distinguishes disabled sources and
+/// unauthorized Apple Music from an empty active source so users never see a
+/// misleading "Add a music source to get started" prompt.
+private struct MacSourceDetailView: View {
+    let sourceID: String
+    var onOpenSources: (() -> Void)? = nil
+
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(AppleMusicService.self) private var appleMusic
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var showsSourcesManagement = false
+
+    private var source: MusicSource? {
+        sourcesStore.source(id: sourceID)
+    }
+
+    var body: some View {
+        Group {
+            if let source, !source.isEnabled {
+                VStack(spacing: 12) {
+                    EmptyStateView(
+                        titleKey: LocalizedStringKey(source.name),
+                        descriptionKey: "source_disabled_empty_desc",
+                        systemImage: "eye.slash",
+                        actionLabel: "source_enable_on_this_device",
+                        action: {
+                            sourcesStore.setEnabledOnThisDevice(source.id, true)
+                        }
+                    )
+                    manageSourcesButton
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(PMColor.bg.ignoresSafeArea())
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("sourceDetail.disabled")
+            } else if let source, source.type == .appleMusic, appleMusic.authState != .authorized {
+                VStack(spacing: 12) {
+                    unauthorizedAppleMusicView(source)
+                    manageSourcesButton
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(PMColor.bg.ignoresSafeArea())
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("sourceDetail.appleMusicUnauthorized")
+                .onAppear { appleMusic.refreshAuthorizationStatus() }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { appleMusic.refreshAuthorizationStatus() }
+                }
+            } else {
+                SongListView(sourceID: sourceID)
+            }
+        }
+        .navigationDestination(isPresented: $showsSourcesManagement) {
+            MacSourcesView()
+        }
+    }
+
+    private var manageSourcesButton: some View {
+        Button {
+            if let onOpenSources {
+                onOpenSources()
+            } else {
+                showsSourcesManagement = true
+            }
+        } label: {
+            Text("sources_manage_action")
+                .fontWeight(.medium)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+        }
+        .buttonStyle(.bordered)
+        .clipShape(Capsule())
+    }
+
+    private func unauthorizedAppleMusicView(_ source: MusicSource) -> some View {
+        let needsSystemSettings = appleMusic.authState == .denied || appleMusic.authState == .restricted
+        return EmptyStateView(
+            titleKey: LocalizedStringKey(source.name),
+            descriptionKey: needsSystemSettings ? "apple_music_denied_hint" : "apple_music_onboarding_desc",
+            systemImage: "music.note.list",
+            actionLabel: needsSystemSettings ? "apple_music_open_settings" : "apple_music_connect_button",
+            action: {
+                if needsSystemSettings {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } else {
+                    Task { _ = await appleMusic.requestAuthorization() }
+                }
+            }
+        )
     }
 }
 

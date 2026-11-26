@@ -8232,3 +8232,6 @@
 "stats_server_rank_events" = "Historial registrado";
 "stats_server_rank_cumulative_footer" = "Agrupado según el playCount acumulado por canción (incluido historial sin fecha), igual que Reproducciones totales.";
 "stats_server_rank_events_footer" = "Agrupado según eventos de reproducción con fecha del servidor, igual que Reproducciones registradas del periodo.";
+"source_disabled_empty_desc" = "Esta fuente de música está desactivada en este dispositivo. Actívala para explorar y reproducir sus canciones.";
+"source_state_unauthorized" = "Requiere autorización";
+"sources_manage_action" = "Administrar fuentes";

@@ -8232,3 +8232,6 @@
 "stats_server_rank_events" = "Kayıtlı Geçmiş";
 "stats_server_rank_cumulative_footer" = "Sunucudaki parça başı toplam playCount değerlerinden (tarihsiz geçmiş dahil) hesaplanır; Tüm zamanlardaki çalmalar ile eşleşir.";
 "stats_server_rank_events_footer" = "Zaman damgalı sunucu çalma kayıtlarından hesaplanır; seçili aralıktaki Kaydedilen çalmalar ile eşleşir.";
+"source_disabled_empty_desc" = "Bu müzik kaynağı bu aygıtta kapalı. Şarkılarına göz atmak ve çalmak için etkinleştirin.";
+"source_state_unauthorized" = "Yetkilendirme Gerekli";
+"sources_manage_action" = "Kaynakları Yönet";

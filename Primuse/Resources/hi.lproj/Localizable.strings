@@ -8232,3 +8232,6 @@
 "stats_server_rank_events" = "रिकॉर्डेड इतिहास";
 "stats_server_rank_cumulative_footer" = "सर्वर के प्रति-ट्रैक संचयी playCount (बिना तारीख़ के इतिहास सहित) से संकलित, जो कुल प्ले से मेल खाता है।";
 "stats_server_rank_events_footer" = "टाइमस्टैम्प वाले सर्वर प्ले इवेंट से संकलित, जो इस अवधि के रिकॉर्डेड प्ले से मेल खाता है।";
+"source_disabled_empty_desc" = "यह संगीत स्रोत इस डिवाइस पर बंद है। इसके गाने देखने और चलाने के लिए इसे सक्षम करें।";
+"source_state_unauthorized" = "अनुमति आवश्यक";
+"sources_manage_action" = "स्रोत प्रबंधित करें";

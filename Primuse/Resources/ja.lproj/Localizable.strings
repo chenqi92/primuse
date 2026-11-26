@@ -8327,3 +8327,6 @@
 "stats_server_rank_events" = "再生履歴ランキング";
 "stats_server_rank_cumulative_footer" = "サーバーの曲別 playCount（日付なしの履歴を含む）で集計し、「累計再生回数」と一致します。";
 "stats_server_rank_events_footer" = "サーバーに記録された日時付きの再生イベントで集計し、選択期間の「記録済み再生」と一致します。";
+"source_disabled_empty_desc" = "この音楽ソースはこのデバイスでオフになっています。有効にすると曲を閲覧・再生できます。";
+"source_state_unauthorized" = "認証が必要";
+"sources_manage_action" = "ソースを管理";
