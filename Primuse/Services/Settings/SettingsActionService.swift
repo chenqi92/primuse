@@ -23,16 +23,22 @@ struct SettingsActionService {
 
     nonisolated static let toggleIDs: Set<String> = [
         "playback.matchSampleRate", "playback.matchSampleRateWithinAlbum", "playback.exclusiveOutput",
-        "playback.autoContinueSimilar", "playback.gapless", "playback.crossfade", "playback.skipLeadingSilence",
-        "playback.skipTrailingSilence", "playback.replayGain",
-        "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen", "playback.mixWithOthers", "playback.appVolume",
+        "playback.autoContinueSimilar", "playback.previousRestarts", "playback.gapless", "playback.crossfade",
+        "playback.skipLeadingSilence", "playback.skipTrailingSilence", "playback.replayGain",
+        "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen", "playback.lockScreenLike",
+        "playback.mixWithOthers", "playback.appVolume", "playback.autoplayOnLaunch",
+        "playback.opensNowPlayingOnPlay", "playback.musicVideoStartsFullScreen", "playback.smartNudges",
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
-        "lyrics.exploreWordTiming", "appearance.activityStatus", "lyrics.translationEnabled", "lyrics.bundledTranslation", "lyrics.simulatedWordTiming", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
-        "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "player.hidesGrabber", "appearance.artworkLyrics", "appearance.playerProgressGlow",
-        "appearance.playerProgressArtworkColors",
-        "appearance.replayGainBadge",
-        "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "player.pinMiniPlayer", "playback.spokenWordSmartRewind",
-        "playback.spokenWordSmartSpeed", "playback.spokenWordVoiceBoost"
+        "lyrics.exploreWordTiming", "appearance.activityStatus", "lyrics.translationEnabled",
+        "lyrics.bundledTranslation", "lyrics.romanizationAutoGenerate", "lyrics.simulatedWordTiming",
+        "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive", "lyrics.interludeDots",
+        "lyrics.sourceBadge", "lyrics.menuBar", "lyrics.desktopClickThrough", "lyrics.island",
+        "lyrics.islandSystemStatus",
+        "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "player.hidesGrabber",
+        "appearance.artworkLyrics", "appearance.playerProgressGlow", "appearance.playerProgressArtworkColors",
+        "appearance.replayGainBadge", "player.tapArtworkOpensLyrics", "library.showRowNumbers",
+        "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "player.pinMiniPlayer",
+        "playback.spokenWordSmartRewind", "playback.spokenWordSmartSpeed", "playback.spokenWordVoiceBoost"
     ]
     nonisolated static let readableIDs = toggleIDs.union([
         "playback.outputMode", "playback.dsdMode", "playback.crossfadeMode", "playback.crossfadeDuration",
@@ -139,6 +145,10 @@ struct SettingsActionService {
         case "playback.appVolume": playback.applicationVolumeEnabled
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled
         case "playback.previousRestarts": playback.previousRestartsCurrentSong
+        case "playback.autoplayOnLaunch": preference(PlaybackSessionRestoreLifecycle.launchAutoplayKey, fallback: false)
+        case "playback.opensNowPlayingOnPlay": preference(PlayerAppearancePreferences.opensNowPlayingOnPlayKey, fallback: PlayerAppearancePreferences.opensNowPlayingOnPlayByDefault)
+        case "playback.musicVideoStartsFullScreen": preference(PlayerAppearancePreferences.musicVideoStartsFullScreenKey, fallback: PlayerAppearancePreferences.musicVideoStartsFullScreenByDefault)
+        case "playback.smartNudges": SmartNudgeCenter.shared.isEnabled
         case "playback.spokenWordSmartRewind": playback.spokenWordSmartRewindEnabled
         case "playback.spokenWordSmartSpeed": playback.spokenWordSmartSpeedEnabled
         case "playback.spokenWordVoiceBoost": playback.spokenWordVoiceBoostEnabled
@@ -157,12 +167,22 @@ struct SettingsActionService {
         case "effects.compressor": playback.compressorEnabled
         case "lyrics.translationEnabled": LyricsTranslationSettingsStore.shared.isEnabled
         case "lyrics.bundledTranslation": LyricsTranslationSettingsStore.shared.showsBundledTranslations
+        case "lyrics.romanizationAutoGenerate": LyricsRomanizationSettingsStore.shared.isAutoGenerationEnabled
         case "lyrics.exploreWordTiming": preference(WordLyricsDiscoveryPreferences.enabledKey, fallback: false)
         case "appearance.activityStatus": preference(WordLyricsDiscoveryPreferences.showsActivityKey, fallback: true)
         case "lyrics.simulatedWordTiming": preference(PlayerAppearancePreferences.simulatesWordLyricsKey, fallback: PlayerAppearancePreferences.simulatesWordLyricsByDefault)
         case "lyrics.tapToSeek": preference(PlayerAppearancePreferences.tapLyricsToSeekKey, fallback: PlayerAppearancePreferences.tapLyricsToSeekByDefault)
         case "lyrics.browseTimeline": preference(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey, fallback: PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault)
         case "lyrics.blurInactive": preference(PlayerAppearancePreferences.blursInactiveLyricsKey, fallback: PlayerAppearancePreferences.blursInactiveLyricsByDefault)
+        case "lyrics.interludeDots": preference(PlayerAppearancePreferences.showsLyricsInterludeKey, fallback: PlayerAppearancePreferences.showsLyricsInterludeByDefault)
+        case "lyrics.sourceBadge": preference(PlayerAppearancePreferences.showsLyricsSourceKey, fallback: PlayerAppearancePreferences.showsLyricsSourceByDefault)
+        case "library.showRowNumbers": preference(LibraryRowNumberPreferences.storageKey, fallback: LibraryRowNumberPreferences.defaultValue)
+        #if os(macOS)
+        case "lyrics.menuBar": preference(MacMenuBarController.lyricsEnabledKey, fallback: false)
+        case "lyrics.desktopClickThrough": preference(DesktopLyricsInteraction.clickThroughKey, fallback: false)
+        case "lyrics.island": preference(DesktopLyricsWindowController.islandVisibleKey, fallback: false)
+        case "lyrics.islandSystemStatus": preference(DesktopLyricsIslandController.systemStatusKey, fallback: true)
+        #endif
         case "appearance.volumeBar": preference(PlayerAppearancePreferences.showsVolumeBarKey, fallback: PlayerAppearancePreferences.showsVolumeBarByDefault)
         case "appearance.replayGainBadge": preference(PlayerAppearancePreferences.showsReplayGainBadgeKey, fallback: PlayerAppearancePreferences.showsReplayGainBadgeByDefault)
         case "appearance.playerAlbumInSubtitle": preference(PlayerAppearancePreferences.showsAlbumInSubtitleKey, fallback: PlayerAppearancePreferences.showsAlbumInSubtitleByDefault)
@@ -194,6 +214,10 @@ struct SettingsActionService {
         case "playback.appVolume": playback.applicationVolumeEnabled = enabled
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled = enabled
         case "playback.previousRestarts": playback.previousRestartsCurrentSong = enabled
+        case "playback.autoplayOnLaunch": defaults.set(enabled, forKey: PlaybackSessionRestoreLifecycle.launchAutoplayKey)
+        case "playback.opensNowPlayingOnPlay": defaults.set(enabled, forKey: PlayerAppearancePreferences.opensNowPlayingOnPlayKey)
+        case "playback.musicVideoStartsFullScreen": defaults.set(enabled, forKey: PlayerAppearancePreferences.musicVideoStartsFullScreenKey)
+        case "playback.smartNudges": SmartNudgeCenter.shared.isEnabled = enabled
         case "playback.spokenWordSmartRewind": playback.spokenWordSmartRewindEnabled = enabled
         case "playback.spokenWordSmartSpeed": playback.spokenWordSmartSpeedEnabled = enabled
         case "playback.spokenWordVoiceBoost": playback.spokenWordVoiceBoostEnabled = enabled
@@ -211,12 +235,27 @@ struct SettingsActionService {
             try setAudioEffect(enabled, for: id)
         case "lyrics.translationEnabled": LyricsTranslationSettingsStore.shared.isEnabled = enabled
         case "lyrics.bundledTranslation": LyricsTranslationSettingsStore.shared.showsBundledTranslations = enabled
+        case "lyrics.romanizationAutoGenerate": LyricsRomanizationSettingsStore.shared.isAutoGenerationEnabled = enabled
         case "lyrics.exploreWordTiming": defaults.set(enabled, forKey: WordLyricsDiscoveryPreferences.enabledKey)
         case "appearance.activityStatus": defaults.set(enabled, forKey: WordLyricsDiscoveryPreferences.showsActivityKey)
         case "lyrics.simulatedWordTiming": defaults.set(enabled, forKey: PlayerAppearancePreferences.simulatesWordLyricsKey)
         case "lyrics.tapToSeek": defaults.set(enabled, forKey: PlayerAppearancePreferences.tapLyricsToSeekKey)
         case "lyrics.browseTimeline": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
         case "lyrics.blurInactive": defaults.set(enabled, forKey: PlayerAppearancePreferences.blursInactiveLyricsKey)
+        case "lyrics.interludeDots": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
+        case "lyrics.sourceBadge": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsLyricsSourceKey)
+        case "library.showRowNumbers": defaults.set(enabled, forKey: LibraryRowNumberPreferences.storageKey)
+        #if os(macOS)
+        case "lyrics.menuBar": defaults.set(enabled, forKey: MacMenuBarController.lyricsEnabledKey)
+        case "lyrics.desktopClickThrough": defaults.set(enabled, forKey: DesktopLyricsInteraction.clickThroughKey)
+        case "lyrics.island":
+            if defaults === UserDefaults.standard, let delegate = PrimuseAppDelegate.shared {
+                delegate.setDesktopLyricsIsland(enabled)
+            } else {
+                defaults.set(enabled, forKey: DesktopLyricsWindowController.islandVisibleKey)
+            }
+        case "lyrics.islandSystemStatus": defaults.set(enabled, forKey: DesktopLyricsIslandController.systemStatusKey)
+        #endif
         case "appearance.volumeBar": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsVolumeBarKey)
         case "appearance.replayGainBadge": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsReplayGainBadgeKey)
         case "appearance.playerAlbumInSubtitle": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsAlbumInSubtitleKey)

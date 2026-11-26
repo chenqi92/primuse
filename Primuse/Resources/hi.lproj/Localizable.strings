@@ -8232,3 +8232,7 @@
 "stats_server_rank_events" = "रिकॉर्डेड इतिहास";
 "stats_server_rank_cumulative_footer" = "सर्वर के प्रति-ट्रैक संचयी playCount (बिना तारीख़ के इतिहास सहित) से संकलित, जो कुल प्ले से मेल खाता है।";
 "stats_server_rank_events_footer" = "टाइमस्टैम्प वाले सर्वर प्ले इवेंट से संकलित, जो इस अवधि के रिकॉर्डेड प्ले से मेल खाता है।";
+"stats_play_count_singular" = "1 बार चलाया गया";
+"yearly_sources_duration_share" = "सुनने के समय का";
+"a11y_enable_reverb" = "रीवर्ब सक्षम करें";
+"a11y_enable_compressor" = "कंप्रेसर सक्षम करें";

@@ -8326,3 +8326,7 @@
 "stats_server_rank_events" = "Zeitverlauf";
 "stats_server_rank_cumulative_footer" = "Summiert aus den gesamten playCount-Werten pro Titel (inkl. undatierter Historie), passend zu „Wiedergaben gesamt“.";
 "stats_server_rank_events_footer" = "Summiert aus zeitgestempelten Server-Wiedergaben, passend zu „Erfasste Wiedergaben“ im gewählten Zeitraum.";
+"stats_play_count_singular" = "1 Wiedergabe";
+"yearly_sources_duration_share" = "der Hörzeit";
+"a11y_enable_reverb" = "Hall aktivieren";
+"a11y_enable_compressor" = "Kompressor aktivieren";

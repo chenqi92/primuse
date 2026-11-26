@@ -449,18 +449,28 @@ struct YearlySourceRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            Text(verbatim: "\(percent)%")
-                .font(.system(.title3, design: .rounded, weight: .bold).monospacedDigit())
-                .foregroundStyle(share.isDeleted ? .secondary : .primary)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(verbatim: "\(percent)%")
+                    .font(.system(.title3, design: .rounded, weight: .bold).monospacedDigit())
+                    .foregroundStyle(share.isDeleted ? .secondary : .primary)
+                Text("yearly_sources_duration_share")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(verbatim: "\(share.name), \(detail), \(percent)% \(String(localized: "yearly_sources_duration_share"))"))
     }
 
     private var detail: String {
-        let plays = String(format: String(localized: "yearly_card_genres_plays_format"), share.plays)
+        let plays = share.plays == 1
+            ? String(localized: "stats_play_count_singular")
+            : String(format: String(localized: "stats_play_count_format"), share.plays)
+        let duration = share.seconds > 0 ? RecapHeroDuration.format(share.seconds) : nil
+        let metrics = [plays, duration].compactMap { $0 }.joined(separator: " · ")
         // 合成一行的「已删除的音乐源」名字里已经说了。
-        guard share.isDeleted, share.sourceID != "deleted" else { return plays }
-        return String(localized: "yearly_source_deleted") + " · " + plays
+        guard share.isDeleted, share.sourceID != "deleted" else { return metrics }
+        return String(localized: "yearly_source_deleted") + " · " + metrics
     }
 }
 

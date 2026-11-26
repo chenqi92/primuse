@@ -3084,7 +3084,7 @@
 "yearly_moments_session_lead_format" = "Le %1$@, vous avez enchaîné %2$d titres";
 "yearly_moments_streak_lead" = "Votre plus longue série de l'année";
 "yearly_month_lead_format" = "Vous avez écouté %@ ce mois-là";
-"yearly_sources_lead_format" = "%d %% de vos écoutes venaient d'ici";
+"yearly_sources_lead_format" = "%d %% de votre temps d'écoute venait d'ici";
 "yearly_closing_in_progress_title_format" = "%@ n'est pas encore fini";
 "yearly_closing_in_progress_lead" = "Chaque titre que vous écouterez désormais s'ajoutera à ce bilan";
 "yearly_this_year_needs_more_format" = "Encore %2$d titres pour débloquer votre bilan %1$@";
@@ -8326,3 +8326,7 @@
 "stats_server_rank_events" = "Historique horodaté";
 "stats_server_rank_cumulative_footer" = "Agrégé à partir du playCount cumulé par titre (historique non daté inclus), aligné sur « Écoutes cumulées ».";
 "stats_server_rank_events_footer" = "Agrégé à partir des écoutes horodatées du serveur, aligné sur « Écoutes enregistrées » pour cette période.";
+"stats_play_count_singular" = "1 écoute";
+"yearly_sources_duration_share" = "du temps d'écoute";
+"a11y_enable_reverb" = "Activer la réverbération";
+"a11y_enable_compressor" = "Activer le compresseur";

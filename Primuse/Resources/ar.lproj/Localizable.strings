@@ -8232,3 +8232,7 @@
 "stats_server_rank_events" = "السجل المؤرخ";
 "stats_server_rank_cumulative_footer" = "مجمّع من عداد playCount التراكمي لكل مقطع على الخادم (شاملاً السجل غير المؤرخ)، ومطابق لإجمالي مرات التشغيل.";
 "stats_server_rank_events_footer" = "مجمّع من أحداث التشغيل المؤرخة على الخادم، ومطابق للتشغيلات المسجلة في النطاق المحدد.";
+"stats_play_count_singular" = "تشغيل واحد";
+"yearly_sources_duration_share" = "من وقت الاستماع";
+"a11y_enable_reverb" = "تفعيل الصدى";
+"a11y_enable_compressor" = "تفعيل الضاغط";

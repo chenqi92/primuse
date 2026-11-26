@@ -8232,3 +8232,7 @@
 "stats_server_rank_events" = "Zapisana historia";
 "stats_server_rank_cumulative_footer" = "Zsumowano według łącznego playCount utworów na serwerze (w tym historii bez dat), zgodnie z „Odtworzenia łącznie”.";
 "stats_server_rank_events_footer" = "Zsumowano według zapisanych zdarzeń odtwarzania ze znacznikami czasu, zgodnie z „Zapisane odtworzenia” w tym okresie.";
+"stats_play_count_singular" = "1 odtworzenie";
+"yearly_sources_duration_share" = "czasu słuchania";
+"a11y_enable_reverb" = "Włącz pogłos";
+"a11y_enable_compressor" = "Włącz kompresor";

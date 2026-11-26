@@ -8232,3 +8232,7 @@
 "stats_server_rank_events" = "Histórico registrado";
 "stats_server_rank_cumulative_footer" = "Agregado pelo playCount acumulado por faixa (incluindo histórico sem data), alinhado a Reproduções acumuladas.";
 "stats_server_rank_events_footer" = "Agregado pelos eventos de reprodução com data no servidor, alinhado a Reproduções registradas no período.";
+"stats_play_count_singular" = "1 reprodução";
+"yearly_sources_duration_share" = "do tempo ouvindo";
+"a11y_enable_reverb" = "Ativar reverberação";
+"a11y_enable_compressor" = "Ativar compressor";

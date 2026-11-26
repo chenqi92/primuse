@@ -8327,3 +8327,7 @@
 "stats_server_rank_events" = "再生履歴ランキング";
 "stats_server_rank_cumulative_footer" = "サーバーの曲別 playCount（日付なしの履歴を含む）で集計し、「累計再生回数」と一致します。";
 "stats_server_rank_events_footer" = "サーバーに記録された日時付きの再生イベントで集計し、選択期間の「記録済み再生」と一致します。";
+"stats_play_count_singular" = "1 回再生";
+"yearly_sources_duration_share" = "再生時間の割合";
+"a11y_enable_reverb" = "リバーブを有効にする";
+"a11y_enable_compressor" = "コンプレッサーを有効にする";

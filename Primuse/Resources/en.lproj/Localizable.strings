@@ -2901,7 +2901,7 @@
 "yearly_moments_session_lead_format" = "On %1$@ you played %2$d songs in one go";
 "yearly_moments_streak_lead" = "Your longest run of the year";
 "yearly_month_lead_format" = "You listened for %@ that month";
-"yearly_sources_lead_format" = "%d%% of your listening came from here";
+"yearly_sources_lead_format" = "%d%% of your listening time came from here";
 "yearly_closing_in_progress_title_format" = "%@ isn't over yet";
 "yearly_closing_in_progress_lead" = "Every song you play from here on goes into this report";
 "yearly_this_year_needs_more_format" = "Play %2$d more songs to unlock your %1$@ report";
@@ -8087,3 +8087,7 @@
 "stats_server_rank_events" = "Recorded History";
 "stats_server_rank_cumulative_footer" = "Aggregated from server per-track playCount (including undated history), matching All-time Plays.";
 "stats_server_rank_events_footer" = "Aggregated from timestamped server play events, matching Recorded Plays for this range.";
+"stats_play_count_singular" = "1 play";
+"yearly_sources_duration_share" = "of listening time";
+"a11y_enable_reverb" = "Enable Reverb";
+"a11y_enable_compressor" = "Enable Compressor";

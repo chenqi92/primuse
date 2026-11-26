@@ -8232,3 +8232,7 @@
 "stats_server_rank_events" = "По истории событий";
 "stats_server_rank_cumulative_footer" = "Суммируется по накопительному playCount треков на сервере (включая записи без дат), совпадая с «Всего прослушиваний».";
 "stats_server_rank_events_footer" = "Суммируется по записанным событиям с отметками времени, совпадая с «Записанные прослушивания» за выбранный период.";
+"stats_play_count_singular" = "1 прослушивание";
+"yearly_sources_duration_share" = "времени прослушивания";
+"a11y_enable_reverb" = "Включить реверберацию";
+"a11y_enable_compressor" = "Включить компрессор";

@@ -1748,3 +1748,216 @@ final class MacSourceControlAccessibilityTests: XCTestCase {
         await fulfillment(of: [applied], timeout: 2)
     }
 }
+
+@MainActor
+final class MacSettingsAuditRegressionTests: XCTestCase {
+    @MainActor
+    private struct AXNode {
+        let object: NSObject
+
+        var identifier: String {
+            if let ax = object as? NSAccessibilityProtocol, let id = ax.accessibilityIdentifier(), !id.isEmpty {
+                return id
+            }
+            if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityIdentifier)),
+               let id = object.perform(#selector(NSAccessibilityProtocol.accessibilityIdentifier))?.takeUnretainedValue() as? String {
+                return id
+            }
+            return ""
+        }
+
+        var label: String? {
+            if let ax = object as? NSAccessibilityProtocol, let value = ax.accessibilityLabel(), !value.isEmpty {
+                return value
+            }
+            if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityLabel)),
+               let value = object.perform(#selector(NSAccessibilityProtocol.accessibilityLabel))?.takeUnretainedValue() as? String,
+               !value.isEmpty {
+                return value
+            }
+            return nil
+        }
+
+        var title: String? {
+            if let ax = object as? NSAccessibilityProtocol, let value = ax.accessibilityTitle(), !value.isEmpty {
+                return value
+            }
+            if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityTitle)),
+               let value = object.perform(#selector(NSAccessibilityProtocol.accessibilityTitle))?.takeUnretainedValue() as? String,
+               !value.isEmpty {
+                return value
+            }
+            return nil
+        }
+
+        var role: NSAccessibility.Role? {
+            if let ax = object as? NSAccessibilityProtocol {
+                return ax.accessibilityRole()
+            }
+            if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityRole)),
+               let raw = object.perform(#selector(NSAccessibilityProtocol.accessibilityRole))?.takeUnretainedValue() as? String {
+                return NSAccessibility.Role(rawValue: raw)
+            }
+            return nil
+        }
+
+        var subrole: NSAccessibility.Subrole? {
+            if let ax = object as? NSAccessibilityProtocol {
+                return ax.accessibilitySubrole()
+            }
+            if object.responds(to: #selector(NSAccessibilityProtocol.accessibilitySubrole)),
+               let raw = object.perform(#selector(NSAccessibilityProtocol.accessibilitySubrole))?.takeUnretainedValue() as? String {
+                return NSAccessibility.Subrole(rawValue: raw)
+            }
+            return nil
+        }
+
+        var children: [NSObject] {
+            var collected: [NSObject] = []
+            if let ax = object as? NSAccessibilityProtocol,
+               let kids = ax.accessibilityChildren() as? [NSObject] {
+                collected.append(contentsOf: kids)
+            } else if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityChildren)),
+                      let kids = object.perform(#selector(NSAccessibilityProtocol.accessibilityChildren))?.takeUnretainedValue() as? [NSObject] {
+                collected.append(contentsOf: kids)
+            }
+            if let view = object as? NSView {
+                collected.append(contentsOf: view.subviews)
+            }
+            return collected
+        }
+    }
+
+    private func hostInWindow<V: View>(
+        _ view: V,
+        size: NSSize = NSSize(width: 900, height: 680)
+    ) -> (NSWindow, NSHostingView<V>) {
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        return (window, host)
+    }
+
+    private func accessibilityDescendants(of root: NSObject) -> [AXNode] {
+        var visited = Set<ObjectIdentifier>()
+        var result: [AXNode] = []
+        func walk(_ object: NSObject) {
+            let id = ObjectIdentifier(object)
+            guard visited.insert(id).inserted else { return }
+            let node = AXNode(object: object)
+            result.append(node)
+            for child in node.children { walk(child) }
+        }
+        walk(root)
+        return result
+    }
+
+    private func findSliders(in view: NSView) -> [NSSlider] {
+        var result: [NSSlider] = []
+        if let slider = view as? NSSlider { result.append(slider) }
+        for subview in view.subviews { result.append(contentsOf: findSliders(in: subview)) }
+        return result
+    }
+
+    func testVolumeSliderPreservesAccessibilityMetadataAcrossCellSwap() throws {
+        let initial = PMVolumeSlider(
+            value: .constant(0.5),
+            range: 0...1,
+            trackThicknessScale: 1.0,
+            accessibilityLabel: "Playback",
+            accessibilityHelp: "Seek playback position"
+        )
+        let (window, host) = hostInWindow(initial, size: NSSize(width: 240, height: 32))
+        defer { window.close() }
+
+        let slider = try XCTUnwrap(findSliders(in: host).first)
+        XCTAssertEqual(slider.accessibilityLabel(), "Playback")
+        XCTAssertEqual(slider.accessibilityHelp(), "Seek playback position")
+
+        host.rootView = PMVolumeSlider(
+            value: .constant(0.5),
+            range: 0...1,
+            trackThicknessScale: 1.6,
+            accessibilityLabel: "Playback",
+            accessibilityHelp: "Seek playback position"
+        )
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let updatedSlider = try XCTUnwrap(findSliders(in: host).first)
+        XCTAssertEqual(updatedSlider.accessibilityLabel(), "Playback")
+        XCTAssertEqual(updatedSlider.accessibilityHelp(), "Seek playback position")
+    }
+
+    func testSettingsActionServiceSupportsMacToggles() throws {
+        let suiteName = "MacSettingsAuditRegressionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let playback = PlaybackSettingsStore(defaults: defaults)
+        let service = SettingsActionService(playback: playback, defaults: defaults)
+        let ids = [
+            "lyrics.menuBar",
+            "lyrics.desktopClickThrough",
+            "lyrics.island",
+            "lyrics.islandSystemStatus",
+            "playback.autoplayOnLaunch",
+            "playback.opensNowPlayingOnPlay",
+            "playback.musicVideoStartsFullScreen",
+            "playback.previousRestarts",
+            "lyrics.interludeDots",
+            "lyrics.sourceBadge",
+            "library.showRowNumbers",
+        ]
+
+        for id in ids {
+            XCTAssertTrue(SettingsActionService.toggleIDs.contains(id), id)
+            XCTAssertNotNil(SettingsCatalog.byID[id], "Missing SettingsCatalog entry for \(id)")
+            let before = try XCTUnwrap(service.booleanValue(for: id), id)
+            _ = try service.setEnabled(!before, for: id)
+            XCTAssertEqual(service.booleanValue(for: id), !before, id)
+            _ = try service.setEnabled(before, for: id)
+            XCTAssertEqual(service.booleanValue(for: id), before, id)
+        }
+    }
+
+    func testMacSettingsTogglesExposeAccessibleLabels() async throws {
+        let navigation = MacSettingsNavigationModel()
+        navigation.select(item: try XCTUnwrap(SettingsCatalog.byID["lyrics.menuBar"]))
+        let (window, host) = hostInWindow(
+            MacSettingsView(navigation: navigation).applyPrimuseEnvironments(),
+            size: NSSize(width: 940, height: 680)
+        )
+        defer { window.close() }
+
+        let menuBarTitle = String(localized: "menu_bar_lyrics")
+        let deadline = ContinuousClock.now + .seconds(2)
+        var foundSwitch = false
+        var lastIDs: [String] = []
+        repeat {
+            try await Task.sleep(for: .milliseconds(50))
+            let nodes = accessibilityDescendants(of: host)
+            lastIDs = nodes.map(\.identifier).filter { !$0.isEmpty }
+            if nodes.contains(where: { node in
+                let label = node.label ?? node.title ?? ""
+                return label == menuBarTitle && (node.role == .checkBox || node.subrole == .switch)
+            }) {
+                foundSwitch = true
+                break
+            }
+        } while ContinuousClock.now < deadline
+
+        XCTAssertTrue(foundSwitch, "Expected accessible switch labeled \(menuBarTitle); found IDs: \(lastIDs)")
+    }
+}

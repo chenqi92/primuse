@@ -8232,3 +8232,7 @@
 "stats_server_rank_events" = "อันดับตามประวัติที่มีเวลา";
 "stats_server_rank_cumulative_footer" = "รวมจากค่า playCount สะสมต่อเพลงบนเซิร์ฟเวอร์ (รวมประวัติที่ไม่มีวันที่) ตรงกับยอดเล่นสะสมทั้งหมด";
 "stats_server_rank_events_footer" = "รวมจากรายการเล่นที่มีเวลาบันทึกไว้บนเซิร์ฟเวอร์ ตรงกับยอดเล่นที่บันทึกไว้ในช่วงที่เลือก";
+"stats_play_count_singular" = "เล่น 1 ครั้ง";
+"yearly_sources_duration_share" = "ของเวลาการฟัง";
+"a11y_enable_reverb" = "เปิดใช้งานรีเวิร์บ";
+"a11y_enable_compressor" = "เปิดใช้งานคอมเพรสเซอร์";

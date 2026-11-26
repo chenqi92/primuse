@@ -8303,3 +8303,7 @@
 "stats_server_rank_events" = "逐次歷史排行";
 "stats_server_rank_cumulative_footer" = "按伺服器單曲累計播放次數彙總（包含無具體日期的歷史記錄），與「累計播放次數」一致。";
 "stats_server_rank_events_footer" = "按伺服器保留時間戳記的逐次播放記錄彙總，與目前範圍的「已記錄播放」一致。";
+"stats_play_count_singular" = "1 次播放";
+"yearly_sources_duration_share" = "聆聽時長佔比";
+"a11y_enable_reverb" = "啟用殘響";
+"a11y_enable_compressor" = "啟用壓縮器";

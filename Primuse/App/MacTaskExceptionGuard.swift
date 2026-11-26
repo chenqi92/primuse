@@ -137,6 +137,10 @@ enum MacLaunchDiagnostics {
     /// AppKit 最早的时机调一次：先把上次的中止摆出来，再给这次启动立哨兵。
     @MainActor static func begin() {
         heartbeat?.cancel()
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            clearSentinel()
+            return
+        }
         let previous = loadSentinel()
         clearSentinel()
         if let previous {

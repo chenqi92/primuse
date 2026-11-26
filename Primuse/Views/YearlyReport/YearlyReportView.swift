@@ -448,7 +448,11 @@ struct YearlyReportPages<Header: View, Footer: View>: View {
     private func sourcesChapter(_ number: Int) -> some View {
         if let top = data.sources.first {
             let total = data.sources.reduce(0.0) { $0 + $1.seconds }
-            let percent: (YearlyReportData.SourceShare) -> Int = { total > 0 ? Int(($0.seconds / total * 100).rounded()) : 0 }
+            let totalPlays = data.sources.reduce(0) { $0 + $1.plays }
+            let percent: (YearlyReportData.SourceShare) -> Int = { share in
+                if total > 0 { return Int((share.seconds / total * 100).rounded()) }
+                return totalPlays > 0 ? Int((Double(share.plays) / Double(totalPlays) * 100).rounded()) : 0
+            }
             YearlyChapter(
                 eyebrow: eyebrow(number, "yearly_chapter_sources"),
                 art: YearlyArt(name: "decor_sources_pipeline", fallbackSymbol: "point.3.connected.trianglepath.dotted", maxWidth: 300, maxHeight: 150),
