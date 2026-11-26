@@ -24,6 +24,8 @@ public final class LibraryPendingSongWrites: @unchecked Sendable {
         /// 还没镜像到的整份替换(最大的那个修订号)。
         var replacementRevision: Int64?
         var suspended = false
+        /// 在等目录确认到某一批的调用方(`waitUntilAcknowledged`)。
+        var waiters: [UUID: (sequence: UInt64, continuation: CheckedContinuation<Bool, Never>)] = [:]
     }
 
     private let lock = NSLock()
@@ -54,34 +56,38 @@ public final class LibraryPendingSongWrites: @unchecked Sendable {
 
     /// 序号不超过 `sequence` 的批都已提交进旧库,在修订号 `storeRevision` 里。
     public func bind(throughSequence sequence: UInt64, storeRevision: Int64) {
-        lock.withLock {
-            guard !state.suspended else { return }
+        let ready = lock.withLock { () -> [CheckedContinuation<Bool, Never>] in
+            guard !state.suspended else { return [] }
             if let mirrored = state.mirroredRevision, storeRevision <= mirrored {
                 state.overlay.acknowledge(through: sequence)
-            } else {
-                state.marks.append(Mark(sequence: sequence, storeRevision: storeRevision))
+                return takeReadyWaiters()
             }
+            state.marks.append(Mark(sequence: sequence, storeRevision: storeRevision))
+            return []
         }
+        ready.forEach { $0.resume(returning: true) }
     }
 
     /// 旧库被整份替换成内存模型的样子(序号不超过 `sequence` 的批都在里面)。目录镜像到
     /// `storeRevision` 之前,目录与这里答不出内存模型的样子。
     public func bindReplacement(throughSequence sequence: UInt64, storeRevision: Int64) {
-        lock.withLock {
-            guard !state.suspended else { return }
+        let ready = lock.withLock { () -> [CheckedContinuation<Bool, Never>] in
+            guard !state.suspended else { return [] }
             if let mirrored = state.mirroredRevision, storeRevision <= mirrored {
                 state.overlay.acknowledge(through: sequence)
-                return
+                return takeReadyWaiters()
             }
             state.replacementRevision = max(state.replacementRevision ?? storeRevision, storeRevision)
             state.marks.append(Mark(sequence: sequence, storeRevision: storeRevision))
+            return []
         }
+        ready.forEach { $0.resume(returning: true) }
     }
 
     /// 目录已经是旧库修订号 `storeRevision` 的样子。
     public func catalogMirrored(storeRevision: Int64) {
-        lock.withLock {
-            guard !state.suspended else { return }
+        let ready = lock.withLock { () -> [CheckedContinuation<Bool, Never>] in
+            guard !state.suspended else { return [] }
             let mirrored = max(state.mirroredRevision ?? storeRevision, storeRevision)
             state.mirroredRevision = mirrored
             var acknowledged: UInt64?
@@ -94,15 +100,67 @@ public final class LibraryPendingSongWrites: @unchecked Sendable {
             if let replacement = state.replacementRevision, replacement <= mirrored {
                 state.replacementRevision = nil
             }
+            return takeReadyWaiters()
+        }
+        ready.forEach { $0.resume(returning: true) }
+    }
+
+    /// 目录不再跟写:清空,之后不登记、不作答;在等的调用方都得到 false。
+    public func suspend() {
+        let waiting = lock.withLock { () -> [CheckedContinuation<Bool, Never>] in
+            let waiting = state.waiters.values.map(\.continuation)
+            state = State()
+            state.suspended = true
+            return waiting
+        }
+        waiting.forEach { $0.resume(returning: false) }
+    }
+
+    /// 等目录确认到第 `sequence` 批(含):之后按库内顺序列目录里的歌,得到的就是那一刻内存模型的样子。
+    /// 已经确认过时立刻返回 true;不再跟写、超时(写旧库失败、目录卡住)时返回 false,调用方读内存模型。
+    /// 只在列表查询要跟上刚做的改动时用(扫描对比这个源现有的歌);按 id 读用 `resolve`,不用等。
+    public func waitUntilAcknowledged(through sequence: UInt64, timeout: Duration) async -> Bool {
+        let id = UUID()
+        let immediate: Bool? = lock.withLock {
+            if state.suspended { return false }
+            if state.overlay.acknowledgedSequence >= sequence, state.replacementRevision == nil { return true }
+            return nil
+        }
+        if let immediate { return immediate }
+        return await withCheckedContinuation { continuation in
+            let resumeNow: Bool? = lock.withLock {
+                if state.suspended { return false }
+                if state.overlay.acknowledgedSequence >= sequence, state.replacementRevision == nil { return true }
+                state.waiters[id] = (sequence, continuation)
+                return nil
+            }
+            if let resumeNow {
+                continuation.resume(returning: resumeNow)
+                return
+            }
+            // 登记之后才起计时,超时那一刻要么还在等(给 false),要么已经确认过(什么都不做)。
+            Task { [weak self] in
+                try? await Task.sleep(for: timeout)
+                self?.resumeWaiter(id, returning: false)
+            }
         }
     }
 
-    /// 目录不再跟写:清空,之后不登记、不作答。
-    public func suspend() {
-        lock.withLock {
-            state = State()
-            state.suspended = true
+    private func resumeWaiter(_ id: UUID, returning value: Bool) {
+        let waiter = lock.withLock { state.waiters.removeValue(forKey: id) }
+        waiter?.continuation.resume(returning: value)
+    }
+
+    /// 锁内调用:目录已确认到的那些等待方(整份替换还没镜像到时都不算)。
+    private func takeReadyWaiters() -> [CheckedContinuation<Bool, Never>] {
+        guard state.replacementRevision == nil, !state.waiters.isEmpty else { return [] }
+        let acknowledged = state.overlay.acknowledgedSequence
+        var ready: [CheckedContinuation<Bool, Never>] = []
+        for (id, waiter) in state.waiters where waiter.sequence <= acknowledged {
+            ready.append(waiter.continuation)
+            state.waiters.removeValue(forKey: id)
         }
+        return ready
     }
 
     /// 目录(加上这里)此刻能不能答出内存模型的样子:没有等着镜像的整份替换、还在跟写。

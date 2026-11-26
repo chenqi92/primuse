@@ -19697,6 +19697,18 @@ extension MusicLibrary: LibraryCatalogOwner {
         await catalogHost.mirror.waitUntilIdle()
     }
 
+    /// 等曲库目录跟上内存模型此刻的样子(还在路上的改动都写进了目录)后给出读接口:之后按库内顺序列
+    /// 目录里的歌(一个源的、一个范围的),与那一刻内存里的数组相同。写入链上要拿列表跟刚做的改动对比的
+    /// 地方(扫描对比这个源现有的歌)用它;按 id 读不用等(`LibraryCatalogHost.songLookup()`)。
+    /// 目录读不了、不再跟写、超时(写旧库失败、目录卡住)时为 nil,调用方读内存模型。
+    func catalogReaderCaughtUp(timeout: Duration = .seconds(3)) async -> LibraryCatalogReader? {
+        guard let catalogHost, catalogHost.revisions.isReadable else { return nil }
+        let sequence = catalogHost.pendingWrites.lastSequence
+        guard await catalogHost.pendingWrites.waitUntilAcknowledged(through: sequence, timeout: timeout),
+              catalogHost.revisions.isReadable else { return nil }
+        return catalogHost.reader
+    }
+
     /// 测试:删临时目录之前先停下目录。
     func stopCatalogMirror() async {
         await catalogHost?.mirror.stop()

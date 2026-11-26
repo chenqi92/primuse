@@ -191,6 +191,45 @@ struct LibraryPendingSongWritesTests {
         #expect(writes.lookup("b") == .unknown)
     }
 
+    @Test("Waiting for the catalog returns once it has acknowledged the batch, false on timeout or when following stops")
+    func waitingForAcknowledgement() async throws {
+        let writes = LibraryPendingSongWrites()
+        #expect(await writes.waitUntilAcknowledged(through: writes.lastSequence, timeout: .milliseconds(10)))
+
+        let first = try #require(writes.record(upserts: [LibrarySongOverlayTests.song("a")]))
+        async let waited = writes.waitUntilAcknowledged(through: first, timeout: .seconds(5))
+        try await Task.sleep(for: .milliseconds(20))
+        writes.catalogMirrored(storeRevision: 3)
+        writes.bind(throughSequence: first, storeRevision: 3)
+        #expect(await waited)
+
+        // 绑定先到、镜像后到。
+        let second = try #require(writes.record(upserts: [LibrarySongOverlayTests.song("b")]))
+        writes.bind(throughSequence: second, storeRevision: 4)
+        async let later = writes.waitUntilAcknowledged(through: second, timeout: .seconds(5))
+        try await Task.sleep(for: .milliseconds(20))
+        writes.catalogMirrored(storeRevision: 4)
+        #expect(await later)
+
+        // 写旧库失败(没有绑定):等到超时。
+        let unbound = try #require(writes.record(upserts: [LibrarySongOverlayTests.song("c")]))
+        #expect(await writes.waitUntilAcknowledged(through: unbound, timeout: .milliseconds(50)) == false)
+
+        // 整份替换镜像到之前不算跟上。
+        writes.bindReplacement(throughSequence: unbound, storeRevision: 9)
+        async let replaced = writes.waitUntilAcknowledged(through: unbound, timeout: .seconds(5))
+        try await Task.sleep(for: .milliseconds(20))
+        writes.catalogMirrored(storeRevision: 9)
+        #expect(await replaced)
+
+        let pending = try #require(writes.record(upserts: [LibrarySongOverlayTests.song("d")]))
+        async let stopped = writes.waitUntilAcknowledged(through: pending, timeout: .seconds(5))
+        try await Task.sleep(for: .milliseconds(20))
+        writes.suspend()
+        #expect(await stopped == false)
+        #expect(await writes.waitUntilAcknowledged(through: 0, timeout: .seconds(1)) == false)
+    }
+
     @Test("Resolving reads the overlay first, then the catalog, following a rename the catalog has not made yet")
     func resolving() throws {
         let catalog = try TemporaryCatalog()

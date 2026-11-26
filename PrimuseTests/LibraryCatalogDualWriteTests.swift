@@ -680,6 +680,62 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         await assertShadowMatches(library, "after every step")
     }
 
+    /// 写入链上的列表查询:改动刚进内存模型就等目录跟上,再按源列目录里的歌,与那一刻内存里的这个源
+    /// 逐首相同(新加的排在后面、删后重加的排到最后、改名的留在原位)。
+    func testCatalogCaughtUpListsASourceLikeTheInMemoryLibraryRightAfterAMutation() async throws {
+        let library = makeLibrary()
+        var songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+
+        func assertSourceListingsMatch(_ step: String, file: StaticString = #filePath, line: UInt = #line) async throws {
+            let caughtUp = await library.catalogReaderCaughtUp()
+            let reader = try XCTUnwrap(caughtUp, "\(step): catalog did not catch up", file: file, line: line)
+            for sourceID in [Self.sourceA, Self.sourceB] {
+                let fromCatalog = try await reader.read { catalog in
+                    var listed: [Song] = []
+                    try catalog.forEachSong(.source(sourceID, includesDisabled: true)) { _, song in
+                        listed.append(song)
+                        return true
+                    }
+                    return listed
+                }
+                let inMemory = library.songs.filter { $0.sourceID == sourceID }
+                XCTAssertEqual(fromCatalog, inMemory, "\(step): \(sourceID)", file: file, line: line)
+            }
+        }
+
+        songs[0].title = "Edited"
+        library.replaceSong(songs[0])
+        try await assertSourceListingsMatch("replaceSong")
+
+        _ = library.deleteSongs([songs[1]])
+        try await assertSourceListingsMatch("deleteSongs")
+
+        let fresh = Song(id: "caught-up-fresh", title: "Fresh", albumTitle: "New", artistName: "Ada", duration: 200,
+                         fileFormat: .flac, filePath: "/Music/New/fresh.flac", sourceID: Self.sourceA)
+        library.addSongs([fresh], affectedSourceIDs: [Self.sourceA])
+        for _ in 0..<500 where library.storedSong(id: fresh.id) == nil { try await Task.sleep(for: .milliseconds(5)) }
+        try await assertSourceListingsMatch("addSongs")
+
+        library.remapSongIDs([songs[2].id: songs[2].id + "-moved"])
+        try await assertSourceListingsMatch("remapSongIDs")
+
+        // 删掉再加回:排到这个源的最后(同旧库与目录)。
+        library.restoreDeletedSong(songs[1])
+        var readded = songs[1]
+        readded.title = "Back Again"
+        library.addSongs([readded], affectedSourceIDs: [Self.sourceA])
+        for _ in 0..<500 where library.storedSong(id: readded.id) == nil { try await Task.sleep(for: .milliseconds(5)) }
+        try await assertSourceListingsMatch("re-added after deletion")
+
+        // 不再跟写之后给 nil,调用方读内存模型。
+        await library.stopCatalogMirror()
+        library.updateLyricsText([songs[3].id: "after stop"])
+        let stopped = await library.catalogReaderCaughtUp(timeout: .milliseconds(200))
+        XCTAssertNil(stopped)
+    }
+
     /// 目录停下(不再跟写)后不登记、不作答,调用方读内存模型。
     func testCatalogReadsByIDStopWhenTheMirrorStopsFollowing() async throws {
         let library = makeLibrary()
