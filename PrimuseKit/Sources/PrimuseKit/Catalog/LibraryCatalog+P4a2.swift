@@ -12,7 +12,7 @@ extension LibraryCatalog {
     ) throws -> [(rowid: Int32, song: Song)] {
         let cap = min(max(0, limit), LibraryScale.maxMaterializedRows)
         guard cap > 0 else { return [] }
-        return try pool.read { db in
+        return try reader.read { db in
             let (sql, arguments) = try scope.whereClause(in: db)
             var pageArguments = arguments
             pageArguments += [Int64(rowid), cap]

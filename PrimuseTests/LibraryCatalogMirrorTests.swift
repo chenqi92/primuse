@@ -356,6 +356,34 @@ final class LibraryCatalogMirrorTests: XCTestCase {
         await mirror.stop()
     }
 
+    func testAResyncWhileReadableKeepsReadersOnAFrozenView() async throws {
+        let store = try IncrementalSongStore(path: storeURL.path)
+        try store.replaceAll(with: Self.makeSongs(30))
+        let mirror = makeMirror(batchSize: 4, maximumQueuedSongs: 5)
+        mirror.start()
+        await mirror.waitUntilIdle()
+        let before = mirror.statistics
+
+        // 队列溢出,目录行数超过旧库一半:对账,不重新导入。
+        for chunk in 0..<4 {
+            let songs = Self.makeSongs(3, prefix: "burst\(chunk)")
+            let revision = try store.apply(upserts: songs)
+            mirror.enqueueApply(upserts: songs, deletingIDs: [], storeRevision: revision)
+        }
+        await mirror.waitUntilIdle()
+        XCTAssertGreaterThan(mirror.statistics.resyncs, before.resyncs)
+        XCTAssertEqual(mirror.statistics.importRuns, before.importRuns)
+        // 对账期间读者读冻结视图,目录一直可读;对完账换回实时目录。
+        XCTAssertGreaterThan(mirror.statistics.frozenReads, before.frozenReads)
+        XCTAssertEqual(mirror.statistics.unreadableSpells, before.unreadableSpells)
+        XCTAssertFalse(mirror.readsAreFrozen)
+        let catalog = try XCTUnwrap(mirror.readableCatalog)
+        XCTAssertFalse(catalog.isFrozenView)
+        XCTAssertEqual(try catalog.songCount(.everything), 42)
+        try assertCatalogMatchesStore(catalog)
+        await mirror.stop()
+    }
+
     func testAFailedCatalogWriteStopsMirroringAndLeavesTheRevisionBehind() async throws {
         let store = try IncrementalSongStore(path: storeURL.path)
         try store.replaceAll(with: Self.makeSongs(4))

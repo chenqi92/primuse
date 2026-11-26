@@ -24,7 +24,7 @@ extension LibraryCatalog {
     /// 专辑按标题本地化排序、同名按首次出现的先后(与参照实现的稳定排序一致)。
     /// `visibleOnly` 只要有可见音乐歌曲的专辑。
     public func albumKeys(visibleOnly: Bool = true) throws -> LibraryCatalogKeyList {
-        try pool.read { db in
+        try reader.read { db in
             let revision = try Self.revision(in: db)
             let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
             let filter = visibleOnly && splitsLibrary
@@ -46,7 +46,7 @@ extension LibraryCatalog {
     /// 按键物化专辑,保持顺序。`visibleCounts` 时歌曲数与时长只算已启用源的歌(所有类别)。
     public func albums(keys: some Collection<Int32>, visibleCounts: Bool = true) throws -> [Album] {
         let admitted = Array(keys.prefix(LibraryScaleGuard.admitMaterialization(count: keys.count)))
-        return try pool.read { db in
+        return try reader.read { db in
             let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
             let splits = visibleCounts && splitsLibrary
             var byKey: [Int32: Album] = [:]
@@ -87,7 +87,7 @@ extension LibraryCatalog {
 
     /// 专辑封面回退用的那首:有封面的优先,再按碟号、曲号、id(可见歌曲,所有类别)。
     public func preferredArtworkSongID(albumID: String) throws -> String? {
-        try pool.read { db in
+        try reader.read { db in
             try String.fetchOne(db, sql: """
                 SELECT id FROM song WHERE effectiveAlbumRef = (SELECT key FROM album WHERE id = ?)
                 AND sourceKey IN (\(Self.enabledSourcesSQL))
@@ -106,7 +106,7 @@ extension LibraryCatalog {
     /// 艺人按名字本地化排序、同名按首次出现的先后。`visibleOnly` 时停用了源或分出了非音乐
     /// 内容就只要有可见音乐歌曲的艺人(按查找 id 计)。
     public func artistKeys(visibleOnly: Bool = true) throws -> LibraryCatalogKeyList {
-        try pool.read { db in
+        try reader.read { db in
             let revision = try Self.revision(in: db)
             let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
             let filter = visibleOnly && splitsLibrary
@@ -127,7 +127,7 @@ extension LibraryCatalog {
 
     public func artists(keys: some Collection<Int32>, visibleCounts: Bool = true) throws -> [Artist] {
         let admitted = Array(keys.prefix(LibraryScaleGuard.admitMaterialization(count: keys.count)))
-        return try pool.read { db in
+        return try reader.read { db in
             let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
             let splits = visibleCounts && splitsLibrary
             var byKey: [Int32: Artist] = [:]
@@ -162,7 +162,7 @@ extension LibraryCatalog {
     }
 
     public func preferredArtworkSongID(artistID: String) throws -> String? {
-        try pool.read { db in
+        try reader.read { db in
             try String.fetchOne(db, sql: """
                 SELECT id FROM song WHERE rowid IN (SELECT songRowid FROM songArtistLookup
                     WHERE artistRef = (SELECT ref FROM artistRef WHERE id = ?))
@@ -204,7 +204,7 @@ extension LibraryCatalog {
     /// 走主键取(一首歌同一流派 id 只有一行,`ordinal` 只是兜底)。不要把写法写回按流派的
     /// 关联子查询:那样每个流派都要把整库可见歌曲再扫一遍(10 万首 46 个流派约 1 s)。
     public func genres() throws -> [LibraryGenre] {
-        try pool.read { db in
+        try reader.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 WITH stat AS (
                     SELECT n.genreID AS genreID, min(g.songRowid) AS firstRowid,
@@ -243,7 +243,7 @@ extension LibraryCatalog {
 
     /// 一首歌的书(或播客节目)id 与它在书里显示的标题。
     public func bookPlacement(songID: String) throws -> (bookID: String, kind: LibraryCatalogContentKind, displayTitle: String?)? {
-        try pool.read { db in
+        try reader.read { db in
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT b.bookID, b.kind, b.displayTitle FROM songBook b JOIN song s ON s.rowid = b.songRowid WHERE s.id = ?
                 """, arguments: [songID]) else { return nil }
@@ -256,7 +256,7 @@ extension LibraryCatalog {
     }
 
     public func contentKind(songID: String) throws -> LibraryCatalogContentKind? {
-        try pool.read { db in
+        try reader.read { db in
             try Int.fetchOne(db, sql: "SELECT kind FROM song WHERE id = ?", arguments: [songID])
                 .flatMap(LibraryCatalogContentKind.init(rawValue:))
         }
@@ -271,7 +271,7 @@ extension LibraryCatalog {
 
     /// 某目录的直接子文件夹(按名字本地化排序)。`path` 为 nil 时给源的根。
     public func folderChildren(sourceID: String, path: String?) throws -> [FolderEntry] {
-        try pool.read { db in
+        try reader.read { db in
             guard let sourceKey = try Int64.fetchOne(db, sql: "SELECT key FROM source WHERE id = ?", arguments: [sourceID]) else {
                 return []
             }

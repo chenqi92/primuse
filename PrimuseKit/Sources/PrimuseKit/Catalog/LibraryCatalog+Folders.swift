@@ -44,7 +44,7 @@ extension LibraryCatalog {
             var batch: [LibraryCatalogFolderRow] = []
             batch.reserveCapacity(Self.folderRowBatchSize)
             var fetched = 0
-            try pool.read { db in
+            try reader.read { db in
                 var sourceIDs: [Int64: String] = [:]
                 let sources = try Row.fetchCursor(db, sql: "SELECT key, id FROM source")
                 while let row = try sources.next() {
@@ -85,7 +85,7 @@ extension LibraryCatalog {
         guard !rowids.isEmpty else { return [:] }
         var result: [Int32: LibraryCatalogFolderOrderRecord] = [:]
         result.reserveCapacity(rowids.count)
-        try pool.read { db in
+        try reader.read { db in
             for chunk in Self.chunks(of: Array(rowids)) {
                 let rows = try Row.fetchCursor(
                     db,
@@ -113,7 +113,7 @@ extension LibraryCatalog {
         let ordered = Array(rowids)
         var byRowid: [Int32: String] = [:]
         byRowid.reserveCapacity(ordered.count)
-        try pool.read { db in
+        try reader.read { db in
             for chunk in Self.chunks(of: ordered) {
                 let rows = try Row.fetchCursor(
                     db,
@@ -132,7 +132,7 @@ extension LibraryCatalog {
     func folderLookups(ids: some Collection<String>) throws -> [String: LibraryCatalogFolderLookup] {
         guard !ids.isEmpty else { return [:] }
         var result: [String: LibraryCatalogFolderLookup] = [:]
-        try pool.read { db in
+        try reader.read { db in
             for chunk in Self.chunks(of: Array(Set(ids))) {
                 let rows = try Row.fetchCursor(
                     db,

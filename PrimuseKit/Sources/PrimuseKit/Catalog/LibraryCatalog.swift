@@ -19,6 +19,15 @@ public enum LibraryCatalogError: Error, Equatable, Sendable {
 public final class LibraryCatalog: @unchecked Sendable {
     public let path: String
     let pool: DatabasePool
+    /// 查询读哪里:实时目录读连接池本身;`frozenView()` 给的只读视图读那一刻的快照。
+    /// 写入(含维护、离线状态表的读写)一律走 `pool`。
+    let reader: any DatabaseReader
+    /// 冻结视图的来源;实时目录自己为 nil。
+    private let frozenFrom: LibraryCatalog?
+    /// 这是 `frozenView()` 给的视图(查询看到的是冻结那一刻的目录)。
+    public var isFrozenView: Bool { frozenFrom != nil }
+    /// 实时目录。要长期留着句柄(维护记账等)时留它:留着冻结视图会一直拖住检查点,读到的也一直是旧的。
+    public var live: LibraryCatalog { frozenFrom ?? self }
     let songListCache = LibrarySongListCache()
     private let groupingState = OSAllocatedUnfairLock(initialState: LibraryGroupingConfiguration())
     let writeWorkState = OSAllocatedUnfairLock(initialState: LibraryCatalogWriteWorkState())
@@ -52,6 +61,7 @@ public final class LibraryCatalog: @unchecked Sendable {
         static let groupingRebuildPhase = "grouping.rebuild.phase"
         static let groupingRebuildCursor = "grouping.rebuild.cursor"
         static let groupingGeneration = "grouping.generation"
+        static let frozenAt = "frozenView.at"
     }
 
     /// 打开(不存在就新建)目录。打开只做迁移检查与 meta 读取,与曲库大小无关;
@@ -70,6 +80,8 @@ public final class LibraryCatalog: @unchecked Sendable {
                 """)
         }
         pool = try DatabasePool(path: path, configuration: configuration)
+        reader = pool
+        frozenFrom = nil
         try pool.writeWithoutTransaction { db in
             try db.execute(sql: "PRAGMA synchronous = FULL")
         }
@@ -102,6 +114,29 @@ public final class LibraryCatalog: @unchecked Sendable {
         }
     }
 
+    private init(frozenFrom base: LibraryCatalog, snapshot: DatabaseSnapshotPool) {
+        path = base.path
+        pool = base.pool
+        reader = snapshot
+        frozenFrom = base
+        replaceGroupingConfiguration(base.groupingConfiguration)
+    }
+
+    /// 此刻目录的只读视图:查询一直看到冻结那一刻的样子,哪怕实时目录随后在整库重建分组、对账。
+    /// 写仍落到实时目录。视图持有一个 WAL 快照,检查点越不过它,用完就放掉(不再引用即可)。
+    public func frozenView() throws -> LibraryCatalog {
+        // SQLite 只在 WAL 里已经写过事务时才取得到快照(刚打开的目录 WAL 是空的):先记一笔不动内容的 meta。
+        try pool.write { db in
+            try Self.setMeta(MetaKey.frozenAt, String(Date().timeIntervalSince1970), in: db)
+        }
+        return LibraryCatalog(frozenFrom: self, snapshot: try pool.makeSnapshotPool())
+    }
+
+    /// 上次的整库分组重建没做完(各表此刻是新旧混着的):这时冻结出来的视图不一致,不能给读者。
+    public var groupingRebuildInProgress: Bool {
+        get throws { try pool.read { db in try Self.metaValue(MetaKey.groupingRebuildPhase, in: db) != nil } }
+    }
+
     /// 前后台切换、内存告警时调用:放掉各连接的页缓存。
     public func releaseMemory() {
         songListCache.removeAll()
@@ -110,11 +145,11 @@ public final class LibraryCatalog: @unchecked Sendable {
 
     /// 歌曲内容修订号:每次 `apply` 有改动就递增。
     public func revision() throws -> Int64 {
-        try pool.read { db in try Self.revision(in: db) }
+        try reader.read { db in try Self.revision(in: db) }
     }
 
     public func collationLocaleIdentifier() throws -> String? {
-        try pool.read { db in try Self.metaValue(MetaKey.collationLocale, in: db) }
+        try reader.read { db in try Self.metaValue(MetaKey.collationLocale, in: db) }
     }
 
     /// 这个连接池现在的 SQLite 页缓存占用(字节),给诊断日志与规模测试。

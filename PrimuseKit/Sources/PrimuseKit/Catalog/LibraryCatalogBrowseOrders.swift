@@ -37,7 +37,7 @@ extension LibraryCatalog {
         case .recentlyAdded, .liked: return nil
         }
         let trailing = LibraryCatalogDerivedFields.keyData(LibraryCollationPolicy.trailingKey)
-        return try pool.read { db in
+        return try reader.read { db in
             let revision = try Self.revision(in: db)
             let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
             let filter = visibleOnly && splitsLibrary
@@ -82,7 +82,7 @@ extension LibraryCatalog {
     /// 艺人墙:按名字读音排序并分段,`unknownArtistName` 和没有名字的放最后(对应 `visibleArtists`)。
     public func artistBrowseKeys(unknownArtistName: String?, visibleOnly: Bool = true) throws -> LibraryCatalogBrowseKeys {
         let trailing = LibraryCatalogDerivedFields.keyData(LibraryCollationPolicy.trailingKey)
-        return try pool.read { db in
+        return try reader.read { db in
             let revision = try Self.revision(in: db)
             let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
             let filter = visibleOnly && splitsLibrary
@@ -125,7 +125,7 @@ extension LibraryCatalog {
             filter = "AND n.genreID IN (\(Array(repeating: "?", count: genreIDs.count).joined(separator: ",")))"
             arguments = StatementArguments(genreIDs.sorted())
         }
-        return try pool.read { db in
+        return try reader.read { db in
             let cursor = try Row.fetchCursor(db, sql: """
                 SELECT n.genreID, s.id, s.albumID
                 FROM songGenre g JOIN genreName n ON n.ref = g.genreRef JOIN song s ON s.rowid = g.songRowid
@@ -170,21 +170,21 @@ extension LibraryCatalog {
 
     /// 专辑 id → 专辑键(电视墙找回记住的那一张)。没有这张专辑时为 nil。
     public func albumKey(id: String) throws -> Int32? {
-        try pool.read { db in
+        try reader.read { db in
             try Int64.fetchOne(db, sql: "SELECT key FROM album WHERE id = ?", arguments: [id]).map(Self.rowid32)
         }
     }
 
     /// 艺人 id → 艺人键。没有这位艺人时为 nil。
     public func artistKey(id: String) throws -> Int32? {
-        try pool.read { db in
+        try reader.read { db in
             try Int64.fetchOne(db, sql: "SELECT key FROM artist WHERE id = ? LIMIT 1", arguments: [id]).map(Self.rowid32)
         }
     }
 
     /// 歌曲 id → 行号。没有这首歌时为 nil。
     public func songRowid(id: String) throws -> Int32? {
-        try pool.read { db in
+        try reader.read { db in
             try Int64.fetchOne(db, sql: "SELECT rowid FROM song WHERE id = ?", arguments: [id]).map(Self.rowid32)
         }
     }
@@ -194,7 +194,7 @@ extension LibraryCatalog {
         guard !rowids.isEmpty else { return [] }
         var byRowid: [Int32: String] = [:]
         byRowid.reserveCapacity(rowids.count)
-        try pool.read { db in
+        try reader.read { db in
             for chunk in Self.chunks(of: rowids) {
                 let rows = try Row.fetchCursor(
                     db,
@@ -216,7 +216,7 @@ extension LibraryCatalog {
     public func firstSongsByTitle(_ scope: LibrarySongScope = .visibleMusic, limit: Int) throws -> [Song] {
         let cap = LibraryScaleGuard.admitMaterialization(count: limit)
         guard cap > 0 else { return [] }
-        let rowids = try pool.read { db -> [Int32] in
+        let rowids = try reader.read { db -> [Int32] in
             let (scopeSQL, arguments) = try scope.whereClause(in: db)
             return try Int64.fetchAll(db, sql: """
                 SELECT s.rowid FROM song s WHERE \(scopeSQL)
@@ -232,7 +232,7 @@ extension LibraryCatalog {
     public func firstAlbumsByTitle(limit: Int) throws -> [Album] {
         let cap = LibraryScaleGuard.admitMaterialization(count: limit)
         guard cap > 0 else { return [] }
-        let keys = try pool.read { db -> [Int32] in
+        let keys = try reader.read { db -> [Int32] in
             let filter = try Self.visibleSplitsLibrary(in: db)
                 ? """
                   WHERE a.key IN (SELECT albumKey FROM albumSourceStat
@@ -254,7 +254,7 @@ extension LibraryCatalog {
     public func firstArtistsByName(limit: Int) throws -> [Artist] {
         let cap = LibraryScaleGuard.admitMaterialization(count: limit)
         guard cap > 0 else { return [] }
-        let keys = try pool.read { db -> [Int32] in
+        let keys = try reader.read { db -> [Int32] in
             let filter = try Self.visibleSplitsLibrary(in: db)
                 ? """
                   WHERE artist.key IN (SELECT artistRef FROM artistSourceStat

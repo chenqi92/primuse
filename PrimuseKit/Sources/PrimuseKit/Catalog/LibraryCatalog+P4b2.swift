@@ -29,7 +29,7 @@ extension LibraryCatalog {
     /// 现在的流水末尾。导入还没做完时为 nil(这时的目录不能当对账的依据)。
     public func changeCursor() throws -> LibraryCatalogChangeCursor? {
         let fileStamp = fileStamp()
-        return try pool.read { db in
+        return try reader.read { db in
             guard let epoch = try Self.changeEpoch(fileStamp: fileStamp, in: db) else { return nil }
             let seq = try Int64.fetchOne(db, sql: "SELECT max(seq) FROM catalogChange") ?? 0
             return LibraryCatalogChangeCursor(epoch: epoch, seq: seq)
@@ -41,7 +41,7 @@ extension LibraryCatalog {
     /// 查不到的就是删了。改名只记新 id(行号不变),旧 id 要调用方另行清理。
     public func changedSongIDs(since cursor: LibraryCatalogChangeCursor, limit: Int) throws -> LibraryCatalogChangeBatch? {
         let fileStamp = fileStamp()
-        return try pool.read { db in
+        return try reader.read { db in
             guard let epoch = try Self.changeEpoch(fileStamp: fileStamp, in: db), epoch == cursor.epoch else { return nil }
             let maxSeq = try Int64.fetchOne(db, sql: "SELECT max(seq) FROM catalogChange") ?? 0
             // 流水只会在重新导入时清空(那时 epoch 已变);末尾比记下的还小,说明不是同一条流水。

@@ -8370,7 +8370,7 @@ final class MetadataBackfillService {
 
     private func connectMaintenanceCatalogIfNeeded() {
         guard maintenanceConnectTask == nil, !maintenance.isMigrating,
-              let catalog = library.catalogHost?.mirror.readableCatalog else { return }
+              let catalog = library.catalogHost?.mirror.readableCatalog?.live else { return }
         let store = maintenance
         switch store.storage {
         case .catalog:

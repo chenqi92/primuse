@@ -31,6 +31,10 @@ struct LibraryCatalogMirrorStatistics: Sendable, Equatable {
     var resyncs = 0
     var resyncFallbacksToImport = 0
     var groupingRebuilds = 0
+    /// 整库重建分组、对账期间读者改读冻结视图的次数。
+    var frozenReads = 0
+    /// 目录从可读变成不可读的次数。
+    var unreadableSpells = 0
     var appliedOperations = 0
     var skippedOperations = 0
     var overflows = 0
@@ -96,6 +100,8 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         var stopped = false
         var poisoned = false
         var catalog: LibraryCatalog?
+        /// 整库重建分组、对账期间给读者的冻结视图(开始那一刻的目录);nil 时读者读实时目录。
+        var frozenView: LibraryCatalog?
         var readable = false
         var operations: [Operation] = []
         var queuedSongs = 0
@@ -155,6 +161,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         let (wakeup, waiters, verifications, worker, wasFollowing) = lock.withLock { () -> (CheckedContinuation<Void, Never>?, [CheckedContinuation<Void, Never>], [PendingVerification], Task<Void, Never>?, Bool) in
             let wasFollowing = !state.stopped && !state.poisoned
             state.stopped = true
+            state.frozenView = nil
             let wakeup = state.wakeup
             state.wakeup = nil
             let waiters = state.idleWaiters
@@ -179,8 +186,12 @@ final class LibraryCatalogMirror: @unchecked Sendable {
 
     /// 目录可读时给出句柄(导入与分组都做完、没有待对账、没出过错)。
     var readableCatalog: LibraryCatalog? {
-        lock.withLock { state.readable && !state.poisoned ? state.catalog : nil }
+        lock.withLock { state.readable && !state.poisoned ? state.frozenView ?? state.catalog : nil }
     }
+
+    /// 读者此刻读的是冻结视图(整库重建分组或对账还没做完,列表停在开始那一刻)。按 id 读照样对:
+    /// 冻结期间不确认修订号(对账先换回实时目录再确认),这之后的改动都还在待写登记里。
+    var readsAreFrozen: Bool { lock.withLock { state.frozenView != nil } }
 
     var statistics: LibraryCatalogMirrorStatistics { lock.withLock { state.statistics } }
     var lastShadowReport: LibraryCatalogShadowReport? { lock.withLock { state.lastShadowReport } }
@@ -381,17 +392,23 @@ final class LibraryCatalogMirror: @unchecked Sendable {
                 let pending = await performNonThrowing { [self] in (self.progress.needsImport, self.progress.needsResync) }
                 if pending.0 {
                     setReadable(false)
+                    // 整库导入写得多,不留快照拖住检查点。
+                    lock.withLock { state.frozenView = nil }
                     try await perform { [self] in try self.runImport(catalog: catalog, scanner: scanner) }
                     continue
                 }
                 if try await perform({ try catalog.groupingNeedsRebuild }) {
-                    setReadable(false)
-                    try await perform { [self] in try self.runGroupingRebuild(catalog: catalog) }
+                    try await perform { [self] in
+                        try self.freezeReadsOrMakeUnreadable(catalog)
+                        try self.runGroupingRebuild(catalog: catalog)
+                    }
                     continue
                 }
                 if pending.1 {
-                    setReadable(false)
-                    try await perform { [self] in try self.runResync(catalog: catalog, scanner: scanner) }
+                    try await perform { [self] in
+                        try self.freezeReadsOrMakeUnreadable(catalog)
+                        try self.runResync(catalog: catalog, scanner: scanner)
+                    }
                     continue
                 }
                 setReadable(true)
@@ -520,6 +537,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         let (changed, wasFollowing) = lock.withLock { () -> (Bool, Bool) in
             let wasFollowing = !state.stopped && !state.poisoned
             state.poisoned = true
+            state.frozenView = nil
             state.operations = []
             state.queuedSongs = 0
             let changed = state.readable
@@ -530,10 +548,50 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         if wasFollowing { events(.stoppedFollowing) }
     }
 
+    /// 整库重建分组、对账之前调用:读者正在读目录时冻结一份此刻的目录接着给他们读(各表还是上一次
+    /// 分组的完整样子);冻不了(上次重建没做完、各表新旧混着,或取不到快照)就先不让读。
+    /// 本来就不可读(刚启动、还在导入)时不动。
+    private func freezeReadsOrMakeUnreadable(_ catalog: LibraryCatalog) throws {
+        guard lock.withLock({ state.readable }) else { return }
+        if try !freezeReadsIfConsistent(catalog) { setReadable(false) }
+    }
+
+    /// 给读者冻结一份此刻的目录(已经冻着就沿用)。整库分组重建上次没做完、各表不一致时不冻,返回 false。
+    private func freezeReadsIfConsistent(_ catalog: LibraryCatalog) throws -> Bool {
+        if lock.withLock({ state.frozenView != nil }) { return true }
+        guard try !catalog.groupingRebuildInProgress else { return false }
+        let view: LibraryCatalog
+        do {
+            view = try catalog.frozenView()
+        } catch {
+            // 取不到快照不算目录出错:这一回照旧先不让读。
+            environment.log("📚 catalog reads not frozen: \(error.localizedDescription)")
+            return false
+        }
+        lock.withLock {
+            state.frozenView = view
+            state.statistics.frozenReads += 1
+        }
+        environment.log("📚 catalog reads frozen")
+        return true
+    }
+
+    /// 放掉冻结视图,读者改读实时目录,整个目录按变了通知一次(行缓存、列表都重取)。
+    private func thawReads(reason: String) {
+        let wasFrozen = lock.withLock { () -> Bool in
+            let wasFrozen = state.frozenView != nil
+            state.frozenView = nil
+            return wasFrozen
+        }
+        if wasFrozen { environment.log("📚 catalog reads thawed (\(reason))") }
+        events(.invalidatedAll(reason: reason))
+    }
+
     private func setReadable(_ readable: Bool) {
         let changed = lock.withLock { () -> Bool in
             guard state.readable != readable else { return false }
             state.readable = readable
+            if !readable { state.statistics.unreadableSpells += 1 }
             return true
         }
         if changed { events(.readability(readable)) }
@@ -658,7 +716,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         environment.log(String(
             format: "📚 catalog grouping stage=done ms=%.0f", (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
         ))
-        events(.invalidatedAll(reason: "grouping"))
+        thawReads(reason: "grouping")
     }
 
     /// 补建迁移后留到后台的排序索引。每条一个写事务,用户在滑动时停在两条之间等;
@@ -762,6 +820,8 @@ final class LibraryCatalogMirror: @unchecked Sendable {
 
         progress.needsResync = false
         progress.baselineRevision = baseline
+        // 先换回实时目录再确认修订号:确认之后按 id 读不再看待写登记,读者必须已经在读对过账的目录。
+        thawReads(reason: "resync")
         try recordMirroredRevision(baseline, catalog: catalog)
         environment.log(String(
             format: "📚 catalog resync stage=done changed=%d deleted=%d ms=%.0f",
@@ -944,9 +1004,14 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             }
             let before = try catalog.groupingNeedsRebuild
             let previousFingerprint = catalog.groupingConfiguration
+            // 配置变了就按要整库重建算(指纹相同不重建时只是白冻一回)。
+            let rebuilds = before || previousFingerprint != inputs.grouping
+            // 要整库重建分组:还在用旧配置、各表完整时冻结一份给读者,重建期间读者读它,不读重建到一半的表。
+            if rebuilds { try freezeReadsOrMakeUnreadable(catalog) }
             try catalog.setGroupingConfiguration(inputs.grouping, isCancelled: { [self] in
                 (try? pauseWhileInteracting()) == nil
             })
+            if rebuilds { lock.withLock { state.frozenView = nil } }
             if before || previousFingerprint != inputs.grouping { invalidated = true }
             lock.withLock { state.appliedInputs = inputs }
         }

@@ -289,11 +289,18 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         library.updateDisabledSourceIDs([])
         await assertShadowMatches(library, "enable source")
 
+        let mirror = try XCTUnwrap(library.catalogHost?.mirror)
+        let before = mirror.statistics
         var configuration = ArtistNameConfiguration.defaultValue
         configuration.separators = configuration.separators.filter { $0 != "、" }
         configuration.mergesCollaborativeAlbums.toggle()
         library.updateArtistNameConfiguration(configuration)
         await assertShadowMatches(library, "artist-name configuration")
+        // 整库重建分组期间读者读冻结视图(重建前的完整分组),目录不会变得不可读。
+        XCTAssertGreaterThan(mirror.statistics.frozenReads, before.frozenReads)
+        XCTAssertEqual(mirror.statistics.unreadableSpells, before.unreadableSpells)
+        XCTAssertFalse(mirror.readsAreFrozen)
+        XCTAssertEqual(mirror.readableCatalog?.isFrozenView, false)
 
         let separatorsKey = GenreSplitPreference.storageKey
         let previousSeparators = UserDefaults.standard.object(forKey: separatorsKey)

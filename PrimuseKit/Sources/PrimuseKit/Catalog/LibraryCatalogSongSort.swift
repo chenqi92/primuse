@@ -194,7 +194,7 @@ extension LibraryCatalog {
         scope: LibrarySongScope,
         includeAggregates: Bool
     ) throws -> LibraryRowList {
-        try pool.read { db in
+        try reader.read { db in
             let revision = try Self.revision(in: db)
             let sources = try Row.fetchAll(db, sql: "SELECT key, id, name FROM source").map { row in
                 (key: row[0] as Int64, label: (row[2] as String?) ?? (row[1] as String))

@@ -85,7 +85,7 @@ extension LibraryCatalog {
         guard !requested.isEmpty else { return [] }
         var byID: [String: Song] = [:]
         byID.reserveCapacity(requested.count)
-        try pool.read { db in
+        try reader.read { db in
             let (scopeSQL, scopeArguments) = try scope.whereClause(in: db)
             for chunk in Self.chunks(of: Array(Set(requested))) {
                 var arguments = StatementArguments(chunk)
@@ -125,7 +125,7 @@ extension LibraryCatalog {
         guard !rowids.isEmpty else { return [:] }
         var result: [Int32: Song] = [:]
         result.reserveCapacity(rowids.count)
-        try pool.read { db in
+        try reader.read { db in
             for chunk in Self.chunks(of: Array(Set(rowids))) {
                 let rows = try Row.fetchCursor(
                     db,
@@ -149,7 +149,7 @@ extension LibraryCatalog {
         let admitted = LibraryScaleGuard.admitMaterialization(count: ids.count)
         let requested = Array(ids.prefix(admitted))
         var byID: [String: Int32] = [:]
-        try pool.read { db in
+        try reader.read { db in
             for chunk in Self.chunks(of: Array(Set(requested))) {
                 let rows = try Row.fetchCursor(
                     db,
@@ -171,14 +171,14 @@ extension LibraryCatalog {
     // MARK: - Counts
 
     public func songCount(_ scope: LibrarySongScope = .visible) throws -> Int {
-        try pool.read { db in
+        try reader.read { db in
             let (sql, arguments) = try scope.whereClause(in: db)
             return try Int.fetchOne(db, sql: "SELECT count(*) FROM song s WHERE \(sql)", arguments: arguments) ?? 0
         }
     }
 
     public func containsSongs(_ scope: LibrarySongScope) throws -> Bool {
-        try pool.read { db in
+        try reader.read { db in
             let (sql, arguments) = try scope.whereClause(in: db)
             return try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM song s WHERE \(sql))", arguments: arguments) ?? false
         }
@@ -186,7 +186,7 @@ extension LibraryCatalog {
 
     /// 按音乐源计数。结果大小与音乐源个数同阶。
     public func songCountsBySource(_ scope: LibrarySongScope = .everything) throws -> [String: Int] {
-        try pool.read { db in
+        try reader.read { db in
             let (sql, arguments) = try scope.whereClause(in: db)
             var result: [String: Int] = [:]
             let rows = try Row.fetchCursor(
@@ -203,7 +203,7 @@ extension LibraryCatalog {
     }
 
     public func aggregates(_ scope: LibrarySongScope) throws -> LibraryRowList.Aggregates {
-        try pool.read { db in try Self.fetchAggregates(scope, in: db) }
+        try reader.read { db in try Self.fetchAggregates(scope, in: db) }
     }
 
     static func fetchAggregates(_ scope: LibrarySongScope, in db: Database) throws -> LibraryRowList.Aggregates {
@@ -278,7 +278,7 @@ extension LibraryCatalog {
     /// 某目录下文件名主干(去掉扩展名)的集合,最多 `limit` 个。
     public func fileStems(sourceID: String, directory: String, limit: Int = LibraryScale.maxMaterializedRows) throws -> Set<String> {
         let cap = min(max(0, limit), LibraryScale.maxMaterializedRows)
-        return try pool.read { db in
+        return try reader.read { db in
             var stems: Set<String> = []
             let paths = try String.fetchCursor(
                 db,
@@ -300,7 +300,7 @@ extension LibraryCatalog {
 
     /// 源内某个精确路径的歌曲 id(没有就是 nil;CUE 分轨取库内顺序第一个)。
     public func songID(sourceID: String, filePath: String) throws -> String? {
-        try pool.read { db in
+        try reader.read { db in
             try String.fetchOne(
                 db,
                 sql: """
@@ -325,7 +325,7 @@ extension LibraryCatalog {
         _ scope: LibrarySongScope,
         _ body: (_ rowid: Int32, _ id: String, _ filePath: String) throws -> Bool
     ) throws {
-        try pool.read { db in
+        try reader.read { db in
             let (sql, arguments) = try scope.whereClause(in: db)
             let rows = try Row.fetchCursor(
                 db,
@@ -346,7 +346,7 @@ extension LibraryCatalog {
         var lastRowid: Int64 = 0
         while true {
             var batch: [(Int32, Song)] = []
-            try pool.read { db in
+            try reader.read { db in
                 let (sql, arguments) = try scope.whereClause(in: db)
                 var batchArguments = arguments
                 batchArguments += [lastRowid, LibraryScale.importBatchSize]
@@ -382,7 +382,7 @@ extension LibraryCatalog {
         limit: Int? = nil,
         where makeWhere: (Database) throws -> (String, StatementArguments)
     ) throws -> LibraryRowList {
-        try pool.read { db in
+        try reader.read { db in
             let revision = try Self.revision(in: db)
             let (whereSQL, arguments) = try makeWhere(db)
             var rowids = ContiguousArray<Int32>()
