@@ -259,7 +259,6 @@
 "Optional, narrows albums with the same name." = "वैकल्पिक, समान नाम वाले एल्बमों को संक्षिप्त करता है।";
 "Optional, narrows the match if multiple songs share a title." = "वैकल्पिक, यदि एकाधिक गाने एक शीर्षक साझा करते हैं तो मिलान सीमित हो जाता है।";
 "Output Mode" = "आउटपुट मोड";
-"P-16 · On by Default" = "P-16 · डिफ़ॉल्ट रूप से चालू";
 "Parse Result" = "पार्स परिणाम";
 "Paste Configuration" = "कॉन्फ़िगरेशन चिपकाएँ";
 "Paste JSON" = "पेस्ट करें JSON";
@@ -8236,6 +8235,9 @@
 "source_state_unauthorized" = "अनुमति आवश्यक";
 "sources_manage_action" = "स्रोत प्रबंधित करें";
 "stats_play_count_singular" = "1 प्ले";
+"yearly_sources_duration_share" = "सुनने के समय का";
+"a11y_enable_reverb" = "रीवर्ब सक्षम करें";
+"a11y_enable_compressor" = "कंप्रेसर सक्षम करें";
 "song_count_singular" = "1 गाना";
 "album_count_singular" = "1 एल्बम";
 "artist_count_singular" = "1 कलाकार";

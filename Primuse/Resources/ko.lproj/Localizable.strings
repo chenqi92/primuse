@@ -2316,7 +2316,6 @@
 "Off" = "꺼짐";
 "Open System Settings" = "시스템 설정 열기";
 "Open-Source Licenses…" = "오픈 소스 라이선스…";
-"P-16 · On by Default" = "P-16 · 기본적으로 켬";
 "Paste Configuration" = "구성 붙여넣기";
 "Paste JSON…" = "JSON 붙여넣기…";
 "Playback" = "재생";
@@ -8330,6 +8329,9 @@
 "source_state_unauthorized" = "권한 필요";
 "sources_manage_action" = "소스 관리";
 "stats_play_count_singular" = "1회 재생";
+"yearly_sources_duration_share" = "청취 시간 비중";
+"a11y_enable_reverb" = "리버브 활성화";
+"a11y_enable_compressor" = "컴프레서 활성화";
 "song_count_singular" = "1 곡";
 "album_count_singular" = "1 개 앨범";
 "artist_count_singular" = "1 명 아티스트";

@@ -2317,7 +2317,6 @@
 "Off" = "オフ";
 "Open System Settings" = "システム設定を開く";
 "Open-Source Licenses…" = "オープンソースライセンス…";
-"P-16 · On by Default" = "P-16 · デフォルトでオン";
 "Paste Configuration" = "構成を貼り付け";
 "Paste JSON…" = "JSON を貼り付け…";
 "Playback" = "再生";
@@ -8331,6 +8330,9 @@
 "source_state_unauthorized" = "認証が必要";
 "sources_manage_action" = "ソースを管理";
 "stats_play_count_singular" = "1 回再生";
+"yearly_sources_duration_share" = "再生時間の割合";
+"a11y_enable_reverb" = "リバーブを有効にする";
+"a11y_enable_compressor" = "コンプレッサーを有効にする";
 "song_count_singular" = "1 曲";
 "album_count_singular" = "1 枚のアルバム";
 "artist_count_singular" = "1 組のアーティスト";

@@ -2440,7 +2440,6 @@
 "scrape_tally_embed_confirm_embed" = "Записать в аудиофайлы";
 "scrape_tally_embed_confirm_skip" = "Не в этот раз";
 "open_keychain_settings" = "Откройте настройки связки ключей.";
-"P-16 · On by Default" = "P-16 · Включено по умолчанию";
 "tag_editor_mac_save" = "Сохранить и применить";
 "sidebar_playlists_empty" = "Пока нет плейлистов";
 "ai_provider_preset_stepfun" = "StepFun";
@@ -8236,6 +8235,9 @@
 "source_state_unauthorized" = "Требуется авторизация";
 "sources_manage_action" = "Управление источниками";
 "stats_play_count_singular" = "1 прослушивание";
+"yearly_sources_duration_share" = "времени прослушивания";
+"a11y_enable_reverb" = "Включить реверберацию";
+"a11y_enable_compressor" = "Включить компрессор";
 "song_count_singular" = "1 трек";
 "album_count_singular" = "1 альбом";
 "artist_count_singular" = "1 исполнитель";

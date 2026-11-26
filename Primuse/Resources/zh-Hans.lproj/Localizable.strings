@@ -2331,7 +2331,6 @@
 "Off" = "关闭";
 "Open System Settings" = "去系统设置";
 "Open-Source Licenses…" = "开源许可证…";
-"P-16 · On by Default" = "P-16 · 默认开启";
 "Paste Configuration" = "粘贴配置";
 "Paste JSON…" = "粘贴 JSON…";
 "Playback" = "播放";
@@ -8423,6 +8422,9 @@
 "source_state_unauthorized" = "需要授权";
 "sources_manage_action" = "管理音乐源";
 "stats_play_count_singular" = "1 次";
+"yearly_sources_duration_share" = "收听时长占比";
+"a11y_enable_reverb" = "启用混响";
+"a11y_enable_compressor" = "启用压缩器";
 "song_count_singular" = "1 首歌曲";
 "album_count_singular" = "1 张专辑";
 "artist_count_singular" = "1 位艺术家";

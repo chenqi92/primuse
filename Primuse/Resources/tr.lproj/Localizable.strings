@@ -2440,7 +2440,6 @@
 "scrape_tally_embed_confirm_embed" = "Ses dosyalarına yaz";
 "scrape_tally_embed_confirm_skip" = "Bu sefer değil";
 "open_keychain_settings" = "Anahtarlık ayarlarını aç";
-"P-16 · On by Default" = "P-16 · Varsayılan Olarak Açık";
 "tag_editor_mac_save" = "Kaydet ve Uygula";
 "sidebar_playlists_empty" = "Henüz çalma listesi yok";
 "ai_provider_preset_stepfun" = "StepFun";
@@ -8236,6 +8235,9 @@
 "source_state_unauthorized" = "Yetkilendirme Gerekli";
 "sources_manage_action" = "Kaynakları Yönet";
 "stats_play_count_singular" = "1 çalma";
+"yearly_sources_duration_share" = "dinleme süresi payı";
+"a11y_enable_reverb" = "Yankıyı Etkinleştir";
+"a11y_enable_compressor" = "Kompresörü Etkinleştir";
 "song_count_singular" = "1 şarkı";
 "album_count_singular" = "1 albüm";
 "artist_count_singular" = "1 sanatçı";

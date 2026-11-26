@@ -259,7 +259,6 @@
 "Optional, narrows albums with the same name." = "ตัวเลือก จะทำให้อัลบั้มแคบลงด้วยชื่อเดียวกัน";
 "Optional, narrows the match if multiple songs share a title." = "ไม่บังคับ จำกัดการจับคู่ให้แคบลงหากมีหลายเพลงใช้ชื่อเดียวกัน";
 "Output Mode" = "โหมดเอาท์พุต";
-"P-16 · On by Default" = "P-16 · เปิดโดยค่าเริ่มต้น";
 "Parse Result" = "ผลการแยกวิเคราะห์";
 "Paste Configuration" = "วางการกำหนดค่า";
 "Paste JSON" = "วาง JSON";
@@ -8236,6 +8235,9 @@
 "source_state_unauthorized" = "ต้องได้รับอนุญาต";
 "sources_manage_action" = "จัดการแหล่งเพลง";
 "stats_play_count_singular" = "1 เล่นแล้ว";
+"yearly_sources_duration_share" = "ของเวลาการฟัง";
+"a11y_enable_reverb" = "เปิดใช้งานรีเวิร์บ";
+"a11y_enable_compressor" = "เปิดใช้งานคอมเพรสเซอร์";
 "song_count_singular" = "1 เพลง";
 "album_count_singular" = "1 อัลบั้ม";
 "artist_count_singular" = "1 ศิลปิน";

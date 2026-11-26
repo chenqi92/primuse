@@ -2440,7 +2440,6 @@
 "scrape_tally_embed_confirm_embed" = "Записати в аудіофайли";
 "scrape_tally_embed_confirm_skip" = "Не цього разу";
 "open_keychain_settings" = "Відкрийте налаштування Keychain";
-"P-16 · On by Default" = "P-16 · Увімкнено за замовчуванням";
 "tag_editor_mac_save" = "Зберегти та застосувати";
 "sidebar_playlists_empty" = "Списків відтворення ще немає";
 "ai_provider_preset_stepfun" = "StepFun";
@@ -8236,6 +8235,9 @@
 "source_state_unauthorized" = "Потрібна авторизація";
 "sources_manage_action" = "Керувати джерелами";
 "stats_play_count_singular" = "1 прослуховування";
+"yearly_sources_duration_share" = "часу прослуховування";
+"a11y_enable_reverb" = "Увімкнути реверберацію";
+"a11y_enable_compressor" = "Увімкнути компресор";
 "song_count_singular" = "1 трек";
 "album_count_singular" = "1 альбом";
 "artist_count_singular" = "1 виконавець";

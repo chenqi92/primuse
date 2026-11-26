@@ -2316,7 +2316,6 @@
 "Off" = "Aus";
 "Open System Settings" = "Systemeinstellungen öffnen";
 "Open-Source Licenses…" = "Open-Source-Lizenzen …";
-"P-16 · On by Default" = "P-16 · Standardmäßig an";
 "Paste Configuration" = "Konfiguration einsetzen";
 "Paste JSON…" = "JSON einsetzen …";
 "Playback" = "Wiedergabe";
@@ -8330,6 +8329,9 @@
 "source_state_unauthorized" = "Autorisierung erforderlich";
 "sources_manage_action" = "Quellen verwalten";
 "stats_play_count_singular" = "1 Wiedergabe";
+"yearly_sources_duration_share" = "der Hörzeit";
+"a11y_enable_reverb" = "Hall aktivieren";
+"a11y_enable_compressor" = "Kompressor aktivieren";
 "song_count_singular" = "1 Titel";
 "album_count_singular" = "1 Album";
 "artist_count_singular" = "1 Künstler";

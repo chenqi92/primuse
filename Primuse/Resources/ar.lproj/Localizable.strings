@@ -259,7 +259,6 @@
 "Optional, narrows albums with the same name." = "اختياري، لتضييق نطاق الألبومات التي تحمل نفس الاسم.";
 "Optional, narrows the match if multiple songs share a title." = "اختياري، يقوم بتضييق نطاق التطابق في حالة مشاركة العديد من الأغاني في العنوان.";
 "Output Mode" = "وضع الإخراج";
-"P-16 · On by Default" = "P-16 · تفعيل افتراضي";
 "Parse Result" = "نتيجة التحليل";
 "Paste Configuration" = "لصق التكوين";
 "Paste JSON" = "لصق JSON";
@@ -8236,6 +8235,9 @@
 "source_state_unauthorized" = "يلزم التفويض";
 "sources_manage_action" = "إدارة المصادر";
 "stats_play_count_singular" = "تشغيل واحد";
+"yearly_sources_duration_share" = "من وقت الاستماع";
+"a11y_enable_reverb" = "تفعيل الصدى";
+"a11y_enable_compressor" = "تفعيل الضاغط";
 "song_count_singular" = "أغنية واحدة";
 "album_count_singular" = "ألبوم واحد";
 "artist_count_singular" = "فنان واحد";

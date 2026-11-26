@@ -2217,7 +2217,6 @@
 "Off" = "關閉";
 "Open System Settings" = "前往系統設定";
 "Open-Source Licenses…" = "開源授權…";
-"P-16 · On by Default" = "P-16 · 預設開啟";
 "Paste Configuration" = "貼上設定";
 "Paste JSON…" = "貼上 JSON…";
 "Playback" = "播放";
@@ -8307,6 +8306,9 @@
 "source_state_unauthorized" = "需要授權";
 "sources_manage_action" = "管理音樂來源";
 "stats_play_count_singular" = "1 次";
+"yearly_sources_duration_share" = "聆聽時長佔比";
+"a11y_enable_reverb" = "啟用殘響";
+"a11y_enable_compressor" = "啟用壓縮器";
 "song_count_singular" = "1 首歌曲";
 "album_count_singular" = "1 張專輯";
 "artist_count_singular" = "1 位演出者";

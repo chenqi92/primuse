@@ -446,20 +446,29 @@ struct YearlyReportPages<Header: View, Footer: View>: View {
 
     @ViewBuilder
     private func sourcesChapter(_ number: Int) -> some View {
-        if let top = data.sources.first {
-            let total = data.sources.reduce(0.0) { $0 + $1.seconds }
-            let percent: (YearlyReportData.SourceShare) -> Int = { total > 0 ? Int(($0.seconds / total * 100).rounded()) : 0 }
+        let total = data.sources.reduce(0.0) { $0 + $1.seconds }
+        // 一年里一秒时长都没记下来（只有次数）时：按播放次数排、按次数算占比，页面上不再说「时长」。
+        let hasDuration = total > 0
+        let sources: [YearlyReportData.SourceShare] = hasDuration ? data.sources : data.sources.sorted {
+            $0.plays != $1.plays ? $0.plays > $1.plays : $0.sourceID < $1.sourceID
+        }
+        if let top = sources.first {
+            let totalPlays = sources.reduce(0) { $0 + $1.plays }
+            let percent: (YearlyReportData.SourceShare) -> Int = { share in
+                if hasDuration { return Int((share.seconds / total * 100).rounded()) }
+                return totalPlays > 0 ? Int((Double(share.plays) / Double(totalPlays) * 100).rounded()) : 0
+            }
             YearlyChapter(
                 eyebrow: eyebrow(number, "yearly_chapter_sources"),
                 art: YearlyArt(name: "decor_sources_pipeline", fallbackSymbol: "point.3.connected.trianglepath.dotted", maxWidth: 300, maxHeight: 150),
-                lead: [String(format: String(localized: "yearly_sources_lead_format"), percent(top))]
+                lead: hasDuration ? [String(format: String(localized: "yearly_sources_lead_format"), percent(top))] : []
             ) {
                 YearlyHeadline(text: top.name)
             } content: {
-                if data.sources.count > 1 {
+                if sources.count > 1 {
                     VStack(spacing: 14) {
-                        ForEach(data.sources.prefix(4)) { share in
-                            YearlySourceRow(share: share, percent: percent(share))
+                        ForEach(sources.prefix(4)) { share in
+                            YearlySourceRow(share: share, percent: percent(share), showsDurationShare: hasDuration)
                         }
                     }
                     .recapPanel(padding: 16)

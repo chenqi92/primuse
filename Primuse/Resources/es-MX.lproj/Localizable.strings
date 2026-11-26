@@ -259,7 +259,6 @@
 "Optional, narrows albums with the same name." = "Opcional, acota los álbumes con el mismo nombre.";
 "Optional, narrows the match if multiple songs share a title." = "Opcional, reduce la coincidencia si varias canciones comparten un título.";
 "Output Mode" = "Modo de salida";
-"P-16 · On by Default" = "P-16 · Activado de forma predeterminada";
 "Parse Result" = "Resultado del análisis";
 "Paste Configuration" = "Pegar Configuración";
 "Paste JSON" = "Pegar JSON";
@@ -8236,6 +8235,9 @@
 "source_state_unauthorized" = "Requiere autorización";
 "sources_manage_action" = "Administrar fuentes";
 "stats_play_count_singular" = "1 reproducción";
+"yearly_sources_duration_share" = "del tiempo de escucha";
+"a11y_enable_reverb" = "Activar reverberación";
+"a11y_enable_compressor" = "Activar compresor";
 "song_count_singular" = "1 canción";
 "album_count_singular" = "1 álbum";
 "artist_count_singular" = "1 artista";
