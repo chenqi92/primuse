@@ -18,11 +18,11 @@
           "name": "Artwork",
           "image-name-specializations": [
             {
-              "value": "Light.png"
+              "value": "Light.jpg"
             },
             {
               "appearance": "dark",
-              "value": "Dark.png"
+              "value": "Dark.jpg"
             },
             {
               "appearance": "tinted",

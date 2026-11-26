@@ -221,6 +221,9 @@ struct ListeningStatsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .task {
+            YearlyReportArtworkService.shared.ensureAvailable()
+        }
         .task(id: refreshTrigger) {
             await refresh(trigger: refreshTrigger)
         }

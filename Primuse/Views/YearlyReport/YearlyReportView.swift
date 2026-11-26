@@ -92,6 +92,9 @@ struct YearlyReportPages<Header: View, Footer: View>: View {
             }
         }
         .tint(YearlyReportPalette.accent)
+        .task {
+            YearlyReportArtworkService.shared.ensureAvailable()
+        }
         .sheet(item: $shareItem) { item in
             ShareSheet(items: item.images)
         }

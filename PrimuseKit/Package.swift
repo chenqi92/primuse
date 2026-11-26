@@ -19,7 +19,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/FlyAuditoryCircuit.bin"),
-                .copy("Resources/AutoEqCatalog.sqlite"),
+                .copy("Resources/AutoEqCatalog.sqlite.lzma"),
             ]
         ),
         .testTarget(

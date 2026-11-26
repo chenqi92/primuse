@@ -1,24 +1,27 @@
 {
-  "images" : [
+  "images": [
     {
-      "filename" : "AppIconPreview.png",
-      "idiom" : "universal",
-      "scale" : "1x"
+      "filename": "AppIconPreview.png",
+      "idiom": "universal",
+      "scale": "1x"
     },
     {
-      "appearances" : [
+      "appearances": [
         {
-          "appearance" : "luminosity",
-          "value" : "dark"
+          "appearance": "luminosity",
+          "value": "dark"
         }
       ],
-      "filename" : "AppIconPreview-dark.png",
-      "idiom" : "universal",
-      "scale" : "1x"
+      "filename": "AppIconPreview-dark.png",
+      "idiom": "universal",
+      "scale": "1x"
     }
   ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
+  "info": {
+    "author": "xcode",
+    "version": 1
+  },
+  "properties": {
+    "compression-type": "lossy"
   }
 }

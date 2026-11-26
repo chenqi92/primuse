@@ -85,10 +85,11 @@ struct YearlyArt: Hashable {
 /// 资源缺失时用一圈淡底加 SF Symbol 兜底，版面不塌。
 struct YearlyArtView: View {
     let art: YearlyArt
+    private let artworkService = YearlyReportArtworkService.shared
 
     var body: some View {
         Group {
-            if let image = Self.image(named: art.name) {
+            if let image = artworkService.image(named: art.name) {
                 image
                     .resizable()
                     .interpolation(.high)
@@ -111,14 +112,6 @@ struct YearlyArtView: View {
                     .font(.system(size: side * 0.36, weight: .light))
                     .foregroundStyle(YearlyReportPalette.accent.opacity(0.8))
             }
-    }
-
-    static func image(named name: String) -> Image? {
-        #if os(iOS)
-        UIImage(named: name).map { Image(uiImage: $0) }
-        #else
-        NSImage(named: name).map { Image(nsImage: $0) }
-        #endif
     }
 }
 

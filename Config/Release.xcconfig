@@ -31,5 +31,8 @@ APS_ENVIRONMENT = production
 
 SWIFT_OPTIMIZATION_LEVEL[sdk=iphone*] = -Osize
 ASSETCATALOG_COMPILER_OPTIMIZATION[sdk=iphone*] = space
+SWIFT_OPTIMIZATION_LEVEL[sdk=macosx*] = -Osize
+ASSETCATALOG_COMPILER_OPTIMIZATION[sdk=macosx*] = space
+STRINGS_FILE_OUTPUT_ENCODING[sdk=macosx*] = binary
 
 #include? "Secrets.local.xcconfig"

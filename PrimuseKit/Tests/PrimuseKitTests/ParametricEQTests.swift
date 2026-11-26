@@ -46,6 +46,26 @@ struct ParametricEQTests {
         #expect(EQCalibrationCatalog.automaticPreset(for: EQOutputDevice(id: "dac", name: "Simgot Audio EA500LM", kind: .usb)) == nil)
     }
 
+    @Test func compressedCatalogDecompressesReusesCacheAndPrunesStaleCopies() throws {
+        let compressed = try #require(Bundle.primuseKit.url(forResource: "AutoEqCatalog.sqlite", withExtension: "lzma"))
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-autoeq-cache-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: cacheDir) }
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let stale = cacheDir.appendingPathComponent("AutoEqCatalog-0000000000000000.sqlite")
+        try Data("stale".utf8).write(to: stale)
+
+        let first = try EQCalibrationCatalog.prepareDatabaseURL(compressedURL: compressed, cacheDirectory: cacheDir)
+        #expect(FileManager.default.fileExists(atPath: first.path))
+        #expect(!FileManager.default.fileExists(atPath: stale.path))
+        let firstMTime = try FileManager.default.attributesOfItem(atPath: first.path)[.modificationDate] as? Date
+
+        let second = try EQCalibrationCatalog.prepareDatabaseURL(compressedURL: compressed, cacheDirectory: cacheDir)
+        #expect(second == first)
+        let secondMTime = try FileManager.default.attributesOfItem(atPath: second.path)[.modificationDate] as? Date
+        #expect(secondMTime == firstMTime)
+    }
+
     @Test func modelSearchRanksExactMatchesAndKeepsEveryMeasurementSelectable() throws {
         let groups = EQCalibrationCatalog.searchModels("")
         #expect(groups.count == EQCalibrationCatalog.recommendedCount)

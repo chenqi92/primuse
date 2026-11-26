@@ -48,14 +48,17 @@ def save_icon(icon_name: str, light_name: str, dark_name: str, mono: Image.Image
     folder = OUTPUT / f"{asset_name}.icon"
     assets = folder / "Assets"
     assets.mkdir(parents=True, exist_ok=True)
-    for filename, source in [("Light.png", light_name), ("Dark.png", dark_name)]:
+    for filename, source in [("Light.jpg", light_name), ("Dark.jpg", dark_name)]:
         if icon_name == "AppIcon20":
-            artwork = soft_note_artwork(dark=filename == "Dark.png")
+            artwork = soft_note_artwork(dark=filename == "Dark.jpg")
         else:
             artwork = Image.open(RAW_DIR / source)
         artwork.convert("RGB").resize(
             (1024, 1024), Image.Resampling.LANCZOS
-        ).save(assets / filename, optimize=True)
+        ).save(assets / filename, format="JPEG", quality=88, subsampling=0, optimize=True)
+        legacy = assets / filename.replace(".jpg", ".png")
+        if legacy.exists():
+            legacy.unlink()
     mono.save(assets / "Mono.png", optimize=True)
     write_icon_document(folder)
 
@@ -74,7 +77,7 @@ def write_icon_document(folder: Path) -> None:
                         # Hidden layers still compile into transparent entries in Assets.car.
                         # Swap the artwork so SpringBoard receives only one image per appearance.
                         "name": "Artwork",
-                        "image-name-specializations": appearance_values("Light.png", "Dark.png", "Mono.png"),
+                        "image-name-specializations": appearance_values("Light.jpg", "Dark.jpg", "Mono.png"),
                         "glass-specializations": appearance_values(False, False, True),
                     },
                 ],
@@ -145,8 +148,12 @@ def save_groove_icon() -> None:
 
     folder = OUTPUT / "AppIconGroove.icon"
     (folder / "Assets").mkdir(parents=True, exist_ok=True)
-    light.save(folder / "Assets" / "Light.png", optimize=True)
-    dark.save(folder / "Assets" / "Dark.png", optimize=True)
+    light.save(folder / "Assets" / "Light.jpg", format="JPEG", quality=88, subsampling=0, optimize=True)
+    dark.save(folder / "Assets" / "Dark.jpg", format="JPEG", quality=88, subsampling=0, optimize=True)
+    for legacy_name in ("Light.png", "Dark.png"):
+        legacy = folder / "Assets" / legacy_name
+        if legacy.exists():
+            legacy.unlink()
     mono.save(folder / "Assets" / "Mono.png", optimize=True)
     write_icon_document(folder)
 

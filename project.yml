@@ -24,6 +24,7 @@ settings:
   configs:
     Release:
       "ARCHS[sdk=macosx*]": arm64
+      "STRINGS_FILE_OUTPUT_ENCODING[sdk=macosx*]": binary
 
 packages:
   # 各目标一律链接 GRDB-dynamic：主程序、PrimuseKit 和扩展都要用它，
@@ -151,7 +152,9 @@ targets:
           - "Info.plist"
           - "Info-macOS.plist"
           - "ThirdParty/**"
-          # 年度报告插画按平台分开: 手机用有损压缩的一份, Mac 用无损的一份。
+          # 年度报告插画改由 App Store 托管按需下载（YearlyReportArtwork），不随安装包打包。
+          - "Resources-iOS/YearlyReport.xcassets"
+          - "Resources-iOS/YearlyReport.xcassets/**"
           - "Resources-macOS/**"
           # 水彩小剧场的纸偶整个目录按文件夹拷进包里（见下面 resources），不按单个文件。
           - "Resources/WatercolorTheater/**"
@@ -172,6 +175,9 @@ targets:
       - path: Primuse/Resources/WatercolorTheater
         type: folder
       - path: Primuse/Resources-iOS
+        excludes:
+          - "YearlyReport.xcassets"
+          - "YearlyReport.xcassets/**"
     dependencies:
       - sdk: DeviceCheck.framework
       - package: GRDB
@@ -415,6 +421,7 @@ targets:
       - path: PrimuseTests/PlaylistPartialImportNoticeTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
       - path: PrimuseTests/GeminiAudioQuotaTests.swift
+      - path: PrimuseTests/YearlyReportArtworkServiceTests.swift
     dependencies:
       - target: PrimuseMac
     settings:
@@ -606,7 +613,9 @@ targets:
           - "Info.plist"
           - "Info-macOS.plist"
           - "ThirdParty/**"
-          # 年度报告插画按平台分开: 手机用有损压缩的一份, Mac 用无损的一份。
+          # 年度报告插画改由 App Store 托管按需下载（YearlyReportArtwork），不随安装包打包。
+          - "Resources-macOS/YearlyReport.xcassets"
+          - "Resources-macOS/YearlyReport.xcassets/**"
           - "Resources-iOS/**"
           # 水彩小剧场的纸偶整个目录按文件夹拷进包里（见下面 resources），不按单个文件。
           - "Resources/WatercolorTheater/**"
@@ -621,6 +630,9 @@ targets:
       - path: Primuse/Resources/WatercolorTheater
         type: folder
       - path: Primuse/Resources-macOS
+        excludes:
+          - "YearlyReport.xcassets"
+          - "YearlyReport.xcassets/**"
       # 和 iPhone 共用同一份 Icon Composer 图标：macOS 26 起按系统图标样式切换深色/透明/着色，
       # 更早的系统用 actool 从它渲染的平面图标。
       - path: Primuse/Resources-iOS/AppIcons/AppIconPrimary.icon
@@ -659,6 +671,76 @@ targets:
         embed: true
       - target: PrimuseKaraokeModelDownloader
         embed: true
+    postBuildScripts:
+      - name: Thin Embedded Frameworks to Active Architectures
+        shell: /bin/bash
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          FRAMEWORKS_DIR="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+          [ -d "${FRAMEWORKS_DIR}" ] || exit 0
+          set -- ${ARCHS:-}
+          [ "$#" -eq 1 ] || exit 0
+          TARGET_ARCH="$1"
+
+          thin_macho() {
+            local bin="$1"
+            local real_bin
+            real_bin="$(/usr/bin/python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$bin")"
+            [ -f "$real_bin" ] || return 1
+            local archs
+            archs="$(/usr/bin/lipo -archs "$real_bin" 2>/dev/null || true)"
+            case "$archs" in
+              *" "*) ;;
+              *) return 1 ;;
+            esac
+            case " $archs " in
+              *" ${TARGET_ARCH} "*) ;;
+              *) return 1 ;;
+            esac
+            local tmp="${real_bin}.thin.$$"
+            local mode
+            mode="$(/usr/bin/stat -f %Lp "$real_bin")"
+            /usr/bin/lipo "$real_bin" -thin "${TARGET_ARCH}" -output "$tmp"
+            /bin/chmod "$mode" "$tmp"
+            /bin/mv -f "$tmp" "$real_bin"
+            return 0
+          }
+
+          resign_item() {
+            local item="$1"
+            if [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+              if [ "${EXPANDED_CODE_SIGN_IDENTITY}" = "-" ]; then
+                /usr/bin/codesign --force --sign "-" --preserve-metadata=identifier,entitlements,flags --timestamp=none "$item"
+              else
+                /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements,flags "$item"
+              fi
+            fi
+          }
+
+          for fw in "${FRAMEWORKS_DIR}"/*.framework; do
+            [ -d "$fw" ] || continue
+            name="$(/usr/bin/basename "$fw" .framework)"
+            modified=0
+            if [ -e "${fw}/${name}" ] && thin_macho "${fw}/${name}"; then
+              modified=1
+            fi
+            while IFS= read -r -d '' dylib; do
+              if thin_macho "$dylib"; then
+                modified=1
+              fi
+            done < <(/usr/bin/find "$fw" -type f -name '*.dylib' -print0)
+            if [ "$modified" -eq 1 ]; then
+              resign_item "$fw"
+            fi
+          done
+
+          for dylib in "${FRAMEWORKS_DIR}"/*.dylib; do
+            [ -f "$dylib" ] || continue
+            if thin_macho "$dylib"; then
+              resign_item "$dylib"
+            fi
+          done
     info:
       path: Primuse/Info-macOS.plist
       properties:

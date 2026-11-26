@@ -1,6 +1,7 @@
 """Compile the pinned AutoEq snapshot into the read-only database shipped by PrimuseKit."""
 import collections
 import json
+import lzma
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -62,12 +63,18 @@ def compile_catalog(source, database):
 
 if __name__ == "__main__":
     directory = Path(__file__).resolve().parent
-    destination = directory.parent / "Sources/PrimuseKit/Resources/AutoEqCatalog.sqlite"
-    with tempfile.TemporaryDirectory(dir=destination.parent) as temp:
-        candidate = Path(temp) / destination.name
+    resources = directory.parent / "Sources/PrimuseKit/Resources"
+    destination = resources / "AutoEqCatalog.sqlite.lzma"
+    uncompressed = resources / "AutoEqCatalog.sqlite"
+    with tempfile.TemporaryDirectory(dir=resources) as temp:
+        candidate = Path(temp) / "AutoEqCatalog.sqlite"
         db = sqlite3.connect(candidate)
         try:
             compile_catalog(json.loads((directory / "AutoEqCatalog.json").read_bytes()), db)
         finally:
             db.close()
-        candidate.replace(destination)
+        compressed = Path(temp) / destination.name
+        compressed.write_bytes(lzma.compress(candidate.read_bytes(), format=lzma.FORMAT_XZ, preset=6))
+        compressed.replace(destination)
+    if uncompressed.exists():
+        uncompressed.unlink()

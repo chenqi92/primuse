@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import GRDB
 
@@ -58,8 +59,54 @@ public enum EQCalibrationCatalog {
 
     private static let columns = "id, name, measurementSource, measurement, path, revision, recommended, preamp"
 
+    private static let databaseURL: URL? = resolveDatabaseURL()
+
+    private static func resolveDatabaseURL() -> URL? {
+        if let uncompressed = Bundle.primuseKit.url(forResource: "AutoEqCatalog", withExtension: "sqlite") {
+            return uncompressed
+        }
+        guard let compressed = Bundle.primuseKit.url(forResource: "AutoEqCatalog.sqlite", withExtension: "lzma") else {
+            return nil
+        }
+        let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let cacheDirectory = cacheRoot.appendingPathComponent("PrimuseKit", isDirectory: true)
+        return try? prepareDatabaseURL(compressedURL: compressed, cacheDirectory: cacheDirectory)
+    }
+
+    static func prepareDatabaseURL(compressedURL: URL, cacheDirectory: URL) throws -> URL {
+        let compressed = try Data(contentsOf: compressedURL, options: .mappedIfSafe)
+        let digest = SHA256.hash(data: compressed).prefix(8).map { String(format: "%02x", $0) }.joined()
+        let filename = "AutoEqCatalog-\(digest).sqlite"
+        let destination = cacheDirectory.appendingPathComponent(filename, isDirectory: false)
+        let fm = FileManager.default
+        if let attrs = try? fm.attributesOfItem(atPath: destination.path),
+           let size = attrs[.size] as? NSNumber,
+           size.int64Value > 0 {
+            return destination
+        }
+        try fm.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        let decompressed = try (compressed as NSData).decompressed(using: .lzma) as Data
+        let tempURL = cacheDirectory.appendingPathComponent(".\(filename).\(UUID().uuidString).tmp", isDirectory: false)
+        try decompressed.write(to: tempURL, options: .atomic)
+        do {
+            try fm.moveItem(at: tempURL, to: destination)
+        } catch {
+            try? fm.removeItem(at: tempURL)
+            guard fm.fileExists(atPath: destination.path) else { throw error }
+        }
+        if let existing = try? fm.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil) {
+            for item in existing where item.lastPathComponent.hasPrefix("AutoEqCatalog-")
+                && item.pathExtension == "sqlite"
+                && item.lastPathComponent != filename {
+                try? fm.removeItem(at: item)
+            }
+        }
+        return destination
+    }
+
     private static func openDatabase() -> DatabaseQueue? {
-        guard let url = Bundle.primuseKit.url(forResource: "AutoEqCatalog", withExtension: "sqlite") else { return nil }
+        guard let url = databaseURL else { return nil }
         var configuration = Configuration()
         configuration.readonly = true
         return try? DatabaseQueue(path: url.path, configuration: configuration)
