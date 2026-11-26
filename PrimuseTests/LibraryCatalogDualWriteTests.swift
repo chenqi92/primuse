@@ -880,6 +880,59 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         }
     }
 
+    /// 按流派取歌、取专辑在目录可读时问目录的流派表,整库的按流派索引不留;答案与没有目录、按内存索引
+    /// 算的同一个库逐首相同(斜杠惯例只对 ID3 格式、分号分隔、大小写与变音符号写法、停用源、有声书)。
+    func testGenreSongsFromTheCatalogMatchTheInMemoryIndexWithoutRetainingIt() async throws {
+        var songs = Self.fixture()
+        let genres = ["Rock/Pop", "rock/pop", "Jazz; Blues", "Électronique", "electronique", "R&B", "Pop", "", "Hip-Hop/Rap"]
+        for index in 0..<36 {
+            songs.append(Song(
+                id: "genre-\(index)", title: "Genre \(index)", albumTitle: "Genre Album \(index % 7)",
+                artistName: "Genre Artist \(index % 4)", trackNumber: index % 10 + 1, duration: 180,
+                fileFormat: index % 2 == 0 ? .mp3 : .flac, filePath: "/Music/Genre/\(index).flac",
+                sourceID: index % 5 == 0 ? Self.sourceB : Self.sourceA, genre: genres[index % genres.count]
+            ))
+        }
+        let library = makeLibrary(disabledSourceIDs: [Self.sourceB])
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "genre fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        XCTAssertTrue(host.revisions.isReadable)
+
+        let memoryDirectory = directory.appendingPathComponent("memory-genres", isDirectory: true)
+        try FileManager.default.createDirectory(at: memoryDirectory, withIntermediateDirectories: true)
+        let reference = MusicLibrary(
+            disabledSourceIDs: [Self.sourceB], storageDirectory: memoryDirectory,
+            artistNameConfiguration: .defaultValue, catalogMirroring: .disabled
+        )
+        libraries.append(reference)
+        reference.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        for _ in 0..<800 where reference.visibleGenres.count != library.visibleGenres.count || reference.visibleGenres.isEmpty {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(reference.visibleGenres.map(\.id), library.visibleGenres.map(\.id))
+        XCTAssertGreaterThan(reference.visibleGenres.count, 5)
+
+        for genre in reference.visibleGenres + [LibraryGenre(id: "nothing", name: "Nothing", songCount: 0, albumCount: 0, representativeSongIDs: [])] {
+            let expected = reference.songs(forGenre: genre.id).map(\.id)
+            XCTAssertEqual(library.songs(forGenre: genre.id).map(\.id), expected, genre.id)
+            XCTAssertEqual(library.songIDs(forGenre: genre.id), reference.songIDs(forGenre: genre.id), genre.id)
+            XCTAssertEqual(library.albums(forGenre: genre.id).map(\.id), reference.albums(forGenre: genre.id).map(\.id), genre.id)
+            let rows = try await host.reader.genreSongRowList(genreID: genre.id)
+            let listed = try await host.reader.songs(rowids: Array(rows.rowids)).compactMap { $0?.id }
+            XCTAssertEqual(listed, expected, "reader \(genre.id)")
+            let albumIDs = try await host.reader.genreAlbumIDs(genreID: genre.id)
+            XCTAssertEqual(albumIDs, reference.songs(forGenre: genre.id).reduce(into: [String]()) { ids, song in
+                if let albumID = song.albumID, !ids.contains(albumID) { ids.append(albumID) }
+            }, "reader albums \(genre.id)")
+        }
+        for texts in [["rock"], ["jazz", "électronique"], ["nothing"]] {
+            XCTAssertEqual(library.recommendationGenreGroups()(texts), reference.recommendationGenreGroups()(texts), "\(texts)")
+        }
+        XCTAssertFalse(library.retainsGenreIndexForTesting, "the catalog answers; the whole-library genre index is not kept")
+        XCTAssertTrue(reference.retainsGenreIndexForTesting)
+    }
+
     /// 目录停下(不再跟写)后不登记、不作答,调用方读内存模型。
     func testCatalogReadsByIDStopWhenTheMirrorStopsFollowing() async throws {
         let library = makeLibrary()

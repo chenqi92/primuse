@@ -398,42 +398,26 @@ final class LibraryCatalogReader: Sendable {
         }.prefix(max(0, limit)))
     }
 
-    /// 某流派的可见音乐(流式;拆分规则与 `LibraryGenreIndexBuilder` 一致,逐种写法记一次)。
+    /// 某流派的可见音乐,库内顺序(走目录的流派表;拆分规则与 `LibraryGenreIndexBuilder` 一致)。
     func genreSongRowList(genreID: String) async throws -> LibraryRowList {
-        let resolver = GenreResolver()
-        return try await filteredRowList(.visibleMusic) { resolver.genreIDs(for: $0).contains(genreID) }
+        try await read { try $0.genreSongRowList(genreID: genreID) }
     }
 
-    /// 某流派里歌曲所在的专辑 id,按第一次出现的先后(流式)。
+    /// 某流派里歌曲所在的专辑 id,按第一次出现的先后:只物化这个流派的歌。
     func genreAlbumIDs(genreID: String) async throws -> [String] {
-        let resolver = GenreResolver()
-        return try await read { catalog in
+        try await read { catalog in
+            let rowids = Array(try catalog.genreSongRowList(genreID: genreID).rowids)
             var seen = Set<String>()
             var result: [String] = []
-            try catalog.forEachSong(.visibleMusic) { _, song in
-                if let albumID = song.albumID, resolver.genreIDs(for: song).contains(genreID),
-                   seen.insert(albumID).inserted {
-                    result.append(albumID)
+            var start = 0
+            while start < rowids.count {
+                let end = min(rowids.count, start + LibraryScale.maxMaterializedRows)
+                for song in try catalog.songs(rowids: rowids[start..<end]) {
+                    if let albumID = song.albumID, seen.insert(albumID).inserted { result.append(albumID) }
                 }
-                return true
+                start = end
             }
             return result
-        }
-    }
-
-    /// 单首歌拆出的流派 id,按写法缓存(整库只有几十种写法)。只在一次查询里用。
-    final class GenreResolver: @unchecked Sendable {
-        private let lock = NSLock()
-        private var cache: [String: [String]] = [:]
-        private let separators = GenreSplitPreference.current
-
-        func genreIDs(for song: Song) -> [String] {
-            guard let genre = song.genre, !genre.isEmpty else { return [] }
-            let key = genre + "\u{1}" + song.fileFormat.rawValue
-            if let cached = lock.withLock({ cache[key] }) { return cached }
-            let ids = LibraryGenreIndexBuilder.build(from: [song], alsoSplitting: separators).genres.map(\.id)
-            lock.withLock { cache[key] = ids }
-            return ids
         }
     }
 

@@ -4678,8 +4678,11 @@ final class MusicLibrary {
     @ObservationIgnored private var visibleSongIDsByArtistID: [String: [String]] = [:]
     /// `visibleSongIDsByArtistID` 是不是眼下这份可见歌曲的。
     @ObservationIgnored private var artistSongIndexIsCurrent = true
+    /// 可见音乐按流派分的歌曲 id 与专辑 id。同 `visibleSongIDsByArtistID`:目录可读时不留(按流派取歌
+    /// 问目录的 `songGenre`),目录读不了时才留着或按需重建(`genreIndexIsCurrent`)。
     @ObservationIgnored private var visibleSongIDsByGenreID: [String: [String]] = [:]
     @ObservationIgnored private var visibleAlbumIDsByGenreID: [String: [String]] = [:]
+    @ObservationIgnored private var genreIndexIsCurrent = true
     /// Where each source's songs sit in `visibleSongs`, in library order.
     /// Only positions are kept: a source holding the whole library used to be
     /// one more full copy of it, and every artwork or lyrics patch copied the
@@ -5954,8 +5957,15 @@ final class MusicLibrary {
             artistSongIndexIsCurrent = true
         }
         visibleLookupGeneration &+= 1
-        visibleSongIDsByGenreID = prepared.songIDsByGenreID
-        visibleAlbumIDsByGenreID = prepared.albumIDsByGenreID
+        if catalogHost?.revisions.isReadable == true {
+            visibleSongIDsByGenreID = [:]
+            visibleAlbumIDsByGenreID = [:]
+            genreIndexIsCurrent = false
+        } else {
+            visibleSongIDsByGenreID = prepared.songIDsByGenreID
+            visibleAlbumIDsByGenreID = prepared.albumIDsByGenreID
+            genreIndexIsCurrent = true
+        }
         visibleSongPositionsBySourceID = prepared.songPositionsBySourceID
         sourceIDsWithUnplayableSongs = prepared.unplayableSourceIDs
         for state in sourceSongListStates.values {
@@ -10186,18 +10196,31 @@ final class MusicLibrary {
 
     func songs(forGenre genreID: String) -> [Song] {
         _ = visibleSongsReference
-        return visibleSongIDsByGenreID[genreID]?.compactMap { lookupVisibleSong($0) } ?? []
+        return genreSongIDs(genreID).compactMap { lookupVisibleSong($0) }
     }
 
     /// The genre's song IDs in display order without materializing `Song`
     /// values: a broad genre can hold most of a large library.
     func songIDs(forGenre genreID: String) -> [String] {
         _ = visibleSongsReference
-        return visibleSongIDsByGenreID[genreID] ?? []
+        return genreSongIDs(genreID)
     }
 
     func recommendationGenreGroups() -> @Sendable ([String]) -> [[String]] {
+        // 曲库目录可读时匹配到的那几个流派才去目录里取歌,不先把整库的按流派索引拷过去。
         let genres = visibleGenres
+        if let host = catalogHost, host.revisions.isReadable, let catalog = host.mirror.readableCatalog {
+            return { texts in
+                let matches = AIPlaylistPromptHints.genreMatcher(texts)
+                return genres.compactMap { genre in
+                    guard matches(genre.name),
+                          let rowids = try? catalog.genreSongRowList(genreID: genre.id).rowids, !rowids.isEmpty,
+                          let ids = try? catalog.songIDs(atRowids: Array(rowids)) else { return nil }
+                    return ids.compactMap { $0 }
+                }
+            }
+        }
+        ensureGenreIndex()
         let ids = visibleSongIDsByGenreID
         return { texts in
             let matches = AIPlaylistPromptHints.genreMatcher(texts)
@@ -10207,8 +10230,52 @@ final class MusicLibrary {
 
     func albums(forGenre genreID: String) -> [Album] {
         _ = visibleAlbumsReference
+        if let songIDs = catalogGenreSongIDs(genreID) {
+            // 同 `LibraryGenreIndexBuilder`:按歌在库里的先后,专辑 id(去首尾空白)第一次出现时记一次。
+            var seen = Set<String>()
+            return songIDs.compactMap { id -> Album? in
+                guard let albumID = lookupVisibleSong(id)?.albumID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !albumID.isEmpty, seen.insert(albumID).inserted else { return nil }
+                return visibleAlbumByID[albumID]
+            }
+        }
+        ensureGenreIndex()
         return visibleAlbumIDsByGenreID[genreID]?.compactMap { visibleAlbumByID[$0] } ?? []
     }
+
+    /// 这个流派的可见音乐 id,库内顺序:目录可读时问目录,否则用(按需重建的)内存索引。
+    private func genreSongIDs(_ genreID: String) -> [String] {
+        if let ids = catalogGenreSongIDs(genreID) { return ids }
+        ensureGenreIndex()
+        return visibleSongIDsByGenreID[genreID] ?? []
+    }
+
+    /// 目录的 `songGenre` 里这个流派的可见音乐 id;目录读不了、读失败时 nil。读它的界面在目录提交后重画。
+    private func catalogGenreSongIDs(_ genreID: String) -> [String]? {
+        guard let host = catalogHost, host.revisions.isReadable, let catalog = host.mirror.readableCatalog else { return nil }
+        _ = host.revisions.songs
+        _ = host.revisions.membership
+        _ = host.revisions.everything
+        do {
+            let rowids = try catalog.genreSongRowList(genreID: genreID).rowids
+            return try catalog.songIDs(atRowids: Array(rowids)).compactMap { $0 }
+        } catch {
+            plog("📚 genre songs catalog read failed (\(error)); using the in-memory library")
+            return nil
+        }
+    }
+
+    /// 目录读不了时要用内存的流派索引:不是眼下这份可见音乐的就先重建(同 `prepareVisibleCache`)。
+    private func ensureGenreIndex() {
+        guard !genreIndexIsCurrent else { return }
+        let index = LibraryGenreIndexBuilder.build(from: musicSongsReference.value)
+        visibleSongIDsByGenreID = index.songIDsByGenreID
+        visibleAlbumIDsByGenreID = index.albumIDsByGenreID
+        genreIndexIsCurrent = true
+    }
+
+    /// 测试:内存里此刻有没有留着整库的按流派索引。
+    var retainsGenreIndexForTesting: Bool { genreIndexIsCurrent && !visibleSongIDsByGenreID.isEmpty }
 
     /// 流派索引随可见缓存一起重算，歌曲本身不动。
     func genreSeparatorsDidChange() {
@@ -19572,10 +19639,15 @@ extension MusicLibrary: LibraryCatalogOwner {
     func catalogReadabilityDidChange(_ readable: Bool) {
         // 迁移过的目录在启动后一百来毫秒就可读:影子校验错开冷启动再做。
         if readable { scheduleCatalogShadowVerification(reason: "catalog-ready", after: .seconds(5)) }
-        // 目录能答按艺人取歌了:内存里那张整库表放掉(读不了时再按需重建)。
+        // 目录能答按艺人、按流派取歌了:内存里那几张整库表放掉(读不了时再按需重建)。
         if readable, !visibleSongIDsByArtistID.isEmpty {
             visibleSongIDsByArtistID = [:]
             artistSongIndexIsCurrent = false
+        }
+        if readable, !visibleSongIDsByGenreID.isEmpty || !visibleAlbumIDsByGenreID.isEmpty {
+            visibleSongIDsByGenreID = [:]
+            visibleAlbumIDsByGenreID = [:]
+            genreIndexIsCurrent = false
         }
     }
 

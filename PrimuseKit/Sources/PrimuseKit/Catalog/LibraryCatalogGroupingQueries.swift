@@ -228,6 +228,17 @@ extension LibraryCatalog {
         }
     }
 
+    /// 某流派的可见音乐,库内顺序:同 `LibraryGenreIndexBuilder` 对可见音乐分出的那一组(写入时按
+    /// 同一套拆法记进 `songGenre`),走流派表,不逐首解码整库。
+    public func genreSongRowList(genreID: String) throws -> LibraryRowList {
+        try rowList { _ in
+            ("""
+             s.rowid IN (SELECT g.songRowid FROM songGenre g JOIN genreName n ON n.ref = g.genreRef WHERE n.genreID = ?)
+             AND s.kind = 0 AND s.sourceKey IN (\(Self.enabledSourcesSQL))
+             """, [genreID])
+        }
+    }
+
     // MARK: - Books, folders, kinds
 
     /// 一首歌的书(或播客节目)id 与它在书里显示的标题。
