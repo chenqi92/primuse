@@ -14,6 +14,7 @@ struct MacSidebar: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(AppleMusicService.self) private var appleMusic
     @Environment(RadioStationsStore.self) private var radioStationsStore
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(\.pmAppearance) private var mode
@@ -253,9 +254,9 @@ struct MacSidebar: View {
             // 智能歌单排在普通歌单上面 (跟歌单总览页的分区顺序一致)。侧栏只列前
             // 几个保持节奏, 全部歌单从末尾「查看全部」进总览页。
             ForEach(sidebarSmartPlaylists.prefix(sidebarPlaylistLimit), id: \.id) { smart in
-                item(route: .smartPlaylist(smart),
-                     icon: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
-                     title: LocalizedStringKey(smart.name))
+                verbatimItem(route: .smartPlaylist(smart),
+                             icon: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
+                             title: smart.name)
                 .contextMenu {
                     smartPlaylistContextMenu(for: smart)
                 }
@@ -381,7 +382,10 @@ struct MacSidebar: View {
             }
 
             ForEach(sourcesStore.sources.prefix(6), id: \.id) { source in
-                let dotColor = sourceDotColor(for: source)
+                let isUnauthorizedAppleMusic = source.type == .appleMusic && source.isEnabled && appleMusic.authState != .authorized
+                let dotColor = !source.isEnabled
+                    ? PMColor.textFaint.opacity(0.45)
+                    : (isUnauthorizedAppleMusic ? Color.orange : sourceDotColor(for: source))
                 // 设计稿: 音乐源行右侧显示该源的歌曲数 (mono 字体 + textFaint)
                 let count = catalogHubCounts.map { $0.visibleBySource[source.id] ?? 0 }
                     ?? library.visibleSongCount(forSourceID: source.id)
@@ -393,16 +397,35 @@ struct MacSidebar: View {
                             .frame(width: 7, height: 7)
                         Text(verbatim: source.name)
                             .font(selected ? .system(size: 13, weight: .medium) : .system(size: 13))
-                            .foregroundStyle(selected ? PMColor.text : PMColor.text.opacity(0.85))
+                            .foregroundStyle(
+                                !source.isEnabled
+                                    ? PMColor.textFaint
+                                    : (selected ? PMColor.text : PMColor.text.opacity(0.85))
+                            )
                             .lineLimit(1)
                             .truncationMode(.tail)
                         Spacer(minLength: 4)
-                        if count > 0 {
+                        if !source.isEnabled {
+                            Image(systemName: "eye.slash")
+                                .font(.system(size: 10))
+                                .foregroundStyle(PMColor.textFaint)
+                                .accessibilityHidden(true)
+                        } else if isUnauthorizedAppleMusic {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.orange)
+                                .accessibilityHidden(true)
+                        } else if count > 0 {
                             Text("\(count)")
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundStyle(PMColor.textFaint)
                         }
                     }
+                    .accessibilityValue(Text(
+                        !source.isEnabled
+                            ? "source_disabled_on_this_device"
+                            : (isUnauthorizedAppleMusic ? "source_state_unauthorized" : "")
+                    ))
                 }
             }
 
@@ -441,6 +464,28 @@ struct MacSidebar: View {
                     .frame(width: 18, height: 18)
 
                 Text(title)
+                    .font(selected ? .system(size: 13, weight: .medium) : .system(size: 13))
+                    .foregroundStyle(selected ? PMColor.text : PMColor.text.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 4)
+
+                if let trailing { trailing }
+            }
+        }
+    }
+
+    private func verbatimItem(route: MacRoute, icon: String, title: String,
+                              trailing: AnyView? = nil) -> some View {
+        MacSidebarRow(route: route, highlight: routeSwitch.rowHighlight(for: route), onSelectRoute: onSelectRoute) { selected in
+            HStack(spacing: 9) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(selected ? PMColor.brand : PMColor.text.opacity(0.78))
+                    .frame(width: 18, height: 18)
+
+                Text(verbatim: title)
                     .font(selected ? .system(size: 13, weight: .medium) : .system(size: 13))
                     .foregroundStyle(selected ? PMColor.text : PMColor.text.opacity(0.85))
                     .lineLimit(1)

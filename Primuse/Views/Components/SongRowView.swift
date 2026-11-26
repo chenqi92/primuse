@@ -2402,7 +2402,12 @@ private extension View {
         @ViewBuilder menuItems: () -> MenuItems
     ) -> some View {
         if isEnabled {
-            contextMenu(menuItems: menuItems)
+            contextMenu {
+                menuItems()
+                #if os(macOS)
+                    .labelStyle(.titleAndIcon)
+                #endif
+            }
         } else {
             self
         }
@@ -2496,6 +2501,7 @@ struct SongCopyTitleButton: View {
             SongTextPasteboard.copy(library.displayTitle(for: song))
         } label: {
             Label(String(localized: "song_copy_title"), systemImage: "doc.on.doc")
+                .labelStyle(.titleAndIcon)
         }
     }
 }
@@ -2529,6 +2535,7 @@ struct SongOfflineActionButtons: View {
         case .downloading:
             Button {} label: {
                 Label(String(localized: "offline_downloading"), systemImage: "arrow.down.circle")
+                    .labelStyle(.titleAndIcon)
             }
             .disabled(true)
         case .pinned:
@@ -2536,6 +2543,7 @@ struct SongOfflineActionButtons: View {
                 sourceManager.removeOfflineDownload(song: song)
             } label: {
                 Label(String(localized: "offline_remove_download"), systemImage: "trash")
+                    .labelStyle(.titleAndIcon)
             }
         case .cached:
             if allowsDownload {
@@ -2543,6 +2551,7 @@ struct SongOfflineActionButtons: View {
                     sourceManager.downloadForOffline(song: song)
                 } label: {
                     Label(String(localized: "offline_download"), systemImage: "arrow.down.circle")
+                        .labelStyle(.titleAndIcon)
                 }
             }
 
@@ -2550,6 +2559,7 @@ struct SongOfflineActionButtons: View {
                 sourceManager.removeOfflineDownload(song: song)
             } label: {
                 Label(String(localized: "offline_remove_cache"), systemImage: "trash")
+                    .labelStyle(.titleAndIcon)
             }
         case .failed:
             if allowsDownload {
@@ -2557,6 +2567,7 @@ struct SongOfflineActionButtons: View {
                     sourceManager.downloadForOffline(song: song)
                 } label: {
                     Label(String(localized: "offline_retry_download"), systemImage: "arrow.clockwise")
+                        .labelStyle(.titleAndIcon)
                 }
             }
 
@@ -2564,6 +2575,7 @@ struct SongOfflineActionButtons: View {
                 sourceManager.removeOfflineDownload(song: song)
             } label: {
                 Label(String(localized: "offline_clear_failed_download"), systemImage: "trash")
+                    .labelStyle(.titleAndIcon)
             }
         case .notCached:
             if allowsDownload {
@@ -2571,6 +2583,7 @@ struct SongOfflineActionButtons: View {
                     sourceManager.downloadForOffline(song: song)
                 } label: {
                     Label(String(localized: "offline_download"), systemImage: "arrow.down.circle")
+                        .labelStyle(.titleAndIcon)
                 }
             }
         }
@@ -2628,6 +2641,7 @@ struct ListeningKindMoveButtons: View {
                 move(kind)
             } label: {
                 Label(label.title, systemImage: label.systemImage)
+                    .labelStyle(.titleAndIcon)
             }
         }
     }
@@ -2683,8 +2697,10 @@ struct SongFeedbackMenuButtons: View {
         } label: {
             if isLiked {
                 Label(String(localized: "a11y_unlike"), systemImage: "heart.fill")
+                    .labelStyle(.titleAndIcon)
             } else {
                 Label(String(localized: "a11y_like"), systemImage: "heart")
+                    .labelStyle(.titleAndIcon)
             }
         }
         // 有声书的章节、环境音本来就不会被随机或推荐挑中,「不喜欢」对它们没有意义。
@@ -2694,8 +2710,10 @@ struct SongFeedbackMenuButtons: View {
             } label: {
                 if isDisliked {
                     Label(String(localized: "song_undislike"), systemImage: "hand.thumbsdown.fill")
+                        .labelStyle(.titleAndIcon)
                 } else {
                     Label(String(localized: "song_dislike"), systemImage: "hand.thumbsdown")
+                        .labelStyle(.titleAndIcon)
                 }
             }
         }
@@ -2753,6 +2771,7 @@ struct ShuffleLinkMenu: View {
                         } icon: {
                             Image(systemName: "forward.end")
                         }
+                        .labelStyle(.titleAndIcon)
                     }
                 }
                 if let title = state.previousTitle {
@@ -2763,11 +2782,13 @@ struct ShuffleLinkMenu: View {
                         } icon: {
                             Image(systemName: "backward.end")
                         }
+                        .labelStyle(.titleAndIcon)
                     }
                 }
             }
         } label: {
             Label(String(localized: "shuffle_link_menu"), systemImage: "link")
+                .labelStyle(.titleAndIcon)
         }
     }
 }

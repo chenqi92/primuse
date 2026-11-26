@@ -260,6 +260,14 @@ final class AppleMusicService {
         plog("Apple Music auth status: \(String(describing: status))")
     }
 
+    func refreshAuthorizationStatus() {
+        let live = Self.mapStatus(MusicAuthorization.currentStatus)
+        if live != authState {
+            plog("Apple Music authState refresh: \(String(describing: self.authState)) → \(String(describing: live))")
+            authState = live
+        }
+    }
+
     /// 触发对 Apple Music catalog 的搜索。200ms debounce 跟 SearchView 自己的
     /// debounce 错开 (这边再叠 200ms 防止用户连击触发多次 catalog 调用)。
     /// 未授权时直接清结果,不试着 silently request 授权 (避免无端弹窗)。

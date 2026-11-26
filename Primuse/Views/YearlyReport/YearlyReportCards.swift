@@ -424,9 +424,11 @@ struct YearlyAlbumShelf: View {
 }
 
 /// 音乐源一行：来源插画、名字、次数，行尾是时长占比。已经删掉的源插画压淡，次数前标上「已删除」。
+/// 一年里一秒时长都没记下来时占比按次数算，`showsDurationShare` 为 false，行尾不再标「时长」。
 struct YearlySourceRow: View {
     let share: YearlyReportData.SourceShare
     let percent: Int
+    var showsDurationShare = true
 
     var body: some View {
         HStack(spacing: 14) {
@@ -453,19 +455,25 @@ struct YearlySourceRow: View {
                 Text(verbatim: "\(percent)%")
                     .font(.system(.title3, design: .rounded, weight: .bold).monospacedDigit())
                     .foregroundStyle(share.isDeleted ? .secondary : .primary)
-                Text("yearly_sources_duration_share")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if showsDurationShare {
+                    Text("yearly_sources_duration_share")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: "\(share.name), \(detail), \(percent)% \(String(localized: "yearly_sources_duration_share"))"))
+        .accessibilityLabel(Text(verbatim: accessibilityText))
+    }
+
+    private var accessibilityText: String {
+        let text = "\(share.name), \(detail), \(percent)%"
+        guard showsDurationShare else { return text }
+        return text + " " + String(localized: "yearly_sources_duration_share")
     }
 
     private var detail: String {
-        let plays = share.plays == 1
-            ? String(localized: "stats_play_count_singular")
-            : String(format: String(localized: "stats_play_count_format"), share.plays)
+        let plays = String(format: String(localized: "yearly_card_genres_plays_format"), share.plays)
         let duration = share.seconds > 0 ? RecapHeroDuration.format(share.seconds) : nil
         let metrics = [plays, duration].compactMap { $0 }.joined(separator: " · ")
         // 合成一行的「已删除的音乐源」名字里已经说了。

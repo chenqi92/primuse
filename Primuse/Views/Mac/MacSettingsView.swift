@@ -3100,8 +3100,8 @@ private struct MacSTPlaybackView: View {
                 .settingsAnchor("playback.dsdMode")
                 MacSTRow(Lz("Match Hardware Sample Rate"), hint: Lz("Switches the output device to each song's sample rate; some devices ignore it")) {
                     MacSTToggle(isOn: Binding(
-                        get: { s.outputMode == .highFidelity || s.matchOutputSampleRate },
-                        set: { s.matchOutputSampleRate = $0 }
+                        snapshot: s.outputMode == .highFidelity || s.matchOutputSampleRate,
+                        set: { store.matchOutputSampleRate = $0 }
                     ))
                 }
                 .settingsAnchor("playback.matchSampleRate")
@@ -3310,7 +3310,7 @@ private struct MacSTPlaybackView: View {
                     hintLineLimit: 2
                 ) {
                     MacSTToggle(isOn: Binding(
-                        get: { !medleyDataPromptDisabled },
+                        snapshot: !medleyDataPromptDisabled,
                         set: { medleyDataPromptDisabled = !$0 }
                     ))
                 }
@@ -4559,7 +4559,7 @@ private struct MacSTScrapingView: View {
             MacSTGroup {
                 MacSTRow(Lz("Auto-Fetch Online Lyrics"), hint: Lz("When a song has no lyrics locally or in its source, ask the enabled lyrics sources once")) {
                     MacSTToggle(isOn: Binding(
-                        get: { scraperSettings.autoFetchOnlineLyrics },
+                        snapshot: scraperSettings.autoFetchOnlineLyrics,
                         set: { scraperSettings.autoFetchOnlineLyrics = $0 }
                     ))
                 }
@@ -4623,7 +4623,7 @@ private struct MacSTScrapingView: View {
                     hintLineLimit: 3
                 ) {
                     MacSTToggle(isOn: Binding(
-                        get: { insightCommentEnabled },
+                        snapshot: insightCommentEnabled,
                         set: { newValue in
                             if newValue {
                                 confirmsInsightComment = true
@@ -6177,7 +6177,7 @@ private struct MacSTLyricsView: View {
                 MacSTGroup {
                     MacSTRow(String(localized: "lyrics_translation_enabled"), divider: false) {
                         MacSTToggle(isOn: Binding(
-                            get: { settings.isEnabled },
+                            snapshot: settings.isEnabled,
                             set: { settings.isEnabled = $0 }
                         ))
                     }
@@ -6188,7 +6188,7 @@ private struct MacSTLyricsView: View {
                         hintLineLimit: 3
                     ) {
                         MacSTToggle(isOn: Binding(
-                            get: { settings.showsBundledTranslations },
+                            snapshot: settings.showsBundledTranslations,
                             set: { settings.showsBundledTranslations = $0 }
                         ))
                     }
@@ -6364,7 +6364,7 @@ private struct MacSTLyricsView: View {
                     // 译文(和注音)行的字号,默认跟原文一起缩放(#320)。
                     MacSTRow(String(localized: "lyrics_translation_font_follows_original")) {
                         MacSTToggle(isOn: Binding(
-                            get: { lyricsTranslationFontScale <= 0 },
+                            snapshot: lyricsTranslationFontScale <= 0,
                             set: {
                                 lyricsTranslationFontScale = $0 ? 0 : lyricsFontScale
                                 CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsTranslationFontScale)
@@ -6475,7 +6475,7 @@ private struct MacSTLyricsView: View {
                         hint: String(localized: "desktop_lyrics_island_description")
                     ) {
                         MacSTToggle(isOn: Binding(
-                            get: { desktopLyricsIsland },
+                            snapshot: desktopLyricsIsland,
                             set: { PrimuseAppDelegate.shared?.setDesktopLyricsIsland($0) }
                         ))
                         .accessibilityLabel(Text("desktop_lyrics_island"))
@@ -6702,9 +6702,10 @@ private struct MacSTAppleMusicView: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
             }
-            .onAppear { Task { _ = try? await appleMusic.refreshLibraryAccess() } }
+            // 只重读授权状态: `refreshLibraryAccess()` 请求一失败就把订阅信息清掉, 不该由打开设置页来触发。
+            .onAppear { appleMusic.refreshAuthorizationStatus() }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                Task { _ = try? await appleMusic.refreshLibraryAccess() }
+                appleMusic.refreshAuthorizationStatus()
             }
         }
         .settingsAnchor("appleMusic.authorize")
@@ -7701,7 +7702,7 @@ private struct MacSTCloudView: View {
                          hint: String(localized: "icloud_sync_footer"),
                          divider: false) {
                     MacSTToggle(isOn: Binding(
-                        get: { enabled },
+                        snapshot: enabled,
                         set: { newValue in
                             enabled = newValue
                             Task {
@@ -7827,7 +7828,7 @@ private struct MacSTCloudView: View {
                             divider: Bool = true) -> some View {
         MacSTRow(label, divider: divider) {
             MacSTToggle(isOn: Binding(
-                get: { isOn.wrappedValue },
+                snapshot: isOn.wrappedValue,
                 set: { newValue in
                     isOn.wrappedValue = newValue
                     guard newValue, enabled else { return }
@@ -8806,7 +8807,7 @@ private struct MacSTThemeView: View {
                     help: String(localized: "ambient_separate_setting_description")
                 ) {
                     MacSTToggle(isOn: Binding(
-                        get: { SpokenWordStore.shared.separatesAmbient },
+                        snapshot: SpokenWordStore.shared.separatesAmbient,
                         set: { SpokenWordStore.shared.setSeparatesAmbient($0) }
                     ))
                 }
@@ -10119,12 +10120,13 @@ private final class MacDiagnosticsWindowController: NSObject, NSWindowDelegate {
         win.title = Lz("Diagnostic Logs")
         win.minSize = NSSize(width: 640, height: 480)
         win.center()
-        win.setFrameAutosaveName("PrimuseDiagnostics")
         win.isReleasedWhenClosed = false
         win.contentViewController = NSHostingController(
             rootView: MacDiagnosticsWindowView(activity: activity)
                 .applyPrimuseEnvironments()
         )
+        // 装好内容再恢复上次的窗口位置: 先恢复的话, 装内容时窗口又会被调回内容的大小。
+        win.setFrameAutosaveName("PrimuseDiagnostics")
         win.delegate = self
         window = win
         NSApp.activate(ignoringOtherApps: true)
@@ -10791,7 +10793,7 @@ private struct MacDiagnosticsWindowView: View {
                 divider: false
             ) {
                 MacSTToggle(isOn: Binding(
-                    get: { diagnosticModeExpiry != nil },
+                    snapshot: diagnosticModeExpiry != nil,
                     set: { enabled in
                         FileLogger.shared.setDiagnosticMode(enabled: enabled)
                         refreshDiagnosticMode()
@@ -11289,11 +11291,13 @@ private struct MacSmartNudgeSettings: View {
                 }
                 .settingsAnchor("playback.smartNudges")
                 if center.isEnabled {
+                    // 各种类的开关在 body 里读好, 行闭包拿的是这次渲染的快照。
+                    let disabledKinds = center.disabledKinds
                     ForEach(SmartNudgeKind.allCases, id: \.self) { kind in
                         MacSTRow(String(localized: String.LocalizationValue(kind.settingsTitleKey))) {
                             MacSTToggle(isOn: Binding(
-                                get: { center.isKindEnabled(kind) },
-                                set: { center.setKind(kind, enabled: $0) }
+                                snapshot: !disabledKinds.contains(kind),
+                                set: { SmartNudgeCenter.shared.setKind(kind, enabled: $0) }
                             ))
                         }
                     }

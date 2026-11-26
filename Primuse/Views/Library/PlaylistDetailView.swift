@@ -1155,7 +1155,7 @@ struct PlaylistDetailView: View {
         VStack(spacing: 8) {
             CollectionCoverWallHeader(
                 title: currentPlaylist?.name ?? playlist.name,
-                subtitle: "\(wallSongs.count) \(String(localized: "songs_count"))",
+                subtitle: LibraryCountText.songs(wallSongs.count),
                 songs: wallSongs,
                 nowPlaying: player.currentSong,
                 wallHeight: horizontalSizeClass == .regular ? 340 : 300,
@@ -1209,7 +1209,7 @@ struct PlaylistDetailView: View {
                         .fontWeight(.bold)
                         .lineLimit(titleLineLimit)
 
-                    Text("\(songs.count) \(String(localized: "songs_count"))")
+                    Text(LibraryCountText.songs(songs.count))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1270,6 +1270,7 @@ struct PlaylistDetailView: View {
             .buttonStyle(.borderedProminent)
             .prominentLabelOnAccent()
             .controlSize(.large)
+            .disabled(!songAvailability.hasPlayable)
 
             Button {
                 playAll(shuffled: true)
@@ -1280,6 +1281,7 @@ struct PlaylistDetailView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .disabled(!songAvailability.hasPlayable)
             .accessibilityLabel(Text("shuffle"))
 
             let isFavorite = isCollected
@@ -1606,6 +1608,7 @@ struct PlaylistDetailView: View {
                             }
                         },
                         backAccessibilityIdentifier: "playlistInlineBack",
+                        canPlay: songAvailability.hasPlayable,
                         onPlay: { playAll() },
                         onShuffle: {
                             playAll(shuffled: true)
@@ -1635,16 +1638,12 @@ struct PlaylistDetailView: View {
                         // smart rule callout (放在 SmartPlaylistDetailView 里)。原来这里
                         // 给所有非 Liked/AM 歌单都套了一个 "reorder + 导出" 工具卡, 不在
                         // 设计稿里, 现在直接换成 toolbar (排序/导出/更多) 工具条。
-                        macPlaylistToolbar
+                        macPlaylistToolbar(filteredCount: findQuery != nil ? table.rows.count : nil)
 
                         if songs.isEmpty && pendingEntryCount == 0 {
-                            EmptyStateView(
-                                titleKey: "no_songs",
-                                descriptionKey: "no_songs_desc",
-                                systemImage: "music.note.list"
-                            )
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 48)
+                            playlistEmptyState
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 48)
                         } else if table.rows.isEmpty, findQuery != nil {
                             ContentUnavailableView.search(text: findText)
                                 .frame(maxWidth: .infinity)
@@ -1694,12 +1693,31 @@ struct PlaylistDetailView: View {
         } message: { Text(exportError ?? "") }
     }
 
+    @ViewBuilder
+    private var playlistEmptyState: some View {
+        if playlist.id == MusicLibrary.likedSongsPlaylistID {
+            EmptyStateView(
+                titleKey: "liked_songs_empty_title",
+                descriptionKey: "liked_songs_empty_desc",
+                systemImage: "heart"
+            )
+        } else {
+            EmptyStateView(
+                titleKey: "no_songs",
+                descriptionKey: PlaybackSurfaceCountsModel.musicSongCount(in: library) > 0
+                    ? "playlist_empty_desc"
+                    : "no_songs_desc",
+                systemImage: "music.note.list"
+            )
+        }
+    }
+
     private var playlistSubtitle: String {
         // 总时长与显示顺序无关, 按歌单内容缓存; 不然后台每发布一批, 几万首都要再加一遍。
         let duration = sortedSongsCache.totalDuration(
             for: .init(content: library.playlistContentVersion, playlistID: playlist.id)
         ) { storedSongs.reduce(0) { $0 + $1.duration } }
-        return "\(songs.count) \(String(localized: "songs_count")) · \(duration.formattedShort) · \(playlistKindLabel)"
+        return "\(LibraryCountText.songs(songs.count)) · \(duration.formattedShort) · \(playlistKindLabel)"
     }
 
     /// 镜像歌单标出来源, 让用户知道这份内容为什么不可编辑。服务端镜像用音乐源
@@ -1726,7 +1744,7 @@ struct PlaylistDetailView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("tab_playlists")
                         .font(.system(size: 12.5, weight: .semibold))
-                    Text(verbatim: "\(songs.count) \(String(localized: "songs_count")) · \(String(localized: "playlist_reorder")) / M3U8 / JSON")
+                    Text(verbatim: "\(LibraryCountText.songs(songs.count)) · \(String(localized: "playlist_reorder")) / M3U8 / JSON")
                         .font(.system(size: 12))
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)
@@ -1748,7 +1766,7 @@ struct PlaylistDetailView: View {
 
     /// 设计稿 PlaylistDetail: header(含"更多"菜单) 之下直接是一行 "歌曲" 小标题 +
     /// 曲目表, 不再单独放重排/导出工具条 —— 那些动作都收进了 header 的更多菜单。
-    private var macPlaylistToolbar: some View {
+    private func macPlaylistToolbar(filteredCount: Int?) -> some View {
         HStack(spacing: 8) {
             locateCurrentButton
             Text("tab_songs")
@@ -1756,6 +1774,14 @@ struct PlaylistDetailView: View {
                 .tracking(0.6)
                 .textCase(.uppercase)
                 .foregroundStyle(PMColor.textFaint)
+            if let filteredCount {
+                Text(verbatim: LibraryCountText.results(filteredCount))
+                    .font(.system(size: 11.5, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("playlistDetail.filterCount")
+            }
             Spacer()
             macFindField
             Menu {
@@ -2030,12 +2056,13 @@ struct PlaylistDetailView: View {
                         Group {
                             switch row.entry {
                             case .song(let song):
+                                let rowPinned = pinned.map { $0.contains(song.id) }
                                 macSongRow(
                                     song,
                                     index: row.songIndex,
                                     indexColumnWidth: indexColumnWidth,
                                     playCount: playCounts[song.id, default: 0],
-                                    isPinned: pinned.map { $0.contains(song.id) }
+                                    isPinned: rowPinned
                                 )
                                     .songLocationRow(song.id)
                                     .songSelectable(
@@ -2044,6 +2071,10 @@ struct PlaylistDetailView: View {
                                         orderedIDs: { selectableSongIDs },
                                         defaultAction: { playSong(song) }
                                     )
+                                    .contextMenu {
+                                        // 菜单里读曲库、离线状态、多选状态：放进小视图，建行时不读。
+                                        MacDeferredSongMenu { macSongContextMenu(for: song, isPinned: rowPinned) }
+                                    }
                             case .pending(let pending):
                                 HStack(spacing: 12) {
                                     Text(verbatim: showsRowNumbers ? (row.songIndex + 1).formatted(.number.grouping(.never)) : "")
@@ -2131,41 +2162,120 @@ struct PlaylistDetailView: View {
         .pmRowBackground(selected: isCurrent)
         .contentShape(Rectangle())
         .onTapGesture { playSong(song) }
-        .contextMenu {
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func macSongContextMenu(for song: Song, isPinned: Bool?) -> some View {
+        let latest = library.song(id: song.id) ?? song
+        Section {
             Button {
-                selection.activate(seed: song.id)
+                playSong(latest)
             } label: {
-                Label("batch_select", systemImage: "checkmark.circle")
+                Label(String(localized: "play"), systemImage: "play.fill")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+
+            Button {
+                player.insertNextInQueue([latest])
+            } label: {
+                Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+
+            Button {
+                player.appendToQueue([latest])
+            } label: {
+                Label(String(localized: "add_to_queue"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+        }
+
+        Section {
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .info)
+            } label: {
+                Label(String(localized: "song_info"), systemImage: "info.circle")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            SongCopyTitleButton(song: latest)
+
+            MacSongMetadataMenuItems(song: latest) { action in
+                macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? latest, action: action)
+            }
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .addToPlaylist)
+            } label: {
+                Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .similar)
+            } label: {
+                Label(String(localized: "similar_songs"), systemImage: "sparkles")
+                    .labelStyle(.titleAndIcon)
+            }
+        }
+
+        if latest.sourceID != AppleMusicLibraryService.systemSourceID {
+            Section {
+                SongOfflineActionButtons(
+                    song: latest,
+                    snapshot: sourceManager.offlineAudioSnapshotEntry(for: latest).snapshot
+                )
+                .task(id: latest.id) {
+                    await sourceManager.ensureOfflineAudioSnapshot(for: latest)
+                }
+            }
+        }
+
+        Section {
+            SongFeedbackMenuButtons(songID: latest.id)
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .share)
+            } label: {
+                Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            if !selection.isActive {
+                Button {
+                    selection.activate(seed: latest.id)
+                } label: {
+                    Label("batch_select", systemImage: "checkmark.circle")
+                        .labelStyle(.titleAndIcon)
+                }
             }
 
             if isPinned == true {
                 Button {
-                    unpinSongs([song.id])
+                    unpinSongs([latest.id])
                 } label: {
                     Label("playlist_unpin", systemImage: "pin.slash")
+                        .labelStyle(.titleAndIcon)
                 }
             } else if isPinned == false {
                 Button {
-                    pinSongs([song.id])
+                    pinSongs([latest.id])
                 } label: {
                     Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
+                        .labelStyle(.titleAndIcon)
                 }
             }
 
-            // 和 iPhone 长按「编辑」里同样的几项：刮削数据、编辑标签、编辑歌词、重新读取文件标签。
-            Section {
-                MacSongMetadataMenuItems(song: song) { action in
-                    macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? song, action: action)
-                }
-            }
-
-            SongCopyTitleButton(song: song)
-
-            if canRemove(song) {
+            if canRemove(latest) {
                 Button(role: .destructive) {
-                    removeSongs([song])
+                    removeSongs([latest])
                 } label: {
                     Label("remove_from_playlist", systemImage: "trash")
+                        .labelStyle(.titleAndIcon)
                 }
             }
         }
@@ -2750,7 +2860,7 @@ struct PlaylistReorderSheet: View {
                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
         .contentShape(.rect(cornerRadius: 10))
-        .help(Text("Drag to Reorder"))
+        .help(Text("drag_to_reorder"))
         .contextMenu {
             Button("radio_manage_pin_top", systemImage: "arrow.up.to.line") {
                 moveSong(from: index, to: 0)

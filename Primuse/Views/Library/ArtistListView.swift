@@ -429,7 +429,7 @@ struct ArtistListView: View {
             .minimalPageHeader {
                 HStack(spacing: 4) {
                     MinimalHeaderCount(
-                        text: "\(displayedArtistCount.formatted()) \(String(localized: "artists_count"))"
+                        text: Self.artistCountText(displayedArtistCount)
                     )
                     Spacer(minLength: 8)
                     MinimalHeaderActions {
@@ -451,7 +451,7 @@ struct ArtistListView: View {
     }
 
     private static func artistCountText(_ count: Int) -> String {
-        "\(count.formatted()) \(String(localized: "artists_count"))"
+        LibraryCountText.artists(count)
     }
 
     /// 圆形头像网格：和专辑网格同一套断点（iPhone 两列、iPad 摊开更多列，手机横屏下限收到 100），
@@ -588,7 +588,7 @@ struct ArtistListView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
+                    Text("\(LibraryCountText.albums(artist.albumCount)) · \(LibraryCountText.songs(artist.songCount))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -688,6 +688,7 @@ struct ArtistListView: View {
             HStack(spacing: 0) {
                 artistListPane
                     .frame(width: 280)
+                    .accessibilityElement(children: .contain)
 
                 Rectangle()
                     .fill(PMColor.divider)
@@ -700,11 +701,14 @@ struct ArtistListView: View {
                         ArtistDetailView(artist: artist)
                             .pmAppearFade()
                             .id(artist.id)
+                    } else if showsEmptyBrowseList || (showsCatalogArtistList && catalogArtistList?.count == 0) {
+                        emptyBrowseList
                     } else {
                         ContentUnavailableView.search(text: searchText)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityElement(children: .contain)
             }
             .background(PMColor.bg.ignoresSafeArea())
         }
@@ -751,8 +755,8 @@ struct ArtistListView: View {
 
             if showsCatalogArtistList, let model = catalogArtistList {
                 if model.count == 0 {
-                    emptyBrowseList
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Spacer(minLength: 0)
+                        .accessibilityHidden(true)
                 } else {
                     ScrollView(.vertical) {
                         LazyVStack(spacing: 1) {
@@ -773,12 +777,9 @@ struct ArtistListView: View {
                     .scrollIndicators(.visible, axes: .vertical)
                     .accessibilityIdentifier("artistList.scroll")
                 }
-            } else if showsEmptyBrowseList {
-                emptyBrowseList
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if filteredArtists.isEmpty {
-                ContentUnavailableView.search(text: searchText)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if showsEmptyBrowseList || filteredArtists.isEmpty {
+                Spacer(minLength: 0)
+                    .accessibilityHidden(true)
             } else {
                 ScrollView(.vertical) {
                     LazyVStack(spacing: 1) {
@@ -862,7 +863,7 @@ struct ArtistListView: View {
                         .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(1)
-                    Text("\(artist.songCount) \(String(localized: "songs_count"))")
+                    Text(LibraryCountText.songs(artist.songCount))
                         .font(.system(size: 10.5))
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)

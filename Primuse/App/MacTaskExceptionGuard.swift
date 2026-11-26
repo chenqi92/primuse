@@ -134,13 +134,16 @@ enum MacLaunchDiagnostics {
 
     @MainActor private static var heartbeat: Task<Void, Never>?
 
+    /// 测试进程（XCTest 拉起来的宿主 app）不参与：不弹上次的中止，也不读写哨兵 ——
+    /// 盘上那份是正式启动留下的，留给下一次正式启动来报。
+    private static var isTestProcess: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     /// AppKit 最早的时机调一次：先把上次的中止摆出来，再给这次启动立哨兵。
     @MainActor static func begin() {
         heartbeat?.cancel()
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            clearSentinel()
-            return
-        }
+        if isTestProcess { return }
         let previous = loadSentinel()
         clearSentinel()
         if let previous {
@@ -181,7 +184,7 @@ enum MacLaunchDiagnostics {
 
     /// 异常防护要终止进程前调：把说明并进哨兵，下次启动才有东西可报。
     nonisolated static func recordFatalReport(_ report: String) {
-        guard var sentinel = loadSentinel() else { return }
+        guard !isTestProcess, var sentinel = loadSentinel() else { return }
         sentinel.exceptionReport = report
         sentinel.lastSeenAt = Date()
         writeSentinel(sentinel)

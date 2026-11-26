@@ -831,7 +831,7 @@ struct AlbumDetailView: View {
         if let year = album.year { parts.append(String(year)) }
         // 目录现拼的专辑取到曲目之前不写「0 首」。
         if albumSongCount > 0 {
-            parts.append("\(albumSongCount) \(String(localized: "songs_count"))")
+            parts.append(LibraryCountText.songs(albumSongCount))
             parts.append(formatDuration(albumDuration))
         }
         return parts.joined(separator: " \u{00B7} ")
@@ -984,6 +984,7 @@ struct AlbumDetailView: View {
                         }
                     },
                     backAccessibilityIdentifier: "albumInlineBack",
+                    canPlay: !albumSongs.filteredPlayable().isEmpty,
                     onPlay: { playAll() },
                     onShuffle: shuffleAll,
                     moreMenu: albumMoreMenu,
@@ -1174,7 +1175,7 @@ struct AlbumDetailView: View {
             parts.append("\(year)")
         }
         if albumSongCount > 0 {
-            parts.append("\(albumSongCount) \(String(localized: "songs_count"))")
+            parts.append(LibraryCountText.songs(albumSongCount))
             parts.append(formatDuration(albumDuration))
         }
         return parts.joined(separator: " · ")
@@ -1243,14 +1244,11 @@ struct AlbumDetailView: View {
                         if isCatalogOnly(song) {
                             macTrackRow(song, index: index, nextSongID: nextSongID, ordinalWidth: ordinalWidth)
                                 .songLocationRow(song.id)
+                                .contextMenu {
+                                    macCatalogTrackMenu(for: song)
+                                }
                         } else {
                             macTrackRow(song, index: index, nextSongID: nextSongID, ordinalWidth: ordinalWidth)
-                                // 资料库里的曲目能改自身信息：右键给出和 iPhone 长按「编辑」同样的几项。
-                                .contextMenu {
-                                    MacSongMetadataMenuItems(song: song) { action in
-                                        macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? song, action: action)
-                                    }
-                                }
                                 .songLocationRow(song.id)
                                 .songSelectable(
                                     songID: song.id,
@@ -1258,11 +1256,146 @@ struct AlbumDetailView: View {
                                     orderedIDs: { orderedSongIDs },
                                     defaultAction: { playSong(song) }
                                 )
+                                .contextMenu {
+                                    // 菜单里读曲库、离线状态、有声分类、多选状态：放进小视图，建行时不读。
+                                    MacDeferredSongMenu { macTrackContextMenu(for: song) }
+                                }
                         }
                     }
                 }
             }
             .padding(.vertical, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func macCatalogTrackMenu(for song: Song) -> some View {
+        Section {
+            Button {
+                playSong(song)
+            } label: {
+                Label(String(localized: "play"), systemImage: "play.fill")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!song.isPlayable)
+
+            Button {
+                player.insertNextInQueue([song])
+            } label: {
+                Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!song.isPlayable)
+
+            Button {
+                player.appendToQueue([song])
+            } label: {
+                Label(String(localized: "add_to_queue"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!song.isPlayable)
+        }
+
+        Section {
+            SongCopyTitleButton(song: song)
+        }
+    }
+
+    @ViewBuilder
+    private func macTrackContextMenu(for song: Song) -> some View {
+        let latest = library.song(id: song.id) ?? song
+        Section {
+            Button {
+                playSong(latest)
+            } label: {
+                Label(String(localized: "play"), systemImage: "play.fill")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+
+            Button {
+                player.insertNextInQueue([latest])
+            } label: {
+                Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+
+            Button {
+                player.appendToQueue([latest])
+            } label: {
+                Label(String(localized: "add_to_queue"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+        }
+
+        Section {
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .info)
+            } label: {
+                Label(String(localized: "song_info"), systemImage: "info.circle")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            SongCopyTitleButton(song: latest)
+
+            MacSongMetadataMenuItems(song: latest) { action in
+                macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? latest, action: action)
+            }
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .addToPlaylist)
+            } label: {
+                Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .similar)
+            } label: {
+                Label(String(localized: "similar_songs"), systemImage: "sparkles")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            ListeningKindMoveButtons(current: SpokenWordStore.shared.kind(for: latest)) { kind in
+                SpokenWordStore.shared.move([library.song(id: song.id) ?? latest], to: kind)
+                library.refreshContentClassification()
+            }
+
+            SongShuffleLinkMenu(songID: latest.id)
+        }
+
+        if latest.sourceID != AppleMusicLibraryService.systemSourceID {
+            Section {
+                SongOfflineActionButtons(
+                    song: latest,
+                    snapshot: sourceManager.offlineAudioSnapshotEntry(for: latest).snapshot
+                )
+                .task(id: latest.id) {
+                    await sourceManager.ensureOfflineAudioSnapshot(for: latest)
+                }
+            }
+        }
+
+        Section {
+            SongFeedbackMenuButtons(songID: latest.id)
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .share)
+            } label: {
+                Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            if !selection.isActive {
+                Button {
+                    selection.activate(seed: latest.id)
+                } label: {
+                    Label(String(localized: "batch_select"), systemImage: "checkmark.circle")
+                        .labelStyle(.titleAndIcon)
+                }
+            }
         }
     }
 

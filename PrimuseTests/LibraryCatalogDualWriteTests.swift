@@ -889,6 +889,62 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
 
     /// 按流派取歌、取专辑在目录可读时问目录的流派表,整库的按流派索引不留;答案与没有目录、按内存索引
     /// 算的同一个库逐首相同(斜杠惯例只对 ID3 格式、分号分隔、大小写与变音符号写法、停用源、有声书)。
+    /// 小组件只要有进度的书:曲库目录里这些条目所在的连通块分出来的书,与内存里整个有声书架分出来的相同。
+    func testSpokenWordBookClosureFromTheCatalogMatchesTheShelf() async throws {
+        let library = makeLibrary()
+        var songs = Self.fixture()
+        let books = [("/Books/Novel", "Novel", "Writer"), ("/Books/Series/Vol 1", "Series", "Author"),
+                     ("/Books/Series/Vol 2", "Series", "Author"), ("/Books/Loose", nil, nil)]
+        for (bookIndex, book) in books.enumerated() {
+            for chapter in 1...4 {
+                songs.append(Song(
+                    id: "chapter-\(bookIndex)-\(chapter)", title: "Chapter \(chapter)",
+                    albumTitle: book.1, artistName: book.2, trackNumber: chapter,
+                    duration: 600, fileFormat: .m4a, filePath: "\(book.0)/\(String(format: "%02d", chapter)).m4b",
+                    sourceID: chapter == 4 && bookIndex == 3 ? Self.sourceB : Self.sourceA
+                ))
+            }
+        }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "addSongs")
+        let shelf = library.spokenWordSongs
+        XCTAssertGreaterThanOrEqual(shelf.count, 12)
+        let wholeShelf = SpokenWordBookGrouping.books(from: shelf.map { SpokenWordBookItem(song: $0) })
+        let reader = try XCTUnwrap(library.readableCatalogReader)
+        for seed in shelf.map(\.id) {
+            let closure = try await reader.read { try $0.spokenBookClosureSongs(containingSongIDs: [seed]) }
+            let closureBooks = SpokenWordBookGrouping.books(from: closure.map { SpokenWordBookItem(song: $0) })
+            let expected = try XCTUnwrap(wholeShelf.first { book in book.items.contains { $0.id == seed } })
+            // 旧库按整秒存日期,从旧库导入目录的条目比内存里这次会话新加的少了零点几秒(小组件不读加入时间)。
+            XCTAssertEqual(closureBooks.first { $0.id == expected.id }.map(BookKey.init), BookKey(expected), "book of \(seed)")
+        }
+    }
+
+    /// 书的各项,条目的加入时间按整秒。
+    private struct BookKey: Equatable {
+        let id: String
+        let title: String
+        let author: String?
+        let resumeItemID: String?
+        let lastListenedAt: Date?
+        let items: [SpokenWordBookItem]
+
+        init(_ book: SpokenWordBook) {
+            lastListenedAt = book.lastListenedAt
+            id = book.id
+            title = book.title
+            author = book.author
+            resumeItemID = book.resumeItemID
+            items = book.items.map { item in
+                var item = item
+                item.addedAt = item.addedAt.map {
+                    Date(timeIntervalSinceReferenceDate: $0.timeIntervalSinceReferenceDate.rounded(.down))
+                }
+                return item
+            }
+        }
+    }
+
     func testGenreSongsFromTheCatalogMatchTheInMemoryIndexWithoutRetainingIt() async throws {
         var songs = Self.fixture()
         let genres = ["Rock/Pop", "rock/pop", "Jazz; Blues", "Électronique", "electronique", "R&B", "Pop", "", "Hip-Hop/Rap"]
