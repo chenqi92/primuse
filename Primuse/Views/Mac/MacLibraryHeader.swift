@@ -17,6 +17,8 @@ struct MacLibraryHeader: View {
     var darkAccent: Color = PMColor.brand.opacity(0.6)
     var onBack: (() -> Void)? = nil
     var backAccessibilityIdentifier = "macLibraryHeaderBack"
+    var canPlay = true
+    var canShuffle: Bool? = nil
     var onPlay: () -> Void = {}
     var onShuffle: () -> Void = {}
     var onMore: () -> Void = {}
@@ -85,6 +87,7 @@ struct MacLibraryHeader: View {
                         .padding(.top, 6)
                 }
 
+                let shuffleEnabled = canShuffle ?? canPlay
                 HStack(spacing: 8) {
                     Button(action: onPlay) {
                         HStack(spacing: 7) {
@@ -101,8 +104,10 @@ struct MacLibraryHeader: View {
                         .background(PMColor.brand, in: .rect(cornerRadius: 8))
                     }
                     .buttonStyle(.pmPressable)
-                    .shadow(color: PMColor.brand.opacity(0.35), radius: 6, y: 2)
-                    .pmHoverLift()
+                    .disabled(!canPlay)
+                    .opacity(canPlay ? 1 : 0.45)
+                    .shadow(color: PMColor.brand.opacity(canPlay ? 0.35 : 0), radius: 6, y: 2)
+                    .if(canPlay) { $0.pmHoverLift() }
 
                     Button(action: onShuffle) {
                         // 放不下文字时只留图标,悬停有说明。
@@ -124,8 +129,11 @@ struct MacLibraryHeader: View {
                         .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
                     }
                     .buttonStyle(.pmPressable)
+                    .disabled(!shuffleEnabled)
+                    .opacity(shuffleEnabled ? 1 : 0.45)
                     .help(Text("shuffle"))
-                    .pmHoverLift()
+                    .accessibilityLabel(Text("shuffle"))
+                    .if(shuffleEnabled) { $0.pmHoverLift() }
 
                     if let favorite {
                         Button(action: favorite.toggle) {
@@ -159,6 +167,8 @@ struct MacLibraryHeader: View {
                                 .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
                         }
                         .buttonStyle(.pmPressable)
+                        .help(Text("more"))
+                        .accessibilityLabel(Text("more"))
                         .popover(isPresented: $showMoreMenu, arrowEdge: .bottom) {
                             Group {
                                 if let moreMenu {

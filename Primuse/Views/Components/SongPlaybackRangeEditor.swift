@@ -31,18 +31,22 @@ struct SongPlaybackRangeMenuItems: View {
                     } icon: {
                         Image(systemName: "selection.pin.in.out")
                     }
+                    .labelStyle(.titleAndIcon)
                 }
                 Button { onEdit(.playbackRange) } label: {
                     Label(String(localized: "playback_range_edit"), systemImage: "slider.horizontal.3")
+                        .labelStyle(.titleAndIcon)
                 }
             } else {
                 Button { onEdit(.playbackRange) } label: {
                     Label(String(localized: "playback_range_set"), systemImage: "selection.pin.in.out")
+                        .labelStyle(.titleAndIcon)
                 }
             }
             if showsClipExport {
                 Button { onEdit(.clip) } label: {
                     Label(SongPlaybackRangeEditor.clipMenuTitle, systemImage: SongPlaybackRangeEditor.clipSymbol)
+                        .labelStyle(.titleAndIcon)
                 }
             }
         }

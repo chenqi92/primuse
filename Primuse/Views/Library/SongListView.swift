@@ -56,9 +56,13 @@ final class SongListLocation {
     private(set) var needsScroll = false
     private(set) var highlightedSongID: String?
     private(set) var viewportBounds: CGRect?
+    private(set) var hasViewport = false
+    @ObservationIgnored private var latestViewportBounds: CGRect?
     @ObservationIgnored private var visibleIDs: Set<String> = []
     @ObservationIgnored private var highlightTask: Task<Void, Never>?
     private let highlightDuration: Duration
+
+    var currentViewportBounds: CGRect? { latestViewportBounds ?? viewportBounds }
 
     init(highlightDuration: Duration = .seconds(2.4)) {
         self.highlightDuration = highlightDuration
@@ -67,6 +71,9 @@ final class SongListLocation {
     func locate(_ songID: String) {
         highlightTask?.cancel()
         highlightedSongID = nil
+        if let latestViewportBounds, viewportBounds != latestViewportBounds {
+            viewportBounds = latestViewportBounds
+        }
         request = SongLibraryLocationRequest(songID: songID)
         needsScroll = !visibleIDs.contains(songID)
         if !needsScroll { reveal(songID, requestID: request?.id) }
@@ -82,8 +89,14 @@ final class SongListLocation {
     }
 
     func setViewport(_ bounds: CGRect) {
-        if viewportBounds == nil { visibleIDs.removeAll() }
-        viewportBounds = bounds
+        if latestViewportBounds == nil {
+            visibleIDs.removeAll()
+            hasViewport = true
+            viewportBounds = bounds
+        } else if request != nil, viewportBounds != bounds {
+            viewportBounds = bounds
+        }
+        latestViewportBounds = bounds
     }
 
     func reveal(_ songID: String, requestID: UUID?) {
@@ -123,7 +136,8 @@ private struct SongLocationRowModifier: ViewModifier {
     @State private var emphasis = 0.0
 
     func body(content: Content) -> some View {
-        let viewport = location?.viewportBounds
+        let usesViewport = location?.hasViewport == true
+        let activeViewport = location?.request != nil ? location?.viewportBounds : nil
         let highlightID = location?.highlightedSongID == songID ? location?.request?.id : nil
         content
         .environment(\.songLocationEmphasis, emphasis)
@@ -144,18 +158,18 @@ private struct SongLocationRowModifier: ViewModifier {
             // 时间线与封面外观的转角、淡入淡出只改绘制，探针量的是不变的槽位框。
             Color.clear
                 .onScrollVisibilityChange(threshold: 0.9) { visible in
-                    if viewport == nil { location?.visibilityChanged(songID, visible: visible) }
+                    if !usesViewport { location?.visibilityChanged(songID, visible: visible) }
                 }
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
         .onGeometryChange(for: Bool.self) { proxy in
-            guard let viewport else { return false }
+            guard let viewport = activeViewport ?? location?.currentViewportBounds else { return false }
             let frame = proxy.frame(in: .global)
             let visible = frame.intersection(viewport)
             return frame.height > 0 && visible.width > 0 && visible.height >= frame.height * 0.9
         } action: { visible in
-            if viewport != nil { location?.visibilityChanged(songID, visible: visible) }
+            if usesViewport { location?.visibilityChanged(songID, visible: visible) }
         }
         .task(id: highlightID) {
             guard highlightID != nil else {
@@ -1162,6 +1176,7 @@ struct SongListView: View {
     /// here made SwiftUI/AttributeGraph compare every Song (including its full
     /// lyricsText) whenever an ancestor refreshed.
     private let scope: Scope
+    private let onOpenSources: (() -> Void)?
     @Binding private var locationRequest: SongLibraryLocationRequest?
     @State private var songLocation = SongListLocation()
     private var locatedSongID: String? { songLocation.request?.songID }
@@ -1346,9 +1361,11 @@ struct SongListView: View {
 
     init(
         sourceID: String? = nil,
+        onOpenSources: (() -> Void)? = nil,
         locationRequest: Binding<SongLibraryLocationRequest?> = .constant(nil)
     ) {
         scope = sourceID.map(Scope.source) ?? .library
+        self.onOpenSources = onOpenSources
         self._locationRequest = locationRequest
         let initialSortOrder = LibrarySongSortOrderPreference.load()
         _sortOrder = State(initialValue: SongSortOrder(libraryOrder: initialSortOrder))
@@ -2179,11 +2196,21 @@ struct SongListView: View {
     @ViewBuilder
     private var content: some View {
         if showsEmptyLibrary {
-            EmptyStateView(
-                titleKey: "no_songs",
-                descriptionKey: "no_songs_desc",
-                systemImage: "music.note"
-            )
+            if case .source(let sourceID) = scope, let source = sourcesStore.source(id: sourceID) {
+                EmptyStateView(
+                    titleKey: LocalizedStringKey(source.name),
+                    descriptionKey: "source_empty_desc",
+                    systemImage: source.type.iconName,
+                    actionLabel: onOpenSources == nil ? nil : "sources_manage_action",
+                    action: onOpenSources
+                )
+            } else {
+                EmptyStateView(
+                    titleKey: "no_songs",
+                    descriptionKey: "no_songs_desc",
+                    systemImage: "music.note"
+                )
+            }
         } else {
             #if os(iOS)
             // 工具栏、页内查找和极简页头挂在转圈与列表共同的这一层：推入的第一帧（列表还在排序，或刚从
@@ -2245,7 +2272,7 @@ struct SongListView: View {
         let isPreparing = isPreparingList
         let preparingTotal: Int? = usesCatalogList ? catalogList.baseCount : songs.count
         let preparingCount = effectiveSongFilter == .all
-            ? preparingTotal.map { "\($0.formatted()) \(String(localized: "songs_count"))" } ?? " "
+            ? preparingTotal.map { LibraryCountText.formattedSongs($0) } ?? " "
             : " "
         return SongListMinimalHeader(
             selection: selection,
@@ -2388,7 +2415,7 @@ struct SongListView: View {
             : showsFolderBrowser && listCache.isEmpty
                 ? songs.count
                 : filteredProjection.rows.count
-        return "\(count.formatted()) \(String(localized: "songs_count"))"
+        return LibraryCountText.formattedSongs(count)
     }
 
     /// 只在整个歌曲页、没在筛选、没在多选时出现。
@@ -2630,6 +2657,8 @@ struct SongListView: View {
     ) -> some View {
         let rowHeight = macVirtualRowHeight
         let rowWidth = max(0, viewportWidth - PMSpace.xxxl * 2)
+        let columns = activeTableColumns
+        let columnWidths = Dictionary(uniqueKeysWithValues: columns.map { ($0, columnWidth($0)) })
         return VStack(alignment: .leading, spacing: 0) {
             Color.clear
                 .frame(height: CGFloat(range.lowerBound) * rowHeight)
@@ -2643,7 +2672,7 @@ struct SongListView: View {
                         Group {
                             switch macViewMode {
                             case .list:
-                                songTableRow(song, index: row.offset, ordinalWidth: ordinalWidth)
+                                songTableRow(song, index: row.offset, ordinalWidth: ordinalWidth, columns: columns, columnWidths: columnWidths)
                             case .compact:
                                 compactSongRow(song, index: row.offset, ordinalWidth: ordinalWidth)
                             case .grid:
@@ -2739,6 +2768,8 @@ struct SongListView: View {
         let rowHeight = macVirtualRowHeight
         let rowWidth = max(0, viewportWidth - PMSpace.xxxl * 2)
         let visibleRange = range.clamped(to: 0..<max(0, rowCount))
+        let columns = activeTableColumns
+        let columnWidths = Dictionary(uniqueKeysWithValues: columns.map { ($0, columnWidth($0)) })
         return VStack(alignment: .leading, spacing: 0) {
             Color.clear
                 .frame(height: CGFloat(visibleRange.lowerBound) * rowHeight)
@@ -2751,7 +2782,7 @@ struct SongListView: View {
                         Group {
                             switch macViewMode {
                             case .list:
-                                songTableRow(song, index: position, ordinalWidth: ordinalWidth)
+                                songTableRow(song, index: position, ordinalWidth: ordinalWidth, columns: columns, columnWidths: columnWidths)
                             case .compact:
                                 compactSongRow(song, index: position, ordinalWidth: ordinalWidth)
                             case .grid:
@@ -2837,7 +2868,7 @@ struct SongListView: View {
             macSongListHeader
 
             VStack(alignment: .leading, spacing: PMSpace.l) {
-                if !showsFolderBrowser {
+                if !showsFolderBrowser, case .library = scope {
                     sourceFilterChips
                 }
                 macToolbarRow
@@ -2937,14 +2968,20 @@ struct SongListView: View {
     }
 
     private var macSongListHeader: some View {
-        MacLibraryHeader(
-            eyebrow: "library_title",
-            title: String(localized: "tab_songs"),
+        let sourceTitle: String? = if case .source(let id) = scope {
+            sourcesStore.source(id: id)?.name
+        } else {
+            nil
+        }
+        return MacLibraryHeader(
+            eyebrow: sourceTitle == nil ? "library_title" : "sources_title",
+            title: sourceTitle ?? String(localized: "tab_songs"),
             subtitle: librarySubtitle,
             iconSystemName: "music.note",
             coverSong: showsCatalogList
                 ? catalogList.coverSong
                 : listCache.coverSongID.flatMap { library.unobservedVisibleSong(id: $0) },
+            canPlay: displayedPlayableCount > 0,
             onPlay: { playLibrary(shuffled: false) },
             onShuffle: { playLibrary(shuffled: true) },
             makeMoreMenu: { listMoreMenu }
@@ -3026,6 +3063,16 @@ struct SongListView: View {
         }
     }
 
+    private var hasActiveMacFilter: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || effectiveSongFilter != .all
+            || selectedSourceID != nil
+    }
+
+    private var macDisplayedRowCount: Int {
+        showsCatalogList ? catalogList.count : filteredRows.count
+    }
+
     private var macToolbarRow: some View {
         HStack(spacing: 8) {
             locateCurrentButton
@@ -3035,6 +3082,15 @@ struct SongListView: View {
                 width: 220,
                 accessibilityIdentifier: "songList.filter"
             )
+
+            if !showsFolderBrowser && hasActiveMacFilter {
+                Text(verbatim: LibraryCountText.results(macDisplayedRowCount))
+                    .font(.system(size: 11.5, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("songList.filterCount")
+            }
 
             Spacer()
 
@@ -3180,10 +3236,10 @@ struct SongListView: View {
     }
 
     private var librarySubtitle: String {
-        if showsCatalogList {
-            return "\(catalogList.baseCount ?? 0) \(String(localized: "songs_count")) · \(catalogList.basePlayableCount) \(String(localized: "home_playable")) · \(catalogList.baseTotalDuration.formattedShort)"
-        }
-        return "\(listCache.songCount) \(String(localized: "songs_count")) · \(listCache.playableCount) \(String(localized: "home_playable")) · \(listCache.totalDuration.formattedShort)"
+        let total = showsCatalogList ? (catalogList.baseCount ?? 0) : listCache.songCount
+        let playable = showsCatalogList ? catalogList.basePlayableCount : listCache.playableCount
+        let duration = showsCatalogList ? catalogList.baseTotalDuration : listCache.totalDuration
+        return "\(LibraryCountText.songs(total)) · \(LibraryCountText.playableRatio(playable: playable, total: total)) · \(duration.formattedShort)"
     }
 
     private var activeTableColumns: [MacSongsColumn] { tableLayout.activeColumns }
@@ -3233,10 +3289,15 @@ struct SongListView: View {
         }
     }
 
-    private func songTableRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
+    private func songTableRow(
+        _ song: Song,
+        index: Int,
+        ordinalWidth: CGFloat,
+        columns: [MacSongsColumn],
+        columnWidths: [MacSongsColumn: CGFloat]
+    ) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         let isLocated = locatedSongID == song.id
-        let columns = activeTableColumns
         let source = columns.contains(.source)
             ? sourcesStore.sources.first(where: { $0.id == song.sourceID })
             : nil
@@ -3258,7 +3319,7 @@ struct SongListView: View {
                 },
                 sourceDotColor: source.map { macSourceDotColor(for: $0) },
                 columns: columns,
-                columnWidths: Dictionary(uniqueKeysWithValues: columns.map { ($0, columnWidth($0)) }),
+                columnWidths: columnWidths,
                 contentWidth: tableContentWidth(ordinalWidth: ordinalWidth),
                 verticalPadding: macRowDensity.verticalPadding,
                 locale: locale
@@ -3390,6 +3451,7 @@ struct SongListView: View {
                 playSong(song)
             } label: {
                 Label(String(localized: "play"), systemImage: "play.fill")
+                    .labelStyle(.titleAndIcon)
             }
             .disabled(!song.isPlayable)
 
@@ -3397,6 +3459,7 @@ struct SongListView: View {
                 player.insertNextInQueue([song])
             } label: {
                 Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    .labelStyle(.titleAndIcon)
             }
             .disabled(!song.isPlayable)
 
@@ -3404,6 +3467,7 @@ struct SongListView: View {
                 player.appendToQueue([song])
             } label: {
                 Label(String(localized: "add_to_queue"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
             }
             .disabled(!song.isPlayable)
         }
@@ -3413,6 +3477,7 @@ struct SongListView: View {
                 showSongInfo(for: song)
             } label: {
                 Label(String(localized: "song_info"), systemImage: "info.circle")
+                    .labelStyle(.titleAndIcon)
             }
 
             SongCopyTitleButton(song: latestSong(song))
@@ -3422,24 +3487,28 @@ struct SongListView: View {
                 openScrapeWindow(for: song)
             } label: {
                 Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+                    .labelStyle(.titleAndIcon)
             }
 
             Button {
                 editTags(for: song)
             } label: {
                 Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                    .labelStyle(.titleAndIcon)
             }
 
             Button {
                 contextSongAction = SongRowActionRequest(song: latestSong(song), action: .editLyrics)
             } label: {
                 Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
+                    .labelStyle(.titleAndIcon)
             }
 
             Button {
                 addToPlaylist(song)
             } label: {
                 Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
             }
 
             macSpokenWordClassificationButton(for: song)
@@ -3474,6 +3543,7 @@ struct SongListView: View {
                 contextShareSong = latestSong(song)
             } label: {
                 Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                    .labelStyle(.titleAndIcon)
             }
         }
     }
@@ -4918,7 +4988,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                     entries: railModel.entries,
                     tracker: indexTracker,
                     hitWidth: 48,
-                    countText: { "\($0.formatted()) \(String(localized: "songs_count"))" },
+                    countText: { LibraryCountText.formattedSongs($0) },
                     preview: { _ in EmptyView() }
                 ) { entry in
                     guard (0..<cache.positionCount).contains(entry.target) else { return }
@@ -5245,7 +5315,7 @@ private enum LibraryFolderNodePresentation {
     }
 
     static func songCount(_ count: Int) -> String {
-        "\(count.formatted()) \(String(localized: "songs_count"))"
+        LibraryCountText.formattedSongs(count)
     }
 
     static func accessibilityToken(for id: LibraryFolderNodeID) -> String {
@@ -6569,7 +6639,7 @@ private struct IOSCatalogSongListContainer: View, @MainActor Equatable {
                     entries: railModel.entries,
                     tracker: indexTracker,
                     hitWidth: 48,
-                    countText: { "\($0.formatted()) \(String(localized: "songs_count"))" },
+                    countText: { LibraryCountText.formattedSongs($0) },
                     preview: { _ in EmptyView() }
                 ) { entry in
                     guard (0..<catalog.count).contains(entry.target) else { return }
@@ -7404,8 +7474,6 @@ private struct IOSSongListRow: View {
                 onPlay(song)
             }
         }
-        #if os(iOS)
-        // 长按由 SongRowView 的单曲菜单接管，菜单首项「选择」进入多选。
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(
             selection.isActive
@@ -7427,7 +7495,6 @@ private struct IOSSongListRow: View {
         .accessibilityAction(named: Text("play")) {
             onPlay(song)
         }
-        #endif
     }
 }
 
@@ -7959,7 +8026,7 @@ private struct MacSongRowContainer<Content: View & Equatable & Sendable, Menu: V
         PMScrollingButton(action: play) {
             content
         }
-        .contextMenu { menu() }
+        .contextMenu { menu().labelStyle(.titleAndIcon) }
     }
 }
 #endif
@@ -7980,6 +8047,7 @@ struct MacRereadSongTagsMenuButton: View {
                     String(localized: isReading ? "reread_song_tags_in_progress" : "reread_song_tags"),
                     systemImage: "arrow.clockwise"
                 )
+                .labelStyle(.titleAndIcon)
             }
             .disabled(isReading)
         }
@@ -7997,16 +8065,19 @@ struct MacSongMetadataMenuItems: View {
             perform(.scrape)
         } label: {
             Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+                .labelStyle(.titleAndIcon)
         }
         Button {
             perform(.editTags)
         } label: {
             Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                .labelStyle(.titleAndIcon)
         }
         Button {
             perform(.editLyrics)
         } label: {
             Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
+                .labelStyle(.titleAndIcon)
         }
         MacRereadSongTagsMenuButton(song: song) { perform(.rereadTags) }
     }

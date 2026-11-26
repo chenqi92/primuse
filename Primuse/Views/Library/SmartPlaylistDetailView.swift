@@ -432,7 +432,7 @@ struct SmartPlaylistDetailView: View {
         VStack(spacing: 8) {
             CollectionCoverWallHeader(
                 title: smart.name,
-                subtitle: "\(matched.count) \(String(localized: "songs_count"))",
+                subtitle: LibraryCountText.songs(matched.count),
                 titleSymbol: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
                 songs: matched,
                 nowPlaying: player.currentSong,
@@ -498,7 +498,7 @@ struct SmartPlaylistDetailView: View {
                         .fontWeight(.bold)
                         .lineLimit(titleLineLimit)
 
-                    Text("\(matched.count) \(String(localized: "songs_count"))")
+                    Text(LibraryCountText.songs(matched.count))
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -624,7 +624,7 @@ struct SmartPlaylistDetailView: View {
                             VStack(alignment: .leading, spacing: PMSpace.l) {
                                 macDefinitionCard(smart)
                                 LibraryReviewSection(subject: .playlist(smart.id))
-                                macToolbar(smart, matched: matched)
+                                macToolbar(smart, matched: matched, displayedCount: rows.count)
 
                                 if isLoadingCatalogMatch {
                                     ProgressView()
@@ -697,13 +697,14 @@ struct SmartPlaylistDetailView: View {
                 ? "ai_smart_playlists_section"
                 : "rule_smart_playlists_section",
             title: smart.name,
-            subtitle: "\(matched.count) \(String(localized: "songs_count")) · \(playlistSummary(smart))",
+            subtitle: "\(LibraryCountText.songs(matched.count)) · \(playlistSummary(smart))",
             iconSystemName: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
             coverSong: matched.first(where: { $0.coverArtFileName?.isEmpty == false }) ?? matched.first,
             accent: Color(red: 0.62, green: 0.44, blue: 0.90),
             darkAccent: Color(red: 0.22, green: 0.24, blue: 0.42),
             onBack: onMacInlineBack,
             backAccessibilityIdentifier: "smartPlaylistInlineBack",
+            canPlay: !matched.filteredPlayable().isEmpty,
             onPlay: { playAll() },
             onShuffle: {
                 playAll(shuffled: true)
@@ -811,7 +812,7 @@ struct SmartPlaylistDetailView: View {
         .pmGlass(cornerRadius: PMRadius.m10)
     }
 
-    private func macToolbar(_ smart: SmartPlaylist, matched: [Song]) -> some View {
+    private func macToolbar(_ smart: SmartPlaylist, matched: [Song], displayedCount: Int) -> some View {
         // 只留"歌曲"小标题。下载 / 编辑入口都在上方: 编辑在"智能规则"卡片的
         // "编辑规则"按钮, 下载/编辑/删除在 header 右上角"更多"菜单, 不再重复。
         HStack(spacing: 8) {
@@ -820,6 +821,14 @@ struct SmartPlaylistDetailView: View {
                 .font(.system(size: 11, weight: .semibold))
                 .textCase(.uppercase)
                 .foregroundStyle(PMColor.textFaint)
+            if findQuery != nil {
+                Text(verbatim: LibraryCountText.results(displayedCount))
+                    .font(.system(size: 11.5, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("smartPlaylist.filterCount")
+            }
             Spacer()
             locateCurrentButton(matched)
             if !matched.isEmpty {
@@ -866,13 +875,10 @@ struct SmartPlaylistDetailView: View {
 
                 ForEach(Array(rows[window].enumerated()), id: \.element.id) { offset, row in
                     macSongRow(row.song, index: window.lowerBound + offset, ordinalWidth: ordinalWidth)
-                        // 和 iPhone 长按「编辑」里同样的几项：刮削数据、编辑标签、编辑歌词、重新读取文件标签。
-                        .contextMenu {
-                            MacSongMetadataMenuItems(song: row.song) { action in
-                                macSongAction = SongRowActionRequest(song: library.song(id: row.song.id) ?? row.song, action: action)
-                            }
-                        }
                         .songLocationRow(row.song.id)
+                        .contextMenu {
+                            macSmartSongContextMenu(for: row.song)
+                        }
                         .frame(height: Self.macSongRowHeight)
                         .padding(.bottom, Self.macRowSpacing)
                 }
@@ -949,6 +955,88 @@ struct SmartPlaylistDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func macSmartSongContextMenu(for song: Song) -> some View {
+        let latest = library.song(id: song.id) ?? song
+        Section {
+            Button {
+                playSong(latest)
+            } label: {
+                Label(String(localized: "play"), systemImage: "play.fill")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+
+            Button {
+                player.insertNextInQueue([latest])
+            } label: {
+                Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+
+            Button {
+                player.appendToQueue([latest])
+            } label: {
+                Label(String(localized: "add_to_queue"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+        }
+
+        Section {
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .info)
+            } label: {
+                Label(String(localized: "song_info"), systemImage: "info.circle")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            SongCopyTitleButton(song: latest)
+
+            MacSongMetadataMenuItems(song: latest) { action in
+                macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? latest, action: action)
+            }
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .addToPlaylist)
+            } label: {
+                Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .similar)
+            } label: {
+                Label(String(localized: "similar_songs"), systemImage: "sparkles")
+                    .labelStyle(.titleAndIcon)
+            }
+        }
+
+        if latest.sourceID != AppleMusicLibraryService.systemSourceID {
+            Section {
+                SongOfflineActionButtons(
+                    song: latest,
+                    snapshot: sourceManager.offlineAudioSnapshotEntry(for: latest).snapshot
+                )
+                .task(id: latest.id) {
+                    await sourceManager.ensureOfflineAudioSnapshot(for: latest)
+                }
+            }
+        }
+
+        Section {
+            SongFeedbackMenuButtons(songID: latest.id)
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .share)
+            } label: {
+                Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                    .labelStyle(.titleAndIcon)
+            }
+        }
     }
     #endif
 

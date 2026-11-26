@@ -2746,7 +2746,7 @@ struct GenreLibraryView: View {
             .minimalPageHeader {
                 HStack(spacing: 4) {
                     MinimalHeaderCount(
-                        text: "\(genres.count.formatted()) \(String(localized: "genres_count"))"
+                        text: LibraryCountText.genres(genres.count)
                     )
                     Spacer(minLength: 8)
                     MinimalHeaderActions {
@@ -2805,8 +2805,8 @@ struct GenreLibraryView: View {
                     .padding(.bottom, 12)
 
                     if genres.isEmpty {
-                        ContentUnavailableView.search(text: searchText)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        Spacer(minLength: 0)
+                            .accessibilityHidden(true)
                     } else {
                         ScrollView(.vertical, showsIndicators: false) {
                             LazyVStack(spacing: 2) {
@@ -2822,19 +2822,23 @@ struct GenreLibraryView: View {
                 .frame(width: 280)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .background(PMColor.bg)
+                .accessibilityElement(children: .contain)
 
                 Rectangle().fill(PMColor.divider).frame(width: 0.5)
 
-                if let selectedGenre {
-                    // 淡入挂在 .id 里面: 换流派时身份重建, 修饰符的状态才会跟着重置。
-                    GenreDetailView(genre: selectedGenre)
-                        .pmAppearFade()
-                        .id(selectedGenre.id)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ContentUnavailableView.search(text: searchText)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Group {
+                    if let selectedGenre {
+                        // 淡入挂在 .id 里面: 换流派时身份重建, 修饰符的状态才会跟着重置。
+                        GenreDetailView(genre: selectedGenre)
+                            .pmAppearFade()
+                            .id(selectedGenre.id)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ContentUnavailableView.search(text: searchText)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
+                .accessibilityElement(children: .contain)
             }
             .background(PMColor.bg.ignoresSafeArea())
         }
@@ -2854,7 +2858,7 @@ struct GenreLibraryView: View {
                         .font(.system(size: 12.5, weight: selected ? .semibold : .regular))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(1)
-                    Text(verbatim: "\(genre.albumCount) \(String(localized: "albums_count")) · \(genre.songCount) \(String(localized: "songs_count"))")
+                    Text(verbatim: "\(LibraryCountText.albums(genre.albumCount)) · \(LibraryCountText.songs(genre.songCount))")
                         .font(.system(size: 10.5))
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
@@ -2931,7 +2935,7 @@ private struct LibraryGenreCard: View {
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
-                Text(verbatim: "\(genre.albumCount) \(String(localized: "albums_count")) · \(genre.songCount) \(String(localized: "songs_count"))")
+                Text(verbatim: "\(LibraryCountText.albums(genre.albumCount)) · \(LibraryCountText.songs(genre.songCount))")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.white.opacity(0.76))
                     .lineLimit(1)
@@ -2948,7 +2952,7 @@ private struct LibraryGenreCard: View {
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: genre.name))
-        .accessibilityValue(Text(verbatim: "\(genre.albumCount) \(String(localized: "albums_count")), \(genre.songCount) \(String(localized: "songs_count"))"))
+        .accessibilityValue(Text(verbatim: "\(LibraryCountText.albums(genre.albumCount)), \(LibraryCountText.songs(genre.songCount))"))
     }
 }
 
@@ -3079,7 +3083,7 @@ private struct GenreDetailView: View {
     }
 
     private var countLine: String {
-        "\(albums.count) \(String(localized: "albums_count")) · \(songIDs.count) \(String(localized: "songs_count"))"
+        "\(LibraryCountText.albums(albums.count)) · \(LibraryCountText.songs(songIDs.count))"
     }
 
     var body: some View {
@@ -3148,6 +3152,7 @@ private struct GenreDetailView: View {
             iconSystemName: "guitars",
             accent: palette.leading,
             darkAccent: palette.trailing,
+            canPlay: !songIDs.isEmpty,
             onPlay: playAll,
             onShuffle: shuffleAll,
             showsMoreButton: false,
@@ -3399,18 +3404,24 @@ private struct GenreDetailView: View {
                         .padding(.vertical, 8)
                         .contentShape(Rectangle())
                         .onTapGesture { playSong(song) }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("genreSong.\(song.id)")
                         .songSelectable(
                             songID: song.id,
                             selection: selection,
-                            orderedIDs: { songIDs }
+                            orderedIDs: { songIDs },
+                            defaultAction: { playSong(song) }
                         )
 
                         if songID != lastID {
-                            Divider().padding(.leading, 66)
+                            Divider()
+                                .padding(.leading, 66)
+                                .accessibilityHidden(true)
                         }
                     }
                 }
             }
+            .accessibilityElement(children: .contain)
             #if os(iOS)
             .songRowColumnsContainer()
             .libraryDetailSection(tint: tint)

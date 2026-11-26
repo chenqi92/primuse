@@ -136,13 +136,25 @@ private struct SongSelectableModifier: ViewModifier {
     }
     #endif
 
+    @ViewBuilder
     private func inactiveContent(_ content: Content) -> some View {
-        content
+        let base = content
             .contentShape(Rectangle())
             .accessibilityElement(children: .combine)
             .accessibilityAction(named: Text("batch_select")) {
                 selection.activate(seed: songID)
             }
+        #if os(macOS)
+        if let defaultAction {
+            base
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(.default, defaultAction)
+        } else {
+            base
+        }
+        #else
+        base
+        #endif
     }
 
     @ViewBuilder

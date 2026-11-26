@@ -193,7 +193,7 @@ private struct HomeFolderCard: View {
                     Text(HomeDiscoveryText.folderTitle(node))
                         .font(.caption).fontWeight(.medium)
                         .lineLimit(1).foregroundStyle(.primary)
-                    Text("\(node.descendantSongCount) " + String(localized: "songs_count"))
+                    Text(LibraryCountText.songs(node.descendantSongCount))
                         .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
@@ -359,8 +359,26 @@ private struct HomeFolderRow: View {
             .accessibilityLabel(String(localized: "play") + " · " + HomeDiscoveryText.folderTitle(node))
         }
         .contextMenu {
-            Button("play", systemImage: "play.fill") { play(shuffle: false) }
-            Button("shuffle", systemImage: "shuffle") { play(shuffle: true) }
+            Button { play(shuffle: false) } label: {
+                Label("play", systemImage: "play.fill")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(node.descendantSongCount == 0)
+            Button { play(shuffle: true) } label: {
+                Label("shuffle", systemImage: "shuffle")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(node.descendantSongCount == 0)
+            Button { enqueue(.next) } label: {
+                Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(node.descendantSongCount == 0)
+            Button { enqueue(.end) } label: {
+                Label("add_to_queue", systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(node.descendantSongCount == 0)
             HomeFolderCacheMenuButton(
                 node: node, index: model.index, library: library,
                 source: sourcesStore.source(id: node.sourceID),
@@ -368,12 +386,15 @@ private struct HomeFolderRow: View {
             )
             // 没收藏过目录时首页摆的是自动推荐的几个，它们还不算收藏。
             let collected = FavoriteCollectionStore.collectedFolderIDs(in: pinsRawValue).contains(node.id)
-            Button(
-                HomeDiscoveryText.string(collected ? "unpin_folder" : "pin_folder"),
-                systemImage: collected ? "heart.slash" : "heart"
-            ) {
+            Button {
                 PMHaptics.likeToggled(isLiked: !collected)
                 FavoriteCollectionStore.shared.setCollected(!collected, .folder(node.id), library: library)
+            } label: {
+                Label(
+                    HomeDiscoveryText.string(collected ? "unpin_folder" : "pin_folder"),
+                    systemImage: collected ? "heart.slash" : "heart"
+                )
+                .labelStyle(.titleAndIcon)
             }
         }
         .modifier(HomeFolderCacheConfirmation(action: cacheAction, sourceManager: sourceManager))
@@ -409,8 +430,8 @@ private struct HomeFolderRow: View {
     private var songCount: some View {
         let childCount = node.displayedChildCount(in: model)
         let counts = childCount > 0
-            ? String(format: HomeDiscoveryText.string("folder_counts"), childCount, node.descendantSongCount)
-            : "\(node.descendantSongCount.formatted()) \(String(localized: "songs_count"))"
+            ? LibraryCountText.folderCounts(subdirectories: childCount, songs: node.descendantSongCount)
+            : LibraryCountText.formattedSongs(node.descendantSongCount)
         let lastPlayed = childCount == 0 ? model.lastPlayedByFolder[node.id] : nil
         let suffix = lastPlayed.map { " · " + $0.formatted(.relative(presentation: .named)) } ?? ""
         return Text(counts + suffix)
@@ -419,6 +440,10 @@ private struct HomeFolderRow: View {
 
     private func play(shuffle: Bool) {
         HomeDiscoveryPlayback.playFolder(node.id, shuffle: shuffle, model: model, library: library, player: player)
+    }
+
+    private func enqueue(_ position: HomeDiscoveryPlayback.FolderQueuePosition) {
+        HomeDiscoveryPlayback.enqueueFolder(node.id, position: position, model: model, library: library, player: player)
     }
 }
 
@@ -787,7 +812,7 @@ struct HomeFolderBrowser: View {
                                 HStack {
                                     Text("see_all")
                                     Spacer()
-                                    Text(verbatim: "\(ids.count.formatted()) \(String(localized: "songs_count"))")
+                                    Text(verbatim: LibraryCountText.formattedSongs(ids.count))
                                         .foregroundStyle(.secondary)
                                 }
                             }
@@ -872,7 +897,12 @@ struct HomeFolderBrowser: View {
                     MacFolderPinnedCard(
                         title: HomeDiscoveryText.folderTitle(folder),
                         source: model.index?.sourceNode(for: folder.sourceID).map(HomeDiscoveryText.folderTitle) ?? "",
-                        detail: String(format: HomeDiscoveryText.string("folder_counts"), folder.displayedChildCount(in: model.index), folder.descendantSongCount),
+                        detail: folder.displayedChildCount(in: model.index) > 0
+                            ? LibraryCountText.folderCounts(
+                                subdirectories: folder.displayedChildCount(in: model.index),
+                                songs: folder.descendantSongCount
+                            )
+                            : LibraryCountText.formattedSongs(folder.descendantSongCount),
                         canPlay: folder.descendantSongCount > 0,
                         onOpen: { openMacFolder(id) },
                         onPlay: { playFolder(id, shuffle: false) }
@@ -909,10 +939,26 @@ struct HomeFolderBrowser: View {
 
     @ViewBuilder
     private func macPinnedFolderMenu(_ folder: LibraryFolderNode) -> some View {
-        Button("play", systemImage: "play.fill") { playFolder(folder.id, shuffle: false) }
-            .disabled(folder.descendantSongCount == 0)
-        Button("shuffle", systemImage: "shuffle") { playFolder(folder.id, shuffle: true) }
-            .disabled(folder.descendantSongCount == 0)
+        Button { playFolder(folder.id, shuffle: false) } label: {
+            Label("play", systemImage: "play.fill")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(folder.descendantSongCount == 0)
+        Button { playFolder(folder.id, shuffle: true) } label: {
+            Label("shuffle", systemImage: "shuffle")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(folder.descendantSongCount == 0)
+        Button { enqueueFolder(folder.id, position: .next) } label: {
+            Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(folder.descendantSongCount == 0)
+        Button { enqueueFolder(folder.id, position: .end) } label: {
+            Label("add_to_queue", systemImage: "text.badge.plus")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(folder.descendantSongCount == 0)
         cacheMenuButton(folder)
         FolderPlaylistMenuButton(
             node: folder,
@@ -921,11 +967,20 @@ struct HomeFolderBrowser: View {
             source: sourcesStore.source(id: folder.sourceID)
         )
         Divider()
-        Button("ai_move_up", systemImage: "arrow.up") { moveMacPin(folder.id, by: -1) }
-            .disabled(pins.first == folder.id)
-        Button("ai_move_down", systemImage: "arrow.down") { moveMacPin(folder.id, by: 1) }
-            .disabled(pins.last == folder.id)
-        Button(HomeDiscoveryText.string("unpin_folder"), systemImage: "heart.slash") { togglePin(folder.id) }
+        Button { moveMacPin(folder.id, by: -1) } label: {
+            Label("ai_move_up", systemImage: "arrow.up")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(pins.first == folder.id)
+        Button { moveMacPin(folder.id, by: 1) } label: {
+            Label("ai_move_down", systemImage: "arrow.down")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(pins.last == folder.id)
+        Button { togglePin(folder.id) } label: {
+            Label(HomeDiscoveryText.string("unpin_folder"), systemImage: "heart.slash")
+                .labelStyle(.titleAndIcon)
+        }
     }
 
     private func moveMacPin(_ id: LibraryFolderNodeID, by offset: Int) {
@@ -1027,8 +1082,11 @@ struct HomeFolderBrowser: View {
                         MacFolderChildCard(
                             title: HomeDiscoveryText.folderTitle(folder),
                             detail: folder.displayedChildCount(in: model.index) > 0
-                                ? String(format: HomeDiscoveryText.string("folder_counts"), folder.displayedChildCount(in: model.index), folder.descendantSongCount)
-                                : "\(folder.descendantSongCount.formatted()) \(String(localized: "songs_count"))",
+                                ? LibraryCountText.folderCounts(
+                                    subdirectories: folder.displayedChildCount(in: model.index),
+                                    songs: folder.descendantSongCount
+                                )
+                                : LibraryCountText.formattedSongs(folder.descendantSongCount),
                             compact: !songIDs.isEmpty,
                             onOpen: { openMacFolder(folder.id) }
                         )
@@ -1086,8 +1144,11 @@ struct HomeFolderBrowser: View {
             MacFolderDetailHeader(
                 title: HomeDiscoveryText.folderTitle(node),
                 detail: node.displayedChildCount(in: model.index) > 0
-                    ? String(format: HomeDiscoveryText.string("folder_counts"), node.displayedChildCount(in: model.index), node.descendantSongCount)
-                    : "\(node.descendantSongCount.formatted()) \(String(localized: "songs_count"))",
+                    ? LibraryCountText.folderCounts(
+                        subdirectories: node.displayedChildCount(in: model.index),
+                        songs: node.descendantSongCount
+                    )
+                    : LibraryCountText.formattedSongs(node.descendantSongCount),
                 isSource: node.kind == .source
             ) {
                 macBackButton
@@ -1217,10 +1278,26 @@ struct HomeFolderBrowser: View {
 
     @ViewBuilder
     private func macChildFolderMenu(_ child: LibraryFolderNode) -> some View {
-        Button("play", systemImage: "play.fill") { playFolder(child.id, shuffle: false) }
-            .disabled(child.descendantSongCount == 0)
-        Button("shuffle", systemImage: "shuffle") { playFolder(child.id, shuffle: true) }
-            .disabled(child.descendantSongCount == 0)
+        Button { playFolder(child.id, shuffle: false) } label: {
+            Label("play", systemImage: "play.fill")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(child.descendantSongCount == 0)
+        Button { playFolder(child.id, shuffle: true) } label: {
+            Label("shuffle", systemImage: "shuffle")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(child.descendantSongCount == 0)
+        Button { enqueueFolder(child.id, position: .next) } label: {
+            Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(child.descendantSongCount == 0)
+        Button { enqueueFolder(child.id, position: .end) } label: {
+            Label("add_to_queue", systemImage: "text.badge.plus")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(child.descendantSongCount == 0)
         albumMetadataButton(child)
         cacheMenuButton(child)
         FolderPlaylistMenuButton(
@@ -1231,9 +1308,14 @@ struct HomeFolderBrowser: View {
         )
         if child.kind != .source {
             let pinned = pins.contains(child.id)
-            Button(HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"),
-                   systemImage: pinned ? "heart.slash" : "heart") {
+            Button {
                 togglePin(child.id)
+            } label: {
+                Label(
+                    HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"),
+                    systemImage: pinned ? "heart.slash" : "heart"
+                )
+                .labelStyle(.titleAndIcon)
             }
         }
     }
@@ -1427,6 +1509,10 @@ struct HomeFolderBrowser: View {
 
     private func playFolder(_ id: LibraryFolderNodeID, shuffle: Bool) {
         HomeDiscoveryPlayback.playFolder(id, shuffle: shuffle, model: model, library: library, player: player)
+    }
+
+    private func enqueueFolder(_ id: LibraryFolderNodeID, position: HomeDiscoveryPlayback.FolderQueuePosition) {
+        HomeDiscoveryPlayback.enqueueFolder(id, position: position, model: model, library: library, player: player)
     }
 
     private func cacheMenuButton(_ node: LibraryFolderNode) -> some View {
@@ -1890,7 +1976,11 @@ private struct MacFolderDirectoryRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(title + ", " + String(format: HomeDiscoveryText.string("folder_counts"), folderCount, songCount))
+            .accessibilityLabel(
+                title + ", " + (folderCount > 0
+                    ? LibraryCountText.folderCounts(subdirectories: folderCount, songs: songCount)
+                    : LibraryCountText.formattedSongs(songCount))
+            )
 
             Button(action: onPlay) {
                 Image(systemName: "play.fill")
@@ -1999,7 +2089,13 @@ private struct MacHomeFolderSongRow: View {
             .buttonStyle(.plain)
             .songLocationRow(songID, assignsScrollID: false)
             .contextMenu {
-                MacHomeFolderSongMenu(song: song) { performAction(song, $0) }
+                MacHomeFolderSongMenu(song: song, onPlay: {
+                    if song.isPlayable {
+                        HomeDiscoveryPlayback.play(ids: orderedSongIDs, startingAt: songID, library: library, player: player)
+                    } else {
+                        performAction(song, .unavailable)
+                    }
+                }) { performAction(song, $0) }
             }
             .task(id: songID) {
                 guard song.sourceID != AppleMusicLibraryService.systemSourceID else { return }
@@ -2015,29 +2111,78 @@ private struct MacHomeFolderSongRow: View {
 
 private struct MacHomeFolderSongMenu: View {
     let song: Song
+    let onPlay: () -> Void
     let performAction: (SongRowActionRequest.Action) -> Void
+    @Environment(AudioPlayerService.self) private var player
     @Environment(SourceManager.self) private var sourceManager
     @Environment(MetadataBackfillService.self) private var backfill
 
     var body: some View {
         Section {
-            Button("scrape_song", systemImage: "wand.and.stars") { performAction(.scrape) }
-            Button("tag_editor_menu", systemImage: "tag") { performAction(.editTags) }
-            Button("lyrics_editor_menu", systemImage: "quote.bubble") { performAction(.editLyrics) }
-            Button("add_to_playlist", systemImage: "text.badge.plus") { performAction(.addToPlaylist) }
-            Button("similar_songs", systemImage: "sparkles") { performAction(.similar) }
-            if song.sourceID != AppleMusicLibraryService.systemSourceID {
-                offlineActions
+            Button(action: onPlay) {
+                Label("play", systemImage: "play.fill")
+                    .labelStyle(.titleAndIcon)
             }
-            if backfill.canRereadTags(for: song) {
-                Button(String(localized: backfill.isRereadingTags(songID: song.id) ? "reread_song_tags_in_progress" : "reread_song_tags"),
-                       systemImage: "arrow.clockwise") { performAction(.rereadTags) }
-                    .disabled(backfill.isRereadingTags(songID: song.id))
+            .disabled(!song.isPlayable)
+            Button { player.insertNextInQueue([song]) } label: {
+                Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    .labelStyle(.titleAndIcon)
             }
-            Button("song_info", systemImage: "info.circle") { performAction(.info) }
+            .disabled(!song.isPlayable)
+            Button { player.appendToQueue([song]) } label: {
+                Label("add_to_queue", systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!song.isPlayable)
         }
         Section {
-            Button("share", systemImage: "square.and.arrow.up") { performAction(.share) }
+            Button { performAction(.info) } label: {
+                Label("song_info", systemImage: "info.circle")
+                    .labelStyle(.titleAndIcon)
+            }
+            SongCopyTitleButton(song: song)
+            Button { performAction(.scrape) } label: {
+                Label("scrape_song", systemImage: "wand.and.stars")
+                    .labelStyle(.titleAndIcon)
+            }
+            Button { performAction(.editTags) } label: {
+                Label("tag_editor_menu", systemImage: "tag")
+                    .labelStyle(.titleAndIcon)
+            }
+            Button { performAction(.editLyrics) } label: {
+                Label("lyrics_editor_menu", systemImage: "quote.bubble")
+                    .labelStyle(.titleAndIcon)
+            }
+            Button { performAction(.addToPlaylist) } label: {
+                Label("add_to_playlist", systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+            Button { performAction(.similar) } label: {
+                Label("similar_songs", systemImage: "sparkles")
+                    .labelStyle(.titleAndIcon)
+            }
+            if backfill.canRereadTags(for: song) {
+                Button { performAction(.rereadTags) } label: {
+                    Label(
+                        String(localized: backfill.isRereadingTags(songID: song.id) ? "reread_song_tags_in_progress" : "reread_song_tags"),
+                        systemImage: "arrow.clockwise"
+                    )
+                    .labelStyle(.titleAndIcon)
+                }
+                .disabled(backfill.isRereadingTags(songID: song.id))
+            }
+        }
+        if song.sourceID != AppleMusicLibraryService.systemSourceID {
+            Section {
+                offlineActions
+            }
+        }
+        Section {
+            SongFeedbackMenuButtons(songID: song.id)
+            Button { performAction(.share) } label: {
+                Label("share", systemImage: "square.and.arrow.up")
+                    .labelStyle(.titleAndIcon)
+            }
         }
     }
 
@@ -2063,7 +2208,7 @@ private struct HomeFolderChildLabel: View {
             #endif
             VStack(alignment: .leading, spacing: 4) {
                 Text(HomeDiscoveryText.folderTitle(node)).lineLimit(2)
-                Text("\(node.descendantSongCount.formatted()) \(String(localized: "songs_count"))")
+                Text(LibraryCountText.formattedSongs(node.descendantSongCount))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -2119,6 +2264,39 @@ enum HomeDiscoveryPlayback {
                                                       spokenWordSongIDs: spokenWordSongIDs).map(\.id)
             }.value
             play(ids: ordered, library: library, player: player)
+        }
+    }
+
+    enum FolderQueuePosition {
+        case next, end
+    }
+
+    static func enqueueFolder(
+        _ id: LibraryFolderNodeID, position: FolderQueuePosition,
+        model: HomeDiscoveryModel, library: MusicLibrary, player: AudioPlayerService
+    ) {
+        guard let index = model.index else { return }
+        let ids = index.songIDs(in: id, scope: .descendants)
+        guard !ids.isEmpty else { return }
+        let folderSongs = ids.compactMap { library.song(id: $0) }
+        guard !folderSongs.isEmpty else { return }
+        let order = HomeFolderSongOrderPreference.load()
+        let spokenWordSongIDs = model.spokenWordSongIDs
+        Task {
+            let songs = await Task.detached(priority: .userInitiated) {
+                LibraryFolderBrowsePolicy.sortedSongs(
+                    folderSongs,
+                    order: order,
+                    spokenWordSongIDs: spokenWordSongIDs
+                ).filter(\.isPlayable)
+            }.value
+            guard !songs.isEmpty else { return }
+            switch position {
+            case .next:
+                player.insertNextInQueue(songs)
+            case .end:
+                player.appendToQueue(songs)
+            }
         }
     }
 

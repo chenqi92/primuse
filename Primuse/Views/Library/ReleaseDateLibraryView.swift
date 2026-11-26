@@ -273,7 +273,7 @@ struct ReleaseDateLibraryView: View {
     }
 
     static func albumCountText(_ count: Int) -> String {
-        "\(count.formatted()) \(String(localized: "albums_count"))"
+        LibraryCountText.formattedAlbums(count)
     }
 }
 

@@ -108,11 +108,11 @@ enum FavoriteCollectionResolver {
         case .album(let album):
             album.artistName ?? String(localized: "unknown_artist")
         case .artist(let artist):
-            "\(artist.albumCount.formatted()) \(String(localized: "albums_count"))"
+            LibraryCountText.formattedAlbums(artist.albumCount)
         case .playlist(let playlist):
-            "\(library.songCount(forPlaylist: playlist.id).formatted()) \(String(localized: "songs_count"))"
+            LibraryCountText.formattedSongs(library.songCount(forPlaylist: playlist.id))
         case .folder(let node):
-            "\(node.descendantSongCount.formatted()) \(String(localized: "songs_count"))"
+            LibraryCountText.formattedSongs(node.descendantSongCount)
         case .book(let favorite):
             SpokenWordBookSupport.subtitle(favorite.book)
         }
@@ -781,7 +781,7 @@ struct FavoriteCollectionEditor: View {
                             } title: {
                                 Text(artist.name)
                             } subtitle: {
-                                Text(verbatim: "\(artist.albumCount) \(String(localized: "albums_count"))")
+                                Text(verbatim: LibraryCountText.albums(artist.albumCount))
                             }
                         }
                     }

@@ -79,6 +79,7 @@ struct ArtistDetailView: View {
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -234,11 +235,16 @@ struct ArtistDetailView: View {
         }
     }
 
+    private func effectivePlayCount(for song: Song) -> Int {
+        max(listeningSnapshot.playCountsBySongID[song.id, default: 0], song.serverPlayCount ?? 0)
+    }
+
     private var topSongs: [Song] {
+        let played = rankedSongs.filter { effectivePlayCount(for: $0) > 0 }
         #if os(iOS)
-        Array(rankedSongs.prefix(6))
+        return Array(played.prefix(6))
         #else
-        Array(rankedSongs.prefix(8))
+        return Array(played.prefix(8))
         #endif
     }
     private var albumCount: Int { releaseAlbums.count + appearsOnAlbums.count }
@@ -270,10 +276,7 @@ struct ArtistDetailView: View {
     }
 
     private var monthlyListenText: String {
-        String(
-            format: String(localized: "artist_monthly_plays_format"),
-            listeningSnapshot.monthlyListenCount
-        )
+        LibraryCountText.monthlyPlays(listeningSnapshot.monthlyListenCount)
     }
 
     private var artistServerMediaShareTarget: ServerMediaShareTarget? {
@@ -780,14 +783,11 @@ struct ArtistDetailView: View {
                 .lineLimit(1)
 
             if showsPlayCount {
-                Text(verbatim: String(
-                    format: String(localized: "stats_play_count_format"),
-                    listeningSnapshot.playCountsByAlbumID[album.id, default: 0]
-                ))
+                Text(verbatim: LibraryCountText.plays(listeningSnapshot.playCountsByAlbumID[album.id, default: 0]))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             } else {
-                Text(verbatim: album.year.map(String.init) ?? "\(album.songCount) \(String(localized: "songs_count"))")
+                Text(verbatim: album.year.map(String.init) ?? LibraryCountText.songs(album.songCount))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -828,7 +828,7 @@ struct ArtistDetailView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 48)
                     } else {
-                        if !topSongs.isEmpty { macTopSongs }
+                        if !songs.isEmpty { macTopSongs }
                         if !mostPlayedAlbums.isEmpty {
                             macAlbumSection(
                                 title: String(localized: "artist_most_played_albums"),
@@ -865,7 +865,7 @@ struct ArtistDetailView: View {
         MacLibraryHeader(
             eyebrow: "artist_label",
             title: displayArtistName,
-            subtitle: "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count")) · \(monthlyListenText)",
+            subtitle: "\(LibraryCountText.songs(songs.count)) · \(LibraryCountText.albums(albumCount)) · \(monthlyListenText)",
             iconSystemName: "music.mic",
             coverArtist: artist,
             accent: Color(red: 0.70, green: 0.32, blue: 0.42),
@@ -877,6 +877,7 @@ struct ArtistDetailView: View {
                 }
             },
             backAccessibilityIdentifier: "artistInlineBack",
+            canPlay: !playableSongs.isEmpty,
             onPlay: playAll,
             onShuffle: shuffleAll,
             moreMenu: artistMoreMenu,
@@ -913,27 +914,48 @@ struct ArtistDetailView: View {
 
     private var macTopSongs: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 macSectionTitle(String(localized: "artist_popular"))
+                Text("artist_most_played_period")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(PMColor.textFaint)
                 Spacer()
                 locateCurrentButton
                     .macControlTier(.toolbar)
             }
 
-            VStack(spacing: 1) {
-                ForEach(Array(topSongs.enumerated()), id: \.element.id) { index, song in
-                    macTopSongRow(
-                        song,
-                        index: index,
-                        playCount: listeningSnapshot.playCountsBySongID[song.id, default: 0]
-                    )
-                    .songLocationRow(song.id)
-                    .songSelectable(
-                        songID: song.id,
-                        selection: selection,
-                        orderedIDs: { selectableSongIDs },
-                        defaultAction: { playSong(song) }
-                    )
+            if topSongs.isEmpty {
+                Text("artist_most_played_empty")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(PMColor.card.opacity(0.6), in: RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                    }
+                    .accessibilityIdentifier("artistDetail.mostPlayedEmpty")
+            } else {
+                VStack(spacing: 1) {
+                    ForEach(Array(topSongs.enumerated()), id: \.element.id) { index, song in
+                        macTopSongRow(
+                            song,
+                            index: index,
+                            playCount: effectivePlayCount(for: song)
+                        )
+                        .songLocationRow(song.id)
+                        .songSelectable(
+                            songID: song.id,
+                            selection: selection,
+                            orderedIDs: { selectableSongIDs },
+                            defaultAction: { playSong(song) }
+                        )
+                        .contextMenu {
+                            macTopSongContextMenu(for: song)
+                        }
+                    }
                 }
             }
         }
@@ -999,14 +1021,11 @@ struct ArtistDetailView: View {
                 PMFormatPill.forFormat(song.codecFormat.displayName)
                     .frame(width: 70, alignment: .leading)
 
-                Text(verbatim: String(
-                    format: String(localized: "stats_play_count_format"),
-                    playCount
-                ))
+                Text(verbatim: LibraryCountText.plays(playCount))
                 .font(.system(size: 11, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(PMColor.textMuted)
-                .frame(width: 54, alignment: .trailing)
+                .frame(width: 72, alignment: .trailing)
 
                 Text(verbatim: song.duration.formattedDuration)
                     .font(.system(size: 11, design: .monospaced))
@@ -1022,16 +1041,94 @@ struct ArtistDetailView: View {
             .pmAnimation(.hover, value: isCurrent)
         }
         .buttonStyle(.plain)
-        .contextMenu {
+    }
+
+    @ViewBuilder
+    private func macTopSongContextMenu(for song: Song) -> some View {
+        let latest = library.song(id: song.id) ?? song
+        Section {
             Button {
-                selection.activate(seed: song.id)
+                playSong(latest)
             } label: {
-                Label("batch_select", systemImage: "checkmark.circle")
+                Label(String(localized: "play"), systemImage: "play.fill")
+                    .labelStyle(.titleAndIcon)
             }
-            // 和 iPhone 长按「编辑」里同样的几项：刮削数据、编辑标签、编辑歌词、重新读取文件标签。
+            .disabled(!latest.isPlayable)
+
+            Button {
+                player.insertNextInQueue([latest])
+            } label: {
+                Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+
+            Button {
+                player.appendToQueue([latest])
+            } label: {
+                Label(String(localized: "add_to_queue"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!latest.isPlayable)
+        }
+
+        Section {
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .info)
+            } label: {
+                Label(String(localized: "song_info"), systemImage: "info.circle")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            SongCopyTitleButton(song: latest)
+
+            MacSongMetadataMenuItems(song: latest) { action in
+                macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? latest, action: action)
+            }
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .addToPlaylist)
+            } label: {
+                Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .similar)
+            } label: {
+                Label(String(localized: "similar_songs"), systemImage: "sparkles")
+                    .labelStyle(.titleAndIcon)
+            }
+        }
+
+        if latest.sourceID != AppleMusicLibraryService.systemSourceID {
             Section {
-                MacSongMetadataMenuItems(song: song) { action in
-                    macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? song, action: action)
+                SongOfflineActionButtons(
+                    song: latest,
+                    snapshot: sourceManager.offlineAudioSnapshotEntry(for: latest).snapshot
+                )
+                .task(id: latest.id) {
+                    await sourceManager.ensureOfflineAudioSnapshot(for: latest)
+                }
+            }
+        }
+
+        Section {
+            SongFeedbackMenuButtons(songID: latest.id)
+
+            Button {
+                macSongAction = SongRowActionRequest(song: latest, action: .share)
+            } label: {
+                Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            if !selection.isActive {
+                Button {
+                    selection.activate(seed: latest.id)
+                } label: {
+                    Label("batch_select", systemImage: "checkmark.circle")
+                        .labelStyle(.titleAndIcon)
                 }
             }
         }
@@ -1049,11 +1146,8 @@ struct ArtistDetailView: View {
                 .lineLimit(1)
 
             Text(verbatim: showsPlayCount
-                ? String(
-                    format: String(localized: "stats_play_count_format"),
-                    listeningSnapshot.playCountsByAlbumID[album.id, default: 0]
-                )
-                : album.year.map(String.init) ?? "\(album.songCount) \(String(localized: "songs_count"))"
+                ? LibraryCountText.plays(listeningSnapshot.playCountsByAlbumID[album.id, default: 0])
+                : album.year.map(String.init) ?? LibraryCountText.songs(album.songCount)
             )
             .font(.system(size: 10.5))
             .foregroundStyle(PMColor.textFaint)
@@ -1080,7 +1174,7 @@ struct ArtistDetailView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("all_songs_section").font(.headline)
-                    Text(verbatim: "\(songs.count) \(String(localized: "songs_count"))")
+                    Text(verbatim: LibraryCountText.songs(songs.count))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1267,6 +1361,7 @@ struct ArtistAlbumsGrid: View {
 private struct ArtistAllSongsView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     #if os(iOS)
@@ -1314,18 +1409,24 @@ private struct ArtistAllSongsView: View {
                             .padding(.vertical, 8)
                             .contentShape(Rectangle())
                             .onTapGesture { playSong(song) }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("artistSong.\(song.id)")
                             .songLocationRow(song.id)
                             .songSelectable(
                                 songID: song.id,
                                 selection: selection,
-                                orderedIDs: { songs.map(\.id) }
+                                orderedIDs: { songs.map(\.id) },
+                                defaultAction: { playSong(song) }
                             )
 
                             if index != songs.count - 1 {
-                                Divider().padding(.leading, 66)
+                                Divider()
+                                    .padding(.leading, 66)
+                                    .accessibilityHidden(true)
                             }
                         }
                     }
+                    .accessibilityElement(children: .contain)
                     #if os(macOS)
                     .background(PMColor.bgElev, in: RoundedRectangle(cornerRadius: 8))
                     .padding(24)
