@@ -8114,3 +8114,14 @@
 "home_source_status_title" = "Source Status";
 "drag_to_reorder" = "Drag to Reorder";
 "copy_action" = "Copy";
+"enter_full_screen" = "Enter Full Screen";
+"fullscreen_effect_launch_hint" = "Opens full screen with this effect";
+"search_library_action" = "Search Library";
+"desktop_lyrics_title" = "Desktop Lyrics";
+"desktop_lyrics_shown" = "Desktop lyrics shown";
+"desktop_lyrics_shown_no_lyrics" = "Desktop lyrics shown · No lyrics available for this track";
+"desktop_lyrics_hidden" = "Desktop lyrics hidden";
+"mini_player_expand" = "Expand lyrics and queue";
+"mini_player_collapse" = "Collapse lyrics and queue";
+"audio_output_system_default" = "System Default · Core Audio";
+"a11y_clear_search" = "Clear Search";

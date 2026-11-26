@@ -103,6 +103,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
         }
         .buttonStyle(.plain)
+        .help(Text("more"))
+        .accessibilityLabel(Text("more"))
         .popover(isPresented: $menuShown, arrowEdge: .top) {
             popoverMenuContent
         }
@@ -340,6 +342,13 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             if let song = player.currentSong {
                 menuHeader(song)
                 divider()
+            }
+            menuRow(
+                title: player.isPlaying ? "pause" : "play",
+                symbol: player.isPlaying ? "pause.fill" : "play.fill",
+                disabled: player.currentSong == nil && !player.isLiveRadio
+            ) {
+                player.togglePlayPause()
             }
             menuRow(title: "previous_song", symbol: "backward.fill") {
                 Task { await player.previous() }
@@ -1885,6 +1894,7 @@ struct MacPlaybackPitchPanel: View {
                     .frame(minWidth: 56)
                     .contentTransition(.numericText())
                     .accessibilityLabel(Text("karaoke_key"))
+                    .accessibilityValue(Text(verbatim: PlaybackPitchText.valueLabel(semitones)))
                 stepButton(symbol: "plus", label: "karaoke_key_up",
                            enabled: semitones < PlaybackPitchPolicy.range.upperBound) {
                     player.playbackSettings.pitchSemitones = semitones + 1
@@ -2025,6 +2035,8 @@ struct MacSleepTimerPopover: View {
                     }
                     Slider(value: $customMinutes, in: 5...120, step: 5)
                         .tint(PMColor.brand)
+                        .accessibilityLabel(Text(Lz("Custom (minutes)")))
+                        .accessibilityValue(Text(verbatim: "\(Int(customMinutes))"))
                     Button {
                         player.scheduleSleep(minutes: Int(customMinutes))
                         onClose()

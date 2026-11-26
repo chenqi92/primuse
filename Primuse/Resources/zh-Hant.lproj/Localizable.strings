@@ -8329,3 +8329,14 @@
 "home_source_status_title" = "音樂來源狀態";
 "drag_to_reorder" = "拖動排序";
 "copy_action" = "拷貝";
+"enter_full_screen" = "進入全螢幕";
+"fullscreen_effect_launch_hint" = "使用此效果進入全螢幕播放";
+"search_library_action" = "搜尋資料庫";
+"desktop_lyrics_title" = "桌面歌詞";
+"desktop_lyrics_shown" = "已顯示桌面歌詞";
+"desktop_lyrics_shown_no_lyrics" = "已顯示桌面歌詞 · 目前歌曲尚無歌詞";
+"desktop_lyrics_hidden" = "已隱藏桌面歌詞";
+"mini_player_expand" = "展開歌詞與佇列";
+"mini_player_collapse" = "收合歌詞與佇列";
+"audio_output_system_default" = "系統預設 · Core Audio";
+"a11y_clear_search" = "清除搜尋";

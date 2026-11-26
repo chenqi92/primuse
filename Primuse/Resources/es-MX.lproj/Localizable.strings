@@ -8258,3 +8258,14 @@
 "home_source_status_title" = "Estado de las fuentes";
 "drag_to_reorder" = "Arrastra para reordenar";
 "copy_action" = "Copiar";
+"enter_full_screen" = "Entrar a pantalla completa";
+"fullscreen_effect_launch_hint" = "Abre la pantalla completa con este efecto";
+"search_library_action" = "Buscar en la biblioteca";
+"desktop_lyrics_title" = "Letras en el escritorio";
+"desktop_lyrics_shown" = "Letras en el escritorio activadas";
+"desktop_lyrics_shown_no_lyrics" = "Letras en el escritorio activadas · No hay letras para esta canción";
+"desktop_lyrics_hidden" = "Letras en el escritorio ocultas";
+"mini_player_expand" = "Expandir letras y cola";
+"mini_player_collapse" = "Contraer letras y cola";
+"audio_output_system_default" = "Predeterminado del sistema · Core Audio";
+"a11y_clear_search" = "Borrar búsqueda";

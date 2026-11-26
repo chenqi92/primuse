@@ -8258,3 +8258,14 @@
 "home_source_status_title" = "स्रोत स्थिति";
 "drag_to_reorder" = "क्रम बदलने के लिए खींचें";
 "copy_action" = "कॉपी करें";
+"enter_full_screen" = "फ़ुल स्क्रीन खोलें";
+"fullscreen_effect_launch_hint" = "इस इफ़ेक्ट के साथ फ़ुल स्क्रीन खोलता है";
+"search_library_action" = "लाइब्रेरी में खोजें";
+"desktop_lyrics_title" = "डेस्कटॉप बोल";
+"desktop_lyrics_shown" = "डेस्कटॉप बोल दिखाए गए";
+"desktop_lyrics_shown_no_lyrics" = "डेस्कटॉप बोल दिखाए गए · इस ट्रैक के बोल उपलब्ध नहीं हैं";
+"desktop_lyrics_hidden" = "डेस्कटॉप बोल छिपाए गए";
+"mini_player_expand" = "बोल और कतार फैलाएँ";
+"mini_player_collapse" = "बोल और कतार समेटें";
+"audio_output_system_default" = "सिस्टम डिफ़ॉल्ट · Core Audio";
+"a11y_clear_search" = "खोज साफ़ करें";

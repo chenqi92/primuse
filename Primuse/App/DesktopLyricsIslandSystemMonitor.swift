@@ -25,13 +25,28 @@ final class DesktopLyricsIslandSystemMonitor {
     private static let headphoneDataSource: UInt32 = 0x6864_706E
 
     private var handler: Handler?
-    private var systemListeners: [Listener] = []
-    private var deviceListeners: [Listener] = []
+    nonisolated(unsafe) private var systemListeners: [Listener] = []
+    nonisolated(unsafe) private var deviceListeners: [Listener] = []
     private var outputDeviceID: AudioDeviceID = 0
     private var lastOutputChange = Date.distantPast
     private var lastVolume: (level: Float, muted: Bool)?
-    private var powerSource: CFRunLoopSource?
+    nonisolated(unsafe) private var powerSource: CFRunLoopSource?
     private var lastOnAC: Bool?
+
+    deinit {
+        for listener in systemListeners {
+            var address = listener.address
+            AudioObjectRemovePropertyListenerBlock(listener.object, &address, DispatchQueue.main, listener.block)
+        }
+        for listener in deviceListeners {
+            var address = listener.address
+            AudioObjectRemovePropertyListenerBlock(listener.object, &address, DispatchQueue.main, listener.block)
+        }
+        if let powerSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSource, .commonModes)
+            CFRunLoopSourceInvalidate(powerSource)
+        }
+    }
 
     var isRunning: Bool { handler != nil }
 

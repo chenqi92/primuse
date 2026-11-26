@@ -8352,3 +8352,14 @@
 "home_source_status_title" = "소스 상태";
 "drag_to_reorder" = "드래그하여 순서 변경";
 "copy_action" = "복사";
+"enter_full_screen" = "전체 화면 시작";
+"fullscreen_effect_launch_hint" = "이 효과로 전체 화면을 엽니다";
+"search_library_action" = "보관함 검색";
+"desktop_lyrics_title" = "데스크톱 가사";
+"desktop_lyrics_shown" = "데스크톱 가사를 표시했습니다";
+"desktop_lyrics_shown_no_lyrics" = "데스크톱 가사 표시됨 · 이 곡의 가사가 없습니다";
+"desktop_lyrics_hidden" = "데스크톱 가사를 숨겼습니다";
+"mini_player_expand" = "가사 및 대기열 펼치기";
+"mini_player_collapse" = "가사 및 대기열 접기";
+"audio_output_system_default" = "시스템 기본값 · Core Audio";
+"a11y_clear_search" = "검색 지우기";

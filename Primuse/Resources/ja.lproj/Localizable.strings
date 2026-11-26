@@ -8353,3 +8353,14 @@
 "home_source_status_title" = "ソースの状態";
 "drag_to_reorder" = "ドラッグして並び替え";
 "copy_action" = "コピー";
+"enter_full_screen" = "フルスクリーンに入る";
+"fullscreen_effect_launch_hint" = "このエフェクトでフルスクリーンを開始します";
+"search_library_action" = "ライブラリを検索";
+"desktop_lyrics_title" = "デスクトップ歌詞";
+"desktop_lyrics_shown" = "デスクトップ歌詞を表示しました";
+"desktop_lyrics_shown_no_lyrics" = "デスクトップ歌詞を表示しました・この曲の歌詞はありません";
+"desktop_lyrics_hidden" = "デスクトップ歌詞を非表示にしました";
+"mini_player_expand" = "歌詞とキューを展開";
+"mini_player_collapse" = "歌詞とキューを折りたたむ";
+"audio_output_system_default" = "システムデフォルト・Core Audio";
+"a11y_clear_search" = "検索をクリア";

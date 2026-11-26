@@ -8258,3 +8258,14 @@
 "home_source_status_title" = "Kaynak Durumu";
 "drag_to_reorder" = "Sıralamak için sürükleyin";
 "copy_action" = "Kopyala";
+"enter_full_screen" = "Tam Ekrana Gir";
+"fullscreen_effect_launch_hint" = "Bu efekt ile tam ekranı açar";
+"search_library_action" = "Arşivde Ara";
+"desktop_lyrics_title" = "Masaüstü Şarkı Sözleri";
+"desktop_lyrics_shown" = "Masaüstü şarkı sözleri gösteriliyor";
+"desktop_lyrics_shown_no_lyrics" = "Masaüstü şarkı sözleri gösteriliyor · Bu parça için söz yok";
+"desktop_lyrics_hidden" = "Masaüstü şarkı sözleri gizlendi";
+"mini_player_expand" = "Şarkı sözlerini ve sırayı genişlet";
+"mini_player_collapse" = "Şarkı sözlerini ve sırayı daralt";
+"audio_output_system_default" = "Sistem Varsayılanı · Core Audio";
+"a11y_clear_search" = "Aramayı Temizle";

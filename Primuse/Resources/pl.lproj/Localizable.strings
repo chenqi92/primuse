@@ -8258,3 +8258,14 @@
 "home_source_status_title" = "Status źródeł";
 "drag_to_reorder" = "Przeciągnij, aby zmienić kolejność";
 "copy_action" = "Kopiuj";
+"enter_full_screen" = "Pełny ekran";
+"fullscreen_effect_launch_hint" = "Otwiera pełny ekran z tym efektem";
+"search_library_action" = "Szukaj w bibliotece";
+"desktop_lyrics_title" = "Tekst na pulpicie";
+"desktop_lyrics_shown" = "Wyświetlono tekst na pulpicie";
+"desktop_lyrics_shown_no_lyrics" = "Wyświetlono tekst na pulpicie · Brak tekstu dla tego utworu";
+"desktop_lyrics_hidden" = "Ukryto tekst na pulpicie";
+"mini_player_expand" = "Rozwiń tekst i kolejkę";
+"mini_player_collapse" = "Zwiń tekst i kolejkę";
+"audio_output_system_default" = "Domyślne systemu · Core Audio";
+"a11y_clear_search" = "Wyczyść wyszukiwanie";

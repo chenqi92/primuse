@@ -8258,3 +8258,14 @@
 "home_source_status_title" = "حالة المصادر";
 "drag_to_reorder" = "اسحب لإعادة الترتيب";
 "copy_action" = "نسخ";
+"enter_full_screen" = "دخول ملء الشاشة";
+"fullscreen_effect_launch_hint" = "يفتح وضع ملء الشاشة بهذا التأثير";
+"search_library_action" = "البحث في المكتبة";
+"desktop_lyrics_title" = "كلمات سطح المكتب";
+"desktop_lyrics_shown" = "تم إظهار كلمات سطح المكتب";
+"desktop_lyrics_shown_no_lyrics" = "تم إظهار كلمات سطح المكتب · لا تتوفر كلمات لهذا المقطع";
+"desktop_lyrics_hidden" = "تم إخفاء كلمات سطح المكتب";
+"mini_player_expand" = "توسيع الكلمات وقائمة الانتظار";
+"mini_player_collapse" = "طي الكلمات وقائمة الانتظار";
+"audio_output_system_default" = "افتراضي النظام · Core Audio";
+"a11y_clear_search" = "مسح البحث";

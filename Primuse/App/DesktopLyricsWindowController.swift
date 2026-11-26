@@ -50,6 +50,7 @@ final class DesktopLyricsWindowController {
     static let islandVisibleKey = MacLyricsVisibilityPreferences.islandKey
 
     private var panel: NSPanel?
+    private var hostingController: NSViewController?
     private var clickThrough = UserDefaults.standard.bool(forKey: DesktopLyricsInteraction.clickThroughKey)
 
     private lazy var island: DesktopLyricsIslandController = {
@@ -133,12 +134,12 @@ final class DesktopLyricsWindowController {
 
     init() {
         let visibility = MacLyricsVisibilityPreferences.restore()
-        if visibility.desktop { show() }
+        if visibility.desktop { show(notifyUser: false) }
         if visibility.island { island.show() }
         // 不挂主队列: 写 UserDefaults 的线程会同步等主队列上的回调跑完 (#200)。
         preferencesObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
-            object: nil, queue: nil
+            object: UserDefaults.standard, queue: nil
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshInteractionPreferences()
@@ -155,23 +156,77 @@ final class DesktopLyricsWindowController {
     }
 
     func toggle() {
-        if isShowing { hide() } else { show() }
+        if isShowing { hide(notifyUser: true) } else { show(notifyUser: true) }
     }
 
     private var isShowing: Bool {
         panel?.isVisible == true
     }
 
-    func show() {
+    func show(notifyUser: Bool = true) {
         MacLyricsVisibilityPreferences.setDesktopVisible(true)
         showFloatingPanel()
+        if notifyUser {
+            presentVisibilityFeedback(shown: true)
+        }
     }
 
-    func hide() {
+    func hide(notifyUser: Bool = true) {
+        let wasShowing = isShowing
         MacLyricsVisibilityPreferences.setDesktopVisible(false)
         stopPointerTracking()
+        DesktopLyricsInteraction.shared.contentRect = .null
         panel?.orderOut(nil)
         panel?.contentView = nil
+        hostingController = nil
+        if notifyUser && wasShowing {
+            presentVisibilityFeedback(shown: false)
+        }
+    }
+
+    private func presentVisibilityFeedback(shown: Bool) {
+        let key = "desktopLyrics.visibility"
+        guard shown else {
+            PMToastPresenter.shared.show(
+                PMToastItem(
+                    key: key,
+                    message: String(localized: "desktop_lyrics_hidden"),
+                    systemImage: "captions.bubble"
+                )
+            )
+            return
+        }
+        let services = AppServices.shared
+        let player = services.playerService
+        guard let song = player.currentSong, !player.isLiveRadio else {
+            PMToastPresenter.shared.show(
+                PMToastItem(
+                    key: key,
+                    message: String(localized: "desktop_lyrics_shown"),
+                    systemImage: "captions.bubble.fill"
+                )
+            )
+            return
+        }
+        let sourceManager = services.sourceManager
+        let sourceType = services.sourcesStore.source(id: song.sourceID)?.type
+        Task { @MainActor in
+            let loaded = await LyricsLoader.loadForDisplay(
+                for: song,
+                sourceManager: sourceManager,
+                sourceType: sourceType
+            )
+            guard self.isShowing else { return }
+            // 等歌词的这段时间里可能已经换了歌(或换成电台):「这首没有歌词」只对还在放的那一首说。
+            let lacksLyrics = loaded.isEmpty && player.currentSong?.id == song.id && !player.isLiveRadio
+            PMToastPresenter.shared.show(
+                PMToastItem(
+                    key: key,
+                    message: String(localized: lacksLyrics ? "desktop_lyrics_shown_no_lyrics" : "desktop_lyrics_shown"),
+                    systemImage: "captions.bubble.fill"
+                )
+            )
+        }
     }
 
     func setIslandVisible(_ enabled: Bool) {
@@ -440,6 +495,8 @@ final class DesktopLyricsWindowController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.isReleasedWhenClosed = false
+        panel.title = String(localized: "desktop_lyrics_title")
         panel.level = .floating
         // 拖动改由 updateWindowDrag 负责,这里保持关闭:
         // 两条路径同时生效会把同一次拖动算两遍,窗口跑得比鼠标快一倍。
@@ -484,8 +541,11 @@ final class DesktopLyricsWindowController {
                 onEnterIsland: { [weak self] in self?.setIslandVisible(true) }
             ).applyPrimuseEnvironments()
         )
+        host.sizingOptions = []
+        host.view.wantsLayer = true
         host.view.frame = NSRect(origin: .zero, size: panel.contentRect(forFrameRect: panel.frame).size)
         host.view.autoresizingMask = [.width, .height]
+        hostingController = host
         return host.view
     }
 }

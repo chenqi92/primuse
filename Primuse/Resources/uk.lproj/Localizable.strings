@@ -8258,3 +8258,14 @@
 "home_source_status_title" = "Стан джерел";
 "drag_to_reorder" = "Перетягніть для зміни порядку";
 "copy_action" = "Копіювати";
+"enter_full_screen" = "На весь екран";
+"fullscreen_effect_launch_hint" = "Відкриває повноекранний режим із цим ефектом";
+"search_library_action" = "Пошук у медіатеці";
+"desktop_lyrics_title" = "Текст на робочому столі";
+"desktop_lyrics_shown" = "Текст на робочому столі показано";
+"desktop_lyrics_shown_no_lyrics" = "Текст на робочому столі показано · Для цього треку немає тексту";
+"desktop_lyrics_hidden" = "Текст на робочому столі приховано";
+"mini_player_expand" = "Розгорнути текст і чергу";
+"mini_player_collapse" = "Згорнути текст і чергу";
+"audio_output_system_default" = "Типово · Core Audio";
+"a11y_clear_search" = "Очистити пошук";

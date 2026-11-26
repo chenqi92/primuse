@@ -204,6 +204,7 @@ struct MenuBarPlayerView: View {
                 .buttonStyle(.plain)
                 .pmPointingHand()
                 .help(Text("a11y_skip_backward"))
+                .accessibilityLabel(Text("a11y_skip_backward"))
             } else if !player.isLiveRadio || player.canSwitchRadioStation {
                 Button { Task { await player.previous() } } label: {
                     Image(systemName: "backward.fill")
@@ -215,6 +216,7 @@ struct MenuBarPlayerView: View {
                 .buttonStyle(.plain)
                 .pmPointingHand()
                 .help(player.isLiveRadio ? Text("radio_previous_station") : shortcutHelp(.previousTrack))
+                .accessibilityLabel(Text(player.isLiveRadio ? "radio_previous_station" : "previous_song"))
             }
 
             Button {
@@ -247,6 +249,9 @@ struct MenuBarPlayerView: View {
             .help(Text(player.isLiveRadio && (player.isPlaying || player.isLoading)
                 ? LocalizedStringKey("radio_stop")
                 : (player.isPlaying || player.isLoading ? "pause" : "play")) + shortcutSuffix(.playPause))
+            .accessibilityLabel(Text(player.isLiveRadio && (player.isPlaying || player.isLoading)
+                ? LocalizedStringKey("radio_stop")
+                : (player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play")))
 
             if player.currentItemIsSpokenWord, !player.isLiveRadio {
                 Button { player.skipSpokenWordForward() } label: {
@@ -259,6 +264,7 @@ struct MenuBarPlayerView: View {
                 .buttonStyle(.plain)
                 .pmPointingHand()
                 .help(Text("a11y_skip_forward"))
+                .accessibilityLabel(Text("a11y_skip_forward"))
             } else if !player.isLiveRadio || player.canSwitchRadioStation {
                 Button { Task { await player.next() } } label: {
                     Image(systemName: "forward.fill")
@@ -270,6 +276,7 @@ struct MenuBarPlayerView: View {
                 .buttonStyle(.plain)
                 .pmPointingHand()
                 .help(player.isLiveRadio ? Text("radio_next_station") : shortcutHelp(.nextTrack))
+                .accessibilityLabel(Text(player.isLiveRadio ? "radio_next_station" : "next_song"))
             }
             Spacer()
         }
@@ -283,6 +290,7 @@ struct MenuBarPlayerView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(PMColor.textMuted)
                 .frame(width: 14)
+                .accessibilityHidden(true)
             PMPlaybackVolumeSlider()
             PMVolumePercentage()
                 .font(.system(size: 10, design: .monospaced))
@@ -440,12 +448,15 @@ private struct MenuBarPlayerProgress: View {
                 .monospacedDigit()
                 .foregroundStyle(PMColor.textFaint)
             } else {
+                let canSeek = player.currentSong != nil && player.duration > 0
                 VStack(spacing: 4) {
                     MenuBarScrubberLine(
                         value: player.currentTime,
                         total: player.duration,
                         tint: PMColor.brand
                     ) { player.seek(to: $0) }
+                    .disabled(!canSeek)
+                    .opacity(canSeek ? 1 : 0.45)
 
                     HStack {
                         Text(formatTime(player.currentTime))

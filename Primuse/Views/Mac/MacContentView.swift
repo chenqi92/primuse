@@ -225,18 +225,21 @@ struct MacContentView: View {
     private var windowLayout: some View {
         VStack(spacing: 0) {
             if !isFullScreenNowPlaying {
-                PMTitleBar(
-                    searchText: $searchText,
-                    sidebarCollapsed: $sidebarCollapsed,
-                    routeSwitch: routeSwitch,
-                    onSelectRoute: requestRoute,
-                    isRecommendationsShown: showsRecommendationsPanel,
-                    onToggleRecommendations: toggleRecommendationsPanel,
-                    onOpenListeningStats: openListeningStats,
-                    onOpenTool: { activeTool = $0 }
-                )
+                MacStateSlot(value: $showsRecommendationsPanel) { isRecommendationsShown in
+                    PMTitleBar(
+                        searchText: $searchText,
+                        sidebarCollapsed: $sidebarCollapsed,
+                        routeSwitch: routeSwitch,
+                        onSelectRoute: requestRoute,
+                        isRecommendationsShown: isRecommendationsShown,
+                        onToggleRecommendations: toggleRecommendationsPanel,
+                        onOpenListeningStats: openListeningStats,
+                        onOpenTool: { activeTool = $0 }
+                    )
+                }
                 // 播放页开着时标题栏底色褪掉, 露出下面接上来的侧栏、播放页底色(`macExtendsUnderTitleBar`)。
                 .modifier(MacSidebarFollowsPlayerScope(isNowPlayingPresented: $nowPlayingPresented))
+                .modifier(MacModalCoverScope(isCovered: $showsFullscreenEffectPicker))
                 // 下面那一排的底色往上伸到窗口顶, 标题栏要画在它们上面。
                 .zIndex(1)
             }
@@ -247,6 +250,8 @@ struct MacContentView: View {
                         .frame(width: preferences.sidebarWidth)
                         // 播放页开着时侧栏底色跟着染上封面颜色, 和播放页接得上。
                         .modifier(MacSidebarFollowsPlayerScope(isNowPlayingPresented: $nowPlayingPresented))
+                        .modifier(MacModalCoverScope(isCovered: $showsFullscreenEffectPicker))
+                        .accessibilityHidden(isFullScreenNowPlaying)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
 
@@ -259,9 +264,15 @@ struct MacContentView: View {
                         songLocationRequest: $songLocationRequest,
                         spokenWordBookRequest: $spokenWordBookRequest,
                         onShowSongInLibrary: showSongInLibrary,
-                        onOpenLibrarySongs: { selectRoute(.section(.songs)) }
+                        onOpenLibrarySongs: { selectRoute(.section(.songs)) },
+                        onOpenSources: { requestRoute(.sources) }
                     )
                         .background(PMColor.bg.ignoresSafeArea())
+                        .accessibilityElement(children: .contain)
+                        .modifier(MacCoveredContentScope(
+                            isNowPlayingPresented: $nowPlayingPresented,
+                            isEffectPickerPresented: $showsFullscreenEffectPicker
+                        ))
                         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenSpokenWordBook)) { note in
                             openSpokenWordBook(note.object as? String)
                         }
@@ -317,42 +328,48 @@ struct MacContentView: View {
                     }
                     .zIndex(1)
 
-                    if showsFullscreenEffectPicker {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { closeFullscreenEffectPicker() }
-                            .accessibilityHidden(true)
-                            .zIndex(2)
+                    MacStateSlot(value: $showsFullscreenEffectPicker) { isPickerPresented in
+                        if isPickerPresented {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture { closeFullscreenEffectPicker() }
+                                .accessibilityHidden(true)
+                                .zIndex(2)
 
-                        // 面板从底栏那个入口上方展开,跟着按钮走。
-                        MacImmersiveEffectPicker(
-                            selected: fullscreenPlayerEffect,
-                            effects: FullscreenPlayerEffect.allCases,
-                            palette: ImmersiveArtworkPalette(
-                                primary: theme.accentColor,
-                                secondary: theme.secondaryDarkAccent
-                            ),
-                            onSelect: { candidate in
-                                // 选中哪一种就带着它直接进全屏播放,不用再按一次全屏。
-                                enterFullScreenPlayer(in: nil, with: candidate)
-                            },
-                            onClose: { closeFullscreenEffectPicker() }
-                        )
-                        // 右边让出「更多」键和间距,面板右沿对齐全屏播放键。
-                        .padding(.trailing, 58)
-                        .padding(.bottom, 12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                        .transition(
-                            .scale(scale: 0.96, anchor: .bottomTrailing).combined(with: .opacity)
-                        )
-                        .zIndex(3)
+                            // 面板从底栏那个入口上方展开,跟着按钮走。
+                            MacImmersiveEffectPicker(
+                                selected: fullscreenPlayerEffect,
+                                effects: FullscreenPlayerEffect.allCases,
+                                palette: ImmersiveArtworkPalette(
+                                    primary: theme.accentColor,
+                                    secondary: theme.secondaryDarkAccent
+                                ),
+                                launchActionTitle: "enter_full_screen",
+                                onSelect: { candidate in
+                                    // 选中哪一种就带着它直接进全屏播放,不用再按一次全屏。
+                                    enterFullScreenPlayer(in: nil, with: candidate)
+                                },
+                                onClose: { closeFullscreenEffectPicker() }
+                            )
+                            .onExitCommand { closeFullscreenEffectPicker() }
+                            // 右边让出「更多」键和间距,面板右沿对齐全屏播放键。
+                            .padding(.trailing, 58)
+                            .padding(.bottom, 12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .transition(
+                                .scale(scale: 0.96, anchor: .bottomTrailing).combined(with: .opacity)
+                            )
+                            .zIndex(3)
+                        }
                     }
+                    .zIndex(2)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .modifier(MacPanelCommandReceiver(
                     onOpenTool: { activeTool = $0 },
                     onToggleRecommendations: toggleRecommendationsPanel,
-                    onOpenListeningStats: openListeningStats
+                    onOpenListeningStats: openListeningStats,
+                    onFocusSearch: focusSearchFromFullScreenPlayer
                 ))
                 .modifier(MacSongListPrewarm())
                 #if DEBUG
@@ -370,20 +387,12 @@ struct MacContentView: View {
                 }
                 #endif
 
-                if queuePresented {
-                    MacQueuePanel(onClose: {
-                        pmWithAnimation(.panel) {
-                            queuePresented = false
-                        }
-                    })
-                    .frame(width: 380)
-                    .transition(.move(edge: .trailing))
-                } else if showsRecommendationsPanel {
-                    // 和队列同一个位置, 一次只开一个: 左边照常能逛, 不盖住正在看的页。
-                    MacRecommendationsPanel(onClose: toggleRecommendationsPanel)
-                        .frame(width: 380)
-                        .transition(.move(edge: .trailing))
-                }
+                // 队列和推荐并排占右边一列, 不盖在正文和播放页上(见 `MacTrailingPanelsHost`)。
+                MacTrailingPanelsHost(
+                    queuePresented: $queuePresented,
+                    showsRecommendationsPanel: $showsRecommendationsPanel,
+                    onToggleRecommendations: toggleRecommendationsPanel
+                )
             }
             // 侧栏、播放页、右侧面板的底色照这个高度垫到标题栏下面(`macExtendsUnderTitleBar`)。
             .environment(\.macTitleBarUnderlap, titleBarUnderlap)
@@ -405,35 +414,18 @@ struct MacContentView: View {
             // 各自那一列的背景色, 卡片真正"浮"在内容上。
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !isFullScreenNowPlaying {
-                    MacStateSlot(value: $nowPlayingPresented) { isNowPlayingPresented in
-                        MacBottomBar(
-                            isExpanded: isNowPlayingPresented,
-                            isQueueShown: queuePresented,
-                            onToggleNowPlaying: {
-                                pmWithAnimation(.panel) {
-                                    nowPlayingPresented.toggle()
-                                }
-                            },
-                            onToggleQueue: {
-                                pmWithAnimation(.panel) {
-                                    queuePresented.toggle()
-                                    if queuePresented { showsRecommendationsPanel = false }
-                                }
-                            },
-                            onMiniPlayer: {
-                                PrimuseAppDelegate.shared?.toggleMiniPlayer()
-                            },
-                            onFullScreen: {
-                                enterFullScreenPlayer(in: nil)
-                            },
-                            onPickFullscreenEffect: {
-                                pmWithAnimation(.panel) {
-                                    showsFullscreenEffectPicker.toggle()
-                                }
-                            },
-                            isFullscreenEffectPickerShown: showsFullscreenEffectPicker
-                        )
-                    }
+                    MacBottomBarSlot(
+                        nowPlayingPresented: $nowPlayingPresented,
+                        queuePresented: $queuePresented,
+                        showsRecommendationsPanel: $showsRecommendationsPanel,
+                        showsFullscreenEffectPicker: $showsFullscreenEffectPicker,
+                        onMiniPlayer: {
+                            PrimuseAppDelegate.shared?.toggleMiniPlayer()
+                        },
+                        onFullScreen: {
+                            enterFullScreenPlayer(in: nil)
+                        }
+                    )
                 }
             }
         }
@@ -604,7 +596,9 @@ struct MacContentView: View {
         }
         .background {
             PMWindowResolver { window in
-                hostWindow = window
+                if hostWindow !== window {
+                    hostWindow = window
+                }
             }
         }
         .modifier(MacWindowFullScreenObserver(
@@ -1048,6 +1042,18 @@ struct MacContentView: View {
         }
     }
 
+    /// 全屏播放时标题栏没挂着(`windowLayout`), 搜索框收不到 `.primuseFocusSearch`。
+    /// 这里只收起播放页(窗口留在系统全屏里, 和点专辑名、艺人名一样, 不切系统全屏), 等这一轮把标题栏
+    /// 装上以后再补发一次: 补发的那次标题栏接得到, 这里因为已经不在全屏播放而直接返回, 不会转圈。
+    /// 窗口版里标题栏一直在, 聚焦和收起播放页都由它自己处理, 这里不插手。
+    private func focusSearchFromFullScreenPlayer() {
+        guard isFullScreenNowPlaying else { return }
+        closeNowPlayingForSearch()
+        MacFrameCommit.afterCurrentCommit {
+            NotificationCenter.default.post(name: .primuseFocusSearch, object: nil)
+        }
+    }
+
     private func openListeningStats() {
         #if DEBUG
         PMWindowChromeTrace.start("stats sheet")
@@ -1144,6 +1150,7 @@ private struct MacDetailHost: View {
     @Binding var spokenWordBookRequest: String?
     let onShowSongInLibrary: (Song) -> Void
     let onOpenLibrarySongs: () -> Void
+    let onOpenSources: () -> Void
 
     var body: some View {
         MacDetailContainer(
@@ -1154,7 +1161,8 @@ private struct MacDetailHost: View {
             songLocationRequest: $songLocationRequest,
             spokenWordBookRequest: $spokenWordBookRequest,
             onShowSongInLibrary: onShowSongInLibrary,
-            onOpenLibrarySongs: onOpenLibrarySongs
+            onOpenLibrarySongs: onOpenLibrarySongs,
+            onOpenSources: onOpenSources
         )
             // 入场要挂在 `.id` 之前: `.id` 只重置它下面那棵子树, 修饰符
             // 写在后面的话 @State 留在 id 之上, 换页时不会重新入场。
@@ -1319,6 +1327,104 @@ private struct MacSidebarFollowsPlayerScope: ViewModifier {
 
     func body(content: Content) -> some View {
         content.environment(\.macSidebarFollowsPlayer, isNowPlayingPresented)
+    }
+}
+
+private struct MacCoveredContentScope: ViewModifier {
+    @Binding var isNowPlayingPresented: Bool
+    @Binding var isEffectPickerPresented: Bool
+
+    func body(content: Content) -> some View {
+        let isCovered = isNowPlayingPresented || isEffectPickerPresented
+        content
+            .allowsHitTesting(!isCovered)
+            .accessibilityHidden(isCovered)
+    }
+}
+
+/// 底栏的全屏效果面板开着时盖住标题栏、侧栏: 它们不接点按、对旁白隐藏, 点在上面只把面板收起来
+/// (和正文区那层遮罩一样), 不会点了没反应。
+private struct MacModalCoverScope: ViewModifier {
+    @Binding var isCovered: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .allowsHitTesting(!isCovered)
+            .accessibilityHidden(isCovered)
+            .overlay {
+                if isCovered {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            pmWithAnimation(.panel) {
+                                isCovered = false
+                            }
+                        }
+                        .accessibilityHidden(true)
+                }
+            }
+    }
+}
+
+/// 右边那一列的队列 / 推荐面板, 和侧栏、正文并排放在同一个 HStack 里。只在这里读两个开关,
+/// 开合面板不让整个主界面重算。
+private struct MacTrailingPanelsHost: View {
+    @Binding var queuePresented: Bool
+    @Binding var showsRecommendationsPanel: Bool
+    let onToggleRecommendations: () -> Void
+
+    var body: some View {
+        Group {
+            if queuePresented {
+                MacQueuePanel(onClose: {
+                    pmWithAnimation(.panel) {
+                        queuePresented = false
+                    }
+                })
+                .frame(width: 380)
+                .transition(.move(edge: .trailing))
+            } else if showsRecommendationsPanel {
+                // 和队列同一个位置, 一次只开一个: 左边照常能逛, 不盖住正在看的页。
+                MacRecommendationsPanel(onClose: onToggleRecommendations)
+                    .frame(width: 380)
+                    .transition(.move(edge: .trailing))
+            }
+        }
+    }
+}
+
+private struct MacBottomBarSlot: View {
+    @Binding var nowPlayingPresented: Bool
+    @Binding var queuePresented: Bool
+    @Binding var showsRecommendationsPanel: Bool
+    @Binding var showsFullscreenEffectPicker: Bool
+    let onMiniPlayer: () -> Void
+    let onFullScreen: () -> Void
+
+    var body: some View {
+        MacBottomBar(
+            isExpanded: nowPlayingPresented,
+            isQueueShown: queuePresented,
+            onToggleNowPlaying: {
+                pmWithAnimation(.panel) {
+                    nowPlayingPresented.toggle()
+                }
+            },
+            onToggleQueue: {
+                pmWithAnimation(.panel) {
+                    queuePresented.toggle()
+                    if queuePresented { showsRecommendationsPanel = false }
+                }
+            },
+            onMiniPlayer: onMiniPlayer,
+            onFullScreen: onFullScreen,
+            onPickFullscreenEffect: {
+                pmWithAnimation(.panel) {
+                    showsFullscreenEffectPicker.toggle()
+                }
+            },
+            isFullscreenEffectPickerShown: showsFullscreenEffectPicker
+        )
     }
 }
 
@@ -1495,6 +1601,7 @@ private struct MacPanelCommandReceiver: ViewModifier {
     let onOpenTool: (MacTool) -> Void
     let onToggleRecommendations: () -> Void
     let onOpenListeningStats: () -> Void
+    let onFocusSearch: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -1507,6 +1614,9 @@ private struct MacPanelCommandReceiver: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .primuseOpenListeningStats)) { _ in
                 onOpenListeningStats()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseFocusSearch)) { _ in
+                onFocusSearch()
             }
     }
 }

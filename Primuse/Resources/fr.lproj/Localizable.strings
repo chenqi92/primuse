@@ -8352,3 +8352,14 @@
 "home_source_status_title" = "État des sources";
 "drag_to_reorder" = "Glisser pour réorganiser";
 "copy_action" = "Copier";
+"enter_full_screen" = "Passer en plein écran";
+"fullscreen_effect_launch_hint" = "Ouvre le plein écran avec cet effet";
+"search_library_action" = "Rechercher dans la bibliothèque";
+"desktop_lyrics_title" = "Paroles sur le bureau";
+"desktop_lyrics_shown" = "Paroles sur le bureau affichées";
+"desktop_lyrics_shown_no_lyrics" = "Paroles sur le bureau affichées · Aucune parole disponible pour ce morceau";
+"desktop_lyrics_hidden" = "Paroles sur le bureau masquées";
+"mini_player_expand" = "Afficher les paroles et la file d'attente";
+"mini_player_collapse" = "Masquer les paroles et la file d'attente";
+"audio_output_system_default" = "Défaut système · Core Audio";
+"a11y_clear_search" = "Effacer la recherche";

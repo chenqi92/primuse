@@ -816,6 +816,7 @@ struct QueueSectionStack<Header: View, Rows: View>: View {
                 rows
             }
         }
+        .accessibilityElement(children: .contain)
     }
 }
 

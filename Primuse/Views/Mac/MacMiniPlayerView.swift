@@ -35,6 +35,8 @@ struct MacMiniPlayerView: View {
     @State private var settledLyricsIdentity: LyricsLoadTaskIdentity?
     @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var lastManualLyricsScroll = Date.distantPast
+    /// 触控板、滚轮正在滚歌词(`onScrollPhaseChange` 报的阶段)。只在事件里读写, body 不读。
+    @State private var isScrollingLyricsByHand = false
     @State private var lyricsAutoFollowTask: Task<Void, Never>?
     @State private var airPlayShown = false
     @State private var preferences = MacUIPreferences.shared
@@ -68,7 +70,7 @@ struct MacMiniPlayerView: View {
                     coverArea
                     metaArea
                     scrubber
-                    if bottomMode != .none {
+                    if !player.isLiveRadio {
                         transport
                     }
 
@@ -146,7 +148,9 @@ struct MacMiniPlayerView: View {
                 }
                 .buttonStyle(.plain)
                 .pmPointingHand()
-                .help(Text(bottomMode == .none ? "show" : "hide"))
+                .help(Text(bottomMode == .none ? "mini_player_expand" : "mini_player_collapse"))
+                .accessibilityLabel(Text(bottomMode == .none ? "mini_player_expand" : "mini_player_collapse"))
+                .accessibilityIdentifier("miniPlayer.toggleExpand")
             }
 
             // 关闭(收起窗口)—— 右上角关闭键,替代之前的红绿灯。
@@ -156,6 +160,8 @@ struct MacMiniPlayerView: View {
             .buttonStyle(.plain)
             .pmPointingHand()
             .help(Text("close"))
+            .accessibilityLabel(Text("close"))
+            .accessibilityIdentifier("miniPlayer.close")
         }
         .padding(.trailing, 12)
         .frame(height: bottomMode == .none ? 32 : 40)
@@ -286,6 +292,7 @@ struct MacMiniPlayerView: View {
         }
         .buttonStyle(.plain)
         .pmPointingHand()
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     @ViewBuilder
@@ -309,6 +316,8 @@ struct MacMiniPlayerView: View {
                 AudioOutputPickerView()
             }
             .help(Text("audio_output"))
+            .accessibilityLabel(Text("audio_output"))
+            .accessibilityAddTraits(airPlayShown ? .isSelected : [])
 
             Button { Task { await player.previous() } } label: {
                 miniIcon("backward.fill")
@@ -317,6 +326,7 @@ struct MacMiniPlayerView: View {
             .pmPointingHand()
             .disabled(!player.canSwitchRadioStation)
             .help(Text("radio_previous_station"))
+            .accessibilityLabel(Text("radio_previous_station"))
 
             Button { player.togglePlayPause() } label: {
                 miniIcon(
@@ -328,6 +338,7 @@ struct MacMiniPlayerView: View {
             .buttonStyle(.plain)
             .pmPointingHand()
             .help(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
+            .accessibilityLabel(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
 
             Button { Task { await player.next() } } label: {
                 miniIcon("forward.fill")
@@ -336,6 +347,7 @@ struct MacMiniPlayerView: View {
             .pmPointingHand()
             .disabled(!player.canSwitchRadioStation)
             .help(Text("radio_next_station"))
+            .accessibilityLabel(Text("radio_next_station"))
 
             if showsPlayerVolumeBar {
                 Spacer(minLength: 6)
@@ -344,6 +356,7 @@ struct MacMiniPlayerView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(PMColor.textMuted)
                     .frame(width: 14)
+                    .accessibilityHidden(true)
 
                 PMPlaybackVolumeSlider(tint: theme.accentColor)
                 .frame(width: 92)
@@ -371,6 +384,8 @@ struct MacMiniPlayerView: View {
             .pmPointingHand()
             .pmGlassControl(Circle())
             .help(Text("lyrics_word"))
+            .accessibilityLabel(Text("lyrics_word"))
+            .accessibilityAddTraits(bottomMode == .lyrics ? .isSelected : [])
 
             // Queue —— 切到下半部分显示当前队列。
             Button {
@@ -383,6 +398,8 @@ struct MacMiniPlayerView: View {
             .pmPointingHand()
             .pmGlassControl(Circle())
             .help(Text("queue_title"))
+            .accessibilityLabel(Text("queue_title"))
+            .accessibilityAddTraits(bottomMode == .queue ? .isSelected : [])
 
             Button { airPlayShown.toggle() } label: {
                 miniIcon("airplayaudio", tint: airPlayShown ? theme.accentColor : .secondary)
@@ -394,6 +411,8 @@ struct MacMiniPlayerView: View {
                 AudioOutputPickerView()
             }
             .help(Text("audio_output"))
+            .accessibilityLabel(Text("audio_output"))
+            .accessibilityAddTraits(airPlayShown ? .isSelected : [])
 
             if showsPlayerVolumeBar {
                 Spacer(minLength: 8)
@@ -402,6 +421,7 @@ struct MacMiniPlayerView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(PMColor.textMuted)
                     .frame(width: 14)
+                    .accessibilityHidden(true)
 
                 PMPlaybackVolumeSlider(tint: theme.accentColor)
                 .frame(width: 64)
@@ -441,25 +461,29 @@ struct MacMiniPlayerView: View {
     // MARK: - Transport
 
     private var transport: some View {
-        HStack(spacing: 18) {
-            // shuffle / repeat 带淡圆底,高亮时上强调色(随专辑色),跟设计稿一致。
-            // 底色跟着开关走：关闭是中性淡底,开启换成强调色底 —— 只换图标颜色
-            // 在深色封面下几乎看不出开没开。
-            Button { player.shuffleEnabled.toggle() } label: {
-                Image(systemName: "shuffle")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(player.shuffleEnabled ? theme.accentColor : PMColor.textMuted)
-                    .frame(width: 30, height: 30)
-                    .playbackToggleHighlight(
-                        isActive: player.shuffleEnabled,
-                        tint: theme.accentColor,
-                        diameter: 30,
-                        inactiveFill: PMColor.text.opacity(0.06)
-                    )
+        let isCompact = bottomMode == .none
+        let playSize: CGFloat = isCompact ? 38 : 46
+        let playIconSize: CGFloat = isCompact ? 15 : 18
+        return HStack(spacing: isCompact ? 14 : 18) {
+            if !player.currentItemIsSpokenWord {
+                Button { player.shuffleEnabled.toggle() } label: {
+                    Image(systemName: "shuffle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(player.shuffleEnabled ? theme.accentColor : PMColor.textMuted)
+                        .frame(width: 30, height: 30)
+                        .playbackToggleHighlight(
+                            isActive: player.shuffleEnabled,
+                            tint: theme.accentColor,
+                            diameter: 30,
+                            inactiveFill: PMColor.text.opacity(0.06)
+                        )
+                }
+                .buttonStyle(.plain)
+                .pmPointingHand()
+                .help(Text("shuffle"))
+                .accessibilityLabel(Text("shuffle"))
+                .accessibilityValue(Text(player.shuffleEnabled ? "a11y_value_on" : "a11y_value_off"))
             }
-            .buttonStyle(.plain)
-            .pmPointingHand()
-            .accessibilityValue(Text(player.shuffleEnabled ? "a11y_value_on" : "a11y_value_off"))
 
             Button {
                 if player.currentItemIsSpokenWord {
@@ -478,6 +502,8 @@ struct MacMiniPlayerView: View {
             .buttonStyle(.plain)
             .pmPointingHand()
             .help(Text(player.currentItemIsSpokenWord ? "a11y_skip_backward" : "previous_song"))
+            .accessibilityLabel(Text(player.currentItemIsSpokenWord ? "a11y_skip_backward" : "previous_song"))
+            .accessibilityIdentifier("miniPlayer.previous")
 
             // 播放/暂停 —— 实心强调色圆,设计稿里最醒目的粉色圆。
             Button {
@@ -485,7 +511,7 @@ struct MacMiniPlayerView: View {
                 player.togglePlayPause()
             } label: {
                 ZStack {
-                    Circle().fill(theme.accentColor).frame(width: 46, height: 46)
+                    Circle().fill(theme.accentColor).frame(width: playSize, height: playSize)
                     // 加载/缓冲时显示转圈, 跟主界面底栏播放键一致, 免得用户以为卡住了。
                     if player.showsLoadingIndicator {
                         ProgressView()
@@ -493,7 +519,7 @@ struct MacMiniPlayerView: View {
                             .tint(theme.onAccent)
                     } else {
                         Image(systemName: player.isPlaying || player.isLoading ? "pause.fill" : "play.fill")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: playIconSize, weight: .bold))
                             .foregroundStyle(theme.onAccent)
                             .contentTransition(.symbolEffect(.replace))
                             .offset(x: player.isPlaying || player.isLoading ? 0 : 1)
@@ -503,6 +529,9 @@ struct MacMiniPlayerView: View {
             .buttonStyle(.plain)
             .pmPointingHand()
             .disabled(player.showsLoadingIndicator)
+            .help(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
+            .accessibilityLabel(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
+            .accessibilityIdentifier("miniPlayer.playPause")
 
             Button {
                 if player.currentItemIsSpokenWord {
@@ -521,6 +550,8 @@ struct MacMiniPlayerView: View {
             .buttonStyle(.plain)
             .pmPointingHand()
             .help(Text(player.currentItemIsSpokenWord ? "a11y_skip_forward" : "next_song"))
+            .accessibilityLabel(Text(player.currentItemIsSpokenWord ? "a11y_skip_forward" : "next_song"))
+            .accessibilityIdentifier("miniPlayer.next")
 
             if player.currentItemIsAudiobook {
                 let isRepeating = player.isRepeatingCurrentSpokenWordChapter
@@ -556,6 +587,8 @@ struct MacMiniPlayerView: View {
                 }
                 .buttonStyle(.plain)
                 .pmPointingHand()
+                .help(Text("repeat"))
+                .accessibilityLabel(Text("repeat"))
                 .accessibilityValue(Text(player.repeatMode != .off ? "a11y_value_on" : "a11y_value_off"))
             }
         }
@@ -627,8 +660,25 @@ struct MacMiniPlayerView: View {
                 .padding(.horizontal, 4)
             }
             .onChange(of: currentIndex) { _, new in
-                guard Date().timeIntervalSince(lastManualLyricsScroll) >= 3 else { return }
+                guard !isScrollingLyricsByHand,
+                      Date().timeIntervalSince(lastManualLyricsScroll) >= 3 else { return }
                 scrollLyrics(to: new, proxy: proxy, animated: true)
+            }
+            .onScrollPhaseChange { _, newPhase in
+                switch newPhase {
+                case .interacting, .decelerating:
+                    lyricsAutoFollowTask?.cancel()
+                    isScrollingLyricsByHand = true
+                    lastManualLyricsScroll = Date()
+                case .idle:
+                    // 阶段只在切换时报一次: 手还在滚的这段时间不管多长都不抢回去, 停下来那一刻起再等 3 秒才自动跟。
+                    guard isScrollingLyricsByHand else { break }
+                    isScrollingLyricsByHand = false
+                    lastManualLyricsScroll = Date()
+                    scheduleLyricsAutoFollow(proxy: proxy)
+                default:
+                    break
+                }
             }
             .simultaneousGesture(
                 DragGesture(minimumDistance: 4)
@@ -649,6 +699,7 @@ struct MacMiniPlayerView: View {
             }
             .onDisappear {
                 lyricsAutoFollowTask?.cancel()
+                isScrollingLyricsByHand = false
             }
             .pmForceHideScrollers()
         }
@@ -685,7 +736,7 @@ struct MacMiniPlayerView: View {
         lyricsAutoFollowTask?.cancel()
         lyricsAutoFollowTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled,
+            guard !Task.isCancelled, !isScrollingLyricsByHand,
                   Date().timeIntervalSince(lastManualLyricsScroll) >= 3 else { return }
             scrollLyrics(to: currentIndex, proxy: proxy, animated: true)
         }
@@ -717,15 +768,16 @@ struct MacMiniPlayerView: View {
             )
             if let backgrounds = line.background {
                 ForEach(backgrounds) { background in
-                    miniSingleLyricLine(
-                        line: background,
+                    MacMiniBackgroundLyricLine(
+                        background: background,
                         index: index,
-                        isActive: LyricVoiceTimelinePolicy.isActive(
-                            background,
-                            at: player.currentTime
-                        ),
+                        currentIndex: currentIndex,
+                        isDuet: lyricsDocument.isDuet,
                         fontSize: fontSize * 0.72,
-                        weight: .medium
+                        weight: .medium,
+                        lyricsColors: lyricsColors,
+                        writingDirection: lyricsWritingDirection,
+                        layoutDirection: lyricLayoutDirection
                     )
                     .opacity(0.72)
                 }
@@ -742,19 +794,15 @@ struct MacMiniPlayerView: View {
         weight: Font.Weight
     ) -> some View {
         if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
-            KaraokeLineView(
+            MacMiniWordLyricLine(
                 line: line,
+                isActive: isActive,
                 isDuet: lyricsDocument.isDuet,
                 fontSize: fontSize,
                 weight: weight,
-                activeStyle: lyricsColors.style(defaultColor: .primary, isActive: isActive, opacity: isActive ? 1 : 0.72, layoutDirection: lyricLayoutDirection),
-                inactiveColor: .secondary.opacity(isActive ? 0.55 : 0.42),
+                lyricsColors: lyricsColors,
                 writingDirection: lyricsWritingDirection,
-                timeAt: { date in player.interpolatedTime(at: date) },
-                fixedTime: isActive && player.isPlaying ? nil : player.currentTime,
-                isPlaybackActive: isActive && player.isPlaying,
-                isAnimationEnabled: isActive,
-                deactivationTime: line.voice == .secondary ? line.endTime : nil
+                layoutDirection: lyricLayoutDirection
             )
         } else {
             lyricsTypeface.text(line.text, size: fontSize, weight: weight)
@@ -868,6 +916,7 @@ private struct MacMiniQueueList: View {
                                 sectionTitle("now_playing")
                                 row(currentEntry, ordinal: layout.currentOrdinal, totalCount: layout.totalCount, song: current, isPlaying: true)
                             }
+                            .accessibilityElement(children: .contain)
                             .padding(.bottom, 4)
                             .id(Self.nowPlayingAnchor)
                         }
@@ -899,18 +948,21 @@ private struct MacMiniQueueList: View {
             Image(systemName: "music.note.list")
                 .font(.title3)
                 .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
             Text("queue_empty")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 30)
+        .accessibilityElement(children: .combine)
     }
 
     private func sectionTitle(_ title: LocalizedStringKey) -> some View {
         Text(title)
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
+            .accessibilityAddTraits(.isHeader)
     }
 
     /// 已播放:最早的在上,刚放完的紧挨正在播放。更早的收在顶上的「显示更早的」里。
@@ -993,6 +1045,7 @@ private struct MacMiniQueueList: View {
                         .foregroundStyle(.white)
                 }
             }
+            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     SongRowTrackNumber(number: ordinal, largestNumber: totalCount, respectsLibraryPreference: false)
@@ -1012,6 +1065,19 @@ private struct MacMiniQueueList: View {
         .contentShape(Rectangle())
         .onTapGesture { play(entry) }
         .pmPointingHand()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(rowAccessibilityLabel(song: song, ordinal: ordinal))
+        .accessibilityValue(isPlaying ? Text("now_playing") : Text(verbatim: ""))
+        .accessibilityAddTraits(isPlaying ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { play(entry) }
+    }
+
+    private func rowAccessibilityLabel(song: Song, ordinal: Int) -> String {
+        let artist = library.artistDisplayName(for: song) ?? ""
+        if artist.isEmpty {
+            return "\(ordinal), \(song.title)"
+        }
+        return "\(ordinal), \(song.title), \(artist)"
     }
 
     /// 按队列里的这一格(不是这首歌)找回它现在的位置再放:同一首歌可能排了几次,随机时还要把这一轮的
@@ -1019,6 +1085,72 @@ private struct MacMiniQueueList: View {
     private func play(_ entry: QueueEntry) {
         guard let index = player.queueEntries.firstIndex(where: { $0.id == entry.id }) else { return }
         Task { await player.playFromQueue(at: index) }
+    }
+}
+
+private struct MacMiniWordLyricLine: View {
+    @Environment(AudioPlayerService.self) private var player
+    let line: LyricLine
+    let isActive: Bool
+    let isDuet: Bool
+    let fontSize: CGFloat
+    let weight: Font.Weight
+    let lyricsColors: PlayerLyricsColors
+    let writingDirection: LyricWritingDirection
+    let layoutDirection: LayoutDirection
+
+    var body: some View {
+        KaraokeLineView(
+            line: line,
+            isDuet: isDuet,
+            fontSize: fontSize,
+            weight: weight,
+            activeStyle: lyricsColors.style(defaultColor: .primary, isActive: isActive, opacity: isActive ? 1 : 0.72, layoutDirection: layoutDirection),
+            inactiveColor: .secondary.opacity(isActive ? 0.55 : 0.42),
+            writingDirection: writingDirection,
+            timeAt: { date in player.interpolatedTime(at: date) },
+            fixedTime: isActive && player.isPlaying ? nil : player.currentTime,
+            isPlaybackActive: isActive && player.isPlaying,
+            isAnimationEnabled: isActive,
+            deactivationTime: line.voice == .secondary ? line.endTime : nil
+        )
+    }
+}
+
+private struct MacMiniBackgroundLyricLine: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
+    let background: LyricLine
+    let index: Int
+    let currentIndex: Int
+    let isDuet: Bool
+    let fontSize: CGFloat
+    let weight: Font.Weight
+    let lyricsColors: PlayerLyricsColors
+    let writingDirection: LyricWritingDirection
+    let layoutDirection: LayoutDirection
+
+    var body: some View {
+        let isActive = LyricVoiceTimelinePolicy.isActive(background, at: player.currentTime)
+        let shouldRenderWord = background.isWordLevel && (isActive || (currentIndex >= 0 && abs(index - currentIndex) == 1))
+        if shouldRenderWord {
+            MacMiniWordLyricLine(
+                line: background,
+                isActive: isActive,
+                isDuet: isDuet,
+                fontSize: fontSize,
+                weight: weight,
+                lyricsColors: lyricsColors,
+                writingDirection: writingDirection,
+                layoutDirection: layoutDirection
+            )
+        } else {
+            lyricsTypeface.text(background.text, size: fontSize, weight: weight)
+                .foregroundStyle(lyricsColors.style(defaultColor: isActive ? .primary : .secondary, isActive: isActive, layoutDirection: layoutDirection))
+                .opacity(isActive ? 1 : 0.55)
+                .multilineTextAlignment(.center)
+                .environment(\.layoutDirection, layoutDirection)
+        }
     }
 }
 
@@ -1050,6 +1182,7 @@ private struct MacMiniPlayerProgress: View {
                 .monospacedDigit()
                 .foregroundStyle(PMColor.textMuted)
             } else {
+                let canSeek = player.currentSong != nil && player.duration > 0
                 VStack(spacing: 4) {
                     ScrubberLine(
                         value: player.currentTime,
@@ -1057,6 +1190,8 @@ private struct MacMiniPlayerProgress: View {
                         tint: tint,
                         onSeek: { player.seek(to: $0) }
                     )
+                    .disabled(!canSeek)
+                    .opacity(canSeek ? 1 : 0.45)
                     HStack {
                         Text(formatTime(player.currentTime))
                         Spacer()

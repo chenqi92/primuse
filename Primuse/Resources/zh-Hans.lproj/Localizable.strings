@@ -8445,3 +8445,14 @@
 "home_source_status_title" = "音乐源状态";
 "drag_to_reorder" = "拖动排序";
 "copy_action" = "拷贝";
+"enter_full_screen" = "进入全屏";
+"fullscreen_effect_launch_hint" = "使用此效果进入全屏播放";
+"search_library_action" = "搜索曲库";
+"desktop_lyrics_title" = "桌面歌词";
+"desktop_lyrics_shown" = "已显示桌面歌词";
+"desktop_lyrics_shown_no_lyrics" = "已显示桌面歌词 · 当前歌曲暂无歌词";
+"desktop_lyrics_hidden" = "已隐藏桌面歌词";
+"mini_player_expand" = "展开歌词与队列";
+"mini_player_collapse" = "收起歌词与队列";
+"audio_output_system_default" = "系统默认 · Core Audio";
+"a11y_clear_search" = "清除搜索";

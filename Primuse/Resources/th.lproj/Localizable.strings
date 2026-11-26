@@ -8258,3 +8258,14 @@
 "home_source_status_title" = "สถานะแหล่งเพลง";
 "drag_to_reorder" = "ลากเพื่อจัดลำดับใหม่";
 "copy_action" = "คัดลอก";
+"enter_full_screen" = "เข้าสู่เต็มหน้าจอ";
+"fullscreen_effect_launch_hint" = "เปิดเต็มหน้าจอด้วยเอฟเฟกต์นี้";
+"search_library_action" = "ค้นหาในคลังเพลง";
+"desktop_lyrics_title" = "เนื้อเพลงบนเดสก์ท็อป";
+"desktop_lyrics_shown" = "แสดงเนื้อเพลงบนเดสก์ท็อปแล้ว";
+"desktop_lyrics_shown_no_lyrics" = "แสดงเนื้อเพลงบนเดสก์ท็อปแล้ว · ไม่มีเนื้อเพลงสำหรับเพลงนี้";
+"desktop_lyrics_hidden" = "ซ่อนเนื้อเพลงบนเดสก์ท็อปแล้ว";
+"mini_player_expand" = "ขยายเนื้อเพลงและคิว";
+"mini_player_collapse" = "ย่อเนื้อเพลงและคิว";
+"audio_output_system_default" = "ค่าเริ่มต้นระบบ · Core Audio";
+"a11y_clear_search" = "ล้างการค้นหา";

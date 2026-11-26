@@ -2097,3 +2097,131 @@ final class MacLibraryAuditRegressionTests: XCTestCase {
         XCTAssertEqual((albumRow.value as? String) ?? albumRow.valueDescription, "Late Departures")
     }
 }
+
+@MainActor
+final class MacShellAndPlayerAuditRegressionTests: XCTestCase {
+    @MainActor
+    private struct AXNode {
+        let object: NSObject
+
+        var identifier: String {
+            if let ax = object as? NSAccessibilityProtocol, let id = ax.accessibilityIdentifier(), !id.isEmpty {
+                return id
+            }
+            if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityIdentifier)),
+               let id = object.perform(#selector(NSAccessibilityProtocol.accessibilityIdentifier))?.takeUnretainedValue() as? String {
+                return id
+            }
+            return ""
+        }
+
+        var label: String? {
+            if let ax = object as? NSAccessibilityProtocol, let value = ax.accessibilityLabel(), !value.isEmpty {
+                return value
+            }
+            if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityLabel)),
+               let value = object.perform(#selector(NSAccessibilityProtocol.accessibilityLabel))?.takeUnretainedValue() as? String,
+               !value.isEmpty {
+                return value
+            }
+            return nil
+        }
+
+        var children: [NSObject] {
+            var collected: [NSObject] = []
+            if let ax = object as? NSAccessibilityProtocol,
+               let kids = ax.accessibilityChildren() as? [NSObject] {
+                collected.append(contentsOf: kids)
+            } else if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityChildren)),
+                      let kids = object.perform(#selector(NSAccessibilityProtocol.accessibilityChildren))?.takeUnretainedValue() as? [NSObject] {
+                collected.append(contentsOf: kids)
+            }
+            if let view = object as? NSView {
+                collected.append(contentsOf: view.subviews)
+            }
+            return collected
+        }
+    }
+
+    private func hostInWindow<V: View>(
+        _ view: V,
+        size: NSSize
+    ) -> (NSWindow, NSHostingView<V>) {
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        return (window, host)
+    }
+
+    private func accessibilityDescendants(of root: NSObject) -> [AXNode] {
+        var visited = Set<ObjectIdentifier>()
+        var result: [AXNode] = []
+        func walk(_ object: NSObject) {
+            let id = ObjectIdentifier(object)
+            guard visited.insert(id).inserted else { return }
+            let node = AXNode(object: object)
+            result.append(node)
+            for child in node.children { walk(child) }
+        }
+        walk(root)
+        return result
+    }
+
+    func testImmersiveEffectPickerExposesSingleIdleButtonAndLaunchCTA() {
+        let picker = MacImmersiveEffectPicker(
+            selected: .native,
+            effects: FullscreenPlayerEffect.allCases,
+            palette: .fallback,
+            launchActionTitle: "enter_full_screen",
+            onSelect: { _ in },
+            onClose: {}
+        )
+        .applyPrimuseEnvironments()
+
+        let (window, host) = hostInWindow(picker, size: NSSize(width: 520, height: 680))
+        defer { window.close() }
+
+        let nodes = accessibilityDescendants(of: host)
+        let idleNodes = nodes.filter { $0.identifier == "immersive.screenIdleMenu" }
+        XCTAssertEqual(idleNodes.count, 1, "Found IDs: \(nodes.map(\.identifier).filter { !$0.isEmpty })")
+
+        let launchNodes = nodes.filter { $0.identifier == "immersive.launchFullScreen" }
+        XCTAssertEqual(launchNodes.count, 1, "Found IDs: \(nodes.map(\.identifier).filter { !$0.isEmpty })")
+    }
+
+    func testMiniPlayerCompactModeExposesAccessibleTransportControls() throws {
+        let (window, host) = hostInWindow(
+            MacMiniPlayerView().applyPrimuseEnvironments(),
+            size: NSSize(width: MiniPlayerWindowController.fixedWidth, height: MiniPlayerWindowController.collapsedHeight)
+        )
+        defer { window.close() }
+
+        let nodes = accessibilityDescendants(of: host)
+        let previous = try XCTUnwrap(nodes.first { $0.identifier == "miniPlayer.previous" })
+        let playPause = try XCTUnwrap(nodes.first { $0.identifier == "miniPlayer.playPause" })
+        let next = try XCTUnwrap(nodes.first { $0.identifier == "miniPlayer.next" })
+        let toggleExpand = try XCTUnwrap(nodes.first { $0.identifier == "miniPlayer.toggleExpand" })
+        let close = try XCTUnwrap(nodes.first { $0.identifier == "miniPlayer.close" })
+
+        // 取不到标签(nil)不能算通过: 先要求有标签, 再排除系统给这两个 SF Symbol 起的名字。
+        let previousLabel = try XCTUnwrap(previous.label, "miniPlayer.previous has no accessibility label")
+        let nextLabel = try XCTUnwrap(next.label, "miniPlayer.next has no accessibility label")
+        let symbolNames = ["Go To End", "Go To Start"]
+        XCTAssertFalse(symbolNames.contains(previousLabel), "miniPlayer.previous announces the symbol name: \(previousLabel)")
+        XCTAssertFalse(symbolNames.contains(nextLabel), "miniPlayer.next announces the symbol name: \(nextLabel)")
+        XCTAssertFalse((playPause.label ?? "").isEmpty)
+        XCTAssertFalse((toggleExpand.label ?? "").isEmpty)
+        XCTAssertFalse((close.label ?? "").isEmpty)
+    }
+}

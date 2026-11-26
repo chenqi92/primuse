@@ -8352,3 +8352,14 @@
 "home_source_status_title" = "Quellenstatus";
 "drag_to_reorder" = "Zum Sortieren ziehen";
 "copy_action" = "Kopieren";
+"enter_full_screen" = "Vollbild starten";
+"fullscreen_effect_launch_hint" = "Öffnet den Vollbildmodus mit diesem Effekt";
+"search_library_action" = "Mediathek durchsuchen";
+"desktop_lyrics_title" = "Desktop-Liedtext";
+"desktop_lyrics_shown" = "Desktop-Liedtext eingeblendet";
+"desktop_lyrics_shown_no_lyrics" = "Desktop-Liedtext eingeblendet · Kein Liedtext für diesen Titel verfügbar";
+"desktop_lyrics_hidden" = "Desktop-Liedtext ausgeblendet";
+"mini_player_expand" = "Liedtext und Warteliste einblenden";
+"mini_player_collapse" = "Liedtext und Warteliste ausblenden";
+"audio_output_system_default" = "Systemstandard · Core Audio";
+"a11y_clear_search" = "Suche löschen";
