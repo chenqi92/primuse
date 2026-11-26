@@ -967,6 +967,69 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         }
     }
 
+    /// 专辑推荐在目录上取:候选专辑表、播放记录对应的专辑、推荐专辑的曲目顺序,同交整库音乐数组
+    /// 排出来的那一份。
+    func testAlbumPicksFromTheCatalogMatchTheInMemoryLibrary() async throws {
+        let library = makeLibrary()
+        var random = SmartPlaylistParityGenerator(state: 23)
+        var songs = Self.fixture()
+        for album in 0..<14 {
+            for track in 1...(4 + random.int(5)) {
+                var song = Song(
+                    id: "pick-\(album)-\(track)", title: "Pick \(album) \(track)",
+                    albumTitle: "Pick Album \(album)", artistName: "Picker \(album % 5)",
+                    trackNumber: random.chance(85) ? track : nil, discNumber: track > 6 ? 2 : 1,
+                    duration: random.chance(5) ? 0 : 200, fileFormat: .flac,
+                    filePath: "/Music/Picks/\(album)/\(String(format: "%02d", track)) Pick.flac",
+                    sourceID: random.chance(80) ? Self.sourceA : Self.sourceB,
+                    genre: random.pick(["Jazz", "Rock", "Classical", "Pop"]), year: 1980 + album,
+                    coverArtFileName: track == 1 ? "pick-\(album).jpg" : nil
+                )
+                song.dateAdded = Date().addingTimeInterval(-Double(album) * 86_400)
+                songs.append(song)
+            }
+        }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "album pick fixture")
+        XCTAssertTrue(try XCTUnwrap(library.catalogHost).revisions.isReadable)
+
+        let suite = "catalog-album-picks-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let service = AlbumRecommendationService(defaults: defaults)
+        let now = Date()
+        service.refresh(library: library, now: now)
+        for _ in 0..<800 where service.recommendations == nil { try await Task.sleep(for: .milliseconds(5)) }
+        let picks = try XCTUnwrap(service.recommendations)
+        XCTAssertFalse(picks.picks.isEmpty)
+
+        let index = try XCTUnwrap(AlbumCandidateIndex.build(librarySongs: library.musicSongs, libraryGeneration: 0))
+        let favorites = LibraryFavoritesStore.shared
+        let ranked = AlbumRecommender.rankedCandidates(
+            index: index,
+            context: AlbumRecommendationContext(
+                moment: picks.moment,
+                now: now,
+                events: PlayHistoryStore.shared.musicEntries.map { entry in
+                    AlbumListeningEvent(songID: entry.songID, albumID: library.visibleSong(id: entry.songID)?.albumID,
+                                        artistName: entry.artistName, playedAt: entry.playedAt)
+                },
+                likedAlbumIDs: Set(favorites.likedAlbums(in: library.visibleAlbums).map(\.id)),
+                likedArtistKeys: Set(favorites.likedArtists(in: library.visibleArtists).map { ListeningTextKey.folded($0.name) }),
+                dismissedAlbumIDs: []
+            ),
+            limit: AlbumPickBatchPolicy.poolSize(visibleCount: service.visibleCount) + AlbumRecommendationService.forYouAlbumCount
+        )
+        let pickCount = AlbumPickBatchPolicy.poolSize(visibleCount: service.visibleCount)
+        XCTAssertEqual(picks.picks, Array(ranked.prefix(pickCount)))
+        XCTAssertEqual(service.forYouAlbums, Array(ranked.dropFirst(pickCount)))
+        for pick in picks.picks + service.forYouAlbums {
+            let musicIDs = Set(library.musicSongs.filter { $0.albumID == pick.albumID }.map(\.id))
+            let expected = library.songs(forAlbum: pick.albumID).filteredPlayable().filter { musicIDs.contains($0.id) }.map(\.id)
+            XCTAssertEqual(service.songsInTrackOrder(albumID: pick.albumID, library: library).map(\.id), expected, pick.albumID)
+        }
+    }
+
     /// Siri「播放音乐」走目录:目录给的整库(可播放的音乐、不含不喜欢的)与内存那一份相同;一首能放的
     /// 都没有、点的那首不在曲库时,目录排队答「没有可放的」,不装队列、不调 `willInstall`(Siri 据此
     /// 答复没找到);目录还没收到点的那首时答「目录不能用」,调用方走内存路径。

@@ -256,25 +256,61 @@ public struct AlbumCandidateIndex: Sendable {
         libraryGeneration: UInt64,
         isCancelled: () -> Bool = { false }
     ) -> AlbumCandidateIndex? where Songs.Element: ListeningSongTraits {
-        var accumulators: [String: Accumulator] = [:]
-        var order: [String] = []
-        var memo = ListeningGenreClassifier.Memo()
+        var builder = Builder()
+        var position = 0
+        for song in songs {
+            if position.isMultiple(of: 1_024), isCancelled() { return nil }
+            position += 1
+            builder.add(song)
+        }
+        guard !isCancelled() else { return nil }
+        return builder.finish(libraryGeneration: libraryGeneration)
+    }
+
+    /// Nil when cancelled. `build(songs:)` over `scope` in the library
+    /// catalog, streamed in library order without materializing the library.
+    public static func build(
+        catalog: LibraryCatalog,
+        scope: LibrarySongScope,
+        libraryGeneration: UInt64,
+        isCancelled: () -> Bool = { false }
+    ) throws -> AlbumCandidateIndex? {
+        var builder = Builder()
+        var position = 0
+        var cancelled = false
+        try catalog.forEachSong(scope) { _, song in
+            if position.isMultiple(of: 1_024), isCancelled() {
+                cancelled = true
+                return false
+            }
+            position += 1
+            builder.add(song)
+            return true
+        }
+        guard !cancelled, !isCancelled() else { return nil }
+        return builder.finish(libraryGeneration: libraryGeneration)
+    }
+
+    /// `build` one song at a time: the same songs in the same order give the same index.
+    struct Builder {
+        private var accumulators: [String: Accumulator] = [:]
+        private var order: [String] = []
+        private var memo = ListeningGenreClassifier.Memo()
         // Folding is the expensive step; an artist recurs on every track.
-        var foldedNames: [String: String] = [:]
-        func artistKey(_ name: String) -> String {
+        private var foldedNames: [String: String] = [:]
+
+        private mutating func artistKey(_ name: String) -> String {
             if let key = foldedNames[name] { return key }
             let key = ListeningTextKey.folded(name)
             foldedNames[name] = key
             return key
         }
-        var position = 0
-        for song in songs {
-            if position.isMultiple(of: 1_024), isCancelled() { return nil }
-            position += 1
-            guard song.isPlayable, let albumID = song.albumID, !albumID.isEmpty else { continue }
+
+        mutating func add<Song: ListeningSongTraits>(_ song: Song) {
+            guard song.isPlayable, let albumID = song.albumID, !albumID.isEmpty else { return }
             if accumulators[albumID] == nil {
                 guard let title = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !title.isEmpty else { continue }
+                      !title.isEmpty else { return }
                 let artist = [song.albumArtistName, song.artistName]
                     .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .first { !$0.isEmpty } ?? ""
@@ -290,29 +326,31 @@ public struct AlbumCandidateIndex: Sendable {
             if let name = song.artistName, !name.isEmpty { trackArtistKey = artistKey(name) }
             accumulators[albumID]!.add(song, familyMask: mask, artistKey: trackArtistKey)
         }
-        guard !isCancelled() else { return nil }
-        var candidates: [AlbumCandidate] = []
-        candidates.reserveCapacity(order.count / 4)
-        for albumID in order {
-            guard let album = accumulators[albumID] else { continue }
-            let complete = album.trackCount >= minimumTrackCount
-                || (album.isCue && album.trackCount >= minimumCueTrackCount)
-            guard complete else { continue }
-            candidates.append(AlbumCandidate(
-                albumID: albumID,
-                title: album.title,
-                artistName: album.artistName,
-                artistKeys: album.artistKeys,
-                year: album.year,
-                trackCount: album.trackCount,
-                totalDuration: album.totalDuration,
-                families: ListeningGenreFamily.families(inMask: album.familyMask),
-                latestAdded: album.latestAdded,
-                isCueAlbum: album.isCue,
-                artworkSongID: album.artworkSongID
-            ))
+
+        func finish(libraryGeneration: UInt64) -> AlbumCandidateIndex {
+            var candidates: [AlbumCandidate] = []
+            candidates.reserveCapacity(order.count / 4)
+            for albumID in order {
+                guard let album = accumulators[albumID] else { continue }
+                let complete = album.trackCount >= minimumTrackCount
+                    || (album.isCue && album.trackCount >= minimumCueTrackCount)
+                guard complete else { continue }
+                candidates.append(AlbumCandidate(
+                    albumID: albumID,
+                    title: album.title,
+                    artistName: album.artistName,
+                    artistKeys: album.artistKeys,
+                    year: album.year,
+                    trackCount: album.trackCount,
+                    totalDuration: album.totalDuration,
+                    families: ListeningGenreFamily.families(inMask: album.familyMask),
+                    latestAdded: album.latestAdded,
+                    isCueAlbum: album.isCue,
+                    artworkSongID: album.artworkSongID
+                ))
+            }
+            return AlbumCandidateIndex(candidates: candidates, libraryGeneration: libraryGeneration)
         }
-        return AlbumCandidateIndex(candidates: candidates, libraryGeneration: libraryGeneration)
     }
 }
 

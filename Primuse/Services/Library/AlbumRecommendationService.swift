@@ -1,4 +1,5 @@
 import Foundation
+import os
 import PrimuseKit
 
 /// The album for the moment, shared by the iPhone/iPad home card, the Mac home
@@ -177,64 +178,84 @@ final class AlbumRecommendationService {
         forcePicksOnNextRefresh = false
 
         // Everything below is captured on the main actor and walked in the worker.
-        let songs = library.musicSongs
-        let lookup = library.visibleSongLookup()
+        // 曲库目录可读时候选表、播放记录对应的专辑、推荐专辑的曲目顺序和喜欢的专辑 / 艺人都在目录上取
+        // (同交整库数组的结果),不先取整库音乐;读失败时这一轮照旧走内存。
+        let catalogReader = library.catalogHost.flatMap { $0.revisions.isReadable ? $0.reader : nil }
         let history = PlayHistoryStore.shared.musicEntries
         let favorites = LibraryFavoritesStore.shared
-        let likedAlbumIDs = favorites.hasLikedAlbums
-            ? Set(favorites.likedAlbums(in: library.visibleAlbums).map(\.id))
-            : []
-        let likedArtistKeys = favorites.hasLikedArtists
-            ? Set(favorites.likedArtists(in: library.visibleArtists).map { ListeningTextKey.folded($0.name) })
-            : []
-        let dismissed = dismissedAlbumIDs
-        let pickCount = AlbumPickBatchPolicy.poolSize(visibleCount: visibleCount)
+        let likedAlbumOrder = favorites.hasLikedAlbums ? Self.likedOrder(favorites, .album) : [:]
+        let likedArtistOrder = favorites.hasLikedArtists ? Self.likedOrder(favorites, .artist) : [:]
+        let ranking = RankingInputs(
+            moment: moment, now: now, dismissedAlbumIDs: dismissedAlbumIDs,
+            pickCount: AlbumPickBatchPolicy.poolSize(visibleCount: visibleCount)
+        )
         let reusableIndex = indexIsStale ? nil : index
         let startedAt = ProcessInfo.processInfo.systemUptime
         let releaseCountAtStart = indexReleaseCount
 
-        refreshTask = Task { @MainActor [weak self] in
-            let worker = Task.detached(priority: .utility) { () -> (AlbumCandidateIndex, AlbumRecommendationSet, [AlbumRecommendation], [String: [String]])? in
-                guard let index = reusableIndex ?? AlbumCandidateIndex.build(
-                    librarySongs: songs,
-                    libraryGeneration: generation,
-                    isCancelled: { Task.isCancelled }
-                ) else { return nil }
-                let events = history.map { entry in
-                    AlbumListeningEvent(
-                        songID: entry.songID,
-                        albumID: lookup.song(id: entry.songID)?.albumID,
-                        artistName: entry.artistName,
-                        playedAt: entry.playedAt
-                    )
+        refreshTask = Task { @MainActor [weak self, weak library] in
+            let cancelled = OSAllocatedUnfairLock(initialState: false)
+            let isCancelled: @Sendable () -> Bool = { cancelled.withLock { $0 } }
+            var outcome: RefreshResult??
+            if let catalogReader {
+                do {
+                    let unknown = String(localized: "unknown_artist")
+                    let likedAlbumIDs = likedAlbumOrder.isEmpty ? [] : Set(try await catalogReader.likedAlbums(
+                        likedOrder: likedAlbumOrder, unknownArtistName: unknown
+                    ).map(\.id))
+                    let likedArtistKeys = likedArtistOrder.isEmpty ? [] : Set(try await catalogReader.likedArtists(
+                        likedOrder: likedArtistOrder, unknownArtistName: unknown
+                    ).map { ListeningTextKey.folded($0.name) })
+                    let fromCatalog = try await withTaskCancellationHandler {
+                        try await catalogReader.read { catalog -> RefreshResult? in
+                            guard let index = try reusableIndex ?? AlbumCandidateIndex.build(
+                                catalog: catalog, scope: .visibleMusic, libraryGeneration: generation, isCancelled: isCancelled
+                            ) else { return nil }
+                            let albumIDs = try LibraryCatalogReader.songsByID(
+                                Array(Set(history.map(\.songID))), scope: .visible, in: catalog
+                            ).mapValues(\.albumID)
+                            let (set, forYou, ranked) = Self.rank(
+                                index: index, history: history, albumID: { albumIDs[$0] ?? nil },
+                                likedAlbumIDs: likedAlbumIDs, likedArtistKeys: likedArtistKeys, inputs: ranking
+                            )
+                            guard !isCancelled() else { return nil }
+                            return (index, set, forYou, try Self.trackOrder(for: ranked, in: catalog))
+                        }
+                    } onCancel: {
+                        cancelled.withLock { $0 = true }
+                    }
+                    outcome = .some(fromCatalog)
+                } catch {
+                    plog("🎯 Album picks catalog read failed (\(error)); using the in-memory library")
                 }
-                // One ranked list: its head is exactly `recommend`'s picks,
-                // the rest feeds the album cards in "For You".
-                let ranked = AlbumRecommender.rankedCandidates(
-                    index: index,
-                    context: AlbumRecommendationContext(
-                        moment: moment,
-                        now: now,
-                        events: events,
-                        likedAlbumIDs: likedAlbumIDs,
-                        likedArtistKeys: likedArtistKeys,
-                        dismissedAlbumIDs: dismissed
-                    ),
-                    limit: pickCount + Self.forYouAlbumCount
-                )
-                let set = AlbumRecommendationSet(
-                    moment: moment,
-                    picks: Array(ranked.prefix(pickCount))
-                )
-                let forYou = Array(ranked.dropFirst(pickCount))
-                guard !Task.isCancelled else { return nil }
-                return (index, set, forYou, Self.trackOrder(for: ranked, in: songs))
             }
-            let computed = await withTaskCancellationHandler {
-                await worker.value
-            } onCancel: {
-                worker.cancel()
+            if outcome == nil, let library {
+                let songs = library.musicSongs
+                let lookup = library.visibleSongLookup()
+                let likedAlbumIDs = likedAlbumOrder.isEmpty ? [] : Set(favorites.likedAlbums(in: library.visibleAlbums).map(\.id))
+                let likedArtistKeys = likedArtistOrder.isEmpty
+                    ? [] : Set(favorites.likedArtists(in: library.visibleArtists).map { ListeningTextKey.folded($0.name) })
+                let worker = Task.detached(priority: .utility) { () -> RefreshResult? in
+                    guard let index = reusableIndex ?? AlbumCandidateIndex.build(
+                        librarySongs: songs,
+                        libraryGeneration: generation,
+                        isCancelled: isCancelled
+                    ) else { return nil }
+                    let (set, forYou, ranked) = Self.rank(
+                        index: index, history: history, albumID: { lookup.song(id: $0)?.albumID },
+                        likedAlbumIDs: likedAlbumIDs, likedArtistKeys: likedArtistKeys, inputs: ranking
+                    )
+                    guard !isCancelled() else { return nil }
+                    return (index, set, forYou, Self.trackOrder(for: ranked, in: songs, isCancelled: isCancelled))
+                }
+                outcome = .some(await withTaskCancellationHandler {
+                    await worker.value
+                } onCancel: {
+                    cancelled.withLock { $0 = true }
+                    worker.cancel()
+                })
             }
+            let computed = outcome ?? nil
             guard let self else { return }
             self.refreshTask = nil
             let result = Task.isCancelled || !self.refreshPauses.isEmpty ? nil : computed
@@ -297,16 +318,84 @@ final class AlbumRecommendationService {
         }
     }
 
+    private typealias RefreshResult = (AlbumCandidateIndex, AlbumRecommendationSet, [AlbumRecommendation], [String: [String]])
+
+    /// 一轮排名要的、在主线程上取好的输入。
+    private struct RankingInputs: Sendable {
+        let moment: ListeningMoment
+        let now: Date
+        let dismissedAlbumIDs: Set<String>
+        let pickCount: Int
+    }
+
+    private static func likedOrder(_ favorites: LibraryFavoritesStore, _ kind: LibraryFavoriteKind) -> [String: Int] {
+        Dictionary(
+            favorites.ledger.active(kind).enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    /// One ranked list: its head is exactly `recommend`'s picks, the rest
+    /// feeds the album cards in "For You". `albumID` maps a played song to its album.
+    nonisolated private static func rank(
+        index: AlbumCandidateIndex,
+        history: [PlayHistoryStore.Entry],
+        albumID: (String) -> String?,
+        likedAlbumIDs: Set<String>,
+        likedArtistKeys: Set<String>,
+        inputs: RankingInputs
+    ) -> (AlbumRecommendationSet, [AlbumRecommendation], [AlbumRecommendation]) {
+        let events = history.map { entry in
+            AlbumListeningEvent(
+                songID: entry.songID,
+                albumID: albumID(entry.songID),
+                artistName: entry.artistName,
+                playedAt: entry.playedAt
+            )
+        }
+        let ranked = AlbumRecommender.rankedCandidates(
+            index: index,
+            context: AlbumRecommendationContext(
+                moment: inputs.moment,
+                now: inputs.now,
+                events: events,
+                likedAlbumIDs: likedAlbumIDs,
+                likedArtistKeys: likedArtistKeys,
+                dismissedAlbumIDs: inputs.dismissedAlbumIDs
+            ),
+            limit: inputs.pickCount + Self.forYouAlbumCount
+        )
+        let set = AlbumRecommendationSet(moment: inputs.moment, picks: Array(ranked.prefix(inputs.pickCount)))
+        return (set, Array(ranked.dropFirst(inputs.pickCount)), ranked)
+    }
+
+    /// `trackOrder(for:in:)` on the catalog: each picked album's songs (the
+    /// same album membership as `songs(forAlbum:)`), kept to playable music in
+    /// the visible library, in disc/track order.
+    nonisolated private static func trackOrder(
+        for picks: [AlbumRecommendation],
+        in catalog: LibraryCatalog
+    ) throws -> [String: [String]] {
+        var order: [String: [String]] = [:]
+        for albumID in Set(picks.map(\.albumID)) {
+            let ids = try catalog.songs(rowids: catalog.albumSongRowList(albumID: albumID).rowids).map(\.id)
+            let music = try catalog.songs(ids: ids, scope: .visibleMusic).filter { $0.isPlayable && $0.albumID == albumID }
+            if !music.isEmpty { order[albumID] = AlbumTrackOrder.sorted(music).map(\.id) }
+        }
+        return order
+    }
+
     /// Album songs in disc/track order, for the few albums picked.
     nonisolated private static func trackOrder(
         for picks: [AlbumRecommendation],
-        in songs: [Song]
+        in songs: [Song],
+        isCancelled: () -> Bool
     ) -> [String: [String]] {
         let wanted = Set(picks.map(\.albumID))
         guard !wanted.isEmpty else { return [:] }
         var grouped: [String: [Song]] = [:]
         for (position, song) in songs.enumerated() {
-            if position.isMultiple(of: 512), Task.isCancelled { return [:] }
+            if position.isMultiple(of: 512), isCancelled() { return [:] }
             guard let albumID = song.albumID, wanted.contains(albumID), song.isPlayable else { continue }
             grouped[albumID, default: []].append(song)
         }
