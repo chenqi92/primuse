@@ -1030,6 +1030,49 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         }
     }
 
+    /// 首页常听艺人在目录上取:听过的艺人按名字对上可见艺人(去重、按听的先后),不够的按艺人列表补,
+    /// 同内存里 `visibleArtists` 那一套。
+    func testHomeTopArtistsFromTheCatalogMatchTheInMemoryLibrary() async throws {
+        let library = makeLibrary(disabledSourceIDs: [Self.sourceB])
+        var songs = Self.fixture()
+        for index in 0..<40 {
+            songs.append(Song(
+                id: "top-\(index)", title: "Top \(index)", albumTitle: "Top Album \(index % 6)",
+                artistName: "Top Artist \(index % 25)", duration: 200, fileFormat: .flac,
+                filePath: "/Music/Top/\(index).flac", sourceID: index % 7 == 0 ? Self.sourceB : Self.sourceA
+            ))
+        }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "top artist fixture")
+        let reader = try XCTUnwrap(library.catalogHost).reader
+
+        func expected(_ names: [String], limit: Int) -> [String] {
+            let visible = library.visibleArtists
+            guard !names.isEmpty else { return visible.prefix(limit).map(\.id) }
+            let byName = Dictionary(visible.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+            var result: [String] = []
+            var seen = Set<String>()
+            for name in names {
+                if let artist = byName[name], seen.insert(artist.id).inserted { result.append(artist.id) }
+            }
+            for artist in visible where result.count < limit && seen.insert(artist.id).inserted {
+                result.append(artist.id)
+            }
+            return result
+        }
+        let histories: [[String]] = [
+            [],
+            ["Top Artist 3", "Ada", "Nobody", "top artist 4", "Top Artist 3", "Host", "Top Artist 7"],
+            (0..<30).map { "Top Artist \($0)" },
+        ]
+        for names in histories {
+            for limit in [5, 20] {
+                let fromCatalog = try await HomeView.catalogTopArtists(reader: reader, historyNames: names, limit: limit)
+                XCTAssertEqual(fromCatalog.map(\.id), expected(names, limit: limit), "\(names) limit \(limit)")
+            }
+        }
+    }
+
     /// Siri「播放音乐」走目录:目录给的整库(可播放的音乐、不含不喜欢的)与内存那一份相同;一首能放的
     /// 都没有、点的那首不在曲库时,目录排队答「没有可放的」,不装队列、不调 `willInstall`(Siri 据此
     /// 答复没找到);目录还没收到点的那首时答「目录不能用」,调用方走内存路径。

@@ -4545,7 +4545,10 @@ struct HomeView: View {
 
         let heroFinishedAt = Date()
         let albumsFinishedAt = Date()
-        let topArtists = topArtistsForHome(history: topArtistHistory)
+        // 曲库目录可读时常听艺人在后台从目录取(算好后换上),这一份先沿用上次的。
+        let topArtistsReader = PlaybackCatalogAccess.reader(for: library)
+        let topArtists = topArtistsReader == nil ? topArtistsForHome(history: topArtistHistory) : model.snapshot.topArtists
+        if let topArtistsReader { refreshTopArtistsFromCatalog(reader: topArtistsReader, history: topArtistHistory) }
         let artistsFinishedAt = Date()
         let quickItems = makeHomeQuickItems(allPlaylists: allPlaylists)
         let quickFinishedAt = Date()
@@ -5776,6 +5779,65 @@ struct HomeView: View {
     /// (NavigationLink needs the Artist value, not the ranked stub).
     /// Match by artist name. Top up with alphabetical leftovers when
     /// history doesn't fill the row.
+    /// `topArtistsForHome` 在曲库目录上算:听过的艺人按名字对上可见艺人,不够的按艺人列表的顺序补,
+    /// 算好后换进首页快照。
+    private func refreshTopArtistsFromCatalog(reader: LibraryCatalogReader, history: [PlayHistoryStore.RankedItem]) {
+        let names = history.map(\.title)
+        let limit = Self.topArtistPoolLimit
+        Task { @MainActor [model] in
+            do {
+                let artists = try await Self.catalogTopArtists(reader: reader, historyNames: names, limit: limit)
+                guard model.snapshot.topArtists != artists else { return }
+                model.snapshot.topArtists = artists
+            } catch {
+                plog("🏠 top artists catalog read failed (\(error)); using the in-memory library")
+                let artists = topArtistsForHome(history: history)
+                if model.snapshot.topArtists != artists { model.snapshot.topArtists = artists }
+            }
+        }
+    }
+
+    /// 同 `topArtistsForHome`:可见艺人里名字与听过的艺人一字不差的那位(按听的先后、去重),
+    /// 不到 `limit` 位时按艺人列表的顺序补上没出现过的。
+    nonisolated static func catalogTopArtists(
+        reader: LibraryCatalogReader,
+        historyNames: [String],
+        limit: Int
+    ) async throws -> [Artist] {
+        try await reader.read { catalog in
+            let keys = try catalog.artistKeys(visibleOnly: true).keys
+            var result: [Artist] = []
+            var seen = Set<String>()
+            if !historyNames.isEmpty {
+                let visibleKeys = Set(keys)
+                var byName: [String: Artist?] = [:]
+                for name in historyNames {
+                    if byName[name] == nil {
+                        let id = LibraryCatalogReader.artistIDs(forNames: [name]).first
+                        let artist = try id.flatMap { try catalog.artistKey(id: $0) }
+                            .flatMap { visibleKeys.contains($0) ? $0 : nil }
+                            .flatMap { try catalog.artists(keys: [$0], visibleCounts: true).first }
+                        byName[name] = .some(artist?.name == name ? artist : nil)
+                    }
+                    if let artist = byName[name] ?? nil, seen.insert(artist.id).inserted {
+                        result.append(artist)
+                    }
+                }
+            }
+            var start = 0
+            while result.count < limit, start < keys.count {
+                let end = min(keys.count, start + max(limit, 64))
+                for artist in try catalog.artists(keys: keys[start..<end], visibleCounts: true)
+                where seen.insert(artist.id).inserted {
+                    result.append(artist)
+                    if result.count >= limit { break }
+                }
+                start = end
+            }
+            return result
+        }
+    }
+
     private func topArtistsForHome(history: [PlayHistoryStore.RankedItem]) -> [Artist] {
         guard !history.isEmpty else {
             return Array(library.visibleArtists.prefix(Self.topArtistPoolLimit))
