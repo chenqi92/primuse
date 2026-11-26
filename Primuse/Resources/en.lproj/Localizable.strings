@@ -8087,6 +8087,8 @@
 "stats_server_rank_events" = "Recorded History";
 "stats_server_rank_cumulative_footer" = "Aggregated from server per-track playCount (including undated history), matching All-time Plays.";
 "stats_server_rank_events_footer" = "Aggregated from timestamped server play events, matching Recorded Plays for this range.";
+"source_disabled_empty_desc" = "This music source is turned off on this device. Enable it to browse and play its songs.";
+"source_state_unauthorized" = "Authorization Required";
 "sources_manage_action" = "Manage Sources";
 "stats_play_count_singular" = "1 play";
 "song_count_singular" = "1 song";

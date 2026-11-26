@@ -8326,6 +8326,8 @@
 "stats_server_rank_events" = "Zeitverlauf";
 "stats_server_rank_cumulative_footer" = "Summiert aus den gesamten playCount-Werten pro Titel (inkl. undatierter Historie), passend zu „Wiedergaben gesamt“.";
 "stats_server_rank_events_footer" = "Summiert aus zeitgestempelten Server-Wiedergaben, passend zu „Erfasste Wiedergaben“ im gewählten Zeitraum.";
+"source_disabled_empty_desc" = "Diese Musikquelle ist auf diesem Gerät deaktiviert. Aktiviere sie, um ihre Titel anzusehen und abzuspielen.";
+"source_state_unauthorized" = "Autorisierung erforderlich";
 "sources_manage_action" = "Quellen verwalten";
 "stats_play_count_singular" = "1 Wiedergabe";
 "song_count_singular" = "1 Titel";

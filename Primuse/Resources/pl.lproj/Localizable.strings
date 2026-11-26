@@ -8232,6 +8232,8 @@
 "stats_server_rank_events" = "Zapisana historia";
 "stats_server_rank_cumulative_footer" = "Zsumowano według łącznego playCount utworów na serwerze (w tym historii bez dat), zgodnie z „Odtworzenia łącznie”.";
 "stats_server_rank_events_footer" = "Zsumowano według zapisanych zdarzeń odtwarzania ze znacznikami czasu, zgodnie z „Zapisane odtworzenia” w tym okresie.";
+"source_disabled_empty_desc" = "To źródło muzyki jest wyłączone na tym urządzeniu. Włącz je, aby przeglądać i odtwarzać utwory.";
+"source_state_unauthorized" = "Wymagana autoryzacja";
 "sources_manage_action" = "Zarządzaj źródłami";
 "stats_play_count_singular" = "1 odtworzenie";
 "song_count_singular" = "1 utwór";

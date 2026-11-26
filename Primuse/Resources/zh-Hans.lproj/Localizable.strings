@@ -8419,6 +8419,8 @@
 "stats_server_rank_events" = "逐次历史排行";
 "stats_server_rank_cumulative_footer" = "按服务端单曲累计播放次数汇总（包含无具体日期的历史记录），与「累计播放次数」一致。";
 "stats_server_rank_events_footer" = "按服务端保留时间戳的逐次播放记录汇总，与当前范围的「已记录播放」一致。";
+"source_disabled_empty_desc" = "此音乐源已在本设备关闭。启用后即可浏览和播放其中的歌曲。";
+"source_state_unauthorized" = "需要授权";
 "sources_manage_action" = "管理音乐源";
 "stats_play_count_singular" = "1 次";
 "song_count_singular" = "1 首歌曲";

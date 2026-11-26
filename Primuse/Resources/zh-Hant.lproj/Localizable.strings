@@ -8303,6 +8303,8 @@
 "stats_server_rank_events" = "逐次歷史排行";
 "stats_server_rank_cumulative_footer" = "按伺服器單曲累計播放次數彙總（包含無具體日期的歷史記錄），與「累計播放次數」一致。";
 "stats_server_rank_events_footer" = "按伺服器保留時間戳記的逐次播放記錄彙總，與目前範圍的「已記錄播放」一致。";
+"source_disabled_empty_desc" = "此音樂來源已在此裝置關閉。啟用後即可瀏覽並播放其中的歌曲。";
+"source_state_unauthorized" = "需要授權";
 "sources_manage_action" = "管理音樂來源";
 "stats_play_count_singular" = "1 次";
 "song_count_singular" = "1 首歌曲";

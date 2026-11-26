@@ -8232,6 +8232,8 @@
 "stats_server_rank_events" = "Histórico registrado";
 "stats_server_rank_cumulative_footer" = "Agregado pelo playCount acumulado por faixa (incluindo histórico sem data), alinhado a Reproduções acumuladas.";
 "stats_server_rank_events_footer" = "Agregado pelos eventos de reprodução com data no servidor, alinhado a Reproduções registradas no período.";
+"source_disabled_empty_desc" = "Esta fonte de música está desativada neste dispositivo. Ative-a para navegar e reproduzir suas músicas.";
+"source_state_unauthorized" = "Autorização necessária";
 "sources_manage_action" = "Gerenciar fontes";
 "stats_play_count_singular" = "1 reprodução";
 "song_count_singular" = "1 música";
