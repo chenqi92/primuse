@@ -409,6 +409,8 @@ struct ListeningRankRowLabel<Artwork: View>: View {
     let trend: HomeListeningRankTrend?
     /// 相对榜首的播放占比，0...1。
     let share: Double
+    /// 服务端未提供实际聆听时长时不显示秒数，避免虚构 0 秒。
+    var showsDuration = true
     /// 自绘的卡片里内边距在行里面、整行都能点；表单行的内边距归系统管，统计页的名次行只留上下一点。
     var insets = EdgeInsets(top: 9, leading: 12, bottom: 9, trailing: 12)
     @ViewBuilder let artwork: () -> Artwork
@@ -447,9 +449,11 @@ struct ListeningRankRowLabel<Artwork: View>: View {
                 Text(ListeningRankText.playCount(playCount))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(.primary)
-                Text(ListeningRankText.duration(listenedSeconds))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                if showsDuration {
+                    Text(ListeningRankText.duration(listenedSeconds))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
             }
             .fixedSize(horizontal: true, vertical: false)
         }

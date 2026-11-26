@@ -5767,8 +5767,7 @@
 "stats_server_all_time_plays" = "Tüm zamanlardaki çalmalar";
 "stats_server_hourly_title" = "Günün saatine göre çalmalar";
 "stats_server_hourly_footer" = "Sunucunun kaydettiği saate göre gruplandırılır · çalmalar. Scrobble zamanı, kullanılan oynatıcıya bağlıdır.";
-"stats_server_navidrome_history_boundary" = "Grafikler ve dönem toplamları Navidrome’un sakladığı çalma geçmişini kullanır. Eski çalmalar yalnızca toplam sayaçlarda bulunabilir; yükseltme bunları yeniden oluşturamaz. Gerçekte dinlenen süre mevcut değildir.";
-
+"stats_server_navidrome_history_boundary" = "Tümü görünümünde sıralamalar varsayılan olarak sunucunun toplam playCount sayaçlarını (tarihsiz geçmiş dahil) kullanır. Grafikler ve dönemler, tarih uydurmadan Navidrome’un zaman damgalı geçmişini kullanır. Gerçek dinlenme süresi mevcut değildir.";
 "scrape_parts_all" = "Etiketler, kapak ve şarkı sözleri";
 "scrape_parts_lyrics_only" = "Yalnızca şarkı sözleri";
 "scrape_parts_cover_only" = "Yalnızca kapak";
@@ -8225,7 +8224,11 @@
 "playback_error_source_offline_skipped_format" = "Çevrimdışı Modda \"%@\" kaynağındaki önbelleksiz şarkılar atlandı";
 "filter_offline_available" = "Çevrimdışı Kullanılabilir";
 "filter_offline_available_empty_desc" = "İndirilen, önbelleğe alınan ve cihazdaki şarkılar burada görünür.";
-
 "song_radio_building" = "Şarkı Radyosu oluşturuluyor…";
 "song_radio_started_format" = "Şarkı Radyosu başlatıldı · sırada %d şarkı";
 "song_radio_no_matches" = "Başka benzer şarkı bulunamadı";
+"stats_server_rank_basis" = "Sıralama Ölçütü";
+"stats_server_rank_cumulative" = "Tüm Zamanlar Toplamı";
+"stats_server_rank_events" = "Kayıtlı Geçmiş";
+"stats_server_rank_cumulative_footer" = "Sunucudaki parça başı toplam playCount değerlerinden (tarihsiz geçmiş dahil) hesaplanır; Tüm zamanlardaki çalmalar ile eşleşir.";
+"stats_server_rank_events_footer" = "Zaman damgalı sunucu çalma kayıtlarından hesaplanır; seçili aralıktaki Kaydedilen çalmalar ile eşleşir.";

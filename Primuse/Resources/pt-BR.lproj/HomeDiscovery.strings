@@ -35,3 +35,9 @@
 "folder_song_order_footer" = "As pastas abertas no início ou aqui mostram e tocam as músicas nesta ordem. A ordem das faixas segue os números de disco e de faixa, ou o número no começo do nome do arquivo quando a música não tem um.";
 "folder_cache_confirm_format" = "Baixar as %2$d músicas de “%1$@” e suas subpastas?";
 "folder_cache_cancel" = "Cancelar download";
+"ranking_source_primuse" = "Histórico do Primuse";
+"ranking_server_cumulative_scope" = "Usa a contagem acumulada de reproduções de “%@” (incluindo histórico sem data), sem somar reproduções locais.";
+"ranking_server_events_scope" = "Usa o histórico com data de “%@”; contagens acumuladas sem data ficam fora dos rankings semanal e mensal e não somam reproduções locais.";
+"ranking_server_folder_cumulative_scope" = "O ranking de pastas inclui músicas de “%@” com pasta atual usando o acumulado do servidor, sem somar reproduções locais.";
+"ranking_server_folder_events_scope" = "O ranking de pastas inclui músicas de “%@” com pasta atual usando o histórico com data; contagens sem data ficam fora da semana e do mês.";
+"ranking_server_empty_period_hint" = "Nenhuma reprodução com data no servidor neste período. Mude para Tudo para ver o ranking acumulado.";

@@ -35,3 +35,9 @@
 "folder_song_order_footer" = "Ordner, die du auf der Startseite oder hier öffnest, zeigen und spielen ihre Titel in dieser Reihenfolge. Die Titelreihenfolge richtet sich nach CD- und Titelnummer, bei Titeln ohne Nummer nach der Zahl am Anfang des Dateinamens.";
 "folder_cache_confirm_format" = "Alle %2$d Titel in „%1$@“ und den Unterordnern herunterladen?";
 "folder_cache_cancel" = "Download abbrechen";
+"ranking_source_primuse" = "Primuse-Verlauf";
+"ranking_server_cumulative_scope" = "Basiert auf den gesamten Wiedergabezählern von „%@“ (einschließlich undatierter Historie), ohne lokale Wiedergaben zu addieren.";
+"ranking_server_events_scope" = "Basiert auf dem zeitgestempelten Verlauf von „%@“; undatierte Gesamtzähler fließen nicht in Wochen- und Monatscharts ein und lokale Wiedergaben werden nicht addiert.";
+"ranking_server_folder_cumulative_scope" = "Ordner-Ranglisten umfassen Titel aus „%@“ mit aktuellem Ordner anhand der Server-Gesamtzähler, ohne lokale Wiedergaben.";
+"ranking_server_folder_events_scope" = "Ordner-Ranglisten umfassen Titel aus „%@“ mit aktuellem Ordner anhand zeitgestempelter Server-Ereignisse; undatierte Zähler sind aus Wochen- und Monatscharts ausgeschlossen.";
+"ranking_server_empty_period_hint" = "Keine zeitgestempelten Server-Wiedergaben in diesem Zeitraum. Wechsle zu „Alle“, um die Gesamtrangliste zu sehen.";

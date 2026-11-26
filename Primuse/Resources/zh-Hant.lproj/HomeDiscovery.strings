@@ -35,3 +35,9 @@
 "folder_song_order_footer" = "從首頁和這裡開啟的目錄都按這個順序列出和播放歌曲。曲目順序按碟號、曲號排，沒有曲號時看檔名開頭的編號。";
 "folder_cache_confirm_format" = "確定下載「%1$@」及其子目錄中的 %2$d 首歌曲？";
 "folder_cache_cancel" = "取消下載";
+"ranking_source_primuse" = "Primuse 記錄";
+"ranking_server_cumulative_scope" = "按「%@」的伺服器累計播放次數統計（含無具體日期的歷史記錄），不疊加本機記錄。";
+"ranking_server_events_scope" = "按「%@」保留的逐次播放歷史統計；無具體日期的舊累計記錄不計入週榜與月榜，不疊加本機記錄。";
+"ranking_server_folder_cumulative_scope" = "目錄排行僅統計「%@」中目前可定位目錄的歌曲，按伺服器累計播放次數彙總，不疊加本機記錄。";
+"ranking_server_folder_events_scope" = "目錄排行僅統計「%@」中目前可定位目錄的歌曲，按保留的逐次播放歷史彙總；無日期的舊累計記錄不計入週榜與月榜。";
+"ranking_server_empty_period_hint" = "此時間段內暫無伺服器逐次播放記錄；切換到「全部」可查看伺服器累計總榜。";

@@ -5838,8 +5838,7 @@
 "stats_server_all_time_plays" = "累計播放次數";
 "stats_server_hourly_title" = "各時段播放次數";
 "stats_server_hourly_footer" = "按伺服器記錄時間的小時分組；記錄時間取決於播放用戶端。";
-"stats_server_navidrome_history_boundary" = "圖表和分時段統計來自 Navidrome 保留的逐次播放歷史。更早的播放可能只保留了累計次數，升級無法補回其日期；伺服器未提供實際聆聽時長。";
-
+"stats_server_navidrome_history_boundary" = "「全部」預設按伺服器累計播放次數產生總榜（含無具體日期的遷入記錄）；熱力圖、時段分佈及週/月/年排行來自 Navidrome 保留的逐次播放歷史，不虛構舊記錄日期。伺服器未提供實際聆聽時長。";
 "scrape_parts_all" = "標籤、封面和歌詞";
 "scrape_parts_lyrics_only" = "只補歌詞";
 "scrape_parts_cover_only" = "只補封面";
@@ -8296,7 +8295,11 @@
 "playback_error_source_offline_skipped_format" = "已略過「%@」離線模式下未快取的歌曲";
 "filter_offline_available" = "離線可用";
 "filter_offline_available_empty_desc" = "已下載、已快取或本機的歌曲會顯示在這裡。";
-
 "song_radio_building" = "正在建立歌曲電台…";
 "song_radio_started_format" = "已啟動歌曲電台 · 接下來 %d 首";
 "song_radio_no_matches" = "目前找不到更多相似歌曲";
+"stats_server_rank_basis" = "排行口徑";
+"stats_server_rank_cumulative" = "累計總榜";
+"stats_server_rank_events" = "逐次歷史排行";
+"stats_server_rank_cumulative_footer" = "按伺服器單曲累計播放次數彙總（包含無具體日期的歷史記錄），與「累計播放次數」一致。";
+"stats_server_rank_events_footer" = "按伺服器保留時間戳記的逐次播放記錄彙總，與目前範圍的「已記錄播放」一致。";

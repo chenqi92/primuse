@@ -35,3 +35,9 @@
 "folder_song_order_footer" = "홈과 여기에서 연 폴더는 이 순서로 곡을 표시하고 재생합니다. 트랙 순서는 디스크 번호와 트랙 번호를 따르며, 트랙 번호가 없는 곡은 파일 이름 앞의 번호를 씁니다.";
 "folder_cache_confirm_format" = "“%1$@” 및 하위 폴더의 노래 %2$d곡을 모두 다운로드할까요?";
 "folder_cache_cancel" = "다운로드 취소";
+"ranking_source_primuse" = "Primuse 기록";
+"ranking_server_cumulative_scope" = "“%@” 서버의 누적 재생 횟수(날짜 없는 이전 기록 포함)를 기준으로 집계하며 기기 기록과 합산하지 않습니다.";
+"ranking_server_events_scope" = "“%@”에 보관된 개별 재생 기록을 기준으로 집계합니다. 날짜가 없는 누적 횟수는 주간·월간 순위에서 제외되며 기기 기록과 합산하지 않습니다.";
+"ranking_server_folder_cumulative_scope" = "디렉터리 순위는 “%@”에서 현재 위치를 확인할 수 있는 곡만 서버 누적 재생 횟수로 집계하며 기기 기록과 합산하지 않습니다.";
+"ranking_server_folder_events_scope" = "디렉터리 순위는 “%@”에서 현재 위치를 확인할 수 있는 곡만 시간 기록이 있는 재생 이력으로 집계하며, 날짜 없는 누적 횟수는 주간·월간에서 제외됩니다.";
+"ranking_server_empty_period_hint" = "이 기간에는 시간 기록이 있는 서버 재생 내역이 없습니다. ‘전체’로 전환하면 누적 순위를 볼 수 있습니다.";

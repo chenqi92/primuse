@@ -254,9 +254,20 @@ public struct ServerListeningStatsHourlyCount: Equatable, Sendable, Identifiable
     public let playCount: Int
 }
 
+public enum ServerListeningStatsRankingBasis: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Per-track cumulative playCount totals from the server, including undated historical counts.
+    case cumulative
+    /// Timestamped individual play events retained by the server.
+    case events
+
+    public var id: String { rawValue }
+}
+
 public struct ServerListeningStatsPresentation: Equatable, Sendable {
     public let temporalDetail: ServerListeningStatsTemporalDetail
     public let appliedRange: ServerListeningStatsRange
+    public let rankingBasis: ServerListeningStatsRankingBasis
+    public let availableRankingBases: [ServerListeningStatsRankingBasis]
     public let totalPlays: Int
     public let uniqueTracks: Int
     public let activeDays: Int?
@@ -268,12 +279,47 @@ public struct ServerListeningStatsPresentation: Equatable, Sendable {
     public let topTracks: [ServerListeningStatsRankedItem]
     public let topArtists: [ServerListeningStatsRankedItem]
     public let topAlbums: [ServerListeningStatsRankedItem]
+
+    public init(
+        temporalDetail: ServerListeningStatsTemporalDetail,
+        appliedRange: ServerListeningStatsRange,
+        rankingBasis: ServerListeningStatsRankingBasis = .cumulative,
+        availableRankingBases: [ServerListeningStatsRankingBasis] = [.cumulative],
+        totalPlays: Int,
+        uniqueTracks: Int,
+        activeDays: Int?,
+        lastPlayedAt: Date?,
+        totalListenedSeconds: TimeInterval?,
+        dailyCounts: [ServerListeningStatsDailyCount],
+        hourlyCounts: [ServerListeningStatsHourlyCount],
+        allTimePlayCount: Int?,
+        topTracks: [ServerListeningStatsRankedItem],
+        topArtists: [ServerListeningStatsRankedItem],
+        topAlbums: [ServerListeningStatsRankedItem]
+    ) {
+        self.temporalDetail = temporalDetail
+        self.appliedRange = appliedRange
+        self.rankingBasis = rankingBasis
+        self.availableRankingBases = availableRankingBases
+        self.totalPlays = totalPlays
+        self.uniqueTracks = uniqueTracks
+        self.activeDays = activeDays
+        self.lastPlayedAt = lastPlayedAt
+        self.totalListenedSeconds = totalListenedSeconds
+        self.dailyCounts = dailyCounts
+        self.hourlyCounts = hourlyCounts
+        self.allTimePlayCount = allTimePlayCount
+        self.topTracks = topTracks
+        self.topArtists = topArtists
+        self.topAlbums = topAlbums
+    }
 }
 
 public enum ServerListeningStatsPresentationBuilder {
     public static func build(
         payload: ServerListeningStatsPayload,
         range: ServerListeningStatsRange,
+        preferredRankingBasis: ServerListeningStatsRankingBasis = .cumulative,
         now: Date = Date(),
         calendar: Calendar = .current,
         rankingLimit: Int = 20
@@ -286,6 +332,7 @@ public enum ServerListeningStatsPresentationBuilder {
             return buildEvents(
                 payload: payload,
                 range: range,
+                preferredRankingBasis: preferredRankingBasis,
                 now: now,
                 calendar: calendar,
                 rankingLimit: rankingLimit
@@ -301,6 +348,8 @@ public enum ServerListeningStatsPresentationBuilder {
         return ServerListeningStatsPresentation(
             temporalDetail: .aggregate,
             appliedRange: .all,
+            rankingBasis: .cumulative,
+            availableRankingBases: [.cumulative],
             totalPlays: playedTracks.reduce(0) { $0 + $1.playCount },
             uniqueTracks: playedTracks.count,
             activeDays: nil,
@@ -314,12 +363,14 @@ public enum ServerListeningStatsPresentationBuilder {
                 playedTracks,
                 kind: .artist,
                 value: { $0.artist },
+                subtitle: { _ in nil },
                 limit: rankingLimit
             ),
             topAlbums: rankedAggregates(
                 playedTracks,
                 kind: .album,
                 value: { $0.album },
+                subtitle: { $0.artist },
                 limit: rankingLimit
             )
         )
@@ -328,6 +379,7 @@ public enum ServerListeningStatsPresentationBuilder {
     private static func buildEvents(
         payload: ServerListeningStatsPayload,
         range: ServerListeningStatsRange,
+        preferredRankingBasis: ServerListeningStatsRankingBasis,
         now: Date,
         calendar: Calendar,
         rankingLimit: Int
@@ -345,36 +397,74 @@ public enum ServerListeningStatsPresentationBuilder {
             ServerListeningStatsHourlyCount(hour: $0, playCount: hours[$0]?.count ?? 0)
         }
 
-        return ServerListeningStatsPresentation(
-            temporalDetail: .events,
-            appliedRange: range,
-            totalPlays: events.count,
-            uniqueTracks: Set(events.map(\.remoteTrackID)).count,
-            activeDays: days.count,
-            lastPlayedAt: events.map(\.playedAt).max(),
-            totalListenedSeconds: payload.durationAvailability == .actual
-                ? events.compactMap(\.listenedSeconds).reduce(0, +)
-                : nil,
-            dailyCounts: dailyCounts,
-            hourlyCounts: hourlyCounts,
-            allTimePlayCount: payload.allTimePlayCount,
-            topTracks: rankedEvents(
+        let cumulativeTracks = range == .all ? payload.cumulativeTracks : nil
+        let availableBases: [ServerListeningStatsRankingBasis] = cumulativeTracks != nil
+            ? [.cumulative, .events]
+            : [.events]
+        let resolvedBasis: ServerListeningStatsRankingBasis = availableBases.contains(preferredRankingBasis)
+            ? preferredRankingBasis
+            : (availableBases.first ?? .events)
+
+        let playedCumulative = cumulativeTracks?.filter { $0.playCount > 0 } ?? []
+        let usesCumulativeRanking = resolvedBasis == .cumulative && cumulativeTracks != nil
+
+        let uniqueTracks: Int
+        if usesCumulativeRanking {
+            uniqueTracks = Set(playedCumulative.map(\.remoteTrackID))
+                .union(events.map(\.remoteTrackID))
+                .count
+        } else {
+            uniqueTracks = Set(events.map(\.remoteTrackID)).count
+        }
+
+        let latestEventDate = events.map(\.playedAt).max()
+        let lastPlayedAt: Date?
+        if usesCumulativeRanking {
+            lastPlayedAt = [latestEventDate, playedCumulative.compactMap(\.lastPlayedAt).max()]
+                .compactMap { $0 }
+                .max()
+        } else {
+            lastPlayedAt = latestEventDate
+        }
+
+        let topTracks: [ServerListeningStatsRankedItem]
+        let topArtists: [ServerListeningStatsRankedItem]
+        let topAlbums: [ServerListeningStatsRankedItem]
+
+        if usesCumulativeRanking {
+            topTracks = rankedTracks(playedCumulative, limit: rankingLimit)
+            topArtists = rankedAggregates(
+                playedCumulative,
+                kind: .artist,
+                value: { $0.artist },
+                subtitle: { _ in nil },
+                limit: rankingLimit
+            )
+            topAlbums = rankedAggregates(
+                playedCumulative,
+                kind: .album,
+                value: { $0.album },
+                subtitle: { $0.artist },
+                limit: rankingLimit
+            )
+        } else {
+            topTracks = rankedEvents(
                 events,
                 kind: .track,
                 key: { $0.remoteTrackID },
                 title: { $0.title },
                 subtitle: { joinedSubtitle($0.artist, $0.album) },
                 limit: rankingLimit
-            ),
-            topArtists: rankedEvents(
+            )
+            topArtists = rankedEvents(
                 events,
                 kind: .artist,
                 key: { normalizedValue($0.artist) },
                 title: { normalizedValue($0.artist) },
                 subtitle: { _ in nil },
                 limit: rankingLimit
-            ),
-            topAlbums: rankedEvents(
+            )
+            topAlbums = rankedEvents(
                 events,
                 kind: .album,
                 key: { normalizedValue($0.album) },
@@ -382,6 +472,26 @@ public enum ServerListeningStatsPresentationBuilder {
                 subtitle: { $0.artist },
                 limit: rankingLimit
             )
+        }
+
+        return ServerListeningStatsPresentation(
+            temporalDetail: .events,
+            appliedRange: range,
+            rankingBasis: resolvedBasis,
+            availableRankingBases: availableBases,
+            totalPlays: events.count,
+            uniqueTracks: uniqueTracks,
+            activeDays: days.count,
+            lastPlayedAt: lastPlayedAt,
+            totalListenedSeconds: payload.durationAvailability == .actual
+                ? events.compactMap(\.listenedSeconds).reduce(0, +)
+                : nil,
+            dailyCounts: dailyCounts,
+            hourlyCounts: hourlyCounts,
+            allTimePlayCount: payload.allTimePlayCount,
+            topTracks: topTracks,
+            topArtists: topArtists,
+            topAlbums: topAlbums
         )
     }
 
@@ -407,21 +517,35 @@ public enum ServerListeningStatsPresentationBuilder {
         _ tracks: [ServerListeningTrackAggregate],
         kind: ServerListeningStatsRankedItem.Kind,
         value: (ServerListeningTrackAggregate) -> String?,
+        subtitle: (ServerListeningTrackAggregate) -> String?,
         limit: Int
     ) -> [ServerListeningStatsRankedItem] {
         let groups = Dictionary(grouping: tracks) { normalizedValue(value($0)) }
-        return groups.map { key, values in
-            ServerListeningStatsRankedItem(
+        return groups.compactMap { key, values in
+            guard let exemplar = values.sorted(by: aggregateExemplarSort).first else { return nil }
+            let resolvedSubtitle = subtitle(exemplar)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return ServerListeningStatsRankedItem(
                 id: kind.rawValue + ":" + key,
                 kind: kind,
                 title: key,
-                subtitle: nil,
+                subtitle: resolvedSubtitle?.isEmpty == false ? resolvedSubtitle : nil,
                 playCount: values.reduce(0) { $0 + $1.playCount }
             )
         }
         .sorted(by: rankSort)
         .prefix(max(0, limit))
         .map { $0 }
+    }
+
+    private static func aggregateExemplarSort(
+        _ lhs: ServerListeningTrackAggregate,
+        _ rhs: ServerListeningTrackAggregate
+    ) -> Bool {
+        if lhs.playCount != rhs.playCount { return lhs.playCount > rhs.playCount }
+        if lhs.lastPlayedAt != rhs.lastPlayedAt {
+            return (lhs.lastPlayedAt ?? .distantPast) > (rhs.lastPlayedAt ?? .distantPast)
+        }
+        return lhs.remoteTrackID < rhs.remoteTrackID
     }
 
     private static func rankedEvents(

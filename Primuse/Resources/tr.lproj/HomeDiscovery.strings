@@ -35,3 +35,9 @@
 "folder_song_order_footer" = "Ana sayfadan veya buradan açılan klasörler şarkılarını bu sırayla listeler ve çalar. Parça sırası disk ve parça numaralarını izler; numarası olmayan şarkılarda dosya adının başındaki sayı kullanılır.";
 "folder_cache_confirm_format" = "“%1$@” ve alt klasörlerindeki %2$d şarkının tümü indirilsin mi?";
 "folder_cache_cancel" = "İndirmeyi iptal et";
+"ranking_source_primuse" = "Primuse Geçmişi";
+"ranking_server_cumulative_scope" = "Yerel çalmalar eklenmeden, “%@” kaynağındaki tüm zamanların çalma sayılarını (tarihsiz geçmiş dahil) kullanır.";
+"ranking_server_events_scope" = "“%@” kaynağının zaman damgalı geçmişini kullanır; tarihsiz toplam sayaçlar haftalık ve aylık sıralamalara dahil edilmez ve yerel kayıtlarla toplanmaz.";
+"ranking_server_folder_cumulative_scope" = "Klasör sıralaması, yerel çalmalar eklenmeden “%@” içindeki geçerli klasörü olan şarkıları sunucu toplam sayılarına göre toplar.";
+"ranking_server_folder_events_scope" = "Klasör sıralaması, “%@” içindeki geçerli klasörü olan şarkıları zaman damgalı geçmişe göre toplar; tarihsiz sayaçlar hafta ve ay görünümlerine dahil edilmez.";
+"ranking_server_empty_period_hint" = "Bu dönemde zaman damgalı sunucu çalması yok. Tüm zamanların toplam sıralamasını görmek için Tümü seçeneğine geçin.";

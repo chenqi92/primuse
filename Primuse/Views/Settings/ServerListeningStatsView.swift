@@ -8,6 +8,7 @@ struct ServerListeningStatsView: View {
 
     @Environment(ServerListeningStatsService.self) private var statsService
     @State private var range: ServerListeningStatsRange = .month
+    @State private var preferredRankingBasis: ServerListeningStatsRankingBasis = .cumulative
     @State private var rankTab: RankTab = .tracks
     @State private var manualRefreshTask: Task<Void, Never>?
     #if os(macOS)
@@ -57,7 +58,10 @@ struct ServerListeningStatsView: View {
 
     private var presentation: ServerListeningStatsPresentation? {
         guard statsService.sourceID == source.id else { return nil }
-        return statsService.presentation(range: range)
+        return statsService.presentation(
+            range: range,
+            preferredRankingBasis: preferredRankingBasis
+        )
     }
 
     private var isEventHistory: Bool {
@@ -259,10 +263,15 @@ struct ServerListeningStatsView: View {
         _ presentation: ServerListeningStatsPresentation
     ) -> some View {
         Section {
+            if presentation.availableRankingBases.count > 1 {
+                rankingBasisPicker
+            }
             rankPicker
             rankedRows(presentation)
         } header: {
-            Text("stats_top_header")
+            Text(rankingHeaderKey(presentation))
+        } footer: {
+            Text(rankingFooterKey(presentation))
         }
     }
     #endif
@@ -503,33 +512,56 @@ struct ServerListeningStatsView: View {
     private func macRankingCard(
         _ presentation: ServerListeningStatsPresentation
     ) -> some View {
-        Group {
-            if rankingWidth == 0 || rankingWidth >= 260 * 3 + 14 * 2 {
-                HStack(alignment: .top, spacing: 14) {
-                    macRankColumn(title: "stats_top_songs", tab: .tracks, items: presentation.topTracks)
-                        .frame(minWidth: 260)
-                    macRankColumn(title: "stats_top_artists", tab: .artists, items: presentation.topArtists)
-                        .frame(minWidth: 260)
-                    macRankColumn(title: "stats_top_albums", tab: .albums, items: presentation.topAlbums)
-                        .frame(minWidth: 260)
+        let countLabel = macColumnCountLabel(presentation)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(rankingHeaderKey(presentation))
+                        .font(.headline)
+                        .foregroundStyle(PMColor.text)
+                    Text(rankingFooterKey(presentation))
+                        .font(.caption)
+                        .foregroundStyle(PMColor.textMuted)
                 }
-            } else {
-                VStack(spacing: 14) {
-                    macRankColumn(title: "stats_top_songs", tab: .tracks, items: presentation.topTracks)
-                    macRankColumn(title: "stats_top_artists", tab: .artists, items: presentation.topArtists)
-                    macRankColumn(title: "stats_top_albums", tab: .albums, items: presentation.topAlbums)
+                Spacer()
+                if presentation.availableRankingBases.count > 1 {
+                    rankingBasisPicker
+                        .labelsHidden()
+                        .frame(maxWidth: 280)
                 }
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-            guard abs(rankingWidth - width) > 0.5 else { return }
-            rankingWidth = width
+
+            Group {
+                if rankingWidth == 0 || rankingWidth >= 260 * 3 + 14 * 2 {
+                    HStack(alignment: .top, spacing: 14) {
+                        macRankColumn(title: "stats_top_songs", countLabel: countLabel, tab: .tracks, items: presentation.topTracks)
+                            .frame(minWidth: 260)
+                        macRankColumn(title: "stats_top_artists", countLabel: countLabel, tab: .artists, items: presentation.topArtists)
+                            .frame(minWidth: 260)
+                        macRankColumn(title: "stats_top_albums", countLabel: countLabel, tab: .albums, items: presentation.topAlbums)
+                            .frame(minWidth: 260)
+                    }
+                } else {
+                    VStack(spacing: 14) {
+                        macRankColumn(title: "stats_top_songs", countLabel: countLabel, tab: .tracks, items: presentation.topTracks)
+                        macRankColumn(title: "stats_top_artists", countLabel: countLabel, tab: .artists, items: presentation.topArtists)
+                        macRankColumn(title: "stats_top_albums", countLabel: countLabel, tab: .albums, items: presentation.topAlbums)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                guard abs(rankingWidth - width) > 0.5 else { return }
+                rankingWidth = width
+            }
         }
     }
 
     private func macRankColumn(
-        title: LocalizedStringKey, tab: RankTab, items: [ServerListeningStatsRankedItem]
+        title: LocalizedStringKey,
+        countLabel: LocalizedStringKey,
+        tab: RankTab,
+        items: [ServerListeningStatsRankedItem]
     ) -> some View {
         let expanded = expandedRanks.contains(tab)
         let visibleItems = expanded ? items : Array(items.prefix(6))
@@ -540,7 +572,7 @@ struct ServerListeningStatsView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
-                Text("stats_total_plays")
+                Text(countLabel)
                     .font(.system(size: 10))
                     .foregroundStyle(PMColor.textFaint)
             }
@@ -635,6 +667,37 @@ struct ServerListeningStatsView: View {
         return presentation.allTimePlayCount == nil
             ? "stats_server_event_boundary"
             : "stats_server_navidrome_history_boundary"
+    }
+
+    private func rankingHeaderKey(_ presentation: ServerListeningStatsPresentation) -> LocalizedStringKey {
+        presentation.rankingBasis == .cumulative
+            ? "stats_server_rank_cumulative"
+            : "stats_server_rank_events"
+    }
+
+    private func rankingFooterKey(_ presentation: ServerListeningStatsPresentation) -> LocalizedStringKey {
+        presentation.rankingBasis == .cumulative
+            ? "stats_server_rank_cumulative_footer"
+            : "stats_server_rank_events_footer"
+    }
+
+    private func macColumnCountLabel(_ presentation: ServerListeningStatsPresentation) -> LocalizedStringKey {
+        if presentation.rankingBasis == .cumulative {
+            return presentation.temporalDetail == .aggregate
+                ? "stats_total_plays"
+                : "stats_server_all_time_plays"
+        }
+        return presentation.allTimePlayCount == nil
+            ? "stats_total_plays"
+            : "stats_server_recorded_plays"
+    }
+
+    private var rankingBasisPicker: some View {
+        Picker("stats_server_rank_basis", selection: $preferredRankingBasis) {
+            Text("stats_server_rank_cumulative").tag(ServerListeningStatsRankingBasis.cumulative)
+            Text("stats_server_rank_events").tag(ServerListeningStatsRankingBasis.events)
+        }
+        .pickerStyle(.segmented)
     }
 
     private func hourlyChart(_ presentation: ServerListeningStatsPresentation) -> some View {

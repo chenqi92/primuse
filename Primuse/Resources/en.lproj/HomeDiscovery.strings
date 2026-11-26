@@ -35,3 +35,9 @@
 "folder_song_order_footer" = "Directories opened from Home and from here list and play their songs in this order. Track order follows disc and track numbers, or the number a file name starts with when a song has none.";
 "folder_cache_confirm_format" = "Download all %2$d songs in “%1$@” and its subdirectories?";
 "folder_cache_cancel" = "Cancel Downloading";
+"ranking_source_primuse" = "Primuse History";
+"ranking_server_cumulative_scope" = "Uses all-time play counts from “%@” (including undated history), without adding local plays.";
+"ranking_server_events_scope" = "Uses timestamped play history from “%@”; undated cumulative counts are excluded from weekly and monthly rankings, and local plays are not added.";
+"ranking_server_folder_cumulative_scope" = "Directory rankings include songs from “%@” with a current directory, using server all-time play counts without adding local plays.";
+"ranking_server_folder_events_scope" = "Directory rankings include songs from “%@” with a current directory, using timestamped server history; undated cumulative counts are excluded from weekly and monthly rankings.";
+"ranking_server_empty_period_hint" = "No timestamped server plays in this period. Switch to All to view all-time cumulative rankings.";

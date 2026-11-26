@@ -35,3 +35,9 @@
 "folder_song_order_footer" = "Les dossiers ouverts depuis l’accueil ou depuis ici affichent et lisent leurs morceaux dans cet ordre. L’ordre des pistes suit les numéros de disque et de piste, ou le numéro au début du nom de fichier quand un morceau n’en a pas.";
 "folder_cache_confirm_format" = "Télécharger les %2$d morceaux de « %1$@ » et de ses sous-dossiers ?";
 "folder_cache_cancel" = "Annuler le téléchargement";
+"ranking_source_primuse" = "Historique Primuse";
+"ranking_server_cumulative_scope" = "Basé sur le nombre total d’écoutes de « %@ » (y compris l’historique non daté), sans additionner les écoutes locales.";
+"ranking_server_events_scope" = "Basé sur l’historique horodaté de « %@ » ; les compteurs cumulés sans date sont exclus des classements hebdomadaires et mensuels, sans ajout local.";
+"ranking_server_folder_cumulative_scope" = "Le classement des dossiers inclut les titres de « %@ » ayant un dossier actuel selon les compteurs cumulés du serveur, sans ajout local.";
+"ranking_server_folder_events_scope" = "Le classement des dossiers inclut les titres de « %@ » ayant un dossier actuel selon l’historique horodaté du serveur ; les compteurs sans date sont exclus des vues semaine/mois.";
+"ranking_server_empty_period_hint" = "Aucune écoute serveur horodatée sur cette période. Passez sur « Tout » pour voir le classement cumulé.";

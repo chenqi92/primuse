@@ -495,4 +495,123 @@ struct HomeListeningRankingTests {
         #expect(HomeFolderPinStorage.storedPins("[]", index: index, defaultCount: 6).isEmpty)
         #expect(HomeFolderPinStorage.resolvedPins(edited, index: nil, defaultCount: 3) == Array(defaults.reversed()))
     }
+
+    @Test func serverRankingSourceStorageResolvesEligibleSourcesWithoutErasingDisabledPreference() {
+        var navidrome = MusicSource(id: "nd-1", name: "Navidrome", type: .navidrome, host: "nd.local")
+        var local = MusicSource(id: "local", name: "Local", type: .local)
+        local.isEnabled = true
+        var deleted = MusicSource(id: "nd-deleted", name: "Old", type: .subsonic, host: "old.local")
+        deleted.isDeleted = true
+
+        let eligible = HomeListeningRankingSourceStorage.eligibleServerSources(in: [navidrome, local, deleted])
+        #expect(eligible.map(\.id) == ["nd-1"])
+        #expect(HomeListeningRankingSourceStorage.resolvedSource(storedID: "", sources: [navidrome, local]) == nil)
+        #expect(HomeListeningRankingSourceStorage.resolvedSource(storedID: "nd-1", sources: [navidrome, local])?.id == "nd-1")
+
+        navidrome.isEnabled = false
+        #expect(HomeListeningRankingSourceStorage.resolvedSource(storedID: "nd-1", sources: [navidrome, local]) == nil)
+    }
+
+    @Test func serverRanksUseCumulativePlayCountsForAllTimeAndRecordedEventsForPeriods() throws {
+        var migrated = song("nd:songs/track-1.flac", artist: "Artist A / Artist B", album: "Legacy Hits", path: "/songs/track-1.flac", source: "nd")
+        migrated.title = "Migrated Hundred"
+        var recent = song("nd:songs/track-2.flac", artist: "Artist B", album: "New Releases", path: "/songs/track-2.flac", source: "nd")
+        recent.title = "Recent Five"
+        let librarySongs = [migrated, recent]
+        let folderIndex = LibraryFolderIndexBuilder.build(
+            sources: [.init(sourceID: "nd", displayName: "Navidrome", scanRoots: ["/songs"], pathSemantics: .hierarchical)],
+            songs: librarySongs
+        )
+
+        let payload = ServerListeningStatsPayload(
+            accountFingerprint: "nd-account",
+            temporalDetail: .events,
+            events: [
+                .init(id: "e1", remoteTrackID: "track-2", title: "Recent Five", artist: "Artist B", album: "New Releases", playedAt: date(4)),
+                .init(id: "e2", remoteTrackID: "track-2", title: "Recent Five", artist: "Artist B", album: "New Releases", playedAt: date(3)),
+                .init(id: "e3", remoteTrackID: "track-1", title: "Migrated Hundred", artist: "Artist A / Artist B", album: "Legacy Hits", playedAt: date(28, month: 8)),
+                .init(id: "e4", remoteTrackID: "track-1", title: "Migrated Hundred", artist: "Artist A / Artist B", album: "Legacy Hits", playedAt: date(2)),
+            ],
+            allTimePlayCount: 105,
+            cumulativeTracks: [
+                .init(
+                    remoteTrackID: "track-1",
+                    title: "Migrated Hundred",
+                    artist: "Artist A / Artist B",
+                    album: "Legacy Hits",
+                    playCount: 100,
+                    content: .init(songID: migrated.id, filePath: migrated.filePath)
+                ),
+                .init(
+                    remoteTrackID: "track-2",
+                    title: "Recent Five",
+                    artist: "Artist B",
+                    album: "New Releases",
+                    playCount: 5,
+                    lastPlayedAt: date(4)
+                ),
+            ]
+        )
+
+        // All-time ranks by cumulative playCount (100 vs 5) and links both tracks back to MusicLibrary Song IDs.
+        let allSongs = HomeListeningRanking.serverRanks(
+            payload: payload, sourceID: "nd", librarySongs: librarySongs, folders: folderIndex,
+            period: .all, category: .songs, now: date(5), calendar: calendar
+        )
+        #expect(allSongs.basis == .cumulative)
+        #expect(allSongs.appliedPeriod == .all)
+        #expect(allSongs.supportsTimeRanges)
+        #expect(!allSongs.showsDuration)
+        #expect(allSongs.ranks.map(\.title) == ["Migrated Hundred", "Recent Five"])
+        #expect(allSongs.ranks.map(\.playCount) == [100, 5])
+        #expect(allSongs.ranks.map(\.artworkSongID) == [migrated.id, recent.id])
+        #expect(allSongs.ranks.allSatisfy { $0.trend == nil })
+
+        // Artist and album all-time rankings aggregate the same cumulative counts and split collaborations.
+        let allArtists = HomeListeningRanking.serverRanks(
+            payload: payload, sourceID: "nd", librarySongs: librarySongs, folders: folderIndex,
+            period: .all, category: .artists, now: date(5), calendar: calendar
+        )
+        #expect(allArtists.ranks.map(\.title) == ["Artist B", "Artist A"])
+        #expect(allArtists.ranks.map(\.playCount) == [105, 100])
+
+        let allAlbums = HomeListeningRanking.serverRanks(
+            payload: payload, sourceID: "nd", librarySongs: librarySongs, folders: folderIndex,
+            period: .all, category: .albums, now: date(5), calendar: calendar
+        )
+        #expect(allAlbums.ranks.map(\.title) == ["Legacy Hits", "New Releases"])
+        #expect(allAlbums.ranks.map(\.playCount) == [100, 5])
+
+        let allFolders = HomeListeningRanking.serverRanks(
+            payload: payload, sourceID: "nd", librarySongs: librarySongs, folders: folderIndex,
+            period: .all, category: .folders, now: date(5), calendar: calendar
+        )
+        #expect(allFolders.ranks.map(\.playCount) == [105])
+
+        // Weekly ranking uses timestamped scrobble events only and preserves period-over-period trends.
+        let weeklySongs = HomeListeningRanking.serverRanks(
+            payload: payload, sourceID: "nd", librarySongs: librarySongs, folders: folderIndex,
+            period: .week, category: .songs, now: date(5), calendar: calendar
+        )
+        #expect(weeklySongs.basis == .events)
+        #expect(weeklySongs.appliedPeriod == .week)
+        #expect(weeklySongs.ranks.map(\.title) == ["Recent Five", "Migrated Hundred"])
+        #expect(weeklySongs.ranks.map(\.playCount) == [2, 1])
+        #expect(weeklySongs.ranks.first?.trend == .newEntry)
+
+        // Aggregate-only server sources force `.all` and disable period selection.
+        let aggregatePayload = ServerListeningStatsPayload(
+            accountFingerprint: "jellyfin-account",
+            temporalDetail: .aggregate,
+            tracks: [.init(remoteTrackID: "track-1", title: "Migrated Hundred", artist: "Artist A", album: "Legacy Hits", playCount: 42)]
+        )
+        let aggregateWeekly = HomeListeningRanking.serverRanks(
+            payload: aggregatePayload, sourceID: "nd", librarySongs: librarySongs, folders: nil,
+            period: .week, category: .songs, now: date(5), calendar: calendar
+        )
+        #expect(aggregateWeekly.appliedPeriod == .all)
+        #expect(aggregateWeekly.basis == .cumulative)
+        #expect(!aggregateWeekly.supportsTimeRanges)
+        #expect(aggregateWeekly.ranks.map(\.playCount) == [42])
+    }
 }

@@ -5861,8 +5861,7 @@
 "stats_server_all_time_plays" = "Wiedergaben insgesamt";
 "stats_server_hourly_title" = "Wiedergaben nach Tageszeit";
 "stats_server_hourly_footer" = "Nach der vom Server erfassten Stunde gruppiert. Der Zeitpunkt hängt vom Wiedergabeclient ab.";
-"stats_server_navidrome_history_boundary" = "Diagramme und Zeitraumstatistiken verwenden den gespeicherten Navidrome-Verlauf. Ältere Wiedergaben können nur im Gesamtzähler enthalten sein; ein Upgrade kann ihre Zeitpunkte nicht wiederherstellen. Die tatsächliche Hördauer ist nicht verfügbar.";
-
+"stats_server_navidrome_history_boundary" = "Unter „Alle“ nutzt die Rangliste standardmäßig die gesamten playCount-Werte des Servers (inkl. undatierter Historie). Diagramme sowie Wochen-, Monats- und Jahresansichten nutzen Navidromes zeitgestempelten Verlauf ohne erfundene Daten. Die gehörte Dauer ist nicht verfügbar.";
 "scrape_parts_all" = "Tags, Cover und Liedtexte";
 "scrape_parts_lyrics_only" = "Nur Liedtexte";
 "scrape_parts_cover_only" = "Nur Cover";
@@ -8319,7 +8318,11 @@
 "playback_error_source_offline_skipped_format" = "Nicht zwischengespeicherte Titel von „%@“ im Offline-Modus übersprungen";
 "filter_offline_available" = "Offline verfügbar";
 "filter_offline_available_empty_desc" = "Geladene, zwischengespeicherte und lokale Titel erscheinen hier.";
-
 "song_radio_building" = "Song-Radio wird erstellt…";
 "song_radio_started_format" = "Song-Radio gestartet · %d Titel als Nächstes";
 "song_radio_no_matches" = "Keine weiteren ähnlichen Titel gefunden";
+"stats_server_rank_basis" = "Ranglistenbasis";
+"stats_server_rank_cumulative" = "Gesamtzähler";
+"stats_server_rank_events" = "Zeitverlauf";
+"stats_server_rank_cumulative_footer" = "Summiert aus den gesamten playCount-Werten pro Titel (inkl. undatierter Historie), passend zu „Wiedergaben gesamt“.";
+"stats_server_rank_events_footer" = "Summiert aus zeitgestempelten Server-Wiedergaben, passend zu „Erfasste Wiedergaben“ im gewählten Zeitraum.";

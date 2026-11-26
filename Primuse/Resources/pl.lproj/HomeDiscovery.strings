@@ -35,3 +35,9 @@
 "folder_song_order_footer" = "Foldery otwierane ze strony głównej lub stąd pokazują i odtwarzają utwory w tej kolejności. Kolejność utworów wynika z numerów płyty i ścieżki, a gdy utwór ich nie ma — z liczby na początku nazwy pliku.";
 "folder_cache_confirm_format" = "Pobrać wszystkie utwory (%2$d) z „%1$@” i podfolderów?";
 "folder_cache_cancel" = "Anuluj pobieranie";
+"ranking_source_primuse" = "Historia Primuse";
+"ranking_server_cumulative_scope" = "Uwzględnia łączną liczbę odtworzeń z „%@” (w tym historię bez dat), bez dodawania odtworzeń lokalnych.";
+"ranking_server_events_scope" = "Uwzględnia historię odtworzeń ze znacznikami czasu z „%@”; liczniki bez dat nie są wliczane do rankingów tygodniowych i miesięcznych ani łączone z lokalnymi.";
+"ranking_server_folder_cumulative_scope" = "Ranking katalogów obejmuje utwory z „%@” z bieżącym katalogiem według łącznych liczników serwera, bez odtworzeń lokalnych.";
+"ranking_server_folder_events_scope" = "Ranking katalogów obejmuje utwory z „%@” z bieżącym katalogiem według historii ze znacznikami czasu; liczniki bez dat są pomijane w tygodniu i miesiącu.";
+"ranking_server_empty_period_hint" = "Brak odtworzeń z serwera ze znacznikiem czasu w tym okresie. Przełącz na „Wszystko”, aby zobaczyć ranking łączny.";

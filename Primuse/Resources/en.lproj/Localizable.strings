@@ -5625,8 +5625,7 @@
 "stats_server_all_time_plays" = "All-time Plays";
 "stats_server_hourly_title" = "Plays by Time of Day";
 "stats_server_hourly_footer" = "Grouped by the hour recorded by the server · plays. Scrobble times depend on the playback client.";
-"stats_server_navidrome_history_boundary" = "Charts and period totals use Navidrome’s retained play history. Older plays may exist only in all-time counters; upgrading cannot reconstruct them. Actual listened duration is unavailable.";
-
+"stats_server_navidrome_history_boundary" = "In All, rankings default to server all-time playCount totals (including undated imported history). Charts and weekly/monthly/yearly views use Navidrome’s timestamped history without inventing dates. Actual listened duration is unavailable.";
 "scrape_parts_all" = "Tags, Artwork & Lyrics";
 "scrape_parts_lyrics_only" = "Lyrics Only";
 "scrape_parts_cover_only" = "Artwork Only";
@@ -8080,7 +8079,11 @@
 "playback_error_source_offline_skipped_format" = "Skipped uncached songs from \"%@\" in Offline Mode";
 "filter_offline_available" = "Available Offline";
 "filter_offline_available_empty_desc" = "Downloaded, cached, and on-device songs appear here.";
-
 "song_radio_building" = "Building Song Radio…";
 "song_radio_started_format" = "Song Radio started · %d up next";
 "song_radio_no_matches" = "No more similar songs found";
+"stats_server_rank_basis" = "Ranking Basis";
+"stats_server_rank_cumulative" = "All-Time Cumulative";
+"stats_server_rank_events" = "Recorded History";
+"stats_server_rank_cumulative_footer" = "Aggregated from server per-track playCount (including undated history), matching All-time Plays.";
+"stats_server_rank_events_footer" = "Aggregated from timestamped server play events, matching Recorded Plays for this range.";

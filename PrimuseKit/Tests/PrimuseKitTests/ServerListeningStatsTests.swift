@@ -75,6 +75,66 @@ struct ServerListeningStatsTests {
         #expect(result.hourlyCounts[7].playCount == 1)
         #expect(result.hourlyCounts.reduce(0) { $0 + $1.playCount } == 3)
         #expect(result.totalListenedSeconds == nil)
+        #expect(result.rankingBasis == .events)
+        #expect(result.availableRankingBases == [.events])
+    }
+
+    @Test func navidromeAllTimeRanksUseCumulativeCountersByDefaultAndAllowSwitchingToRecordedEvents() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
+        let now = Date(timeIntervalSince1970: 1_790_812_800)
+        let migratedPlayedAt = now.addingTimeInterval(-30 * 86400)
+        let payload = ServerListeningStatsPayload(
+            accountFingerprint: "navidrome-user",
+            temporalDetail: .events,
+            events: [
+                .init(id: "1", remoteTrackID: "recent", title: "Recent Song", artist: "Artist B", album: "Album B", playedAt: now),
+                .init(id: "2", remoteTrackID: "recent", title: "Recent Song", artist: "Artist B", album: "Album B", playedAt: now.addingTimeInterval(-600)),
+                .init(id: "3", remoteTrackID: "migrated", title: "Migrated Classic", artist: "Artist A", album: "Album A", playedAt: now.addingTimeInterval(-1200)),
+            ],
+            allTimePlayCount: 102,
+            cumulativeTracks: [
+                .init(remoteTrackID: "migrated", title: "Migrated Classic", artist: "Artist A", album: "Album A", playCount: 100, lastPlayedAt: migratedPlayedAt),
+                .init(remoteTrackID: "recent", title: "Recent Song", artist: "Artist B", album: "Album B", playCount: 2, lastPlayedAt: now),
+                .init(remoteTrackID: "undated-only", title: "Imported Only", artist: "Artist A", album: "Album A", playCount: 50),
+            ]
+        )
+
+        // All-time defaults to server cumulative playCount (preserving migrated counts).
+        let cumulative = try #require(ServerListeningStatsPresentationBuilder.build(
+            payload: payload, range: .all, now: now, calendar: calendar
+        ))
+        #expect(cumulative.rankingBasis == .cumulative)
+        #expect(cumulative.availableRankingBases == [.cumulative, .events])
+        #expect(cumulative.totalPlays == 3)
+        #expect(cumulative.allTimePlayCount == 102)
+        #expect(cumulative.uniqueTracks == 3)
+        #expect(cumulative.dailyCounts.reduce(0) { $0 + $1.playCount } == 3)
+        #expect(cumulative.topTracks.map(\.title) == ["Migrated Classic", "Imported Only", "Recent Song"])
+        #expect(cumulative.topTracks.map(\.playCount) == [100, 50, 2])
+        #expect(cumulative.topArtists.map(\.title) == ["Artist A", "Artist B"])
+        #expect(cumulative.topArtists.map(\.playCount) == [150, 2])
+        #expect(cumulative.topAlbums.map(\.title) == ["Album A", "Album B"])
+        #expect(cumulative.topAlbums.map(\.playCount) == [150, 2])
+        #expect(cumulative.topAlbums.first?.subtitle == "Artist A")
+
+        // Explicit switch to recorded-events basis aligns rankings with timestamped scrobble history.
+        let recorded = try #require(ServerListeningStatsPresentationBuilder.build(
+            payload: payload, range: .all, preferredRankingBasis: .events, now: now, calendar: calendar
+        ))
+        #expect(recorded.rankingBasis == .events)
+        #expect(recorded.uniqueTracks == 2)
+        #expect(recorded.topTracks.map(\.title) == ["Recent Song", "Migrated Classic"])
+        #expect(recorded.topTracks.map(\.playCount) == [2, 1])
+
+        // Period ranges always use timestamped events and never invent dates for undated counts.
+        let weekly = try #require(ServerListeningStatsPresentationBuilder.build(
+            payload: payload, range: .week, preferredRankingBasis: .cumulative, now: now, calendar: calendar
+        ))
+        #expect(weekly.rankingBasis == .events)
+        #expect(weekly.availableRankingBases == [.events])
+        #expect(weekly.topTracks.map(\.title) == ["Recent Song", "Migrated Classic"])
+        #expect(weekly.topTracks.map(\.playCount) == [2, 1])
     }
 
     @Test func oldCachedPayloadsStillDecodeWithoutLifetimeCounter() throws {

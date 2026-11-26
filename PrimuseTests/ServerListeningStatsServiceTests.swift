@@ -215,6 +215,44 @@ final class ServerListeningStatsServiceTests: XCTestCase {
         }
     }
 
+    func testPerSourceLoadingSharesSnapshotsWithoutClobberingAnotherActiveSource() async throws {
+        try await withSnapshotStore { store, _ in
+            let now = Date(timeIntervalSince1970: 500_000)
+            let homeSource = makeSource(id: "navidrome-home", username: "alice")
+            let settingsSource = makeSource(id: "plex-settings", username: "bob")
+            let homeCached = makeSnapshot(source: homeSource, account: "home-v1", fetchedAt: now)
+            try await store.save(homeCached)
+
+            let service = ServerListeningStatsService(
+                snapshotStore: store,
+                now: { now },
+                fetchPayload: { source in
+                    self.makePayload(
+                        account: source.id == homeSource.id ? "home-v2" : "settings-v1",
+                        playCount: source.id == homeSource.id ? 100 : 12
+                    )
+                }
+            )
+
+            // Home loads its cached source while Settings activates a different server source.
+            let loadedHome = await service.loadCachedIfNeeded(for: homeSource)
+            XCTAssertEqual(loadedHome.snapshot, homeCached)
+            XCTAssertFalse(service.shouldRefreshInBackground(for: homeSource))
+
+            await service.activate(source: settingsSource)
+            XCTAssertEqual(service.sourceID, settingsSource.id)
+            XCTAssertEqual(service.snapshot?.payload.accountFingerprint, "settings-v1")
+            // Home's cached snapshot for navidrome-home remains intact and isolated.
+            XCTAssertEqual(service.state(for: homeSource).snapshot, homeCached)
+            XCTAssertEqual(service.musicPayload(for: homeSource)?.tracks.first?.playCount, 3)
+
+            // Manual refresh on Home updates disk + per-source state without hijacking Settings' active sourceID.
+            await service.refreshSourceSnapshot(homeSource)
+            XCTAssertEqual(service.sourceID, settingsSource.id)
+            XCTAssertEqual(service.musicPayload(for: homeSource)?.tracks.first?.playCount, 100)
+        }
+    }
+
     private func withSnapshotStore(
         _ body: (
             ServerListeningStatsSnapshotStore,

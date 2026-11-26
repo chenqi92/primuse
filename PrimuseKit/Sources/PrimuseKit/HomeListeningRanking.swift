@@ -55,6 +55,76 @@ public enum HomeListeningCategory: String, CaseIterable, Sendable {
     case songs, artists, albums, folders
 }
 
+public struct HomeListeningTrackCount: Sendable, Equatable {
+    public let songID: String
+    public let playCount: Int
+    public let lastPlayedAt: Date?
+    public let listenedSeconds: TimeInterval
+    public let songTitle: String?
+    public let artistName: String?
+    public let albumTitle: String?
+    public let songDuration: TimeInterval?
+
+    public init(
+        songID: String,
+        playCount: Int,
+        lastPlayedAt: Date? = nil,
+        listenedSeconds: TimeInterval = 0,
+        songTitle: String? = nil,
+        artistName: String? = nil,
+        albumTitle: String? = nil,
+        songDuration: TimeInterval? = nil
+    ) {
+        self.songID = songID
+        self.playCount = max(0, playCount)
+        self.lastPlayedAt = lastPlayedAt
+        self.listenedSeconds = listenedSeconds.isFinite ? max(0, listenedSeconds) : 0
+        self.songTitle = songTitle
+        self.artistName = artistName
+        self.albumTitle = albumTitle
+        self.songDuration = songDuration
+    }
+}
+
+public struct HomeServerRankingResult: Equatable, Sendable {
+    public let appliedPeriod: HomeListeningPeriod
+    public let basis: ServerListeningStatsRankingBasis
+    public let supportsTimeRanges: Bool
+    public let showsDuration: Bool
+    public let ranks: [HomeListeningRank]
+
+    public init(
+        appliedPeriod: HomeListeningPeriod,
+        basis: ServerListeningStatsRankingBasis,
+        supportsTimeRanges: Bool,
+        showsDuration: Bool,
+        ranks: [HomeListeningRank]
+    ) {
+        self.appliedPeriod = appliedPeriod
+        self.basis = basis
+        self.supportsTimeRanges = supportsTimeRanges
+        self.showsDuration = showsDuration
+        self.ranks = ranks
+    }
+}
+
+public enum HomeListeningRankingSourceStorage {
+    public static let sourceIDKey = "primuse.home.rankingSourceID"
+
+    public static func eligibleServerSources(in sources: [MusicSource]) -> [MusicSource] {
+        sources.filter {
+            $0.isEnabled
+                && !$0.isDeleted
+                && $0.type.serverListeningStatsCapability != .unavailable
+        }
+    }
+
+    public static func resolvedSource(storedID: String, sources: [MusicSource]) -> MusicSource? {
+        guard !storedID.isEmpty else { return nil }
+        return eligibleServerSources(in: sources).first { $0.id == storedID }
+    }
+}
+
 public struct HomeListeningEvent: Sendable {
     public let songID: String
     public let playedAt: Date
@@ -207,6 +277,8 @@ public enum HomeListeningRanking {
         var count = 0
         var seconds: TimeInterval = 0
         var latestDate = Date.distantPast
+        var exemplarPlayCount = 0
+        var exemplarSongID = ""
 
         mutating func include(_ event: HomeListeningEvent, title: String, subtitle: String) {
             if event.playedAt > latestDate {
@@ -217,6 +289,31 @@ public enum HomeListeningRanking {
             songPlays[event.songID, default: SongPlays()].include(event.playedAt)
             count += 1
             if event.listenedSeconds.isFinite { seconds += max(0, event.listenedSeconds) }
+        }
+
+        mutating func includeTrack(_ track: HomeListeningTrackCount, title: String, subtitle: String) {
+            guard track.playCount > 0 else { return }
+            let date = track.lastPlayedAt ?? .distantPast
+            let prefersMetadata: Bool
+            if exemplarPlayCount == 0 {
+                prefersMetadata = true
+            } else if date != latestDate {
+                prefersMetadata = date > latestDate
+            } else if track.playCount != exemplarPlayCount {
+                prefersMetadata = track.playCount > exemplarPlayCount
+            } else {
+                prefersMetadata = track.songID < exemplarSongID
+            }
+            if prefersMetadata {
+                self.title = title
+                self.subtitle = subtitle
+                latestDate = date
+                exemplarPlayCount = track.playCount
+                exemplarSongID = track.songID
+            }
+            songPlays[track.songID, default: SongPlays()].include(count: track.playCount, date: date)
+            count += track.playCount
+            if track.listenedSeconds.isFinite { seconds += max(0, track.listenedSeconds) }
         }
 
         /// 次数最多的那首；并列时取最近听过的，再并列按 ID，保证与输入顺序无关。
@@ -250,7 +347,12 @@ public enum HomeListeningRanking {
         var latestDate = Date.distantPast
 
         mutating func include(_ date: Date) {
-            count += 1
+            include(count: 1, date: date)
+        }
+
+        mutating func include(count delta: Int, date: Date) {
+            guard delta > 0 else { return }
+            count += delta
             latestDate = max(latestDate, date)
         }
 
@@ -364,16 +466,17 @@ public enum HomeListeningRanking {
         }
     }
 
+    private struct ArtistCredit: Hashable {
+        let name: String
+        let sourceNames: [String]?
+    }
+
     private static func aggregate(
         events: [HomeListeningEvent], songs: [String: Song], songKeys: [String: String],
         folders: LibraryFolderIndex?, category: HomeListeningCategory, interval: DateInterval, includesEnd: Bool,
         artistNameConfiguration: ArtistNameConfiguration
     ) -> [HomeListeningRank] {
         var groups: [GroupKey: Accumulator] = [:]
-        struct ArtistCredit: Hashable {
-            let name: String
-            let sourceNames: [String]?
-        }
         var resolvedArtists: [ArtistCredit: [(name: String, key: String)]] = [:]
         let configuration = artistNameConfiguration.normalized()
         // 目录版文件夹索引按 id 找节点要查目录:所有播放记录一次查完,不逐条查。
@@ -453,6 +556,339 @@ public enum HomeListeningRanking {
             if $0.playCount != $1.playCount { return $0.playCount > $1.playCount }
             if $0.listenedSeconds != $1.listenedSeconds { return $0.listenedSeconds > $1.listenedSeconds }
             return $0.id < $1.id
+        }
+    }
+
+    /// Per-track cumulative play counts (such as Navidrome / Subsonic `playCount`).
+    /// Does not invent dates or trends; shares the same song identity, artist splitting,
+    /// album grouping, and directory attribution rules as local event rankings.
+    public static func ranks(
+        tracks: [HomeListeningTrackCount],
+        songs: [String: Song],
+        folders: LibraryFolderIndex?,
+        category: HomeListeningCategory,
+        artistNameConfiguration: ArtistNameConfiguration = .defaultValue
+    ) -> [HomeListeningRank] {
+        computeTrackRanks(
+            tracks: tracks,
+            songs: songs,
+            candidateSongs: songs.values,
+            folders: folders,
+            category: category,
+            artistNameConfiguration: artistNameConfiguration
+        )
+    }
+
+    public static func ranks(
+        tracks: [HomeListeningTrackCount],
+        librarySongs: [Song],
+        folders: LibraryFolderIndex?,
+        category: HomeListeningCategory,
+        artistNameConfiguration: ArtistNameConfiguration = .defaultValue
+    ) -> [HomeListeningRank] {
+        let playedTracks = tracks.filter { $0.playCount > 0 }
+        guard !playedTracks.isEmpty else { return [] }
+        var remainingIDs = Set(playedTracks.map(\.songID))
+        var songs: [String: Song] = [:]
+        songs.reserveCapacity(min(remainingIDs.count, librarySongs.count))
+        for (position, song) in librarySongs.enumerated() {
+            if position.isMultiple(of: 256), withUnsafeCurrentTask(body: { $0?.isCancelled == true }) { return [] }
+            guard remainingIDs.remove(song.id) != nil else { continue }
+            songs[song.id] = song
+            if remainingIDs.isEmpty { break }
+        }
+        return computeTrackRanks(
+            tracks: playedTracks,
+            songs: songs,
+            candidateSongs: librarySongs,
+            folders: folders,
+            category: category,
+            artistNameConfiguration: artistNameConfiguration
+        )
+    }
+
+    /// Builds home rankings from an already content-filtered server statistics payload.
+    /// - All-time (`.all`) uses per-track `cumulativeTracks` when available (preserving
+    ///   migrated historical play counts without timestamps), or aggregate `tracks`.
+    /// - Period-scoped boards (`.week`, `.month`) use timestamped `events` only and
+    ///   never fabricate dates for undated cumulative counts.
+    public static func serverRanks(
+        payload: ServerListeningStatsPayload,
+        sourceID: String,
+        librarySongs: [Song],
+        folders: LibraryFolderIndex?,
+        period: HomeListeningPeriod,
+        category: HomeListeningCategory,
+        now: Date = Date(),
+        calendar: Calendar = ListeningCalendar.current,
+        artistNameConfiguration: ArtistNameConfiguration = .defaultValue
+    ) -> HomeServerRankingResult {
+        var songsByID: [String: Song] = [:]
+        var songsByRemoteID: [String: Song] = [:]
+        for (position, song) in librarySongs.enumerated() {
+            if position.isMultiple(of: 256), withUnsafeCurrentTask(body: { $0?.isCancelled == true }) {
+                return HomeServerRankingResult(
+                    appliedPeriod: period,
+                    basis: .cumulative,
+                    supportsTimeRanges: payload.temporalDetail == .events,
+                    showsDuration: false,
+                    ranks: []
+                )
+            }
+            songsByID[song.id] = song
+            if song.sourceID == sourceID {
+                let remoteID = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                if !remoteID.isEmpty, songsByRemoteID[remoteID] == nil {
+                    songsByRemoteID[remoteID] = song
+                }
+            }
+        }
+
+        func resolveSong(_ remoteTrackID: String, _ content: ServerListeningContent?) -> (id: String, song: Song?) {
+            if let contentID = content?.songID, let matched = songsByID[contentID] {
+                return (matched.id, matched)
+            }
+            if let matched = songsByRemoteID[remoteTrackID] {
+                return (matched.id, matched)
+            }
+            if let contentID = content?.songID, !contentID.isEmpty {
+                return (contentID, nil)
+            }
+            return ("\(sourceID):\(remoteTrackID)", nil)
+        }
+
+        func mapTrackCounts(_ items: [ServerListeningTrackAggregate]) -> [HomeListeningTrackCount] {
+            items.compactMap { item in
+                guard item.playCount > 0 else { return nil }
+                let resolved = resolveSong(item.remoteTrackID, item.content)
+                return HomeListeningTrackCount(
+                    songID: resolved.id,
+                    playCount: item.playCount,
+                    lastPlayedAt: item.lastPlayedAt,
+                    songTitle: item.title,
+                    artistName: item.artist,
+                    albumTitle: item.album,
+                    songDuration: resolved.song?.duration
+                )
+            }
+        }
+
+        switch payload.temporalDetail {
+        case .aggregate:
+            let trackCounts = mapTrackCounts(payload.tracks)
+            let computed = computeTrackRanks(
+                tracks: trackCounts,
+                songs: songsByID,
+                candidateSongs: librarySongs,
+                folders: folders,
+                category: category,
+                artistNameConfiguration: artistNameConfiguration
+            )
+            return HomeServerRankingResult(
+                appliedPeriod: .all,
+                basis: .cumulative,
+                supportsTimeRanges: false,
+                showsDuration: false,
+                ranks: computed
+            )
+
+        case .events:
+            let showsDuration = payload.durationAvailability == .actual
+            if period == .all, let cumulativeTracks = payload.cumulativeTracks {
+                let trackCounts = mapTrackCounts(cumulativeTracks)
+                let computed = computeTrackRanks(
+                    tracks: trackCounts,
+                    songs: songsByID,
+                    candidateSongs: librarySongs,
+                    folders: folders,
+                    category: category,
+                    artistNameConfiguration: artistNameConfiguration
+                )
+                return HomeServerRankingResult(
+                    appliedPeriod: .all,
+                    basis: .cumulative,
+                    supportsTimeRanges: true,
+                    showsDuration: false,
+                    ranks: computed
+                )
+            }
+
+            let mappedEvents = payload.events.map { event -> HomeListeningEvent in
+                let resolved = resolveSong(event.remoteTrackID, event.content)
+                return HomeListeningEvent(
+                    songID: resolved.id,
+                    playedAt: event.playedAt,
+                    listenedSeconds: event.listenedSeconds ?? 0,
+                    songTitle: event.title,
+                    artistName: event.artist,
+                    albumTitle: event.album,
+                    songDuration: resolved.song?.duration
+                )
+            }
+            let computed = computeRanks(
+                events: mappedEvents,
+                songs: songsByID,
+                candidateSongs: librarySongs,
+                folders: folders,
+                period: period,
+                category: category,
+                now: now,
+                calendar: calendar,
+                songKeys: nil,
+                artistNameConfiguration: artistNameConfiguration
+            )
+            return HomeServerRankingResult(
+                appliedPeriod: period,
+                basis: .events,
+                supportsTimeRanges: true,
+                showsDuration: showsDuration,
+                ranks: computed
+            )
+        }
+    }
+
+    private static func computeTrackRanks<Candidates: Collection>(
+        tracks: [HomeListeningTrackCount],
+        songs: [String: Song],
+        candidateSongs: Candidates,
+        folders: LibraryFolderIndex?,
+        category: HomeListeningCategory,
+        artistNameConfiguration: ArtistNameConfiguration
+    ) -> [HomeListeningRank] where Candidates.Element == Song {
+        let playedTracks = tracks.filter { $0.playCount > 0 }
+        guard !playedTracks.isEmpty else { return [] }
+        let proxyPlays = playedTracks.map {
+            ListeningSongIdentity.Play(
+                songID: $0.songID,
+                playedAt: $0.lastPlayedAt ?? .distantPast,
+                title: $0.songTitle,
+                artist: $0.artistName,
+                duration: $0.songDuration
+            )
+        }
+        let songKeys = category == .folders
+            ? [:]
+            : ListeningSongIdentity.groupKeys(plays: proxyPlays, songs: songs)
+
+        var groups: [GroupKey: Accumulator] = [:]
+        var resolvedArtists: [ArtistCredit: [(name: String, key: String)]] = [:]
+        let configuration = artistNameConfiguration.normalized()
+        let folderNodes = category == .folders
+            ? folders?.nodeIDs(containingSongIDs: Set(playedTracks.map(\.songID))) ?? [:]
+            : [:]
+
+        for track in playedTracks {
+            let song = songs[track.songID]
+            let artist = track.artistName ?? song?.artistName ?? ""
+            let album = track.albumTitle ?? song?.albumTitle ?? ""
+            let components: [String]
+            let title: String
+            let subtitle: String
+            var folderID: LibraryFolderNodeID?
+            switch category {
+            case .songs:
+                components = [songKeys[track.songID] ?? track.songID]
+                title = track.songTitle ?? song?.title ?? track.songID
+                subtitle = artist
+            case .artists:
+                let credit = ArtistCredit(
+                    name: artist,
+                    sourceNames: track.artistName == nil || track.artistName == song?.artistName
+                        ? song?.sourceArtistNames : nil
+                )
+                let contributors: [(name: String, key: String)]
+                if let cached = resolvedArtists[credit] {
+                    contributors = cached
+                } else {
+                    var seen = Set<String>()
+                    contributors = ArtistNameParser.names(
+                        rawName: credit.name, sourceNames: credit.sourceNames, configuration: configuration
+                    ).filter { !PlaceholderArtistPolicy.isPlaceholder($0) }
+                        .compactMap { name in
+                            let key = ArtistIdentityPolicy.groupingKey(name)
+                            return seen.insert(key).inserted ? (name, key) : nil
+                        }
+                    resolvedArtists[credit] = contributors
+                }
+                for contributor in contributors {
+                    let key = GroupKey(category: category, components: [contributor.key])
+                    groups[key, default: Accumulator(title: contributor.name, subtitle: "")]
+                        .includeTrack(track, title: contributor.name, subtitle: "")
+                }
+                continue
+            case .albums:
+                guard !album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                components = [album, artist]
+                title = album
+                subtitle = artist
+            case .folders:
+                guard let folders, let id = folderNodes[track.songID],
+                      let node = folders.node(withID: id),
+                      node.kind == .folder || node.kind == .scanRoot else { continue }
+                components = [id.sourceID, id.kind.rawValue, id.normalizedRelativePath]
+                title = node.displayName ?? ""
+                subtitle = folders.sourceNode(for: id.sourceID)?.displayName ?? ""
+                folderID = id
+            }
+            let key = GroupKey(category: category, components: components)
+            groups[key, default: Accumulator(title: title, subtitle: subtitle, folderID: folderID)]
+                .includeTrack(track, title: title, subtitle: subtitle)
+        }
+
+        let current = groups.map { key, value in
+            HomeListeningRank(
+                id: key.id,
+                title: value.title,
+                subtitle: value.subtitle,
+                songIDs: value.songPlays.keys.sorted(),
+                songGroups: value.songGroups(keys: songKeys),
+                artworkSongID: value.artworkSongID,
+                folderID: value.folderID,
+                playCount: value.count,
+                listenedSeconds: value.seconds,
+                positionsGained: nil
+            )
+        }.sorted {
+            if $0.playCount != $1.playCount { return $0.playCount > $1.playCount }
+            if $0.listenedSeconds != $1.listenedSeconds { return $0.listenedSeconds > $1.listenedSeconds }
+            return $0.id < $1.id
+        }
+
+        guard category != .folders, !candidateSongs.isEmpty else { return current }
+        let missingIDs = Set(current.flatMap(\.songIDs).filter { songs[$0] == nil })
+        guard !missingIDs.isEmpty else { return current }
+        let proxyEvents = playedTracks
+            .filter { missingIDs.contains($0.songID) }
+            .map {
+                HomeListeningEvent(
+                    songID: $0.songID,
+                    playedAt: $0.lastPlayedAt ?? .distantPast,
+                    listenedSeconds: $0.listenedSeconds,
+                    songTitle: $0.songTitle,
+                    artistName: $0.artistName,
+                    albumTitle: $0.albumTitle,
+                    songDuration: $0.songDuration
+                )
+            }
+        let candidates = ListeningSongIdentity.libraryCandidates(events: proxyEvents, songs: candidateSongs)
+        guard !candidates.isEmpty else { return current }
+        return current.map { rank in
+            let groups = rank.songGroups.map { ids in
+                let available = ids.flatMap { candidates[$0] ?? [] }
+                return ids + Set(available).subtracting(ids).sorted()
+            }
+            return HomeListeningRank(
+                id: rank.id,
+                title: rank.title,
+                subtitle: rank.subtitle,
+                songIDs: Set(groups.flatMap { $0 }).sorted(),
+                songGroups: groups,
+                artworkSongID: rank.artworkSongID,
+                folderID: rank.folderID,
+                playCount: rank.playCount,
+                listenedSeconds: rank.listenedSeconds,
+                positionsGained: nil
+            )
         }
     }
 }

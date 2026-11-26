@@ -5,10 +5,13 @@ struct HomeListeningRankingSection: View {
     @Environment(HomeDiscoveryModel.self) private var model
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourcesStore.self) private var sourcesStore: SourcesStore?
+    @Environment(ServerListeningStatsService.self) private var serverStats: ServerListeningStatsService?
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.playerCoversContent) private var playerCoversContent
     @Environment(\.pmHeightClass) private var heightClass
     @AppStorage(LibraryReviewPreferences.enabledKey) private var reviewsEnabled = false
+    @AppStorage(HomeListeningRankingSourceStorage.sourceIDKey) private var selectedSourceID = ""
     @State private var period: HomeListeningPeriod = .week
     @State private var category: HomeListeningCategory = .songs
     @State private var ranks: [HomeListeningRank] = []
@@ -16,8 +19,12 @@ struct HomeListeningRankingSection: View {
     /// 还是旧榜 —— 封面形状、点了播什么都得跟着旧榜走，不能跟着刚选中的分类走。
     @State private var rankedCategory: HomeListeningCategory = .songs
     @State private var rankedPeriod: HomeListeningPeriod = .week
+    @State private var rankedShowsDuration = true
+    @State private var rankedBasis: ServerListeningStatsRankingBasis = .cumulative
+    @State private var rankedSourceID = ""
     @State private var isLoading = true
     @State private var showsExpandedRanking = false
+    @State private var manualServerRefreshTask: Task<Void, Never>?
     @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var layoutRawValue = ""
 
     private var layout: HomeSectionLayoutConfiguration {
@@ -37,16 +44,23 @@ struct HomeListeningRankingSection: View {
     private struct Board {
         let request: Request
         let ranks: [HomeListeningRank]
+        let showsDuration: Bool
+        let basis: ServerListeningStatsRankingBasis
+        let sourceID: String
     }
     @MainActor private static var lastBoard: Board?
 
     init() {
-        guard let board = Self.lastBoard else { return }
+        let savedSourceID = UserDefaults.standard.string(forKey: HomeListeningRankingSourceStorage.sourceIDKey) ?? ""
+        guard let board = Self.lastBoard, board.sourceID == savedSourceID else { return }
         _period = State(initialValue: board.request.period)
         _category = State(initialValue: board.request.category)
         _ranks = State(initialValue: board.ranks)
         _rankedCategory = State(initialValue: board.request.category)
         _rankedPeriod = State(initialValue: board.request.period)
+        _rankedShowsDuration = State(initialValue: board.showsDuration)
+        _rankedBasis = State(initialValue: board.basis)
+        _rankedSourceID = State(initialValue: board.sourceID)
         _isLoading = State(initialValue: false)
         _preparedRequest = State(initialValue: board.request)
     }
@@ -63,11 +77,21 @@ struct HomeListeningRankingSection: View {
         let category: HomeListeningCategory
         let calendar: Calendar
         let artistNameConfiguration: ArtistNameConfiguration
+        let serverSourceID: String?
+        let serverConfigurationFingerprint: String?
+        let serverSnapshotRevision: Int
 
         @MainActor
-        init(model: HomeDiscoveryModel, library: MusicLibrary, period: HomeListeningPeriod,
-             category: HomeListeningCategory, calendar: Calendar = ListeningCalendar.current) {
-            history = model.historyRevision
+        init(
+            model: HomeDiscoveryModel,
+            library: MusicLibrary,
+            period: HomeListeningPeriod,
+            category: HomeListeningCategory,
+            calendar: Calendar = ListeningCalendar.current,
+            serverSource: MusicSource? = nil,
+            serverSnapshotRevision: Int = 0
+        ) {
+            history = serverSource == nil ? model.historyRevision : 0
             collection = library.visibleSongCollectionRevision
             classification = library.spokenWordClassificationRevision
             historySnapshot = PlayHistoryStore.shared.snapshotRevision
@@ -76,7 +100,38 @@ struct HomeListeningRankingSection: View {
             self.category = category
             self.calendar = calendar
             artistNameConfiguration = library.artistNameConfiguration
+            serverSourceID = serverSource?.id
+            serverConfigurationFingerprint = serverSource.map(ServerListeningStatsFingerprint.configuration(for:))
+            self.serverSnapshotRevision = serverSource == nil ? 0 : serverSnapshotRevision
         }
+    }
+
+    private var eligibleServerSources: [MusicSource] {
+        HomeListeningRankingSourceStorage.eligibleServerSources(in: sourcesStore?.sources ?? [])
+    }
+
+    private var selectedServerSource: MusicSource? {
+        HomeListeningRankingSourceStorage.resolvedSource(
+            storedID: selectedSourceID,
+            sources: sourcesStore?.sources ?? []
+        )
+    }
+
+    private var activeServerState: ServerListeningStatsService.SourceSnapshotState? {
+        guard let source = selectedServerSource else { return nil }
+        return serverStats?.state(for: source)
+    }
+
+    private var supportsTimeRanges: Bool {
+        guard let source = selectedServerSource else { return true }
+        if let snapshot = activeServerState?.snapshot {
+            return snapshot.payload.temporalDetail == .events
+        }
+        return source.type.serverListeningStatsCapability == .eventHistoryWithAggregateFallback
+    }
+
+    private var effectivePeriod: HomeListeningPeriod {
+        supportsTimeRanges ? period : .all
     }
 
     /// 想要「领奖台在左、名次榜在右」：iPad，以及所有横屏的手机。真正并不并排还要看
@@ -91,16 +146,19 @@ struct HomeListeningRankingSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 heading
                 Spacer(minLength: 8)
+                if !eligibleServerSources.isEmpty {
+                    sourceMenu
+                }
                 periodMenu
             }
             .padding(.horizontal, 20)
 
             categoryPicker
 
-            if isLoading {
+            if showsLoadingPlaceholder {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 170)
                     .background(cardSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -119,22 +177,12 @@ struct HomeListeningRankingSection: View {
                 .pmAppearFade(.contentAppear)
                 // 换榜时整块重建：领奖台的入场只在新榜站上来时走一次，
                 // 播放记录更新引起的原地刷新不重播。淡入挂在 id 里面才会跟着重播。
-                .id(BoardIdentity(period: rankedPeriod, category: rankedCategory))
+                .id(BoardIdentity(period: rankedPeriod, category: rankedCategory, sourceID: rankedSourceID))
             } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "trophy").font(.title2).foregroundStyle(.secondary)
-                    Text(HomeDiscoveryText.string("empty_ranking")).font(.headline)
-                    Text(HomeDiscoveryText.string("ranking_hint"))
-                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                }
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity, minHeight: 150)
-                .background(cardSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .padding(.horizontal, 20)
-                .pmAppearFade(.contentAppear)
+                emptyStateCard
             }
 
-            Text(HomeDiscoveryText.string(category == .folders ? "folder_ranking_scope" : "ranking_scope"))
+            Text(scopeDescription)
                 .font(.caption2).foregroundStyle(.tertiary)
                 .padding(.horizontal, 20)
         }
@@ -147,11 +195,123 @@ struct HomeListeningRankingSection: View {
         }
         .onChange(of: period) { _, _ in showsExpandedRanking = false }
         .onChange(of: category) { _, _ in showsExpandedRanking = false }
+        .onChange(of: selectedSourceID) { _, _ in showsExpandedRanking = false }
+        .onDisappear {
+            manualServerRefreshTask?.cancel()
+        }
     }
 
     private struct BoardIdentity: Hashable {
         let period: HomeListeningPeriod
         let category: HomeListeningCategory
+        let sourceID: String
+    }
+
+    private var showsLoadingPlaceholder: Bool {
+        if let state = activeServerState, state.snapshot == nil, state.isRefreshing {
+            return true
+        }
+        return isLoading
+    }
+
+    @ViewBuilder
+    private var emptyStateCard: some View {
+        let serverError = selectedServerSource != nil && activeServerState?.snapshot == nil
+            ? activeServerState?.errorMessage
+            : nil
+        let hasCumulativeFallback = selectedServerSource != nil
+            && effectivePeriod != .all
+            && (activeServerState?.snapshot?.payload.allTimePlayCount ?? 0) > 0
+
+        VStack(spacing: 8) {
+            Image(systemName: serverError == nil ? "trophy" : "exclamationmark.triangle")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text(
+                serverError == nil
+                    ? HomeDiscoveryText.string("empty_ranking")
+                    : String(localized: "stats_server_unavailable_title")
+            )
+            .font(.headline)
+            Text(
+                serverError
+                    ?? (hasCumulativeFallback
+                        ? HomeDiscoveryText.string("ranking_server_empty_period_hint")
+                        : HomeDiscoveryText.string("ranking_hint"))
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+
+            if serverError != nil, let source = selectedServerSource {
+                Button {
+                    triggerManualServerRefresh(for: source)
+                } label: {
+                    Label("stats_server_refresh", systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.top, 2)
+            } else if hasCumulativeFallback {
+                Button {
+                    period = .all
+                } label: {
+                    Text("stats_range_all")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.top, 2)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 150)
+        .background(cardSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 20)
+        .pmAppearFade(.contentAppear)
+    }
+
+    private var scopeDescription: String {
+        guard let source = selectedServerSource else {
+            return HomeDiscoveryText.string(category == .folders ? "folder_ranking_scope" : "ranking_scope")
+        }
+        let isFolder = category == .folders
+        let usesCumulative = !supportsTimeRanges || effectivePeriod == .all && (
+            activeServerState?.snapshot?.payload.temporalDetail == .aggregate
+            || activeServerState?.snapshot?.payload.cumulativeTracks != nil
+            || rankedBasis == .cumulative
+        )
+        let formatKey: String
+        switch (isFolder, usesCumulative) {
+        case (false, true): formatKey = "ranking_server_cumulative_scope"
+        case (false, false): formatKey = "ranking_server_events_scope"
+        case (true, true): formatKey = "ranking_server_folder_cumulative_scope"
+        case (true, false): formatKey = "ranking_server_folder_events_scope"
+        }
+        var text = String(format: HomeDiscoveryText.string(formatKey), source.name)
+        if let state = activeServerState, state.snapshot != nil, !state.staleReasons.isEmpty {
+            let stale = serverStaleSummary(state.staleReasons)
+            if !stale.isEmpty {
+                text += " · " + stale
+            }
+        }
+        return text
+    }
+
+    private func serverStaleSummary(_ reasons: Set<ServerListeningStatsStaleReason>) -> String {
+        let order: [ServerListeningStatsStaleReason] = [
+            .expired, .clockChanged, .recoveredBackup, .refreshFailed,
+        ]
+        return order.filter(reasons.contains).map { reason in
+            switch reason {
+            case .expired: String(localized: "stats_server_stale_expired")
+            case .clockChanged: String(localized: "stats_server_stale_clock")
+            case .recoveredBackup: String(localized: "stats_server_stale_backup")
+            case .refreshFailed: String(localized: "stats_server_stale_refresh")
+            }
+        }.joined(separator: " · ")
     }
 
     // MARK: - 顶栏
@@ -163,30 +323,105 @@ struct HomeListeningRankingSection: View {
             .accessibilityIdentifier("home.listeningRanking")
     }
 
-    /// 时间范围收进标题右侧的一个小菜单。首页别的区块都没有分段控件，
-    /// 这里横着摆一条会让这一块读起来像设置页。
-    private var periodMenu: some View {
+    private var currentSourceLabel: String {
+        selectedServerSource?.name ?? HomeDiscoveryText.string("ranking_source_primuse")
+    }
+
+    private var sourceMenu: some View {
         Menu {
-            Picker("stats_range", selection: $period) {
-                ForEach(HomeListeningPeriod.allCases, id: \.self) { period in
-                    Text(LocalizedStringKey("stats_range_" + period.rawValue)).tag(period)
+            Picker(
+                String(localized: "stats_data_source"),
+                selection: Binding(
+                    get: { selectedServerSource?.id ?? "" },
+                    set: { selectedSourceID = $0 }
+                )
+            ) {
+                Text(HomeDiscoveryText.string("ranking_source_primuse")).tag("")
+                ForEach(eligibleServerSources) { source in
+                    Text(source.name).tag(source.id)
                 }
             }
+
+            if let source = selectedServerSource {
+                Divider()
+                Button {
+                    triggerManualServerRefresh(for: source)
+                } label: {
+                    Label("stats_server_refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(activeServerState?.isRefreshing == true)
+            }
         } label: {
-            HStack(spacing: 4) {
-                Text(LocalizedStringKey("stats_range_" + period.rawValue))
-                Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold))
+            HStack(spacing: 5) {
+                if activeServerState?.isRefreshing == true, activeServerState?.snapshot != nil {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: selectedServerSource == nil ? "iphone" : "server.rack")
+                        .font(.caption2.weight(.semibold))
+                }
+                Text(currentSourceLabel)
+                    .lineLimit(1)
+                    .frame(maxWidth: 112)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
             }
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 11)
             .frame(minHeight: 32)
             .background(cardSurface, in: Capsule())
             .contentShape(Capsule())
         }
-        .accessibilityLabel(Text("stats_range"))
-        .accessibilityValue(Text(LocalizedStringKey("stats_range_" + period.rawValue)))
-        .accessibilityIdentifier("home.rankingPeriod")
+        .accessibilityLabel(Text("stats_data_source"))
+        .accessibilityValue(Text(currentSourceLabel))
+        .accessibilityIdentifier("home.rankingSource")
+    }
+
+    private func triggerManualServerRefresh(for source: MusicSource) {
+        guard let serverStats else { return }
+        manualServerRefreshTask?.cancel()
+        manualServerRefreshTask = Task { @MainActor in
+            await serverStats.refreshSourceSnapshot(source)
+        }
+    }
+
+    /// 时间范围收进标题右侧的一个小菜单。首页别的区块都没有分段控件，
+    /// 这里横着摆一条会让这一块读起来像设置页。
+    @ViewBuilder
+    private var periodMenu: some View {
+        if supportsTimeRanges {
+            Menu {
+                Picker("stats_range", selection: $period) {
+                    ForEach(HomeListeningPeriod.allCases, id: \.self) { period in
+                        Text(LocalizedStringKey("stats_range_" + period.rawValue)).tag(period)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(LocalizedStringKey("stats_range_" + effectivePeriod.rawValue))
+                    Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold))
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 32)
+                .background(cardSurface, in: Capsule())
+                .contentShape(Capsule())
+            }
+            .accessibilityLabel(Text("stats_range"))
+            .accessibilityValue(Text(LocalizedStringKey("stats_range_" + effectivePeriod.rawValue)))
+            .accessibilityIdentifier("home.rankingPeriod")
+        } else {
+            Text("stats_range_all")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 32)
+                .background(cardSurface, in: Capsule())
+                .accessibilityLabel(Text("stats_range"))
+                .accessibilityValue(Text("stats_range_all"))
+                .accessibilityIdentifier("home.rankingPeriod")
+        }
     }
 
     private var categoryPicker: some View {
@@ -323,7 +558,8 @@ struct HomeListeningRankingSection: View {
                     trend: rank.trend,
                     share: HomeListeningRankBoardPolicy.share(
                         playCount: rank.playCount, leaderPlayCount: ranks.first?.playCount ?? 0
-                    )
+                    ),
+                    showsDuration: rankedShowsDuration
                 ) {
                     rankArtwork(rank, size: 42, cornerRadius: 8)
                 }
@@ -486,7 +722,12 @@ struct HomeListeningRankingSection: View {
 
     private var currentRequest: Request {
         Request(
-            model: model, library: library, period: period, category: category
+            model: model,
+            library: library,
+            period: effectivePeriod,
+            category: category,
+            serverSource: selectedServerSource,
+            serverSnapshotRevision: serverStats?.snapshotsRevision ?? 0
         )
     }
 
@@ -495,13 +736,81 @@ struct HomeListeningRankingSection: View {
         // Lazy-stack reappearance must not collapse a loaded card to its
         // spinner height and repeatedly move it across the visible boundary.
         guard preparedRequest != request else { return }
-        isLoading = ranks.isEmpty
-        // Music only: audiobook chapters are not songs to rank.
-        let events = PlayHistoryStore.shared.musicEntries.map(\.listeningEvent)
+
         let visibleSongs = library.visibleSongs
         let folders = category == .folders ? model.index : nil
-        let period = period
+        let period = effectivePeriod
         let category = category
+
+        if let source = selectedServerSource {
+            if let serverStats, serverStats.musicPayload(for: source) == nil {
+                if ranks.isEmpty || rankedSourceID != source.id {
+                    isLoading = true
+                }
+                _ = await serverStats.loadCachedIfNeeded(for: source)
+                guard !Task.isCancelled else { return }
+            }
+
+            guard let payload = serverStats?.musicPayload(for: source) else {
+                if !ranks.isEmpty { ranks = [] }
+                rankedCategory = category
+                rankedPeriod = period
+                rankedShowsDuration = false
+                rankedSourceID = source.id
+                if let serverStats, serverStats.shouldRefreshInBackground(for: source) {
+                    isLoading = true
+                    await serverStats.refreshSourceSnapshot(source)
+                    return
+                }
+                let refreshing = serverStats?.state(for: source).isRefreshing ?? false
+                isLoading = refreshing
+                if !refreshing {
+                    preparedRequest = currentRequest
+                }
+                return
+            }
+
+            isLoading = ranks.isEmpty || rankedSourceID != source.id
+            let sourceID = source.id
+            let settledRequest = currentRequest
+            let task = Task.detached(priority: .utility) {
+                HomeListeningRanking.serverRanks(
+                    payload: payload,
+                    sourceID: sourceID,
+                    librarySongs: visibleSongs,
+                    folders: folders,
+                    period: period,
+                    category: category,
+                    calendar: settledRequest.calendar,
+                    artistNameConfiguration: settledRequest.artistNameConfiguration
+                )
+            }
+            let serverResult = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+            guard !Task.isCancelled, currentRequest == settledRequest else { return }
+            if serverResult.ranks != ranks { ranks = serverResult.ranks }
+            rankedCategory = category
+            rankedPeriod = serverResult.appliedPeriod
+            rankedShowsDuration = serverResult.showsDuration
+            rankedBasis = serverResult.basis
+            rankedSourceID = sourceID
+            isLoading = false
+            preparedRequest = settledRequest
+            Self.lastBoard = Board(
+                request: settledRequest,
+                ranks: serverResult.ranks,
+                showsDuration: serverResult.showsDuration,
+                basis: serverResult.basis,
+                sourceID: sourceID
+            )
+            if let serverStats, serverStats.shouldRefreshInBackground(for: source) {
+                await serverStats.refreshSourceSnapshot(source)
+            }
+            return
+        }
+
+        isLoading = ranks.isEmpty || !rankedSourceID.isEmpty
+        // Music only: audiobook chapters are not songs to rank.
+        let events = PlayHistoryStore.shared.musicEntries.map(\.listeningEvent)
         let task = Task.detached(priority: .utility) {
             HomeListeningRanking.ranks(events: events, librarySongs: visibleSongs, folders: folders,
                                        period: period, category: category, calendar: request.calendar,
@@ -513,9 +822,18 @@ struct HomeListeningRankingSection: View {
         if result != ranks { ranks = result }
         rankedCategory = category
         rankedPeriod = period
+        rankedShowsDuration = true
+        rankedBasis = .events
+        rankedSourceID = ""
         isLoading = false
         preparedRequest = request
-        Self.lastBoard = Board(request: request, ranks: result)
+        Self.lastBoard = Board(
+            request: request,
+            ranks: result,
+            showsDuration: true,
+            basis: .events,
+            sourceID: ""
+        )
     }
 }
 

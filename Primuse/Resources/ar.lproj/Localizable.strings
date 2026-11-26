@@ -5767,8 +5767,7 @@
 "stats_server_all_time_plays" = "مرات التشغيل منذ البداية";
 "stats_server_hourly_title" = "مرات التشغيل حسب الوقت من اليوم";
 "stats_server_hourly_footer" = "مجمعة حسب الساعة التي سجلها الخادم · مرات التشغيل. تعتمد أوقات التسجيل على تطبيق التشغيل.";
-"stats_server_navidrome_history_boundary" = "تستخدم الرسوم ومجاميع الفترات سجل التشغيل المحفوظ في Navidrome. قد تكون مرات التشغيل الأقدم موجودة في العدادات الإجمالية فقط؛ ولا يمكن استعادتها بالترقية. مدة الاستماع الفعلية غير متاحة.";
-
+"stats_server_navidrome_history_boundary" = "في «الكل»، يعتمد الترتيب افتراضياً على إجمالي عدادات playCount في الخادم (بما في ذلك السجل غير المؤرخ). أما الرسوم البيانية والفترات فتعتمد على سجل Navidrome المؤرخ دون افتراض تواريخ. مدة الاستماع الفعلية غير متوفرة.";
 "scrape_parts_all" = "الوسوم والغلاف والكلمات";
 "scrape_parts_lyrics_only" = "الكلمات فقط";
 "scrape_parts_cover_only" = "الغلاف فقط";
@@ -8225,7 +8224,11 @@
 "playback_error_source_offline_skipped_format" = "تم تخطي الأغاني غير المخزّنة من \"%@\" في الوضع دون اتصال";
 "filter_offline_available" = "متاح دون اتصال";
 "filter_offline_available_empty_desc" = "تظهر هنا الأغاني المنزّلة والمخزّنة مؤقتاً والمحلية.";
-
 "song_radio_building" = "جارٍ إنشاء راديو الأغنية…";
 "song_radio_started_format" = "بدأ راديو الأغنية · التالي %d";
 "song_radio_no_matches" = "لم يتم العثور على مزيد من الأغاني المشابهة";
+"stats_server_rank_basis" = "أساس الترتيب";
+"stats_server_rank_cumulative" = "الإجمالي التراكمي";
+"stats_server_rank_events" = "السجل المؤرخ";
+"stats_server_rank_cumulative_footer" = "مجمّع من عداد playCount التراكمي لكل مقطع على الخادم (شاملاً السجل غير المؤرخ)، ومطابق لإجمالي مرات التشغيل.";
+"stats_server_rank_events_footer" = "مجمّع من أحداث التشغيل المؤرخة على الخادم، ومطابق للتشغيلات المسجلة في النطاق المحدد.";

@@ -5767,8 +5767,7 @@
 "stats_server_all_time_plays" = "अब तक के कुल प्ले";
 "stats_server_hourly_title" = "दिन के समय के अनुसार प्ले";
 "stats_server_hourly_footer" = "सर्वर में दर्ज घंटे के अनुसार समूहित · प्ले। स्क्रॉबल का समय प्लेबैक ऐप पर निर्भर करता है।";
-"stats_server_navidrome_history_boundary" = "चार्ट और अवधि के कुल आँकड़े Navidrome के सुरक्षित प्ले इतिहास पर आधारित हैं। पुराने प्ले केवल कुल गिनती में हो सकते हैं; अपग्रेड से उनका इतिहास वापस नहीं बन सकता। वास्तव में सुनी गई अवधि उपलब्ध नहीं है।";
-
+"stats_server_navidrome_history_boundary" = "‘सभी’ में रैंकिंग डिफ़ॉल्ट रूप से सर्वर के कुल playCount (बिना तारीख़ के आयातित इतिहास सहित) का उपयोग करती है। चार्ट और अवधि दृश्य बिना तारीख़ गढ़े Navidrome के टाइमस्टैम्प इतिहास का उपयोग करते हैं। वास्तविक सुनने की अवधि उपलब्ध नहीं है।";
 "scrape_parts_all" = "टैग, आर्टवर्क और बोल";
 "scrape_parts_lyrics_only" = "केवल बोल";
 "scrape_parts_cover_only" = "केवल आर्टवर्क";
@@ -8225,7 +8224,11 @@
 "playback_error_source_offline_skipped_format" = "ऑफ़लाइन मोड में \"%@\" के बिना कैश वाले गाने छोड़ दिए गए";
 "filter_offline_available" = "ऑफ़लाइन उपलब्ध";
 "filter_offline_available_empty_desc" = "डाउनलोड, कैश्ड और डिवाइस के गाने यहाँ दिखाई देते हैं।";
-
 "song_radio_building" = "सॉन्ग रेडियो बनाया जा रहा है…";
 "song_radio_started_format" = "सॉन्ग रेडियो शुरू हुआ · आगे %d गाने";
 "song_radio_no_matches" = "और मिलते-जुलते गाने नहीं मिले";
+"stats_server_rank_basis" = "रैंकिंग आधार";
+"stats_server_rank_cumulative" = "कुल संचयी रैंकिंग";
+"stats_server_rank_events" = "रिकॉर्डेड इतिहास";
+"stats_server_rank_cumulative_footer" = "सर्वर के प्रति-ट्रैक संचयी playCount (बिना तारीख़ के इतिहास सहित) से संकलित, जो कुल प्ले से मेल खाता है।";
+"stats_server_rank_events_footer" = "टाइमस्टैम्प वाले सर्वर प्ले इवेंट से संकलित, जो इस अवधि के रिकॉर्डेड प्ले से मेल खाता है।";

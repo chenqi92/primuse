@@ -5861,8 +5861,7 @@
 "stats_server_all_time_plays" = "누적 재생 횟수";
 "stats_server_hourly_title" = "시간대별 재생 횟수";
 "stats_server_hourly_footer" = "서버에 기록된 시간을 기준으로 집계합니다. 기록 시간은 재생 클라이언트에 따라 다릅니다.";
-"stats_server_navidrome_history_boundary" = "차트와 기간별 통계는 Navidrome에 보관된 재생 기록을 사용합니다. 과거 재생은 누적 횟수만 남아 있을 수 있으며, 업그레이드해도 날짜를 복원할 수 없습니다. 실제 청취 시간은 제공되지 않습니다.";
-
+"stats_server_navidrome_history_boundary" = "‘전체’에서는 서버의 곡별 누적 재생 횟수(날짜 없는 이전 기록 포함)로 종합 순위를 표시합니다. 차트와 주·월·년 통계는 Navidrome에 보관된 시간별 재생 이력만 사용하며 임의 날짜를 생성하지 않습니다. 실제 청취 시간은 제공되지 않습니다.";
 "scrape_parts_all" = "태그, 아트워크, 가사";
 "scrape_parts_lyrics_only" = "가사만";
 "scrape_parts_cover_only" = "아트워크만";
@@ -8319,7 +8318,11 @@
 "playback_error_source_offline_skipped_format" = "오프라인 모드에서 \"%@\"의 캐시되지 않은 곡을 건너뛰었습니다";
 "filter_offline_available" = "오프라인 재생 가능";
 "filter_offline_available_empty_desc" = "다운로드됨, 캐시됨 및 기기에 저장된 곡이 여기에 표시됩니다.";
-
 "song_radio_building" = "곡 라디오 생성 중…";
 "song_radio_started_format" = "곡 라디오 시작됨 · 다음 %d곡";
 "song_radio_no_matches" = "비슷한 곡을 더 찾을 수 없습니다";
+"stats_server_rank_basis" = "순위 기준";
+"stats_server_rank_cumulative" = "누적 종합 순위";
+"stats_server_rank_events" = "개별 기록 순위";
+"stats_server_rank_cumulative_footer" = "서버의 곡별 누적 playCount(날짜 없는 기록 포함)로 집계하며 ‘전체 기간 재생’과 일치합니다.";
+"stats_server_rank_events_footer" = "타임스탬프가 기록된 서버 재생 이벤트로 집계하며 현재 범위의 ‘기록된 재생’과 일치합니다.";

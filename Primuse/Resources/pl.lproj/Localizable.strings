@@ -5767,8 +5767,7 @@
 "stats_server_all_time_plays" = "Odtworzenia łącznie";
 "stats_server_hourly_title" = "Odtworzenia według pory dnia";
 "stats_server_hourly_footer" = "Pogrupowane według godziny zapisanej przez serwer · odtworzenia. Czas scrobblingu zależy od odtwarzacza.";
-"stats_server_navidrome_history_boundary" = "Wykresy i sumy dla okresów korzystają z historii zachowanej przez Navidrome. Starsze odtworzenia mogą występować tylko w licznikach zbiorczych; aktualizacja nie pozwala ich odtworzyć. Rzeczywisty czas słuchania jest niedostępny.";
-
+"stats_server_navidrome_history_boundary" = "W widoku „Wszystko” ranking domyślnie korzysta z łącznych liczników playCount serwera (w tym historii bez dat). Wykresy i okresy używają historii Navidrome ze znacznikami czasu bez dopisywania dat. Rzeczywisty czas słuchania jest niedostępny.";
 "scrape_parts_all" = "Tagi, okładka i teksty";
 "scrape_parts_lyrics_only" = "Tylko teksty";
 "scrape_parts_cover_only" = "Tylko okładka";
@@ -8225,7 +8224,11 @@
 "playback_error_source_offline_skipped_format" = "Pominięto niezapisane utwory z „%@” w trybie offline";
 "filter_offline_available" = "Dostępne offline";
 "filter_offline_available_empty_desc" = "Tutaj pojawią się pobrane, zapisane w pamięci podręcznej i lokalne utwory.";
-
 "song_radio_building" = "Tworzenie radia utworu…";
 "song_radio_started_format" = "Radio uruchomione · następnych: %d";
 "song_radio_no_matches" = "Nie znaleziono więcej podobnych utworów";
+"stats_server_rank_basis" = "Podstawa rankingu";
+"stats_server_rank_cumulative" = "Łączny całkowity";
+"stats_server_rank_events" = "Zapisana historia";
+"stats_server_rank_cumulative_footer" = "Zsumowano według łącznego playCount utworów na serwerze (w tym historii bez dat), zgodnie z „Odtworzenia łącznie”.";
+"stats_server_rank_events_footer" = "Zsumowano według zapisanych zdarzeń odtwarzania ze znacznikami czasu, zgodnie z „Zapisane odtworzenia” w tym okresie.";
