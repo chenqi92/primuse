@@ -59,6 +59,7 @@
 		0BD6E0AD694437345DFD3A58 /* LibraryCatalogAlbumArtistMaintenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 572A813AF080D582F02260C6 /* LibraryCatalogAlbumArtistMaintenance.swift */; };
 		B25A4028AD0E94F21D9F1C22 /* LibraryCatalogRawStatement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536815A9B5F52E02BB91493E /* LibraryCatalogRawStatement.swift */; };
 		226C165299E8C201670FEC57 /* LibraryCatalogGroupingQueries.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C3C48AA4782F9C3A25BB346 /* LibraryCatalogGroupingQueries.swift */; };
+		61D7EF67F5AF1905DF2A516C /* LibrarySongOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8007F1EDAE94A15AC57517A /* LibrarySongOverlay.swift */; };
 		C14E6B463F077A33D003F68C /* LibraryCatalog+P4b2.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D29BD7669C3EC8BA0243CA /* LibraryCatalog+P4b2.swift */; };
 		C648708C3693C781D5B95BE7 /* LibraryCatalog+P4a2.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374610153E248B05271E6BF6 /* LibraryCatalog+P4a2.swift */; };
 		F6F047B55492D963E5783853 /* LibraryCatalogBrowseOrders.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD53B5F0ED3FEA468F08DA67 /* LibraryCatalogBrowseOrders.swift */; };
@@ -2938,6 +2939,7 @@
 		572A813AF080D582F02260C6 /* LibraryCatalogAlbumArtistMaintenance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogAlbumArtistMaintenance.swift; sourceTree = "<group>"; };
 		536815A9B5F52E02BB91493E /* LibraryCatalogRawStatement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogRawStatement.swift; sourceTree = "<group>"; };
 		8C3C48AA4782F9C3A25BB346 /* LibraryCatalogGroupingQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogGroupingQueries.swift; sourceTree = "<group>"; };
+		C8007F1EDAE94A15AC57517A /* LibrarySongOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySongOverlay.swift; sourceTree = "<group>"; };
 		E8D29BD7669C3EC8BA0243CA /* LibraryCatalog+P4b2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryCatalog+P4b2.swift"; sourceTree = "<group>"; };
 		374610153E248B05271E6BF6 /* LibraryCatalog+P4a2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryCatalog+P4a2.swift"; sourceTree = "<group>"; };
 		DD53B5F0ED3FEA468F08DA67 /* LibraryCatalogBrowseOrders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogBrowseOrders.swift; sourceTree = "<group>"; };
@@ -4939,6 +4941,7 @@
 				572A813AF080D582F02260C6 /* LibraryCatalogAlbumArtistMaintenance.swift */,
 				536815A9B5F52E02BB91493E /* LibraryCatalogRawStatement.swift */,
 				8C3C48AA4782F9C3A25BB346 /* LibraryCatalogGroupingQueries.swift */,
+				C8007F1EDAE94A15AC57517A /* LibrarySongOverlay.swift */,
 				E8D29BD7669C3EC8BA0243CA /* LibraryCatalog+P4b2.swift */,
 				374610153E248B05271E6BF6 /* LibraryCatalog+P4a2.swift */,
 				DD53B5F0ED3FEA468F08DA67 /* LibraryCatalogBrowseOrders.swift */,
@@ -8170,6 +8173,7 @@
 				0BD6E0AD694437345DFD3A58 /* LibraryCatalogAlbumArtistMaintenance.swift in Sources */,
 				B25A4028AD0E94F21D9F1C22 /* LibraryCatalogRawStatement.swift in Sources */,
 				226C165299E8C201670FEC57 /* LibraryCatalogGroupingQueries.swift in Sources */,
+				61D7EF67F5AF1905DF2A516C /* LibrarySongOverlay.swift in Sources */,
 				C14E6B463F077A33D003F68C /* LibraryCatalog+P4b2.swift in Sources */,
 				C648708C3693C781D5B95BE7 /* LibraryCatalog+P4a2.swift in Sources */,
 				F6F047B55492D963E5783853 /* LibraryCatalogBrowseOrders.swift in Sources */,
