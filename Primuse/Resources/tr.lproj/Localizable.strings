@@ -8232,3 +8232,16 @@
 "stats_server_rank_events" = "Kayıtlı Geçmiş";
 "stats_server_rank_cumulative_footer" = "Sunucudaki parça başı toplam playCount değerlerinden (tarihsiz geçmiş dahil) hesaplanır; Tüm zamanlardaki çalmalar ile eşleşir.";
 "stats_server_rank_events_footer" = "Zaman damgalı sunucu çalma kayıtlarından hesaplanır; seçili aralıktaki Kaydedilen çalmalar ile eşleşir.";
+"song_count_singular" = "1 şarkı";
+"enter_full_screen" = "Tam Ekrana Gir";
+"fullscreen_effect_launch_hint" = "Bu efekt ile tam ekranı açar";
+"find_lyrics_action" = "Şarkı Sözü Bul";
+"search_library_action" = "Arşivde Ara";
+"desktop_lyrics_title" = "Masaüstü Şarkı Sözleri";
+"desktop_lyrics_shown" = "Masaüstü şarkı sözleri gösteriliyor";
+"desktop_lyrics_shown_no_lyrics" = "Masaüstü şarkı sözleri gösteriliyor · Bu parça için söz yok";
+"desktop_lyrics_hidden" = "Masaüstü şarkı sözleri gizlendi";
+"mini_player_expand" = "Şarkı sözlerini ve sırayı genişlet";
+"mini_player_collapse" = "Şarkı sözlerini ve sırayı daralt";
+"audio_output_system_default" = "Sistem Varsayılanı · Core Audio";
+"a11y_clear_search" = "Aramayı Temizle";

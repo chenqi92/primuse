@@ -222,6 +222,7 @@ struct MacImmersivePlayerView: View {
                             scale: rotator.focusScale,
                             maximumBlur: metrics.s(28)
                         ))
+                        .accessibilityHidden(showsEffectPicker || showsKaraoke || isLowPower)
                 } else {
                     entrySurface(metrics: metrics)
                 }
@@ -241,6 +242,7 @@ struct MacImmersivePlayerView: View {
                     chrome(metrics: metrics)
                         // 浅色画面（水彩绘本）上胶囊换亮玻璃，按钮照 `chromeInk` 用深色。
                         .environment(\.immersiveLightChrome, presentationEffect.prefersLightContent)
+                        .accessibilityHidden(showsEffectPicker || isLowPower)
                         .transition(.opacity)
                 }
 
@@ -333,6 +335,8 @@ struct MacImmersivePlayerView: View {
             }
         }
         .ignoresSafeArea(edges: ignoresWindowSafeArea ? .all : [])
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
         .macPlaybackErrorFeedback()
         .environment(\.colorScheme, presentationEffect.prefersLightContent ? .light : .dark)
         .nowPlayingLibraryActionAlert(libraryActions)
@@ -492,6 +496,13 @@ struct MacImmersivePlayerView: View {
                 chromeTask?.cancel()
                 showsChrome = true
             } else {
+                revealChrome()
+            }
+        }
+        .onChange(of: voiceOverEnabled) { _, enabled in
+            if enabled {
+                idleTask?.cancel()
+                isLowPower = false
                 revealChrome()
             }
         }
@@ -714,8 +725,9 @@ struct MacImmersivePlayerView: View {
                 }
                 .buttonStyle(.plain)
                 .pmPointingHand()
-                .keyboardShortcut(.cancelAction)
+                .keyboardShortcut(showsEffectPicker || showsKaraoke ? nil : .cancelAction)
                 .help(Text("exit_full_screen"))
+                .accessibilityLabel(Text("exit_full_screen"))
             }
             .padding(.horizontal, 26)
             .padding(.top, 22)
@@ -1052,6 +1064,7 @@ struct MacImmersivePlayerView: View {
             .pmPointingHand()
             .disabled(player.showsLoadingIndicator)
             .help(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
+            .accessibilityLabel(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
 
             transportButton(
                 "forward.fill",
@@ -1158,6 +1171,8 @@ struct MacImmersivePlayerView: View {
         .pmPointingHand()
         .fixedSize()
         .help(Text("fullscreen_effect_settings_title"))
+        .accessibilityLabel(Text("fullscreen_effect_settings_title"))
+        .accessibilityValue(Text(verbatim: rotator.highlightedEffect(selected: effect).localizedTitle))
     }
 
     private func closeEffectPicker() {
@@ -1221,6 +1236,7 @@ struct MacImmersivePlayerView: View {
             .pmPointingHand()
             .disabled(player.showsLoadingIndicator)
             .help(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
+            .accessibilityLabel(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
 
             transportButton("forward.fill", size: 18, diameter: 46, label: "a11y_next_track") {
                 Task { await player.next() }
@@ -1315,6 +1331,7 @@ struct MacImmersivePlayerView: View {
         }
         .buttonStyle(.plain)
         .pmPointingHand()
+        .help(Text(label))
         .accessibilityLabel(Text(label))
     }
 
@@ -1329,6 +1346,7 @@ struct MacImmersivePlayerView: View {
         .buttonStyle(.plain)
         .pmPointingHand()
         .help(Text(help))
+        .accessibilityLabel(Text(help))
     }
 
     private var seekTint: Color {
@@ -1662,7 +1680,7 @@ struct MacImmersivePlayerView: View {
         #if DEBUG
         if usesDemoEvidenceContent { return ImmersiveDemoContent.title }
         #endif
-        guard let song = player.currentSong else { return ImmersiveDemoContent.title }
+        guard let song = player.currentSong else { return "" }
         // 标签缺歌名时才拿文件名顶上;服务器源、Apple Music 的路径是条目 ID,不拿来当歌名(见 `PlayerDisplayTitlePolicy`)。
         return PlayerDisplayTitlePolicy.title(
             stored: song.title,
@@ -2184,6 +2202,16 @@ private struct MacImmersiveScrubber: View {
             )
         }
         .frame(height: 16)
+        .allowsHitTesting(player.duration > 0)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("now_playing"))
+        .accessibilityValue(Text(verbatim: "\(player.currentTime.formattedDuration) / \(player.duration.formattedDuration)"))
+        .accessibilityAdjustableAction { direction in
+            guard player.duration > 0 else { return }
+            let delta: TimeInterval = direction == .increment ? 10 : -10
+            let target = min(player.duration, max(0, player.currentTime + delta))
+            onSeek(target / player.duration)
+        }
     }
 
     private var playbackFraction: Double {

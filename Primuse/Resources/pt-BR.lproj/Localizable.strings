@@ -8232,3 +8232,16 @@
 "stats_server_rank_events" = "Histórico registrado";
 "stats_server_rank_cumulative_footer" = "Agregado pelo playCount acumulado por faixa (incluindo histórico sem data), alinhado a Reproduções acumuladas.";
 "stats_server_rank_events_footer" = "Agregado pelos eventos de reprodução com data no servidor, alinhado a Reproduções registradas no período.";
+"song_count_singular" = "1 música";
+"enter_full_screen" = "Entrar em tela cheia";
+"fullscreen_effect_launch_hint" = "Abre a tela cheia com este efeito";
+"find_lyrics_action" = "Buscar letras";
+"search_library_action" = "Buscar na biblioteca";
+"desktop_lyrics_title" = "Letras na área de trabalho";
+"desktop_lyrics_shown" = "Letras na área de trabalho exibidas";
+"desktop_lyrics_shown_no_lyrics" = "Letras na área de trabalho exibidas · Sem letras para esta faixa";
+"desktop_lyrics_hidden" = "Letras na área de trabalho ocultadas";
+"mini_player_expand" = "Expandir letras e fila";
+"mini_player_collapse" = "Recolher letras e fila";
+"audio_output_system_default" = "Padrão do sistema · Core Audio";
+"a11y_clear_search" = "Limpar busca";

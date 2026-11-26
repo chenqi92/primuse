@@ -27,7 +27,9 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
     /// Toggle whether the status item shows the current song title next to
     /// the icon. Stored in UserDefaults so it survives launches; users who
     /// prefer a clean menu bar can turn it off.
-    @AppStorage("menuBarShowTitle") private var showTitle: Bool = true
+    private var showTitle: Bool {
+        UserDefaults.standard.object(forKey: "menuBarShowTitle") as? Bool ?? true
+    }
     /// Max characters of song title shown in the status bar — Apple's
     /// system bar caps text width and squeezes other items if too long.
     private static let titleLimit = 28
@@ -50,7 +52,20 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
     private var lyricsTask: Task<Void, Never>?
     private var activeLyricIndex: Int?
     private var isTrackingLyricTime = false
-    private var notificationTokens: [NSObjectProtocol] = []
+    nonisolated(unsafe) private var notificationTokens: [NSObjectProtocol] = []
+    private struct ArtworkCacheKey: Equatable {
+        let songID: String
+        let coverFileName: String?
+        let coverRevision: Int
+    }
+    private var cachedArtworkKey: ArtworkCacheKey?
+    private var cachedArtworkImage: NSImage?
+
+    deinit {
+        for token in notificationTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
 
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -99,7 +114,10 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
             _ = library.artistNameConfiguration
             _ = player.currentSong?.coverArtFileName
             _ = player.coverRevision
-            _ = player.isPlaying
+            _ = player.isLiveRadio
+            _ = player.currentRadioStation?.id
+            _ = player.currentRadioStation?.name
+            _ = player.radioMetadataTitle
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshStatusItem()
@@ -165,8 +183,17 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         return image
     }
 
-    private func statusBarArtworkImage(for song: Song?) -> NSImage? {
-        guard let song else { return nil }
+    private func statusBarArtworkImage(for song: Song?, coverRevision: Int) -> NSImage? {
+        guard let song else {
+            cachedArtworkKey = nil
+            cachedArtworkImage = nil
+            return nil
+        }
+        let key = ArtworkCacheKey(songID: song.id, coverFileName: song.coverArtFileName, coverRevision: coverRevision)
+        if cachedArtworkKey == key {
+            return cachedArtworkImage
+        }
+        cachedArtworkKey = key
         let store = MetadataAssetStore.shared
         let candidates = [
             store.expectedCoverFileName(for: song.id),
@@ -178,8 +205,10 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
                   let image = NSImage(data: data) else { continue }
             image.size = NSSize(width: 18, height: 18)
             image.isTemplate = false
+            cachedArtworkImage = image
             return image
         }
+        cachedArtworkImage = nil
         return nil
     }
 
@@ -187,7 +216,7 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         guard let button = statusItem?.button else { return }
         let player = AppServices.shared.playerService
 
-        button.image = statusBarArtworkImage(for: player.currentSong) ?? statusBarImage()
+        button.image = statusBarArtworkImage(for: player.currentSong, coverRevision: player.coverRevision) ?? statusBarImage()
         button.imagePosition = .imageLeading
 
         reloadLyricsIfNeeded(for: player.currentSong)
@@ -371,6 +400,8 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         "PrimuseDesktopLyrics_v2",
         "PrimuseSettings",
         "PrimuseScrapeOptions",
+        "PrimuseUpdateCheck",
+        "PrimuseDiagnostics",
     ]
 
     /// 找到当前 SwiftUI 主窗口。排除 mini player / 桌面歌词 / Settings /

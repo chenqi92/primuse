@@ -31,6 +31,9 @@ struct MacQueuePanel: View {
         // 面板永远占满右侧整列: 空态只有一小块内容, 不撑满的话会缩成一个灰块
         // 悬在窗口中间, 上下露出正文的底色。
         .frame(maxHeight: .infinity, alignment: .top)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("queue_title"))
+        .accessibilityIdentifier("macQueuePanel")
         .background {
             ZStack {
                 NSVisualEffectBackdrop(material: .sidebar, blending: .behindWindow)
@@ -193,6 +196,7 @@ struct MacQueuePanel: View {
         // 视觉重心略高于几何中心, 底下还压着播放条。
         .padding(.bottom, 48)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
         .pmAppearFade(.contentAppear)
     }
 
@@ -217,6 +221,8 @@ struct MacQueuePanel: View {
             Text("queue_title")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(PMColor.text)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("queue.header.title")
             // 空队列时「0 首歌曲 · 0:00」没有意义; 更多菜单针对当前歌曲, 没歌在播也不给。
             if !isEmpty {
                 Text(verbatim: queueSummaryText)
@@ -235,10 +241,12 @@ struct MacQueuePanel: View {
             }
             .buttonStyle(.plain)
             .help(Text("close"))
+            .accessibilityLabel(Text("close"))
         }
         .padding(.horizontal, 18)
         .padding(.top, 14)
         .padding(.bottom, 8)
+        .accessibilityElement(children: .contain)
     }
 
     /// 段标题在惰性列表外面,惰性列表里只放一样高的行(见 `QueueSectionStack`)。
@@ -263,6 +271,8 @@ struct MacQueuePanel: View {
             .foregroundStyle(accent ? PMColor.brand : PMColor.textFaint)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder
@@ -291,6 +301,7 @@ struct MacQueuePanel: View {
                 filePath: song.filePath,
                 fileFormat: song.fileFormat
             )
+            .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -327,6 +338,11 @@ struct MacQueuePanel: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: accessibilityLabel))
+        .accessibilityValue(Text(verbatim: song.duration.formattedDuration))
+        .accessibilityAddTraits(isPlaying ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { playEntry(entry) }
 
         let row = HStack(spacing: 2) {
             playbackTarget
@@ -427,7 +443,7 @@ struct MacQueuePanel: View {
                 // non-shuffle order. Never delete unrelated raw slots in shuffle.
                 .disabled(!player.canClearPlayedQueueEntries)
             Button("save_as_playlist") { saveQueueAsPlaylist() }
-                .disabled(player.queue.isEmpty)
+                .disabled(player.queueEntries.isEmpty)
             Spacer(minLength: 0)
         }
         .buttonStyle(.plain)
@@ -441,11 +457,15 @@ struct MacQueuePanel: View {
     }
 
     private var queueSummaryText: String {
-        "\(player.queue.count) \(String(localized: "songs_count")) · \(queueDuration.formattedDuration)"
+        let count = player.queueEntries.count
+        let songCount = count == 1
+            ? String(localized: "song_count_singular")
+            : "\(count) \(String(localized: "songs_count"))"
+        return "\(songCount) · \(queueDuration.formattedDuration)"
     }
 
     private var queueDuration: TimeInterval {
-        player.queue.reduce(0) { $0 + max(0, $1.duration) }
+        player.queueEntries.reduce(0) { $0 + max(0, $1.song.duration) }
     }
 
     // MARK: - Actions

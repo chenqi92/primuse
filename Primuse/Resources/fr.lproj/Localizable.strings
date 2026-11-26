@@ -8326,3 +8326,16 @@
 "stats_server_rank_events" = "Historique horodaté";
 "stats_server_rank_cumulative_footer" = "Agrégé à partir du playCount cumulé par titre (historique non daté inclus), aligné sur « Écoutes cumulées ».";
 "stats_server_rank_events_footer" = "Agrégé à partir des écoutes horodatées du serveur, aligné sur « Écoutes enregistrées » pour cette période.";
+"song_count_singular" = "1 morceau";
+"enter_full_screen" = "Passer en plein écran";
+"fullscreen_effect_launch_hint" = "Ouvre le plein écran avec cet effet";
+"find_lyrics_action" = "Rechercher des paroles";
+"search_library_action" = "Rechercher dans la bibliothèque";
+"desktop_lyrics_title" = "Paroles sur le bureau";
+"desktop_lyrics_shown" = "Paroles sur le bureau affichées";
+"desktop_lyrics_shown_no_lyrics" = "Paroles sur le bureau affichées · Aucune parole disponible pour ce morceau";
+"desktop_lyrics_hidden" = "Paroles sur le bureau masquées";
+"mini_player_expand" = "Afficher les paroles et la file d'attente";
+"mini_player_collapse" = "Masquer les paroles et la file d'attente";
+"audio_output_system_default" = "Défaut système · Core Audio";
+"a11y_clear_search" = "Effacer la recherche";

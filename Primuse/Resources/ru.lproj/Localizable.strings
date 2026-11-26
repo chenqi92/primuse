@@ -8232,3 +8232,16 @@
 "stats_server_rank_events" = "По истории событий";
 "stats_server_rank_cumulative_footer" = "Суммируется по накопительному playCount треков на сервере (включая записи без дат), совпадая с «Всего прослушиваний».";
 "stats_server_rank_events_footer" = "Суммируется по записанным событиям с отметками времени, совпадая с «Записанные прослушивания» за выбранный период.";
+"song_count_singular" = "1 трек";
+"enter_full_screen" = "На весь экран";
+"fullscreen_effect_launch_hint" = "Открывает полноэкранный режим с этим эффектом";
+"find_lyrics_action" = "Найти текст";
+"search_library_action" = "Поиск по медиатеке";
+"desktop_lyrics_title" = "Текст на рабочем столе";
+"desktop_lyrics_shown" = "Текст на рабочем столе показан";
+"desktop_lyrics_shown_no_lyrics" = "Текст на рабочем столе показан · Для этого трека нет текста";
+"desktop_lyrics_hidden" = "Текст на рабочем столе скрыт";
+"mini_player_expand" = "Развернуть текст и очередь";
+"mini_player_collapse" = "Свернуть текст и очередь";
+"audio_output_system_default" = "По умолчанию · Core Audio";
+"a11y_clear_search" = "Очистить поиск";

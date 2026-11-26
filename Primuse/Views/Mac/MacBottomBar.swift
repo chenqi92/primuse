@@ -243,6 +243,9 @@ struct MacBottomBar: View {
                 .help(Text(player.isLiveRadio && (player.isPlaying || player.isLoading)
                     ? "radio_stop"
                     : (player.isPlaying || player.isLoading ? "pause" : "play")))
+                .accessibilityLabel(Text(player.isLiveRadio && (player.isPlaying || player.isLoading)
+                    ? "radio_stop"
+                    : (player.isPlaying || player.isLoading ? "pause" : "play")))
 
                 if player.currentItemIsSpokenWord, !player.isLiveRadio {
                     transportBtn(player.spokenWordSkipForwardSymbol, size: 13, help: "a11y_skip_forward") {
@@ -327,6 +330,8 @@ struct MacBottomBar: View {
         }
         .buttonStyle(.plain)
         .help(Text(help))
+        .accessibilityLabel(Text(help))
+        .accessibilityAddTraits(isToggle && active ? .isSelected : [])
         .accessibilityValue(
             isToggle
                 ? Text(active ? "a11y_value_on" : "a11y_value_off")
@@ -436,6 +441,7 @@ struct MacBottomBar: View {
             }
             .buttonStyle(.plain)
             .help(Text("audio_output"))
+            .accessibilityLabel(Text("audio_output"))
             .popover(isPresented: $airPlayShown, arrowEdge: .top) {
                 AudioOutputPickerView()
             }
@@ -530,6 +536,7 @@ private struct MacBottomBarProgress: View {
             Scrubber(
                 value: current,
                 total: duration,
+                isInteractive: player.currentSong != nil && player.duration > 0,
                 onDrag: { dragValue = $0 },
                 onCommit: { value in
                     player.seek(to: value)
@@ -557,6 +564,7 @@ private struct Scrubber: View {
     private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
     let value: Double
     let total: Double
+    var isInteractive = true
     var onDrag: (Double) -> Void
     var onCommit: (Double) -> Void
 
@@ -567,8 +575,8 @@ private struct Scrubber: View {
         GeometryReader { geo in
             let width = geo.size.width
             let frac = total > 0 ? CGFloat(max(0, min(1, value / total))) : 0
-            let dotSize: CGFloat = (hover || dragging) ? 10 : 0
-            let barHeight: CGFloat = ((hover || dragging) ? 4 : 3) * PlayerTrackThickness.resolved(thicknessRawValue).scale
+            let dotSize: CGFloat = isInteractive && (hover || dragging) ? 10 : 0
+            let barHeight: CGFloat = (isInteractive && (hover || dragging) ? 4 : 3) * PlayerTrackThickness.resolved(thicknessRawValue).scale
 
             ZStack(alignment: .leading) {
                 Capsule()
@@ -596,18 +604,27 @@ private struct Scrubber: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
-                        guard width > 0, total > 0 else { return }
+                        guard isInteractive, width > 0, total > 0 else { return }
                         dragging = true
                         let frac = max(0, min(1, g.location.x / width))
                         onDrag(Double(frac) * total)
                     }
                     .onEnded { g in
-                        guard width > 0, total > 0 else { dragging = false; return }
+                        guard isInteractive, width > 0, total > 0 else { dragging = false; return }
                         let frac = max(0, min(1, g.location.x / width))
                         onCommit(Double(frac) * total)
                         dragging = false
                     }
             )
+        }
+        .allowsHitTesting(isInteractive)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("now_playing"))
+        .accessibilityValue(Text(verbatim: isInteractive ? "\(value.formattedDuration) / \(total.formattedDuration)" : "--:--"))
+        .accessibilityAdjustableAction { direction in
+            guard isInteractive, total > 0 else { return }
+            let delta: Double = direction == .increment ? 10 : -10
+            onCommit(min(total, max(0, value + delta)))
         }
     }
 }

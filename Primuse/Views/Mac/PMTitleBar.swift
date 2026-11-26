@@ -24,6 +24,7 @@ struct PMTitleBar: View {
     @State private var hoversSearchBox = false
     @State private var keyboardShortcuts = MacKeyboardShortcutStore.shared
     @State private var favoritesShown = false
+    @State private var hostWindow: NSWindow?
 
     var body: some View {
         ZStack {
@@ -50,6 +51,13 @@ struct PMTitleBar: View {
         .padding(.horizontal, 14)
         .frame(height: PMSize.titlebar)
         .background(MacTitleBarBackdrop().ignoresSafeArea(edges: .top))
+        .background {
+            PMWindowResolver { window in
+                if hostWindow !== window {
+                    hostWindow = window
+                }
+            }
+        }
     }
 
     /// Use concrete AppKit views for the flexible title-bar gaps. Keeping the
@@ -123,6 +131,7 @@ struct PMTitleBar: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help(Text("mac_sidebar_tools"))
+        .accessibilityLabel(Text("mac_sidebar_tools"))
     }
 
     // MARK: - Search box
@@ -141,6 +150,7 @@ struct PMTitleBar: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(PMColor.textFaint)
+                .accessibilityHidden(true)
 
             TextField("", text: $searchText, prompt: Text(searchPromptKey))
                 .textFieldStyle(.plain)
@@ -165,10 +175,13 @@ struct PMTitleBar: View {
                         .foregroundStyle(PMColor.textFaint)
                 }
                 .buttonStyle(.plain)
+                .help(Text("a11y_clear_search"))
+                .accessibilityLabel(Text("a11y_clear_search"))
             } else {
                 Text(verbatim: keyboardShortcuts.shortcut(for: .focusSearch)?.displayString ?? "—")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(PMColor.textFaint.opacity(0.7))
+                    .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, 12)
@@ -209,7 +222,8 @@ struct PMTitleBar: View {
         .onAppear {
             releaseSearchFocusIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+            guard hostWindow == nil || (note.object as? NSWindow) === hostWindow else { return }
             releaseSearchFocusIfNeeded()
         }
     }
@@ -254,7 +268,8 @@ struct PMTitleBar: View {
             await Task.yield()
             guard !searchFocused else { return }
             searchFocused = false
-            guard let window = NSApp.keyWindow,
+            guard let window = hostWindow ?? NSApp.keyWindow,
+                  window === NSApp.keyWindow,
                   window.attachedSheet == nil,
                   window.sheetParent == nil,
                   Self.isTitleBarSearchFirstResponder(in: window) else {
@@ -496,7 +511,9 @@ struct MacFavoritesPopover: View {
                         Text("sidebar_liked_songs")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(PMColor.text)
-                        Text("album_pick_tracks \(songs.count)")
+                        Text(verbatim: songs.count == 1
+                            ? String(localized: "song_count_singular")
+                            : "\(songs.count) \(String(localized: "songs_count"))")
                             .font(.system(size: 11))
                             .foregroundStyle(PMColor.textFaint)
                     }

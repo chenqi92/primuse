@@ -8303,3 +8303,16 @@
 "stats_server_rank_events" = "逐次歷史排行";
 "stats_server_rank_cumulative_footer" = "按伺服器單曲累計播放次數彙總（包含無具體日期的歷史記錄），與「累計播放次數」一致。";
 "stats_server_rank_events_footer" = "按伺服器保留時間戳記的逐次播放記錄彙總，與目前範圍的「已記錄播放」一致。";
+"song_count_singular" = "1 首歌曲";
+"enter_full_screen" = "進入全螢幕";
+"fullscreen_effect_launch_hint" = "使用此效果進入全螢幕播放";
+"find_lyrics_action" = "尋找歌詞";
+"search_library_action" = "搜尋資料庫";
+"desktop_lyrics_title" = "桌面歌詞";
+"desktop_lyrics_shown" = "已顯示桌面歌詞";
+"desktop_lyrics_shown_no_lyrics" = "已顯示桌面歌詞 · 目前歌曲尚無歌詞";
+"desktop_lyrics_hidden" = "已隱藏桌面歌詞";
+"mini_player_expand" = "展開歌詞與佇列";
+"mini_player_collapse" = "收合歌詞與佇列";
+"audio_output_system_default" = "系統預設 · Core Audio";
+"a11y_clear_search" = "清除搜尋";

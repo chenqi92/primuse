@@ -15,6 +15,7 @@ struct MacImmersiveEffectPicker: View {
     /// 要列出的效果。分组标题按 `FullscreenEffectCollection` 的顺序排，只显示有内容的组。
     let effects: [FullscreenPlayerEffect]
     let palette: ImmersiveArtworkPalette
+    var launchActionTitle: LocalizedStringKey? = nil
     let onSelect: (FullscreenPlayerEffect) -> Void
     let onClose: () -> Void
 
@@ -24,6 +25,7 @@ struct MacImmersiveEffectPicker: View {
     @AppStorage(ScreenIdleHoldMode.storageKey)
     private var screenIdleModeRawValue = ScreenIdleHoldMode.defaultValue.rawValue
     @State private var hoveredID: String?
+    @State private var showsScreenIdlePopover = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -58,6 +60,30 @@ struct MacImmersiveEffectPicker: View {
                     .pmAnimation(.control, value: selected.id)
             }
             Spacer(minLength: 8)
+            if let launchActionTitle {
+                Button {
+                    onSelect(selected)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .accessibilityHidden(true)
+                        Text(launchActionTitle)
+                            .font(.system(size: 11, weight: .semibold))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(palette.primary, in: Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .pmPointingHand()
+                .help(Text(launchActionTitle))
+                .accessibilityLabel(Text(launchActionTitle))
+                .accessibilityIdentifier("immersive.launchFullScreen")
+            }
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
@@ -67,6 +93,7 @@ struct MacImmersiveEffectPicker: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
             .pmPointingHand()
             .help(Text("close"))
             .accessibilityLabel(Text("close"))
@@ -91,12 +118,7 @@ struct MacImmersiveEffectPicker: View {
     /// 菜单的底和收起键同一种淡白圆角；拿着常亮时档位用主题色，和当前效果的名字一样。
     private var screenIdleRow: some View {
         HStack(spacing: 10) {
-            Label {
-                Text("screen_idle_short_title")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(ImmersiveStagePalette.ink)
-                    .lineLimit(1)
-            } icon: {
+            HStack(spacing: 6) {
                 Image(systemName: screenIdleMode.holdsWhilePlaying ? "sun.max.fill" : "sun.max")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(
@@ -104,22 +126,16 @@ struct MacImmersiveEffectPicker: View {
                             ? palette.primary.opacity(0.92)
                             : ImmersiveStagePalette.text.opacity(0.62)
                     )
+                    .accessibilityHidden(true)
+                Text("screen_idle_short_title")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ImmersiveStagePalette.ink)
+                    .lineLimit(1)
             }
+            .accessibilityHidden(true)
             Spacer(minLength: 8)
-            Menu {
-                Picker("screen_idle_short_title", selection: Binding(
-                    get: { screenIdleMode },
-                    set: { mode in
-                        screenIdleModeRawValue = mode.rawValue
-                        ScreenIdleHoldController.shared.settingsDidChange()
-                    }
-                )) {
-                    ForEach(ScreenIdleHoldMode.allCases) { mode in
-                        Text(LocalizedStringKey(mode.titleKey)).tag(mode)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
+            Button {
+                showsScreenIdlePopover.toggle()
             } label: {
                 HStack(spacing: 5) {
                     Text(LocalizedStringKey(screenIdleMode.titleKey))
@@ -133,22 +149,55 @@ struct MacImmersiveEffectPicker: View {
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(ImmersiveStagePalette.text.opacity(0.52))
+                        .accessibilityHidden(true)
                 }
                 .padding(.horizontal, 9)
                 .frame(height: 22)
                 .background(Color.white.opacity(0.08), in: Capsule())
                 .contentShape(Capsule())
             }
-            // `.borderlessButton` 会丢掉自定义 label；`.button` + 透明按钮样式才照上面画。
-            .menuStyle(.button)
             .buttonStyle(.plain)
-            .menuIndicator(.hidden)
             .fixedSize()
             .pmPointingHand()
             .help(Text("screen_idle_info_mac"))
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("screen_idle_short_title"))
             .accessibilityValue(Text(LocalizedStringKey(screenIdleMode.titleKey)))
             .accessibilityIdentifier("immersive.screenIdleMenu")
+            .popover(isPresented: $showsScreenIdlePopover, arrowEdge: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(ScreenIdleHoldMode.allCases) { mode in
+                        let isSelected = mode == screenIdleMode
+                        Button {
+                            screenIdleModeRawValue = mode.rawValue
+                            ScreenIdleHoldController.shared.settingsDidChange()
+                            showsScreenIdlePopover = false
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(PMColor.brand)
+                                    .opacity(isSelected ? 1 : 0)
+                                    .frame(width: 12)
+                                    .accessibilityHidden(true)
+                                Text(LocalizedStringKey(mode.titleKey))
+                                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                                    .foregroundStyle(PMColor.text)
+                                    .lineLimit(1)
+                                Spacer(minLength: 8)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .pmRowBackground(selected: isSelected, cornerRadius: 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    }
+                }
+                .padding(6)
+                .frame(minWidth: 180)
+            }
         }
         .padding(.horizontal, Self.contentInset)
         .padding(.vertical, 10)
@@ -269,6 +318,7 @@ struct MacImmersiveEffectPicker: View {
         }
         .accessibilityLabel(Text(verbatim: effect.localizedTitle))
         .accessibilityValue(Text(verbatim: effect.motionDescription))
+        .accessibilityHint(launchActionTitle != nil ? Text("fullscreen_effect_launch_hint") : Text(verbatim: ""))
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 

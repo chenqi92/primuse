@@ -262,17 +262,26 @@ struct MacNowPlayingView: View {
         GeometryReader { proxy in
             playerSurface(width: proxy.size.width)
                 .frame(width: proxy.size.width, height: proxy.size.height)
+                .accessibilityHidden(showsNativeFullscreenEffectPicker)
                 // 顶部这几层必须挂在尺寸钉死之后。挂在 `playerSurface` 上时它们贴的是
                 // 内容撑出来的自然尺寸（实测 1048 高，而容器只有 861），`.frame` 居中
                 // 裁剪之后就跑到窗口上方去了 —— 全屏里按钮只剩半截正是这么来的。
-                .overlay(alignment: .topTrailing) { topRightControls }
+                .overlay(alignment: .topTrailing) {
+                    topRightControls
+                        .accessibilityHidden(showsNativeFullscreenEffectPicker)
+                }
                 .overlay { fullscreenEffectScrim }
-                .overlay(alignment: .topLeading) { topLeftControls }
+                .overlay(alignment: .topLeading) {
+                    topLeftControls
+                        .accessibilityHidden(showsNativeFullscreenEffectPicker)
+                }
                 .overlay(alignment: .topLeading) { fullscreenEffectPanel }
                 // 按钮排和右栏在这里量,播放页整页滑入滑出时读数不跟着变。
                 .coordinateSpace(.named(Self.surfaceSpace))
                 .pmLogFrame("nowPlaying")
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(isWindowFullScreen ? .isModal : [])
         .safeAreaInset(edge: .bottom, spacing: 0) {
             PlayerActivityBar(songID: player.currentSong?.id)
         }
@@ -701,9 +710,12 @@ struct MacNowPlayingView: View {
                         Image(systemName: "backward.fill")
                             .frame(width: 42, height: 42)
                             .background(playerFaintColor.opacity(0.14), in: Circle())
+                            .contentShape(Circle())
                     }
+                    .buttonStyle(.plain)
                     .disabled(!player.canSwitchRadioStation)
                     .help(Text("radio_previous_station"))
+                    .accessibilityLabel(Text("radio_previous_station"))
 
                     Button { player.togglePlayPause() } label: {
                         Label(
@@ -728,9 +740,12 @@ struct MacNowPlayingView: View {
                         Image(systemName: "forward.fill")
                             .frame(width: 42, height: 42)
                             .background(playerFaintColor.opacity(0.14), in: Circle())
+                            .contentShape(Circle())
                     }
+                    .buttonStyle(.plain)
                     .disabled(!player.canSwitchRadioStation)
                     .help(Text("radio_next_station"))
+                    .accessibilityLabel(Text("radio_next_station"))
                 }
 
                 Spacer()
@@ -760,6 +775,7 @@ struct MacNowPlayingView: View {
                 .buttonStyle(.plain)
                 .pmGlassControl(Circle())
                 .help(Text("radio_detail_heard_title"))
+                .accessibilityLabel(Text("radio_detail_heard_title"))
                 .sheet(item: Binding(
                     get: { radioDetailStationID.map(MacRadioDetailTarget.init) },
                     set: { radioDetailStationID = $0?.id }
@@ -778,6 +794,7 @@ struct MacNowPlayingView: View {
             .buttonStyle(.plain)
             .pmGlassControl(Circle())
             .help(player.isSleepTimerActive ? Text("sleep_timer_active") : Text("sleep_timer"))
+            .accessibilityLabel(player.isSleepTimerActive ? Text("sleep_timer_active") : Text("sleep_timer"))
             .popover(isPresented: $showsRadioSleepTimer, arrowEdge: .bottom) {
                 MacSleepTimerPopover {
                     showsRadioSleepTimer = false
@@ -791,12 +808,15 @@ struct MacNowPlayingView: View {
                 .buttonStyle(.plain)
                 .pmGlassControl(Circle())
                 .help(Text("share"))
+                .accessibilityLabel(Text("share"))
             }
             if !isWindowFullScreen {
                 Button(action: onClose) { circleIcon("chevron.down") }
                     .buttonStyle(.plain)
                     .pmGlassControl(Circle())
                     .help(Text("close"))
+                    .accessibilityLabel(Text("close"))
+                    .keyboardShortcut(.cancelAction)
             }
         }
     }
@@ -1137,7 +1157,19 @@ struct MacNowPlayingView: View {
             }
 
             if isWindowFullScreen {
-                MacNowPlayingProgressRow(width: coverSize, accent: theme.accentColor)
+                VStack(spacing: 14) {
+                    MacNowPlayingProgressRow(width: coverSize, accent: theme.accentColor)
+                    MacNowPlayingFullScreenTransport(
+                        isSpokenWord: isSpokenWord,
+                        accent: theme.accentColor,
+                        onAccent: theme.onAccent,
+                        primary: playerPrimaryColor,
+                        secondary: playerSecondaryColor,
+                        glassFill: playerGlassFill,
+                        glassBorder: playerGlassBorder
+                    )
+                }
+                .frame(width: coverSize)
             }
 
             Spacer(minLength: 0)
@@ -1229,10 +1261,19 @@ struct MacNowPlayingView: View {
                     Spacer(minLength: isWindowFullScreen ? 120 : 80)
                         .frame(height: isWindowFullScreen ? 120 : 80)
                     if lyrics.isEmpty {
-                        // 全屏时没有歌词也不写「暂无歌词」、不摆刮削与听写(#423),这两件在「更多」里照旧有。
-                        if player.currentSong == nil || isLoadingLyrics || isWindowFullScreen {
+                        if player.currentSong == nil || isLoadingLyrics {
                             Color.clear.frame(height: 1)
                                 .padding(.top, lyricsRowSpacing)
+                        } else if isWindowFullScreen {
+                            VStack(spacing: 10) {
+                                Text("no_lyrics")
+                                    .font(.title2.weight(.medium))
+                                    .foregroundStyle(playerSecondaryColor)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .pmAppearFade(.contentAppear)
+                            .padding(.top, lyricsRowSpacing)
+                            .accessibilityIdentifier("nowPlaying.fullScreenNoLyrics")
                         } else {
                             VStack(spacing: 12) {
                                 Text("no_lyrics")
@@ -1251,7 +1292,7 @@ struct MacNowPlayingView: View {
                                             Image(systemName: "wand.and.stars")
                                                 .transition(.scale.combined(with: .opacity))
                                         }
-                                        Text("scrape_song")
+                                        Text("find_lyrics_action")
                                     }
                                     .font(.system(size: 12.5, weight: .semibold))
                                     .padding(.horizontal, 14)
@@ -1958,9 +1999,10 @@ struct MacNowPlayingView: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(.cancelAction)
+        .keyboardShortcut(showsNativeFullscreenEffectPicker ? nil : .cancelAction)
         .pmGlassControl(Capsule())
         .help(Text("exit_full_screen"))
+        .accessibilityLabel(Text("exit_full_screen"))
     }
 
     private var nativeFullscreenEffectButton: some View {
@@ -1994,6 +2036,7 @@ struct MacNowPlayingView: View {
         .pmGlassControl(Capsule())
         .help(Text("fullscreen_effect_settings_title"))
         .accessibilityLabel(Text("fullscreen_effect_settings_title"))
+        .accessibilityValue(Text(verbatim: fullscreenPlayerEffect.localizedTitle))
     }
 
     private var floatingControls: some View {
@@ -2013,6 +2056,7 @@ struct MacNowPlayingView: View {
                 .buttonStyle(.plain)
                 .pmGlassControl(Circle())
                 .help(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+                .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
                 .disabled(player.currentSong == nil || libraryActions.isBusy)
             }
 
@@ -2028,6 +2072,7 @@ struct MacNowPlayingView: View {
                 .buttonStyle(.plain)
                 .pmGlassControl(Circle())
                 .help(Text("MV"))
+                .accessibilityLabel(Text("MV"))
                 .disabled(player.isLoading)
             }
 
@@ -2060,29 +2105,37 @@ struct MacNowPlayingView: View {
                 .accessibilityLabel(Text("comments_view_action"))
             }
 
-            // This filled icon represents the lyrics view that is already
-            // active. A second click toggles it off, just like the down button.
-            Button {
-                onClose()
-            } label: {
-                circleIcon("text.bubble.fill",
-                           tint: theme.onAccent,
-                           fill: theme.accentColor.opacity(0.9))
+            if !isWindowFullScreen {
+                // This filled icon represents the lyrics view that is already
+                // active. A second click toggles it off, just like the down button.
+                Button {
+                    onClose()
+                } label: {
+                    circleIcon("text.bubble.fill",
+                               tint: theme.onAccent,
+                               fill: theme.accentColor.opacity(0.9))
+                }
+                .buttonStyle(.plain)
+                .pmGlassControl(Circle())
+                .help(Text("lyrics_word"))
+                .accessibilityLabel(Text("lyrics_word"))
+                .disabled(player.currentSong == nil)
             }
-            .buttonStyle(.plain)
-            .pmGlassControl(Circle())
-            .help(Text("lyrics_word"))
-            .disabled(player.currentSong == nil)
 
             Button {
-                onClose()
+                if isWindowFullScreen, let onExitFullScreen {
+                    onExitFullScreen()
+                } else {
+                    onClose()
+                }
                 NotificationCenter.default.post(name: .primuseFocusSearch, object: nil)
             } label: {
                 circleIcon("magnifyingglass")
             }
             .buttonStyle(.plain)
             .pmGlassControl(Circle())
-            .help(Text("search_title"))
+            .help(Text("search_library_action"))
+            .accessibilityLabel(Text("search_library_action"))
 
             // Font smaller
             Button {
@@ -2097,7 +2150,9 @@ struct MacNowPlayingView: View {
             .buttonStyle(.plain)
             .pmGlassControl(Circle())
             .help(Text("lyrics_font_smaller"))
+            .accessibilityLabel(Text("lyrics_font_smaller"))
             .disabled(lyrics.isEmpty)
+            .opacity(lyrics.isEmpty ? 0.38 : 1)
 
             // Font larger
             Button {
@@ -2112,7 +2167,9 @@ struct MacNowPlayingView: View {
             .buttonStyle(.plain)
             .pmGlassControl(Circle())
             .help(Text("lyrics_font_larger"))
+            .accessibilityLabel(Text("lyrics_font_larger"))
             .disabled(lyrics.isEmpty)
+            .opacity(lyrics.isEmpty ? 0.38 : 1)
 
             // 复用底栏共享的 PlayerMoreMenu,确保两处菜单项一致。
             PlayerMoreMenu {
@@ -2132,6 +2189,7 @@ struct MacNowPlayingView: View {
                 .buttonStyle(.plain)
                 .pmGlassControl(Circle())
                 .help(Text("close"))
+                .accessibilityLabel(Text("close"))
                 .keyboardShortcut(.cancelAction)
             }
         }
@@ -2218,6 +2276,7 @@ struct MacNowPlayingView: View {
         .buttonStyle(.plain)
         .pmGlassControl(Circle())
         .help(Text("transcript_read_fullscreen"))
+        .accessibilityLabel(Text("transcript_read_fullscreen"))
         .padding(8)
     }
 
@@ -2854,6 +2913,7 @@ private struct MacMusicVideoStage: View {
             .pmPointingHand()
             .disabled(player.showsLoadingIndicator)
             .help(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
+            .accessibilityLabel(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
 
             if isSpokenWord {
                 transportButton(player.spokenWordSkipForwardSymbol, help: "a11y_skip_forward") {
@@ -3208,6 +3268,7 @@ private struct MacNowPlayingSpokenWordRow: View {
                     .buttonStyle(.plain)
                     .disabled(player.currentChapterIndex == nil)
                     .help(Text("spoken_word_previous_chapter"))
+                    .accessibilityLabel(Text("spoken_word_previous_chapter"))
 
                     Button { player.seekToNextChapter() } label: {
                         Image(systemName: "forward.end")
@@ -3217,6 +3278,7 @@ private struct MacNowPlayingSpokenWordRow: View {
                     .buttonStyle(.plain)
                     .disabled((player.currentChapterIndex ?? -1) + 1 >= player.spokenWordChapters.count)
                     .help(Text("spoken_word_next_chapter"))
+                    .accessibilityLabel(Text("spoken_word_next_chapter"))
                 }
 
                 if isSpokenWord {
@@ -3230,6 +3292,7 @@ private struct MacNowPlayingSpokenWordRow: View {
                     }
                     .buttonStyle(.plain)
                     .help(Text("spoken_word_add_bookmark"))
+                    .accessibilityLabel(Text("spoken_word_add_bookmark"))
 
                     Menu {
                         Picker(selection: rateBinding) {
@@ -3252,6 +3315,7 @@ private struct MacNowPlayingSpokenWordRow: View {
                     .fixedSize()
                     .disabled(!rateAdjustable)
                     .help(Text("spoken_word_playback_rate"))
+                    .accessibilityLabel(Text("spoken_word_playback_rate"))
                 }
             }
             .foregroundStyle(foreground)
@@ -3297,6 +3361,143 @@ private struct NowPlayingWindowResolver: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async { onResolve(nsView.window) }
+    }
+}
+
+private struct MacNowPlayingFullScreenTransport: View {
+    let isSpokenWord: Bool
+    let accent: Color
+    let onAccent: Color
+    let primary: Color
+    let secondary: Color
+    let glassFill: Color
+    let glassBorder: Color
+
+    @Environment(AudioPlayerService.self) private var player
+
+    private var shuffleKey: ShuffleKeyState {
+        ShuffleKeyState(shuffleEnabled: player.shuffleEnabled, queueCount: player.queueCount)
+    }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            if !isSpokenWord {
+                toggleButton(
+                    symbol: shuffleKey.symbolName,
+                    active: shuffleKey.isActive,
+                    label: "shuffle"
+                ) {
+                    player.shuffleEnabled.toggle()
+                }
+            }
+
+            if isSpokenWord {
+                iconButton(symbol: player.spokenWordSkipBackwardSymbol, label: "a11y_skip_backward") {
+                    player.skipSpokenWordBackward()
+                }
+            } else {
+                iconButton(symbol: "backward.fill", label: "a11y_previous_track") {
+                    Task { await player.previous() }
+                }
+                .disabled(player.currentSong == nil)
+            }
+
+            Button {
+                guard !player.isLoading else { return }
+                player.togglePlayPause()
+            } label: {
+                ZStack {
+                    Image(systemName: player.isPlaying || player.isLoading ? "pause.fill" : "play.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .contentTransition(.symbolEffect(.replace))
+                        .opacity(player.showsLoadingIndicator ? 0 : 1)
+                    if player.showsLoadingIndicator {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(onAccent)
+                    }
+                }
+                .foregroundStyle(onAccent)
+                .frame(width: 52, height: 52)
+                .background(accent, in: Circle())
+                .shadow(color: accent.opacity(0.32), radius: 10, y: 4)
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .pmPointingHand()
+            .disabled(player.currentSong == nil || player.showsLoadingIndicator)
+            .help(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
+            .accessibilityLabel(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
+            .accessibilityIdentifier("nowPlaying.fullScreenPlayPause")
+
+            if isSpokenWord {
+                iconButton(symbol: player.spokenWordSkipForwardSymbol, label: "a11y_skip_forward") {
+                    player.skipSpokenWordForward()
+                }
+            } else {
+                iconButton(symbol: "forward.fill", label: "a11y_next_track") {
+                    Task { await player.next() }
+                }
+                .disabled(player.currentSong == nil)
+            }
+
+            if !isSpokenWord {
+                toggleButton(
+                    symbol: player.repeatMode == .one ? "repeat.1" : "repeat",
+                    active: player.repeatMode != .off,
+                    label: "repeat"
+                ) {
+                    switch player.repeatMode {
+                    case .off: player.repeatMode = .all
+                    case .all: player.repeatMode = .one
+                    case .one: player.repeatMode = .off
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func iconButton(
+        symbol: String,
+        label: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(primary.opacity(0.9))
+                .frame(width: 40, height: 40)
+                .background(glassFill, in: Circle())
+                .overlay { Circle().strokeBorder(glassBorder, lineWidth: 0.5) }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .pmPointingHand()
+        .help(Text(label))
+        .accessibilityLabel(Text(label))
+    }
+
+    private func toggleButton(
+        symbol: String,
+        active: Bool,
+        label: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(active ? accent : secondary)
+                .frame(width: 34, height: 34)
+                .background(active ? accent.opacity(0.16) : Color.clear, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .pmPointingHand()
+        .help(Text(label))
+        .accessibilityLabel(Text(label))
+        .accessibilityValue(Text(active ? "a11y_value_on" : "a11y_value_off"))
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 

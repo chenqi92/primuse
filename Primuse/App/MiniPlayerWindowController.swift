@@ -20,12 +20,14 @@ import PrimuseKit
 ///   5. `isReleasedWhenClosed = false`;`level = .floating` + `.fullScreenAuxiliary`。
 @MainActor
 final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
-    @AppStorage("miniPlayerVisible") private var visible: Bool = false
+    private static let visibleKey = "miniPlayerVisible"
 
-    /// 折叠态(无歌词/队列面板)高度 —— 设计稿 NP-Mini 标 300×220, 但实际内容
-    /// (顶栏 32 + 封面 76 + 标题 + 进度条 + 常驻 footer)约 237pt, 钉死 220 会让
-    /// 整组内容居中溢出、顶部折叠/关闭按钮被窗口圆角裁掉。给到 240 让内容完整放下。
-    static let collapsedHeight: CGFloat = 240
+    private var visible: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.visibleKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.visibleKey) }
+    }
+
+    static let collapsedHeight: CGFloat = 292
     static let expandedHeight: CGFloat = 540
     static let fixedWidth: CGFloat = 300
 
@@ -48,6 +50,7 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
             defer: true
         )
         panel.isFloatingPanel = true
+        panel.title = String(localized: "mini_player")
         panel.isMovableByWindowBackground = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -150,18 +153,35 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
 
     func show() {
         let panel = ensurePanel()
-        isExpanded = false
-        panel.setFrame(
-            NSRect(origin: panel.frame.origin,
-                   size: NSSize(width: Self.fixedWidth, height: Self.collapsedHeight)),
-            display: false
-        )
-        mountContentViewIfNeeded(in: panel)
+        let needsMount = hosting == nil || panel.contentView == nil
+        if needsMount {
+            isExpanded = false
+            panel.setFrame(
+                NSRect(origin: panel.frame.origin,
+                       size: NSSize(width: Self.fixedWidth, height: Self.collapsedHeight)),
+                display: false
+            )
+            mountContentViewIfNeeded(in: panel)
+        }
+        moveOnScreenIfNeeded(panel)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.invalidateShadow()
         plog("🎵 MiniPlayer.show() frame=\(panel.frame)")
         visible = true
+    }
+
+    private func moveOnScreenIfNeeded(_ panel: NSPanel) {
+        let frame = panel.frame
+        let intersectsVisibleScreen = NSScreen.screens.contains { screen in
+            screen.visibleFrame.intersects(frame)
+        }
+        guard !intersectsVisibleScreen, let visibleFrame = NSScreen.main?.visibleFrame else { return }
+        let clampedX = min(max(frame.origin.x, visibleFrame.minX + 12),
+                           max(visibleFrame.minX + 12, visibleFrame.maxX - frame.width - 12))
+        let clampedY = min(max(frame.origin.y, visibleFrame.minY + 12),
+                           max(visibleFrame.minY + 12, visibleFrame.maxY - frame.height - 12))
+        panel.setFrameOrigin(NSPoint(x: clampedX, y: clampedY))
     }
 
     func hide() {

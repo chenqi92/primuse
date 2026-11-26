@@ -8087,3 +8087,16 @@
 "stats_server_rank_events" = "Recorded History";
 "stats_server_rank_cumulative_footer" = "Aggregated from server per-track playCount (including undated history), matching All-time Plays.";
 "stats_server_rank_events_footer" = "Aggregated from timestamped server play events, matching Recorded Plays for this range.";
+"song_count_singular" = "1 song";
+"enter_full_screen" = "Enter Full Screen";
+"fullscreen_effect_launch_hint" = "Opens full screen with this effect";
+"find_lyrics_action" = "Find Lyrics";
+"search_library_action" = "Search Library";
+"desktop_lyrics_title" = "Desktop Lyrics";
+"desktop_lyrics_shown" = "Desktop lyrics shown";
+"desktop_lyrics_shown_no_lyrics" = "Desktop lyrics shown · No lyrics available for this track";
+"desktop_lyrics_hidden" = "Desktop lyrics hidden";
+"mini_player_expand" = "Expand lyrics and queue";
+"mini_player_collapse" = "Collapse lyrics and queue";
+"audio_output_system_default" = "System Default · Core Audio";
+"a11y_clear_search" = "Clear Search";

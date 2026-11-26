@@ -8326,3 +8326,16 @@
 "stats_server_rank_events" = "개별 기록 순위";
 "stats_server_rank_cumulative_footer" = "서버의 곡별 누적 playCount(날짜 없는 기록 포함)로 집계하며 ‘전체 기간 재생’과 일치합니다.";
 "stats_server_rank_events_footer" = "타임스탬프가 기록된 서버 재생 이벤트로 집계하며 현재 범위의 ‘기록된 재생’과 일치합니다.";
+"song_count_singular" = "1곡";
+"enter_full_screen" = "전체 화면 시작";
+"fullscreen_effect_launch_hint" = "이 효과로 전체 화면을 엽니다";
+"find_lyrics_action" = "가사 찾기";
+"search_library_action" = "보관함 검색";
+"desktop_lyrics_title" = "데스크톱 가사";
+"desktop_lyrics_shown" = "데스크톱 가사를 표시했습니다";
+"desktop_lyrics_shown_no_lyrics" = "데스크톱 가사 표시됨 · 이 곡의 가사가 없습니다";
+"desktop_lyrics_hidden" = "데스크톱 가사를 숨겼습니다";
+"mini_player_expand" = "가사 및 대기열 펼치기";
+"mini_player_collapse" = "가사 및 대기열 접기";
+"audio_output_system_default" = "시스템 기본값 · Core Audio";
+"a11y_clear_search" = "검색 지우기";

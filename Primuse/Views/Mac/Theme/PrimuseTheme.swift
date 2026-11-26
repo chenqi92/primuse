@@ -471,10 +471,11 @@ struct PMRoundBtn: View {
     var action: () -> Void
 
     @Environment(\.pmAppearance) private var mode
+    @Environment(\.isEnabled) private var isEnabled
     @State private var hover = false
 
     var body: some View {
-        Button(action: action) {
+        let base = Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: iconSize, weight: .medium))
                 .foregroundStyle(foreground)
@@ -486,10 +487,18 @@ struct PMRoundBtn: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.45)
         .onHover { hover = $0 }
         .help(helpText)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
         .pmAnimation(.hover, value: hover)
         .pmAnimation(.hover, value: isActive)
+
+        if let help {
+            base.accessibilityLabel(Text(help))
+        } else {
+            base
+        }
     }
 
     private var helpText: Text {
@@ -1592,14 +1601,15 @@ private struct PMHorizontalDragScroll: NSViewRepresentable {
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    private nonisolated(unsafe) static var installedKey: UInt8 = 0
+
     private func attach(to view: NSView, context: Context) {
         var node: NSView? = view.superview
         while let n = node {
             if let sv = n as? NSScrollView {
                 // 避免重复挂 — 用 associated object 标记一次
-                let key = "pmHorizontalDragInstalled"
-                if objc_getAssociatedObject(sv, key) != nil { return }
-                objc_setAssociatedObject(sv, key, true, .OBJC_ASSOCIATION_RETAIN)
+                if objc_getAssociatedObject(sv, &Self.installedKey) != nil { return }
+                objc_setAssociatedObject(sv, &Self.installedKey, true, .OBJC_ASSOCIATION_RETAIN)
 
                 let pan = NSPanGestureRecognizer(target: context.coordinator,
                                                  action: #selector(Coordinator.handlePan(_:)))

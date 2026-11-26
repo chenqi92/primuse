@@ -7,7 +7,6 @@ import AppKit
 /// Primuse 自己的输出 (不影响系统默认)。"跟随系统"那一行让用户回到
 /// 默认行为,Primuse 跟系统 default output 走。
 struct AudioOutputPickerView: View {
-    @Environment(\.dismiss) private var dismiss
     @Environment(AudioEngine.self) private var engine
     @State private var manager = AudioOutputDeviceManager()
     @State private var errorMessage: String?
@@ -19,6 +18,7 @@ struct AudioOutputPickerView: View {
                     Image(systemName: "airplayaudio")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(PMColor.brand)
+                        .accessibilityHidden(true)
                     Text("audio_output")
                         .font(.system(size: 13.5, weight: .semibold))
                         .foregroundStyle(PMColor.text)
@@ -125,7 +125,7 @@ struct AudioOutputPickerView: View {
            let device = manager.devices.first(where: { $0.id == id }) {
             return "\(device.name) · \(device.subtitle)"
         }
-        return "System Default · Core Audio"
+        return String(localized: "audio_output_system_default")
     }
 
     private func deviceRow(title: String, symbol: String, subtitle: String?, isSelected: Bool,
@@ -136,6 +136,7 @@ struct AudioOutputPickerView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(accent ?? PMColor.textMuted)
                     .frame(width: 20)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.callout)
@@ -153,6 +154,7 @@ struct AudioOutputPickerView: View {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(PMColor.brand)
+                        .accessibilityHidden(true)
                         // 只淡入淡出, 不缩放 —— 缩放会把行高一起撑动。
                         // 选择是在这里裸赋值的, 所以曲线附在过渡上, 跟行底色同一档。
                         .pmFadeTransition(motion: .hover)
@@ -164,6 +166,7 @@ struct AudioOutputPickerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func applyDevice(_ id: AudioDeviceID) {

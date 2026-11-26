@@ -517,7 +517,9 @@ private enum MacScreenshotWindowPreset {
         window.frameAutosaveName != "PrimuseMiniPlayer" &&
         window.frameAutosaveName != "PrimuseDesktopLyrics_v2" &&
         window.frameAutosaveName != "PrimuseSettings" &&
-        window.frameAutosaveName != "PrimuseScrapeOptions"
+        window.frameAutosaveName != "PrimuseScrapeOptions" &&
+        window.frameAutosaveName != "PrimuseUpdateCheck" &&
+        window.frameAutosaveName != "PrimuseDiagnostics"
     }
 
     @MainActor
@@ -865,7 +867,9 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         window.frameAutosaveName != "PrimuseMiniPlayer" &&
         window.frameAutosaveName != "PrimuseDesktopLyrics_v2" &&
         window.frameAutosaveName != "PrimuseSettings" &&
-        window.frameAutosaveName != "PrimuseScrapeOptions"
+        window.frameAutosaveName != "PrimuseScrapeOptions" &&
+        window.frameAutosaveName != "PrimuseUpdateCheck" &&
+        window.frameAutosaveName != "PrimuseDiagnostics"
     }
 
     /// macOS 的推送权限键是 `com.apple.developer.aps-environment`,写成 iOS 的
@@ -2934,46 +2938,7 @@ struct PrimuseApp: App {
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
-            CommandGroup(after: .toolbar) {
-                Button("show_desktop_lyrics") {
-                    PrimuseAppDelegate.shared?.toggleDesktopLyrics()
-                }
-
-                // 锁定后桌面歌词上的工具条会消失(因为 panel 设了
-                // ignoresMouseEvents 实现"点击穿透"),用户没法再点
-                // 解锁。这条命令 + 快捷键让用户在 Primuse 聚焦时也
-                // 能直接解锁,不必去找菜单栏的 popover。
-                Button("toggle_desktop_lyrics_lock") {
-                    let key = "desktopLyricsLocked"
-                    let locked = UserDefaults.standard.bool(forKey: key)
-                    UserDefaults.standard.set(!locked, forKey: key)
-                }
-
-                Button("desktop_lyrics_island") {
-                    PrimuseAppDelegate.shared?.toggleDesktopLyricsIsland()
-                }
-
-                Divider()
-
-                // Mac 没有下拉刷新,这条命令就是它:问一遍各服务器源有没有新歌。
-                Button("server_refresh_menu_item") {
-                    Task {
-                        await AppServices.shared.serverCatalogAutoRefresh
-                            .refreshNow(reportsNothingToCheck: true)
-                    }
-                }
-                .keyboardShortcut("r", modifiers: .command)
-
-                Divider()
-
-                // 这两处在标题栏右侧, 菜单里也能打开。
-                Button("library_recommendations_title") {
-                    NotificationCenter.default.post(name: .primuseToggleRecommendationsPanel, object: nil)
-                }
-                Button("stats_title") {
-                    NotificationCenter.default.post(name: .primuseOpenListeningStats, object: nil)
-                }
-            }
+            MacDesktopLyricsCommands()
 
             // 工具面板不占侧栏: 标题栏右侧的工具菜单和这里各一份。
             CommandMenu("mac_sidebar_tools") {
@@ -3032,6 +2997,58 @@ struct PrimuseApp: App {
 
     }
 }
+
+#if os(macOS)
+private struct MacDesktopLyricsCommands: Commands {
+    @AppStorage(MacLyricsVisibilityPreferences.desktopKey)
+    private var desktopLyricsVisible = false
+    @AppStorage("desktopLyricsLocked")
+    private var desktopLyricsLocked = false
+    @AppStorage(MacLyricsVisibilityPreferences.islandKey)
+    private var desktopLyricsIslandVisible = false
+
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Button(desktopLyricsVisible ? "hide_desktop_lyrics" : "show_desktop_lyrics") {
+                PrimuseAppDelegate.shared?.toggleDesktopLyrics()
+            }
+
+            Toggle("lock_desktop_lyrics", isOn: $desktopLyricsLocked)
+
+            Toggle(
+                "desktop_lyrics_island",
+                isOn: Binding(
+                    get: { desktopLyricsIslandVisible },
+                    set: { visible in
+                        if visible != desktopLyricsIslandVisible {
+                            PrimuseAppDelegate.shared?.toggleDesktopLyricsIsland()
+                        }
+                    }
+                )
+            )
+
+            Divider()
+
+            Button("server_refresh_menu_item") {
+                Task {
+                    await AppServices.shared.serverCatalogAutoRefresh
+                        .refreshNow(reportsNothingToCheck: true)
+                }
+            }
+            .keyboardShortcut("r", modifiers: .command)
+
+            Divider()
+
+            Button("library_recommendations_title") {
+                NotificationCenter.default.post(name: .primuseToggleRecommendationsPanel, object: nil)
+            }
+            Button("stats_title") {
+                NotificationCenter.default.post(name: .primuseOpenListeningStats, object: nil)
+            }
+        }
+    }
+}
+#endif
 
 #if os(iOS)
 /// Keep scene-side service and preference updates from recreating the navigation root.

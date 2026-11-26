@@ -732,6 +732,7 @@ struct MacRadioStationsView: View {
                     RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous)
                         .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
                 }
+                .accessibilityHidden(true)
 
             Text("radio_empty_title")
                 .font(.system(size: 17, weight: .semibold))
@@ -746,6 +747,8 @@ struct MacRadioStationsView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("radio.emptyState")
     }
 
     // MARK: - Actions
@@ -855,20 +858,20 @@ private struct MacRadioStationCard<Actions: View>: View {
                 // 悬停才露出管理按钮 —— 常驻会让卡片显得吵，这也是 Mac 上
                 // 列表类界面的通行做法。
                 if hover {
-                    PMRoundBtn(icon: "arrow.up", size: PMSize.smallBtn, iconSize: 11, style: .glass) {
+                    PMRoundBtn(icon: "arrow.up", size: PMSize.smallBtn, iconSize: 11, style: .glass, help: "home_edit_move_up") {
                         onMoveUp()
                     }
                     .disabled(!canMoveUp)
                     .opacity(canMoveUp ? 1 : 0.35)
 
-                    PMRoundBtn(icon: "arrow.down", size: PMSize.smallBtn, iconSize: 11, style: .glass) {
+                    PMRoundBtn(icon: "arrow.down", size: PMSize.smallBtn, iconSize: 11, style: .glass, help: "home_edit_move_down") {
                         onMoveDown()
                     }
                     .disabled(!canMoveDown)
                     .opacity(canMoveDown ? 1 : 0.35)
 
                     if !station.isServerMirror {
-                        PMRoundBtn(icon: "pencil", size: PMSize.smallBtn, iconSize: 11, style: .glass) {
+                        PMRoundBtn(icon: "pencil", size: PMSize.smallBtn, iconSize: 11, style: .glass, help: "edit") {
                             onEdit()
                         }
                     }
@@ -878,7 +881,8 @@ private struct MacRadioStationCard<Actions: View>: View {
                     icon: isPlaying ? "stop.fill" : "play.fill",
                     size: PMSize.playBtn,
                     iconSize: 13,
-                    style: isCurrent ? .accent : .glass
+                    style: isCurrent ? .accent : .glass,
+                    help: isPlaying ? "pause" : "play"
                 ) {
                     onPlay()
                 }
@@ -935,7 +939,8 @@ private struct MacRadioStationCoverTile<Actions: View>: View {
                             icon: isPlaying ? "stop.fill" : "play.fill",
                             size: PMSize.smallBtn,
                             iconSize: 11,
-                            style: isCurrent ? .accent : .glass
+                            style: isCurrent ? .accent : .glass,
+                            help: isPlaying ? "pause" : "play"
                         ) {
                             onPlay()
                         }

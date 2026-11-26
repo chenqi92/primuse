@@ -8232,3 +8232,16 @@
 "stats_server_rank_events" = "रिकॉर्डेड इतिहास";
 "stats_server_rank_cumulative_footer" = "सर्वर के प्रति-ट्रैक संचयी playCount (बिना तारीख़ के इतिहास सहित) से संकलित, जो कुल प्ले से मेल खाता है।";
 "stats_server_rank_events_footer" = "टाइमस्टैम्प वाले सर्वर प्ले इवेंट से संकलित, जो इस अवधि के रिकॉर्डेड प्ले से मेल खाता है।";
+"song_count_singular" = "1 गाना";
+"enter_full_screen" = "फ़ुल स्क्रीन खोलें";
+"fullscreen_effect_launch_hint" = "इस इफ़ेक्ट के साथ फ़ुल स्क्रीन खोलता है";
+"find_lyrics_action" = "बोल खोजें";
+"search_library_action" = "लाइब्रेरी में खोजें";
+"desktop_lyrics_title" = "डेस्कटॉप बोल";
+"desktop_lyrics_shown" = "डेस्कटॉप बोल दिखाए गए";
+"desktop_lyrics_shown_no_lyrics" = "डेस्कटॉप बोल दिखाए गए · इस ट्रैक के बोल उपलब्ध नहीं हैं";
+"desktop_lyrics_hidden" = "डेस्कटॉप बोल छिपाए गए";
+"mini_player_expand" = "बोल और कतार फैलाएँ";
+"mini_player_collapse" = "बोल और कतार समेटें";
+"audio_output_system_default" = "सिस्टम डिफ़ॉल्ट · Core Audio";
+"a11y_clear_search" = "खोज साफ़ करें";

@@ -337,11 +337,19 @@ struct DesktopLyricsView: View {
                 desktopLyricLine(active, size: activeFontSize(in: size), color: lyricsColor)
                     .multilineTextAlignment(.center)
             } else {
-                lyricsTypeface.text(placeholder, size: activeFontSize(in: size), weight: .semibold)
-                    .foregroundStyle(lyricsColor)
-                    .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
+                VStack(spacing: 4) {
+                    lyricsTypeface.text(placeholder, size: activeFontSize(in: size), weight: .semibold)
+                        .foregroundStyle(lyricsColor)
+                        .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                    if player.currentSong != nil && lyrics.isEmpty {
+                        Text("no_lyrics")
+                            .font(.system(size: max(12, nextFontSize(in: size) * 0.65), weight: .medium))
+                            .foregroundStyle(.white.opacity(0.62))
+                            .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
+                    }
+                }
             }
 
         case .dual:
@@ -355,6 +363,12 @@ struct DesktopLyricsView: View {
                         .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
+                    if player.currentSong != nil && lyrics.isEmpty {
+                        Text("no_lyrics")
+                            .font(.system(size: max(12, nextFontSize(in: size) * 0.65), weight: .medium))
+                            .foregroundStyle(.white.opacity(0.62))
+                            .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
+                    }
                 }
 
                 if let next {
@@ -664,9 +678,7 @@ struct DesktopLyricsView: View {
             Divider().padding(.vertical, 3)
 
             settingsRow(icon: layoutIconName, title: nextLayoutHelpKey) {
-                let nextLayout = layout.next
-                layoutRaw = nextLayout.rawValue
-                onLayoutChange?(nextLayout)
+                layoutRaw = layout.next.rawValue
             }
 
             settingsRow(icon: showBackground ? "rectangle.fill" : "rectangle",

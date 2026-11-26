@@ -94,10 +94,10 @@ final class DesktopLyricsIslandController {
     nonisolated(unsafe) private var screenObserver: NSObjectProtocol?
     nonisolated(unsafe) private var preferenceObserver: NSObjectProtocol?
 
-    private var expandTask: Task<Void, Never>?
-    private var collapseTask: Task<Void, Never>?
-    private var activityTask: Task<Void, Never>?
-    private var dismissTask: Task<Void, Never>?
+    nonisolated(unsafe) private var expandTask: Task<Void, Never>?
+    nonisolated(unsafe) private var collapseTask: Task<Void, Never>?
+    nonisolated(unsafe) private var activityTask: Task<Void, Never>?
+    nonisolated(unsafe) private var dismissTask: Task<Void, Never>?
     /// 在展开的卡片里按下了左键（拖进度、按按钮）。松手前不收起也不穿透，
     /// 否则拖出卡片边缘时拖动会被截断。
     private var pressBeganInside = false
@@ -129,6 +129,10 @@ final class DesktopLyricsIslandController {
     deinit {
         for monitor in pointerMonitors { NSEvent.removeMonitor(monitor) }
         pointerTimer?.invalidate()
+        expandTask?.cancel()
+        collapseTask?.cancel()
+        activityTask?.cancel()
+        dismissTask?.cancel()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         if let preferenceObserver { NotificationCenter.default.removeObserver(preferenceObserver) }
     }
