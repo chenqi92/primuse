@@ -24,7 +24,7 @@ struct AlbumCardView: View {
                     .lineLimit(1)
 
                 if showsSongCount {
-                    Text("\(album.songCount) \(String(localized: "songs_count"))")
+                    Text(LibraryCountText.songs(album.songCount))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

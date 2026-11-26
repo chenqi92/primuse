@@ -829,7 +829,7 @@ struct PlaylistListView: View {
     }
 
     private var playlistCountText: String {
-        "\((playlists.count + smartPlaylists.count).formatted()) \(String(localized: "playlists_count"))"
+        LibraryCountText.playlists(playlists.count + smartPlaylists.count)
     }
 
     #if os(iOS)
@@ -909,9 +909,9 @@ struct PlaylistListView: View {
 
     private func smartPlaylistSubtitle(_ smart: SmartPlaylist) -> String {
         if smart.effectiveKind == .ai {
-            return "\(smart.aiConfiguration?.selections.count ?? 0) \(String(localized: "songs_count")) · AI"
+            return "\(LibraryCountText.songs(smart.aiConfiguration?.selections.count ?? 0)) · AI"
         }
-        return "\(smart.ruleCount) \(String(localized: "rules_count"))"
+        return LibraryCountText.rules(smart.ruleCount)
     }
 
     #if os(macOS)
@@ -1263,7 +1263,7 @@ struct PlaylistListView: View {
                 Text("tab_playlists")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(PMColor.text)
-                Text("\(playlists.count) \(String(localized: "playlists_section")) · \(aiSmartPlaylists.count) \(String(localized: "ai_smart_playlists_section")) · \(ruleSmartPlaylists.count) \(String(localized: "rule_smart_playlists_section")) · \(totalPlaylistSongs) \(String(localized: "songs_count"))")
+                Text("\(playlists.count) \(String(localized: "playlists_section")) · \(aiSmartPlaylists.count) \(String(localized: "ai_smart_playlists_section")) · \(ruleSmartPlaylists.count) \(String(localized: "rule_smart_playlists_section")) · \(LibraryCountText.songs(totalPlaylistSongs))")
                     .font(.system(size: 12.5))
                     .foregroundStyle(PMColor.textMuted)
             }
@@ -1344,11 +1344,11 @@ struct PlaylistListView: View {
         _ smart: SmartPlaylist,
         resolvedSongCount: Int?
     ) -> String {
-        let songs = resolvedSongCount.map { "\($0) \(String(localized: "songs_count")) · " } ?? ""
+        let songs = resolvedSongCount.map { "\(LibraryCountText.songs($0)) · " } ?? ""
         if smart.effectiveKind == .ai {
             return songs + "AI"
         }
-        return songs + "\(smart.ruleCount) \(String(localized: "rules_count"))"
+        return songs + LibraryCountText.rules(smart.ruleCount)
     }
 
     private func playlistCard(_ playlist: Playlist) -> some View {
@@ -1363,7 +1363,7 @@ struct PlaylistListView: View {
                     .lineLimit(1)
 
                 HStack(spacing: 5) {
-                    Text("\(count) \(String(localized: "songs_count"))")
+                    Text(LibraryCountText.songs(count))
                     Text("·")
                     Text(playlist.updatedAt, style: .date)
                 }

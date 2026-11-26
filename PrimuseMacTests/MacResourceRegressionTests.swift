@@ -1748,3 +1748,176 @@ final class MacSourceControlAccessibilityTests: XCTestCase {
         await fulfillment(of: [applied], timeout: 2)
     }
 }
+
+@MainActor
+final class MacLibraryAuditRegressionTests: XCTestCase {
+    @MainActor
+    private struct AXNode {
+        let object: NSObject
+
+        var identifier: String {
+            if let ax = object as? NSAccessibilityProtocol, let id = ax.accessibilityIdentifier(), !id.isEmpty {
+                return id
+            }
+            if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityIdentifier)),
+               let id = object.perform(#selector(NSAccessibilityProtocol.accessibilityIdentifier))?.takeUnretainedValue() as? String {
+                return id
+            }
+            return ""
+        }
+
+        var value: Any? {
+            if let ax = object as? NSAccessibilityProtocol {
+                return ax.accessibilityValue()
+            }
+            if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityValue)) {
+                return object.perform(#selector(NSAccessibilityProtocol.accessibilityValue))?.takeUnretainedValue()
+            }
+            return nil
+        }
+
+        var valueDescription: String? {
+            if let ax = object as? NSAccessibilityProtocol, let value = ax.accessibilityValueDescription(), !value.isEmpty {
+                return value
+            }
+            if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityValueDescription)),
+               let value = object.perform(#selector(NSAccessibilityProtocol.accessibilityValueDescription))?.takeUnretainedValue() as? String,
+               !value.isEmpty {
+                return value
+            }
+            return nil
+        }
+
+        var children: [NSObject] {
+            var collected: [NSObject] = []
+            if let ax = object as? NSAccessibilityProtocol,
+               let kids = ax.accessibilityChildren() as? [NSObject] {
+                collected.append(contentsOf: kids)
+            } else if object.responds(to: #selector(NSAccessibilityProtocol.accessibilityChildren)),
+                      let kids = object.perform(#selector(NSAccessibilityProtocol.accessibilityChildren))?.takeUnretainedValue() as? [NSObject] {
+                collected.append(contentsOf: kids)
+            }
+            if let view = object as? NSView {
+                collected.append(contentsOf: view.subviews)
+            }
+            return collected
+        }
+    }
+
+    private func hostInWindow<V: View>(
+        _ view: V,
+        size: NSSize = NSSize(width: 560, height: 640)
+    ) -> (NSWindow, NSHostingView<V>) {
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        return (window, host)
+    }
+
+    private func accessibilityDescendants(of root: NSObject) -> [AXNode] {
+        var visited = Set<ObjectIdentifier>()
+        var result: [AXNode] = []
+        func walk(_ object: NSObject) {
+            let id = ObjectIdentifier(object)
+            guard visited.insert(id).inserted else { return }
+            let node = AXNode(object: object)
+            result.append(node)
+            for child in node.children { walk(child) }
+        }
+        walk(root)
+        return result
+    }
+
+    func testLibraryCountTextSingularPluralAndPlayableRatio() throws {
+        let enPath = try XCTUnwrap(Bundle.main.path(forResource: "en", ofType: "lproj"))
+        let enBundle = try XCTUnwrap(Bundle(path: enPath))
+        // 数字分组和百分号的写法跟着地区走: 钉住一个地区, 断言才不随跑测试那台机器的设置变。
+        let enUS = Locale(identifier: "en_US")
+
+        XCTAssertEqual(LibraryCountText.songs(1, bundle: enBundle, locale: enUS), "1 song")
+        XCTAssertEqual(LibraryCountText.songs(2, bundle: enBundle, locale: enUS), "2 songs")
+        XCTAssertEqual(LibraryCountText.songs(12_345, bundle: enBundle, locale: enUS), "12,345 songs")
+        XCTAssertEqual(LibraryCountText.formattedSongs(12_345, bundle: enBundle, locale: enUS), "12,345 songs")
+        XCTAssertEqual(LibraryCountText.albums(1, bundle: enBundle, locale: enUS), "1 album")
+        XCTAssertEqual(LibraryCountText.albums(2, bundle: enBundle, locale: enUS), "2 albums")
+        XCTAssertEqual(LibraryCountText.formattedAlbums(12_345, bundle: enBundle, locale: enUS), "12,345 albums")
+        XCTAssertEqual(LibraryCountText.artists(1, bundle: enBundle, locale: enUS), "1 artist")
+        XCTAssertEqual(LibraryCountText.artists(2, bundle: enBundle, locale: enUS), "2 artists")
+        XCTAssertEqual(LibraryCountText.artists(23_456, bundle: enBundle, locale: enUS), "23,456 artists")
+        XCTAssertEqual(LibraryCountText.genres(1, bundle: enBundle, locale: enUS), "1 genre")
+        XCTAssertEqual(LibraryCountText.genres(2, bundle: enBundle, locale: enUS), "2 genres")
+        XCTAssertEqual(LibraryCountText.playlists(1, bundle: enBundle, locale: enUS), "1 playlist")
+        XCTAssertEqual(LibraryCountText.playlists(2, bundle: enBundle, locale: enUS), "2 playlists")
+        XCTAssertEqual(LibraryCountText.rules(1, bundle: enBundle, locale: enUS), "1 rule")
+        XCTAssertEqual(LibraryCountText.rules(2, bundle: enBundle, locale: enUS), "2 rules")
+        XCTAssertEqual(LibraryCountText.plays(1, bundle: enBundle), "1 play")
+        XCTAssertEqual(LibraryCountText.plays(2, bundle: enBundle), "2 plays")
+        XCTAssertEqual(LibraryCountText.monthlyPlays(1, bundle: enBundle), "1 play this month")
+        XCTAssertEqual(LibraryCountText.monthlyPlays(2, bundle: enBundle), "2 plays this month")
+        XCTAssertEqual(LibraryCountText.results(1, bundle: enBundle, locale: enUS), "1 result")
+        XCTAssertEqual(LibraryCountText.results(2, bundle: enBundle, locale: enUS), "2 results")
+        XCTAssertEqual(LibraryCountText.results(12_345, bundle: enBundle, locale: enUS), "12,345 results")
+        XCTAssertEqual(
+            LibraryCountText.folderCounts(subdirectories: 1, songs: 1, bundle: enBundle, locale: enUS),
+            "1 subdirectory · 1 song"
+        )
+        XCTAssertEqual(
+            LibraryCountText.folderCounts(subdirectories: 2, songs: 12_345, bundle: enBundle, locale: enUS),
+            "2 subdirectories · 12,345 songs"
+        )
+        XCTAssertEqual(
+            LibraryCountText.playableRatio(playable: 1472, total: 1472, bundle: enBundle, locale: enUS),
+            "Playable ratio 100%"
+        )
+        XCTAssertEqual(
+            LibraryCountText.playableRatio(playable: 736, total: 1472, bundle: enBundle, locale: enUS),
+            "Playable ratio 50%"
+        )
+        XCTAssertEqual(
+            LibraryCountText.playableRatio(playable: 0, total: 0, bundle: enBundle, locale: enUS),
+            "Playable ratio 0%"
+        )
+    }
+
+    func testSongInfoSheetExposesDistinctMetadataRows() throws {
+        let song = Song(
+            id: "audit-song-info",
+            title: "Midnight Train",
+            albumTitle: "Late Departures",
+            artistName: "Harbor Band",
+            duration: 215,
+            fileFormat: .flac,
+            filePath: "/music/midnight-train.flac",
+            sourceID: "local"
+        )
+        let (window, host) = hostInWindow(
+            SongInfoSheet(song: song).applyPrimuseEnvironments(),
+            size: NSSize(width: 560, height: 640)
+        )
+        defer { window.close() }
+
+        let nodes = accessibilityDescendants(of: host)
+        let ids = Set(nodes.map(\.identifier))
+        XCTAssertTrue(ids.contains("songInfo.row.title"), "Found IDs: \(ids.sorted())")
+        XCTAssertTrue(ids.contains("songInfo.row.artist"), "Found IDs: \(ids.sorted())")
+        XCTAssertTrue(ids.contains("songInfo.row.album"), "Found IDs: \(ids.sorted())")
+
+        let titleRow = try XCTUnwrap(nodes.first { $0.identifier == "songInfo.row.title" })
+        let artistRow = try XCTUnwrap(nodes.first { $0.identifier == "songInfo.row.artist" })
+        let albumRow = try XCTUnwrap(nodes.first { $0.identifier == "songInfo.row.album" })
+        XCTAssertEqual((titleRow.value as? String) ?? titleRow.valueDescription, "Midnight Train")
+        XCTAssertEqual((artistRow.value as? String) ?? artistRow.valueDescription, "Harbor Band")
+        XCTAssertEqual((albumRow.value as? String) ?? albumRow.valueDescription, "Late Departures")
+    }
+}
