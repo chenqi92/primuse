@@ -1424,6 +1424,7 @@ final class TVStore {
     @ObservationIgnored private(set) var currentPlaybackRange: AppliedSongPlaybackRange?
     @ObservationIgnored private var normalPlaylistCacheRevision = -1
     @ObservationIgnored private var smartPlaylistCacheRevision = -1
+    @ObservationIgnored private var smartPlaylistCatalogMatchRevision: UInt64?
     @ObservationIgnored private var smartPlaylistHistoryRevision = -1
     @ObservationIgnored private var normalPlaylistCollectionRevision = -1
     @ObservationIgnored private var smartPlaylistCollectionRevision = -1
@@ -2917,7 +2918,8 @@ final class TVStore {
         )
     }
     private func mapSmart(_ sp: SmartPlaylist) -> TVPlaylist {
-        let matches = SmartPlaylistEngine.match(sp, in: library, history: .shared)
+        // 曲库目录可读时是后台在目录上算好的那份(算好之前为空,算好后改动计数、这里重建)。
+        let matches = SmartPlaylistEngine.currentMatchedSongs(sp, in: library, history: .shared)
         smartPlaylistSongIDs[sp.id] = matches.map(\.id)
         return TVPlaylist(id: sp.id, name: sp.name, kind: .smart, count: matches.count,
                           artworkSignature: "smart:\(sp.id):\(libraryContentRevision):\(playHistoryRevision)",
@@ -2990,15 +2992,19 @@ final class TVStore {
 
     private func rebuildSmartPlaylistCacheIfNeeded() {
         let playlistRevision = library.playlistCollectionRevision
+        let catalogMatchRevision = library.smartPlaylistCatalogMatchRevision
         guard smartPlaylistCacheRevision != libraryContentRevision
                 || smartPlaylistHistoryRevision != playHistoryRevision
-                || smartPlaylistCollectionRevision != playlistRevision else {
+                || smartPlaylistCollectionRevision != playlistRevision
+                || smartPlaylistCatalogMatchRevision != catalogMatchRevision else {
             return
         }
         cachedSmartPlaylists = library.smartPlaylists.map { self.mapSmart($0) }
         smartPlaylistCacheRevision = libraryContentRevision
         smartPlaylistHistoryRevision = playHistoryRevision
         smartPlaylistCollectionRevision = playlistRevision
+        // 读完 `mapSmart` 排的后台匹配之后的那个计数:匹配好了它会变,下次取歌单时重建。
+        smartPlaylistCatalogMatchRevision = library.smartPlaylistCatalogMatchRevision
     }
     func map(_ s: MusicSource) -> TVSource {
         map(s, songCounts: allSongCountsBySource())

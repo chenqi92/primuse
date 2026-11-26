@@ -813,6 +813,23 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
                     count: inMemory.count, hasPlayable: inMemory.contains(where: \.isPlayable)
                 ), context)
             }
+            // 规则编辑器的预览:同 `evaluatePreview` 交内存候选的结果。
+            let preview = await SmartPlaylistEngine.preview(for: smart, in: library, history: history)
+            let inputs = SmartPlaylistEngine.makePreviewInputs(for: smart, in: library, history: history)
+            let memoryPreview = SmartPlaylistEngine.evaluatePreview(songs: inputs.songs, plan: inputs.plan)
+            XCTAssertEqual(preview.count, memoryPreview.count, context)
+            if smart.sortField != .random {
+                XCTAssertEqual(preview.totalDuration, memoryPreview.totalDuration, accuracy: 0.001, context)
+                XCTAssertEqual(preview.sourceCount, memoryPreview.sourceCount, context)
+                XCTAssertEqual(preview.previewCovers.map(\.id), memoryPreview.previewCovers.map(\.id), context)
+            }
+            // 搜索结果与电视歌单墙读的那份:缓存里刚算好的这一份。
+            let current = SmartPlaylistEngine.currentMatchedSongs(smart, in: library, history: history)
+            if smart.sortField == .random {
+                XCTAssertEqual(current.count, fromCatalog.count, context)
+            } else {
+                XCTAssertEqual(current.map(\.id), fromCatalog, context)
+            }
             // 第二次命中缓存,结果不变。
             if smart.sortField != .random {
                 let cached = await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: history)

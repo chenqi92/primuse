@@ -118,8 +118,9 @@ struct SearchCollectionResult: Identifiable, Hashable, Sendable {
         switch target {
         case .playlist(let id): library.songs(forPlaylist: id)
         case .smartPlaylist(let id):
+            // 曲库目录可读时是后台在目录上算好的那份(算好之前为空,算好后结果行跟着重画)。
             library.smartPlaylists.first { $0.id == id }.map {
-                SmartPlaylistEngine.match($0, in: library, history: PlayHistoryStore.shared)
+                SmartPlaylistEngine.currentMatchedSongs($0, in: library, history: PlayHistoryStore.shared)
             } ?? []
         case .folder: folderSongIDs.compactMap { library.song(id: $0) }
         }

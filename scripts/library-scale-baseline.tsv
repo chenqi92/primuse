@@ -196,7 +196,6 @@ library-array-property	Primuse/Views/Library/LibraryView.swift	2
 library-array-property	Primuse/Views/Library/MusicVideoLibraryView.swift	1
 library-array-property	Primuse/Views/Library/PlaylistDetailView.swift	3
 library-array-property	Primuse/Views/Library/PlaylistPendingEntryRow.swift	1
-library-array-property	Primuse/Views/Library/SmartPlaylistDetailView.swift	1
 library-array-property	Primuse/Views/Library/SongListView.swift	1
 library-array-property	Primuse/Views/Library/SpokenWordLibraryView.swift	5
 library-array-property	Primuse/Views/Library/TagEditorView.swift	1

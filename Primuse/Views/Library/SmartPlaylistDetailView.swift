@@ -39,6 +39,8 @@ struct SmartPlaylistDetailView: View {
     @State private var pendingRemoval: PlaylistRemovalRequest?
     @State private var songLocation = SongListLocation()
     @State private var matchedCache = SmartPlaylistMatchedCache()
+    /// 目录上的匹配结果填进 `matchedCache` 之后加一,让页面重画。
+    @State private var catalogMatchRevision: UInt64 = 0
     @State private var showNoScraperSourceAlert = false
     /// 「在歌单里找歌」的输入。只筛眼前的行：播放照旧按整张歌单。
     @State private var findText = ""
@@ -72,16 +74,41 @@ struct SmartPlaylistDetailView: View {
         library.smartPlaylists.first(where: { $0.id == smartPlaylistID })
     }
 
+    private var matchToken: SmartPlaylistEngine.MatchToken? {
+        smart.map { SmartPlaylistEngine.matchToken(for: $0, in: library, history: PlayHistoryStore.shared) }
+    }
+
     /// 引擎按输入版本缓存匹配结果。这一页再按同一组输入记一份: 随机排序在页面上
     /// 不会因为一次无关的重画就重新洗牌, 「播放全部」放的也正是眼前这一列。
+    /// 曲库目录可读时由 `.task(id: matchToken)` 在目录上匹配好再填进来, 重取的这一会儿给上一份。
     private var matched: [Song] {
-        guard let smart else { return [] }
-        guard let inputs = SmartPlaylistEngine.inputs(for: smart, in: library, history: PlayHistoryStore.shared) else {
+        _ = catalogMatchRevision
+        guard let smart, let token = matchToken else { return [] }
+        switch token {
+        case .uncached:
             return SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
+        case .memory:
+            return matchedCache.songs(for: token) {
+                SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
+            }
+        case .catalog:
+            return matchedCache.songs
         }
-        return matchedCache.songs(for: inputs) {
-            SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
-        }
+    }
+
+    /// 目录上的那份一次都还没取到(刚进来):列表转圈, 不说「没有匹配的歌」。
+    private var isLoadingCatalogMatch: Bool {
+        _ = catalogMatchRevision
+        guard case .catalog? = matchToken else { return false }
+        return !matchedCache.hasLoaded
+    }
+
+    private func loadCatalogMatch() async {
+        guard let smart, let token = matchToken, case .catalog = token, !matchedCache.holds(token) else { return }
+        let songs = await SmartPlaylistEngine.matchedSongs(smart, in: library, history: PlayHistoryStore.shared)
+        guard !Task.isCancelled else { return }
+        matchedCache.store(songs, for: token)
+        catalogMatchRevision &+= 1
     }
 
     /// 这张智能歌单发起的批量离线下载在 `SourceManager` 里的登记键。下着的时候下载键停下这一轮(#336)。
@@ -136,6 +163,7 @@ struct SmartPlaylistDetailView: View {
         #if os(macOS)
         let rows = shownRows(matched)
         return AnyView(macBody(matched, rows: rows)
+            .task(id: matchToken) { await loadCatalogMatch() }
             .onDisappear { songLocation.cancel() }
             .playlistRemovalAlert($pendingRemoval) { _ in
                 NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
@@ -145,6 +173,7 @@ struct SmartPlaylistDetailView: View {
         #else
         return AnyView(
             legacyBody(matched)
+                .task(id: matchToken) { await loadCatalogMatch() }
                 .songLocationReader(songLocation, revision: shownRows(matched).map(\.id))
                 .onDisappear { songLocation.cancel() }
                 // 平时不占地方, 点右上角的放大镜才在导航栏下面钉出输入框。
@@ -328,7 +357,11 @@ struct SmartPlaylistDetailView: View {
 
         // Songs
         let rows = shownRows(matched)
-        if matched.isEmpty {
+        if isLoadingCatalogMatch {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 40)
+        } else if matched.isEmpty {
             EmptyStateView(
                 titleKey: "smart_playlist_no_matches",
                 descriptionKey: emptyDescriptionKey(for: smart),
@@ -593,7 +626,11 @@ struct SmartPlaylistDetailView: View {
                                 LibraryReviewSection(subject: .playlist(smart.id))
                                 macToolbar(smart, matched: matched)
 
-                                if matched.isEmpty {
+                                if isLoadingCatalogMatch {
+                                    ProgressView()
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.top, 48)
+                                } else if matched.isEmpty {
                                     EmptyStateView(
                                         titleKey: "smart_playlist_no_matches",
                                         descriptionKey: emptyDescriptionKey(for: smart),
@@ -1008,16 +1045,25 @@ struct SmartPlaylistDetailView: View {
 
 /// 详情页的匹配结果与随它而定的封面墙判断, 按引擎的输入版本记一份。
 private final class SmartPlaylistMatchedCache {
-    private var inputs: SmartPlaylistEngine.MatchInputs?
-    private var songs: [Song] = []
+    private var token: SmartPlaylistEngine.MatchToken?
+    // crash-pattern: allow library-array-property 这一张智能歌单命中的歌(详情页正显示的那一列)
+    private(set) var songs: [Song] = []
+    /// 存过一份(目录上的结果到了)。
+    private(set) var hasLoaded = false
     private var coverWall: Bool?
 
-    func songs(for inputs: SmartPlaylistEngine.MatchInputs, make: () -> [Song]) -> [Song] {
-        if inputs == self.inputs { return songs }
-        songs = make()
-        self.inputs = inputs
-        coverWall = nil
+    func songs(for token: SmartPlaylistEngine.MatchToken, make: () -> [Song]) -> [Song] {
+        if token != self.token { store(make(), for: token) }
         return songs
+    }
+
+    func holds(_ token: SmartPlaylistEngine.MatchToken) -> Bool { token == self.token }
+
+    func store(_ songs: [Song], for token: SmartPlaylistEngine.MatchToken) {
+        self.songs = songs
+        self.token = token
+        hasLoaded = true
+        coverWall = nil
     }
 
     /// 判断的是上面记着的这份结果, 随它一起失效。

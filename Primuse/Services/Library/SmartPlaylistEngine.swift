@@ -250,6 +250,8 @@ enum SmartPlaylistEngine {
     private struct MatchedSongKey: Sendable {
         let id: String
         let isPlayable: Bool
+        let duration: TimeInterval
+        let sourceID: String
         var text = ""
         var albumID = ""
         var disc = 0
@@ -259,7 +261,7 @@ enum SmartPlaylistEngine {
     }
 
     nonisolated private static func matchedKey(for song: Song, plan: EvaluationPlan) -> MatchedSongKey {
-        var key = MatchedSongKey(id: song.id, isPlayable: song.isPlayable)
+        var key = MatchedSongKey(id: song.id, isPlayable: song.isPlayable, duration: song.duration, sourceID: song.sourceID)
         switch plan.sortField {
         case .title:
             key.text = song.title
@@ -303,6 +305,16 @@ enum SmartPlaylistEngine {
         excludedSourceID: String?,
         forEachSong: (_ body: (Song) throws -> Void) throws -> Void
     ) throws -> CatalogMatchResult {
+        let kept = try catalogMatchKeys(plan: plan, excludedSourceID: excludedSourceID, forEachSong: forEachSong)
+        return CatalogMatchResult(ids: kept.map(\.id), playableCount: kept.reduce(0) { $0 + ($1.isPlayable ? 1 : 0) })
+    }
+
+    /// `catalogMatch` 的那一列(排好序、截断;随机排序时没洗牌、没截断)。
+    nonisolated private static func catalogMatchKeys(
+        plan: EvaluationPlan,
+        excludedSourceID: String?,
+        forEachSong: (_ body: (Song) throws -> Void) throws -> Void
+    ) throws -> [MatchedSongKey] {
         var matched: [MatchedSongKey] = []
         try forEachSong { song in
             if let excludedSourceID, song.sourceID == excludedSourceID { return }
@@ -333,11 +345,56 @@ enum SmartPlaylistEngine {
         case .dateAdded, .duration, .lastPlayedAt, .playCount:
             sorted = matched.sorted { $0.number < $1.number }
         case .random:
-            return CatalogMatchResult(ids: matched.map(\.id), playableCount: matched.reduce(0) { $0 + ($1.isPlayable ? 1 : 0) })
+            return matched
         }
         let directional = plan.sortDirection == .descending ? Array(sorted.reversed()) : sorted
-        let kept = directional.prefix(max(0, plan.limit ?? Int.max))
-        return CatalogMatchResult(ids: kept.map(\.id), playableCount: kept.reduce(0) { $0 + ($1.isPlayable ? 1 : 0) })
+        return Array(directional.prefix(max(0, plan.limit ?? Int.max)))
+    }
+
+    /// 规则编辑器的实时预览。曲库目录可读时在主线程外流式匹配目录(同 `evaluatePreview` 的算法:
+    /// 随机排序洗牌后截断,封面取最前面四首),否则照旧把内存里的候选交给 `evaluatePreview`。
+    static func preview(
+        for smart: SmartPlaylist,
+        in library: MusicLibrary,
+        history: PlayHistoryStore
+    ) async -> PreviewSummary {
+        let plan = makeEvaluationPlan(for: smart, in: library, history: history)
+        if matchesOnCatalog(smart, in: library), let host = library.catalogHost {
+            #if os(tvOS)
+            let excludedSourceID: String? = nil
+            #else
+            let excludedSourceID = AppleMusicFeatureSettings.autoAddToSmartPlaylistsEnabled
+                ? nil : AppleMusicLibraryIdentity.sourceID
+            #endif
+            do {
+                return try await host.reader.read { catalog in
+                    var keys = try catalogMatchKeys(plan: plan, excludedSourceID: excludedSourceID) { body in
+                        try catalog.forEachSong(.visible) { _, song in
+                            try body(song)
+                            return true
+                        }
+                    }
+                    if plan.sortField == .random {
+                        keys = Array(keys.shuffled().prefix(max(0, plan.limit ?? Int.max)))
+                    }
+                    let coverIDs = keys.prefix(4).map(\.id)
+                    let covers = try catalog.songs(ids: coverIDs, scope: .visible)
+                    let coverByID = Dictionary(covers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    return PreviewSummary(
+                        count: keys.count,
+                        totalDuration: keys.reduce(0) { $0 + $1.duration },
+                        sourceCount: Set(keys.map(\.sourceID)).count,
+                        previewCovers: coverIDs.compactMap { coverByID[$0] }
+                    )
+                }
+            } catch {
+                plog("🎯 SmartPlaylist preview catalog match failed (\(error)); using the in-memory library")
+            }
+        }
+        let songs = candidateSongs(in: library)
+        return await Task.detached(priority: .userInitiated) {
+            evaluatePreview(songs: songs, plan: plan)
+        }.value
     }
 
     /// 智能歌单命中的歌的 id(排好序、截断;随机排序时每次重新洗牌、截断)。
@@ -380,6 +437,39 @@ enum SmartPlaylistEngine {
         return finalized(ids: result.ids, smart: smart)
     }
 
+    /// 要整份命中歌曲的页面(详情页)按它决定什么时候重取。
+    enum MatchToken: Equatable {
+        /// AI 歌单:每次现算(只按身份对回几十首)。
+        case uncached
+        /// 目录读不了:在内存里匹配,按内存模型的输入缓存。
+        case memory(MatchInputs)
+        /// 在曲库目录上匹配,按规则输入与目录修订号。
+        case catalog(CatalogMatchKey)
+    }
+
+    /// 读它的界面在目录变了、内存模型变了时重画。
+    static func matchToken(
+        for smart: SmartPlaylist,
+        in library: MusicLibrary,
+        history: PlayHistoryStore
+    ) -> MatchToken {
+        guard let inputs = inputs(for: smart, in: library, history: history) else { return .uncached }
+        guard let host = library.catalogHost, host.revisions.isReadable else { return .memory(inputs) }
+        _ = host.revisions.songs
+        _ = host.revisions.membership
+        _ = host.revisions.everything
+        return .catalog(CatalogMatchKey(inputs: inputs, revisions: host.revisions))
+    }
+
+    /// 命中的歌,给要整份歌曲的页面:按 `matchedSongIDs` 的 id 逐首取(与内存匹配给的歌相同)。
+    static func matchedSongs(
+        _ smart: SmartPlaylist,
+        in library: MusicLibrary,
+        history: PlayHistoryStore
+    ) async -> [Song] {
+        await matchedSongIDs(smart, in: library, history: history).compactMap { library.visibleSong(id: $0) }
+    }
+
     /// 这张智能歌单此刻会不会在曲库目录上匹配(规则歌单、目录可读)。
     static func matchesOnCatalog(_ smart: SmartPlaylist, in library: MusicLibrary) -> Bool {
         smart.effectiveKind != .ai && library.catalogHost?.revisions.isReadable == true
@@ -399,6 +489,42 @@ enum SmartPlaylistEngine {
             let matched = match(smart, in: library, history: history)
             return MatchSummary(count: matched.count, hasPlayable: matched.contains(where: \.isPlayable))
         }
+        guard let entry = cachedCatalogMatch(smart, inputs: memoryInputs, host: host, in: library, history: history) else {
+            return nil
+        }
+        let count = smart.sortField == .random ? min(max(0, smart.limit ?? Int.max), entry.matchedCount) : entry.matchedCount
+        return MatchSummary(count: count, hasPlayable: entry.playableCount > 0)
+    }
+
+    /// 同步要整份命中歌曲的地方(搜索结果的卡片与菜单、电视的歌单墙)。目录可读时给后台在目录上
+    /// 算好的那份(规则或曲库变了先给上次的、在后台重算;一次都没算过时为空),算好后读这里的界面
+    /// 跟着重画;结果太大没留 id、AI 歌单、目录读不了时同步在内存里匹配。
+    static func currentMatchedSongs(
+        _ smart: SmartPlaylist,
+        in library: MusicLibrary,
+        history: PlayHistoryStore
+    ) -> [Song] {
+        guard smart.effectiveKind != .ai,
+              let memoryInputs = inputs(for: smart, in: library, history: history),
+              let host = library.catalogHost, host.revisions.isReadable else {
+            return match(smart, in: library, history: history)
+        }
+        guard let entry = cachedCatalogMatch(smart, inputs: memoryInputs, host: host, in: library, history: history) else {
+            return []
+        }
+        guard let ids = entry.ids else { return match(smart, in: library, history: history) }
+        return finalized(ids: ids, smart: smart).compactMap { library.visibleSong(id: $0) }
+    }
+
+    /// 缓存里这张歌单的目录匹配结果(可能是规则或曲库变了之前的那份);不是眼下这份时在后台重算一次,
+    /// 算好后改 `smartPlaylistCatalogMatchRevision` 让读它的界面重画。
+    private static func cachedCatalogMatch(
+        _ smart: SmartPlaylist,
+        inputs memoryInputs: MatchInputs,
+        host: LibraryCatalogHost,
+        in library: MusicLibrary,
+        history: PlayHistoryStore
+    ) -> CatalogCacheEntry? {
         // 目录变了、后台算好了,读这里的界面都要重画。
         _ = host.revisions.songs
         _ = host.revisions.membership
@@ -420,9 +546,7 @@ enum SmartPlaylistEngine {
                 }
             }
         }
-        guard let entry else { return nil }
-        let count = smart.sortField == .random ? min(max(0, smart.limit ?? Int.max), entry.matchedCount) : entry.matchedCount
-        return MatchSummary(count: count, hasPlayable: entry.playableCount > 0)
+        return entry
     }
 
     struct MatchSummary: Equatable, Sendable {

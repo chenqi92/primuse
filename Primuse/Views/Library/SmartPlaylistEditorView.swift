@@ -232,14 +232,11 @@ struct SmartPlaylistEditorView: View {
                 }
             }
             guard !Task.isCancelled else { return }
-            let inputs = SmartPlaylistEngine.makePreviewInputs(
+            let summary = await SmartPlaylistEngine.preview(
                 for: macDraftSmartPlaylist,
                 in: library,
                 history: PlayHistoryStore.shared
             )
-            let summary = await Task.detached(priority: .userInitiated) {
-                SmartPlaylistEngine.evaluatePreview(songs: inputs.songs, plan: inputs.plan)
-            }.value
             guard !Task.isCancelled else { return }
             macPreview = summary
             hasLoadedMacPreview = true
