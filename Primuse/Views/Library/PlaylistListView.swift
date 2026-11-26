@@ -1280,7 +1280,8 @@ struct PlaylistListView: View {
     }
 
     private func smartPlaylistCard(_ smart: SmartPlaylist) -> some View {
-        let count = SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared).count
+        // 曲库目录可读时数的是后台在目录上算好的那份(第一次算好之前只显示规则数)。
+        let count = SmartPlaylistEngine.summary(smart, in: library, history: PlayHistoryStore.shared)?.count
         let isAI = smart.effectiveKind == .ai
         return HStack(spacing: 14) {
             ZStack {
@@ -1329,12 +1330,13 @@ struct PlaylistListView: View {
 
     private func smartPlaylistCardSubtitle(
         _ smart: SmartPlaylist,
-        resolvedSongCount: Int
+        resolvedSongCount: Int?
     ) -> String {
+        let songs = resolvedSongCount.map { "\($0) \(String(localized: "songs_count")) · " } ?? ""
         if smart.effectiveKind == .ai {
-            return "\(resolvedSongCount) \(String(localized: "songs_count")) · AI"
+            return songs + "AI"
         }
-        return "\(resolvedSongCount) \(String(localized: "songs_count")) · \(smart.ruleCount) \(String(localized: "rules_count"))"
+        return songs + "\(smart.ruleCount) \(String(localized: "rules_count"))"
     }
 
     private func playlistCard(_ playlist: Playlist) -> some View {

@@ -81,6 +81,7 @@ final class ListeningIntentService {
     @ObservationIgnored private var refreshPauses: Set<HomeRecommendationPause> = []
     @ObservationIgnored private var settleRefresh: Task<Void, Never>?
     @ObservationIgnored private var deferredRefresh: Task<Void, Never>?
+    @ObservationIgnored private var smartPlaylistCountTask: Task<Void, Never>?
     @ObservationIgnored private var smartPlaylistCountsKey: String?
     /// 上次点亮时停用着的音乐源。停用、重新启用是用户自己的操作,不等五分钟的节流,马上重数。
     @ObservationIgnored private var countedDisabledSourceIDs: Set<String> = []
@@ -335,11 +336,12 @@ final class ListeningIntentService {
         }
     }
 
-    /// 钉成意图的智能歌单:名字与曲数。规则匹配只能在主线程跑,所以只数钉了的那几个,
+    /// 钉成意图的智能歌单:名字与曲数。只数钉了的那几个(曲库目录可读时在目录上匹配,随后填上),
     /// 跟着点亮的节奏(点亮重算过或钉选变了)才重数,扫描时不会每批都数;删掉的歌单顺手从钉选里拿掉。
     private func refreshSmartPlaylists(library: MusicLibrary) {
         let pinned = configuration.pinnedSmartPlaylistIDs
         guard !pinned.isEmpty else {
+            smartPlaylistCountTask?.cancel()
             if !smartPlaylistCounts.isEmpty { smartPlaylistCounts = [:] }
             if !smartPlaylistNames.isEmpty { smartPlaylistNames = [:] }
             smartPlaylistCountsKey = nil
@@ -362,15 +364,37 @@ final class ListeningIntentService {
         }
         var counts: [String: Int] = [:]
         var names: [String: String] = [:]
+        var onCatalog: [(intentID: String, smart: SmartPlaylist)] = []
         for playlistID in configuration.pinnedSmartPlaylistIDs {
             guard let smart = playlists[playlistID] else { continue }
             let intentID = ListeningIntent.smartPlaylistIntentID(playlistID)
-            counts[intentID] = SmartPlaylistEngine.match(smart, in: library, history: .shared).count
+            if SmartPlaylistEngine.matchesOnCatalog(smart, in: library) {
+                // 在曲库目录上匹配(主线程外),数好之前先留着上次的数。
+                onCatalog.append((intentID, smart))
+                counts[intentID] = smartPlaylistCounts[intentID]
+            } else {
+                counts[intentID] = SmartPlaylistEngine.match(smart, in: library, history: .shared).count
+            }
             names[intentID] = smart.name
         }
         smartPlaylistCountsKey = key
         if counts != smartPlaylistCounts { smartPlaylistCounts = counts }
         if names != smartPlaylistNames { smartPlaylistNames = names }
+        smartPlaylistCountTask?.cancel()
+        guard !onCatalog.isEmpty else { return }
+        smartPlaylistCountTask = Task { @MainActor [weak self, weak library] in
+            var counted: [String: Int] = [:]
+            for pinned in onCatalog {
+                guard let library, !Task.isCancelled else { return }
+                counted[pinned.intentID] = await SmartPlaylistEngine.matchedSongIDs(
+                    pinned.smart, in: library, history: .shared
+                ).count
+            }
+            // 钉选又变了(另起了一轮)时这一轮作废。
+            guard let self, !Task.isCancelled, self.smartPlaylistCountsKey == key else { return }
+            let merged = self.smartPlaylistCounts.merging(counted) { _, new in new }
+            if merged != self.smartPlaylistCounts { self.smartPlaylistCounts = merged }
+        }
     }
 
     // MARK: Ranking

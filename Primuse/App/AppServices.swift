@@ -3645,7 +3645,9 @@ final class AppServices {
             if let playlist = library.playlists.first(where: { $0.id == resolved.selected.id }) {
                 songs = library.songs(forPlaylist: playlist.id)
             } else if let smart = library.smartPlaylists.first(where: { $0.id == resolved.selected.id }) {
-                songs = SmartPlaylistEngine.match(smart, in: library, history: .shared)
+                // 在曲库目录上匹配出 id(主线程外),再按 id 取歌。
+                songs = await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: .shared)
+                    .compactMap { library.visibleSong(id: $0) }
             } else {
                 return nil
             }

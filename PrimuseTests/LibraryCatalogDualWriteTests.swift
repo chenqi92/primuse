@@ -796,15 +796,22 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
             let fromCatalog = await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: history)
             if library.smartPlaylistCatalogMatchCache[smart.id] != nil { viaCatalog += 1 }
             let context = "step \(step) sort=\(smart.sortField) \(smart.sortDirection) limit=\(smart.limit.map(String.init) ?? "-") groups=\(groups)"
+            let summary = SmartPlaylistEngine.summary(smart, in: library, history: history)
             if smart.sortField == .random {
                 var unlimited = smart
                 unlimited.limit = nil
-                let all = Set(SmartPlaylistEngine.match(unlimited, in: library, history: history).map(\.id))
+                let allSongs = SmartPlaylistEngine.match(unlimited, in: library, history: history)
+                let all = Set(allSongs.map(\.id))
                 XCTAssertEqual(fromCatalog.count, min(smart.limit ?? .max, all.count), context)
                 XCTAssertTrue(Set(fromCatalog).isSubset(of: all), context)
+                XCTAssertEqual(summary?.count, fromCatalog.count, context)
+                XCTAssertEqual(summary?.hasPlayable, allSongs.contains(where: \.isPlayable), context)
             } else {
-                let inMemory = SmartPlaylistEngine.match(smart, in: library, history: history).map(\.id)
-                XCTAssertEqual(fromCatalog, inMemory, context)
+                let inMemory = SmartPlaylistEngine.match(smart, in: library, history: history)
+                XCTAssertEqual(fromCatalog, inMemory.map(\.id), context)
+                XCTAssertEqual(summary, SmartPlaylistEngine.MatchSummary(
+                    count: inMemory.count, hasPlayable: inMemory.contains(where: \.isPlayable)
+                ), context)
             }
             // 第二次命中缓存,结果不变。
             if smart.sortField != .random {
@@ -833,6 +840,47 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertEqual(after, [renamed.id])
+    }
+
+    /// 卡片上的曲数:第一次问时在后台到目录上算(先给 nil),算好后改动计数让界面重画;目录变了先给
+    /// 上次的数、再重算成新的。
+    func testSmartPlaylistSummariesFillInFromTheCatalog() async throws {
+        let library = makeLibrary()
+        var songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let history = PlayHistoryStore(storeURL: directory.appendingPathComponent("history.json"))
+        let smart = SmartPlaylist(
+            name: "Blue", ruleGroups: [SmartPlaylistRuleGroup(rules: [
+                SmartPlaylistRule(field: .title, op: .contains, value: "blue")
+            ])], sortField: .title, sortDirection: .ascending
+        )
+        func waitForSummary(_ expected: Int, _ step: String) async throws {
+            for _ in 0..<400 where SmartPlaylistEngine.summary(smart, in: library, history: history)?.count != expected {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            let memory = SmartPlaylistEngine.match(smart, in: library, history: history)
+            XCTAssertEqual(memory.count, expected, step)
+            XCTAssertEqual(
+                SmartPlaylistEngine.summary(smart, in: library, history: history),
+                SmartPlaylistEngine.MatchSummary(count: memory.count, hasPlayable: memory.contains(where: \.isPlayable)),
+                step
+            )
+        }
+
+        let revision = library.smartPlaylistCatalogMatchRevision
+        XCTAssertNil(SmartPlaylistEngine.summary(smart, in: library, history: history), "the first ask only schedules the catalog match")
+        XCTAssertNotNil(library.smartPlaylistCatalogMatchRefreshes[smart.id])
+        XCTAssertNil(SmartPlaylistEngine.summary(smart, in: library, history: history))
+        let blue = songs.filter { $0.title.localizedCaseInsensitiveContains("blue") }.count
+        try await waitForSummary(blue, "first match")
+        XCTAssertGreaterThan(library.smartPlaylistCatalogMatchRevision, revision)
+        XCTAssertNil(library.smartPlaylistCatalogMatchRefreshes[smart.id])
+
+        songs[5].title = "Blue Comp"
+        library.replaceSong(songs[5])
+        await library.waitForCatalogMirror()
+        try await waitForSummary(blue + 1, "after a catalog change")
     }
 
     /// Siri「播放音乐」走目录:目录给的整库(可播放的音乐、不含不喜欢的)与内存那一份相同;一首能放的

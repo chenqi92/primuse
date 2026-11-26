@@ -555,10 +555,10 @@ struct MacSidebar: View {
 
     @ViewBuilder
     private func smartPlaylistContextMenu(for smart: SmartPlaylist) -> some View {
-        // 右键菜单在侧栏建行时就整个构造: 匹配走引擎缓存, 这里只判断有没有能播的,
-        // 要放进队列的列表等点下去再筛。
-        let matched = SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
-        let hasPlayable = matched.contains(where: \.isPlayable)
+        // 右键菜单在侧栏建行时就整个构造: 只看有没有能播的(目录可读时用后台在目录上算好的那份,
+        // 还没算好时先让点), 要放进队列的列表等点下去再取。
+        let summary = SmartPlaylistEngine.summary(smart, in: library, history: PlayHistoryStore.shared)
+        let hasPlayable = summary?.hasPlayable ?? true
 
         Button {
             select(.smartPlaylist(smart))
@@ -581,25 +581,25 @@ struct MacSidebar: View {
         .disabled(!hasPlayable)
 
         Button {
-            player.appendToQueue(matched.filteredPlayable())
+            Task { player.appendToQueue(await smartSongs(smart).filteredPlayable()) }
         } label: {
             Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
         }
         .disabled(!hasPlayable)
 
         Button {
-            player.insertNextInQueue(matched.filteredPlayable())
+            Task { player.insertNextInQueue(await smartSongs(smart).filteredPlayable()) }
         } label: {
             Label("up_next", systemImage: "text.line.first.and.arrowtriangle.forward")
         }
         .disabled(!hasPlayable)
 
         Button {
-            scraperService.scrapeMissingMetadata(songs: matched, in: library)
+            Task { scraperService.scrapeMissingMetadata(songs: await smartSongs(smart), in: library) }
         } label: {
             Label("scrape_missing_metadata", systemImage: "wand.and.stars")
         }
-        .disabled(matched.isEmpty || scraperService.isScraping)
+        .disabled(summary?.count == 0 || scraperService.isScraping)
 
         SmartPlaylistIntentPinButton(playlistID: smart.id)
 
@@ -656,13 +656,23 @@ struct MacSidebar: View {
         pendingRemoval = PlaylistRemovalRequest(playlists: [playlist])
     }
 
+    /// 智能歌单命中的歌:在曲库目录上匹配出 id,再按 id 取(同内存匹配给的那些歌)。
+    private func smartSongs(_ smart: SmartPlaylist) async -> [Song] {
+        await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: PlayHistoryStore.shared)
+            .compactMap { library.visibleSong(id: $0) }
+    }
+
     private func playSmart(_ smart: SmartPlaylist, shuffled: Bool = false) {
-        let playable = SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
-            .filteredPlayable()
-        let queue = shuffled ? player.shufflePlayOrder(playable) : playable
-        guard !queue.isEmpty else { return }
-        if shuffled { player.shuffleEnabled = true }
-        Task { await player.play(queue: queue, startingAt: 0, recentItem: .init(kind: .playlist, entityID: smart.id)) }
+        Task {
+            // 在曲库目录上匹配(主线程外),按 id 排队:筛能放的、打乱、只物化第一窗都在后台。
+            let ids = await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: PlayHistoryStore.shared)
+            guard !ids.isEmpty else { return }
+            if shuffled { player.shuffleEnabled = true }
+            await player.play(
+                queueIDs: ids, order: shuffled ? .shuffled : .asGiven,
+                recentItem: .init(kind: .playlist, entityID: smart.id)
+            )
+        }
     }
 
     private func deleteSmart(_ smart: SmartPlaylist) {

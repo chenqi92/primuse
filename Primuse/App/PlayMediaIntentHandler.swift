@@ -783,7 +783,7 @@ final class PlayMediaIntentHandler: NSObject,
     ) async -> IntentTarget? {
         let identifiers = identifierGroups.flatMap { $0 }
         if query.kind == .playlist {
-            return resolvePlaylist(query: query.mediaName, identifiers: identifiers, intent: intent)
+            return await resolvePlaylist(query: query.mediaName, identifiers: identifiers, intent: intent)
         }
         if query.kind == .radioStation {
             return resolveRadio(
@@ -822,7 +822,7 @@ final class PlayMediaIntentHandler: NSObject,
                     SiriMediaIdentifier.namespace(from: $0)
                 }.first
                 if namespace == "playlist",
-                   let target = resolvePlaylist(
+                   let target = await resolvePlaylist(
                        query: query.mediaName,
                        identifiers: group,
                        intent: intent
@@ -979,7 +979,7 @@ final class PlayMediaIntentHandler: NSObject,
         query: String?,
         identifiers: [String],
         intent: INPlayMediaIntent
-    ) -> IntentTarget? {
+    ) async -> IntentTarget? {
         let library = AppServices.shared.musicLibrary
         guard let result = SiriNamedMediaResolver.resolve(
             query: query,
@@ -994,7 +994,9 @@ final class PlayMediaIntentHandler: NSObject,
         if let playlist = library.playlists.first(where: { $0.id == result.selected.id }) {
             songs = library.songs(forPlaylist: playlist.id)
         } else if let smart = library.smartPlaylists.first(where: { $0.id == result.selected.id }) {
-            songs = SmartPlaylistEngine.match(smart, in: library, history: .shared)
+            // 在曲库目录上匹配出 id(主线程外),再按 id 取歌。
+            songs = await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: .shared)
+                .compactMap { library.visibleSong(id: $0) }
         } else {
             return nil
         }

@@ -2152,6 +2152,7 @@ extension AudioPlayerService {
         startingAt index: Int = 0,
         order: LargeQueueRequestOrder = .asGiven,
         playableOnly: Bool = true,
+        recentItem: RecentPlaybackItem? = nil,
         caller: String = #fileID,
         callerLine: Int = #line
     ) async {
@@ -2196,6 +2197,7 @@ extension AudioPlayerService {
             queue: prepared.items,
             startingAt: prepared.selectedIndex,
             preparedContinuation: prepared.continuation,
+            recentItem: recentItem,
             caller: caller,
             callerLine: callerLine
         )

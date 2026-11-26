@@ -10407,6 +10407,10 @@ final class MusicLibrary {
     @ObservationIgnored var smartPlaylistMatchCache: [String: SmartPlaylistEngine.CacheEntry] = [:]
     /// 在曲库目录上匹配的结果(`SmartPlaylistEngine.matchedSongIDs`),按目录修订号失效。
     @ObservationIgnored var smartPlaylistCatalogMatchCache: [String: SmartPlaylistEngine.CatalogCacheEntry] = [:]
+    /// 正在后台重算的那些(歌单 id → 算的是哪个输入),同一个输入不重复排。
+    @ObservationIgnored var smartPlaylistCatalogMatchRefreshes: [String: SmartPlaylistEngine.CatalogMatchKey] = [:]
+    /// 后台在目录上算好一个智能歌单就加一:读曲数的卡片、菜单据此重画。
+    var smartPlaylistCatalogMatchRevision: UInt64 = 0
 
     @ObservationIgnored private var materializedPlaylistSongs:
         [String: (key: PlaylistMaterializationKey, songs: [Song])] = [:]
