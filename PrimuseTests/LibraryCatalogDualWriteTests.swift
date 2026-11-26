@@ -900,6 +900,73 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         try await waitForSummary(blue + 1, "after a catalog change")
     }
 
+    /// 听歌意图在目录上逐首算:点亮的曲数、「查看歌曲」与起播抽样,同交整库音乐数组的结果
+    /// (有声、播客、环境音不算进来)。
+    func testListeningIntentsReadTheCatalogLikeTheInMemoryLibrary() async throws {
+        let library = makeLibrary()
+        var random = SmartPlaylistParityGenerator(state: 11)
+        let genres = ["Jazz", "Rock", "Pop", "Classical", "Electronic", "华语流行", "Folk"]
+        var songs = Self.fixture()
+        for index in 0..<160 {
+            let lossless = random.chance(50)
+            var song = Song(
+                id: "intent-\(index)", title: "Intent \(index)",
+                albumTitle: "Album \(index % 12)", artistName: "Artist \(index % 9)",
+                trackNumber: index % 12 + 1, duration: Double(90 + random.int(400)),
+                fileFormat: lossless ? .flac : .mp3, filePath: "/Music/Intent/\(index % 12)/\(index).flac",
+                sourceID: random.chance(70) ? Self.sourceA : Self.sourceB,
+                sampleRate: lossless ? random.pick([44_100, 96_000]) : 44_100, bitDepth: lossless ? 24 : nil,
+                genre: random.pick(genres), year: 1970 + random.int(56),
+                coverArtFileName: random.chance(50) ? "intent-\(index % 12).jpg" : nil
+            )
+            song.dateAdded = Date().addingTimeInterval(-Double(random.int(200)) * 86_400)
+            songs.append(song)
+        }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "intent fixture")
+        XCTAssertTrue(try XCTUnwrap(library.catalogHost).revisions.isReadable)
+
+        let suite = "catalog-intents-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let service = ListeningIntentService(defaults: defaults)
+        service.refresh(library: library)
+        for _ in 0..<800 where service.availability == nil { try await Task.sleep(for: .milliseconds(5)) }
+        let availability = try XCTUnwrap(service.availability)
+        let history = ListeningHistoryIndex(
+            events: PlayHistoryStore.shared.musicEntries.map {
+                HomeListeningEvent(songID: $0.songID, playedAt: $0.playedAt, listenedSeconds: $0.listenedSec)
+            },
+            now: availability.computedAt
+        )
+        let expected = try XCTUnwrap(ListeningIntentEngine.availability(
+            librarySongs: library.musicSongs, intents: ListeningIntent.builtIns, history: history, libraryGeneration: 0
+        ))
+        var lit = 0
+        for intent in ListeningIntent.builtIns {
+            XCTAssertEqual(availability.songCounts[intent.id], expected.songCounts[intent.id], intent.id)
+            XCTAssertEqual(availability.coverSongIDs[intent.id], expected.coverSongIDs[intent.id], intent.id)
+            if (expected.songCounts[intent.id] ?? 0) > 0 { lit += 1 }
+        }
+        XCTAssertGreaterThan(lit, 2)
+
+        for intent in ListeningIntent.builtIns where (expected.songCounts[intent.id] ?? 0) > 0 {
+            let memory = try XCTUnwrap(ListeningIntentEngine.matchingSongIDs(
+                for: intent, librarySongs: library.musicSongs, history: history, limit: ListeningIntentService.songListLimit
+            ))
+            let listed = await service.matchingSongIDs(for: intent, library: library)
+            XCTAssertEqual(listed.total, memory.total, intent.id)
+            XCTAssertEqual(Set(listed.ids), Set(memory.ids), intent.id)
+
+            let queue = await service.queueSongIDs(for: intent, library: library)
+            let matching = Set(ListeningIntentEngine.matchingSongIDs(
+                for: intent, librarySongs: library.musicSongsExcludingDisliked, history: history, limit: .max
+            )?.ids ?? [])
+            XCTAssertTrue(Set(queue).isSubset(of: matching), intent.id)
+            XCTAssertEqual(queue.count, min(intent.playback.songLimit, matching.count), intent.id)
+        }
+    }
+
     /// Siri「播放音乐」走目录:目录给的整库(可播放的音乐、不含不喜欢的)与内存那一份相同;一首能放的
     /// 都没有、点的那首不在曲库时,目录排队答「没有可放的」,不装队列、不调 `willInstall`(Siri 据此
     /// 答复没找到);目录还没收到点的那首时答「目录不能用」,调用方走内存路径。

@@ -600,21 +600,40 @@ public extension ListeningIntentEngine {
         limit: Int,
         isCancelled: () -> Bool = { false }
     ) -> (ids: [String], total: Int)? where Songs.Element: ListeningSongTraits {
-        guard let rule = intent.rule.map({ CompiledRule($0, now: history.now) }) else { return ([], 0) }
-        var memo = ListeningGenreClassifier.Memo()
-        var artistMemo = ListeningArtistKeyMemo()
-        var ids: [String] = []
-        ids.reserveCapacity(min(max(0, limit), 1_024))
-        var total = 0
+        guard var collector = MatchingCollector(for: intent, history: history, limit: limit) else { return ([], 0) }
         var position = 0
         for song in songs {
             if position.isMultiple(of: 1_024), isCancelled() { return nil }
             position += 1
+            collector.add(song)
+        }
+        return (collector.ids, collector.total)
+    }
+
+    /// `matchingSongIDs` one song at a time (see `AvailabilityTally`). Nil for
+    /// an intent without a rule (it matches nothing).
+    struct MatchingCollector {
+        private let rule: CompiledRule
+        private let history: ListeningHistoryIndex
+        private let limit: Int
+        private var memo = ListeningGenreClassifier.Memo()
+        private var artistMemo = ListeningArtistKeyMemo()
+        private(set) var ids: [String] = []
+        private(set) var total = 0
+
+        init?(for intent: ListeningIntent, history: ListeningHistoryIndex, limit: Int) {
+            guard let rule = intent.rule.map({ CompiledRule($0, now: history.now) }) else { return nil }
+            self.rule = rule
+            self.history = history
+            self.limit = limit
+            ids.reserveCapacity(min(max(0, limit), 1_024))
+        }
+
+        mutating func add<Song: ListeningSongTraits>(_ song: Song) {
             let artistKey = rule.needsArtistKey ? artistMemo.key(for: song) : nil
-            guard rule.matches(song, mask: memo.mask(for: song.genre), artistKey: artistKey, history: history) else { continue }
+            guard rule.matches(song, mask: memo.mask(for: song.genre), artistKey: artistKey, history: history) else { return }
             total += 1
             if ids.count < limit { ids.append(song.id) }
         }
-        return (ids, total)
     }
 }

@@ -859,23 +859,47 @@ public enum ListeningIntentEngine {
         libraryGeneration: UInt64,
         isCancelled: () -> Bool = { false }
     ) -> ListeningIntentAvailability? where Songs.Element: ListeningSongTraits {
-        let ruled = intents.compactMap { intent in
-            intent.rule.map { CompiledRule($0, now: history.now) }
-                .map { (id: intent.id, rule: $0, isPersonal: intent.category == .personal) }
-        }
-        let needsArtistKey = ruled.contains { $0.rule.needsArtistKey }
-        let countsPlays = history.recentPlays > 0
-        var tallies = Array(repeating: 0, count: ruled.count)
-        var playTallies = Array(repeating: 0, count: ruled.count)
-        var covers = Array(repeating: [CoverSample](), count: ruled.count)
-        let coverDay = UInt64(max(0, history.now.timeIntervalSince1970 / 86_400))
-        var memo = ListeningGenreClassifier.Memo()
-        var artistMemo = ListeningArtistKeyMemo()
-        var playable = 0
+        var tally = AvailabilityTally(intents: intents, history: history)
         var position = 0
         for song in songs {
             if position.isMultiple(of: 1_024), isCancelled() { return nil }
             position += 1
+            tally.add(song)
+        }
+        return tally.finish(libraryGeneration: libraryGeneration)
+    }
+
+    /// `availability` one song at a time, for a source that cannot hand over
+    /// the whole library at once (the library catalog streams it). Feeding the
+    /// same songs in the same order gives the same answer.
+    struct AvailabilityTally {
+        private let ruled: [(id: String, rule: CompiledRule, isPersonal: Bool)]
+        private let needsArtistKey: Bool
+        private let countsPlays: Bool
+        private let history: ListeningHistoryIndex
+        private let coverDay: UInt64
+        private var tallies: [Int]
+        private var playTallies: [Int]
+        private var covers: [[CoverSample]]
+        private var memo = ListeningGenreClassifier.Memo()
+        private var artistMemo = ListeningArtistKeyMemo()
+        private var playable = 0
+
+        init(intents: [ListeningIntent], history: ListeningHistoryIndex) {
+            ruled = intents.compactMap { intent in
+                intent.rule.map { CompiledRule($0, now: history.now) }
+                    .map { (id: intent.id, rule: $0, isPersonal: intent.category == .personal) }
+            }
+            needsArtistKey = ruled.contains { $0.rule.needsArtistKey }
+            countsPlays = history.recentPlays > 0
+            self.history = history
+            coverDay = UInt64(max(0, history.now.timeIntervalSince1970 / 86_400))
+            tallies = Array(repeating: 0, count: ruled.count)
+            playTallies = Array(repeating: 0, count: ruled.count)
+            covers = Array(repeating: [CoverSample](), count: ruled.count)
+        }
+
+        mutating func add<Song: ListeningSongTraits>(_ song: Song) {
             if song.isPlayable { playable += 1 }
             let mask = memo.mask(for: song.genre)
             let artistKey = needsArtistKey ? artistMemo.key(for: song) : nil
@@ -889,32 +913,35 @@ public enum ListeningIntentEngine {
                 if let sample = cover ?? nil { sample.offer(to: &covers[slot]) }
             }
         }
-        let ranksByListening = history.recentPlays >= minimumRecentPlaysForRanking
-        var counts: [String: Int] = [:]
-        var scores: [String: Double] = [:]
-        var coverSongIDs: [String: [String]] = [:]
-        for slot in ruled.indices where tallies[slot] > 0 {
-            let id = ruled[slot].id
-            counts[id, default: 0] += tallies[slot]
-            if coverSongIDs[id] == nil, !covers[slot].isEmpty {
-                coverSongIDs[id] = covers[slot].sorted { $0.rank < $1.rank }.map(\.songID)
+
+        func finish(libraryGeneration: UInt64) -> ListeningIntentAvailability {
+            let ranksByListening = history.recentPlays >= minimumRecentPlaysForRanking
+            var counts: [String: Int] = [:]
+            var scores: [String: Double] = [:]
+            var coverSongIDs: [String: [String]] = [:]
+            for slot in ruled.indices where tallies[slot] > 0 {
+                let id = ruled[slot].id
+                counts[id, default: 0] += tallies[slot]
+                if coverSongIDs[id] == nil, !covers[slot].isEmpty {
+                    coverSongIDs[id] = covers[slot].sorted { $0.rank < $1.rank }.map(\.songID)
+                }
+                let libraryShare = playable > 0 ? Double(tallies[slot]) / Double(playable) : 0
+                var score = libraryShare
+                if ranksByListening {
+                    let playShare = Double(playTallies[slot]) / Double(history.recentPlays)
+                    score = playShareWeight * min(1, playShare) + (1 - playShareWeight) * libraryShare
+                }
+                if ruled[slot].isPersonal { score += personalBonus }
+                scores[id] = max(scores[id] ?? 0, score)
             }
-            let libraryShare = playable > 0 ? Double(tallies[slot]) / Double(playable) : 0
-            var score = libraryShare
-            if ranksByListening {
-                let playShare = Double(playTallies[slot]) / Double(history.recentPlays)
-                score = playShareWeight * min(1, playShare) + (1 - playShareWeight) * libraryShare
-            }
-            if ruled[slot].isPersonal { score += personalBonus }
-            scores[id] = max(scores[id] ?? 0, score)
+            return ListeningIntentAvailability(
+                songCounts: counts,
+                scores: scores,
+                libraryGeneration: libraryGeneration,
+                computedAt: history.now,
+                coverSongIDs: coverSongIDs
+            )
         }
-        return ListeningIntentAvailability(
-            songCounts: counts,
-            scores: scores,
-            libraryGeneration: libraryGeneration,
-            computedAt: history.now,
-            coverSongIDs: coverSongIDs
-        )
     }
 
     /// Covers on an intent card come from this many different albums.
@@ -964,24 +991,63 @@ public enum ListeningIntentEngine {
         seed: UInt64,
         isCancelled: () -> Bool = { false }
     ) -> [String] where Songs.Element: ListeningSongTraits {
-        guard let rule = intent.rule.map({ CompiledRule($0, now: history.now) }) else { return [] }
-        let limit = max(0, intent.playback.songLimit)
-        guard limit > 0 else { return [] }
-        if intent.playback.playsAlbumsInSequence == true, let albumOrder = intent.rule?.albumIDs, !albumOrder.isEmpty {
-            return albumSequence(rule: rule, albumOrder: albumOrder, songs: songs, history: history, limit: limit, isCancelled: isCancelled)
-        }
-        var generator = ListeningSeededGenerator(seed: seed)
-        var memo = ListeningGenreClassifier.Memo()
-        var artistMemo = ListeningArtistKeyMemo()
-        // Reservoir sampling keeps memory at `limit` whatever the library size.
-        var sample: [(id: String, key: Double)] = []
-        sample.reserveCapacity(limit)
-        var seen = 0
+        guard var sampler = QueueSampler(for: intent, history: history, seed: seed) else { return [] }
+        var position = 0
         for song in songs {
-            if seen.isMultiple(of: 1_024), isCancelled() { return [] }
+            if position.isMultiple(of: 1_024), isCancelled() { return [] }
+            position += 1
+            sampler.add(song)
+        }
+        return sampler.finish()
+    }
+
+    /// `queueSongIDs` one song at a time (see `AvailabilityTally`). Nil when
+    /// the intent picks nothing (no rule, no room in the queue).
+    struct QueueSampler {
+        private let intent: ListeningIntent
+        private let rule: CompiledRule
+        private let history: ListeningHistoryIndex
+        private let limit: Int
+        /// Whole albums in the rule's order: album rank by ID.
+        private let albumRank: [String: Int]?
+        private var generator: ListeningSeededGenerator
+        private var memo = ListeningGenreClassifier.Memo()
+        private var artistMemo = ListeningArtistKeyMemo()
+        // Reservoir sampling keeps memory at `limit` whatever the library size.
+        private var sample: [(id: String, key: Double)] = []
+        private var picked: [(id: String, album: Int, disc: Int, track: Int, position: Int)] = []
+        private var position = 0
+
+        init?(for intent: ListeningIntent, history: ListeningHistoryIndex, seed: UInt64) {
+            guard let rule = intent.rule.map({ CompiledRule($0, now: history.now) }) else { return nil }
+            limit = max(0, intent.playback.songLimit)
+            guard limit > 0 else { return nil }
+            self.intent = intent
+            self.rule = rule
+            self.history = history
+            generator = ListeningSeededGenerator(seed: seed)
+            if intent.playback.playsAlbumsInSequence == true, let albumOrder = intent.rule?.albumIDs, !albumOrder.isEmpty {
+                var rank: [String: Int] = [:]
+                for (index, albumID) in albumOrder.enumerated() where rank[albumID] == nil { rank[albumID] = index }
+                albumRank = rank
+            } else {
+                albumRank = nil
+                sample.reserveCapacity(limit)
+            }
+        }
+
+        mutating func add<Song: ListeningSongTraits>(_ song: Song) {
+            position += 1
+            if let albumRank {
+                // Whole albums in the rule's order, each by disc and track.
+                guard let albumID = song.albumID, let rank = albumRank[albumID] else { return }
+                let artistKey = rule.needsArtistKey ? artistMemo.key(for: song) : nil
+                guard rule.matches(song, mask: memo.mask(for: song.genre), artistKey: artistKey, history: history) else { return }
+                picked.append((song.id, rank, song.discNumber ?? 1, song.trackNumber ?? Int.max, position))
+                return
+            }
             let artistKey = rule.needsArtistKey ? artistMemo.key(for: song) : nil
-            guard rule.matches(song, mask: memo.mask(for: song.genre), artistKey: artistKey, history: history) else { continue }
-            seen += 1
+            guard rule.matches(song, mask: memo.mask(for: song.genre), artistKey: artistKey, history: history) else { return }
             var key = Double(generator.next() >> 11) / Double(1 << 53)
             if intent.habit == .longUnplayed {
                 // Never played first, then the longest ago; randomness only
@@ -996,41 +1062,21 @@ public enum ListeningIntentEngine {
                 sample[minimum] = (song.id, key)
             }
         }
-        sample.sort { $0.key > $1.key }
-        var ids = sample.map(\.id)
-        if intent.playback.shuffles, intent.habit != .longUnplayed {
-            ids.shuffle(using: &generator)
-        }
-        return ids
-    }
 
-    /// Whole albums in the rule's order, each by disc and track.
-    private static func albumSequence<Songs: Collection>(
-        rule: CompiledRule,
-        albumOrder: [String],
-        songs: Songs,
-        history: ListeningHistoryIndex,
-        limit: Int,
-        isCancelled: () -> Bool
-    ) -> [String] where Songs.Element: ListeningSongTraits {
-        var rank: [String: Int] = [:]
-        for (index, albumID) in albumOrder.enumerated() where rank[albumID] == nil { rank[albumID] = index }
-        var memo = ListeningGenreClassifier.Memo()
-        var artistMemo = ListeningArtistKeyMemo()
-        var picked: [(id: String, album: Int, disc: Int, track: Int, position: Int)] = []
-        var position = 0
-        for song in songs {
-            if position.isMultiple(of: 1_024), isCancelled() { return [] }
-            position += 1
-            guard let albumID = song.albumID, let albumRank = rank[albumID] else { continue }
-            let artistKey = rule.needsArtistKey ? artistMemo.key(for: song) : nil
-            guard rule.matches(song, mask: memo.mask(for: song.genre), artistKey: artistKey, history: history) else { continue }
-            picked.append((song.id, albumRank, song.discNumber ?? 1, song.trackNumber ?? Int.max, position))
+        mutating func finish() -> [String] {
+            if albumRank != nil {
+                picked.sort {
+                    ($0.album, $0.disc, $0.track, $0.position) < ($1.album, $1.disc, $1.track, $1.position)
+                }
+                return picked.prefix(limit).map(\.id)
+            }
+            sample.sort { $0.key > $1.key }
+            var ids = sample.map(\.id)
+            if intent.playback.shuffles, intent.habit != .longUnplayed {
+                ids.shuffle(using: &generator)
+            }
+            return ids
         }
-        picked.sort {
-            ($0.album, $0.disc, $0.track, $0.position) < ($1.album, $1.disc, $1.track, $1.position)
-        }
-        return picked.prefix(limit).map(\.id)
     }
 }
 

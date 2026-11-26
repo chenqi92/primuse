@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftUI
 import PrimuseKit
 
@@ -231,39 +232,62 @@ final class ListeningIntentService {
         deferredRefresh = nil
         forcesNextRefresh = false
 
-        // 在主线程上取好快照,遍历交给后台。
-        let songs = library.musicSongs
+        // 在主线程上取好快照,遍历交给后台。曲库目录可读时在目录上逐首算(同交整库数组的结果),
+        // 不先取整库音乐;读失败时这一轮照旧交内存里的数组。
+        let catalogReader = Self.catalogHost(for: library)?.reader
         let entries = PlayHistoryStore.shared.musicEntries
         let intents = countedIntents
         let curatedIntents = isAICurationEnabled ? curated?.intents ?? [] : []
         let computesPersonal = Self.computesPersonalIntents
         let releaseGeneration = profileReleaseGeneration
         let startedAt = ProcessInfo.processInfo.systemUptime
-        refreshTask = Task { @MainActor [weak self] in
-            let worker = Task.detached(priority: .utility) { () -> LightingResult? in
-                let history = Self.history(entries, now: now)
-                var profile: ListeningProfile?
-                var local: [ListeningIntent] = []
-                if computesPersonal {
-                    profile = ListeningProfile.build(librarySongs: songs, history: history, isCancelled: { Task.isCancelled })
-                    guard let profile else { return nil }
-                    local = PersonalListeningIntentPolicy.intents(from: profile)
+        refreshTask = Task { @MainActor [weak self, weak library] in
+            let cancelled = OSAllocatedUnfairLock(initialState: false)
+            let isCancelled: @Sendable () -> Bool = { cancelled.withLock { $0 } }
+            var outcome: LightingResult??
+            if let catalogReader {
+                do {
+                    let fromCatalog = try await withTaskCancellationHandler {
+                        try await catalogReader.read { catalog -> LightingResult? in
+                            try Self.lighting(
+                                history: Self.history(entries, now: now), intents: intents, curatedIntents: curatedIntents,
+                                computesPersonal: computesPersonal, libraryGeneration: generation, isCancelled: isCancelled,
+                                profile: { try ListeningProfile.build(catalog: catalog, scope: .visibleMusic, history: $0, isCancelled: isCancelled) },
+                                availability: { try ListeningIntentEngine.availability(
+                                    catalog: catalog, scope: .visibleMusic, intents: $0, history: $1,
+                                    libraryGeneration: generation, isCancelled: isCancelled
+                                ) }
+                            )
+                        }
+                    } onCancel: {
+                        cancelled.withLock { $0 = true }
+                    }
+                    outcome = .some(fromCatalog)
+                } catch {
+                    plog("🎯 Listening intents catalog read failed (\(error)); using the in-memory library")
                 }
-                let personal = PersonalListeningIntentPolicy.merged(ai: curatedIntents, local: local)
-                guard let availability = ListeningIntentEngine.availability(
-                    librarySongs: songs,
-                    intents: personal + intents,
-                    history: history,
-                    libraryGeneration: generation,
-                    isCancelled: { Task.isCancelled }
-                ) else { return nil }
-                return LightingResult(availability: availability, profile: profile, personal: personal)
             }
-            let computed = await withTaskCancellationHandler {
-                await worker.value
-            } onCancel: {
-                worker.cancel()
+            if outcome == nil {
+                let memorySongs = library?.musicSongs ?? []
+                let worker = Task.detached(priority: .utility) { () -> LightingResult? in
+                    try? Self.lighting(
+                        history: Self.history(entries, now: now), intents: intents, curatedIntents: curatedIntents,
+                        computesPersonal: computesPersonal, libraryGeneration: generation, isCancelled: isCancelled,
+                        profile: { ListeningProfile.build(librarySongs: memorySongs, history: $0, isCancelled: isCancelled) },
+                        availability: { ListeningIntentEngine.availability(
+                            librarySongs: memorySongs, intents: $0, history: $1,
+                            libraryGeneration: generation, isCancelled: isCancelled
+                        ) }
+                    )
+                }
+                outcome = .some(await withTaskCancellationHandler {
+                    await worker.value
+                } onCancel: {
+                    cancelled.withLock { $0 = true }
+                    worker.cancel()
+                })
             }
+            let computed = outcome ?? nil
             guard let self else { return }
             self.refreshTask = nil
             let result = Task.isCancelled || !self.refreshPauses.isEmpty ? nil : computed
@@ -280,10 +304,10 @@ final class ListeningIntentService {
                 self.updateRankingIfNeeded(now: Date())
                 if let library = self.library { self.refreshSmartPlaylists(library: library) }
                 plog(String(
-                    format: "🎯 listening intents lit=%d personal=%d songs=%d %.0fms",
+                    format: "🎯 listening intents lit=%d personal=%d largest=%d %.0fms",
                     result.availability.litIntents(intents).count,
                     result.personal.count,
-                    songs.count,
+                    result.availability.songCounts.values.max() ?? 0,
                     (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
                 ))
             }
@@ -395,6 +419,36 @@ final class ListeningIntentService {
             let merged = self.smartPlaylistCounts.merging(counted) { _, new in new }
             if merged != self.smartPlaylistCounts { self.smartPlaylistCounts = merged }
         }
+    }
+
+    /// 曲库目录此刻可读时它的持有方(点亮、起播、查看歌曲在目录上逐首算)。
+    private static func catalogHost(for library: MusicLibrary) -> LibraryCatalogHost? {
+        guard let host = library.catalogHost, host.revisions.isReadable else { return nil }
+        return host
+    }
+
+    /// 一轮点亮:先建个人口味画像(要算个人意图时),再给所有意图数歌。两份数据源(目录逐首、内存数组)
+    /// 共用这一段,结果只差在歌从哪里来。取消时为 nil。
+    nonisolated private static func lighting(
+        history: ListeningHistoryIndex,
+        intents: [ListeningIntent],
+        curatedIntents: [ListeningIntent],
+        computesPersonal: Bool,
+        libraryGeneration: UInt64,
+        isCancelled: () -> Bool,
+        profile buildProfile: (ListeningHistoryIndex) throws -> ListeningProfile?,
+        availability countAvailability: ([ListeningIntent], ListeningHistoryIndex) throws -> ListeningIntentAvailability?
+    ) throws -> LightingResult? {
+        var profile: ListeningProfile?
+        var local: [ListeningIntent] = []
+        if computesPersonal {
+            profile = try buildProfile(history)
+            guard let profile else { return nil }
+            local = PersonalListeningIntentPolicy.intents(from: profile)
+        }
+        let personal = PersonalListeningIntentPolicy.merged(ai: curatedIntents, local: local)
+        guard !isCancelled(), let availability = try countAvailability(personal + intents, history) else { return nil }
+        return LightingResult(availability: availability, profile: profile, personal: personal)
     }
 
     // MARK: Ranking
@@ -632,10 +686,9 @@ final class ListeningIntentService {
     // MARK: Songs
 
     /// 「查看歌曲」按艺人、专辑、碟号、轨号排,看起来像一张张专辑,而不是入库的先后。
-    nonisolated private static func sortedForBrowsing(_ ids: [String], in songs: [Song]) -> [String] {
-        guard ids.count > 1 else { return ids }
-        let wanted = Set(ids)
-        let matched = songs.filter { wanted.contains($0.id) }
+    /// 命中的歌(按库内顺序)按艺人、专辑、碟号、曲号、歌名排好的 id。
+    nonisolated private static func sortedForBrowsing(_ matched: [Song]) -> [String] {
+        guard matched.count > 1 else { return matched.map(\.id) }
         func artist(_ song: Song) -> String { song.albumArtistName ?? song.artistName ?? "" }
         return matched.sorted { lhs, rhs in
             let artistOrder = artist(lhs).localizedStandardCompare(artist(rhs))
@@ -660,9 +713,23 @@ final class ListeningIntentService {
         case .builtIn, .scene, .personal:
             guard intent.rule != nil else { return [] }
             // 按规则替人挑歌,不挑不喜欢的歌(#193)。
-            let songs = library.musicSongsExcludingDisliked
             let entries = PlayHistoryStore.shared.musicEntries
             let now = Date()
+            if let host = Self.catalogHost(for: library) {
+                // 曲库目录可读时在目录上逐首抽样(同交整库数组的结果),不先取整库音乐。
+                let disliked = library.dislikedSongIDs
+                do {
+                    return try await host.reader.read { catalog in
+                        try ListeningIntentEngine.queueSongIDs(
+                            for: intent, catalog: catalog, scope: .visibleMusic, excluding: disliked,
+                            history: Self.history(entries, now: now), seed: seed
+                        )
+                    }
+                } catch {
+                    plog("🎯 Listening intent queue catalog read failed (\(error)); using the in-memory library")
+                }
+            }
+            let songs = library.musicSongsExcludingDisliked
             return await Task.detached(priority: .userInitiated) {
                 let history = Self.history(entries, now: now)
                 return ListeningIntentEngine.queueSongIDs(
@@ -683,10 +750,25 @@ final class ListeningIntentService {
             let ids = await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: .shared)
             return (Array(ids.prefix(Self.songListLimit)), ids.count)
         case .builtIn, .scene, .personal:
-            let songs = library.musicSongs
             let entries = PlayHistoryStore.shared.musicEntries
             let now = Date()
             let limit = Self.songListLimit
+            if let host = Self.catalogHost(for: library) {
+                // 曲库目录可读时在目录上逐首数,命中的那些(最多 `songListLimit` 首)再按 id 取来排。
+                do {
+                    return try await host.reader.read { catalog in
+                        guard let matched = try ListeningIntentEngine.matchingSongIDs(
+                            for: intent, catalog: catalog, scope: .visibleMusic,
+                            history: Self.history(entries, now: now), limit: limit
+                        ) else { return ([], 0) }
+                        let byID = try LibraryCatalogReader.songsByID(matched.ids, scope: .visibleMusic, in: catalog)
+                        return (Self.sortedForBrowsing(matched.ids.compactMap { byID[$0] }), matched.total)
+                    }
+                } catch {
+                    plog("🎯 Listening intent songs catalog read failed (\(error)); using the in-memory library")
+                }
+            }
+            let songs = library.musicSongs
             return await Task.detached(priority: .userInitiated) {
                 let history = Self.history(entries, now: now)
                 guard let matched = ListeningIntentEngine.matchingSongIDs(
@@ -696,7 +778,8 @@ final class ListeningIntentService {
                     limit: limit,
                     isCancelled: { Task.isCancelled }
                 ) else { return ([], 0) }
-                return (Self.sortedForBrowsing(matched.ids, in: songs), matched.total)
+                let wanted = Set(matched.ids)
+                return (Self.sortedForBrowsing(songs.filter { wanted.contains($0.id) }), matched.total)
             }.value
         }
     }
