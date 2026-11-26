@@ -631,7 +631,7 @@ final class ListeningIntentService {
         switch intent.source {
         case .smartPlaylist(let playlistID):
             guard let smart = library.smartPlaylists.first(where: { $0.id == playlistID }) else { return [] }
-            let ids = SmartPlaylistEngine.match(smart, in: library, history: .shared).map(\.id)
+            let ids = await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: .shared)
             return ListeningIntentShelfPolicy.sample(ids, limit: intent.playback.songLimit, seed: seed)
         case .builtIn, .scene, .personal:
             guard intent.rule != nil else { return [] }
@@ -656,7 +656,7 @@ final class ListeningIntentService {
         switch intent.source {
         case .smartPlaylist(let playlistID):
             guard let smart = library.smartPlaylists.first(where: { $0.id == playlistID }) else { return ([], 0) }
-            let ids = SmartPlaylistEngine.match(smart, in: library, history: .shared).map(\.id)
+            let ids = await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: .shared)
             return (Array(ids.prefix(Self.songListLimit)), ids.count)
         case .builtIn, .scene, .personal:
             let songs = library.musicSongs

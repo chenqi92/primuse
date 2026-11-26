@@ -9226,6 +9226,7 @@ final class MusicLibrary {
         albumOnlyArtistSongIDsCache.removeAll()
         artworkSongIDResolutions.removeAll()
         smartPlaylistMatchCache.removeAll()
+        smartPlaylistCatalogMatchCache.removeAll()
         shuffleLinkGraphCache = nil
         favoriteArtistCandidatesCache = nil
         disabledSourcePlaylistCache = nil
@@ -10404,6 +10405,8 @@ final class MusicLibrary {
 
     /// `SmartPlaylistEngine` 按输入版本记下的匹配结果, 跟着这个库实例走。
     @ObservationIgnored var smartPlaylistMatchCache: [String: SmartPlaylistEngine.CacheEntry] = [:]
+    /// 在曲库目录上匹配的结果(`SmartPlaylistEngine.matchedSongIDs`),按目录修订号失效。
+    @ObservationIgnored var smartPlaylistCatalogMatchCache: [String: SmartPlaylistEngine.CatalogCacheEntry] = [:]
 
     @ObservationIgnored private var materializedPlaylistSongs:
         [String: (key: PlaylistMaterializationKey, songs: [Song])] = [:]

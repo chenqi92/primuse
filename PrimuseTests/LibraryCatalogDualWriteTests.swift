@@ -695,6 +695,146 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertEqual(library.storedSong(id: songs[1].id)?.lyricsText, "after stop")
     }
 
+    /// 智能歌单在目录上流式匹配:随机曲库(多个源、停用的源、Apple Music 资料库的歌、播放记录、歌单)
+    /// 上的随机规则组、排序与上限,结果与内存匹配逐首相同(随机排序比成员);命中的是目录那条路。
+    func testSmartPlaylistsMatchedOnTheCatalogMatchTheInMemoryEngine() async throws {
+        let disabledSource = "dual-write-off"
+        let library = makeLibrary(disabledSourceIDs: [disabledSource])
+        var random = SmartPlaylistParityGenerator(state: 7)
+        let titles = ["Blue", "blue moon", "Écho", "Night Ferry", "夜曲", "Harbour", "Rain", "Zebra", "alpha"]
+        let artists = ["Ada", "Ada、Ben", "ben", "The Night", "周杰伦", "Carla feat. Ada"]
+        let albums = ["Blue Room", "Mixtape", "Harbour Lights", "夜的第七章", "Zero"]
+        let genres = ["Pop", "Rock/Pop", "Jazz", "Electronic", "Mandopop"]
+        let sources = [Self.sourceA, Self.sourceB, disabledSource, AppleMusicLibraryService.systemSourceID]
+        let now = Date()
+        var songs: [Song] = []
+        for index in 0..<240 {
+            let album = random.chance(85) ? random.pick(albums) : nil
+            var song = Song(
+                id: "smart-\(index)",
+                title: random.pick(titles) + (random.chance(30) ? " \(index % 7)" : ""),
+                albumTitle: album,
+                artistName: random.chance(90) ? random.pick(artists) : nil,
+                albumArtistName: random.chance(40) ? random.pick(artists) : nil,
+                trackNumber: random.chance(80) ? random.int(14) + 1 : nil,
+                discNumber: random.chance(15) ? 2 : 1,
+                duration: Double(60 + random.int(400)),
+                fileFormat: random.pick([AudioFormat.flac, .mp3, .m4a]),
+                filePath: "/Music/\(album ?? "Loose")/\(String(format: "%02d", random.int(20))) \(index).flac",
+                sourceID: random.pick(sources),
+                genre: random.chance(85) ? random.pick(genres) : nil,
+                year: random.chance(80) ? 1990 + random.int(35) : nil
+            )
+            song.fileSize = Int64(1_000_000 + random.int(40) * 250_000)
+            song.bitRate = random.chance(80) ? random.pick([128, 256, 320, 900, 1411]) : nil
+            song.dateAdded = now.addingTimeInterval(-Double(random.int(90)) * 86_400 - Double(random.int(80_000)))
+            songs.append(song)
+        }
+        library.addSongs(songs, affectedSourceIDs: Set(sources))
+        await assertShadowMatches(library, "smart playlist fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        XCTAssertTrue(host.revisions.isReadable)
+
+        let history = PlayHistoryStore(storeURL: directory.appendingPathComponent("history.json"))
+        for song in songs where random.chance(35) {
+            for play in 0..<(1 + random.int(4)) {
+                history.record(song: song, startedAt: now.addingTimeInterval(-Double(play * 3_600 + random.int(40) * 86_400)),
+                               listenedSec: 120)
+            }
+        }
+        let playlist = library.createPlaylist(name: "Parity", songIDs: songs.filter { _ in random.chance(25) }.map(\.id))
+
+        func rule() -> SmartPlaylistRule {
+            let field = random.pick(SmartPlaylistField.allCases)
+            let textOps: [SmartPlaylistOperator] = [.equals, .notEquals, .contains, .notContains]
+            let numberOps: [SmartPlaylistOperator] = [.equals, .notEquals, .greaterThan, .lessThan, .between]
+            switch field {
+            case .title: return SmartPlaylistRule(field: field, op: random.pick(textOps), value: random.pick(titles + ["blue", "e"]))
+            case .artistName: return SmartPlaylistRule(field: field, op: random.pick(textOps), value: random.pick(artists + ["ada"]))
+            case .albumTitle: return SmartPlaylistRule(field: field, op: random.pick(textOps), value: random.pick(albums + ["room"]))
+            case .genre: return SmartPlaylistRule(field: field, op: random.pick(textOps), value: random.pick(genres + ["pop"]))
+            case .fileFormat: return SmartPlaylistRule(field: field, op: random.pick(textOps), value: random.pick(["flac", "mp3", "m4a", "alac"]))
+            case .sourceID: return SmartPlaylistRule(field: field, op: random.pick(textOps), value: random.pick(sources))
+            case .year:
+                let low = 1990 + random.int(30)
+                return SmartPlaylistRule(field: field, op: random.pick(numberOps), value: random.chance(50) ? "\(low)|\(low + 8)" : "\(low)")
+            case .fileSize:
+                return SmartPlaylistRule(field: field, op: random.pick(numberOps), value: random.chance(50) ? "2000000|6000000" : "\(1_000_000 + random.int(40) * 250_000)")
+            case .bitRate:
+                return SmartPlaylistRule(field: field, op: random.pick(numberOps), value: random.chance(50) ? "200|1000" : "\(random.pick([128, 320, 900]))")
+            case .playCount:
+                return SmartPlaylistRule(field: field, op: random.pick(numberOps), value: random.chance(50) ? "1|2" : "\(random.int(4))")
+            case .durationSec:
+                return SmartPlaylistRule(field: field, op: random.pick(numberOps), value: random.chance(50) ? "100.5|300" : "\(60 + random.int(400))")
+            case .dateAdded, .lastPlayedAt:
+                if random.chance(60) {
+                    return SmartPlaylistRule(field: field, op: random.pick([.equals, .notEquals, .greaterThan, .lessThan]), value: "days:\(random.int(60))")
+                }
+                return SmartPlaylistRule(field: field, op: random.pick([.equals, .greaterThan, .lessThan, .between]),
+                                         value: random.chance(50) ? "2026-10-01T00:00:00Z|2026-11-20T00:00:00Z" : "2026-11-10T00:00:00Z")
+            case .isInPlaylist:
+                return SmartPlaylistRule(field: field, op: random.pick([.equals, .notEquals]), value: playlist.id)
+            }
+        }
+
+        var viaCatalog = 0
+        for step in 0..<150 {
+            let groups = (0..<random.int(4)).map { _ in
+                SmartPlaylistRuleGroup(
+                    rules: (0..<(1 + random.int(3))).map { _ in rule() },
+                    combinator: random.chance(50) ? .and : .or,
+                    isExcluded: random.chance(20)
+                )
+            }
+            let smart = SmartPlaylist(
+                id: "parity-\(step)", name: "Parity \(step)", ruleGroups: groups,
+                groupCombinator: random.chance(50) ? .and : .or,
+                limit: random.chance(40) ? random.pick([3, 10, 40]) : nil,
+                sortField: random.pick(SmartPlaylistSortField.allCases),
+                sortDirection: random.chance(50) ? .ascending : .descending
+            )
+            let fromCatalog = await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: history)
+            if library.smartPlaylistCatalogMatchCache[smart.id] != nil { viaCatalog += 1 }
+            let context = "step \(step) sort=\(smart.sortField) \(smart.sortDirection) limit=\(smart.limit.map(String.init) ?? "-") groups=\(groups)"
+            if smart.sortField == .random {
+                var unlimited = smart
+                unlimited.limit = nil
+                let all = Set(SmartPlaylistEngine.match(unlimited, in: library, history: history).map(\.id))
+                XCTAssertEqual(fromCatalog.count, min(smart.limit ?? .max, all.count), context)
+                XCTAssertTrue(Set(fromCatalog).isSubset(of: all), context)
+            } else {
+                let inMemory = SmartPlaylistEngine.match(smart, in: library, history: history).map(\.id)
+                XCTAssertEqual(fromCatalog, inMemory, context)
+            }
+            // 第二次命中缓存,结果不变。
+            if smart.sortField != .random {
+                let cached = await SmartPlaylistEngine.matchedSongIDs(smart, in: library, history: history)
+                XCTAssertEqual(cached, fromCatalog, context)
+            }
+        }
+        XCTAssertEqual(viaCatalog, 150, "every request went through the catalog")
+
+        // 目录变了(改了一首歌名)之后缓存失效,重新匹配读到新值。
+        let target = SmartPlaylist(
+            id: "parity-title", name: "Title", ruleGroups: [SmartPlaylistRuleGroup(rules: [
+                SmartPlaylistRule(field: .title, op: .contains, value: "renamed in place")
+            ])], sortField: .title, sortDirection: .ascending
+        )
+        let before = await SmartPlaylistEngine.matchedSongIDs(target, in: library, history: history)
+        XCTAssertEqual(before, [])
+        var renamed = try XCTUnwrap(library.storedSong(id: songs.first { $0.sourceID == Self.sourceA }!.id))
+        renamed.title = "Renamed In Place"
+        library.replaceSong(renamed)
+        await library.waitForCatalogMirror()
+        var after: [String] = []
+        for _ in 0..<200 {
+            after = await SmartPlaylistEngine.matchedSongIDs(target, in: library, history: history)
+            if !after.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(after, [renamed.id])
+    }
+
     /// Siri「播放音乐」走目录:目录给的整库(可播放的音乐、不含不喜欢的)与内存那一份相同;一首能放的
     /// 都没有、点的那首不在曲库时,目录排队答「没有可放的」,不装队列、不调 `willInstall`(Siri 据此
     /// 答复没找到);目录还没收到点的那首时答「目录不能用」,调用方走内存路径。
@@ -844,3 +984,16 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertTrue(all.allSatisfy { $0.id.hasPrefix("short-") }, "the fixture's longer titles are not shortcut phrases")
     }
 }
+
+/// 智能歌单对照测试用的确定性随机数。
+struct SmartPlaylistParityGenerator {
+    var state: UInt64
+    mutating func next() -> UInt64 {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state >> 33
+    }
+    mutating func int(_ upperBound: Int) -> Int { Int(next() % UInt64(upperBound)) }
+    mutating func pick<T>(_ values: [T]) -> T { values[int(values.count)] }
+    mutating func chance(_ percent: Int) -> Bool { int(100) < percent }
+}
+

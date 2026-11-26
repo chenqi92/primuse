@@ -244,6 +244,177 @@ enum SmartPlaylistEngine {
         }
     }
 
+    // MARK: - Streaming evaluation (catalog)
+
+    /// 流式匹配时一首命中的歌只留 id 与排序要比的那几项(同 `sortAndLimit` 各排序方式)。
+    private struct MatchedSongKey: Sendable {
+        let id: String
+        var text = ""
+        var albumID = ""
+        var disc = 0
+        var track = 0
+        var title = ""
+        var number = 0.0
+    }
+
+    nonisolated private static func matchedKey(for song: Song, plan: EvaluationPlan) -> MatchedSongKey {
+        var key = MatchedSongKey(id: song.id)
+        switch plan.sortField {
+        case .title:
+            key.text = song.title
+        case .artistName:
+            key.text = song.displayArtistName(configuration: plan.artistConfiguration) ?? ""
+        case .albumTitle:
+            key.text = song.albumTitle ?? ""
+            key.albumID = song.albumID ?? ""
+            key.disc = AlbumTrackOrder.discNumber(for: song)
+            key.track = AlbumTrackOrder.trackNumber(for: song) ?? Int.max
+            key.title = song.title
+        case .dateAdded:
+            key.number = song.dateAdded.timeIntervalSinceReferenceDate
+        case .duration:
+            key.number = song.duration
+        case .lastPlayedAt:
+            key.number = (plan.stats?.lastPlayedBySongID[song.id] ?? .distantPast).timeIntervalSinceReferenceDate
+        case .playCount:
+            key.number = Double(plan.stats?.countBySongID[song.id] ?? 0)
+        case .random:
+            break
+        }
+        return key
+    }
+
+    /// 同 `execute(_:plan:finalizeRandom: false)` 的 id,歌由 `forEachSong` 按库内顺序逐首给出
+    /// (可见歌曲),只留命中那些的 id 与排序值,不留整份歌曲。比较规则与内存匹配逐项相同,
+    /// 同样的输入顺序得到同样的结果。随机排序不洗牌也不截断(取用时做,同 `finalized`)。
+    /// `excludedSourceID`:不算进来的源(没开「自动加进智能歌单」时的 Apple Music 资料库)。
+    nonisolated static func matchedSongIDs(
+        plan: EvaluationPlan,
+        excludedSourceID: String?,
+        forEachSong: (_ body: (Song) throws -> Void) throws -> Void
+    ) throws -> [String] {
+        var matched: [MatchedSongKey] = []
+        try forEachSong { song in
+            if let excludedSourceID, song.sourceID == excludedSourceID { return }
+            guard plan.activeGroups.isEmpty || evaluate(
+                groups: plan.activeGroups,
+                groupCombinator: plan.groupCombinator,
+                song: song,
+                stats: plan.stats,
+                artistConfiguration: plan.artistConfiguration
+            ) else { return }
+            matched.append(matchedKey(for: song, plan: plan))
+        }
+        let sorted: [MatchedSongKey]
+        switch plan.sortField {
+        case .title, .artistName:
+            sorted = matched.sorted { $0.text < $1.text }
+        case .albumTitle:
+            // 同 `sortAndLimit`:专辑名、专辑 id,再按 `AlbumTrackOrder.isOrderedBefore`(碟号、曲号、歌名、id)。
+            sorted = matched.sorted { lhs, rhs in
+                if lhs.text != rhs.text { return lhs.text < rhs.text }
+                if lhs.albumID != rhs.albumID { return lhs.albumID < rhs.albumID }
+                if lhs.disc != rhs.disc { return lhs.disc < rhs.disc }
+                if lhs.track != rhs.track { return lhs.track < rhs.track }
+                let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+                if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+                return lhs.id < rhs.id
+            }
+        case .dateAdded, .duration, .lastPlayedAt, .playCount:
+            sorted = matched.sorted { $0.number < $1.number }
+        case .random:
+            return matched.map(\.id)
+        }
+        let directional = plan.sortDirection == .descending ? Array(sorted.reversed()) : sorted
+        return directional.prefix(max(0, plan.limit ?? Int.max)).map(\.id)
+    }
+
+    /// 智能歌单命中的歌的 id(排好序、截断;随机排序时每次重新洗牌、截断)。
+    ///
+    /// 曲库目录可读时在主线程外流式匹配目录里的可见歌曲,结果与内存匹配相同(目录跟写内存有一小段
+    /// 滞后,刚改的歌下一次才算进来,同 P2 的列表);按目录修订号与规则输入缓存。AI 歌单(按身份对回
+    /// 几十首)、目录读不了或读失败时照旧在内存里匹配。
+    static func matchedSongIDs(
+        _ smart: SmartPlaylist,
+        in library: MusicLibrary,
+        history: PlayHistoryStore
+    ) async -> [String] {
+        guard smart.effectiveKind != .ai,
+              let memoryInputs = inputs(for: smart, in: library, history: history),
+              let host = library.catalogHost, host.revisions.isReadable else {
+            return match(smart, in: library, history: history).map(\.id)
+        }
+        let key = CatalogMatchKey(inputs: memoryInputs, revisions: host.revisions)
+        if let entry = library.smartPlaylistCatalogMatchCache[smart.id], entry.key == key {
+            return finalized(ids: entry.ids, smart: smart)
+        }
+        let plan = makeEvaluationPlan(for: smart, in: library, history: history)
+        // 同 `candidateSongs`:没开「自动加进智能歌单」时不算 Apple Music 资料库的歌(电视上总算)。
+        let excludedSourceID = memoryInputs.includesAppleMusicLibrary ? nil : AppleMusicLibraryIdentity.sourceID
+        let ids: [String]
+        do {
+            ids = try await host.reader.read { catalog in
+                try matchedSongIDs(plan: plan, excludedSourceID: excludedSourceID) { body in
+                    try catalog.forEachSong(.visible) { _, song in
+                        try body(song)
+                        return true
+                    }
+                }
+            }
+        } catch {
+            plog("🎯 SmartPlaylist '\(smart.name)' catalog match failed (\(error)); using the in-memory library")
+            return match(smart, in: library, history: history).map(\.id)
+        }
+        // 很大的结果不留(整库那种规则):下次重新流式扫一遍,不常驻一整份 id。
+        if ids.count <= Self.catalogMatchCacheLimit {
+            if library.smartPlaylistCatalogMatchCache.count >= 16 {
+                library.smartPlaylistCatalogMatchCache.removeAll(keepingCapacity: true)
+            }
+            library.smartPlaylistCatalogMatchCache[smart.id] = CatalogCacheEntry(key: key, ids: ids)
+        }
+        return finalized(ids: ids, smart: smart)
+    }
+
+    static let catalogMatchCacheLimit = 20_000
+
+    /// 目录匹配结果的缓存键:规则输入(不含内存模型的版本号)加目录修订号。
+    struct CatalogMatchKey: Equatable {
+        let smart: SmartPlaylist
+        let playlists: MusicLibrary.PlaylistContentVersion?
+        let artistNameConfiguration: ArtistNameConfiguration
+        let history: ObjectIdentifier
+        let historyVersion: UInt64?
+        let includesAppleMusicLibrary: Bool
+        let minute: Int?
+        let catalogRevision: Int64
+        let everything: UInt64
+
+        @MainActor
+        init(inputs: MatchInputs, revisions: LibraryCatalogRevisions) {
+            smart = inputs.smart
+            playlists = inputs.playlists
+            artistNameConfiguration = inputs.artistNameConfiguration
+            history = inputs.history
+            historyVersion = inputs.historyVersion
+            includesAppleMusicLibrary = inputs.includesAppleMusicLibrary
+            minute = inputs.minute
+            catalogRevision = revisions.catalogRevision
+            everything = revisions.everything
+        }
+    }
+
+    struct CatalogCacheEntry {
+        fileprivate let key: CatalogMatchKey
+        /// 随机排序时存的是没洗牌、没截断的结果。
+        // crash-pattern: allow song-id-collection-property 只缓存不超过 catalogMatchCacheLimit 首的结果
+        fileprivate let ids: [String]
+    }
+
+    private static func finalized(ids: [String], smart: SmartPlaylist) -> [String] {
+        guard smart.sortField == .random else { return ids }
+        return Array(ids.shuffled().prefix(max(0, smart.limit ?? Int.max)))
+    }
+
     private static func candidateSongs(in library: MusicLibrary) -> [Song] {
         #if os(tvOS)
         return library.visibleSongs

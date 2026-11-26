@@ -476,15 +476,26 @@ struct PlaylistListView: View {
     }
 
     private func playGroup(_ id: String) {
-        let songIDs = grouping.playbackSongIDs(
-            for: id, playlists: ordered(playlists), smartPlaylists: smartPlaylists,
-            songIDsForPlaylist: { library.songIDs(forPlaylist: $0.id) },
-            songIDsForSmartPlaylist: { smart in
-                SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared).map(\.id)
+        let groups = grouping
+        let orderedPlaylists = ordered(playlists)
+        let smarts = smartPlaylists
+        Task {
+            // 分组里的智能歌单先在曲库目录上匹配好(主线程外),再按分组里的先后接起来。
+            var smartSongIDs: [String: [String]] = [:]
+            for smart in smarts
+            where groups.groupID(for: PlaylistGrouping.reference(id: smart.id, smart: true)) == id {
+                smartSongIDs[smart.id] = await SmartPlaylistEngine.matchedSongIDs(
+                    smart, in: library, history: PlayHistoryStore.shared
+                )
             }
-        )
-        guard !songIDs.isEmpty else { return }
-        Task { await player.play(queueIDs: songIDs) }
+            let songIDs = groups.playbackSongIDs(
+                for: id, playlists: orderedPlaylists, smartPlaylists: smarts,
+                songIDsForPlaylist: { library.songIDs(forPlaylist: $0.id) },
+                songIDsForSmartPlaylist: { smartSongIDs[$0.id] ?? [] }
+            )
+            guard !songIDs.isEmpty else { return }
+            await player.play(queueIDs: songIDs)
+        }
     }
 
     private func groupMoveMenu(references: [String]) -> some View {
