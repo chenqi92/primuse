@@ -1179,11 +1179,13 @@ struct DuplicateSongsView: View {
 
     private func removeCopyFromThisDevice(_ song: Song, detail: String? = nil) {
         stopAudition(ifRemoving: [song.id])
-        do {
-            try cleaner.removeCopyFromThisDevice(song, detail: detail)
-            Task { await rescan() }
-        } catch {
-            flashAction(error.localizedDescription)
+        Task {
+            do {
+                try await cleaner.removeCopyFromThisDevice(song, detail: detail)
+                await rescan()
+            } catch {
+                flashAction(error.localizedDescription)
+            }
         }
     }
 
@@ -1215,12 +1217,10 @@ struct DuplicateSongsView: View {
     /// files and library rows were deleted successfully.
     private func startCleanup(_ songs: [Song]) {
         stopAudition(ifRemoving: Set(songs.map(\.id)))
-        guard let cleanupTask = cleaner.cleanupCopies(songs) else {
-            Task { await rescan() }
-            return
-        }
         Task {
-            await cleanupTask.value
+            if let cleanupTask = await cleaner.cleanupCopies(songs) {
+                await cleanupTask.value
+            }
             await rescan()
         }
     }

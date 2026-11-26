@@ -153,18 +153,20 @@ final class DuplicateCleanupService {
     /// 同一个文件经几个来源进了资料库时，只从本设备移除其中一份：文件和别的来源里的那一份都不动，
     /// 来源页的恢复界面里能找回（原因记作「保留了源文件」，说明里写着另一份在哪个来源）。
     @discardableResult
-    func removeSameFileCopyFromThisDevice(_ song: Song, detail: String) throws -> Int {
-        try removeCopyFromThisDevice(song, detail: detail)
+    func removeSameFileCopyFromThisDevice(_ song: Song, detail: String) async throws -> Int {
+        try await removeCopyFromThisDevice(song, detail: detail)
     }
 
     @discardableResult
-    func removeCopyFromThisDevice(_ song: Song, detail: String? = nil) throws -> Int {
+    func removeCopyFromThisDevice(_ song: Song, detail: String? = nil) async throws -> Int {
         guard activeTask == nil, let current = library.song(id: song.id) else { return 0 }
+        let copies = await currentCopies(of: current)
+        // 找副本的这一会儿库里可能又变了(另一份刚删掉、这一首刚改过):按此刻的样子再判断一次。
+        guard activeTask == nil, library.song(id: song.id) == current else { return 0 }
         let scope = DuplicateCleanupDeletionScope(
             sources: sourcesStore.sources,
             collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs
         )
-        let copies = DuplicateDetector.copies(of: current, in: library.songs)
         guard scope.individualAction(for: current, in: copies) == .removeFromDevice else { return 0 }
         let remainingCounts = try library.removeSongsFromThisDevice(
             [current],
@@ -191,22 +193,63 @@ final class DuplicateCleanupService {
     }
 
     @discardableResult
-    func cleanupCopies(_ requestedSongs: [Song]) -> Task<Void, Never>? {
+    func cleanupCopies(_ requestedSongs: [Song]) async -> Task<Void, Never>? {
         guard activeTask == nil else { return activeTask }
+        guard !isResolvingCleanup else { return nil }
+        isResolvingCleanup = true
+        defer { isResolvingCleanup = false }
         let requestedIDs = Set(requestedSongs.map(\.id))
+        // Confirmation may outlive a scan or another removal. Re-resolve the
+        // copies now, and never delete the last member of a current group.
+        let groups = await currentGroups()
+        guard activeTask == nil else { return activeTask }
         let scope = DuplicateCleanupDeletionScope(
             sources: sourcesStore.sources,
             collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs
         )
-        // Confirmation may outlive a scan or another removal. Re-resolve the
-        // copies now, and never delete the last member of a current group.
-        let verified = DuplicateDetector.detect(in: library.songs).flatMap { group in
+        let verified = groups.flatMap { group in
             let candidates = scope.writableSongs(in: group.songs).filter { requestedIDs.contains($0.id) }
             return candidates.count == group.songs.count
                 ? candidates.filter { $0.id != group.bestSong.id }
                 : candidates
         }
         return cleanup(verified)
+    }
+
+    /// 正在为一次「清理选中的副本」重新找分组(还没开始删)。
+    private var isResolvingCleanup = false
+
+    /// 这首歌此刻在整个资料库(含停用源)里的副本,库内顺序。曲库目录跟上内存模型之后在目录上逐首找,
+    /// 不取整库数组;目录读不了、跟不上时照旧筛内存里的整库。
+    private func currentCopies(of song: Song) async -> [Song] {
+        if let reader = await library.catalogReaderCaughtUp() {
+            do {
+                return try await reader.read { catalog in
+                    try DuplicateDetector.copies(of: song) { body in
+                        try catalog.forEachSong(.everything) { _, candidate in
+                            try body(candidate)
+                            return true
+                        }
+                    }
+                }
+            } catch {
+                plog("Duplicate cleanup catalog copy lookup failed; using the in-memory library: \(error.localizedDescription)")
+            }
+        }
+        return DuplicateDetector.copies(of: song, in: library.songs)
+    }
+
+    /// 此刻整个资料库(含停用源)的重复分组,同 `DuplicateDetector.detect(in: library.songs)`。
+    /// 曲库目录跟上内存模型之后在目录上两趟流式找(`DuplicateCatalogScan`),否则照旧扫内存里的整库。
+    private func currentGroups() async -> [DuplicateGroup] {
+        if let reader = await library.catalogReaderCaughtUp() {
+            do {
+                return try await DuplicateCatalogScan.detect(reader: reader, scope: .everything)
+            } catch {
+                plog("Duplicate cleanup catalog scan failed; using the in-memory library: \(error.localizedDescription)")
+            }
+        }
+        return DuplicateDetector.detect(in: library.songs)
     }
 
     /// 串行删除 songs (按源端逐首)。已有任务进行中时忽略再次触发。

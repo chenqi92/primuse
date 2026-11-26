@@ -723,7 +723,8 @@ final class FnMusicSourceTests: XCTestCase {
         let hidden = songs.filter { $0.sourceID == catalogue.id }
         let retainedIDs = Set(songs.filter { $0.sourceID == writable.id }.map(\.id))
         for song in hidden {
-            XCTAssertEqual(try cleaner.removeCopyFromThisDevice(song), 1)
+            let removed = try await cleaner.removeCopyFromThisDevice(song)
+            XCTAssertEqual(removed, 1)
             XCTAssertNil(library.song(id: song.id))
             XCTAssertEqual(library.songForSynchronization(id: song.id)?.id, song.id)
         }
@@ -758,9 +759,12 @@ final class FnMusicSourceTests: XCTestCase {
         let cleaner = DuplicateCleanupService(
             library: library, sourceManager: SourceManager(sourcesProvider: { [source] }), sourcesStore: store
         )
-        XCTAssertEqual(try cleaner.removeCopyFromThisDevice(songs[0]), 1)
-        XCTAssertEqual(try cleaner.removeCopyFromThisDevice(songs[1]), 0)
-        XCTAssertEqual(try cleaner.removeCopyFromThisDevice(songs[0]), 0)
+        let first = try await cleaner.removeCopyFromThisDevice(songs[0])
+        let second = try await cleaner.removeCopyFromThisDevice(songs[1])
+        let again = try await cleaner.removeCopyFromThisDevice(songs[0])
+        XCTAssertEqual(first, 1)
+        XCTAssertEqual(second, 0)
+        XCTAssertEqual(again, 0)
         XCTAssertEqual(library.songs.map(\.id), [songs[1].id])
         XCTAssertFalse(library.isExcludedOnThisDevice(songs[1]))
     }
@@ -784,10 +788,12 @@ final class FnMusicSourceTests: XCTestCase {
         let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
         let cleaner = DuplicateCleanupService(library: library, sourceManager: manager, sourcesStore: store)
 
-        try await XCTUnwrap(cleaner.cleanupCopies([songs[0]])).value
+        let cleanupTask = await cleaner.cleanupCopies([songs[0]])
+        try await XCTUnwrap(cleanupTask).value
         XCTAssertFalse(FileManager.default.fileExists(atPath: connector.fileURL(songs[0].filePath).path))
         XCTAssertEqual(library.songs.map(\.id), [songs[1].id])
-        XCTAssertNil(cleaner.cleanupCopies(songs), "An old confirmation must not delete the only remaining file")
+        let stale = await cleaner.cleanupCopies(songs)
+        XCTAssertNil(stale, "An old confirmation must not delete the only remaining file")
         XCTAssertEqual(try Data(contentsOf: connector.fileURL(songs[1].filePath)), Data([1, 2, 3]))
         let attempts = await connector.attempts(for: songs[1].filePath)
         XCTAssertEqual(attempts, 0)

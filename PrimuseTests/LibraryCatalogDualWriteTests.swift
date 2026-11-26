@@ -736,6 +736,50 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertNil(stopped)
     }
 
+    /// 重复清理在目录上找:等目录跟上刚做的改动后,某首歌在整个资料库(含停用源)里的副本、整库的重复分组,
+    /// 与扫内存里的整库相同。
+    func testDuplicateCopiesFromTheCaughtUpCatalogMatchTheWholeLibrary() async throws {
+        let library = makeLibrary(disabledSourceIDs: [Self.sourceB])
+        var songs: [Song] = []
+        for index in 0..<30 {
+            let title = ["Blue", "blue ", "Écho", "Echo", "Rain"][index % 5]
+            songs.append(Song(
+                id: "dup-\(index)", title: title, albumTitle: "Album \(index % 3)",
+                artistName: index % 4 == 0 ? nil : ["Ada", "ADA", "Ben"][index % 3],
+                albumArtistName: index % 4 == 0 ? "Ada" : nil,
+                duration: Double(200 + index % 3), fileFormat: index % 2 == 0 ? .flac : .mp3,
+                filePath: "/Music/dup/\(index).flac", sourceID: index % 3 == 0 ? Self.sourceB : Self.sourceA
+            ))
+        }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "duplicate fixture")
+        var edited = songs[7]
+        edited.title = "Rain"
+        library.replaceSong(edited)
+
+        let caughtUp = await library.catalogReaderCaughtUp()
+        let reader = try XCTUnwrap(caughtUp)
+        for song in library.songs {
+            let fromCatalog = try await reader.read { catalog in
+                try DuplicateDetector.copies(of: song) { body in
+                    try catalog.forEachSong(.everything) { _, candidate in
+                        try body(candidate)
+                        return true
+                    }
+                }
+            }
+            XCTAssertEqual(fromCatalog.map(\.id), DuplicateDetector.copies(of: song, in: library.songs).map(\.id), song.id)
+        }
+        let groups = try await DuplicateCatalogScan.detect(reader: reader, scope: .everything)
+        let expected = DuplicateDetector.detect(in: library.songs)
+        // 分组按标题排,同标题的几组之间的先后随字典遍历而定(两边都是);比组和组内的次序。
+        func membership(_ groups: [DuplicateGroup]) -> [[String]] {
+            groups.map { $0.songs.map(\.id) }.sorted { $0.joined(separator: ",") < $1.joined(separator: ",") }
+        }
+        XCTAssertEqual(membership(groups), membership(expected))
+        XCTAssertFalse(expected.isEmpty)
+    }
+
     /// 目录停下(不再跟写)后不登记、不作答,调用方读内存模型。
     func testCatalogReadsByIDStopWhenTheMirrorStopsFollowing() async throws {
         let library = makeLibrary()

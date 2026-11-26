@@ -26,6 +26,19 @@ enum DuplicateDetector {
         return songs.filter { DuplicateKey($0) == key }
     }
 
+    /// 同 `copies(of:in:)`,歌由 `forEachSong` 按库内顺序逐首给出(曲库目录),只留同一个键的那几首。
+    static func copies(
+        of song: Song,
+        forEachSong: (_ body: (Song) throws -> Void) throws -> Void
+    ) rethrows -> [Song] {
+        guard let key = DuplicateKey(song) else { return [] }
+        var copies: [Song] = []
+        try forEachSong { candidate in
+            if DuplicateKey(candidate) == key { copies.append(candidate) }
+        }
+        return copies
+    }
+
     /// 扫描 library 找重复歌曲分组。
     /// - Parameter songs: 整个 library 的 songs
     /// - Returns: 重复分组数组 (每组 size >= 2), 按标题字母序。
