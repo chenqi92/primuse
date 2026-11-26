@@ -115,7 +115,7 @@ struct SiriCandidateSongsTests {
     @Test("Candidates give every resolver entry point the same answer as the whole library", arguments: [1, 2, 3, 4, 5, 6] as [UInt64])
     func candidatesMatchTheWholeLibrary(seed: UInt64) throws {
         let songs = Self.library(seed: seed)
-        let spoken = Array(Self.library(seed: seed &+ 100).prefix(20))
+        let spoken = Array(Self.library(seed: seed &+ 100).prefix(60))
         var random = Generator(state: seed &* 31)
         var passes = 0
         var answered = 0
@@ -135,14 +135,18 @@ struct SiriCandidateSongsTests {
                 if tiers == .strictThenRelaxed, whole != nil { answered += 1 }
             }
             guard ids.isEmpty else { continue }
+            // 有声内容同样只交候选(同一套挑法)。
+            let spokenCandidates = try SiriMediaSearchResolver.candidateSongs(query: query) { body in
+                for song in spoken { try body(song) }
+            }
             let preferring = SiriMediaSearchResolver.resolvePreferringMusic(query: query, musicSongs: songs, spokenWordSongs: spoken)
             let preferringNarrowed = SiriMediaSearchResolver.resolvePreferringMusic(
-                query: query, musicSongs: candidates, spokenWordSongs: spoken
+                query: query, musicSongs: candidates, spokenWordSongs: spokenCandidates
             )
             #expect(Self.summary(preferring) == Self.summary(preferringNarrowed), "step \(step) \(query)")
             let untyped = SiriUntypedRequestResolver.resolve(query: query, songs: songs, radioItems: [], spokenWordSongs: spoken)
             let untypedNarrowed = SiriUntypedRequestResolver.resolve(
-                query: query, songs: candidates, radioItems: [], spokenWordSongs: spoken
+                query: query, songs: candidates, radioItems: [], spokenWordSongs: spokenCandidates
             )
             #expect(Self.summary(untyped) == Self.summary(untypedNarrowed), "step \(step) \(query)")
         }

@@ -1321,9 +1321,21 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
             (SiriMediaSearchQuery(kind: .artist), [SiriMediaIdentifier.namespaced(adaArtistID, as: "artist")]),
             (SiriMediaSearchQuery(kind: .music), [SiriMediaIdentifier.namespaced("Pop", as: "genre"), "song:missing"]),
         ]
-        for (query, ids) in cases {
-            for scope in [SiriLibrarySongs.Scope.music, .visible] {
-                let whole = scope == .music ? library.musicSongs : library.visibleSongs
+        let spokenCases: [(SiriMediaSearchQuery, [String])] = [
+            (SiriMediaSearchQuery(kind: .music, mediaName: "Chapter 2"), []),
+            (SiriMediaSearchQuery(kind: .music, mediaName: "Episode"), []),
+            (SiriMediaSearchQuery(kind: .album, albumName: "Long Story"), []),
+            (SiriMediaSearchQuery(kind: .artist, artistName: "Host"), []),
+        ]
+        for (query, ids) in cases + spokenCases {
+            for scope in [SiriLibrarySongs.Scope.music, .visible, .spokenWord] {
+                let whole: [Song]
+                switch scope {
+                case .music: whole = library.musicSongs
+                case .visible: whole = library.visibleSongs
+                case .spokenWord: whole = library.spokenWordSongs
+                }
+                guard scope != .spokenWord || ids.isEmpty else { continue }
                 let candidates = await SiriLibrarySongs.candidates(
                     for: query, identifiers: ids, in: scope, library: library
                 )
@@ -1342,6 +1354,14 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
             for: SiriMediaSearchQuery(kind: .song, mediaName: "Loose Track"), in: .music, library: library
         )
         XCTAssertEqual(named.map(\.id), songs.filter { $0.title == "Loose Track" }.map(\.id))
+        // 有声范围:有声书(同 `spokenWordSongs`,播客单集不算),只取回可能说到的那几章。
+        XCTAssertFalse(library.spokenWordSongs.isEmpty)
+        let chapters = await SiriLibrarySongs.candidates(
+            for: SiriMediaSearchQuery(kind: .music, mediaName: "Chapter 2"), in: .spokenWord, library: library
+        )
+        let spokenIDs = Set(library.spokenWordSongs.map(\.id))
+        XCTAssertTrue(chapters.contains { $0.title == "Chapter 2" })
+        XCTAssertTrue(chapters.allSatisfy { spokenIDs.contains($0.id) })
     }
 
     /// Siri 歌曲快捷指令:在目录上流式挑(只留够格的优先歌与最新的那些)与交内存里整库的结果相同。

@@ -308,7 +308,7 @@ final class TVPlayMediaIntentHandler: NSObject,
                     songs: musicCandidates,
                     radioItems: radioItems(),
                     bookItems: bookItems,
-                    spokenWordSongs: store.library.spokenWordSongs
+                    spokenWordSongs: await SiriLibrarySongs.candidates(for: query, in: .spokenWord, library: store.library)
                 ) {
                 case .radio(let station)?:
                     completeRadioResolution(station, completion: completion)
@@ -335,7 +335,7 @@ final class TVPlayMediaIntentHandler: NSObject,
                     musicSongs: query.hasSearchTerm
                         ? await SiriLibrarySongs.candidates(for: query, in: .music, library: store.library)
                         : store.library.musicSongsExcludingDisliked,
-                    spokenWordSongs: store.library.spokenWordSongs
+                    spokenWordSongs: await SiriLibrarySongs.candidates(for: query, in: .spokenWord, library: store.library)
                 )
             } else {
                 songResult = Self.resolveSongs(
@@ -676,7 +676,7 @@ final class TVPlayMediaIntentHandler: NSObject,
                     songs: musicCandidates,
                     radioItems: radioItems(),
                     bookItems: SiriListeningCatalog.namedItems(books: books),
-                    spokenWordSongs: store.library.spokenWordSongs
+                    spokenWordSongs: await SiriLibrarySongs.candidates(for: query, in: .spokenWord, library: store.library)
                 ) {
                 case .radio(let station)?:
                     return SiriRadioStationCatalog.preferredStation(for: station, in: radioStations())
@@ -713,7 +713,7 @@ final class TVPlayMediaIntentHandler: NSObject,
                 musicSongs: query.hasSearchTerm
                     ? await SiriLibrarySongs.candidates(for: query, in: .music, library: store.library)
                     : store.library.musicSongsExcludingDisliked,
-                spokenWordSongs: store.library.spokenWordSongs
+                spokenWordSongs: await SiriLibrarySongs.candidates(for: query, in: .spokenWord, library: store.library)
             )
         } else {
             found = Self.resolveSongs(

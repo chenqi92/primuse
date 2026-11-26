@@ -29,6 +29,8 @@ enum SiriLibrarySongs {
         case music
         /// 全部可见内容(`visibleSongs`)。
         case visible
+        /// 有声书(`spokenWordSongs`:有声内容里不含本机下载的播客单集)。
+        case spokenWord
     }
 
     static func candidates(
@@ -38,7 +40,12 @@ enum SiriLibrarySongs {
         library: MusicLibrary
     ) async -> [Song] {
         if let host = library.catalogHost, host.revisions.isReadable {
-            let catalogScope: LibrarySongScope = scope == .music ? .visibleMusic : .visible
+            let catalogScope: LibrarySongScope
+            switch scope {
+            case .music: catalogScope = .visibleMusic
+            case .visible: catalogScope = .visible
+            case .spokenWord: catalogScope = LibrarySongScope(kinds: [.spokenWord])
+            }
             do {
                 return try await host.reader.siriCandidateSongs(
                     query: query, resolvedItemIDs: identifiers, scope: catalogScope
@@ -47,7 +54,13 @@ enum SiriLibrarySongs {
                 plog("🎙️ Siri catalog candidates failed (\(error)); using the in-memory library")
             }
         }
+        switch scope {
         // crash-pattern: allow legacy-library-api 目录读不了时的后备,同原来交整库
-        return scope == .music ? library.musicSongs : library.visibleSongs
+        case .music: return library.musicSongs
+        // crash-pattern: allow legacy-library-api 目录读不了时的后备,同原来交整库
+        case .visible: return library.visibleSongs
+        // crash-pattern: allow legacy-library-api 目录读不了时的后备,同原来交整库
+        case .spokenWord: return library.spokenWordSongs
+        }
     }
 }
