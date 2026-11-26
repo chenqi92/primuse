@@ -3196,6 +3196,10 @@ final class ScanService {
             }
         }
 
+        // 深度影子校验时:目录跟上内存模型之后,紧接着(这一段主线程里不再让出)取下面的已有歌曲,
+        // 同时冻结一份目录,两边是同一时刻的样子。
+        let existingLookupCatalog = await existingLookupShadowCatalog(library: library)
+
         // On resume, the scanner must start from the *full* known set (seeded
         // into the library above), not just the checkpoint slice — otherwise
         // the first intermediate flush below drops every not-yet-rewalked song
@@ -3604,6 +3608,19 @@ final class ScanService {
                   state.isUsable else { return nil }
             return state
         }()
+        // 深度影子校验(DEBUG、诊断开关、测试)时,走查问「已有的歌」的同时再问一遍跟上的曲库目录比对。
+        let existingLookupShadow = existingForScan.isEmpty ? nil : existingLookupCatalog.map {
+            ScanExistingSongsCatalogShadow(
+                catalog: $0, pendingWrites: nil, sourceID: source.id,
+                excludedIDs: collectionOnlySongIDs, overrides: genericResumeSongs + hiddenTracks
+            )
+        }
+        defer {
+            lastExistingLookupShadowReports[source.id] = existingLookupShadow?.report
+            if let report = existingLookupShadow?.report {
+                plog("🧪 scan existing-song lookups on the catalog source=\(LogRedactionPolicy.digest(source.id)) \(report.logLine)")
+            }
+        }
         let stream = await scanner.scan(
             directories: effectiveDirectories,
             existingSongs: existingForScan,
@@ -3616,7 +3633,8 @@ final class ScanService {
                 scopeFingerprint: scopeFingerprint
             ),
             identityMissingStableKeys: workingState?.missingStableKeys ?? [:],
-            scanEpoch: nextScanEpoch
+            scanEpoch: nextScanEpoch,
+            existingLookupShadow: existingLookupShadow
         )
 
         // 扫描失败时用它把已经走通的目录层级留下来,见
@@ -4261,6 +4279,23 @@ final class ScanService {
         #if os(iOS)
         continuedScanSessions[sourceID]?.updateAuxiliaryProgress(count)
         #endif
+    }
+
+    /// 测试看:每个源最近一次走查的「已有的歌」在曲库目录上的影子比对结果。
+    private(set) var lastExistingLookupShadowReports: [String: ScanExistingSongsShadowReport] = [:]
+
+    /// 走查「这个源扫描开始时已有的歌」的目录影子用的目录:深度影子校验开着、目录跟上了内存模型
+    /// (没有还在路上的改动)时,冻结此刻的目录。调用方紧接着取已有的歌,中间不让出主线程。
+    /// 冻结视图拖住检查点直到这一轮扫描结束,只在诊断时这样做。
+    private func existingLookupShadowCatalog(library: MusicLibrary) async -> LibraryCatalog? {
+        guard library.catalogScanLookupShadowEnabled else { return nil }
+        for _ in 0..<3 {
+            guard await library.catalogReaderCaughtUp() != nil, let host = library.catalogHost else { return nil }
+            // 等的时候主线程上可能又有了改动:这一刻没有还在路上的改动才算同一时刻。
+            guard host.pendingWrites.pendingCount == 0, host.pendingWrites.answersLikeMemory else { continue }
+            return try? host.mirror.readableCatalog?.live.frozenView()
+        }
+        return nil
     }
 
     private func preparePagedCatalogSeed(

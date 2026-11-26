@@ -284,7 +284,7 @@ struct AlbumGridView: View {
                 .minimalPageHeader {
                     HStack(spacing: 4) {
                         MinimalHeaderCount(
-                            text: "\(displayedAlbumCount.formatted()) \(String(localized: "albums_count"))"
+                            text: LibraryCountText.formattedAlbums(displayedAlbumCount)
                         )
                         Spacer(minLength: 8)
                         MinimalHeaderActions {
@@ -330,7 +330,7 @@ struct AlbumGridView: View {
             model: result?.railModel,
             columns: { LibraryIndexedGridColumns.count(rowWidth: $0, minimumWidth: minimumWidth, spacing: 16) },
             extendsUnderVerticalBar: true,
-            countText: { "\($0.formatted()) \(String(localized: "albums_count"))" },
+            countText: { LibraryCountText.formattedAlbums($0) },
             preview: { entry in
                 LibraryIndexAlbumStack(albums: entry.previewItems(in: albums))
             }
@@ -371,7 +371,7 @@ struct AlbumGridView: View {
             model: model == nil ? nil : catalogList.railModel(offers: offersRail),
             columns: { LibraryIndexedGridColumns.count(rowWidth: $0, minimumWidth: minimumWidth, spacing: 16) },
             extendsUnderVerticalBar: true,
-            countText: { "\($0.formatted()) \(String(localized: "albums_count"))" },
+            countText: { LibraryCountText.formattedAlbums($0) },
             preview: { entry in
                 LibraryIndexAlbumStack(albums: (0..<min(entry.count, 3)).compactMap { model?.item(at: entry.target + $0) })
             }
@@ -792,7 +792,7 @@ struct AlbumGridView: View {
         if let year = album.year {
             parts.append("\(year)")
         }
-        parts.append("\(album.songCount) \(String(localized: "songs_count"))")
+        parts.append(LibraryCountText.songs(album.songCount))
         return parts.joined(separator: " · ")
     }
     #endif

@@ -251,6 +251,70 @@ extension LibraryCatalog {
         }
     }
 
+    /// 这些歌(有声书或播客条目)所在连通块里可见的整首歌,按库内顺序:同一文件夹、同一专辑相连的
+    /// 条目一直连下去(`songBook.folderLink` / `albumLink`,与增量归书求的闭包相同)。对它们跑
+    /// `SpokenWordBookGrouping` 得到的书,与对整个书架跑的一样(归书只看连通块),所以只要这些书时
+    /// 不必读整个书架。结果与连通块同阶。
+    public func spokenBookClosureSongs(
+        containingSongIDs ids: some Collection<String>,
+        kind: LibraryCatalogContentKind = .spokenWord
+    ) throws -> [Song] {
+        guard !ids.isEmpty else { return [] }
+        return try reader.read { db in
+            var members = Set<Int64>()
+            var folderFrontier = Set<String>()
+            var albumFrontier = Set<String>()
+            for chunk in Self.chunks(of: Array(ids)) {
+                var arguments: StatementArguments = [kind.rawValue]
+                arguments += StatementArguments(Array(chunk))
+                for row in try Row.fetchAll(db, sql: """
+                    SELECT b.songRowid, b.folderLink, b.albumLink FROM songBook b JOIN song s ON s.rowid = b.songRowid
+                    WHERE b.kind = ? AND s.id IN (\(Self.placeholders(chunk.count)))
+                    """, arguments: arguments) {
+                    members.insert(row[0])
+                    if let folder: String = row[1] { folderFrontier.insert(folder) }
+                    if let album: String = row[2] { albumFrontier.insert(album) }
+                }
+            }
+            var seenFolders = Set<String>()
+            var seenAlbums = Set<String>()
+            while !folderFrontier.isEmpty || !albumFrontier.isEmpty {
+                seenFolders.formUnion(folderFrontier)
+                seenAlbums.formUnion(albumFrontier)
+                var nextFolders = Set<String>()
+                var nextAlbums = Set<String>()
+                for (column, links) in [("folderLink", Array(folderFrontier)), ("albumLink", Array(albumFrontier))] {
+                    for chunk in Self.chunks(of: links) {
+                        var arguments: StatementArguments = [kind.rawValue]
+                        arguments += StatementArguments(Array(chunk))
+                        for row in try Row.fetchAll(db, sql: """
+                            SELECT songRowid, folderLink, albumLink FROM songBook
+                            WHERE kind = ? AND \(column) IN (\(Self.placeholders(chunk.count)))
+                            """, arguments: arguments) {
+                            members.insert(row[0])
+                            if let folder: String = row[1], !seenFolders.contains(folder) { nextFolders.insert(folder) }
+                            if let album: String = row[2], !seenAlbums.contains(album) { nextAlbums.insert(album) }
+                        }
+                    }
+                }
+                folderFrontier = nextFolders
+                albumFrontier = nextAlbums
+            }
+            var decoded: [(rowid: Int64, song: Song)] = []
+            for chunk in Self.chunks(of: members.sorted()) {
+                let rows = try Row.fetchCursor(db, sql: """
+                    SELECT \(LibraryCatalogSongCodec.selectColumns) \(LibraryCatalogSongCodec.selectFrom)
+                    WHERE song.rowid IN (\(Self.placeholders(chunk.count))) AND source.enabled = 1
+                    """, arguments: StatementArguments(Array(chunk)))
+                while let row = try rows.next() {
+                    decoded.append((row[LibraryCatalogSongCodec.Column.rowid], try LibraryCatalogSongCodec.decode(row)))
+                }
+            }
+            decoded.sort { $0.rowid < $1.rowid }
+            return decoded.map(\.song)
+        }
+    }
+
     public func bookRowList(bookID: String) throws -> LibraryRowList {
         try rowList { _ in ("s.rowid IN (SELECT songRowid FROM songBook WHERE bookID = ?)", [bookID]) }
     }

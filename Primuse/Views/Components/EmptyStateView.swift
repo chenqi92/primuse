@@ -102,6 +102,7 @@ struct EmptyStateView: View {
         .frame(maxWidth: .infinity)
         // 手机横屏纵向只剩三百多点，空态再占 32 的上下留白就会把 CTA 顶出可视区。
         .padding(.vertical, heightClass.value(32, compact: 16))
+        .accessibilityElement(children: .contain)
     }
 
     /// 字比图标晚一点、按钮再晚一点出来：先看到图，再读到字。
@@ -163,5 +164,87 @@ private struct EmptyStateGlyph: View {
         }
         .frame(width: boxWidth, height: boxHeight)
         .accessibilityHidden(true)
+    }
+}
+
+/// 数字一律按地区分组（「12,345 首歌曲」）：以前各处要么自己 `.formatted()`，要么靠 `Text("\(n) …")` 的本地化插值。
+/// `bundle` 与 `locale` 只有测试会传。
+enum LibraryCountText {
+    static func songs(_ count: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent) -> String {
+        if count == 1 { return localized("song_count_singular", bundle: bundle) }
+        return "\(number(count, locale: locale)) \(localized("songs_count", bundle: bundle))"
+    }
+
+    static func formattedSongs(_ count: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent) -> String {
+        songs(count, bundle: bundle, locale: locale)
+    }
+
+    static func albums(_ count: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent) -> String {
+        if count == 1 { return localized("album_count_singular", bundle: bundle) }
+        return "\(number(count, locale: locale)) \(localized("albums_count", bundle: bundle))"
+    }
+
+    static func formattedAlbums(_ count: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent) -> String {
+        albums(count, bundle: bundle, locale: locale)
+    }
+
+    static func artists(_ count: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent) -> String {
+        if count == 1 { return localized("artist_count_singular", bundle: bundle) }
+        return "\(number(count, locale: locale)) \(localized("artists_count", bundle: bundle))"
+    }
+
+    static func genres(_ count: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent) -> String {
+        if count == 1 { return localized("genre_count_singular", bundle: bundle) }
+        return "\(number(count, locale: locale)) \(localized("genres_count", bundle: bundle))"
+    }
+
+    static func playlists(_ count: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent) -> String {
+        if count == 1 { return localized("playlist_count_singular", bundle: bundle) }
+        return "\(number(count, locale: locale)) \(localized("playlists_count", bundle: bundle))"
+    }
+
+    static func rules(_ count: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent) -> String {
+        if count == 1 { return localized("rule_count_singular", bundle: bundle) }
+        return "\(number(count, locale: locale)) \(localized("rules_count", bundle: bundle))"
+    }
+
+    static func plays(_ count: Int, bundle: Bundle = .main) -> String {
+        if count == 1 { return localized("stats_play_count_singular", bundle: bundle) }
+        return String(format: localized("stats_play_count_format", bundle: bundle), count)
+    }
+
+    static func monthlyPlays(_ count: Int, bundle: Bundle = .main) -> String {
+        if count == 1 { return localized("artist_monthly_plays_singular", bundle: bundle) }
+        return String(format: localized("artist_monthly_plays_format", bundle: bundle), count)
+    }
+
+    static func results(_ count: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent) -> String {
+        if count == 1 { return localized("filter_result_singular", bundle: bundle) }
+        return String(format: localized("filter_results_format", bundle: bundle), locale: locale, count)
+    }
+
+    static func folderCounts(
+        subdirectories: Int, songs: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        let dirPart = subdirectories == 1
+            ? localized("folder_subdirectory_singular", bundle: bundle)
+            : String(format: localized("folder_subdirectories_format", bundle: bundle), locale: locale, subdirectories)
+        return "\(dirPart) · \(Self.songs(songs, bundle: bundle, locale: locale))"
+    }
+
+    static func playableRatio(
+        playable: Int, total: Int, bundle: Bundle = .main, locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        let ratio = total > 0 ? Double(playable) / Double(total) : 0
+        let percent = ratio.formatted(.percent.precision(.fractionLength(0)).locale(locale))
+        return "\(localized("home_playable", bundle: bundle)) \(percent)"
+    }
+
+    private static func number(_ count: Int, locale: Locale) -> String {
+        count.formatted(.number.locale(locale))
+    }
+
+    private static func localized(_ key: String, bundle: Bundle) -> String {
+        bundle.localizedString(forKey: key, value: nil, table: nil)
     }
 }

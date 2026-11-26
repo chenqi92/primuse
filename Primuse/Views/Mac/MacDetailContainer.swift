@@ -239,8 +239,8 @@ private struct MacSourceDetailView: View {
 
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(AppleMusicService.self) private var appleMusic
+    @Environment(AppleMusicLibraryService.self) private var appleMusicLibrary
     @Environment(\.scenePhase) private var scenePhase
-    @State private var showsSourcesManagement = false
 
     private var source: MusicSource? {
         sourcesStore.source(id: sourceID)
@@ -251,7 +251,8 @@ private struct MacSourceDetailView: View {
             if let source, !source.isEnabled {
                 VStack(spacing: 12) {
                     EmptyStateView(
-                        titleKey: LocalizedStringKey(source.name),
+                        // 源名是用户起的: 用插值传进去(键是 "%@"), 不拿它当本地化键去查。
+                        titleKey: "\(source.name)",
                         descriptionKey: "source_disabled_empty_desc",
                         systemImage: "eye.slash",
                         actionLabel: "source_enable_on_this_device",
@@ -279,45 +280,44 @@ private struct MacSourceDetailView: View {
                     if phase == .active { appleMusic.refreshAuthorizationStatus() }
                 }
             } else {
-                SongListView(sourceID: sourceID)
+                SongListView(sourceID: sourceID, onOpenSources: onOpenSources)
             }
-        }
-        .navigationDestination(isPresented: $showsSourcesManagement) {
-            MacSourcesView()
         }
     }
 
+    /// 换到「音乐源」那一页由窗口来做; 没接上时不显示这颗键。
+    @ViewBuilder
     private var manageSourcesButton: some View {
-        Button {
-            if let onOpenSources {
-                onOpenSources()
-            } else {
-                showsSourcesManagement = true
+        if let onOpenSources {
+            Button(action: onOpenSources) {
+                Text("sources_manage_action")
+                    .fontWeight(.medium)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
             }
-        } label: {
-            Text("sources_manage_action")
-                .fontWeight(.medium)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 10)
+            .buttonStyle(.bordered)
+            .clipShape(Capsule())
         }
-        .buttonStyle(.bordered)
-        .clipShape(Capsule())
     }
 
     private func unauthorizedAppleMusicView(_ source: MusicSource) -> some View {
         let needsSystemSettings = appleMusic.authState == .denied || appleMusic.authState == .restricted
         return EmptyStateView(
-            titleKey: LocalizedStringKey(source.name),
-            descriptionKey: needsSystemSettings ? "apple_music_denied_hint" : "apple_music_onboarding_desc",
+            titleKey: "\(source.name)",
+            descriptionKey: needsSystemSettings ? "apple_music_notice_denied" : "apple_music_library_not_authorized",
             systemImage: "music.note.list",
-            actionLabel: needsSystemSettings ? "apple_music_open_settings" : "apple_music_connect_button",
+            actionLabel: needsSystemSettings ? "open_system_settings" : "settings_apple_music_connect",
             action: {
                 if needsSystemSettings {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media") {
                         NSWorkspace.shared.open(url)
                     }
                 } else {
-                    Task { _ = await appleMusic.requestAuthorization() }
+                    // 授权成功后接着同步一次, 和其它「连接 Apple Music」入口一样; 不同步的话换过去的列表是空的。
+                    Task {
+                        await appleMusic.requestAuthorization()
+                        if appleMusic.authState == .authorized { appleMusicLibrary.sync() }
+                    }
                 }
             }
         )

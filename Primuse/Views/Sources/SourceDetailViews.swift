@@ -938,7 +938,8 @@ struct AppleMusicSyncStateRow: View {
             Label("settings_apple_music_denied", systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
         case .notDetermined:
-            Label("apple_music_library_not_authorized", systemImage: "exclamationmark.triangle")
+            // 去哪里授权, 两个平台说法不一样(见 `AppleMusicAuthorizationGuidance`)。
+            Label(AppleMusicAuthorizationGuidance.notAuthorizedMessage, systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
         case .authorized:
             switch appleMusicLibrary.state {

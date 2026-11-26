@@ -28,7 +28,15 @@ final class SpokenWordWidgetPublisher {
     private var lastSignature: String?
     private var bookProgressIndex: SpokenWordBookProgressIndex?
     private var bookLibraryRevision: UInt64?
+    /// 按曲库目录建的索引:建它用的有进度的条目与目录的修订号。按内存建的为 nil。
+    private var bookCatalogKey: CatalogKey?
     private var bookSongsByID: [String: Song] = [:]
+
+    private struct CatalogKey: Equatable, Sendable {
+        let progressIDs: Set<String>
+        let songs: UInt64
+        let books: UInt64
+    }
     /// Covers written in this launch, so a book's cover is rendered once
     /// rather than on every publish. A new launch refreshes them.
     private var writtenCovers: Set<String> = []
@@ -61,6 +69,11 @@ final class SpokenWordWidgetPublisher {
     private func observeLibrary() {
         withObservationTracking {
             _ = library.spokenWordSongs
+            if let revisions = library.catalogHost?.revisions {
+                _ = revisions.isReadable
+                _ = revisions.songs
+                _ = revisions.books
+            }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.schedule()
@@ -82,6 +95,7 @@ final class SpokenWordWidgetPublisher {
         guard WidgetSettings.syncEnabled() else {
             bookProgressIndex = nil
             bookLibraryRevision = nil
+            bookCatalogKey = nil
             bookSongsByID = [:]
             if lastSignature != nil || SpokenWordShelfSnapshot.load() != nil {
                 SpokenWordShelfSnapshot.clear()
@@ -93,22 +107,39 @@ final class SpokenWordWidgetPublisher {
         }
         let scope = WidgetSettings.sharedDataScope()
         let store = SpokenWordStore.shared
-        let songs = library.spokenWordSongs
-        let libraryRevision = library.spokenWordContentRevision
-        let cachedIndex = bookLibraryRevision == libraryRevision ? bookProgressIndex : nil
-        let cachedSongs = bookLibraryRevision == libraryRevision ? bookSongsByID : nil
         let positions = store.positions
         let finishedAt = store.finishedAt
+        // 小组件只放有进度的书。曲库目录可读时只读这些书所在的连通块(分书与整个书架相同),
+        // 不在这里留一份整库有声条目的索引;不可读时照旧按内存里的整个书架建。
+        let catalogReader = library.readableCatalogReader
+        let catalogKey: CatalogKey? = catalogReader == nil ? nil : library.catalogHost.map { host in
+            CatalogKey(
+                progressIDs: Set(positions.keys).union(finishedAt.keys),
+                songs: host.revisions.songs,
+                books: host.revisions.books
+            )
+        }
+        let songs = catalogKey == nil ? library.spokenWordSongs : []
+        let libraryRevision = library.spokenWordContentRevision
+        let reusesIndex = bookLibraryRevision == libraryRevision && bookCatalogKey == catalogKey
+        let cachedIndex = reusesIndex ? bookProgressIndex : nil
+        let cachedSongs = reusesIndex ? bookSongsByID : nil
         let archived = store.archivedBookIDs
         let alreadyWritten = writtenCovers
         let worker = Task.detached(priority: .utility) {
-            var index = try cachedIndex ?? SpokenWordBookProgressIndex(items: songs.map { song in
+            var bookSongs = songs
+            if cachedIndex == nil, let catalogReader, let catalogKey {
+                bookSongs = try await catalogReader.read {
+                    try $0.spokenBookClosureSongs(containingSongIDs: catalogKey.progressIDs)
+                }
+            }
+            var index = try cachedIndex ?? SpokenWordBookProgressIndex(items: bookSongs.map { song in
                 try Task.checkCancellation()
                 return SpokenWordBookItem(song: song)
             })
             index.update(SpokenWordBookProgressIndex.storedProgress(positions: positions, finishedAt: finishedAt))
             let coverSongIDs = Set(index.books.compactMap { $0.items.first?.id })
-            let songsByID = cachedSongs ?? Dictionary(songs.lazy.filter { coverSongIDs.contains($0.id) }
+            let songsByID = cachedSongs ?? Dictionary(bookSongs.lazy.filter { coverSongIDs.contains($0.id) }
                 .map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             try Task.checkCancellation()
             let shelf = Self.shelfEntries(
@@ -128,6 +159,7 @@ final class SpokenWordWidgetPublisher {
         let (entries, cachedWrite, index, songsByID) = result
         bookProgressIndex = index
         bookLibraryRevision = libraryRevision
+        bookCatalogKey = catalogKey
         bookSongsByID = songsByID
         var written = cachedWrite.written
         // 本机缓存里没有的书封(文件夹里的 cover.jpg、服务器给的封面地址、还没缓存过的内嵌封面)

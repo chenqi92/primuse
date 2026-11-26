@@ -465,6 +465,77 @@ final class FolderPlaylistTests: XCTestCase {
         await library.stopCatalogMirror()
     }
 
+    /// 深度影子校验时,重扫走查问「这个源扫描开始时已有的歌」的每一处,曲库目录的答案与数组的相同。
+    func testRescanExistingSongLookupsMatchOnTheCatalog() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ScanLookupShadow-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: "source", name: "NAS", type: .webdav, extraConfig: "[\"/Music\"]")
+        func dir(_ path: String) -> RemoteFileItem {
+            RemoteFileItem(name: (path as NSString).lastPathComponent, path: path,
+                           isDirectory: true, size: 0, modifiedDate: nil)
+        }
+        func file(_ path: String, size: Int64 = 1_000) -> RemoteFileItem {
+            RemoteFileItem(name: (path as NSString).lastPathComponent, path: path,
+                           isDirectory: false, size: size, modifiedDate: Date(timeIntervalSince1970: 1_700_000_000))
+        }
+        let connector = FolderRescanTestConnector(listings: [
+            "/Music": [dir("/Music/A"), dir("/Music/B"), file("/Music/top.mp3")],
+            "/Music/A": [file("/Music/A/a1.mp3"), file("/Music/A/a3.mp3"), dir("/Music/A/Disc")],
+            "/Music/A/Disc": [file("/Music/A/Disc/d1.mp3"), file("/Music/A/Disc/d2.mp3")],
+            "/Music/B": [file("/Music/B/b1.mp3")],
+        ])
+        let library = MusicLibrary(
+            storageDirectory: root.appendingPathComponent("library"), catalogMirroring: .enabled(startDelay: .zero)
+        )
+        library.catalogShadowModeOverride = .deep
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let scan = ScanService(
+            fileManager: FolderPlaylistTestFileManager(root: root), connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) }
+        )
+        let manager = SourceManager(sourcesProvider: { [] })
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        await scan.waitForActiveScansToComplete()
+        await library.waitForPendingIndex()
+        await library.waitForCatalogMirror()
+        XCTAssertNil(scan.lastExistingLookupShadowReports[source.id], "the first scan has no existing songs")
+
+        // 加歌、删一个子文件夹、一首改了大小、B 多一首。
+        await connector.replaceListings([
+            "/Music": [dir("/Music/A"), dir("/Music/B"), file("/Music/top.mp3")],
+            "/Music/A": [file("/Music/A/a1.mp3"), file("/Music/A/a2.mp3"), file("/Music/A/a3.mp3", size: 2_000),
+                         dir("/Music/A/NewDisc")],
+            "/Music/A/NewDisc": [file("/Music/A/NewDisc/n1.mp3")],
+            "/Music/B": [file("/Music/B/b1.mp3"), file("/Music/B/b2.mp3")],
+        ])
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        await scan.waitForActiveScansToComplete()
+        var report = try XCTUnwrap(scan.lastExistingLookupShadowReports[source.id])
+        XCTAssertGreaterThan(report.lookups, 5)
+        XCTAssertEqual(report.mismatches, 0, report.logLine)
+        XCTAssertEqual(report.failures, 0, report.logLine)
+
+        // 再挪一首到别的文件夹、删掉 top:走查已经提交过一轮,目录与内存同步后再比。
+        await library.waitForPendingIndex()
+        await library.waitForCatalogMirror()
+        await connector.replaceListings([
+            "/Music": [dir("/Music/A"), dir("/Music/B")],
+            "/Music/A": [file("/Music/A/a1.mp3"), file("/Music/A/a3.mp3", size: 2_000), dir("/Music/A/NewDisc")],
+            "/Music/A/NewDisc": [file("/Music/A/NewDisc/n1.mp3")],
+            "/Music/B": [file("/Music/B/b1.mp3"), file("/Music/B/b2.mp3"), file("/Music/B/a2.mp3")],
+        ])
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        await scan.waitForActiveScansToComplete()
+        report = try XCTUnwrap(scan.lastExistingLookupShadowReports[source.id])
+        XCTAssertGreaterThan(report.lookups, 5)
+        XCTAssertEqual(report.mismatches, 0, report.logLine)
+        XCTAssertEqual(report.failures, 0, report.logLine)
+        XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        await library.stopCatalogMirror()
+    }
+
     func testFullLocalFolderScanReadsChangedTagsWithSameSizeAndTimestamp() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

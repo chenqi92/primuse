@@ -2389,7 +2389,7 @@ struct SearchView: View {
         switch match {
         case .artist(let artist):
             title = artist.name
-            subtitle = "\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))"
+            subtitle = "\(LibraryCountText.albums(artist.albumCount)) · \(LibraryCountText.songs(artist.songCount))"
             kind = "search_top_match_kind_artist"
         case .album(let album):
             title = album.title
@@ -2480,7 +2480,7 @@ struct SearchView: View {
                 NavigationLink(value: artist) {
                     macTopCard(
                         title: artist.name,
-                        subtitle: "\(artist.songCount) \(String(localized: "songs_count"))",
+                        subtitle: LibraryCountText.songs(artist.songCount),
                         systemImage: "music.mic",
                         artist: artist
                     )
@@ -3256,7 +3256,7 @@ struct SearchView: View {
                         .lineLimit(1)
                     Text(verbatim: [
                         album.year.map(String.init),
-                        "\(album.songCount) \(String(localized: "songs_count"))"
+                        LibraryCountText.songs(album.songCount)
                     ].compactMap { $0 }.joined(separator: " · "))
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textMuted)
@@ -3283,7 +3283,7 @@ struct SearchView: View {
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(1)
-                    Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
+                    Text("\(LibraryCountText.albums(artist.albumCount)) · \(LibraryCountText.songs(artist.songCount))")
                         .font(.system(size: 10.5))
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
@@ -4253,7 +4253,7 @@ struct SearchView: View {
                                     .searchRecommendationOverlay(isRecommended: intelligentArtistIDs.contains(artist.id), iconOnly: true, inset: 3)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(artist.name).font(.subheadline).lineLimit(1)
-                                    Text("\(artist.songCount) \(String(localized: "songs_count"))")
+                                    Text(LibraryCountText.songs(artist.songCount))
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                             }
@@ -5598,7 +5598,7 @@ struct SearchView: View {
                 .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: result.title).font(.subheadline).lineLimit(1)
-                Text(verbatim: [result.detail, "\(songCount) \(String(localized: "songs_count"))"]
+                Text(verbatim: [result.detail, LibraryCountText.songs(songCount)]
                     .filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 if intelligentCollectionIDs.contains(result.id) {

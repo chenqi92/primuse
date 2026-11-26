@@ -340,7 +340,7 @@ struct MacSourcesView: View {
     private func performAttentionAction(for source: MusicSource) {
         if source.type == .appleMusic {
             if appleMusic.authState == .notDetermined {
-                Task { await appleMusic.requestAuthorization() }
+                connectAppleMusic()
             } else if appleMusic.authState != .authorized {
                 openAppleMusicPrivacySettings()
             } else {
@@ -364,6 +364,14 @@ struct MacSourcesView: View {
     private func openAppleMusicPrivacySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media") {
             NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// 授权成功后接着同步一次, 和音乐源详情页的「连接 Apple Music」一样; 不同步的话这个源还是空的。
+    private func connectAppleMusic() {
+        Task {
+            await appleMusic.requestAuthorization()
+            if appleMusic.authState == .authorized { appleMusicLibrary.sync() }
         }
     }
 
@@ -797,7 +805,7 @@ struct MacSourcesView: View {
                 if source.isEnabled && appleMusic.authState != .authorized {
                     if appleMusic.authState == .notDetermined {
                         pill("settings_apple_music_connect", systemImage: "person.badge.key", tint: theme.uiAccentColor) {
-                            Task { await appleMusic.requestAuthorization() }
+                            connectAppleMusic()
                         }
                     } else {
                         pill("open_system_settings", systemImage: "gear", tint: theme.uiAccentColor) {
@@ -863,8 +871,13 @@ struct MacSourcesView: View {
         MacPillButton(title: title, systemImage: systemImage, tint: tint, action: action)
     }
 
-    private func macSwitch(sourceName: String, isOn: Bool, set: @escaping (Bool) -> Void) -> some View {
-        let label = "\(sourceName) · \(String(localized: isOn ? "source_disable_on_this_device" : "source_enable_on_this_device"))"
+    private func macSwitch(
+        sourceName: String,
+        isOn: Bool,
+        set: @escaping @MainActor @Sendable (Bool) -> Void
+    ) -> some View {
+        // 名称不跟着状态变: 开还是关由开关自己的值读出来。
+        let label = "\(sourceName) · \(String(localized: "source_enable_on_this_device"))"
         return Button {
             withAnimation(.spring(response: 0.18, dampingFraction: 0.9)) { set(!isOn) }
         } label: {
@@ -882,7 +895,8 @@ struct MacSourcesView: View {
         .buttonStyle(.plain)
         .help(Text(isOn ? "source_disable_on_this_device" : "source_enable_on_this_device"))
         .accessibilityRepresentation {
-            Toggle(isOn: Binding(get: { isOn }, set: set)) {
+            // 辅助功能会在后台读开关的值: 读这次渲染的快照, 修改回主线程(见 `Binding(snapshot:set:)`)。
+            Toggle(isOn: Binding(snapshot: isOn, set: set)) {
                 Text(verbatim: label)
             }
         }
@@ -897,7 +911,9 @@ struct MacSourcesView: View {
         if source.type == .appleMusic {
             if appleMusic.authState != .authorized { return .unauthorized }
             if case .syncing = appleMusicLibrary.state { return .scanning }
-            if case .failed = appleMusicLibrary.state { return .attention }
+            if case .failed = appleMusicLibrary.state {
+                return appleMusicSyncNeedsSubscription ? .online : .attention
+            }
             return .online
         }
         if scanService.scanStates[source.id]?.isScanning == true { return .scanning }
@@ -913,7 +929,7 @@ struct MacSourcesView: View {
         guard source.isEnabled else { return false }
         if source.type == .appleMusic {
             if appleMusic.authState != .authorized { return true }
-            if case .failed = appleMusicLibrary.state { return true }
+            if case .failed = appleMusicLibrary.state { return !appleMusicSyncNeedsSubscription }
             return false
         }
         guard let s = scanService.scanStates[source.id] else { return false }
@@ -998,6 +1014,13 @@ struct MacSourcesView: View {
         return "apple_music_library_sync"
     }
 
+    /// 没订阅(或地区不支持)时同步只留下本机能放的歌, 状态里记的就是那句订阅说明。
+    /// 这不是再点一次同步能解决的, 不算「需要处理」; 卡片正文照常显示这句说明。
+    private var appleMusicSyncNeedsSubscription: Bool {
+        guard case .failed(let message) = appleMusicLibrary.state else { return false }
+        return message == appleMusic.libraryAccessMessage
+    }
+
     @ViewBuilder
     private func appleMusicSyncStatus(songCount: Int) -> some View {
         HStack(spacing: 6) {
@@ -1026,7 +1049,7 @@ struct MacSourcesView: View {
                     ))
                 case .failed(let message):
                     Text(verbatim: message)
-                        .foregroundStyle(PMColor.bad)
+                        .foregroundStyle(appleMusicSyncNeedsSubscription ? Color.orange : PMColor.bad)
                 }
             }
             Spacer()
