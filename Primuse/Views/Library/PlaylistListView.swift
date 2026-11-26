@@ -58,7 +58,8 @@ struct PlaylistListView: View {
     @State private var findText = ""
     /// 只看包含本地离线可用曲目的歌单。
     @State private var showsOfflineOnly = false
-    @State private var offlinePlayableSongIDs: Set<String>? = nil
+    /// 含有离线可用曲目的歌单与智能歌单 id(以歌单数为界);还没算好时为 nil(先都列出来)。
+    @State private var offlinePlaylistIDs: Set<String>? = nil
 
     private var effectiveOfflineOnly: Bool {
         showsOfflineOnly || sourceManager.isGlobalOfflineMode
@@ -66,32 +67,43 @@ struct PlaylistListView: View {
 
     private var offlineFilterTaskKey: String {
         guard effectiveOfflineOnly else { return "off" }
-        return "on-\(library.visibleSongCollectionRevision)-\(library.playlistContentVersion)-\(sourceManager.offlineAudioSnapshotRevision)"
+        return "on-\(library.visibleSongCollectionRevision)-\(library.playlistContentVersion)-\(sourceManager.offlineAudioSnapshotRevision)-\(library.smartPlaylists.count)"
     }
 
-    private func refreshOfflinePlayableSongIDs() async {
+    /// 逐张看歌单里有没有离线能放的歌:普通歌单看成员,智能歌单看在曲库目录上匹配出的那些;
+    /// 只探测远程源里的歌,以歌单里的歌为界,不取整库。
+    private func refreshOfflinePlaylistIDs() async {
         guard effectiveOfflineOnly else {
-            offlinePlayableSongIDs = nil
+            offlinePlaylistIDs = nil
             return
         }
         let localSourceIDs = SourceManager.localDeviceSourceIDs(in: sourcesStore.sources)
-        let resolved = await sourceManager.offlinePlayableSongIDs(
-            in: library.visibleSongs,
-            localSourceIDs: localSourceIDs
-        )
-        guard !Task.isCancelled else { return }
-        offlinePlayableSongIDs = resolved
+        var matched = Set<String>()
+        for playlist in playlists {
+            let songs = library.songIDs(forPlaylist: playlist.id).compactMap { library.visibleSong(id: $0) }
+            if await sourceManager.containsOfflinePlayableSong(in: songs, localSourceIDs: localSourceIDs) {
+                matched.insert(playlist.id)
+            }
+            guard !Task.isCancelled else { return }
+        }
+        for smart in smartPlaylists {
+            let songs = await SmartPlaylistEngine.matchedSongs(smart, in: library, history: PlayHistoryStore.shared)
+            if await sourceManager.containsOfflinePlayableSong(in: songs, localSourceIDs: localSourceIDs) {
+                matched.insert(smart.id)
+            }
+            guard !Task.isCancelled else { return }
+        }
+        offlinePlaylistIDs = matched
     }
 
     private func playlistHasOfflineSongs(_ playlist: Playlist) -> Bool {
-        guard effectiveOfflineOnly, let ids = offlinePlayableSongIDs else { return true }
-        return library.songs(forPlaylist: playlist.id).contains { ids.contains($0.id) }
+        guard effectiveOfflineOnly, let ids = offlinePlaylistIDs else { return true }
+        return ids.contains(playlist.id)
     }
 
     private func smartPlaylistHasOfflineSongs(_ smart: SmartPlaylist) -> Bool {
-        guard effectiveOfflineOnly, let ids = offlinePlayableSongIDs else { return true }
-        return SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
-            .contains { ids.contains($0.id) }
+        guard effectiveOfflineOnly, let ids = offlinePlaylistIDs else { return true }
+        return ids.contains(smart.id)
     }
 
     // liked 系统歌单已作为「资料库 · 我喜欢的」固定入口展示, 歌单总览里不再重复列出。
@@ -219,7 +231,7 @@ struct PlaylistListView: View {
             if listOrderRawValue != order.rawValue { listOrderRawValue = order.rawValue }
         }
         .task(id: offlineFilterTaskKey) {
-            await refreshOfflinePlayableSongIDs()
+            await refreshOfflinePlaylistIDs()
         }
         .onDisappear {
             if isOrderingPlaylists { finishPlaylistOrder(save: false) }

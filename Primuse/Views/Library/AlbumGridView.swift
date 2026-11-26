@@ -62,7 +62,8 @@ struct AlbumGridView: View {
 
     private var offlineFilterTaskKey: String {
         guard effectiveOfflineOnly else { return "off" }
-        return "on-\(library.visibleSongCollectionRevision)-\(sourceManager.offlineAudioSnapshotRevision)-\(sourcesStore.sources.count)"
+        let catalogReadable = library.catalogHost?.revisions.isReadable == true
+        return "on-\(library.visibleSongCollectionRevision)-\(sourceManager.offlineAudioSnapshotRevision)-\(sourcesStore.sources.count)-\(catalogReadable)"
     }
 
     private func refreshOfflineAlbumIDs() async {
@@ -74,15 +75,9 @@ struct AlbumGridView: View {
             return
         }
         let localSourceIDs = SourceManager.localDeviceSourceIDs(in: sourcesStore.sources)
-        let songs = library.visibleSongs
-        let playableIDs = await sourceManager.offlinePlayableSongIDs(in: songs, localSourceIDs: localSourceIDs)
+        // 在曲库目录上成批取歌、探测离线状态,只留专辑 id;目录还读不了(首次迁移)时先当一张都没有。
+        let matched = await sourceManager.offlinePlayableAlbumIDs(in: library, localSourceIDs: localSourceIDs) ?? []
         guard !Task.isCancelled else { return }
-        var matched = Set<String>()
-        for album in library.visibleAlbums {
-            if library.songs(forAlbum: album.id).contains(where: { playableIDs.contains($0.id) }) {
-                matched.insert(album.id)
-            }
-        }
         if offlineAlbumIDs != matched {
             offlineAlbumIDs = matched
             offlineAlbumFilterRevision &+= 1

@@ -80,6 +80,7 @@ struct PlaylistDetailView: View {
     @State private var findText = ""
     /// 只看本歌单里离线可用（本机、已下载或完整缓存）的歌曲。
     @State private var showsOfflineOnly = false
+    // crash-pattern: allow song-id-collection-property 这张歌单里离线能放的歌,以歌单长度为界
     @State private var offlineSongIDs: Set<String>? = nil
     #if os(iOS)
     @State private var isFindPresented = false

@@ -8809,6 +8809,54 @@ final class SourceManager {
         return matched
     }
 
+    /// 这些歌里有没有离线模式下能直接放的(规则同 `offlinePlayableSongIDs`)。只探测远程源里的那些,
+    /// 一首本机源的歌就够了;以传进来的歌为界(一张歌单、一张智能歌单命中的歌)。
+    func containsOfflinePlayableSong(in songs: [Song], localSourceIDs: Set<String>) async -> Bool {
+        var remoteSongs: [Song] = []
+        for song in songs where song.isPlayable {
+            if localSourceIDs.contains(song.sourceID) { return true }
+            remoteSongs.append(song)
+        }
+        guard !remoteSongs.isEmpty else { return false }
+        return await !locallyAvailableSongIDs(in: remoteSongs).isEmpty
+    }
+
+    /// 含有离线模式下能直接放的歌的专辑 id(规则同 `offlinePlayableSongIDs`,按歌的 `albumID` 归到专辑)。
+    /// 在曲库目录上按库内顺序成批取可见歌曲,每批探测一次离线状态,不取整库数组;结果以专辑数为界。
+    /// 目录还读不了(首次迁移)时为 nil。
+    func offlinePlayableAlbumIDs(in library: MusicLibrary, localSourceIDs: Set<String>) async -> Set<String>? {
+        guard let reader = PlaybackCatalogAccess.reader(for: library) else { return nil }
+        do {
+            let rowids = try await reader.rowList(kinds: Set(LibraryCatalogContentKind.allCases), visibility: .visible).rowids
+            var albumIDs = Set<String>()
+            var start = 0
+            while start < rowids.count {
+                guard !Task.isCancelled else { return nil }
+                let end = min(rowids.count, start + Self.offlineSnapshotProbeBatchSize)
+                var remoteSongs: [Song] = []
+                for case let song? in try await reader.songs(rowids: Array(rowids[start..<end])) where song.isPlayable {
+                    guard let albumID = song.albumID, !albumID.isEmpty, !albumIDs.contains(albumID) else { continue }
+                    if localSourceIDs.contains(song.sourceID) {
+                        albumIDs.insert(albumID)
+                    } else {
+                        remoteSongs.append(song)
+                    }
+                }
+                if !remoteSongs.isEmpty {
+                    let available = await locallyAvailableSongIDs(in: remoteSongs)
+                    for song in remoteSongs where available.contains(song.id) {
+                        if let albumID = song.albumID { albumIDs.insert(albumID) }
+                    }
+                }
+                start = end
+            }
+            return albumIDs
+        } catch {
+            plog("📴 Offline album filter catalog read failed: \(error)")
+            return nil
+        }
+    }
+
     // MARK: - 主动离线模式（全局 + 单源）
 
     var isGlobalOfflineMode: Bool {
@@ -15697,12 +15745,27 @@ final class SourceManager {
             return []
         }
         let excluded = library.dislikedSongIDs
-        var byServerID: [String: Song] = [:]
-        for song in library.visibleSongs(forSourceID: seed.sourceID) where song.isPlayable {
-            guard song.id != seed.id, !excluded.contains(song.id),
-                  let key = similarConnector.serverSongID(for: song.filePath),
-                  byServerID[key] == nil else { continue }
-            byServerID[key] = song
+        // 在曲库目录里按库内顺序看这个源的可见歌曲,只留服务端给的那几首(找齐就停),不取整源的歌。
+        // 目录还读不了(首次迁移)时没有相似歌曲可给。
+        guard let reader = PlaybackCatalogAccess.reader(for: library) else { return [] }
+        let wanted = Set(remoteIDs)
+        let seedID = seed.id
+        let byServerID: [String: Song]
+        do {
+            byServerID = try await reader.read { catalog in
+                var found: [String: Song] = [:]
+                try catalog.forEachSong(.source(seed.sourceID, includesDisabled: false)) { _, song in
+                    guard song.isPlayable, song.id != seedID, !excluded.contains(song.id),
+                          let key = similarConnector.serverSongID(for: song.filePath),
+                          wanted.contains(key), found[key] == nil else { return true }
+                    found[key] = song
+                    return found.count < wanted.count
+                }
+                return found
+            }
+        } catch {
+            plog("📻 Similar songs catalog read failed: \(error)")
+            return []
         }
         var seenSongIDs: Set<String> = [seed.id]
         var matched: [Song] = []

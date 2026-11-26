@@ -737,7 +737,7 @@ struct HomeListeningRankingSection: View {
         // spinner height and repeatedly move it across the visible boundary.
         guard preparedRequest != request else { return }
 
-        let visibleSongs = library.visibleSongs
+        let librarySnapshot = library.visibleSongs
         let folders = category == .folders ? model.index : nil
         let period = effectivePeriod
         let category = category
@@ -777,7 +777,7 @@ struct HomeListeningRankingSection: View {
                 HomeListeningRanking.serverRanks(
                     payload: payload,
                     sourceID: sourceID,
-                    librarySongs: visibleSongs,
+                    librarySongs: librarySnapshot,
                     folders: folders,
                     period: period,
                     category: category,
@@ -812,7 +812,7 @@ struct HomeListeningRankingSection: View {
         // Music only: audiobook chapters are not songs to rank.
         let events = PlayHistoryStore.shared.musicEntries.map(\.listeningEvent)
         let task = Task.detached(priority: .utility) {
-            HomeListeningRanking.ranks(events: events, librarySongs: visibleSongs, folders: folders,
+            HomeListeningRanking.ranks(events: events, librarySongs: librarySnapshot, folders: folders,
                                        period: period, category: category, calendar: request.calendar,
                                        artistNameConfiguration: request.artistNameConfiguration)
         }

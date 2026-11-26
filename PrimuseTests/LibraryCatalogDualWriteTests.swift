@@ -1073,6 +1073,59 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         }
     }
 
+    /// 离线筛选在目录上算:含离线能放的歌(本机源的、远程源里缓存完整的)的专辑,与按整库算出来的那些
+    /// 相同;一组歌里有没有离线能放的,同样的规则。
+    func testOfflineAlbumFilterFromTheCatalogMatchesTheWholeLibrary() async throws {
+        let library = makeLibrary()
+        let local = MusicSource(id: "offline-local", name: "Local", type: .local)
+        let remote = MusicSource(id: "offline-remote-\(UUID().uuidString.prefix(6))", name: "Remote", type: .navidrome)
+        var songs: [Song] = []
+        for album in 0..<4 {
+            for track in 1...3 {
+                songs.append(Song(id: "off-local-\(album)-\(track)", title: "L\(album)\(track)", albumTitle: "Local \(album)",
+                                  artistName: "Ada", trackNumber: track, duration: 200, fileFormat: .flac,
+                                  filePath: "/Local/\(album)/\(track).flac", sourceID: local.id, fileSize: 128))
+                songs.append(Song(id: "off-remote-\(album)-\(track)", title: "R\(album)\(track)", albumTitle: "Remote \(album)",
+                                  artistName: "Ben", trackNumber: track, duration: 200, fileFormat: .flac,
+                                  filePath: "/songs/remote-\(album)-\(track).flac", sourceID: remote.id, fileSize: 128))
+            }
+        }
+        // 一首本机源的歌放不了(时长为 0):它所在的专辑只靠它的话不算。
+        songs.append(Song(id: "off-local-broken", title: "Broken", albumTitle: "Broken Local", artistName: "Ada",
+                          duration: 0, fileFormat: .flac, filePath: "", sourceID: local.id))
+        library.addSongs(songs, affectedSourceIDs: [local.id, remote.id])
+        await assertShadowMatches(library, "offline fixture")
+
+        let manager = SourceManager(sourcesProvider: { [local, remote] }, songsProvider: { songs })
+        let cachedSong = try XCTUnwrap(songs.first { $0.id == "off-remote-2-1" })
+        defer { manager.deleteLocalCaches(for: [cachedSong]) }
+        let deadline = Date().addingTimeInterval(3)
+        while !(await manager.prepareAutomaticOfflineDownload(song: cachedSong, forceRedownload: false)) {
+            guard Date() < deadline else { throw URLError(.timedOut) }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let url = manager.cacheURL(for: cachedSong)
+        try Data(repeating: 7, count: 128).write(to: url)
+        await AudioCacheManager.shared.recordAccess(path: remote.id + "/" + url.lastPathComponent)
+
+        let localIDs = SourceManager.localDeviceSourceIDs(in: [local, remote])
+        let playable = await manager.offlinePlayableSongIDs(in: library.visibleSongs, localSourceIDs: localIDs)
+        let expected = Set(library.visibleSongs.filter { playable.contains($0.id) }.compactMap(\.albumID))
+        let albumIDs = await manager.offlinePlayableAlbumIDs(in: library, localSourceIDs: localIDs)
+        let fromCatalog = try XCTUnwrap(albumIDs)
+        XCTAssertEqual(fromCatalog, expected)
+        XCTAssertEqual(fromCatalog.count, 5, "four local albums and the remote album with a cached song")
+
+        let remoteAlbum = songs.filter { $0.albumTitle == "Remote 2" }
+        let otherRemote = songs.filter { $0.albumTitle == "Remote 1" }
+        let containsCached = await manager.containsOfflinePlayableSong(in: remoteAlbum, localSourceIDs: localIDs)
+        let containsNothing = await manager.containsOfflinePlayableSong(in: otherRemote, localSourceIDs: localIDs)
+        let containsLocal = await manager.containsOfflinePlayableSong(in: otherRemote + [songs[0]], localSourceIDs: localIDs)
+        XCTAssertTrue(containsCached)
+        XCTAssertFalse(containsNothing)
+        XCTAssertTrue(containsLocal)
+    }
+
     /// Siri「播放音乐」走目录:目录给的整库(可播放的音乐、不含不喜欢的)与内存那一份相同;一首能放的
     /// 都没有、点的那首不在曲库时,目录排队答「没有可放的」,不装队列、不调 `willInstall`(Siri 据此
     /// 答复没找到);目录还没收到点的那首时答「目录不能用」,调用方走内存路径。
