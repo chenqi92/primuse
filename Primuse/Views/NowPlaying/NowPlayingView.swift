@@ -2567,9 +2567,10 @@ struct NowPlayingView: View {
         #endif
     }
 
-    private var hasBlockingNowPlayingPresentation: Bool {
-        showQueue
-            || showComments
+    /// 会遮挡整张播放页（含封面）的弹窗或警告。半屏播放队列（`showQueue`）露着上半屏封面，
+    /// 不阻断封面动态播放，仍计入 `hasBlockingNowPlayingPresentation` 以拦截横屏全屏与自动藏控件。
+    private var hasArtworkBlockingPresentation: Bool {
+        showComments
             || showsImmersiveEffectPicker
             || scrapeTargetSong != nil
             || libraryActions.playlistSong != nil
@@ -2600,6 +2601,10 @@ struct NowPlayingView: View {
             || showNoScraperSourceAlert
     }
 
+    private var hasBlockingNowPlayingPresentation: Bool {
+        showQueue || hasArtworkBlockingPresentation
+    }
+
     /// Decorative artwork and ambient motion only run while the player itself
     /// is the exposed interaction surface. Modal content retains the static
     /// palette underneath without spending another animation clock.
@@ -2608,6 +2613,13 @@ struct NowPlayingView: View {
             && isPresentationActive
             && !isFullscreenPlayerPresented
             && !hasBlockingNowPlayingPresentation
+    }
+
+    private var isNowPlayingArtworkExposed: Bool {
+        isPresentationSettled
+            && isPresentationActive
+            && !isFullscreenPlayerPresented
+            && !hasArtworkBlockingPresentation
     }
 
     /// 拖动整页、收进迷你条途中要停的动画只在各自那一层读它（背景、歌词顶上的大封面）：
@@ -9988,7 +10000,8 @@ struct NowPlayingView: View {
                 }()
                 let placeholderIcon = currentItemIsPodcast ? "antenna.radiowaves.left.and.right" : "music.note"
                 let presentationRole: ArtworkPresentationRole = usesSpokenWordTransport ? .staticFirstFrame : .animatedHero
-                let isAnimVisible = isNowPlayingSurfaceExposed && !surfaceMotion.isHeld
+                let isAnimVisible = isNowPlayingArtworkExposed
+                let isArtworkPlaying = player.isPlaying && !surfaceMotion.isHeld
                 // 阴影贴图的圆角按槽位排版时的比例算：暂停、恢复播放时槽位边长逐帧在变，拿量到的边长去除，
                 // 贴图形状对不上会整张撤掉，缩放那一下阴影就闪没了。取到 1/4 点，播放和暂停算出同一个值。
                 let shadowCornerRatio = anchor.cornerRadiusRatio ?? anchor.cornerRadius / max(rect.width, rect.height, 1)
@@ -10019,7 +10032,7 @@ struct NowPlayingView: View {
                                 fileFormat: subject.song?.fileFormat,
                                 placeholderIcon: placeholderIcon,
                                 presentationRole: presentationRole,
-                                isPlaying: player.isPlaying,
+                                isPlaying: isArtworkPlaying,
                                 isAnimationVisible: isAnimVisible,
                                 loadsHighResolution: isPresentationSettled,
                                 revisionToken: subject.coverRevision,
@@ -10042,7 +10055,7 @@ struct NowPlayingView: View {
                                 placeholderIcon: placeholderIcon,
                                 presentationRole: presentationRole,
                                 animationRequiresPlayback: true,
-                                isPlaying: player.isPlaying,
+                                isPlaying: isArtworkPlaying,
                                 isAnimationVisible: isAnimVisible,
                                 loadsHighResolution: isPresentationSettled,
                                 revisionToken: subject.coverRevision
@@ -10060,7 +10073,7 @@ struct NowPlayingView: View {
                             placeholderIcon: placeholderIcon,
                             presentationRole: presentationRole,
                             animationRequiresPlayback: true,
-                            isPlaying: player.isPlaying,
+                            isPlaying: isArtworkPlaying,
                             isAnimationVisible: isAnimVisible,
                             loadsHighResolution: isPresentationSettled,
                             revisionToken: subject.coverRevision
@@ -10090,7 +10103,7 @@ struct NowPlayingView: View {
                         placeholderIcon: placeholderIcon,
                         presentationRole: presentationRole,
                         animationRequiresPlayback: true,
-                        isPlaying: player.isPlaying,
+                        isPlaying: isArtworkPlaying,
                         isAnimationVisible: isAnimVisible,
                         loadsHighResolution: isPresentationSettled,
                         revisionToken: subject.coverRevision

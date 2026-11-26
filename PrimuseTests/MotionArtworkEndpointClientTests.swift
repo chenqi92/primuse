@@ -300,6 +300,75 @@ final class MotionArtworkEndpointClientTests: XCTestCase {
     }
 
     @MainActor
+    func testVideoArtworkFreezesCurrentFrameOnPauseAndResumesFromSameTime() async throws {
+        let url = try await makeArtworkVideo()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 64, height: 64)
+        let host = UIHostingController(rootView: MotionArtworkVideoView(url: url, displayMode: .playing) { Color.clear })
+        window.rootViewController = host
+        window.isHidden = false
+        defer {
+            host.rootView = MotionArtworkVideoView(url: url, displayMode: .stopped) { Color.clear }
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+
+        let startDeadline = Date().addingTimeInterval(8)
+        var videoLayer: AVSampleBufferDisplayLayer?
+        while Date() < startDeadline {
+            videoLayer = findArtworkVideoLayer(in: host.view.layer)
+            if let videoLayer, videoLayer.isReadyForDisplay, !videoLayer.isHidden,
+               CMTimebaseGetTime(videoLayer.sampleBufferRenderer.timebase).seconds > 0.6 { break }
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        let layer = try XCTUnwrap(videoLayer)
+        let renderer = layer.sampleBufferRenderer
+        XCTAssertTrue(layer.isReadyForDisplay)
+        XCTAssertFalse(layer.isHidden)
+
+        // 暂停时停表但不移除视频层、不清空已显示画面。
+        host.rootView = MotionArtworkVideoView(url: url, displayMode: .pausedOnCurrentFrame) { Color.clear }
+        let pauseDeadline = Date().addingTimeInterval(2)
+        while Date() < pauseDeadline, CMTimebaseGetRate(renderer.timebase) != 0 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(CMTimebaseGetRate(renderer.timebase), 0)
+        XCTAssertNotNil(layer.superlayer)
+        XCTAssertFalse(layer.isHidden)
+        XCTAssertEqual(renderer.status, .rendering)
+        let pausedTime = CMTimebaseGetTime(renderer.timebase).seconds
+        XCTAssertGreaterThan(pausedTime, 0.5)
+
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(CMTimebaseGetTime(renderer.timebase).seconds, pausedTime, accuracy: 0.02)
+        XCTAssertNotNil(layer.superlayer)
+
+        // 继续播放复用同一个视频层并从暂停时刻接着走，不从头重建。
+        host.rootView = MotionArtworkVideoView(url: url, displayMode: .playing) { Color.clear }
+        let resumeDeadline = Date().addingTimeInterval(3)
+        while Date() < resumeDeadline,
+              CMTimebaseGetRate(renderer.timebase) == 0
+                || CMTimebaseGetTime(renderer.timebase).seconds <= pausedTime + 0.3 {
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        XCTAssertTrue(findArtworkVideoLayer(in: host.view.layer) === layer)
+        XCTAssertEqual(CMTimebaseGetRate(renderer.timebase), 1, accuracy: 0.01)
+        XCTAssertGreaterThan(CMTimebaseGetTime(renderer.timebase).seconds, pausedTime + 0.25)
+
+        // 退到后台或不可见（.stopped）时彻底拆掉解码器和视频层。
+        host.rootView = MotionArtworkVideoView(url: url, displayMode: .stopped) { Color.clear }
+        let stopDeadline = Date().addingTimeInterval(2)
+        while Date() < stopDeadline,
+              CMTimebaseGetRate(renderer.timebase) != 0 || layer.superlayer != nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(CMTimebaseGetRate(renderer.timebase), 0)
+        XCTAssertNil(layer.superlayer)
+    }
+
+    @MainActor
     private func findArtworkVideoLayer(in layer: CALayer) -> AVSampleBufferDisplayLayer? {
         if let video = layer as? AVSampleBufferDisplayLayer { return video }
         for child in layer.sublayers ?? [] {

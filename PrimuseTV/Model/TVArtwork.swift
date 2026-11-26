@@ -1408,7 +1408,7 @@ struct TVArtworkView: View {
             let taskIdentity = artworkTaskIdentity
             let identity = artworkIdentity
             let currentAnimationKey = preferredAnimationDiskKey
-            if !animationPlaybackPolicy.shouldAnimate {
+            if !animationPlaybackPolicy.displayMode.preservesDynamicArtwork {
                 clearAnimatedArtworkState()
             }
             guard !identity.isEmpty else {

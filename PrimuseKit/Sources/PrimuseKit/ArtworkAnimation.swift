@@ -179,6 +179,23 @@ public enum ArtworkThermalCondition: String, Codable, Equatable, Sendable {
     }
 }
 
+public enum ArtworkAnimationDisplayMode: Equatable, Sendable {
+    /// Actively decoding and advancing frames.
+    case playing
+    /// Visible in the foreground and paused only because playback is paused:
+    /// keep the current frame frozen instead of tearing down or reverting.
+    case pausedOnCurrentFrame
+    /// Visible in the foreground under accessibility, power, or thermal limits:
+    /// release active decoders and display the static first frame if available.
+    case stillFrame
+    /// Hidden, backgrounded, or disabled: release decoders and cached frames.
+    case stopped
+
+    public var preservesDynamicArtwork: Bool {
+        self != .stopped
+    }
+}
+
 public struct ArtworkAnimationPolicy: Equatable, Sendable {
     public let isEnabled: Bool
     public let presentationRole: ArtworkPresentationRole
@@ -225,6 +242,21 @@ public struct ArtworkAnimationPolicy: Equatable, Sendable {
             && playAnimatedImages
             && !isLowPowerModeEnabled
             && thermalCondition.permitsAnimation
+    }
+
+    public var displayMode: ArtworkAnimationDisplayMode {
+        guard isEnabled, presentationRole == .animatedHero, isVisible, isSceneActive else {
+            return .stopped
+        }
+        if shouldAnimate {
+            return .playing
+        }
+        if requiresPlayback && !isPlaying
+            && !reduceMotion && playAnimatedImages
+            && !isLowPowerModeEnabled && thermalCondition.permitsAnimation {
+            return .pausedOnCurrentFrame
+        }
+        return .stillFrame
     }
 }
 

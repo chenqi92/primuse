@@ -156,6 +156,8 @@ struct CachedArtworkView: View {
     @State private var animatedArtworkData: Data?
     @State private var animatedArtworkDescriptor: ArtworkDescriptor?
     @State private var animatedArtworkIdentity: String?
+    @State private var animatedArtworkStaticIdentity: String?
+    @State private var animatedArtworkEndpointsKey: String?
     @State private var animatedArtworkContentKey: String?
     @State private var animatedArtworkExpiresAt: Date?
     @State private var animatedArtworkGeneration: String?
@@ -422,6 +424,8 @@ struct CachedArtworkView: View {
                 animatedArtworkData = nil
                 animatedArtworkDescriptor = nil
                 animatedArtworkIdentity = nil
+                animatedArtworkStaticIdentity = nil
+                animatedArtworkEndpointsKey = nil
                 animatedArtworkContentKey = nil
                 animatedArtworkExpiresAt = nil
                 animatedArtworkGeneration = nil
@@ -522,7 +526,11 @@ struct CachedArtworkView: View {
             // 跟其它来源的封面一样填满 cell。ArtworkImage 自身按 display scale
             // 解码, 所以传点数即可, 不用再乘 scale。
             if let motionArtworkVideoURL {
-                MotionArtworkVideoView(url: motionArtworkVideoURL, shouldAnimate: animationPlaybackPolicy.shouldAnimate, posterURL: motionCoverPosterURL) {
+                MotionArtworkVideoView(
+                    url: motionArtworkVideoURL,
+                    displayMode: animationPlaybackPolicy.displayMode,
+                    posterURL: motionCoverPosterURL
+                ) {
                     appleMusicArtworkView(artwork)
                 }
             } else if let animatedArtworkData, let animatedArtworkDescriptor {
@@ -571,7 +579,11 @@ struct CachedArtworkView: View {
     @ViewBuilder
     private func animatedOrStaticArtwork(_ image: PlatformImage) -> some View {
         if let motionArtworkVideoURL {
-            MotionArtworkVideoView(url: motionArtworkVideoURL, shouldAnimate: animationPlaybackPolicy.shouldAnimate, posterURL: motionCoverPosterURL) {
+            MotionArtworkVideoView(
+                url: motionArtworkVideoURL,
+                displayMode: animationPlaybackPolicy.displayMode,
+                posterURL: motionCoverPosterURL
+            ) {
                 Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
             }
         } else if let animatedArtworkData, let animatedArtworkDescriptor {
@@ -1021,33 +1033,18 @@ struct CachedArtworkView: View {
         plog("🎞️ motion cover held on first frame song=\(songID ?? "-") album=\(albumID ?? "-") reasons=\(reasons.isEmpty ? "loading" : reasons)")
     }
 
-    /// 不动的时候还要不要停在用户设的动态封面首帧：只在大封面位、动态封面总开关开着、静态封面已经按当前
-    /// 身份载好时。动态封面关掉了就照旧显示原来的封面。
-    private func stillMotionCover() -> (video: URL, poster: URL)? {
-        guard presentationRole == .animatedHero,
-              animatedArtworkEnabled,
-              loadedIdentity == loadIdentity else { return nil }
-        return localMotionCover()
+    private var motionArtworkEndpointsKey: String {
+        motionArtworkEndpoints.map(\.trimmedURL).joined(separator: "\u{1E}")
     }
 
     @MainActor
     private func loadAnimatedArtwork(for identity: String) async {
+        let displayMode = animationPlaybackPolicy.displayMode
         guard !identity.isEmpty,
               !animationCacheMaintenancePending,
               loadedIdentity == loadIdentity,
-              animationPlaybackPolicy.shouldAnimate else {
-            // 用户自己设了视频动态封面时，不动（暂停、低电量、减少动态效果）也停在它的首帧，
-            // 不退回歌曲原来的静态封面，不然看起来像设的动态封面没生效（#428）。
-            let still = stillMotionCover()
-            motionArtworkVideoURL = still?.video
-            motionCoverPosterURL = still?.poster
-            if still != nil { logStillMotionCoverIfNeeded() }
-            animatedArtworkData = nil
-            animatedArtworkDescriptor = nil
-            animatedArtworkIdentity = nil
-            animatedArtworkContentKey = nil
-            animatedArtworkExpiresAt = nil
-            animatedArtworkGeneration = nil
+              displayMode.preservesDynamicArtwork else {
+            clearAnimatedArtworkCache()
             return
         }
 
@@ -1065,22 +1062,40 @@ struct CachedArtworkView: View {
                 motionArtworkVideoURL = localVideo
             }
             animatedArtworkIdentity = localVideo.path
+            animatedArtworkStaticIdentity = loadIdentity
+            animatedArtworkEndpointsKey = nil
+            if displayMode != .playing { logStillMotionCoverIfNeeded() }
             return
         }
 
         let key = animationCacheKey
         let diskKey = sourceAnimationDiskKey
-        guard !key.isEmpty, !diskKey.isEmpty else { return }
-        if animatedArtworkIdentity == diskKey,
-           animatedArtworkData != nil,
-           animatedArtworkDescriptor != nil {
+        guard !key.isEmpty, !diskKey.isEmpty else {
+            clearAnimatedArtworkCache()
             return
         }
+
+        let endpointsKey = motionArtworkEndpointsKey
+        if animatedArtworkStaticIdentity == loadIdentity,
+           let currentIdentity = animatedArtworkIdentity,
+           motionArtworkVideoURL != nil || (animatedArtworkData != nil && animatedArtworkDescriptor != nil) {
+            let isCurrentSource = currentIdentity == diskKey
+            let isCurrentService = motionArtworkServiceEnabled
+                && animatedArtworkEndpointsKey == endpointsKey
+                && motionArtworkDiskKeys.contains(currentIdentity)
+                && (animatedArtworkExpiresAt.map { $0 > Date() } ?? true)
+            if isCurrentSource || isCurrentService {
+                return
+            }
+        }
+
         motionArtworkVideoURL = nil
         motionCoverPosterURL = nil
         animatedArtworkData = nil
         animatedArtworkDescriptor = nil
         animatedArtworkIdentity = nil
+        animatedArtworkStaticIdentity = nil
+        animatedArtworkEndpointsKey = nil
         animatedArtworkContentKey = nil
         animatedArtworkExpiresAt = nil
         animatedArtworkGeneration = nil
@@ -1102,6 +1117,8 @@ struct CachedArtworkView: View {
                     animatedArtworkData = data
                     animatedArtworkDescriptor = inspection.descriptor
                     animatedArtworkIdentity = diskKey
+                    animatedArtworkStaticIdentity = loadIdentity
+                    animatedArtworkEndpointsKey = nil
                     animatedArtworkContentKey = inspection.contentKey
                     return
                 }
@@ -1135,6 +1152,8 @@ struct CachedArtworkView: View {
                 animatedArtworkData = legacyData
                 animatedArtworkDescriptor = inspection.descriptor
                 animatedArtworkIdentity = diskKey
+                animatedArtworkStaticIdentity = loadIdentity
+                animatedArtworkEndpointsKey = nil
                 animatedArtworkContentKey = inspection.contentKey
                 return
             }
@@ -1158,9 +1177,12 @@ struct CachedArtworkView: View {
             filePath: filePath
         )
         let effectiveAnimationRef = ignoredGenericFolderCover ? nil : coverRef
-        let canFetchRemoteSource = fetchPolicy.shouldFetchRemoteAnimation
+        let allowsRemoteFetch = displayMode == .playing
+        let canFetchRemoteSource = allowsRemoteFetch
+            && fetchPolicy.shouldFetchRemoteAnimation
             && effectiveAnimationRef?.isEmpty == false
-        let canReadEmbeddedSource = sourceID?.isEmpty == false
+        let canReadEmbeddedSource = allowsRemoteFetch
+            && sourceID?.isEmpty == false
             && filePath?.isEmpty == false
         if !sourceLookupSuppressed,
            sourceID != AppleMusicLibraryService.systemSourceID,
@@ -1196,6 +1218,8 @@ struct CachedArtworkView: View {
                 animatedArtworkData = fetched
                 animatedArtworkDescriptor = inspection.descriptor
                 animatedArtworkIdentity = diskKey
+                animatedArtworkStaticIdentity = loadIdentity
+                animatedArtworkEndpointsKey = nil
                 animatedArtworkContentKey = inspection.contentKey
                 return
             }
@@ -1212,7 +1236,8 @@ struct CachedArtworkView: View {
         guard hasResolvedArtwork else { return }
         await loadConfiguredMotionArtwork(
             for: identity,
-            fetchPolicy: fetchPolicy
+            fetchPolicy: fetchPolicy,
+            allowsRemoteFetch: allowsRemoteFetch
         )
     }
 
@@ -1269,7 +1294,8 @@ struct CachedArtworkView: View {
     @MainActor
     private func loadConfiguredMotionArtwork(
         for identity: String,
-        fetchPolicy: ArtworkAnimationFetchPolicy
+        fetchPolicy: ArtworkAnimationFetchPolicy,
+        allowsRemoteFetch: Bool
     ) async {
         let endpoints = motionArtworkEndpoints
         guard motionArtworkServiceEnabled,
@@ -1283,7 +1309,8 @@ struct CachedArtworkView: View {
                 from: endpoint,
                 input: input,
                 for: identity,
-                fetchPolicy: fetchPolicy
+                fetchPolicy: fetchPolicy,
+                allowsRemoteFetch: allowsRemoteFetch
             )
         }
     }
@@ -1294,7 +1321,8 @@ struct CachedArtworkView: View {
         from source: MotionArtworkEndpoint,
         input: MotionArtworkLookupInput,
         for identity: String,
-        fetchPolicy: ArtworkAnimationFetchPolicy
+        fetchPolicy: ArtworkAnimationFetchPolicy,
+        allowsRemoteFetch: Bool
     ) async -> MotionArtworkEndpointAttempt {
         guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
         // 请求前再过一遍校验（受限主机、不合法的地址），同步或备份带来的坏数据也拦得住。
@@ -1307,6 +1335,7 @@ struct CachedArtworkView: View {
             return .missing
         }
         let diskKey = motionArtworkDiskKey(endpoint: source, input: input)
+        let endpointsKey = motionArtworkEndpointsKey
 
         let cacheLookupNow = Date()
         if let cached = try? await Self.animationDiskCache.detailedLookup(
@@ -1322,7 +1351,10 @@ struct CachedArtworkView: View {
                    let url = try? await Self.animationDiskCache.assetFileURL(forKey: diskKey, generation: record.generation) {
                     guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
                     motionArtworkVideoURL = url
+                    motionCoverPosterURL = nil
                     animatedArtworkIdentity = diskKey
+                    animatedArtworkStaticIdentity = loadIdentity
+                    animatedArtworkEndpointsKey = endpointsKey
                     animatedArtworkExpiresAt = record.expiresAt
                     animatedArtworkGeneration = record.generation
                     noteServiceMaterialForLockScreen(videoAt: url)
@@ -1354,6 +1386,8 @@ struct CachedArtworkView: View {
                     animatedArtworkData = data
                     animatedArtworkDescriptor = inspection.descriptor
                     animatedArtworkIdentity = diskKey
+                    animatedArtworkStaticIdentity = loadIdentity
+                    animatedArtworkEndpointsKey = endpointsKey
                     animatedArtworkContentKey = inspection.contentKey
                     animatedArtworkExpiresAt = expiration
                     animatedArtworkGeneration = generation
@@ -1368,7 +1402,7 @@ struct CachedArtworkView: View {
         }
 
         // 这次不联网：这个源跳过，后面的源也许还有缓存。
-        guard fetchPolicy.shouldFetchRemoteAnimation else { return .missing }
+        guard allowsRemoteFetch, fetchPolicy.shouldFetchRemoteAnimation else { return .missing }
         let now = Date()
         let allowExpensiveNetwork = !animatedArtworkUnmeteredOnly
 
@@ -1399,7 +1433,10 @@ struct CachedArtworkView: View {
                 }
                 guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
                 motionArtworkVideoURL = url
+                motionCoverPosterURL = nil
                 animatedArtworkIdentity = diskKey
+                animatedArtworkStaticIdentity = loadIdentity
+                animatedArtworkEndpointsKey = endpointsKey
                 animatedArtworkExpiresAt = expiration
                 animatedArtworkGeneration = generation
                 noteServiceMaterialForLockScreen(videoAt: url)
@@ -1431,6 +1468,8 @@ struct CachedArtworkView: View {
                 animatedArtworkData = payload.data
                 animatedArtworkDescriptor = payload.descriptor
                 animatedArtworkIdentity = diskKey
+                animatedArtworkStaticIdentity = loadIdentity
+                animatedArtworkEndpointsKey = endpointsKey
                 animatedArtworkContentKey = contentKey
                 animatedArtworkExpiresAt = expiration
                 animatedArtworkGeneration = generation
@@ -1547,6 +1586,8 @@ struct CachedArtworkView: View {
         animatedArtworkData = nil
         animatedArtworkDescriptor = nil
         animatedArtworkIdentity = nil
+        animatedArtworkStaticIdentity = nil
+        animatedArtworkEndpointsKey = nil
         animatedArtworkContentKey = nil
         animatedArtworkExpiresAt = nil
         animatedArtworkGeneration = nil

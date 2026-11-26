@@ -35,9 +35,13 @@ struct MotionCoverHeroOverlay: View {
 
     var body: some View {
         Group {
-            if let url = MotionCoverStore.shared.videoURL(songID: nil, albumID: albumID) {
+            if let resolved = MotionCoverStore.shared.effectiveAsset(songID: nil, albumID: albumID) {
                 let _ = runtimeRevision
-                MotionArtworkVideoView(url: url, shouldAnimate: policy.shouldAnimate) {
+                MotionArtworkVideoView(
+                    url: MotionCoverStore.videoURL(for: resolved.asset),
+                    displayMode: policy.displayMode,
+                    posterURL: MotionCoverStore.posterURL(for: resolved.asset)
+                ) {
                     Color.clear
                 }
                 .onReceive(NotificationCenter.default.publisher(

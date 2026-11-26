@@ -261,14 +261,27 @@ struct NowPlayingVisualActivityPolicyTests {
         )
 
         #expect(active.shouldAnimate)
+        #expect(active.displayMode == .playing)
+        #expect(active.displayMode.preservesDynamicArtwork)
         #expect(!policy(active, role: .staticFirstFrame).shouldAnimate)
+        #expect(policy(active, role: .staticFirstFrame).displayMode == .stopped)
         #expect(!policy(active, isVisible: false).shouldAnimate)
+        #expect(policy(active, isVisible: false).displayMode == .stopped)
         #expect(!policy(active, isSceneActive: false).shouldAnimate)
+        #expect(policy(active, isSceneActive: false).displayMode == .stopped)
         #expect(!policy(active, isPlaying: false).shouldAnimate)
+        #expect(policy(active, isPlaying: false).displayMode == .pausedOnCurrentFrame)
+        #expect(policy(active, isPlaying: false).displayMode.preservesDynamicArtwork)
         #expect(!policy(active, reduceMotion: true).shouldAnimate)
+        #expect(policy(active, reduceMotion: true).displayMode == .stillFrame)
         #expect(!policy(active, playAnimatedImages: false).shouldAnimate)
+        #expect(policy(active, playAnimatedImages: false).displayMode == .stillFrame)
         #expect(!policy(active, isLowPowerModeEnabled: true).shouldAnimate)
+        #expect(policy(active, isLowPowerModeEnabled: true).displayMode == .stillFrame)
         #expect(!policy(active, thermalCondition: .serious).shouldAnimate)
+        #expect(policy(active, thermalCondition: .serious).displayMode == .stillFrame)
+        #expect(policy(active, isPlaying: false, isLowPowerModeEnabled: true).displayMode == .stillFrame)
+        #expect(!policy(active, isEnabled: false).displayMode.preservesDynamicArtwork)
     }
 
     @Test("Album detail animation does not depend on audio playback")
@@ -336,6 +349,7 @@ struct NowPlayingVisualActivityPolicyTests {
 
     private func policy(
         _ base: ArtworkAnimationPolicy,
+        isEnabled: Bool? = nil,
         role: ArtworkPresentationRole? = nil,
         isVisible: Bool? = nil,
         isSceneActive: Bool? = nil,
@@ -346,7 +360,7 @@ struct NowPlayingVisualActivityPolicyTests {
         thermalCondition: ArtworkThermalCondition? = nil
     ) -> ArtworkAnimationPolicy {
         ArtworkAnimationPolicy(
-            isEnabled: base.isEnabled,
+            isEnabled: isEnabled ?? base.isEnabled,
             presentationRole: role ?? base.presentationRole,
             isVisible: isVisible ?? base.isVisible,
             isSceneActive: isSceneActive ?? base.isSceneActive,

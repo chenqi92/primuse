@@ -52,7 +52,7 @@ struct UploadedArtworkAnimation<Fallback: View>: View {
         UploadedArtworkAnimationRequest(contentID: contentID, previewData: previewData, enabled:
             presentationRole == .animatedHero && isVisible && scenePhase == .active
             && AnimatedArtworkPreferences.shared.animatedArtworkEnabled
-            && !reduceMotion && playAnimatedImages && (!requiresPlayback || isPlaying))
+            && !reduceMotion && playAnimatedImages)
     }
 
     var body: some View {
@@ -83,18 +83,59 @@ struct UploadedArtworkAnimation<Fallback: View>: View {
 
 struct MotionArtworkVideoView<Fallback: View>: View {
     let url: URL
-    let shouldAnimate: Bool
-    /// 视频首帧截图(用户自己设的动态封面才有)。不动的时候(暂停、低电量、减少动态效果)和视频还没备好时
-    /// 停在这一帧，而不是退回歌曲原来的静态封面：看得出设的动态封面在，开播时也不跳一下。
+    let displayMode: ArtworkAnimationDisplayMode
+    /// 视频首帧截图（本地设置的动态封面优先读现成 `.jpg`，缺省或在线视频会按需从首帧提取并缓存）。
     var posterURL: URL? = nil
     @ViewBuilder let fallback: () -> Fallback
     @State private var playback: MotionArtworkVideoPlayback?
+    @State private var playbackURL: URL?
+    @State private var isVideoReady = false
     @State private var poster: CGImage?
+    @State private var posterSourcePath: String?
+
+    init(
+        url: URL,
+        displayMode: ArtworkAnimationDisplayMode,
+        posterURL: URL? = nil,
+        @ViewBuilder fallback: @escaping () -> Fallback
+    ) {
+        self.url = url
+        self.displayMode = displayMode
+        self.posterURL = posterURL
+        self.fallback = fallback
+    }
+
+    init(
+        url: URL,
+        shouldAnimate: Bool,
+        posterURL: URL? = nil,
+        @ViewBuilder fallback: @escaping () -> Fallback
+    ) {
+        self.init(
+            url: url,
+            displayMode: shouldAnimate ? .playing : .stopped,
+            posterURL: posterURL,
+            fallback: fallback
+        )
+    }
+
+    private var showsVideoLayer: Bool {
+        displayMode == .playing || displayMode == .pausedOnCurrentFrame
+    }
+
+    private var posterTaskIdentity: String {
+        guard displayMode.preservesDynamicArtwork else { return "" }
+        return "\(url.path)|\(posterURL?.path ?? "")"
+    }
+
+    private var playbackTaskIdentity: String {
+        "\(url.path)|\(displayMode)"
+    }
 
     var body: some View {
         fallback()
             .overlay {
-                if let poster, !(shouldAnimate && playback != nil) {
+                if let poster, !(isVideoReady && playback != nil && showsVideoLayer) {
                     Color.clear
                         .overlay {
                             Image(decorative: poster, scale: 1)
@@ -107,45 +148,70 @@ struct MotionArtworkVideoView<Fallback: View>: View {
                 }
             }
             .overlay {
-                if shouldAnimate, let playback {
-                    MotionArtworkVideoLayer(playback: playback)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
+                if showsVideoLayer, let playback {
+                    MotionArtworkVideoLayer(playback: playback) { ready in
+                        isVideoReady = ready
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
             }
-            .task(id: posterURL) {
-                guard let posterURL else { poster = nil; return }
-                let decoded = await Task.detached(priority: .utility) { () -> CGImage? in
-                    guard let source = CGImageSourceCreateWithURL(posterURL as CFURL, [
-                        kCGImageSourceShouldCache: false,
-                    ] as CFDictionary) else { return nil }
-                    return CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                        kCGImageSourceCreateThumbnailFromImageAlways: true,
-                        kCGImageSourceCreateThumbnailWithTransform: true,
-                        kCGImageSourceShouldCacheImmediately: true,
-                        kCGImageSourceThumbnailMaxPixelSize: 1_080,
-                    ] as CFDictionary)
-                }.value
+            .task(id: posterTaskIdentity) {
+                guard displayMode.preservesDynamicArtwork else {
+                    poster = nil
+                    posterSourcePath = nil
+                    return
+                }
+                if posterSourcePath == url.path, poster != nil { return }
+                let decoded = await MotionArtworkPosterLoader.load(posterURL: posterURL, videoURL: url)
                 guard !Task.isCancelled else { return }
                 poster = decoded
+                posterSourcePath = decoded == nil ? nil : url.path
             }
-            .task(id: "\(url.path)|\(shouldAnimate)") {
-                playback?.stop()
-                playback = nil
-                guard shouldAnimate else { return }
-                do {
-                    let prepared = try await MotionArtworkVideoPlayback.prepare(url: url)
-                    guard !Task.isCancelled else { prepared.stop(); return }
-                    playback = prepared
-                    prepared.play()
-                } catch {
-                    // The static cover (or the poster frame) remains visible if the rendition cannot be decoded.
-                    plog("🎞️ motion artwork video failed to prepare file=\(url.lastPathComponent) error=\(error)")
+            .task(id: playbackTaskIdentity) {
+                if playbackURL != url {
+                    playback?.stop()
+                    playback = nil
+                    playbackURL = nil
+                    isVideoReady = false
+                }
+                switch displayMode {
+                case .stopped, .stillFrame:
+                    playback?.stop()
+                    playback = nil
+                    playbackURL = nil
+                    isVideoReady = false
+                case .pausedOnCurrentFrame:
+                    playback?.pause()
+                case .playing:
+                    if let playback, playbackURL == url {
+                        playback.play()
+                        return
+                    }
+                    do {
+                        let prepared = try await MotionArtworkVideoPlayback.prepare(url: url)
+                        guard !Task.isCancelled else { prepared.stop(); return }
+                        playback = prepared
+                        playbackURL = url
+                        if #available(tvOS 17.4, *) {
+                            isVideoReady = prepared.videoLayer.isReadyForDisplay
+                        } else {
+                            isVideoReady = true
+                        }
+                        prepared.play()
+                    } catch {
+                        // The static cover (or the poster frame) remains visible if the rendition cannot be decoded.
+                        plog("🎞️ motion artwork video failed to prepare file=\(url.lastPathComponent) error=\(error)")
+                    }
                 }
             }
             .onDisappear {
                 playback?.stop()
                 playback = nil
+                playbackURL = nil
+                isVideoReady = false
+                poster = nil
+                posterSourcePath = nil
             }
     }
 }
@@ -185,7 +251,8 @@ final class MotionArtworkVideoPlayback {
         return MotionArtworkVideoPlayback(asset: asset, track: track, range: range)
     }
 
-    func play() { feed.start() }
+    func play() { feed.play() }
+    func pause() { feed.pause() }
     func stop() { feed.stop() }
     deinit { feed.stop() }
 }
@@ -236,6 +303,14 @@ final class MotionArtworkVideoFrames {
         reader?.cancelReading()
         output = nil
         reader = nil
+    }
+
+    func reset() {
+        cancel()
+        loopStart = .zero
+        sourceOrigin = .invalid
+        loopDuration = .zero
+        samplesInLoop = 0
     }
 
     private func beginLoop() throws {
@@ -295,6 +370,7 @@ private final class MotionArtworkVideoFeed: @unchecked Sendable {
     private let synchronizer = AVSampleBufferRenderSynchronizer()
     private let frames: MotionArtworkVideoFrames
     private var started = false
+    private var paused = false
     private var stopped = false
 
     init(renderer: AVSampleBufferVideoRenderer, frames: MotionArtworkVideoFrames) {
@@ -302,13 +378,37 @@ private final class MotionArtworkVideoFeed: @unchecked Sendable {
         self.frames = frames
     }
 
-    func start() {
+    func play() {
         queue.async { [self] in
-            guard !started, !stopped else { return }
-            started = true
-            synchronizer.addRenderer(renderer)
+            guard !stopped else { return }
+            if !started {
+                started = true
+                paused = false
+                synchronizer.addRenderer(renderer)
+                renderer.requestMediaDataWhenReady(on: queue) { [weak self] in self?.enqueueFrames() }
+                synchronizer.setRate(1, time: .zero)
+                return
+            }
+            guard paused else { return }
+            paused = false
+            if renderer.status == .failed || renderer.requiresFlushToResumeDecoding {
+                renderer.flush(removingDisplayedImage: false)
+                frames.reset()
+                renderer.requestMediaDataWhenReady(on: queue) { [weak self] in self?.enqueueFrames() }
+                synchronizer.setRate(1, time: .zero)
+                return
+            }
             renderer.requestMediaDataWhenReady(on: queue) { [weak self] in self?.enqueueFrames() }
-            synchronizer.setRate(1, time: .zero)
+            synchronizer.setRate(1, time: .invalid)
+        }
+    }
+
+    func pause() {
+        queue.async { [self] in
+            guard started, !stopped, !paused else { return }
+            paused = true
+            renderer.stopRequestingMediaData()
+            synchronizer.setRate(0, time: .invalid)
         }
     }
 
@@ -318,7 +418,7 @@ private final class MotionArtworkVideoFeed: @unchecked Sendable {
 
     private func enqueueFrames() {
         do {
-            while !stopped, renderer.isReadyForMoreMediaData {
+            while !stopped, !paused, renderer.isReadyForMoreMediaData {
                 guard renderer.status != .failed else { finish(); return }
                 renderer.enqueue(try frames.next())
             }
@@ -328,6 +428,7 @@ private final class MotionArtworkVideoFeed: @unchecked Sendable {
     private func finish() {
         guard !stopped else { return }
         stopped = true
+        paused = false
         renderer.stopRequestingMediaData()
         synchronizer.setRate(0, time: .invalid)
         frames.cancel()
@@ -338,17 +439,27 @@ private final class MotionArtworkVideoFeed: @unchecked Sendable {
 #if os(macOS)
 private struct MotionArtworkVideoLayer: NSViewRepresentable {
     let playback: MotionArtworkVideoPlayback
+    let onReadyChange: (Bool) -> Void
     func makeNSView(context: Context) -> MotionArtworkVideoSurface { MotionArtworkVideoSurface() }
-    func updateNSView(_ view: MotionArtworkVideoSurface, context: Context) { view.setPlayback(playback) }
-    static func dismantleNSView(_ view: MotionArtworkVideoSurface, coordinator: ()) { view.setPlayback(nil) }
+    func updateNSView(_ view: MotionArtworkVideoSurface, context: Context) {
+        view.setPlayback(playback, onReadyChange: onReadyChange)
+    }
+    static func dismantleNSView(_ view: MotionArtworkVideoSurface, coordinator: ()) {
+        view.setPlayback(nil, onReadyChange: nil)
+    }
 }
 private typealias MotionArtworkVideoSurfaceBase = NSView
 #else
 private struct MotionArtworkVideoLayer: UIViewRepresentable {
     let playback: MotionArtworkVideoPlayback
+    let onReadyChange: (Bool) -> Void
     func makeUIView(context: Context) -> MotionArtworkVideoSurface { MotionArtworkVideoSurface() }
-    func updateUIView(_ view: MotionArtworkVideoSurface, context: Context) { view.setPlayback(playback) }
-    static func dismantleUIView(_ view: MotionArtworkVideoSurface, coordinator: ()) { view.setPlayback(nil) }
+    func updateUIView(_ view: MotionArtworkVideoSurface, context: Context) {
+        view.setPlayback(playback, onReadyChange: onReadyChange)
+    }
+    static func dismantleUIView(_ view: MotionArtworkVideoSurface, coordinator: ()) {
+        view.setPlayback(nil, onReadyChange: nil)
+    }
 }
 private typealias MotionArtworkVideoSurfaceBase = UIView
 #endif
@@ -356,6 +467,7 @@ private typealias MotionArtworkVideoSurfaceBase = UIView
 private final class MotionArtworkVideoSurface: MotionArtworkVideoSurfaceBase {
     private var videoLayer: AVSampleBufferDisplayLayer?
     private var readiness: MotionArtworkReadinessObservation?
+    private var onReadyChange: ((Bool) -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -369,7 +481,8 @@ private final class MotionArtworkVideoSurface: MotionArtworkVideoSurfaceBase {
 
     required init?(coder: NSCoder) { nil }
 
-    func setPlayback(_ playback: MotionArtworkVideoPlayback?) {
+    func setPlayback(_ playback: MotionArtworkVideoPlayback?, onReadyChange: ((Bool) -> Void)?) {
+        self.onReadyChange = onReadyChange
         guard videoLayer !== playback?.videoLayer else { return }
         readiness = nil
         videoLayer?.removeFromSuperlayer()
@@ -386,12 +499,25 @@ private final class MotionArtworkVideoSurface: MotionArtworkVideoSurfaceBase {
             readiness = MotionArtworkReadinessObservation(layer: videoLayer) { [weak self] in
                 Task { @MainActor [weak self] in
                     guard let self, let videoLayer = self.videoLayer else { return }
-                    videoLayer.isHidden = !videoLayer.isReadyForDisplay
+                    let ready = videoLayer.isReadyForDisplay
+                    videoLayer.isHidden = !ready
+                    self.onReadyChange?(ready)
                 }
             }
-            videoLayer.isHidden = !videoLayer.isReadyForDisplay
+            let ready = videoLayer.isReadyForDisplay
+            videoLayer.isHidden = !ready
+            if ready {
+                Task { @MainActor [weak self] in
+                    guard let self, self.videoLayer === videoLayer else { return }
+                    self.onReadyChange?(true)
+                }
+            }
         } else {
             videoLayer.isHidden = false
+            Task { @MainActor [weak self] in
+                guard let self, self.videoLayer === videoLayer else { return }
+                self.onReadyChange?(true)
+            }
         }
     }
 
@@ -425,6 +551,63 @@ private final class MotionArtworkReadinessObservation {
     deinit { NotificationCenter.default.removeObserver(token) }
 }
 
+nonisolated(unsafe) private let motionArtworkPosterCache: NSCache<NSString, CGImage> = {
+    let cache = NSCache<NSString, CGImage>()
+    cache.countLimit = 8
+    cache.totalCostLimit = 24 * 1024 * 1024
+    return cache
+}()
+
+private enum MotionArtworkPosterLoader {
+    nonisolated static func load(posterURL: URL?, videoURL: URL) async -> CGImage? {
+        let key = (posterURL?.path ?? videoURL.path) as NSString
+        if let cached = motionArtworkPosterCache.object(forKey: key) {
+            return cached
+        }
+        let worker = Task.detached(priority: .utility) { () -> CGImage? in
+            if let posterURL,
+               let source = CGImageSourceCreateWithURL(posterURL as CFURL, [
+                kCGImageSourceShouldCache: false,
+               ] as CFDictionary),
+               let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1_080,
+               ] as CFDictionary) {
+                return thumbnail
+            }
+            guard !Task.isCancelled, videoURL.isFileURL else { return nil }
+            let asset = AVURLAsset(url: videoURL, options: [
+                AVURLAssetOverrideMIMETypeKey: "video/mp4",
+                AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue,
+                AVURLAssetAllowsCellularAccessKey: false,
+                AVURLAssetAllowsExpensiveNetworkAccessKey: false,
+                AVURLAssetAllowsConstrainedNetworkAccessKey: false,
+            ])
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 1_080, height: 1_080)
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
+            return try? await generator.image(at: .zero).image
+        }
+        let decoded = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        if let decoded {
+            motionArtworkPosterCache.setObject(
+                decoded,
+                forKey: key,
+                cost: decoded.bytesPerRow * decoded.height
+            )
+        }
+        return decoded
+    }
+}
+
 nonisolated(unsafe) private let animatedArtworkFrameCache: NSCache<NSString, CGImage> = {
     let cache = NSCache<NSString, CGImage>()
     cache.countLimit = 32
@@ -435,14 +618,18 @@ nonisolated(unsafe) private let animatedArtworkFrameCache: NSCache<NSString, CGI
 /// 动态封面帧缓存的上限(`DecodedImageCacheBudget`):退到后台时先清空再压低,回到前台恢复。
 enum AnimatedArtworkFrameCache {
     nonisolated static func applyBudget(_ limit: Int, purge: Bool) {
-        if purge { animatedArtworkFrameCache.removeAllObjects() }
+        if purge {
+            animatedArtworkFrameCache.removeAllObjects()
+            motionArtworkPosterCache.removeAllObjects()
+        }
         animatedArtworkFrameCache.totalCostLimit = limit
+        motionArtworkPosterCache.totalCostLimit = min(limit, 24 * 1024 * 1024)
     }
 }
 
 /// Plays one validated ImageIO animation without retaining every decoded frame.
-/// The caller remains responsible for the static first-frame fallback, which is
-/// also what lists, paused/inactive scenes, and constrained devices display.
+/// When paused while visible in the foreground, it freezes on the current frame
+/// (or frame 0 if not yet started) and resumes from the following frame.
 struct AnimatedArtworkDataView<Fallback: View>: View {
     let data: Data
     let descriptor: ArtworkDescriptor
@@ -459,6 +646,8 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityPlayAnimatedImages) private var playAnimatedImages
     @State private var frame: CGImage?
+    @State private var frameCacheKey: String?
+    @State private var currentFrameIndex = 0
     @State private var runtimeRevision = 0
 
     var body: some View {
@@ -486,6 +675,8 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
         }
         .onDisappear {
             frame = nil
+            frameCacheKey = nil
+            currentFrameIndex = 0
         }
     }
 
@@ -508,7 +699,7 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
         [
             cacheKey,
             String(descriptor.frameCount),
-            String(policy.shouldAnimate),
+            String(describing: policy.displayMode),
             String(maximumPixelSize),
             String(runtimeRevision),
         ].joined(separator: "|")
@@ -516,12 +707,56 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
 
     @MainActor
     private func playFramesIfAllowed() async {
-        frame = nil
-        guard descriptor.isAnimated, policy.shouldAnimate else { return }
+        if frameCacheKey != cacheKey {
+            frame = nil
+            frameCacheKey = cacheKey
+            currentFrameIndex = 0
+        }
+
+        let displayMode = policy.displayMode
+        guard descriptor.isAnimated else {
+            frame = nil
+            currentFrameIndex = 0
+            return
+        }
+
+        switch displayMode {
+        case .stopped:
+            frame = nil
+            currentFrameIndex = 0
+            return
+        case .pausedOnCurrentFrame:
+            if frame != nil { return }
+            let decoded = await AnimatedArtworkFrameDecoder.decodedFrame(
+                data: data,
+                index: 0,
+                cacheKey: cacheKey,
+                maximumPixelSize: maximumPixelSize
+            )
+            guard !Task.isCancelled, policy.displayMode == .pausedOnCurrentFrame, let decoded else { return }
+            frame = decoded
+            currentFrameIndex = 0
+            return
+        case .stillFrame:
+            if frame != nil, currentFrameIndex == 0 { return }
+            let decoded = await AnimatedArtworkFrameDecoder.decodedFrame(
+                data: data,
+                index: 0,
+                cacheKey: cacheKey,
+                maximumPixelSize: maximumPixelSize
+            )
+            guard !Task.isCancelled, policy.displayMode == .stillFrame, let decoded else { return }
+            frame = decoded
+            currentFrameIndex = 0
+            return
+        case .playing:
+            break
+        }
 
         guard let source = CGImageSourceCreateWithData(data as CFData, [
             kCGImageSourceShouldCache: false,
         ] as CFDictionary), CGImageSourceGetCount(source) == descriptor.frameCount else {
+            frame = nil
             return
         }
 
@@ -538,12 +773,12 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
             Duration.seconds(descriptor.duration),
             Duration.milliseconds(250)
         )
+        var startIndex = frame != nil && currentFrameIndex < descriptor.frameCount
+            ? (currentFrameIndex + 1) % descriptor.frameCount
+            : 0
         while totalPasses.map({ pass < $0 }) ?? true {
-            for index in 0..<descriptor.frameCount {
-                guard !Task.isCancelled, policy.shouldAnimate else {
-                    frame = nil
-                    return
-                }
+            for index in startIndex..<descriptor.frameCount {
+                guard !Task.isCancelled, policy.displayMode == .playing else { return }
                 deadline = deadline.advanced(
                     by: .seconds(descriptor.frameDurations[index])
                 )
@@ -557,14 +792,17 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
                     cacheKey: cacheKey,
                     maximumPixelSize: maximumPixelSize
                 )
-                guard !Task.isCancelled, policy.shouldAnimate, let decoded else {
+                guard !Task.isCancelled, policy.displayMode == .playing else { return }
+                guard let decoded else {
                     frame = nil
                     return
                 }
                 guard clock.now < deadline else { continue }
                 frame = decoded
+                currentFrameIndex = index
                 try? await clock.sleep(until: deadline)
             }
+            startIndex = 0
             pass += 1
             let now = clock.now
             if now > deadline.advanced(by: resynchronizationThreshold) {
@@ -575,6 +813,7 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
             }
         }
         frame = nil
+        currentFrameIndex = 0
     }
 }
 
