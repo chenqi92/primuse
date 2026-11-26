@@ -17,6 +17,10 @@ enum LibraryCatalogMirrorEvent: Sendable {
     case invalidatedAll(reason: String)
     /// 目录能不能读(导入、分组都做完、没有待对账)。
     case readability(Bool)
+    /// 目录已经是旧库这个修订号的样子(增量写完、导入或对账做完)。在工作线程上、下一次写目录之前发出。
+    case mirrored(storeRevision: Int64)
+    /// 不再跟写(停下、出错):目录不会再跟上内存模型。
+    case stoppedFollowing
 }
 
 struct LibraryCatalogMirrorStatistics: Sendable, Equatable {
@@ -148,7 +152,8 @@ final class LibraryCatalogMirror: @unchecked Sendable {
 
     /// 停下(测试、库释放)。在途的一批写完就退出;等待中的调用方都会被唤醒。
     func stop() async {
-        let (wakeup, waiters, verifications, worker) = lock.withLock { () -> (CheckedContinuation<Void, Never>?, [CheckedContinuation<Void, Never>], [PendingVerification], Task<Void, Never>?) in
+        let (wakeup, waiters, verifications, worker, wasFollowing) = lock.withLock { () -> (CheckedContinuation<Void, Never>?, [CheckedContinuation<Void, Never>], [PendingVerification], Task<Void, Never>?, Bool) in
+            let wasFollowing = !state.stopped && !state.poisoned
             state.stopped = true
             let wakeup = state.wakeup
             state.wakeup = nil
@@ -156,8 +161,9 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             state.idleWaiters = []
             let verifications = state.verifications
             state.verifications = []
-            return (wakeup, waiters, verifications, state.worker)
+            return (wakeup, waiters, verifications, state.worker, wasFollowing)
         }
+        if wasFollowing { events(.stoppedFollowing) }
         wakeup?.resume()
         waiters.forEach { $0.resume() }
         verifications.forEach { $0.continuation?.resume(returning: nil) }
@@ -511,15 +517,17 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     }
 
     private func poison() {
-        let changed = lock.withLock { () -> Bool in
+        let (changed, wasFollowing) = lock.withLock { () -> (Bool, Bool) in
+            let wasFollowing = !state.stopped && !state.poisoned
             state.poisoned = true
             state.operations = []
             state.queuedSongs = 0
             let changed = state.readable
             state.readable = false
-            return changed
+            return (changed, wasFollowing)
         }
         if changed { events(.readability(false)) }
+        if wasFollowing { events(.stoppedFollowing) }
     }
 
     private func setReadable(_ readable: Bool) {
@@ -900,6 +908,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         try catalog.setMirrorMetadata([MetaKey.storeRevision: String(revision)])
         progress.mirroredRevision = revision
         lock.withLock { state.mirroredRevision = revision }
+        events(.mirrored(storeRevision: revision))
     }
 
     // MARK: - Configuration

@@ -135,12 +135,19 @@ final class LibraryCatalogEventRelay: @unchecked Sendable {
     private var pendingReadable: Bool?
     private var drainScheduled = false
     private let rowCache: LibraryRowCache
+    private let pendingWrites: LibraryPendingSongWrites?
     private weak var revisions: LibraryCatalogRevisions?
     private let onReadable: @MainActor @Sendable (Bool) -> Void
 
     @MainActor
-    init(rowCache: LibraryRowCache, revisions: LibraryCatalogRevisions, onReadable: @escaping @MainActor @Sendable (Bool) -> Void = { _ in }) {
+    init(
+        rowCache: LibraryRowCache,
+        revisions: LibraryCatalogRevisions,
+        pendingWrites: LibraryPendingSongWrites? = nil,
+        onReadable: @escaping @MainActor @Sendable (Bool) -> Void = { _ in }
+    ) {
         self.rowCache = rowCache
+        self.pendingWrites = pendingWrites
         self.revisions = revisions
         self.onReadable = onReadable
     }
@@ -149,6 +156,13 @@ final class LibraryCatalogEventRelay: @unchecked Sendable {
         let change: LibraryCatalogChange?
         var readable: Bool?
         switch event {
+        case .mirrored(let storeRevision):
+            // 在工作线程上同步确认:目录下一次写之前,已经提交的那些批从覆盖层里拿掉。
+            pendingWrites?.catalogMirrored(storeRevision: storeRevision)
+            return
+        case .stoppedFollowing:
+            pendingWrites?.suspend()
+            return
         case .applied(let summary, let touchedSourceIDs):
             rowCache.invalidate(summary)
             change = LibraryCatalogChange(

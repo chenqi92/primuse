@@ -131,3 +131,92 @@ struct LibrarySongOverlayTests {
         }
     }
 }
+
+/// 覆盖层接在「旧库 → 目录」这条跟写链上:按旧库修订号确认,绑定与镜像谁先到都行。
+@Suite("Library pending song writes")
+struct LibraryPendingSongWritesTests {
+    @Test("A batch is dropped once the catalog mirrors its store revision, whichever arrives first")
+    func bindingAndMirroringInEitherOrder() throws {
+        let writes = LibraryPendingSongWrites()
+        let first = try #require(writes.record(upserts: [LibrarySongOverlayTests.song("a", title: "one")]))
+        let second = try #require(writes.record(upserts: [LibrarySongOverlayTests.song("b")]))
+        writes.bind(throughSequence: first, storeRevision: 10)
+        writes.catalogMirrored(storeRevision: 9)
+        #expect(writes.pendingCount == 2)
+        writes.catalogMirrored(storeRevision: 10)
+        #expect(writes.lookup("a") == .unknown)
+        #expect(LibrarySongOverlayTests.present(writes.lookup("b")) == "b/t")
+
+        // 对账先看到了修订号 12,绑定后到:绑定时直接确认。
+        writes.catalogMirrored(storeRevision: 12)
+        #expect(writes.pendingCount == 1)
+        writes.bind(throughSequence: second, storeRevision: 11)
+        #expect(writes.pendingCount == 0)
+        #expect(writes.answersLikeMemory)
+
+        // 镜像的修订号不往回退。
+        let third = try #require(writes.record(upserts: [LibrarySongOverlayTests.song("c")]))
+        writes.catalogMirrored(storeRevision: 5)
+        writes.bind(throughSequence: third, storeRevision: 12)
+        #expect(writes.pendingCount == 0)
+    }
+
+    @Test("A whole-store replacement keeps the catalog from answering until it is mirrored")
+    func replacementBarrier() throws {
+        let writes = LibraryPendingSongWrites()
+        let sequence = try #require(writes.record(upserts: [LibrarySongOverlayTests.song("a")]))
+        writes.bindReplacement(throughSequence: sequence, storeRevision: 20)
+        #expect(!writes.answersLikeMemory)
+        writes.catalogMirrored(storeRevision: 19)
+        #expect(!writes.answersLikeMemory)
+        writes.catalogMirrored(storeRevision: 20)
+        #expect(writes.answersLikeMemory)
+        #expect(writes.pendingCount == 0)
+
+        writes.catalogMirrored(storeRevision: 25)
+        writes.bindReplacement(throughSequence: writes.lastSequence, storeRevision: 24)
+        #expect(writes.answersLikeMemory, "already mirrored past the replacement")
+    }
+
+    @Test("After following stops nothing is recorded and nothing is answered")
+    func suspension() {
+        let writes = LibraryPendingSongWrites()
+        writes.record(upserts: [LibrarySongOverlayTests.song("a")])
+        writes.suspend()
+        #expect(writes.pendingCount == 0)
+        #expect(!writes.answersLikeMemory)
+        #expect(writes.record(upserts: [LibrarySongOverlayTests.song("b")]) == nil)
+        writes.bind(throughSequence: 1, storeRevision: 1)
+        writes.catalogMirrored(storeRevision: 1)
+        #expect(writes.lookup("b") == .unknown)
+    }
+
+    @Test("Resolving reads the overlay first, then the catalog, following a rename the catalog has not made yet")
+    func resolving() throws {
+        let catalog = try TemporaryCatalog()
+        try catalog.catalog.apply(upserts: [LibrarySongOverlayTests.song("old", title: "kept"), LibrarySongOverlayTests.song("x")])
+        let writes = LibraryPendingSongWrites()
+        let sequence = try #require(writes.record(
+            upserts: [LibrarySongOverlayTests.song("fresh", title: "new")], deletingIDs: ["x"], renaming: ["old": "moved"]
+        ) { (try? catalog.catalog.song(id: $0)) != nil })
+        func read(_ id: String) throws -> String? {
+            try writes.resolve(id) { try catalog.catalog.song(id: $0) }.map { "\($0.id)/\($0.title)" }
+        }
+        #expect(try read("moved") == "moved/kept")
+        #expect(try read("old") == nil)
+        #expect(try read("x") == nil)
+        #expect(try read("fresh") == "fresh/new")
+
+        // 目录已经提交、还没确认:改名之后的那一行按新 id 读。
+        try catalog.catalog.apply(
+            upserts: [LibrarySongOverlayTests.song("fresh", title: "new")], deletingIDs: ["x"], renaming: ["old": "moved"]
+        )
+        #expect(try read("moved") == "moved/kept")
+        writes.bind(throughSequence: sequence, storeRevision: 1)
+        writes.catalogMirrored(storeRevision: 1)
+        #expect(writes.pendingCount == 0)
+        #expect(try read("moved") == "moved/kept")
+        #expect(try read("x") == nil)
+    }
+}
+

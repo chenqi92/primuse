@@ -16302,13 +16302,18 @@ final class MusicLibrary {
                     break
                 case .replaceAll(let importID):
                     let revision = try songStoreSnapshotWriter(songStore, storage.songs, importID)
+                    if let pendingWrites = catalogHost?.pendingWrites {
+                        pendingWrites.bindReplacement(throughSequence: pendingWrites.lastSequence, storeRevision: revision)
+                    }
                     catalogHost?.mirror.enqueueReplaceAll(storeRevision: revision)
                     songStoreRequiresReplacement = false
                     pendingSnapshotImportID = nil
                     // 整库换过了(别处导入的快照、或从兜底恢复), 兜底也跟着换。
                     songFallbackRefreshRequested = true
                 case .upserts(let changedSongs):
+                    let sequence = recordPendingCatalogWrites(upserts: changedSongs, deletingIDs: [], renaming: [:])
                     let revision = try songStore.apply(upserts: changedSongs)
+                    if let sequence { catalogHost?.pendingWrites.bind(throughSequence: sequence, storeRevision: revision) }
                     catalogHost?.mirror.enqueueApply(upserts: changedSongs, deletingIDs: [], storeRevision: revision)
                 }
                 try songStore.markMigrationCompleted(version: migrationVersionToMark)
@@ -16625,6 +16630,8 @@ final class MusicLibrary {
         private var renaming: [String: String] = [:]
         private var sealedChanges: (upserts: [Song], deletingIDs: Set<String>, renaming: [String: String])?
         var isSealed: Bool { sealedChanges != nil }
+        /// 并进来的最后一次改动在 `LibraryPendingSongWrites` 里的序号(没登记时为 nil)。
+        var pendingWriteSequence: UInt64?
 
         init(generation: Int) { self.generation = generation }
 
@@ -16791,16 +16798,21 @@ final class MusicLibrary {
             deferredPortableSnapshotPersistRequested = true
             return
         }
+        let pendingWriteSequence = recordPendingCatalogWrites(
+            upserts: upserts, deletingIDs: deletingIDs, renaming: renaming
+        )
         // Persist the dirty generation before the song-store transaction can
         // start. A process exit can therefore leave extra recovery work, but
         // can never commit new songs while leaving the old index marked clean.
         if let batch = pendingSongPersistenceBatch, !batch.isSealed {
+            batch.pendingWriteSequence = pendingWriteSequence ?? batch.pendingWriteSequence
             batch.merge(upserts: upserts, deletingIDs: deletingIDs, renaming: renaming)
             if needsPromptCompatibilitySnapshot { batch.seal() }
         } else {
             let batch = PendingSongPersistenceBatch(
                 generation: LibrarySearchIndex.persistLibraryChangePending(defaults: searchIndexDefaults)
             )
+            batch.pendingWriteSequence = pendingWriteSequence
             batch.merge(upserts: upserts, deletingIDs: deletingIDs, renaming: renaming)
             pendingSongPersistenceBatch = batch
             if needsPromptCompatibilitySnapshot { batch.seal() }
@@ -16808,14 +16820,15 @@ final class MusicLibrary {
             if let songStore {
                 let previous = songStoreWriteTask
                 let catalogMirror = catalogHost?.mirror
+                let pendingWrites = catalogHost?.pendingWrites
                 songStoreWriteTask = Task.detached(priority: .utility) { [weak self] in
                     let previousSucceeded = await previous?.value != nil
-                    let changes = await MainActor.run {
+                    let (changes, sequence) = await MainActor.run {
                         let changes = batch.seal()
                         if self?.pendingSongPersistenceBatch === batch {
                             self?.pendingSongPersistenceBatch = nil
                         }
-                        return changes
+                        return (changes, batch.pendingWriteSequence)
                     }
                     // A failed earlier delta may have left unknown rows stale, so
                     // this delta must not commit a cursor over that gap. Hand the
@@ -16833,6 +16846,8 @@ final class MusicLibrary {
                         let revision = try songStore.apply(
                             upserts: changes.upserts, deletingIDs: changes.deletingIDs, renaming: changes.renaming
                         )
+                        // 先绑定再排队:目录镜像到这个修订号时这一批才从覆盖层里拿掉。
+                        if let sequence { pendingWrites?.bind(throughSequence: sequence, storeRevision: revision) }
                         // 目录按同样的顺序跟写(排队即返回,不等目录)。
                         catalogMirror?.enqueueApply(
                             upserts: changes.upserts, deletingIDs: changes.deletingIDs, renaming: changes.renaming,
@@ -16860,6 +16875,20 @@ final class MusicLibrary {
             delay = Self.lowPriorityPortableSnapshotDelay
         }
         persistSnapshot(after: delay)
+    }
+
+    /// 内存模型的这批改动登记进目录的覆盖层(目录跟上之前按 id 读目录先看这里),返回序号。
+    /// 只在改动会写进旧库、目录跟着旧库写的时候登记。
+    private func recordPendingCatalogWrites(
+        upserts: [Song],
+        deletingIDs: Set<String>,
+        renaming: [String: String]
+    ) -> UInt64? {
+        guard let catalogHost, songStore != nil, !persistenceBlockedByCorruption else { return nil }
+        let mirror = catalogHost.mirror
+        return catalogHost.pendingWrites.record(upserts: upserts, deletingIDs: deletingIDs, renaming: renaming) { id in
+            (try? mirror.readableCatalog?.song(id: id)) != nil
+        }
     }
 
     /// 歌曲元数据已进 SQLite；最近播放与快照修订号按低优先级合并保存。
@@ -17346,6 +17375,8 @@ final class MusicLibrary {
         let recoverySnapshot = songs
         let writer = songStoreSnapshotWriter
         let importID = pendingSnapshotImportID
+        let pendingWrites = catalogHost?.pendingWrites
+        let replacedThrough = pendingWrites?.lastSequence
         // 恢复写入必须留在 songStoreWriteTask 这条串行链上, 并且在 await 之前
         // 就成为链头: 等待期间 persistSongChanges 产生的增量才会排在恢复之后,
         // 既不会被更旧的恢复快照覆盖, 也不会因为 await 之后重新赋值链头而被
@@ -17356,6 +17387,9 @@ final class MusicLibrary {
             _ = await previous?.value
             do {
                 let revision = try writer(songStore, recoverySnapshot, importID)
+                if let replacedThrough {
+                    pendingWrites?.bindReplacement(throughSequence: replacedThrough, storeRevision: revision)
+                }
                 catalogMirror?.enqueueReplaceAll(storeRevision: revision)
                 return revision
             } catch {

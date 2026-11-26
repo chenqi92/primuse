@@ -594,6 +594,107 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         await musicMemory.waitForPendingPersistence()
     }
 
+    /// 目录跟着旧库写,改动要过一会儿才到目录;这段时间按 id 读「覆盖层 → 目录」与内存模型
+    /// 每一刻都相同(含删除、改名、本机移除与恢复、整源移除),目录跟上之后覆盖层清空。
+    func testCatalogReadsByIDMatchTheInMemoryLibraryWhileWritesAreInFlight() async throws {
+        let library = makeLibrary()
+        var songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        XCTAssertEqual(host.pendingWrites.pendingCount, 0, "every batch is acknowledged once the catalog catches up")
+        var ids = Set(songs.map(\.id))
+        var stepsWithPendingWrites = 0
+
+        func assertReadsMatch(_ step: String, file: StaticString = #filePath, line: UInt = #line) throws {
+            let lookup = try XCTUnwrap(host.songLookup(), "\(step): the catalog cannot answer", file: file, line: line)
+            for id in ids.sorted() {
+                XCTAssertEqual(try lookup.song(id: id), library.storedSong(id: id), "\(step): \(id)", file: file, line: line)
+            }
+        }
+        /// 改动进了内存模型(`changed` 为真)之后,目录跟上之前每隔一会儿比一次,跟上之后再比一次。
+        func assertReadsMatchUntilCaughtUp(
+            _ step: String, file: StaticString = #filePath, line: UInt = #line, changed: () -> Bool = { true }
+        ) async throws {
+            for _ in 0..<1_000 where !changed() { try await Task.sleep(for: .milliseconds(5)) }
+            XCTAssertTrue(changed(), "\(step): the change never reached the in-memory library", file: file, line: line)
+            var sawPending = false
+            for _ in 0..<200 {
+                sawPending = sawPending || host.pendingWrites.pendingCount > 0
+                try assertReadsMatch(step, file: file, line: line)
+                if host.pendingWrites.pendingCount == 0 { break }
+                try await Task.sleep(for: .milliseconds(2))
+            }
+            if sawPending { stepsWithPendingWrites += 1 }
+            await library.waitForCatalogMirror()
+            try assertReadsMatch("\(step) (caught up)", file: file, line: line)
+            XCTAssertEqual(host.pendingWrites.pendingCount, 0, "\(step): left in the overlay", file: file, line: line)
+        }
+
+        songs[0].title = "Blue One (Remaster)"
+        library.replaceSong(songs[0])
+        try await assertReadsMatchUntilCaughtUp("replaceSong")
+
+        songs[5].albumTitle = "Mixtape Deluxe"
+        songs[6].albumTitle = "Mixtape Deluxe"
+        library.replaceSongs([songs[5], songs[6]])
+        try await assertReadsMatchUntilCaughtUp("replaceSongs")
+
+        library.updateLyricsText([songs[1].id: "la la la"])
+        try await assertReadsMatchUntilCaughtUp("updateLyricsText")
+
+        library.updateAssetReferences(songID: songs[2].id, coverRef: "blue-alt.jpg")
+        library.updateMusicVideoReference(songID: songs[3].id, mvPath: "/Videos/blue.mp4")
+        library.flushPendingAssetReferencePatches()
+        try await assertReadsMatchUntilCaughtUp("asset references")
+
+        _ = library.deleteSongs([songs[4]])
+        try await assertReadsMatchUntilCaughtUp("deleteSongs")
+
+        XCTAssertFalse(try library.removeSongsFromThisDevice([songs[7], songs[8]]).isEmpty)
+        try await assertReadsMatchUntilCaughtUp("removeSongsFromThisDevice")
+        _ = try library.restoreSongsRemovedFromThisDevice([songs[7].id])
+        try await assertReadsMatchUntilCaughtUp("restoreSongsRemovedFromThisDevice")
+
+        // 只撤销删除记录(歌等下次扫描回来),按 id 读两边都还是没有。
+        library.restoreDeletedSong(songs[4])
+        try await assertReadsMatchUntilCaughtUp("restoreDeletedSong")
+
+        let renamed = [songs[0].id: songs[0].id + "-v2", songs[9].id: songs[9].id + "-v2"]
+        ids.formUnion(renamed.values)
+        library.remapSongIDs(renamed)
+        try await assertReadsMatchUntilCaughtUp("remapSongIDs")
+
+        let fresh = Song(id: "pending-fresh", title: "Fresh", albumTitle: "New", artistName: "Ada", duration: 200,
+                         fileFormat: .flac, filePath: "/Music/New/fresh.flac", sourceID: Self.sourceA)
+        ids.insert(fresh.id)
+        library.addSongs([fresh], affectedSourceIDs: [Self.sourceA])
+        try await assertReadsMatchUntilCaughtUp("addSongs") { library.storedSong(id: fresh.id) != nil }
+
+        await library.removeSongsForSource(Self.sourceB)
+        try await assertReadsMatchUntilCaughtUp("removeSongsForSource")
+        XCTAssertNil(library.storedSong(id: songs[7].id))
+
+        // 跟写的那一段要真的走过覆盖层(目录在主线程改完之后才写)。
+        XCTAssertGreaterThan(stepsWithPendingWrites, 5)
+        await assertShadowMatches(library, "after every step")
+    }
+
+    /// 目录停下(不再跟写)后不登记、不作答,调用方读内存模型。
+    func testCatalogReadsByIDStopWhenTheMirrorStopsFollowing() async throws {
+        let library = makeLibrary()
+        let songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        XCTAssertNotNil(host.songLookup())
+        await library.stopCatalogMirror()
+        XCTAssertNil(host.songLookup())
+        library.updateLyricsText([songs[1].id: "after stop"])
+        XCTAssertEqual(host.pendingWrites.pendingCount, 0)
+        XCTAssertEqual(library.storedSong(id: songs[1].id)?.lyricsText, "after stop")
+    }
+
     /// Siri「播放音乐」走目录:目录给的整库(可播放的音乐、不含不喜欢的)与内存那一份相同;一首能放的
     /// 都没有、点的那首不在曲库时,目录排队答「没有可放的」,不装队列、不调 `willInstall`(Siri 据此
     /// 答复没找到);目录还没收到点的那首时答「目录不能用」,调用方走内存路径。

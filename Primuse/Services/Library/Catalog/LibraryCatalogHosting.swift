@@ -48,13 +48,16 @@ final class LibraryCatalogHost {
     let reader: LibraryCatalogReader
     let revisions: LibraryCatalogRevisions
     let link: LibraryCatalogOwnerLink
+    /// 内存模型写进旧库、目录还没跟上的改动(按 id 读目录时先看这里)。
+    let pendingWrites: LibraryPendingSongWrites
     private let relay: LibraryCatalogEventRelay
 
     init(directory: URL, startDelay: Duration, log: @escaping @Sendable (String) -> Void) {
         let link = LibraryCatalogOwnerLink()
         let revisions = LibraryCatalogRevisions()
         let rowCache = LibraryRowCache()
-        let relay = LibraryCatalogEventRelay(rowCache: rowCache, revisions: revisions) { readable in
+        let pendingWrites = LibraryPendingSongWrites()
+        let relay = LibraryCatalogEventRelay(rowCache: rowCache, revisions: revisions, pendingWrites: pendingWrites) { readable in
             link.readabilityDidChange(readable)
         }
         var environment = LibraryCatalogMirrorEnvironment(
@@ -71,7 +74,14 @@ final class LibraryCatalogHost {
         self.reader = LibraryCatalogReader(catalog: { [weak mirror] in mirror?.readableCatalog }, rowCache: rowCache)
         self.revisions = revisions
         self.link = link
+        self.pendingWrites = pendingWrites
         self.relay = relay
+    }
+
+    /// 能按 id 从目录读出与内存模型此刻相同的歌时给出读法:目录可读、在跟写、没有等着跟上的整份替换。
+    func songLookup() -> LibraryCatalogSongLookup? {
+        guard pendingWrites.answersLikeMemory, let catalog = mirror.readableCatalog else { return nil }
+        return LibraryCatalogSongLookup(catalog: catalog, pendingWrites: pendingWrites)
     }
 
     /// 一个绑在这个目录上的歌曲列表模型。
@@ -85,5 +95,17 @@ final class LibraryCatalogHost {
 
     func artistList(visibleOnly: Bool = true) -> LibraryListModel<LibraryArtistListQuery> {
         LibraryListModel(query: LibraryArtistListQuery(visibleOnly: visibleOnly), reader: reader, revisions: revisions)
+    }
+}
+
+/// 按 id 读目录(还在路上的改动先看覆盖层),与内存模型 `storedSong(id:)` 的答案相同(含停用源)。
+/// 可以带到主线程外用;途中目录不能再这样答时抛 `unavailable`,调用方改读内存模型。
+struct LibraryCatalogSongLookup: Sendable {
+    let catalog: LibraryCatalog
+    let pendingWrites: LibraryPendingSongWrites
+
+    func song(id: String) throws -> Song? {
+        guard pendingWrites.answersLikeMemory else { throw LibraryCatalogReaderError.unavailable }
+        return try pendingWrites.resolve(id) { try catalog.song(id: $0) }
     }
 }
