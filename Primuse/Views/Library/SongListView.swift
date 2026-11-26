@@ -1309,11 +1309,13 @@ struct SongListView: View {
     enum SongFilter: String, CaseIterable, Hashable, Sendable {
         case all
         case downloaded
+        case offlineAvailable
 
         var label: LocalizedStringKey {
             switch self {
             case .all: return "search_chip_all"
             case .downloaded: return "filter_downloaded"
+            case .offlineAvailable: return "filter_offline_available"
             }
         }
 
@@ -1321,8 +1323,25 @@ struct SongListView: View {
             switch self {
             case .all: return "music.note.list"
             case .downloaded: return "arrow.down.circle.fill"
+            case .offlineAvailable: return "wifi.slash"
             }
         }
+    }
+
+    private var effectiveSongFilter: SongFilter {
+        if songFilter == .downloaded { return .downloaded }
+        if songFilter == .offlineAvailable || sourceManager.isGlobalOfflineMode {
+            return .offlineAvailable
+        }
+        return .all
+    }
+
+    private var isLocalOnlySongFilter: Bool {
+        effectiveSongFilter != .all
+    }
+
+    private var localDeviceSourceIDs: Set<String> {
+        SourceManager.localDeviceSourceIDs(in: sourcesStore.sources)
     }
 
     init(
@@ -1595,6 +1614,17 @@ struct SongListView: View {
                       !isDownloadedFilterLoading else { return }
                 scheduleDownloadedFilterRefresh(delay: .milliseconds(120))
             }
+            .onChange(of: sourceManager.offlineModeState) { _, _ in
+                ensureSortedSnapshotIfNeeded()
+                if requiresDownloadedSongSnapshot {
+                    scheduleDownloadedFilterRefresh()
+                } else {
+                    downloadedFilterGeneration &+= 1
+                    downloadedFilterTask?.cancel()
+                    downloadedFilterTask = nil
+                    isDownloadedFilterLoading = false
+                }
+            }
             #if os(macOS)
             .onChange(of: tableLayout.visibleColumns) { _, columns in
                 if columns.contains(.downloaded) {
@@ -1862,7 +1892,7 @@ struct SongListView: View {
     private var catalogEligibleIgnoringOrder: Bool {
         library.catalogHost?.revisions.isReadable == true
             && !showsFolderBrowser
-            && (songFilter == .all || (songFilter == .downloaded && catalogOfflineIsCurrent))
+            && (effectiveSongFilter == .all || (effectiveSongFilter == .downloaded && catalogOfflineIsCurrent))
             && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -1873,7 +1903,7 @@ struct SongListView: View {
 
     /// 平铺列表的「已下载」筛选与排序由目录给(不再为它在内存里探测整库的离线状态)。
     private var catalogServesDownloadedState: Bool {
-        usesCatalogList && (songFilter == .downloaded || sortOrder.criterion == .downloaded)
+        usesCatalogList && (effectiveSongFilter == .downloaded || sortOrder.criterion == .downloaded)
     }
 
     /// 什么时候重新问一次目录里的离线状态是不是当前的。
@@ -1888,7 +1918,7 @@ struct SongListView: View {
         CatalogOfflineProbe(
             readable: library.catalogHost?.revisions.isReadable == true,
             everything: library.catalogHost?.revisions.everything ?? 0,
-            filter: songFilter,
+            filter: effectiveSongFilter,
             criterion: sortOrder.criterion
         )
     }
@@ -1929,7 +1959,7 @@ struct SongListView: View {
         if let selectedSourceID { listScope.sourceID = selectedSourceID }
         #endif
         // 「已下载」只筛列表;整页的计数(空状态、来源筛选条)仍按整页。
-        listScope.downloadedOnly = songFilter == .downloaded
+        listScope.downloadedOnly = effectiveSongFilter == .downloaded
         return SongListCatalogList.Key(order: sortOrder.libraryOrder, scope: listScope, baseScope: base)
     }
 
@@ -2054,11 +2084,11 @@ struct SongListView: View {
 
     private var requiresDownloadedSongSnapshot: Bool {
         #if os(macOS)
-        (songFilter == .downloaded && !catalogServesDownloadedState)
+        (isLocalOnlySongFilter && !catalogServesDownloadedState)
             || tableLayout.visibleColumns.contains(.downloaded)
             || (sortOrder.criterion == .downloaded && !catalogServesDownloadedState)
         #else
-        songFilter == .downloaded && !catalogServesDownloadedState
+        isLocalOnlySongFilter && !catalogServesDownloadedState
         #endif
     }
 
@@ -2117,7 +2147,7 @@ struct SongListView: View {
 
     /// 开着「已下载」或页内查找有字时目录出不来，歌照平铺列出。
     private var folderBrowseBlocker: LibraryFolderBrowseBlocker? {
-        if songFilter == .downloaded { return .downloadedFilter }
+        if isLocalOnlySongFilter { return .downloadedFilter }
         if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .search }
         return nil
     }
@@ -2214,7 +2244,7 @@ struct SongListView: View {
     private var minimalHeader: SongListMinimalHeader {
         let isPreparing = isPreparingList
         let preparingTotal: Int? = usesCatalogList ? catalogList.baseCount : songs.count
-        let preparingCount = songFilter == .all
+        let preparingCount = effectiveSongFilter == .all
             ? preparingTotal.map { "\($0.formatted()) \(String(localized: "songs_count"))" } ?? " "
             : " "
         return SongListMinimalHeader(
@@ -2250,7 +2280,7 @@ struct SongListView: View {
                         sortOrder: $sortOrder,
                         showsListeningIntents: showsListeningIntentShelf
                     )
-                } else if showsCatalogList, songFilter == .downloaded, usesCatalogList,
+                } else if showsCatalogList, effectiveSongFilter == .downloaded, usesCatalogList,
                           catalogList.currentKey == catalogListKey, catalogList.count == 0 {
                     ContentUnavailableView(
                         "filter_downloaded",
@@ -2269,7 +2299,7 @@ struct SongListView: View {
                         onPlay: playSong
                     )
                     .equatable()
-                } else if songFilter == .downloaded,
+                } else if isLocalOnlySongFilter,
                           isDownloadedFilterLoading,
                           downloadedSongIDs.isEmpty {
                     VStack(spacing: 10) {
@@ -2281,14 +2311,20 @@ struct SongListView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if !projectionQuery.isEmpty, filteredRows.isEmpty {
                     ContentUnavailableView.search(text: projectionQuery)
-                } else if songFilter == .downloaded, filteredRows.isEmpty {
+                } else if isLocalOnlySongFilter, filteredRows.isEmpty {
                     ContentUnavailableView(
-                        "filter_downloaded",
-                        systemImage: "arrow.down.circle",
-                        description: Text("filter_downloaded_empty_desc")
+                        LocalizedStringKey(effectiveSongFilter == .offlineAvailable ? "filter_offline_available" : "filter_downloaded"),
+                        systemImage: effectiveSongFilter == .offlineAvailable ? "wifi.slash" : "arrow.down.circle",
+                        description: Text(
+                            LocalizedStringKey(
+                                effectiveSongFilter == .offlineAvailable
+                                    ? "filter_offline_available_empty_desc"
+                                    : "filter_downloaded_empty_desc"
+                            )
+                        )
                     )
                 } else {
-                    if songFilter == .downloaded || !projectionQuery.isEmpty {
+                    if isLocalOnlySongFilter || !projectionQuery.isEmpty {
                         IOSSongListFilteredContainer(
                             projection: filteredProjection,
                             projectionRevision: downloadedFilterRevision,
@@ -2358,7 +2394,7 @@ struct SongListView: View {
     /// 只在整个歌曲页、没在筛选、没在多选时出现。
     private var showsListeningIntentShelf: Bool {
         showsListeningIntentsSetting
-            && songFilter == .all
+            && effectiveSongFilter == .all
             && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !selection.isActive
     }
@@ -2845,11 +2881,17 @@ struct SongListView: View {
 
     @ViewBuilder
     private var macSongListEmptyState: some View {
-        if songFilter == .downloaded {
+        if isLocalOnlySongFilter {
             ContentUnavailableView(
-                "filter_downloaded",
-                systemImage: "arrow.down.circle",
-                description: Text("filter_downloaded_empty_desc")
+                LocalizedStringKey(effectiveSongFilter == .offlineAvailable ? "filter_offline_available" : "filter_downloaded"),
+                systemImage: effectiveSongFilter == .offlineAvailable ? "wifi.slash" : "arrow.down.circle",
+                description: Text(
+                    LocalizedStringKey(
+                        effectiveSongFilter == .offlineAvailable
+                            ? "filter_offline_available_empty_desc"
+                            : "filter_downloaded_empty_desc"
+                    )
+                )
             )
             .padding(.top, 48)
         } else {
@@ -2914,7 +2956,7 @@ struct SongListView: View {
             HStack(spacing: 8) {
                 sourceChip(title: String(localized: "search_chip_all"),
                            count: showsCatalogList ? (catalogList.baseCount ?? 0) : listCache.songCount, color: nil,
-                           active: selectedSourceID == nil && songFilter == .all) {
+                           active: selectedSourceID == nil && effectiveSongFilter == .all) {
                     selectedSourceID = nil
                     songFilter = .all
                 }
@@ -2926,7 +2968,7 @@ struct SongListView: View {
                     if count > 0 {
                         sourceChip(title: source.name, count: count,
                                    color: sourceColor(source),
-                                   active: selectedSourceID == source.id && songFilter == .all) {
+                                   active: selectedSourceID == source.id && effectiveSongFilter == .all) {
                             // 再点一次已选中的源 = 取消过滤回到全部。
                             songFilter = .all
                             selectedSourceID = (selectedSourceID == source.id) ? nil : source.id
@@ -2997,6 +3039,22 @@ struct SongListView: View {
             Spacer()
 
             SongListSortProgressIndicator(progress: sortProgress)
+
+            Button {
+                selectedSourceID = nil
+                songFilter = songFilter == .offlineAvailable ? .all : .offlineAvailable
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: SongFilter.offlineAvailable.icon)
+                        .imageScale(.small)
+                    Text("filter_offline_available")
+                }
+                .macControlChrome(effectiveSongFilter == .offlineAvailable ? .selected : .glass)
+            }
+            .buttonStyle(.plain)
+            .disabled(selection.isActive || sourceManager.isGlobalOfflineMode)
+            .accessibilityAddTraits(effectiveSongFilter == .offlineAvailable ? .isSelected : [])
+            .accessibilityIdentifier("songFilter.offlineAvailable")
 
             Button {
                 selectedSourceID = nil
@@ -3845,7 +3903,7 @@ struct SongListView: View {
         #else
         let sourceID: String? = nil
         #endif
-        let includedSongIDs = songFilter == .downloaded ? downloadedSongIDs : nil
+        let includedSongIDs = isLocalOnlySongFilter ? downloadedSongIDs : nil
         return listCache.projection(
             sourceID: sourceID,
             query: projectionQuery,
@@ -3860,6 +3918,8 @@ struct SongListView: View {
         downloadedFilterGeneration &+= 1
         let generation = downloadedFilterGeneration
         let songsSnapshot = songs
+        let filterMode = effectiveSongFilter
+        let localSourceIDs = localDeviceSourceIDs
         downloadedFilterTask?.cancel()
         isDownloadedFilterLoading = true
 
@@ -3871,7 +3931,15 @@ struct SongListView: View {
                     return
                 }
             }
-            let resolvedIDs = await sourceManager.downloadedSongIDs(in: songsSnapshot)
+            let resolvedIDs: Set<String>
+            if filterMode == .offlineAvailable {
+                resolvedIDs = await sourceManager.offlinePlayableSongIDs(
+                    in: songsSnapshot,
+                    localSourceIDs: localSourceIDs
+                )
+            } else {
+                resolvedIDs = await sourceManager.downloadedSongIDs(in: songsSnapshot)
+            }
             guard !Task.isCancelled,
                   downloadedFilterGeneration == generation else { return }
             let changed = downloadedSongIDs != resolvedIDs
@@ -3882,7 +3950,7 @@ struct SongListView: View {
             }
             isDownloadedFilterLoading = false
             downloadedFilterTask = nil
-            if songFilter == .downloaded {
+            if isLocalOnlySongFilter {
                 pruneSelection()
             }
             if changed, sortOrder.criterion == .downloaded {
@@ -7025,9 +7093,12 @@ private struct SongListMoreMenuItems: View {
             SongListAppearancePicker()
             #endif
 
-            // 筛选只有「全部 / 已下载」两种, 两行单选不如一个开关直观。
+            // 筛选：显式离线下载 / 离线可用（含已缓存与本机）。
             Toggle(isOn: downloadedBinding) {
                 Label("filter_downloaded", systemImage: "arrow.down.circle")
+            }
+            Toggle(isOn: offlineAvailableBinding) {
+                Label("filter_offline_available", systemImage: "wifi.slash")
             }
         }
 
@@ -7048,6 +7119,13 @@ private struct SongListMoreMenuItems: View {
         Binding(
             get: { filter == .downloaded },
             set: { filter = $0 ? .downloaded : .all }
+        )
+    }
+
+    private var offlineAvailableBinding: Binding<Bool> {
+        Binding(
+            get: { filter == .offlineAvailable },
+            set: { filter = $0 ? .offlineAvailable : .all }
         )
     }
 }

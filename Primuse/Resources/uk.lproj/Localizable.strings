@@ -8204,3 +8204,24 @@
 "fnconnect_gateway_2fa_title" = "Перевірка FN Connect";
 "fnconnect_gateway_2fa_code" = "6-значний код";
 "fnconnect_gateway_2fa_verify" = "Підтвердити";
+
+"offline_mode_title" = "Офлайн-режим";
+"offline_mode_desc" = "Відтворювати лише завантажені, кешовані або локальні треки без стримінгу та автооновлення.";
+"offline_mode_short" = "Офлайн";
+"offline_mode_partial_count_format" = "Джерел в офлайн-режимі: %d";
+"offline_mode_enable_source" = "Увімкнути офлайн-режим";
+"offline_mode_disable_source" = "Вимкнути офлайн-режим";
+"offline_mode_go_online_source" = "Повернути джерело онлайн";
+"offline_mode_turn_off_global" = "Вимкнути офлайн-режим";
+"offline_mode_banner_global" = "Офлайн-режим · Лише локально";
+"offline_mode_banner_partial_format" = "Джерел офлайн: %d";
+"offline_mode_turn_off_short" = "Вимкнути";
+"offline_mode_restore_all_short" = "Усі онлайн";
+"offline_mode_song_alert_title" = "Офлайн-режим увімкнено";
+"offline_mode_song_alert_message" = "В офлайн-режимі можна відтворювати лише завантажені або кешовані треки.";
+"source_card_status_offline_mode" = "Офлайн-режим · Лише локально";
+"song_row_source_offline" = "Офлайн-режим";
+"playback_error_source_offline_format" = "«%@» в офлайн-режимі";
+"playback_error_source_offline_skipped_format" = "Пропущено некешовані треки з «%@» в офлайн-режимі";
+"filter_offline_available" = "Доступно офлайн";
+"filter_offline_available_empty_desc" = "Тут відображаються завантажені, кешовані та локальні треки.";

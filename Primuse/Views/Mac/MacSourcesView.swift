@@ -192,6 +192,25 @@ struct MacSourcesView: View {
                 }
                 .layoutPriority(1)
                 Spacer(minLength: 0)
+                if sources.contains(where: { OfflineModeState.supportsOfflineMode(for: $0.type) }) {
+                    Button {
+                        sourceManager.setGlobalOfflineMode(!sourceManager.isGlobalOfflineMode)
+                    } label: {
+                        Label("offline_mode_title", systemImage: "wifi.slash")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(sourceManager.isGlobalOfflineMode ? .orange : PMColor.text)
+                            .padding(.horizontal, 12)
+                            .frame(height: 30)
+                            .background(
+                                sourceManager.isGlobalOfflineMode
+                                    ? Color.orange.opacity(0.18)
+                                    : PMColor.matBtn,
+                                in: .rect(cornerRadius: 7)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("sources.offlineMode.global")
+                }
                 // 页面主操作: 和歌单、电台页的「新建 / 添加」同一种品牌色键(`MacControlStyle.prominent`)。
                 Button {
                     showAddSource = true
@@ -349,6 +368,31 @@ struct MacSourcesView: View {
                 SourceScanStateReader(sourceID: source.id) { _ in
                     statusBadge(runtimeState(source))
                 }
+                if OfflineModeState.supportsOfflineMode(for: source.type) {
+                    let isGlobal = sourceManager.isGlobalOfflineMode
+                    let isOffline = sourceManager.isSourceManuallyOffline(source)
+                    Button {
+                        if !isGlobal {
+                            sourceManager.setSourceManuallyOffline(!isOffline, sourceID: source.id)
+                        }
+                    } label: {
+                        Label(
+                            LocalizedStringKey(isOffline ? "offline_mode_short" : "offline_mode_enable_source"),
+                            systemImage: "wifi.slash"
+                        )
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isOffline ? .orange : PMColor.textMuted)
+                        .frame(width: 26, height: 24)
+                        .background(
+                            isOffline ? Color.orange.opacity(0.18) : PMColor.matBtn,
+                            in: .rect(cornerRadius: 6)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isGlobal)
+                    .help(Text(LocalizedStringKey(isOffline ? "offline_mode_disable_source" : "offline_mode_enable_source")))
+                }
                 if SourceFileBrowserPolicy.browsesFiles(source.type) {
                     pill("source_card_mac_files", systemImage: "folder") { detailSource = source }
                 } else if source.type.isServerLibrary {
@@ -367,7 +411,9 @@ struct MacSourcesView: View {
                 )
             }
 
-            if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
+            if sourceManager.isSourceManuallyOffline(source) {
+                SourceOfflineModeNotice(source: source)
+            } else if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
                 SourceUnreachableNotice(source: source)
             }
 
@@ -402,6 +448,26 @@ struct MacSourcesView: View {
         .id(source.id)
         .opacity(source.isEnabled ? 1.0 : 0.6)
         .contextMenu {
+            if OfflineModeState.supportsOfflineMode(for: source.type) {
+                let isGlobal = sourceManager.isGlobalOfflineMode
+                let isOffline = sourceManager.isSourceManuallyOffline(source)
+                Button {
+                    if isGlobal {
+                        sourceManager.setGlobalOfflineMode(false)
+                    } else {
+                        sourceManager.setSourceManuallyOffline(!isOffline, sourceID: source.id)
+                    }
+                } label: {
+                    Label(
+                        LocalizedStringKey(
+                            isGlobal
+                                ? "offline_mode_turn_off_global"
+                                : (isOffline ? "offline_mode_disable_source" : "offline_mode_enable_source")
+                        ),
+                        systemImage: isOffline ? "wifi" : "wifi.slash"
+                    )
+                }
+            }
             Button {
                 toggleSourceEnabled(source)
             } label: {
@@ -757,7 +823,7 @@ struct MacSourcesView: View {
         if !source.isEnabled { return .disabled }
         if scanService.scanStates[source.id]?.isScanning == true { return .scanning }
         if isAttention(source) { return .attention }
-        if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) { return .offline }
+        if sourceManager.isSourceOfflineOrUnreachable(source.id) { return .offline }
         return .online
     }
 
@@ -811,8 +877,16 @@ struct MacSourcesView: View {
     }
 
     private func hostLine(_ source: MusicSource) -> String {
-        if source.connectionConfiguration != nil {
-            return source.type.displayName
+        let route = source.connectionConfiguration.flatMap { config in
+            SourceCardPresentationPolicy.displayedRoute(
+                candidates: source.connectionCandidates,
+                active: sourceManager.activeConnectionRoutes[source.id],
+                lastSuccessful: sourceManager.lastSuccessfulConnectionRoutes[source.id],
+                selected: config.effectiveSelectedRoute
+            )
+        }
+        if let address = SourceCardPresentationPolicy.compactAddress(for: source, displayedRoute: route) {
+            return "\(source.type.displayName) · \(address)"
         }
         if let summary = source.connectionSummary {
             return "\(source.type.displayName) · \(summary)"

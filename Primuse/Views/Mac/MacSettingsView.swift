@@ -550,10 +550,23 @@ private struct MacSTStorageView: View {
             MacSTSection(String(localized: "offline_downloads")) {
                 MacSTGroup {
                     MacSTRow(
+                        String(localized: "offline_mode_title"),
+                        hint: String(localized: "offline_mode_desc"),
+                        hintLineLimit: 2,
+                        divider: false
+                    ) {
+                        MacSTToggle(
+                            isOn: Binding(
+                                get: { sourceManager.isGlobalOfflineMode },
+                                set: { sourceManager.setGlobalOfflineMode($0) }
+                            )
+                        )
+                    }
+                    .settingsAnchor("storage.offlineMode")
+                    MacSTRow(
                         String(localized: "offline_downloads"),
                         hint: String(localized: "offline_downloads_footer"),
-                        hintLineLimit: 3,
-                        divider: false
+                        hintLineLimit: 3
                     ) {
                         Text(verbatim: offlineDownloadsSummary)
                             .foregroundStyle(.secondary)

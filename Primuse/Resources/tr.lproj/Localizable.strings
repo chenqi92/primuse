@@ -8204,3 +8204,24 @@
 "fnconnect_gateway_2fa_title" = "FN Connect Doğrulaması";
 "fnconnect_gateway_2fa_code" = "6 Haneli Kod";
 "fnconnect_gateway_2fa_verify" = "Doğrula";
+
+"offline_mode_title" = "Çevrimdışı Mod";
+"offline_mode_desc" = "Yayın akışı ve otomatik yenileme olmadan yalnızca indirilen, önbelleğe alınan veya cihazdaki sesleri çalın.";
+"offline_mode_short" = "Çevrimdışı";
+"offline_mode_partial_count_format" = "%d kaynak Çevrimdışı Modda";
+"offline_mode_enable_source" = "Çevrimdışı Modu Aç";
+"offline_mode_disable_source" = "Çevrimdışı Moddan Çık";
+"offline_mode_go_online_source" = "Bu Kaynağı Çevrimiçi Yap";
+"offline_mode_turn_off_global" = "Çevrimdışı Modu Kapat";
+"offline_mode_banner_global" = "Çevrimdışı Mod · Yalnızca Yerel";
+"offline_mode_banner_partial_format" = "%d kaynak çevrimdışı";
+"offline_mode_turn_off_short" = "Kapat";
+"offline_mode_restore_all_short" = "Çevrimiçi Ol";
+"offline_mode_song_alert_title" = "Çevrimdışı Mod Etkin";
+"offline_mode_song_alert_message" = "Çevrimdışı Mod etkinken yalnızca indirilen veya önbelleğe alınan şarkılar çalınabilir.";
+"source_card_status_offline_mode" = "Çevrimdışı Mod · Yalnızca Yerel";
+"song_row_source_offline" = "Çevrimdışı Mod";
+"playback_error_source_offline_format" = "\"%@\" Çevrimdışı Modda";
+"playback_error_source_offline_skipped_format" = "Çevrimdışı Modda \"%@\" kaynağındaki önbelleksiz şarkılar atlandı";
+"filter_offline_available" = "Çevrimdışı Kullanılabilir";
+"filter_offline_available_empty_desc" = "İndirilen, önbelleğe alınan ve cihazdaki şarkılar burada görünür.";

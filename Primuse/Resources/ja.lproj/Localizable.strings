@@ -8299,3 +8299,24 @@
 "fnconnect_gateway_2fa_title" = "FN Connect 2段階認証";
 "fnconnect_gateway_2fa_code" = "6 桁の確認コード";
 "fnconnect_gateway_2fa_verify" = "確認";
+
+"offline_mode_title" = "オフラインモード";
+"offline_mode_desc" = "ダウンロード済み・キャッシュ済み・端末内の曲のみ再生し、ストリーミングや自動更新を行いません。";
+"offline_mode_short" = "オフライン";
+"offline_mode_partial_count_format" = "%d 件のソースがオフラインモード";
+"offline_mode_enable_source" = "オフラインモードを有効にする";
+"offline_mode_disable_source" = "オフラインモードを終了";
+"offline_mode_go_online_source" = "このソースをオンラインに戻す";
+"offline_mode_turn_off_global" = "オフラインモードをオフ";
+"offline_mode_banner_global" = "オフラインモード · ローカルのみ";
+"offline_mode_banner_partial_format" = "%d 件のソースがオフライン";
+"offline_mode_turn_off_short" = "オフ";
+"offline_mode_restore_all_short" = "すべてオンライン";
+"offline_mode_song_alert_title" = "オフラインモードが有効です";
+"offline_mode_song_alert_message" = "オフラインモード中はダウンロード済みまたはキャッシュ済みの曲のみ再生できます。";
+"source_card_status_offline_mode" = "オフラインモード · ローカルのみ";
+"song_row_source_offline" = "オフラインモード";
+"playback_error_source_offline_format" = "「%@」はオフラインモードです";
+"playback_error_source_offline_skipped_format" = "オフラインモード中の「%@」の未キャッシュ曲をスキップしました";
+"filter_offline_available" = "オフライン再生可能";
+"filter_offline_available_empty_desc" = "ダウンロード済み、キャッシュ済み、および端末内の曲がここに表示されます。";

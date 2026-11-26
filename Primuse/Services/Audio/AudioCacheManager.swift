@@ -393,6 +393,12 @@ actor AudioCacheManager {
     private nonisolated let playbackReadLeases = PlaybackCacheReadLeases()
     private var leasedPathCounts: [String: Int] = [:]
     private var leasedPathsByID: [UUID: Set<String>] = [:]
+    /// 主动离线模式开启期间暂停自动 LRU 清理，避免把唯一可离线播放的缓存淘汰掉。
+    private var suspendsAutomaticEviction = false
+
+    func setAutomaticEvictionSuspended(_ suspended: Bool) {
+        suspendsAutomaticEviction = suspended
+    }
     private var leasedCanonicalPathByID: [UUID: String] = [:]
     private var reservedBytesByLeaseID: [UUID: Int64] = [:]
     private var reservationUsesConfiguredCacheByLeaseID: [UUID: Bool] = [:]
@@ -1383,6 +1389,7 @@ actor AudioCacheManager {
     @discardableResult
     func evictIfNeeded(reserveBytes: Int64) -> Bool {
         ensureInitialized()
+        guard !suspendsAutomaticEviction else { return true }
         let combinedReservation: Int64
         let reservationResult = activeConfiguredCacheReservedBytes
             .addingReportingOverflow(max(0, reserveBytes))

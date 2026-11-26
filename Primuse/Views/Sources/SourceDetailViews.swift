@@ -129,7 +129,9 @@ struct SourceStatusBanners: View {
 
     /// 每条各占列表里的一行;没有要说的就一行都不占。
     var body: some View {
-        if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
+        if sourceManager.isSourceManuallyOffline(source) {
+            SourceOfflineModeNotice(source: source)
+        } else if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
             SourceUnreachableNotice(source: source)
         }
         if source.type == .googleDrive {
@@ -276,17 +278,84 @@ struct SourceDetailHeader: View {
                 lastSuccessfulKind: sourceManager.lastSuccessfulConnectionRoutes[source.id]
             )
         }
+
+        if OfflineModeState.supportsOfflineMode(for: source.type) {
+            offlineModeRow
+        }
+    }
+
+    @ViewBuilder
+    private var offlineModeRow: some View {
+        let isGlobal = sourceManager.isGlobalOfflineMode
+        Toggle(
+            isOn: Binding(
+                get: { sourceManager.isSourceManuallyOffline(source) },
+                set: { enabled in
+                    if isGlobal {
+                        if !enabled { sourceManager.setGlobalOfflineMode(false) }
+                    } else {
+                        sourceManager.setSourceManuallyOffline(enabled, sourceID: source.id)
+                    }
+                }
+            )
+        ) {
+            Label("offline_mode_title", systemImage: "wifi.slash")
+                .foregroundStyle(sourceManager.isSourceManuallyOffline(source) ? .orange : .primary)
+        }
+        .tint(.orange)
     }
 
     private var subtitle: String? {
         var parts: [String] = []
-        if source.connectionConfiguration == nil, let summary = source.connectionSummary {
+        let route = source.connectionConfiguration.flatMap { config in
+            SourceCardPresentationPolicy.displayedRoute(
+                candidates: source.connectionCandidates,
+                active: sourceManager.activeConnectionRoutes[source.id],
+                lastSuccessful: sourceManager.lastSuccessfulConnectionRoutes[source.id],
+                selected: config.effectiveSelectedRoute
+            )
+        }
+        if let address = SourceCardPresentationPolicy.compactAddress(for: source, displayedRoute: route) {
+            parts.append(address)
+        } else if source.connectionConfiguration == nil, let summary = source.connectionSummary {
             parts.append(summary)
         }
         if !source.isEnabled {
             parts.append(String(localized: "source_disabled_on_this_device"))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// 单源处于主动离线模式时的说明条（支持快速切回在线）。
+struct SourceOfflineModeNotice: View {
+    let source: MusicSource
+    @Environment(SourceManager.self) private var sourceManager
+
+    var body: some View {
+        SourceBannerBox(tint: .orange) {
+            HStack(alignment: .center, spacing: 8) {
+                Label("source_card_status_offline_mode", systemImage: "wifi.slash")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Spacer(minLength: 8)
+                Button(
+                    LocalizedStringKey(
+                        sourceManager.isGlobalOfflineMode
+                            ? "offline_mode_turn_off_global"
+                            : "offline_mode_go_online_source"
+                    )
+                ) {
+                    if sourceManager.isGlobalOfflineMode {
+                        sourceManager.setGlobalOfflineMode(false)
+                    } else {
+                        sourceManager.setSourceManuallyOffline(false, sourceID: source.id)
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.borderless)
+            }
+        }
     }
 }
 

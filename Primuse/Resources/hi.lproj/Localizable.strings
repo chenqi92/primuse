@@ -8204,3 +8204,24 @@
 "fnconnect_gateway_2fa_title" = "FN Connect सत्यापन";
 "fnconnect_gateway_2fa_code" = "6-अंकीय कोड";
 "fnconnect_gateway_2fa_verify" = "सत्यापित करें";
+
+"offline_mode_title" = "ऑफ़लाइन मोड";
+"offline_mode_desc" = "बिना स्ट्रीमिंग या ऑटो-रिफ़्रेश के केवल डाउनलोड, कैश्ड या डिवाइस पर मौजूद ऑडियो चलाएँ।";
+"offline_mode_short" = "ऑफ़लाइन";
+"offline_mode_partial_count_format" = "%d स्रोत ऑफ़लाइन मोड में";
+"offline_mode_enable_source" = "ऑफ़लाइन मोड चालू करें";
+"offline_mode_disable_source" = "ऑफ़लाइन मोड बंद करें";
+"offline_mode_go_online_source" = "इस स्रोत को ऑनलाइन करें";
+"offline_mode_turn_off_global" = "ऑफ़लाइन मोड बंद करें";
+"offline_mode_banner_global" = "ऑफ़लाइन मोड · केवल स्थानीय";
+"offline_mode_banner_partial_format" = "%d स्रोत ऑफ़लाइन";
+"offline_mode_turn_off_short" = "बंद करें";
+"offline_mode_restore_all_short" = "सब ऑनलाइन करें";
+"offline_mode_song_alert_title" = "ऑफ़लाइन मोड सक्रिय है";
+"offline_mode_song_alert_message" = "ऑफ़लाइन मोड सक्रिय होने पर केवल डाउनलोड या कैश्ड गाने ही चलाए जा सकते हैं।";
+"source_card_status_offline_mode" = "ऑफ़लाइन मोड · केवल स्थानीय";
+"song_row_source_offline" = "ऑफ़लाइन मोड";
+"playback_error_source_offline_format" = "\"%@\" ऑफ़लाइन मोड में है";
+"playback_error_source_offline_skipped_format" = "ऑफ़लाइन मोड में \"%@\" के बिना कैश वाले गाने छोड़ दिए गए";
+"filter_offline_available" = "ऑफ़लाइन उपलब्ध";
+"filter_offline_available_empty_desc" = "डाउनलोड, कैश्ड और डिवाइस के गाने यहाँ दिखाई देते हैं।";

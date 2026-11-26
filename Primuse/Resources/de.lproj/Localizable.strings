@@ -8298,3 +8298,24 @@
 "fnconnect_gateway_2fa_title" = "FN Connect-Verifizierung";
 "fnconnect_gateway_2fa_code" = "6-stelliger Code";
 "fnconnect_gateway_2fa_verify" = "Bestätigen";
+
+"offline_mode_title" = "Offline-Modus";
+"offline_mode_desc" = "Nur geladene, zwischengespeicherte oder lokale Titel ohne Streaming oder automatische Aktualisierung abspielen.";
+"offline_mode_short" = "Offline";
+"offline_mode_partial_count_format" = "%d Quelle(n) im Offline-Modus";
+"offline_mode_enable_source" = "Offline-Modus aktivieren";
+"offline_mode_disable_source" = "Offline-Modus beenden";
+"offline_mode_go_online_source" = "Quelle wieder online schalten";
+"offline_mode_turn_off_global" = "Offline-Modus ausschalten";
+"offline_mode_banner_global" = "Offline-Modus · Nur lokal";
+"offline_mode_banner_partial_format" = "%d Quelle(n) offline";
+"offline_mode_turn_off_short" = "Aus";
+"offline_mode_restore_all_short" = "Alle online";
+"offline_mode_song_alert_title" = "Offline-Modus aktiv";
+"offline_mode_song_alert_message" = "Im Offline-Modus können nur geladene oder zwischengespeicherte Titel abgespielt werden.";
+"source_card_status_offline_mode" = "Offline-Modus · Nur lokal";
+"song_row_source_offline" = "Offline-Modus";
+"playback_error_source_offline_format" = "„%@“ ist im Offline-Modus";
+"playback_error_source_offline_skipped_format" = "Nicht zwischengespeicherte Titel von „%@“ im Offline-Modus übersprungen";
+"filter_offline_available" = "Offline verfügbar";
+"filter_offline_available_empty_desc" = "Geladene, zwischengespeicherte und lokale Titel erscheinen hier.";

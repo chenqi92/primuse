@@ -687,7 +687,7 @@ struct QueueView: View {
     /// Read here, in the list body, and handed to the row as a value: a row
     /// lifted into a drag preview has no environment to read it from.
     private func isUnreachable(_ song: Song) -> Bool {
-        sourceManager.unreachablePlaybackSourceIDs.contains(song.sourceID)
+        sourceManager.isSourceOfflineOrUnreachable(song.sourceID)
             && player.isSongBlockedByUnreachableSource(song)
     }
 

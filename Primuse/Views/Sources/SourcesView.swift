@@ -993,7 +993,13 @@ struct SourcesContentView: View {
         let activeSourceCacheIDs = sourceManager.activeOfflineSourceCacheSourceIDs
         let accountSourceIDs = SourceCardPresentationPolicy.sourceIDsShowingAccount(sources)
         // 每个源单独一段,读起来是一张张卡片;分区标题挂在这一类的第一张上。
+        let hasRemoteSources = sources.contains { OfflineModeState.supportsOfflineMode(for: $0.type) }
         return List {
+            if hasRemoteSources {
+                Section {
+                    globalOfflineModeRow
+                }
+            }
             ForEach(groupedSources, id: \.0) { category, items in
                 ForEach(items) { source in
                     Section {
@@ -1038,6 +1044,40 @@ struct SourcesContentView: View {
             // revisions without rescanning the library from every card body.
             await backfill.refreshStatusSnapshotOffMain()
         }
+    }
+
+    private var globalOfflineModeRow: some View {
+        let isGlobal = sourceManager.isGlobalOfflineMode
+        let partialCount = sourceManager.activeManualOfflineSourceCount
+        return Toggle(
+            isOn: Binding(
+                get: { sourceManager.isGlobalOfflineMode },
+                set: { sourceManager.setGlobalOfflineMode($0) }
+            )
+        ) {
+            HStack(spacing: 10) {
+                Image(systemName: "wifi.slash")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(isGlobal ? .white : (partialCount > 0 ? .orange : .secondary))
+                    .frame(width: 30, height: 30)
+                    .background(
+                        isGlobal ? Color.orange.gradient : Color.primary.opacity(0.07).gradient,
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("offline_mode_title")
+                        .font(.body.weight(.medium))
+                    if !isGlobal, partialCount > 0 {
+                        Text(String(format: String(localized: "offline_mode_partial_count_format"), partialCount))
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+        }
+        .tint(.orange)
+        .accessibilityIdentifier("sources.offlineMode.global")
     }
 
     private func sourceCard(
@@ -1269,6 +1309,11 @@ struct SourcesContentView: View {
                 }
                 .font(.caption2).foregroundStyle(.secondary)
             }
+        } else if sourceManager.isSourceManuallyOffline(source) {
+            Label("source_card_status_offline_mode", systemImage: "wifi.slash")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .lineLimit(2)
         } else if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
             Label("source_card_status_unreachable", systemImage: "wifi.slash")
                 .font(.caption)
@@ -1415,12 +1460,13 @@ struct SourcesContentView: View {
             }
         } else {
             let isScanning = scanning?.isScanning == true
+            let isManuallyOffline = sourceManager.isSourceManuallyOffline(source)
             sourceFooterButton(
                 isScanning ? "scanning" : (scanning?.canResume == true ? "resume_scan" : "source_incremental_scan"),
                 systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
                 prominence: .success,
                 isLoading: isScanning,
-                isDisabled: isScanning || !source.isEnabled
+                isDisabled: isScanning || !source.isEnabled || isManuallyOffline
             ) {
                 startSourceScan(source)
             }
@@ -1471,6 +1517,24 @@ struct SourcesContentView: View {
         }
 
         Section {
+            if OfflineModeState.supportsOfflineMode(for: source.type) {
+                let isGlobal = sourceManager.isGlobalOfflineMode
+                let isOffline = sourceManager.isSourceManuallyOffline(source)
+                Button {
+                    if isGlobal {
+                        sourceManager.setGlobalOfflineMode(false)
+                    } else {
+                        sourceManager.setSourceManuallyOffline(!isOffline, sourceID: source.id)
+                    }
+                } label: {
+                    Label(
+                        isGlobal
+                            ? String(localized: "offline_mode_turn_off_global")
+                            : String(localized: isOffline ? "offline_mode_disable_source" : "offline_mode_enable_source"),
+                        systemImage: isOffline ? "wifi" : "wifi.slash"
+                    )
+                }
+            }
             if hasPlayableSongs {
                 Button { browsingFoldersSource = source } label: {
                     Label("library_browse_folder", systemImage: "folder")
@@ -2971,10 +3035,12 @@ struct SourceCardCapsuleLabel: View {
 /// 卡片上的「自动刷新」:关着是灰的,开着带上间隔、换成强调色。点开选间隔或关掉。
 private struct SourceAutoRefreshCapsule: View {
     let source: MusicSource
+    @Environment(SourceManager.self) private var sourceManager
 
     var body: some View {
         let refresh = AppServices.shared.serverCatalogAutoRefresh
         let isOn = refresh.isEnabled(for: source.id)
+        let isOffline = sourceManager.isSourceManuallyOffline(source)
         let interval = Duration.seconds(refresh.refreshInterval(for: source.id).timeInterval)
             .formatted(.units(allowed: [.hours], width: .abbreviated))
         let title = isOn
@@ -2987,14 +3053,14 @@ private struct SourceAutoRefreshCapsule: View {
             SourceCardCapsuleLabel(
                 title: Text(verbatim: title),
                 systemImage: "clock.arrow.circlepath",
-                prominence: isOn ? .accent : .neutral
+                prominence: isOn && !isOffline ? .accent : .neutral
             )
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .disabled(!source.isEnabled)
-        .opacity(source.isEnabled ? 1 : 0.55)
+        .disabled(!source.isEnabled || isOffline)
+        .opacity(source.isEnabled && !isOffline ? 1 : 0.55)
         .accessibilityLabel(Text("server_auto_refresh"))
         .accessibilityValue(Text(verbatim: isOn ? interval : String(localized: "source_card_metric_off")))
     }
@@ -3010,20 +3076,27 @@ private struct SourceMetricSeparator: View {
     }
 }
 
-/// 卡片头:图标、名字,下面一行是类型和现在走的线路或地址。
+/// 卡片头:图标、名字、精简地址与线路、右侧单源离线开关与进入箭头。
 private struct SourceCardHeader: View {
     let source: MusicSource
     let openHint: LocalizedStringKey
     let showsAccount: Bool
 
+    @Environment(SourceManager.self) private var sourceManager
+
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        let supportsOffline = OfflineModeState.supportsOfflineMode(for: source.type)
+        let isOffline = supportsOffline && sourceManager.isSourceManuallyOffline(source)
+        let isGlobalOffline = sourceManager.isGlobalOfflineMode
+        return HStack(alignment: .center, spacing: 12) {
             Image(systemName: source.type.iconName)
                 .font(.title3.weight(.medium))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
                 .background(
-                    source.isEnabled ? source.type.brandTint.gradient : Color.gray.gradient,
+                    source.isEnabled
+                        ? (isOffline ? Color.orange.gradient : source.type.brandTint.gradient)
+                        : Color.gray.gradient,
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous)
                 )
                 .accessibilityHidden(true)
@@ -3041,23 +3114,45 @@ private struct SourceCardHeader: View {
                         .foregroundStyle(.orange)
                 }
             }
-            Spacer(minLength: 8)
-            HStack(spacing: 3) {
-                Text(openHint)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
+            Spacer(minLength: 6)
+            if supportsOffline {
+                Button {
+                    if !isGlobalOffline {
+                        sourceManager.setSourceManuallyOffline(!isOffline, sourceID: source.id)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 11, weight: .semibold))
+                        if isOffline {
+                            Text("offline_mode_short")
+                                .font(.caption2.weight(.semibold))
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(.horizontal, isOffline ? 8 : 7)
+                    .padding(.vertical, 5)
+                    .foregroundStyle(isOffline ? .orange : .secondary)
+                    .background(
+                        isOffline ? Color.orange.opacity(0.16) : Color.primary.opacity(0.06),
+                        in: Capsule()
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(isGlobalOffline)
+                .opacity(isGlobalOffline ? 0.85 : 1)
+                .accessibilityLabel(Text(LocalizedStringKey(isOffline ? "offline_mode_disable_source" : "offline_mode_enable_source")))
+                .accessibilityIdentifier("sources.card.offline.\(source.id)")
             }
-            .foregroundStyle(.secondary)
-            .fixedSize()
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .accessibilityLabel(Text(openHint))
         }
     }
 }
 
-/// 类型 · 线路。有线路的源只写线路的名字(带颜色的小标签,点一下换下一条),不再跟一截
-/// 被省略号截断、看不清的地址;没配线路的老源写地址。同类型、同地址的源不止一个时把账号带上
-/// 才分得开:账号跟类型单起一行。
+/// 类型、线路与精简主机地址。切线路时地址同步跟着切，方便直观确认当前连的是哪台主机。
 private struct SourceCardConnectionLine: View {
     let source: MusicSource
     let showsAccount: Bool
@@ -3065,33 +3160,35 @@ private struct SourceCardConnectionLine: View {
     @Environment(SourceManager.self) private var sourceManager
 
     var body: some View {
-        let route = route
-        Group {
-            if let account {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: "\(source.type.displayName) · \(account)")
-                        .truncationMode(.middle)
-                    if let route {
-                        SourceRouteChip(source: source, route: route)
-                    } else if let address = plainAddress {
-                        Text(verbatim: address).truncationMode(.middle)
-                    }
-                }
-            } else {
-                HStack(spacing: 5) {
-                    Text(source.type.displayName).fixedSize()
-                    if let route {
-                        SourceRouteChip(source: source, route: route)
-                    } else if let address = plainAddress {
-                        Text(verbatim: "·").fixedSize()
-                        Text(verbatim: address).truncationMode(.middle)
-                    }
+        let activeRoute = route
+        let address = SourceCardPresentationPolicy.compactAddress(for: source, displayedRoute: activeRoute)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                Text(verbatim: typeAndAccountLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let activeRoute {
+                    SourceRouteChip(source: source, route: activeRoute)
                 }
             }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            if let address {
+                Text(verbatim: address)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
+    }
+
+    private var typeAndAccountLabel: String {
+        if let account {
+            return "\(source.type.displayName) · \(account)"
+        }
+        return source.type.displayName
     }
 
     private var route: SourceConnectionCandidate? {
@@ -3102,11 +3199,6 @@ private struct SourceCardConnectionLine: View {
             lastSuccessful: sourceManager.lastSuccessfulConnectionRoutes[source.id],
             selected: configuration.effectiveSelectedRoute
         )
-    }
-
-    private var plainAddress: String? {
-        guard let summary = source.connectionSummary, !summary.isEmpty else { return nil }
-        return summary
     }
 
     private var account: String? {

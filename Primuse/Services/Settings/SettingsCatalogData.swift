@@ -115,6 +115,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "storage.audioCacheLimit", titleKey: "audio_cache_limit", iosPage: .storage, macPage: .storage, keywords: ["cache limit", "缓存上限", "存储空间", "下载限制"]),
         SettingDefinition(id: "storage.offlineDownloadQuality", titleKey: "offline_download_quality", iosPage: .storage, macPage: .storage, keywords: ["offline", "download quality", "bitrate", "AAC", "transcode", "离线", "离线缓存", "下载", "码率", "音质", "转码", "压缩", "无损", "节省空间", "占空间", "存储空间"]),
         SettingDefinition(id: "storage.offlineDownloadFormat", titleKey: "offline_download_format", iosPage: .storage, macPage: .storage, keywords: ["MP3", "AAC", "Opus", "codec", "离线", "下载", "转码", "格式"]),
+        SettingDefinition(id: "storage.offlineMode", titleKey: "offline_mode_title", iosPage: .storage, macPage: .storage, keywords: ["offline", "offline mode", "downloaded only", "local only", "save data", "cellular", "离线", "离线模式", "仅已下载", "本地播放", "省流量"]),
         SettingDefinition(id: "storage.offlineDownloads", titleKey: "offline_downloads", iosPage: .storage, macPage: .storage, keywords: ["offline", "downloads", "downloaded songs", "remove downloads", "离线", "离线下载", "已下载", "移除下载", "删除下载", "存储空间"]),
         SettingDefinition(id: "storage.clearAudioCache", titleKey: "audio_cache", iosPage: .storage, macPage: .storage, keywords: ["clear cache", "清理缓存", "删除缓存", "释放空间", "clear_cache"], macAnchor: "storage.audioCacheLimit"),
         SettingDefinition(id: "storage.clearImageCache", titleKey: "image_cache", iosPage: .storage, macPage: nil),

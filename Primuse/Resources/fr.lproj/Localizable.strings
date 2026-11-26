@@ -8298,3 +8298,24 @@
 "fnconnect_gateway_2fa_title" = "Vérification FN Connect";
 "fnconnect_gateway_2fa_code" = "Code à 6 chiffres";
 "fnconnect_gateway_2fa_verify" = "Vérifier";
+
+"offline_mode_title" = "Mode hors ligne";
+"offline_mode_desc" = "Lire uniquement les fichiers téléchargés, en cache ou locaux, sans streaming ni actualisation automatique.";
+"offline_mode_short" = "Hors ligne";
+"offline_mode_partial_count_format" = "%d source(s) en mode hors ligne";
+"offline_mode_enable_source" = "Activer le mode hors ligne";
+"offline_mode_disable_source" = "Quitter le mode hors ligne";
+"offline_mode_go_online_source" = "Reconnecter cette source";
+"offline_mode_turn_off_global" = "Désactiver le mode hors ligne";
+"offline_mode_banner_global" = "Mode hors ligne · Local uniquement";
+"offline_mode_banner_partial_format" = "%d source(s) hors ligne";
+"offline_mode_turn_off_short" = "Désactiver";
+"offline_mode_restore_all_short" = "Tout reconnecter";
+"offline_mode_song_alert_title" = "Mode hors ligne activé";
+"offline_mode_song_alert_message" = "Seuls les morceaux téléchargés ou en cache peuvent être lus en mode hors ligne.";
+"source_card_status_offline_mode" = "Mode hors ligne · Local uniquement";
+"song_row_source_offline" = "Hors ligne";
+"playback_error_source_offline_format" = "« %@ » est en mode hors ligne";
+"playback_error_source_offline_skipped_format" = "Morceaux non en cache de « %@ » ignorés en mode hors ligne";
+"filter_offline_available" = "Disponible hors ligne";
+"filter_offline_available_empty_desc" = "Les morceaux téléchargés, en cache et locaux apparaissent ici.";

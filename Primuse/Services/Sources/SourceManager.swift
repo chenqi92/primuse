@@ -3744,6 +3744,14 @@ final class SourceManager {
     /// start right now. Traversal asks the policy instead, which already knows
     /// about a path change before this projection is republished.
     private(set) var unreachablePlaybackSourceIDs: Set<String> = []
+    /// 主动离线模式状态（全局 + 单源），由用户显式开关控制。
+    private(set) var offlineModeState: OfflineModeState = OfflineModeState.decode(
+        UserDefaults.standard.data(forKey: OfflineModeState.storageKey)
+    )
+    /// 不支持主动离线模式的本地/系统源 ID（如 `.local`、`.appleMusic`、`.appleMusicLibrary`）。
+    private(set) var nonOfflineEligibleSourceIDs: Set<String> = [AppleMusicLibraryService.systemSourceID]
+    /// 已知支持主动离线模式的远程源 ID。
+    private(set) var remoteOfflineEligibleSourceIDs: Set<String> = []
     /// The player re-plans its successor when the projection above changes.
     @ObservationIgnored var onPlaybackSourceAvailabilityChange: (@MainActor () -> Void)?
     @ObservationIgnored private var isMonitoringPlaybackSourceAvailability = false
@@ -3939,6 +3947,7 @@ final class SourceManager {
         self.songsProvider = songsProvider
         observeLibraryInvalidations()
         scheduleInitialAudioCacheScopeValidation()
+        syncAudioCacheEvictionForOfflineMode()
     }
 
     private func observeLibraryInvalidations() {
@@ -3980,6 +3989,10 @@ final class SourceManager {
                     currentScopeFingerprints: currentScopeFingerprints,
                     currentCredentialScopeFingerprints: currentCredentialScopeFingerprints
                 )
+                Task { @MainActor [weak self] in
+                    guard let self, let sources = try? await self.sourcesProvider() else { return }
+                    self.syncOfflineModeSources(sources)
+                }
             }
         }
 
@@ -6089,6 +6102,12 @@ final class SourceManager {
             expectedScope: expectedScope,
             streamEpoch: streamEpoch
         )
+
+        if isSourceManuallyOffline(source) {
+            throw SourceError.connectionFailed(
+                await playbackSourceUnreachableMessage(sourceID: source.id, skippedSongs: false)
+            )
+        }
 
         if await playbackSourceEndpointsAreUnavailable(for: source) {
             throw SourceError.connectionFailed(String(localized: "status_network_unavailable"))
@@ -8769,6 +8788,140 @@ final class SourceManager {
     /// 只认下载会把听过的歌全漏掉。
     func locallyAvailableSongIDs(in songs: [Song]) async -> Set<String> {
         await songIDs(in: songs) { $0.isAvailableLocally }
+    }
+
+    /// 离线模式下可以直接播放的歌曲 ID：
+    /// 1) 本机文件夹 / 系统媒体库源里的歌曲始终本地可用；
+    /// 2) 远程音乐源中已显式离线下载（`.pinned`）或已完整播放缓存（`.cached`）的歌曲。
+    func offlinePlayableSongIDs(in songs: [Song], localSourceIDs: Set<String>) async -> Set<String> {
+        var matched = Set<String>()
+        var remoteSongs: [Song] = []
+        for song in songs where song.isPlayable {
+            if localSourceIDs.contains(song.sourceID) {
+                matched.insert(song.id)
+            } else {
+                remoteSongs.append(song)
+            }
+        }
+        guard !remoteSongs.isEmpty else { return matched }
+        let remoteMatched = await locallyAvailableSongIDs(in: remoteSongs)
+        matched.formUnion(remoteMatched)
+        return matched
+    }
+
+    // MARK: - 主动离线模式（全局 + 单源）
+
+    var isGlobalOfflineMode: Bool {
+        offlineModeState.isGlobalOffline
+    }
+
+    var manualOfflineSourceIDs: Set<String> {
+        offlineModeState.offlineSourceIDs
+    }
+
+    var hasActiveManualOfflineMode: Bool {
+        offlineModeState.hasActiveRestriction(validRemoteSourceIDs: remoteOfflineEligibleSourceIDs)
+    }
+
+    var activeManualOfflineSourceCount: Int {
+        if offlineModeState.isGlobalOffline {
+            return remoteOfflineEligibleSourceIDs.count
+        }
+        return offlineModeState.activeManualOfflineCount(validRemoteSourceIDs: remoteOfflineEligibleSourceIDs)
+    }
+
+    func supportsManualOfflineMode(for source: MusicSource) -> Bool {
+        OfflineModeState.supportsOfflineMode(for: source.type)
+    }
+
+    func isSourceManuallyOffline(_ source: MusicSource) -> Bool {
+        offlineModeState.isSourceOffline(source.id, type: source.type)
+    }
+
+    func isSourceManuallyOffline(_ sourceID: String) -> Bool {
+        guard !nonOfflineEligibleSourceIDs.contains(sourceID) else { return false }
+        return offlineModeState.isRemoteSourceOffline(sourceID)
+    }
+
+    func isSourceOfflineOrUnreachable(_ sourceID: String) -> Bool {
+        isSourceManuallyOffline(sourceID) || unreachablePlaybackSourceIDs.contains(sourceID)
+    }
+
+    static func localDeviceSourceIDs(in sources: [MusicSource]) -> Set<String> {
+        Set(sources.compactMap { source in
+            guard !source.isDeleted,
+                  source.type == .local || source.type == .appleMusicLibrary else { return nil }
+            return source.id
+        })
+    }
+
+    func setGlobalOfflineMode(_ enabled: Bool) {
+        guard offlineModeState.isGlobalOffline != enabled else { return }
+        var next = offlineModeState
+        next.isGlobalOffline = enabled
+        applyOfflineModeState(next, reason: "global=\(enabled)")
+    }
+
+    func clearAllManualOfflineModes() {
+        guard offlineModeState.isGlobalOffline || !offlineModeState.offlineSourceIDs.isEmpty else { return }
+        applyOfflineModeState(.inactive, reason: "clear-all")
+    }
+
+    func setSourceManuallyOffline(_ enabled: Bool, sourceID: String) {
+        guard !nonOfflineEligibleSourceIDs.contains(sourceID) else { return }
+        let currentlyMarked = offlineModeState.offlineSourceIDs.contains(sourceID)
+        guard currentlyMarked != enabled else { return }
+        var next = offlineModeState
+        next.setSourceOffline(enabled, sourceID: sourceID)
+        applyOfflineModeState(next, reason: "source=\(sourceID.prefix(8))=\(enabled)")
+    }
+
+    func syncOfflineModeSources(_ sources: [MusicSource]) {
+        var nonEligible: Set<String> = [AppleMusicLibraryService.systemSourceID]
+        var remoteEligible = Set<String>()
+        for source in sources where !source.isDeleted {
+            if OfflineModeState.supportsOfflineMode(for: source.type) {
+                remoteEligible.insert(source.id)
+            } else {
+                nonEligible.insert(source.id)
+            }
+        }
+        if nonOfflineEligibleSourceIDs != nonEligible {
+            nonOfflineEligibleSourceIDs = nonEligible
+        }
+        if remoteOfflineEligibleSourceIDs != remoteEligible {
+            remoteOfflineEligibleSourceIDs = remoteEligible
+        }
+        let pruned = offlineModeState.pruned(keeping: remoteEligible)
+        if pruned != offlineModeState {
+            offlineModeState = pruned
+            persistOfflineModeState()
+        }
+        syncAudioCacheEvictionForOfflineMode()
+    }
+
+    private func applyOfflineModeState(_ next: OfflineModeState, reason: String) {
+        offlineModeState = next
+        persistOfflineModeState()
+        syncAudioCacheEvictionForOfflineMode()
+        if next.isGlobalOffline || !next.offlineSourceIDs.isEmpty {
+            cancelBackgroundAudioCaching(keeping: [])
+        }
+        plog("✈️ Offline mode updated (\(reason)) global=\(next.isGlobalOffline) perSource=\(next.offlineSourceIDs.count)")
+        onPlaybackSourceAvailabilityChange?()
+    }
+
+    private func persistOfflineModeState() {
+        if let data = offlineModeState.encoded() {
+            UserDefaults.standard.set(data, forKey: OfflineModeState.storageKey)
+        }
+    }
+
+    private func syncAudioCacheEvictionForOfflineMode() {
+        let shouldSuspend = offlineModeState.isGlobalOffline || !offlineModeState.offlineSourceIDs.isEmpty
+        Task {
+            await AudioCacheManager.shared.setAutomaticEvictionSuspended(shouldSuspend)
+        }
     }
 
     private func songIDs(
@@ -13794,6 +13947,7 @@ final class SourceManager {
         prefersCompleteFile: Bool = false,
         queueRank: Int? = nil
     ) async {
+        guard !isSourceManuallyOffline(song.sourceID) else { return }
         // A song that moved closer to the playhead deserves more than the
         // seed started for it at its old position: let that run finish, then
         // lengthen it.
@@ -15525,8 +15679,46 @@ final class SourceManager {
         releaseAudioCacheLeaseForPlayback(songID: song.id)
     }
 
+    /// 音乐源原生相似歌曲推荐（如 Navidrome / Subsonic `getSimilarSongs2`、Jellyfin / Emby `InstantMix`）。
+    /// 源处于主动离线或已知不可达时直接返回空，不发任何网络请求。
+    func fetchServerSimilarSongs(
+        for seed: Song,
+        in library: MusicLibrary,
+        limit: Int = 48
+    ) async -> [Song] {
+        guard limit > 0, !isSourceOfflineOrUnreachable(seed.sourceID) else { return [] }
+        guard let sources = try? await sourcesProvider(),
+              let source = sources.first(where: { $0.id == seed.sourceID && !$0.isDeleted && $0.isEnabled }),
+              let similarConnector = connector(for: source) as? any ServerSimilarSongsConnector else {
+            return []
+        }
+        guard let remoteIDs = try? await similarConnector.fetchSimilarSongIDs(for: seed.filePath, limit: limit),
+              !remoteIDs.isEmpty, !Task.isCancelled else {
+            return []
+        }
+        let excluded = library.dislikedSongIDs
+        var byServerID: [String: Song] = [:]
+        for song in library.visibleSongs(forSourceID: seed.sourceID) where song.isPlayable {
+            guard song.id != seed.id, !excluded.contains(song.id),
+                  let key = similarConnector.serverSongID(for: song.filePath),
+                  byServerID[key] == nil else { continue }
+            byServerID[key] = song
+        }
+        var seenSongIDs: Set<String> = [seed.id]
+        var matched: [Song] = []
+        matched.reserveCapacity(min(remoteIDs.count, limit))
+        for remoteID in remoteIDs {
+            if let song = byServerID[remoteID], seenSongIDs.insert(song.id).inserted {
+                matched.append(song)
+                if matched.count >= limit { break }
+            }
+        }
+        return matched
+    }
+
     func isSourceKnownUnavailableForPlayback(_ sourceID: String) -> Bool {
-        playbackSourceStanding(sourceID).skipsUncachedSongs
+        if isSourceManuallyOffline(sourceID) { return true }
+        return playbackSourceStanding(sourceID).skipsUncachedSongs
     }
 
     func playbackSourceStanding(
@@ -15545,6 +15737,7 @@ final class SourceManager {
         // disconnected NAS while a valid offline copy is waiting for that check.
         _ = await ensureAudioCacheScopeValidated(for: song.sourceID)
         guard cachedPlaybackURL(for: song) == nil else { return false }
+        if isSourceManuallyOffline(song.sourceID) { return true }
         return await playbackSourceEndpointsAreUnavailable(
             sourceID: song.sourceID,
             refresh: retryKnownUnavailable && isSourceKnownUnavailableForPlayback(song.sourceID)
@@ -15556,6 +15749,7 @@ final class SourceManager {
         refresh: Bool = false,
         probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.availabilityCheck
     ) async -> Bool {
+        if isSourceManuallyOffline(sourceID) { return true }
         guard !Task.isCancelled,
               let sources = try? await sourcesProvider(),
               let source = sources.first(where: { $0.id == sourceID && !$0.isDeleted }) else {
@@ -15569,6 +15763,7 @@ final class SourceManager {
         refresh: Bool = false,
         probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.availabilityCheck
     ) async -> Bool {
+        if isSourceManuallyOffline(source) { return true }
         let networkGeneration = NetworkMonitor.shared.pathGeneration
         let sourceGeneration = connectorScopeValidationGenerationBySourceID[source.id] ?? 0
         if !refresh, let cached = playbackSourceAvailability.cachedUnavailability(
@@ -15657,7 +15852,8 @@ final class SourceManager {
     func discoverPlaybackSourceAvailability(for sourceIDs: Set<String>) {
         guard isMonitoringPlaybackSourceAvailability else { return }
         let pending = sourceIDs.filter {
-            !playbackAvailabilityProbesInFlight.contains($0)
+            !isSourceManuallyOffline($0)
+                && !playbackAvailabilityProbesInFlight.contains($0)
                 && !playbackAvailabilityDiscoveryRequests.contains($0)
                 && playbackSourceStanding($0).wantsProbe
         }
@@ -15674,6 +15870,7 @@ final class SourceManager {
     /// the schedule, so songs that came back light up again promptly.
     func recheckPlaybackSourceNow(_ sourceID: String) {
         guard isMonitoringPlaybackSourceAvailability,
+              !isSourceManuallyOffline(sourceID),
               !playbackAvailabilityProbesInFlight.contains(sourceID) else { return }
         Task { @MainActor [weak self] in
             _ = await self?.playbackSourceEndpointsAreUnavailable(sourceID: sourceID, refresh: true)
@@ -15686,6 +15883,13 @@ final class SourceManager {
         let name = (try? await sourcesProvider())?
             .first { $0.id == sourceID && !$0.isDeleted }?
             .name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if isSourceManuallyOffline(sourceID) {
+            guard !name.isEmpty else { return String(localized: "offline_mode_song_alert_message") }
+            let format = skippedSongs
+                ? String(localized: "playback_error_source_offline_skipped_format")
+                : String(localized: "playback_error_source_offline_format")
+            return String(format: format, name)
+        }
         guard !name.isEmpty else { return String(localized: "playback_error_connection") }
         let format = skippedSongs
             ? String(localized: "playback_error_source_unreachable_skipped_format")
@@ -15727,7 +15931,8 @@ final class SourceManager {
         for source in sources where !source.isDeleted {
             guard requested?.contains(source.id) ?? true else { continue }
             liveSourceIDs.insert(source.id)
-            guard !playbackAvailabilityProbesInFlight.contains(source.id),
+            guard !isSourceManuallyOffline(source),
+                  !playbackAvailabilityProbesInFlight.contains(source.id),
                   playbackSourceStanding(source.id).wantsProbe else { continue }
             targets.append(source)
         }

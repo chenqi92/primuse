@@ -78,6 +78,9 @@ struct PlaylistDetailView: View {
     @State private var renamingPlaylist: Playlist?
     /// 「在歌单里找歌」的输入。只筛眼前的行：播放、加入队列、导出照旧按整张歌单。
     @State private var findText = ""
+    /// 只看本歌单里离线可用（本机、已下载或完整缓存）的歌曲。
+    @State private var showsOfflineOnly = false
+    @State private var offlineSongIDs: Set<String>? = nil
     #if os(iOS)
     @State private var isFindPresented = false
     /// 「⋯」菜单里点了定位、那首歌却被找歌的输入筛掉了：菜单项上挂不住 alert，「清除筛选并定位」挂在歌单页上。
@@ -259,9 +262,38 @@ struct PlaylistDetailView: View {
         LibraryFindPolicy.query(findText)
     }
 
-    /// 列表里的行: 在歌单里找歌时只留命中的, 顺序不变。
+    private var effectiveOfflineOnly: Bool {
+        showsOfflineOnly || sourceManager.isGlobalOfflineMode
+    }
+
+    private var offlineFilterTaskKey: String {
+        guard effectiveOfflineOnly else { return "off" }
+        return "on-\(playlist.id)-\(library.playlistContentVersion)-\(sourceManager.offlineAudioSnapshotRevision)"
+    }
+
+    private func refreshOfflineSongIDs() async {
+        guard effectiveOfflineOnly else {
+            offlineSongIDs = nil
+            return
+        }
+        let localSourceIDs = SourceManager.localDeviceSourceIDs(in: sourcesStore.sources)
+        let resolved = await sourceManager.offlinePlayableSongIDs(
+            in: songs,
+            localSourceIDs: localSourceIDs
+        )
+        guard !Task.isCancelled else { return }
+        offlineSongIDs = resolved
+    }
+
+    /// 列表里的行: 在歌单里找歌或开启离线筛选时只留命中的, 顺序不变。
     private var displayEntries: [MusicLibrary.PlaylistEntry] {
-        let entries = orderedEntries
+        var entries = orderedEntries
+        if effectiveOfflineOnly, let ids = offlineSongIDs {
+            entries = entries.filter { entry in
+                if case .song(let song) = entry { return ids.contains(song.id) }
+                return false
+            }
+        }
         guard let query = findQuery else { return entries }
         return entries.filter { Self.entry($0, matches: query) }
     }
@@ -273,10 +305,14 @@ struct PlaylistDetailView: View {
         }
     }
 
-    /// 多选的「全选」与连选只认眼前这一列: 找歌时就是找到的那几首。
+    /// 多选的「全选」与连选只认眼前这一列: 找歌或离线筛选时就是留下的那几首。
     private var selectableSongIDs: [String] {
-        guard let query = findQuery else { return songs.map(\.id) }
-        return songs.filter { LibraryFindPolicy.matches(query, song: $0) }.map(\.id)
+        var list = songs
+        if effectiveOfflineOnly, let ids = offlineSongIDs {
+            list = list.filter { ids.contains($0.id) }
+        }
+        guard let query = findQuery else { return list.map(\.id) }
+        return list.filter { LibraryFindPolicy.matches(query, song: $0) }.map(\.id)
     }
 
     /// 输入框弹着(哪怕还没输字)也算在找: 头部让开, 结果紧挨着输入框。
@@ -763,6 +799,9 @@ struct PlaylistDetailView: View {
             locateCurrentButton.locateClearingFilters(songID)
         }
         #endif
+        .task(id: offlineFilterTaskKey) {
+            await refreshOfflineSongIDs()
+        }
         .sheet(item: $exportShareItem) { item in
             ShareSheet(items: [item.url])
         }
@@ -904,6 +943,15 @@ struct PlaylistDetailView: View {
         }
 
         Section {
+            Toggle(
+                isOn: Binding(
+                    get: { effectiveOfflineOnly },
+                    set: { if !sourceManager.isGlobalOfflineMode { showsOfflineOnly = $0 } }
+                )
+            ) {
+                Label("filter_offline_available", systemImage: "wifi.slash")
+            }
+            .disabled(sourceManager.isGlobalOfflineMode)
             // 用户歌单在本机重排; 服务器歌单只有能写回服务器的(Subsonic 系)给入口,
             // 别的镜像下次同步会被覆盖, 重排白做。
             if allowsReordering {
@@ -1329,8 +1377,10 @@ struct PlaylistDetailView: View {
     /// instead of walking every song on each redraw.
     private var hasSongsFromUnreachableSources: Bool {
         let unreachable = sourceManager.unreachablePlaybackSourceIDs
-        guard !unreachable.isEmpty else { return false }
-        return !unreachable.isDisjoint(with: songAvailability.sourceIDs)
+        if !unreachable.isEmpty, !unreachable.isDisjoint(with: songAvailability.sourceIDs) {
+            return true
+        }
+        return songAvailability.sourceIDs.contains { sourceManager.isSourceManuallyOffline($0) }
     }
 
     private var unreachableSongsNotice: some View {

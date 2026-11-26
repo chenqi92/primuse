@@ -132,11 +132,14 @@ struct SongRowView: View {
     }
 
     /// Nothing can start this song right now: no address of its source
-    /// answers on this network and there is no complete local copy. The set is
-    /// empty on a network that reaches everything, so ordinary rows pay one
-    /// lookup.
+    /// answers on this network (or the user switched it to Offline Mode)
+    /// and there is no complete local copy.
+    private var isManuallyOfflineSource: Bool {
+        sourceManager.isSourceManuallyOffline(song.sourceID)
+    }
+
     private var isUnreachableNow: Bool {
-        guard sourceManager.unreachablePlaybackSourceIDs.contains(song.sourceID),
+        guard sourceManager.isSourceOfflineOrUnreachable(song.sourceID),
               song.isPlayable,
               !offlineSnapshot.isAvailableLocally else { return false }
         // The offline badge only mirrors downloads it was told about. A song
@@ -372,9 +375,25 @@ struct SongRowView: View {
                     AppServices.shared.appleMusic.requestSubscriptionOffer(forItemID: nil)
                 }
             }
+            if appleMusicNotice == nil, isManuallyOfflineSource {
+                if sourceManager.isGlobalOfflineMode {
+                    Button(String(localized: "offline_mode_turn_off_global")) {
+                        sourceManager.setGlobalOfflineMode(false)
+                    }
+                } else {
+                    Button(String(localized: "offline_mode_go_online_source")) {
+                        sourceManager.setSourceManuallyOffline(false, sourceID: song.sourceID)
+                    }
+                }
+            }
             Button(String(localized: "done"), role: .cancel) {}
         } message: {
-            Text(appleMusicNotice?.alertMessage ?? String(localized: "song_source_unreachable_alert_message"))
+            Text(
+                appleMusicNotice?.alertMessage
+                    ?? String(localized: isManuallyOfflineSource
+                        ? "offline_mode_song_alert_message"
+                        : "song_source_unreachable_alert_message")
+            )
         }
         .alert(
             String(localized: "reread_song_tags"),
@@ -531,6 +550,7 @@ struct SongRowView: View {
                         if unreachable || restriction != nil {
                             SongRowPlaybackStatus(
                                 isUnreachable: unreachable,
+                                isManualOffline: isManuallyOfflineSource,
                                 isRetrying: isRetryingUnreachableSource,
                                 restriction: restriction
                             )
@@ -679,7 +699,9 @@ struct SongRowView: View {
                 (library.song(id: song.id) ?? song).contentMetadata?.isExplicit == true
                     ? String(localized: "content_explicit") : nil,
                 library.artistDisplayName(for: song),
-                unreachable ? String(localized: "song_row_source_unreachable") : restriction?.rowLabel
+                unreachable
+                    ? String(localized: isManuallyOfflineSource ? "song_row_source_offline" : "song_row_source_unreachable")
+                    : restriction?.rowLabel
             ]
                 .compactMap { $0 }
                 .joined(separator: " — ")
@@ -715,6 +737,15 @@ struct SongRowView: View {
     }
 
     private func retryUnreachableSource() {
+        if isManuallyOfflineSource {
+            let name = sourcesStore.sources
+                .first { $0.id == song.sourceID }?
+                .name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            unreachableSourceNoticeTitle = name.isEmpty
+                ? String(localized: "offline_mode_song_alert_title")
+                : String(format: String(localized: "playback_error_source_offline_format"), name)
+            return
+        }
         guard !isRetryingUnreachableSource else { return }
         isRetryingUnreachableSource = true
         Task {
@@ -909,6 +940,20 @@ struct SongRowView: View {
                 metadataRecoveryButtons()
             } label: {
                 Label(String(localized: "edit"), systemImage: "pencil")
+            }
+
+            if song.isPlayable {
+                Button {
+                    let seed = song
+                    Task { @MainActor in
+                        let queue = await SongRadioBuilder.queue(from: seed, in: library, limit: 48).filteredPlayable()
+                        guard !queue.isEmpty else { return }
+                        player.shuffleEnabled = false
+                        await player.play(queue: queue, startingAt: 0)
+                    }
+                } label: {
+                    Label(String(localized: "start_song_radio"), systemImage: "dot.radiowaves.left.and.right")
+                }
             }
 
             Button {
@@ -2270,13 +2315,14 @@ private struct SongRowQualityBadge: View {
 /// 副标题最前面说明这首现在为什么放不了：源连不上，或者系统音乐库里没订阅放不了。
 private struct SongRowPlaybackStatus: View {
     let isUnreachable: Bool
+    var isManualOffline: Bool = false
     let isRetrying: Bool
     let restriction: AppleMusicPlaybackRestriction?
 
     var body: some View {
         HStack(spacing: 4) {
             if isUnreachable {
-                if isRetrying {
+                if isRetrying && !isManualOffline {
                     ProgressView()
                         .scaleEffect(0.55)
                         .frame(width: 12, height: 12)
@@ -2284,7 +2330,7 @@ private struct SongRowPlaybackStatus: View {
                     Image(systemName: "wifi.slash")
                         .font(.caption2)
                 }
-                Text("song_row_source_unreachable")
+                Text(LocalizedStringKey(isManualOffline ? "song_row_source_offline" : "song_row_source_unreachable"))
             } else if let restriction {
                 Image(systemName: restriction.rowSystemImage)
                     .font(.caption2)

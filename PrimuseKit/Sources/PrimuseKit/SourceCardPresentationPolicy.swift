@@ -40,4 +40,86 @@ public enum SourceCardPresentationPolicy {
         }
         return candidates.first
     }
+
+    /// 卡片上展示的精简连接地址（去掉协议前缀与默认 80/443 端口），随当前激活线路联动。
+    public static func compactAddress(
+        for source: MusicSource,
+        displayedRoute: SourceConnectionCandidate?
+    ) -> String? {
+        switch source.type {
+        case .local, .appleMusic, .appleMusicLibrary:
+            return nil
+        default:
+            break
+        }
+        if let route = displayedRoute {
+            if let endpoint = route.endpoint {
+                return compactEndpointDescription(endpoint)
+            }
+            if let identifier = route.vendorIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !identifier.isEmpty {
+                return identifier
+            }
+        }
+        if let host = source.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty {
+            if let port = source.port, port > 0 {
+                return compactEndpointDescription(
+                    SourceConnectionEndpoint(
+                        host: host,
+                        port: port,
+                        useSsl: source.useSsl,
+                        pathPrefix: source.basePath
+                    )
+                )
+            }
+            return compactRawAddress(host, pathPrefix: source.basePath)
+        }
+        if let summary = source.connectionSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !summary.isEmpty {
+            return compactRawAddress(summary, pathPrefix: nil)
+        }
+        return nil
+    }
+
+    public static func compactEndpointDescription(_ endpoint: SourceConnectionEndpoint) -> String {
+        let normalized = endpoint.normalized
+        let hostPart = normalized.urlHost
+        let isDefaultPort = (normalized.useSsl && normalized.port == 443)
+            || (!normalized.useSsl && normalized.port == 80)
+            || normalized.port <= 0
+        let portSuffix = isDefaultPort ? "" : ":\(normalized.port)"
+        let path = normalized.pathPrefix?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let pathSuffix = trimmedPath.isEmpty ? "" : "/\(trimmedPath)"
+        return "\(hostPart)\(portSuffix)\(pathSuffix)"
+    }
+
+    private static func compactRawAddress(_ raw: String, pathPrefix: String?) -> String? {
+        var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+        let lower = cleaned.lowercased()
+        let isHTTPS = lower.hasPrefix("https://")
+        let isHTTP = lower.hasPrefix("http://")
+        if isHTTPS {
+            cleaned.removeFirst("https://".count)
+        } else if isHTTP {
+            cleaned.removeFirst("http://".count)
+        }
+        while cleaned.count > 1, cleaned.hasSuffix("/") {
+            cleaned.removeLast()
+        }
+        if isHTTPS, cleaned.hasSuffix(":443") {
+            cleaned.removeLast(":443".count)
+        } else if isHTTP, cleaned.hasSuffix(":80") {
+            cleaned.removeLast(":80".count)
+        }
+        if let pathPrefix {
+            let trimmedPath = pathPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if !trimmedPath.isEmpty, !cleaned.hasSuffix("/\(trimmedPath)") {
+                cleaned += "/\(trimmedPath)"
+            }
+        }
+        return cleaned.isEmpty ? nil : cleaned
+    }
 }

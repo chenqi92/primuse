@@ -8059,3 +8059,24 @@
 "fnconnect_gateway_2fa_title" = "FN Connect Verification";
 "fnconnect_gateway_2fa_code" = "6-Digit Code";
 "fnconnect_gateway_2fa_verify" = "Verify";
+
+"offline_mode_title" = "Offline Mode";
+"offline_mode_desc" = "Play only downloaded, cached, or on-device audio without streaming or automatic refresh.";
+"offline_mode_short" = "Offline";
+"offline_mode_partial_count_format" = "%d source(s) in Offline Mode";
+"offline_mode_enable_source" = "Enable Offline Mode";
+"offline_mode_disable_source" = "Exit Offline Mode";
+"offline_mode_go_online_source" = "Go Online for This Source";
+"offline_mode_turn_off_global" = "Turn Off Offline Mode";
+"offline_mode_banner_global" = "Offline Mode · Local Only";
+"offline_mode_banner_partial_format" = "%d source(s) offline";
+"offline_mode_turn_off_short" = "Turn Off";
+"offline_mode_restore_all_short" = "Go Online";
+"offline_mode_song_alert_title" = "Offline Mode Active";
+"offline_mode_song_alert_message" = "Only downloaded or cached songs can play while Offline Mode is active.";
+"source_card_status_offline_mode" = "Offline Mode · Local Only";
+"song_row_source_offline" = "Offline Mode";
+"playback_error_source_offline_format" = "\"%@\" is in Offline Mode";
+"playback_error_source_offline_skipped_format" = "Skipped uncached songs from \"%@\" in Offline Mode";
+"filter_offline_available" = "Available Offline";
+"filter_offline_available_empty_desc" = "Downloaded, cached, and on-device songs appear here.";

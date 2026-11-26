@@ -5,6 +5,7 @@ struct PlaylistListView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(\.libraryStackRegistersCollectionDetails) private var stackRegistersDetails
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
@@ -55,6 +56,43 @@ struct PlaylistListView: View {
     )
     /// 「在本页里找」。只按名字筛三类歌单、顺序不变；管理、排序仍对整份列表。
     @State private var findText = ""
+    /// 只看包含本地离线可用曲目的歌单。
+    @State private var showsOfflineOnly = false
+    @State private var offlinePlayableSongIDs: Set<String>? = nil
+
+    private var effectiveOfflineOnly: Bool {
+        showsOfflineOnly || sourceManager.isGlobalOfflineMode
+    }
+
+    private var offlineFilterTaskKey: String {
+        guard effectiveOfflineOnly else { return "off" }
+        return "on-\(library.visibleSongCollectionRevision)-\(library.playlistContentVersion)-\(sourceManager.offlineAudioSnapshotRevision)"
+    }
+
+    private func refreshOfflinePlayableSongIDs() async {
+        guard effectiveOfflineOnly else {
+            offlinePlayableSongIDs = nil
+            return
+        }
+        let localSourceIDs = SourceManager.localDeviceSourceIDs(in: sourcesStore.sources)
+        let resolved = await sourceManager.offlinePlayableSongIDs(
+            in: library.visibleSongs,
+            localSourceIDs: localSourceIDs
+        )
+        guard !Task.isCancelled else { return }
+        offlinePlayableSongIDs = resolved
+    }
+
+    private func playlistHasOfflineSongs(_ playlist: Playlist) -> Bool {
+        guard effectiveOfflineOnly, let ids = offlinePlayableSongIDs else { return true }
+        return library.songs(forPlaylist: playlist.id).contains { ids.contains($0.id) }
+    }
+
+    private func smartPlaylistHasOfflineSongs(_ smart: SmartPlaylist) -> Bool {
+        guard effectiveOfflineOnly, let ids = offlinePlayableSongIDs else { return true }
+        return SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
+            .contains { ids.contains($0.id) }
+    }
 
     // liked 系统歌单已作为「资料库 · 我喜欢的」固定入口展示, 歌单总览里不再重复列出。
     private var playlists: [Playlist] {
@@ -87,7 +125,9 @@ struct PlaylistListView: View {
         listOrder.sorted(items) { library.songCount(forPlaylist: $0) }
     }
 
-    private var shownPlaylists: [Playlist] { ordered(shown(playlists, name: \.name)) }
+    private var shownPlaylists: [Playlist] {
+        ordered(shown(playlists.filter(playlistHasOfflineSongs), name: \.name))
+    }
 
     private var operationAvailability: PlaylistOperationAvailability {
         #if os(tvOS)
@@ -178,6 +218,9 @@ struct PlaylistListView: View {
         .onChange(of: listOrder) { _, order in
             if listOrderRawValue != order.rawValue { listOrderRawValue = order.rawValue }
         }
+        .task(id: offlineFilterTaskKey) {
+            await refreshOfflinePlayableSongIDs()
+        }
         .onDisappear {
             if isOrderingPlaylists { finishPlaylistOrder(save: false) }
         }
@@ -227,15 +270,15 @@ struct PlaylistListView: View {
             return id
         }
         let ordinary = Dictionary(grouping: pagePlaylists) { groupID(for: PlaylistGrouping.reference(id: $0.id)) }
-        let smart = Dictionary(grouping: shown(smartPlaylists, name: \.name)) {
+        let smart = Dictionary(grouping: shown(smartPlaylists.filter(smartPlaylistHasOfflineSongs), name: \.name)) {
             groupID(for: PlaylistGrouping.reference(id: $0.id, smart: true))
         }
-        let isSearching = findQuery != nil
+        let isFiltering = findQuery != nil || effectiveOfflineOnly
         let groups = state.groups.compactMap { group -> GroupSection? in
             let section = GroupSection(
                 group: group, playlists: ordinary[group.id] ?? [], smartPlaylists: smart[group.id] ?? []
             )
-            return isSearching && section.count == 0 ? nil : section
+            return isFiltering && section.count == 0 ? nil : section
         }
         let ungroupedSmart = smart[nil] ?? []
         return PageSections(
@@ -707,6 +750,15 @@ struct PlaylistListView: View {
 
     @ViewBuilder
     private var playlistMoreItems: some View {
+        Toggle(
+            isOn: Binding(
+                get: { effectiveOfflineOnly },
+                set: { if !sourceManager.isGlobalOfflineMode { showsOfflineOnly = $0 } }
+            )
+        ) {
+            Label("filter_offline_available", systemImage: "wifi.slash")
+        }
+        .disabled(sourceManager.isGlobalOfflineMode)
         if canReorderPlaylists {
             Menu {
                 PlaylistListSortMenuItems(order: $listOrder)
@@ -1070,6 +1122,16 @@ struct PlaylistListView: View {
             HStack(spacing: 8) {
                 if !playlists.isEmpty || !smartPlaylists.isEmpty {
                     MacLibraryFindField(text: $findText, prompt: "filter_playlists_placeholder", width: 180)
+                    MacControlIconButton(
+                        systemImage: "wifi.slash",
+                        help: "filter_offline_available",
+                        style: effectiveOfflineOnly ? .selected : .glass
+                    ) {
+                        if !sourceManager.isGlobalOfflineMode {
+                            showsOfflineOnly.toggle()
+                        }
+                    }
+                    .disabled(sourceManager.isGlobalOfflineMode)
                 }
 
                 if canReorderPlaylists {

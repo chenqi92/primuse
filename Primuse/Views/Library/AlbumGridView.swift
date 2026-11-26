@@ -5,12 +5,18 @@ struct AlbumGridView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
     @State private var albumFilter = ""
     @AppStorage("library.albumReleaseFilter") private var releaseCategory = ""
     /// 右上角菜单里点了「补全缺少的简介」。
     @State private var requestsIntroFill = false
     /// 只看喜欢的专辑。有喜欢的专辑时才给这个开关。
     @State private var showsLikedOnly = false
+    /// 只看离线可用（含本机、已下载与完整缓存）的专辑。
+    @State private var showsOfflineOnly = false
+    @State private var offlineAlbumIDs: Set<String> = []
+    @State private var offlineAlbumFilterRevision = 0
     @AppStorage("library.hideSingleSongAlbums") private var hidesSingleSongAlbums = false
     @AppStorage(AlbumGridOrder.storageKey) private var albumOrderRawValue = AlbumGridOrder.defaultOrder.rawValue
     /// 后台准备好的筛选结果。
@@ -50,11 +56,46 @@ struct AlbumGridView: View {
         AlbumGridOrderRequest(order: albumOrder, albums: library.visibleAlbums)
     }
 
+    private var effectiveOfflineOnly: Bool {
+        showsOfflineOnly || sourceManager.isGlobalOfflineMode
+    }
+
+    private var offlineFilterTaskKey: String {
+        guard effectiveOfflineOnly else { return "off" }
+        return "on-\(library.visibleSongCollectionRevision)-\(sourceManager.offlineAudioSnapshotRevision)-\(sourcesStore.sources.count)"
+    }
+
+    private func refreshOfflineAlbumIDs() async {
+        guard effectiveOfflineOnly else {
+            if !offlineAlbumIDs.isEmpty {
+                offlineAlbumIDs = []
+                offlineAlbumFilterRevision &+= 1
+            }
+            return
+        }
+        let localSourceIDs = SourceManager.localDeviceSourceIDs(in: sourcesStore.sources)
+        let songs = library.visibleSongs
+        let playableIDs = await sourceManager.offlinePlayableSongIDs(in: songs, localSourceIDs: localSourceIDs)
+        guard !Task.isCancelled else { return }
+        var matched = Set<String>()
+        for album in library.visibleAlbums {
+            if library.songs(forAlbum: album.id).contains(where: { playableIDs.contains($0.id) }) {
+                matched.insert(album.id)
+            }
+        }
+        if offlineAlbumIDs != matched {
+            offlineAlbumIDs = matched
+            offlineAlbumFilterRevision &+= 1
+        }
+    }
+
     private var filterRequest: AlbumGridFilterRequest {
         AlbumGridFilterRequest(
             order: orderRequest, query: albumFilter.trimmingCharacters(in: .whitespacesAndNewlines),
             category: AlbumReleaseCategory(rawValue: releaseCategory), likedOnly: showsLikedOnly,
             hidesSingleSongAlbums: hidesSingleSongAlbums,
+            offlineOnly: effectiveOfflineOnly,
+            offlineRevision: effectiveOfflineOnly ? offlineAlbumFilterRevision : 0,
             favoritesRevision: showsLikedOnly ? favorites.revision : 0,
             categoryRevision: releaseCategory.isEmpty ? 0 : library.releaseCategoryRevision,
             membershipRevision: releaseCategory.isEmpty ? 0 : library.releaseCategoryMembershipRevision,
@@ -71,7 +112,8 @@ struct AlbumGridView: View {
     /// 目录可读、按艺术家/标题/年份排、没有按发行类别筛时读目录;其余照旧排内存里的专辑。
     /// 读目录失败的那组条件改走内存路径。
     private var catalogKey: AlbumGridCatalogKey? {
-        guard library.catalogHost?.revisions.isReadable == true,
+        guard !effectiveOfflineOnly,
+              library.catalogHost?.revisions.isReadable == true,
               let order = albumOrder.browseOrder, order == .artist || order == .title || order == .year,
               releaseCategory.isEmpty else { return nil }
         let key = AlbumGridCatalogKey(
@@ -151,6 +193,7 @@ struct AlbumGridView: View {
         let favoritesSnapshot = favorites.ledger
         let songs = request.order.order == .recentlyAdded ? library.visibleSongs : []
         let unknownArtistName = String(localized: "unknown_artist")
+        let allowedOfflineIDs = request.offlineOnly ? offlineAlbumIDs : nil
         let ordered = await AlbumGridOrderCache.shared.prepare(
             request.order, source: source, songs: songs, unknownArtistName: unknownArtistName
         )
@@ -159,6 +202,7 @@ struct AlbumGridView: View {
             request.filter(
                 ordered.albums, categories: categories, overrides: overrides,
                 favorites: favoritesSnapshot, unknownArtistName: unknownArtistName,
+                offlineAlbumIDs: allowedOfflineIDs,
                 isCancelled: { Task.isCancelled }
             ).map { albums in
                 AlbumGridFilteredAlbums(
@@ -198,6 +242,9 @@ struct AlbumGridView: View {
                     albumFilter = ""
                     openAlbum(album)
                 }
+                .task(id: offlineFilterTaskKey) {
+                    await refreshOfflineAlbumIDs()
+                }
                 .task(id: catalogKey == nil ? filterRequest : nil) {
                     if catalogKey == nil { await prepareAlbums(filterRequest) }
                 }
@@ -229,6 +276,8 @@ struct AlbumGridView: View {
                         AlbumGridDisplayMenu(
                             order: albumOrderBinding,
                             showsLikedOnly: $showsLikedOnly,
+                            showsOfflineOnly: $showsOfflineOnly,
+                            isGlobalOfflineMode: sourceManager.isGlobalOfflineMode,
                             hidesSingleSongAlbums: $hidesSingleSongAlbums,
                             offersLikedFilter: showsLikedFilter,
                             offersIntroFill: offersIntroFill,
@@ -249,6 +298,8 @@ struct AlbumGridView: View {
                             AlbumGridDisplayMenu(
                                 order: albumOrderBinding,
                                 showsLikedOnly: $showsLikedOnly,
+                                showsOfflineOnly: $showsOfflineOnly,
+                                isGlobalOfflineMode: sourceManager.isGlobalOfflineMode,
                                 hidesSingleSongAlbums: $hidesSingleSongAlbums,
                                 offersLikedFilter: showsLikedFilter,
                                 offersIntroFill: offersIntroFill,
@@ -256,6 +307,9 @@ struct AlbumGridView: View {
                             )
                         }
                     }
+                }
+                .task(id: offlineFilterTaskKey) {
+                    await refreshOfflineAlbumIDs()
                 }
                 .task(id: catalogKey == nil ? filterRequest : nil) {
                     if catalogKey == nil { await prepareAlbums(filterRequest) }
@@ -661,6 +715,13 @@ struct AlbumGridView: View {
             }
             .pickerStyle(.inline)
             Section {
+                Toggle(isOn: Binding(
+                    get: { effectiveOfflineOnly },
+                    set: { if !sourceManager.isGlobalOfflineMode { showsOfflineOnly = $0 } }
+                )) {
+                    Label("filter_offline_available", systemImage: "wifi.slash")
+                }
+                .disabled(sourceManager.isGlobalOfflineMode)
                 Toggle(isOn: $hidesSingleSongAlbums) {
                     Label("album_filter_hide_single_song", systemImage: "music.note")
                 }
@@ -669,7 +730,7 @@ struct AlbumGridView: View {
         } label: {
             MacControlMenuLabel(
                 verbatim: albumOrder.label,
-                systemImage: hidesSingleSongAlbums ? "line.3.horizontal.decrease.circle.fill" : "arrow.up.arrow.down"
+                systemImage: hidesSingleSongAlbums || effectiveOfflineOnly ? "line.3.horizontal.decrease.circle.fill" : "arrow.up.arrow.down"
             )
         }
         .macControlMenuStyle()
@@ -919,6 +980,8 @@ struct AlbumGridFilterRequest: Hashable, Sendable {
     let category: AlbumReleaseCategory?
     let likedOnly: Bool
     let hidesSingleSongAlbums: Bool
+    var offlineOnly: Bool = false
+    var offlineRevision: Int = 0
     let favoritesRevision: Int
     let categoryRevision: UInt64
     let membershipRevision: UInt64
@@ -936,18 +999,21 @@ struct AlbumGridFilterRequest: Hashable, Sendable {
     func filter(
         _ albums: [Album], categories: AlbumReleaseMetadataIndex?,
         overrides: [String: Set<AlbumReleaseCategory>], favorites: LibraryFavoriteLedger,
-        unknownArtistName: String, isCancelled: () -> Bool = { false }
+        unknownArtistName: String,
+        offlineAlbumIDs: Set<String>? = nil,
+        isCancelled: () -> Bool = { false }
     ) -> [Album]? {
         guard !isCancelled() else { return nil }
         let predicate = AlbumGridAlbumPredicate(
             query: query, likedOnly: likedOnly, hidesSingleSongAlbums: hidesSingleSongAlbums,
             favorites: favorites, unknownArtistName: unknownArtistName
         )
-        guard category != nil || !predicate.isEmpty else { return albums }
+        guard category != nil || offlineAlbumIDs != nil || !predicate.isEmpty else { return albums }
         var result: [Album] = []
         for index in albums.indices {
             if index.isMultiple(of: 256), isCancelled() { return nil }
             let album = albums[index]
+            if let offlineAlbumIDs, !offlineAlbumIDs.contains(album.id) { continue }
             if let category,
                !(overrides[album.id] ?? categories?.categories(albumID: album.id) ?? [.album]).contains(category) { continue }
             guard predicate.matches(album) else { continue }
@@ -1031,12 +1097,15 @@ final class AlbumGridFilterCache {
 private struct AlbumGridDisplayMenu: View {
     @Binding var order: AlbumGridOrder
     @Binding var showsLikedOnly: Bool
+    @Binding var showsOfflineOnly: Bool
+    let isGlobalOfflineMode: Bool
     @Binding var hidesSingleSongAlbums: Bool
     let offersLikedFilter: Bool
     let offersIntroFill: Bool
     let fillIntros: () -> Void
 
     var body: some View {
+        let effectiveOffline = showsOfflineOnly || isGlobalOfflineMode
         Menu {
             Picker("sort_by", selection: $order) {
                 ForEach(AlbumGridOrder.menuCases, id: \.self) { option in
@@ -1047,6 +1116,15 @@ private struct AlbumGridDisplayMenu: View {
             .pickerStyle(.inline)
 
             Section {
+                Toggle(
+                    isOn: Binding(
+                        get: { effectiveOffline },
+                        set: { if !isGlobalOfflineMode { showsOfflineOnly = $0 } }
+                    )
+                ) {
+                    Label("filter_offline_available", systemImage: "wifi.slash")
+                }
+                .disabled(isGlobalOfflineMode)
                 if offersLikedFilter {
                     Toggle(isOn: $showsLikedOnly) {
                         Label("library_favorite_filter", systemImage: "heart")
@@ -1066,7 +1144,7 @@ private struct AlbumGridDisplayMenu: View {
         } label: {
             Label(
                 "songs_display_mode",
-                systemImage: showsLikedOnly || hidesSingleSongAlbums
+                systemImage: showsLikedOnly || hidesSingleSongAlbums || effectiveOffline
                     ? "line.3.horizontal.decrease.circle.fill"
                     : "line.3.horizontal.decrease.circle"
             )

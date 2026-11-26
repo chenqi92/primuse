@@ -8204,3 +8204,24 @@
 "fnconnect_gateway_2fa_title" = "Weryfikacja FN Connect";
 "fnconnect_gateway_2fa_code" = "6-cyfrowy kod";
 "fnconnect_gateway_2fa_verify" = "Zweryfikuj";
+
+"offline_mode_title" = "Tryb offline";
+"offline_mode_desc" = "Odtwarzaj tylko pobrane, zapisane w pamięci podręcznej lub lokalne utwory bez streamingu i automatycznego odświeżania.";
+"offline_mode_short" = "Offline";
+"offline_mode_partial_count_format" = "Źródła w trybie offline: %d";
+"offline_mode_enable_source" = "Włącz tryb offline";
+"offline_mode_disable_source" = "Wyłącz tryb offline";
+"offline_mode_go_online_source" = "Przełącz źródło online";
+"offline_mode_turn_off_global" = "Wyłącz tryb offline";
+"offline_mode_banner_global" = "Tryb offline · Tylko lokalne";
+"offline_mode_banner_partial_format" = "Źródła offline: %d";
+"offline_mode_turn_off_short" = "Wyłącz";
+"offline_mode_restore_all_short" = "Wszystkie online";
+"offline_mode_song_alert_title" = "Tryb offline jest aktywny";
+"offline_mode_song_alert_message" = "W trybie offline można odtwarzać wyłącznie pobrane lub zapisane w pamięci podręcznej utwory.";
+"source_card_status_offline_mode" = "Tryb offline · Tylko lokalne";
+"song_row_source_offline" = "Tryb offline";
+"playback_error_source_offline_format" = "Źródło „%@” jest w trybie offline";
+"playback_error_source_offline_skipped_format" = "Pominięto niezapisane utwory z „%@” w trybie offline";
+"filter_offline_available" = "Dostępne offline";
+"filter_offline_available_empty_desc" = "Tutaj pojawią się pobrane, zapisane w pamięci podręcznej i lokalne utwory.";

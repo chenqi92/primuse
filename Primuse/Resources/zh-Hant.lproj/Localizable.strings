@@ -8275,3 +8275,24 @@
 "fnconnect_gateway_2fa_title" = "FN Connect 兩步驟驗證";
 "fnconnect_gateway_2fa_code" = "6 位數驗證碼";
 "fnconnect_gateway_2fa_verify" = "驗證";
+
+"offline_mode_title" = "離線模式";
+"offline_mode_desc" = "僅播放已下載、已快取或本機音訊，不進行連網串流與自動重新整理。";
+"offline_mode_short" = "離線";
+"offline_mode_partial_count_format" = "%d 個音樂來源已開啟離線模式";
+"offline_mode_enable_source" = "開啟離線模式";
+"offline_mode_disable_source" = "退出離線模式";
+"offline_mode_go_online_source" = "恢復此來源連線";
+"offline_mode_turn_off_global" = "關閉離線模式";
+"offline_mode_banner_global" = "離線模式 · 僅限本機可用";
+"offline_mode_banner_partial_format" = "%d 個音樂來源已離線";
+"offline_mode_turn_off_short" = "關閉";
+"offline_mode_restore_all_short" = "全部上線";
+"offline_mode_song_alert_title" = "已開啟離線模式";
+"offline_mode_song_alert_message" = "離線模式下僅能播放已下載或已快取的歌曲。";
+"source_card_status_offline_mode" = "離線模式 · 僅限本機可用";
+"song_row_source_offline" = "離線模式";
+"playback_error_source_offline_format" = "「%@」已開啟離線模式";
+"playback_error_source_offline_skipped_format" = "已略過「%@」離線模式下未快取的歌曲";
+"filter_offline_available" = "離線可用";
+"filter_offline_available_empty_desc" = "已下載、已快取或本機的歌曲會顯示在這裡。";

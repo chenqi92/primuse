@@ -8391,3 +8391,24 @@
 "fnconnect_gateway_2fa_title" = "FN Connect 两步验证";
 "fnconnect_gateway_2fa_code" = "6 位验证码";
 "fnconnect_gateway_2fa_verify" = "验证";
+
+"offline_mode_title" = "离线模式";
+"offline_mode_desc" = "仅播放已下载、已缓存或本机音频，不发起联网串流与自动刷新。";
+"offline_mode_short" = "离线";
+"offline_mode_partial_count_format" = "%d 个音乐源已开启离线模式";
+"offline_mode_enable_source" = "开启离线模式";
+"offline_mode_disable_source" = "退出离线模式";
+"offline_mode_go_online_source" = "恢复此源在线";
+"offline_mode_turn_off_global" = "关闭离线模式";
+"offline_mode_banner_global" = "离线模式 · 仅本地可用";
+"offline_mode_banner_partial_format" = "%d 个音乐源已离线";
+"offline_mode_turn_off_short" = "关闭";
+"offline_mode_restore_all_short" = "全部在线";
+"offline_mode_song_alert_title" = "已开启离线模式";
+"offline_mode_song_alert_message" = "离线模式下仅可播放已下载或已缓存的歌曲。";
+"source_card_status_offline_mode" = "离线模式 · 仅本地可用";
+"song_row_source_offline" = "离线模式";
+"playback_error_source_offline_format" = "「%@」已开启离线模式";
+"playback_error_source_offline_skipped_format" = "已跳过「%@」离线模式下未缓存的歌曲";
+"filter_offline_available" = "离线可用";
+"filter_offline_available_empty_desc" = "已下载、已缓存或本机的歌曲会显示在这里。";

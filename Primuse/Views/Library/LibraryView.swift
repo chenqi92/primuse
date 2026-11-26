@@ -393,6 +393,47 @@ struct LibraryStartupPlaybackFeedback: View {
     }
 }
 
+/// 仅在开启主动离线模式（全局或部分单源）时于资料库顶部浮现的轻量状态条，平时零占位。
+struct LibraryOfflineModeBanner: View {
+    var horizontalInset: CGFloat = 14
+
+    @Environment(SourceManager.self) private var sourceManager
+
+    var body: some View {
+        if sourceManager.hasActiveManualOfflineMode {
+            let isGlobal = sourceManager.isGlobalOfflineMode
+            let partialCount = sourceManager.activeManualOfflineSourceCount
+            HStack(spacing: 8) {
+                Image(systemName: "wifi.slash")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text(
+                    isGlobal
+                        ? String(localized: "offline_mode_banner_global")
+                        : String(format: String(localized: "offline_mode_banner_partial_format"), partialCount)
+                )
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                Spacer(minLength: 8)
+                Button(LocalizedStringKey(isGlobal ? "offline_mode_turn_off_short" : "offline_mode_restore_all_short")) {
+                    sourceManager.clearAllManualOfflineModes()
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, horizontalInset)
+            .padding(.top, 4)
+            .padding(.bottom, 2)
+            .accessibilityIdentifier("library.offlineMode.banner")
+        }
+    }
+}
+
 /// 资料库分类入口的图标画法。「彩色」是白色符号压在各分类自己颜色的方块上;「简洁」去掉方块,
 /// 符号统一跟主题色、能填充的用填充版,像系统音乐、图书 App 的资料库列表。
 enum LibraryIconStyle: String, CaseIterable, Identifiable, Sendable {
@@ -756,6 +797,7 @@ private struct LibraryBrowseRun: Identifiable {
 
 struct LibraryView: View {
     @Environment(SourcesStore.self) private var startupSourcesStore
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(RadioStationsStore.self) private var radioStationsStore
@@ -925,7 +967,12 @@ struct LibraryView: View {
             rootContent
             #if os(iOS)
             .minimalSafeAreaBar(edge: .top) {
-                standardSectionTabs(selection: rootSection)
+                VStack(spacing: 0) {
+                    if rootSection != nil {
+                        LibraryOfflineModeBanner()
+                    }
+                    standardSectionTabs(selection: rootSection)
+                }
             }
             .overlay { sectionRail(selection: rootSection) }
             #endif
@@ -1062,7 +1109,10 @@ struct LibraryView: View {
             .environment(\.librarySectionRailActive, sectionRailEdge != nil)
             .pageSwitchEntryNudge(page: appNavigationMode == .standard ? .librarySection(section) : nil)
             .minimalSafeAreaBar(edge: .top) {
-                standardSectionTabs(selection: section)
+                VStack(spacing: 0) {
+                    LibraryOfflineModeBanner()
+                    standardSectionTabs(selection: section)
+                }
             }
             // 挂在轻推外面:换分类时竖栏里的分类和顶上那排页签一样不跟着页面挪。
             .overlay { sectionRail(selection: section) }
@@ -1250,6 +1300,7 @@ struct LibraryView: View {
         let previewRevision = artworkPreviewRevision
         return ScrollView {
             VStack(alignment: .leading, spacing: 28) {
+                LibraryOfflineModeBanner(horizontalInset: 16)
                 if !library.isReady, currentStartupPreview == nil {
                     ProgressView("library_preparing")
                         .font(.caption)

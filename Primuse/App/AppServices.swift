@@ -479,6 +479,7 @@ final class ServerCatalogAutoRefreshCoordinator {
         supportsAutomaticRefresh(source)
             && source.isEnabled
             && !source.isDeleted
+            && !sourceManager.isSourceManuallyOffline(source)
             && isEnabled(for: source.id)
     }
 
@@ -1352,6 +1353,7 @@ final class AppServices {
             guard let player else { throw CancellationError() }
             return try player.prepareForSourceFileRename(song)
         }
+        manager.syncOfflineModeSources(store.sources)
         manager.onPlaybackSourceAvailabilityChange = { [weak player] in
             player?.playbackSourceAvailabilityDidChange()
         }

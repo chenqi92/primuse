@@ -68,4 +68,24 @@ struct SourceCardPresentationPolicyTests {
             candidates: [], active: .localAddress, lastSuccessful: nil, selected: nil
         ) == nil)
     }
+
+    @Test("Compact address follows the displayed route and strips default ports")
+    func compactAddressFormatting() {
+        let nav = MusicSource(id: "nav", name: "Navidrome", type: .navidrome, host: "https://music.example.com", port: 443, useSsl: true)
+        let lan = SourceConnectionCandidate(
+            kind: .localAddress,
+            endpoint: SourceConnectionEndpoint(host: "192.168.1.10", port: 4533, useSsl: false)
+        )
+        let wan = SourceConnectionCandidate(
+            kind: .publicAddress,
+            endpoint: SourceConnectionEndpoint(host: "music.example.com", port: 443, useSsl: true, pathPrefix: "/navidrome")
+        )
+        let qc = SourceConnectionCandidate(kind: .vendorRemote, vendorIdentifier: "my-nas")
+
+        #expect(SourceCardPresentationPolicy.compactAddress(for: nav, displayedRoute: lan) == "192.168.1.10:4533")
+        #expect(SourceCardPresentationPolicy.compactAddress(for: nav, displayedRoute: wan) == "music.example.com/navidrome")
+        #expect(SourceCardPresentationPolicy.compactAddress(for: nav, displayedRoute: qc) == "my-nas")
+        #expect(SourceCardPresentationPolicy.compactAddress(for: nav, displayedRoute: nil) == "music.example.com")
+        #expect(SourceCardPresentationPolicy.compactAddress(for: source("local", .local, host: "/Music"), displayedRoute: nil) == nil)
+    }
 }

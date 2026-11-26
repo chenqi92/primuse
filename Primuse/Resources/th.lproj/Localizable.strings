@@ -8204,3 +8204,24 @@
 "fnconnect_gateway_2fa_title" = "การยืนยัน FN Connect";
 "fnconnect_gateway_2fa_code" = "รหัส 6 หลัก";
 "fnconnect_gateway_2fa_verify" = "ยืนยัน";
+
+"offline_mode_title" = "โหมดออฟไลน์";
+"offline_mode_desc" = "เล่นเฉพาะเสียงที่ดาวน์โหลด แคชไว้ หรืออยู่ในเครื่อง โดยไม่สตรีมหรือรีเฟรชอัตโนมัติ";
+"offline_mode_short" = "ออฟไลน์";
+"offline_mode_partial_count_format" = "%d แหล่งเพลงอยู่ในโหมดออฟไลน์";
+"offline_mode_enable_source" = "เปิดโหมดออฟไลน์";
+"offline_mode_disable_source" = "ออกจากโหมดออฟไลน์";
+"offline_mode_go_online_source" = "กลับมาออนไลน์สำหรับแหล่งนี้";
+"offline_mode_turn_off_global" = "ปิดโหมดออฟไลน์";
+"offline_mode_banner_global" = "โหมดออฟไลน์ · เฉพาะในเครื่อง";
+"offline_mode_banner_partial_format" = "%d แหล่งเพลงออฟไลน์";
+"offline_mode_turn_off_short" = "ปิด";
+"offline_mode_restore_all_short" = "ออนไลน์ทั้งหมด";
+"offline_mode_song_alert_title" = "เปิดใช้งานโหมดออฟไลน์อยู่";
+"offline_mode_song_alert_message" = "ขณะเปิดโหมดออฟไลน์ จะเล่นได้เฉพาะเพลงที่ดาวน์โหลดหรือแคชไว้เท่านั้น";
+"source_card_status_offline_mode" = "โหมดออฟไลน์ · เฉพาะในเครื่อง";
+"song_row_source_offline" = "โหมดออฟไลน์";
+"playback_error_source_offline_format" = "\"%@\" อยู่ในโหมดออฟไลน์";
+"playback_error_source_offline_skipped_format" = "ข้ามเพลงที่ไม่ได้แคชจาก \"%@\" ในโหมดออฟไลน์แล้ว";
+"filter_offline_available" = "เล่นออฟไลน์ได้";
+"filter_offline_available_empty_desc" = "เพลงที่ดาวน์โหลด แคชไว้ และอยู่ในเครื่องจะแสดงที่นี่";

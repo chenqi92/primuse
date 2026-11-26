@@ -8204,3 +8204,24 @@
 "fnconnect_gateway_2fa_title" = "Verificación FN Connect";
 "fnconnect_gateway_2fa_code" = "Código de 6 dígitos";
 "fnconnect_gateway_2fa_verify" = "Verificar";
+
+"offline_mode_title" = "Modo sin conexión";
+"offline_mode_desc" = "Reproduce solo audio descargado, en caché o local sin streaming ni actualización automática.";
+"offline_mode_short" = "Sin conexión";
+"offline_mode_partial_count_format" = "%d fuente(s) en modo sin conexión";
+"offline_mode_enable_source" = "Activar modo sin conexión";
+"offline_mode_disable_source" = "Salir del modo sin conexión";
+"offline_mode_go_online_source" = "Reconectar esta fuente";
+"offline_mode_turn_off_global" = "Desactivar modo sin conexión";
+"offline_mode_banner_global" = "Modo sin conexión · Solo local";
+"offline_mode_banner_partial_format" = "%d fuente(s) sin conexión";
+"offline_mode_turn_off_short" = "Desactivar";
+"offline_mode_restore_all_short" = "Reconectar todo";
+"offline_mode_song_alert_title" = "Modo sin conexión activo";
+"offline_mode_song_alert_message" = "Solo se pueden reproducir canciones descargadas o en caché mientras el modo sin conexión esté activo.";
+"source_card_status_offline_mode" = "Modo sin conexión · Solo local";
+"song_row_source_offline" = "Sin conexión";
+"playback_error_source_offline_format" = "«%@» está en modo sin conexión";
+"playback_error_source_offline_skipped_format" = "Se omitieron canciones sin caché de «%@» en modo sin conexión";
+"filter_offline_available" = "Disponible sin conexión";
+"filter_offline_available_empty_desc" = "Aquí aparecen las canciones descargadas, en caché y locales.";

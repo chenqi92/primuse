@@ -8204,3 +8204,24 @@
 "fnconnect_gateway_2fa_title" = "التحقق من FN Connect";
 "fnconnect_gateway_2fa_code" = "رمز من 6 أرقام";
 "fnconnect_gateway_2fa_verify" = "تحقق";
+
+"offline_mode_title" = "الوضع دون اتصال";
+"offline_mode_desc" = "تشغيل المقاطع المنزّلة أو المخزّنة مؤقتاً أو المحلية فقط دون بث أو تحديث تلقائي.";
+"offline_mode_short" = "دون اتصال";
+"offline_mode_partial_count_format" = "%d مصدر في الوضع دون اتصال";
+"offline_mode_enable_source" = "تفعيل الوضع دون اتصال";
+"offline_mode_disable_source" = "إنهاء الوضع دون اتصال";
+"offline_mode_go_online_source" = "إعادة هذا المصدر للاتصال";
+"offline_mode_turn_off_global" = "إيقاف الوضع دون اتصال";
+"offline_mode_banner_global" = "الوضع دون اتصال · محلي فقط";
+"offline_mode_banner_partial_format" = "%d مصدر دون اتصال";
+"offline_mode_turn_off_short" = "إيقاف";
+"offline_mode_restore_all_short" = "إعادة الاتصال";
+"offline_mode_song_alert_title" = "الوضع دون اتصال مفعّل";
+"offline_mode_song_alert_message" = "يمكن تشغيل الأغاني المنزّلة أو المخزّنة مؤقتاً فقط أثناء تفعيل الوضع دون اتصال.";
+"source_card_status_offline_mode" = "الوضع دون اتصال · محلي فقط";
+"song_row_source_offline" = "دون اتصال";
+"playback_error_source_offline_format" = "\"%@\" في الوضع دون اتصال";
+"playback_error_source_offline_skipped_format" = "تم تخطي الأغاني غير المخزّنة من \"%@\" في الوضع دون اتصال";
+"filter_offline_available" = "متاح دون اتصال";
+"filter_offline_available_empty_desc" = "تظهر هنا الأغاني المنزّلة والمخزّنة مؤقتاً والمحلية.";

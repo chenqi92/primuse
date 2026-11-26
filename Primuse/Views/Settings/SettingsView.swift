@@ -3358,6 +3358,17 @@ struct StorageManagementView: View {
             }
 
             Section {
+                Toggle(
+                    isOn: Binding(
+                        get: { sourceManager.isGlobalOfflineMode },
+                        set: { sourceManager.setGlobalOfflineMode($0) }
+                    )
+                ) {
+                    Label("offline_mode_title", systemImage: "wifi.slash")
+                }
+                .tint(.orange)
+                .settingsAnchor("storage.offlineMode")
+
                 NavigationLink {
                     OfflineDownloadsView()
                 } label: {

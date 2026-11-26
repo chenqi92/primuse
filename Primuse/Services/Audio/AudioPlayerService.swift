@@ -5167,6 +5167,13 @@ final class AudioPlayerService {
                await sourceManager?.playbackSourceIsUnavailable(
                    for: song, retryKnownUnavailable: true
                ) == true {
+                if let sourceManager, sourceManager.isSourceManuallyOffline(song.sourceID) {
+                    let message = await sourceManager.playbackSourceUnreachableMessage(
+                        sourceID: song.sourceID,
+                        skippedSongs: false
+                    )
+                    throw SourceError.connectionFailed(message)
+                }
                 throw SourceError.connectionFailed(String(localized: "status_network_unavailable"))
             }
             guard isLocalTransportStartAuthorized(
@@ -8085,6 +8092,7 @@ final class AudioPlayerService {
                 if song.id == preparedStart?.song.id || song.id == preparingStartSongID { continue }
                 if rank == 0 { await requestICloudDownloadForUpcomingLocalSong(song) }
                 if sourceManager?.cachedPlaybackURL(for: song) != nil { continue }
+                if sourceManager?.isSourceManuallyOffline(song.sourceID) == true { continue }
                 plog("⏩ Prefetching queued song #\(rank + 1): \(song.title)")
                 await sourceManager?.cacheForUpcomingPlayback(
                     song: song,
