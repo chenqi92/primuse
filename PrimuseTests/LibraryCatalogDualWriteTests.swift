@@ -780,6 +780,48 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertFalse(expected.isEmpty)
     }
 
+    /// Siri 按名字比对的专辑、艺人、流派清单在目录上建,与按内存里的可见列表建的逐项相同(含停用源、
+    /// 按艺人筛专辑、斜杠分隔的流派)。
+    func testSiriNamedItemsFromTheCatalogMatchTheInMemoryLists() async throws {
+        let library = makeLibrary(disabledSourceIDs: [Self.sourceB])
+        library.addSongs(Self.fixture(), affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        XCTAssertEqual(library.catalogHost?.revisions.isReadable, true)
+
+        func summary(_ items: [SiriNamedMediaItem]) -> [String] {
+            items.map { "\($0.id)|\($0.name)|\($0.aliases)" }
+        }
+        func memoryAlbums(_ artist: String?) -> [SiriNamedMediaItem] {
+            library.visibleAlbums.compactMap { album in
+                if let artist, !artist.isEmpty, album.artistName?.localizedCaseInsensitiveContains(artist) != true { return nil }
+                let name = album.artistName.map { $0.isEmpty ? album.title : "\(album.title) — \($0)" } ?? album.title
+                return SiriNamedMediaItem(id: album.id, name: name, aliases: [album.title])
+            }
+        }
+        for artist in [nil, "ada", "Artist 2", "  ", "nobody"] as [String?] {
+            let fromCatalog = await SiriLibraryNamedItems.albums(artistName: artist, library: library)
+            XCTAssertEqual(summary(fromCatalog), summary(memoryAlbums(artist?.trimmingCharacters(in: .whitespacesAndNewlines))),
+                           "artist \(artist ?? "nil")")
+        }
+        let artists = await SiriLibraryNamedItems.artists(library: library)
+        XCTAssertEqual(summary(artists), summary(library.visibleArtists.map { SiriNamedMediaItem(id: $0.id, name: $0.name) }))
+
+        var seenRaw = Set<String>()
+        var seen = Set<String>()
+        var expectedGenres: [SiriNamedMediaItem] = []
+        for song in library.visibleSongs {
+            guard let raw = song.genre,
+                  seenRaw.insert(GenreSlashConvention.applies(to: song.fileFormat) ? "\u{1}" + raw : raw).inserted else { continue }
+            for genre in GenreTagValues.browseNames(for: song) where seen.insert(genre.lowercased()).inserted {
+                expectedGenres.append(SiriNamedMediaItem(id: genre, name: genre))
+            }
+        }
+        expectedGenres.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let genres = await SiriLibraryNamedItems.genres(library: library)
+        XCTAssertEqual(summary(genres), summary(expectedGenres))
+        XCTAssertFalse(genres.isEmpty)
+    }
+
     /// 目录停下(不再跟写)后不登记、不作答,调用方读内存模型。
     func testCatalogReadsByIDStopWhenTheMirrorStopsFollowing() async throws {
         let library = makeLibrary()

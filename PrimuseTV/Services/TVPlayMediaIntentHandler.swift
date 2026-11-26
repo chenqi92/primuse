@@ -190,7 +190,7 @@ final class TVPlayMediaIntentHandler: NSObject,
                     identifiers: identifiers,
                     namespace: "album",
                     type: .album,
-                    items: albumItems(artistName: query.artistName),
+                    items: await SiriLibraryNamedItems.albums(artistName: query.artistName, library: store.library),
                     completion: completion
                 )
                 return
@@ -200,7 +200,7 @@ final class TVPlayMediaIntentHandler: NSObject,
                     identifiers: identifiers,
                     namespace: "artist",
                     type: .artist,
-                    items: artistItems(),
+                    items: await SiriLibraryNamedItems.artists(library: store.library),
                     completion: completion
                 )
                 return
@@ -210,7 +210,7 @@ final class TVPlayMediaIntentHandler: NSObject,
                     identifiers: identifiers,
                     namespace: "genre",
                     type: .genre,
-                    items: genreItems(),
+                    items: await SiriLibraryNamedItems.genres(library: store.library),
                     completion: completion
                 )
                 return
@@ -969,54 +969,6 @@ final class TVPlayMediaIntentHandler: NSObject,
             from: store.radioStations,
             enabledSourceIDs: Set(store.sourcesStore.sources.lazy.filter(\.isEnabled).map(\.id))
         )
-    }
-
-    @MainActor
-    private func albumItems(artistName: String?) -> [SiriNamedMediaItem] {
-        let requestedArtist = artistName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return store.library.visibleAlbums.compactMap { album in
-            if let requestedArtist, !requestedArtist.isEmpty,
-               album.artistName?.localizedCaseInsensitiveContains(requestedArtist) != true {
-                return nil
-            }
-            let displayName: String
-            if let artist = album.artistName, !artist.isEmpty {
-                displayName = "\(album.title) — \(artist)"
-            } else {
-                displayName = album.title
-            }
-            return SiriNamedMediaItem(
-                id: album.id,
-                name: displayName,
-                aliases: [album.title]
-            )
-        }
-    }
-
-    @MainActor
-    private func artistItems() -> [SiriNamedMediaItem] {
-        store.library.visibleArtists.map {
-            SiriNamedMediaItem(id: $0.id, name: $0.name)
-        }
-    }
-
-    @MainActor
-    private func genreItems() -> [SiriNamedMediaItem] {
-        var seenRaw = Set<String>()
-        var seen = Set<String>()
-        var items: [SiriNamedMediaItem] = []
-        for song in store.library.visibleSongs {
-            // ID3 格式的歌另按斜杠惯例拆：同一串流派写法按两种拆法各看一次。
-            guard let raw = song.genre,
-                  seenRaw.insert(GenreSlashConvention.applies(to: song.fileFormat) ? "\u{1}" + raw : raw).inserted
-            else { continue }
-            for genre in GenreTagValues.browseNames(for: song) where seen.insert(genre.lowercased()).inserted {
-                items.append(SiriNamedMediaItem(id: genre, name: genre))
-            }
-        }
-        return items.sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
     }
 
     private func resolveNamedItems(
