@@ -341,7 +341,7 @@ actor ConnectorScanner {
                 let ext = Self.lowercasedExtension(item.name)
 
                 if cueListing.invalidDiscPaths.contains(item.path) {
-                    let tracks = retainedDiscTracks(item, priorEntry: oldEntry, byPath: discTracksByPath)
+                    let tracks = retainedDiscTracks(item, priorEntry: oldEntry) { discTracksByPath[$0] }
                     for song in tracks { songsByID[song.id] = song }
                     recordSyncItem(item, songIDs: tracks.map(\.id), seenEpoch: scanEpoch, in: &index)
                     continue
@@ -530,7 +530,8 @@ actor ConnectorScanner {
         resumeState: SourceScanResumeState? = nil,
         identityIndex: SourceSyncIndex = SourceSyncIndex(),
         identityMissingStableKeys: [String: Int] = [:],
-        scanEpoch: Int64 = 0
+        scanEpoch: Int64 = 0,
+        existingLookupShadow: ScanExistingSongsCatalogShadow? = nil
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
         completedSyncIndex = SourceSyncIndex()
         completedReconciliation = nil
@@ -552,7 +553,10 @@ actor ConnectorScanner {
                     var pendingRootRepairs: Set<String> = []
                     let existingSongs = SourceFileMovePlan.repairingLegacyRootMoves(
                         in: existingSongs, root: try await connector.fileMutationRootPath()
-                    ) { pendingRootRepairs.insert($0.id) }
+                    ) {
+                        pendingRootRepairs.insert($0.id)
+                        existingLookupShadow?.overrideStartState($0)
+                    }
                     // Remove redundant child directories when a parent is already selected
                     let dirs = SynologyScanner.deduplicateDirectories(directories)
                     let selectedRoots = Set(dirs)
@@ -566,10 +570,12 @@ actor ConnectorScanner {
                     // 累积表与已有的歌共用同一份数组,改过的行另记(`ScanSongAccumulator`):
                     // 原来第一次改一行就写时复制出整个源的歌曲数组,整场扫描两份并存。
                     var allSongs = ScanSongAccumulator(existingSongs)
-                    lazy var discTracksByPath = existingDiscTracksByPath(existingSongs)
-                    var existingByID = IndexedSongSnapshot(
+                    // 「这个源扫描开始时已有的歌」都经它问;给了影子时同样的问题再问一遍曲库目录比对。
+                    let existingByID = ScanExistingSongs(
                         existingSongs,
-                        matchingOriginalPathsForSourceID: connector is any SongScanningConnector ? nil : sourceID
+                        sourceID: sourceID,
+                        matchesOriginalPaths: !(connector is any SongScanningConnector),
+                        shadow: existingLookupShadow
                     )
                     let initialCount = max(existingSongs.count, startingCount)
                     var scannedCount = totalCount > 0 ? min(initialCount, totalCount) : initialCount
@@ -926,6 +932,7 @@ actor ConnectorScanner {
 
                             do {
                                 let siblings = try result.listing.get()
+                                existingByID.prepareDirectory(directory)
                                 let sidecarIndex = await directoryIndex(siblings, of: directory)
                                 for directoryItem in siblings where directoryItem.isDirectory {
                                     try validateStableIdentity(
@@ -1006,7 +1013,9 @@ actor ConnectorScanner {
                                         claimedIdentityKeys.insert(identityKey)
                                     }
                                     if cueListing.invalidDiscPaths.contains(item.path) {
-                                        let tracks = retainedDiscTracks(item, priorEntry: priorEntry, byPath: discTracksByPath)
+                                        let tracks = retainedDiscTracks(item, priorEntry: priorEntry) {
+                                            existingByID.discTracks(atPath: $0)
+                                        }
                                         let ids = tracks.map(\.id)
                                         walk.insertSongIDs(ids)
                                         recordSyncItem(item, songIDs: ids, seenEpoch: scanEpoch, in: &walk)
@@ -1291,11 +1300,10 @@ actor ConnectorScanner {
                                     // Source edits and older libraries can leave
                                     // the identity index empty or incomplete.
                                     // Those rows still need the same protection.
-                                    for song in existingSongs where Self.immediateChildPath(
-                                        descendant: song.filePath, of: directory
-                                    ) != nil {
-                                        walk.insertSongID(song.id)
+                                    let preservedIDs = existingByID.songIDs(under: directory) {
+                                        Self.immediateChildPath(descendant: $0, of: directory) != nil
                                     }
+                                    for id in preservedIDs { walk.insertSongID(id) }
                                     plog("↷ Dropped stale child directory from scan checkpoint: \(directory)")
                                     continuation.yield(
                                         ScanUpdate(
@@ -1485,10 +1493,10 @@ actor ConnectorScanner {
     }
 
     private func retainedDiscTracks(
-        _ item: RemoteFileItem, priorEntry: SourceSyncIndexedItem?, byPath: [String: [Song]]
+        _ item: RemoteFileItem, priorEntry: SourceSyncIndexedItem?, tracksAtPath: (String) -> [Song]?
     ) -> [Song] {
         let oldPath = priorEntry?.path ?? item.path
-        guard oldPath != item.path, let movedTracks = byPath[oldPath] else { return byPath[item.path] ?? [] }
+        guard oldPath != item.path, let movedTracks = tracksAtPath(oldPath) else { return tracksAtPath(item.path) ?? [] }
         return movedTracks.map { track in
             var moved = track
             moved.filePath = item.path
