@@ -31,6 +31,26 @@ extension LibraryCatalogReader {
     }
 }
 
+extension LibraryCatalogReader {
+    /// 扫描提交后绑在这个源上的文件夹歌单的成员:在目录上建这个源的文件夹索引,不物化整库。
+    /// 目录要已经跟上那次提交(`catalogReaderCaughtUp`)。
+    func folderPlaylistMemberships(
+        bindings: [String: PlaylistFolderBinding], source: MusicSource, syncIndex: SourceSyncIndex?
+    ) async throws -> [String: [String]] {
+        let flag = LibraryCatalogCancellationFlag()
+        return try await withTaskCancellationHandler {
+            try await read { catalog in
+                try FolderPlaylistMembershipPolicy.memberships(
+                    bindings: bindings, source: source, catalog: catalog, syncIndex: syncIndex,
+                    isCancelled: { flag.isCancelled }
+                )
+            }
+        } onCancel: {
+            flag.cancel()
+        }
+    }
+}
+
 extension MusicLibrary {
     /// 目录此刻可读时给出读接口,否则 nil(文件夹索引等照旧走内存)。
     var readableCatalogReader: LibraryCatalogReader? {

@@ -6133,18 +6133,28 @@ final class ScanService {
         guard syncState?.reconciliation == nil else { return }
         let bindings = library.folderPlaylistBindings(for: source)
         guard !bindings.isEmpty else { return }
-        let committedSongs = library.songs
         let committedIndex = syncState?.index
-        let task = Task.detached(priority: .utility) {
-            FolderPlaylistMembershipPolicy.memberships(
-                bindings: bindings, source: source,
-                songs: committedSongs, syncIndex: committedIndex
-            )
-        }
-        let memberships = await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
+        let memberships: [String: [String]]
+        // 目录跟上这次提交后在目录上建这个源的文件夹索引;跟不上、读失败才按整库歌曲数组建。
+        if let reader = await library.catalogReaderCaughtUp(),
+           let fromCatalog = try? await reader.folderPlaylistMemberships(
+               bindings: bindings, source: source, syncIndex: committedIndex
+           ) {
+            memberships = fromCatalog
+        } else {
+            try Task.checkCancellation()
+            let committedSongs = library.songs
+            let task = Task.detached(priority: .utility) {
+                FolderPlaylistMembershipPolicy.memberships(
+                    bindings: bindings, source: source,
+                    songs: committedSongs, syncIndex: committedIndex
+                )
+            }
+            memberships = await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
         }
         try Task.checkCancellation()
         try checkScanCommitFence(

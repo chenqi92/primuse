@@ -387,6 +387,84 @@ final class FolderPlaylistTests: XCTestCase {
         XCTAssertFalse(rereadIDs.contains(b1.id))
     }
 
+    /// 扫描提交后(扫描后的维护里)重算文件夹歌单的成员:曲库目录可读时在跟上的目录上算,
+    /// 与按整库歌曲算的一样;目录没开时按整库歌曲算。
+    func testCommittedScanRefreshesFolderPlaylistOnTheCatalog() async throws {
+        try await runCommittedScanRefresh(catalog: true)
+    }
+
+    func testCommittedScanRefreshesFolderPlaylistInMemory() async throws {
+        try await runCommittedScanRefresh(catalog: false)
+    }
+
+    private func runCommittedScanRefresh(catalog: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("FolderPlaylistCatalog-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: "source", name: "NAS", type: .webdav, extraConfig: "[\"/Music\"]")
+        func dir(_ path: String) -> RemoteFileItem {
+            RemoteFileItem(name: (path as NSString).lastPathComponent, path: path,
+                           isDirectory: true, size: 0, modifiedDate: nil)
+        }
+        func file(_ path: String) -> RemoteFileItem {
+            RemoteFileItem(name: (path as NSString).lastPathComponent, path: path,
+                           isDirectory: false, size: 1_000, modifiedDate: Date(timeIntervalSince1970: 1_700_000_000))
+        }
+        let connector = FolderRescanTestConnector(listings: [
+            "/Music": [dir("/Music/A"), dir("/Music/B")],
+            "/Music/A": [file("/Music/A/a1.mp3"), dir("/Music/A/Disc")],
+            "/Music/A/Disc": [file("/Music/A/Disc/d1.mp3")],
+            "/Music/B": [file("/Music/B/b1.mp3")],
+        ])
+        let library = MusicLibrary(
+            storageDirectory: root.appendingPathComponent("library"), catalogMirroring: catalog ? .enabled(startDelay: .zero) : .disabled
+        )
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let scan = ScanService(
+            fileManager: FolderPlaylistTestFileManager(root: root), connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) }
+        )
+        let manager = SourceManager(sourcesProvider: { [] })
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        await scan.waitForActiveScansToComplete()
+        if catalog {
+            await library.waitForCatalogMirror()
+            XCTAssertNotNil(library.readableCatalogReader)
+        }
+        let bound = library.songs.filter { $0.filePath.hasPrefix("/Music/A/") }.map(\.id)
+        let playlist = library.createFolderPlaylist(
+            name: "A", nodeID: LibraryFolderNodeID(sourceID: source.id, kind: .folder, normalizedRelativePath: "/music/a"),
+            cloudAccountID: nil, songIDs: bound
+        )
+
+        // A 多了一首和一个子文件夹,少了 Disc;B 也多了一首。
+        await connector.replaceListings([
+            "/Music": [dir("/Music/A"), dir("/Music/B")],
+            "/Music/A": [file("/Music/A/a1.mp3"), file("/Music/A/a2.mp3"), dir("/Music/A/NewDisc")],
+            "/Music/A/NewDisc": [file("/Music/A/NewDisc/n1.mp3")],
+            "/Music/B": [file("/Music/B/b1.mp3"), file("/Music/B/b2.mp3")],
+        ])
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        await scan.waitForActiveScansToComplete()
+        XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        // 成员在扫描后的维护里重算,等它跑完。
+        var expected: [String]?
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while ContinuousClock.now < deadline {
+            await library.waitForPendingIndex()
+            expected = FolderPlaylistMembershipPolicy.memberships(
+                bindings: library.folderPlaylistBindings(for: source), source: source, songs: library.songs, syncIndex: nil
+            )[playlist.id]
+            if library.rawSongIDs(forPlaylist: playlist.id) == expected { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), expected)
+        XCTAssertEqual(Set(library.songs(forPlaylist: playlist.id).map(\.filePath)),
+                       ["/Music/A/a1.mp3", "/Music/A/a2.mp3", "/Music/A/NewDisc/n1.mp3"])
+        await library.stopCatalogMirror()
+    }
+
     func testFullLocalFolderScanReadsChangedTagsWithSameSizeAndTimestamp() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

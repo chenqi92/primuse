@@ -107,6 +107,94 @@ struct FolderPlaylistMembershipTests {
         #expect(old.allowsManualSongMembership)
     }
 
+    @Test("Memberships built on the catalog match the ones built from the songs", arguments: [1, 2, 3] as [UInt64])
+    func catalogMatchesSongs(seed: UInt64) throws {
+        var rng = CatalogTestRandom(seed: seed)
+        let temporary = try TemporaryCatalog()
+        let source = MusicSource(id: "nas", name: "NAS", type: .webdav, extraConfig: "[\"/Music\", \"/Audio\"]")
+        let folders = ["/Music", "/Music/Live", "/Music/Live/Disc 2", "/Music/Live-old", "/Music/周杰伦", "/music/live",
+                       "/Audio/Books/第一季", "/Other", "/Music/A%2FB"]
+        var songs: [Song] = []
+        for index in 0..<320 {
+            let format: AudioFormat = rng.chance(50) ? .flac : .mp3
+            songs.append(Song(
+                id: "member-\(seed)-\(index)", title: rng.pick(["Intro", "Song 2", "Song 10", "第1集", ""]),
+                trackNumber: rng.chance(60) ? rng.int(1...12) : nil, discNumber: rng.chance(20) ? 2 : nil,
+                fileFormat: format,
+                filePath: "\(rng.pick(folders))/\(rng.pick(["01 Song", "2 Song", "第2集", "Live @ Home"])) \(index).\(rng.pick(["flac", "mp3", "m4b"]))",
+                sourceID: rng.chance(85) ? "nas" : "other"
+            ))
+        }
+        try temporary.catalog.apply(upserts: songs)
+        var ordered: [Song] = []
+        try temporary.catalog.forEachSong(.everything) { _, song in
+            ordered.append(song)
+            return true
+        }
+
+        // 每个节点都绑一个歌单,再加一个已经没有了的文件夹。
+        let index = LibraryFolderIndexBuilder.build(sources: [LibraryFolderSourceDescriptor(source: source)], songs: ordered)
+        var nodes = index.sourceNodes.map(\.id)
+        var cursor = 0
+        while cursor < nodes.count {
+            nodes.append(contentsOf: index.children(of: nodes[cursor]).map(\.id))
+            cursor += 1
+        }
+        #expect(nodes.count > 6)
+        var bindings: [String: PlaylistFolderBinding] = [:]
+        for (position, node) in nodes.enumerated() { bindings["p\(position)"] = PlaylistFolderBinding(nodeID: node) }
+        bindings["gone"] = PlaylistFolderBinding(nodeID: LibraryFolderNodeID(
+            sourceID: "nas", kind: .folder, normalizedRelativePath: "/music/gone"
+        ))
+
+        let fromSongs = FolderPlaylistMembershipPolicy.memberships(bindings: bindings, source: source, songs: ordered, syncIndex: nil)
+        let fromCatalog = try FolderPlaylistMembershipPolicy.memberships(
+            bindings: bindings, source: source, catalog: temporary.catalog, syncIndex: nil
+        )
+        #expect(fromCatalog == fromSongs)
+        #expect(fromSongs.values.contains { $0.count > 10 })
+        #expect(throws: CancellationError.self) {
+            try FolderPlaylistMembershipPolicy.memberships(
+                bindings: bindings, source: source, catalog: temporary.catalog, syncIndex: nil, isCancelled: { true }
+            )
+        }
+    }
+
+    @Test("Provider-hierarchy memberships built on the catalog match the ones built from the songs")
+    func providerHierarchyCatalogMatchesSongs() throws {
+        let temporary = try TemporaryCatalog()
+        let source = MusicSource(id: "nas", name: "Drive", type: .googleDrive,
+                                 extraConfig: "[\"root\"]", cloudAccountID: "account")
+        var items = [item("root", parent: nil, directory: true),
+                     item("folder-id", parent: "root", directory: true, name: "Renamed folder"),
+                     item("nested-id", parent: "folder-id", directory: true, name: "Disc 2")]
+        var songs: [Song] = []
+        for index in 0..<30 {
+            let parent = ["root", "folder-id", "nested-id"][index % 3]
+            items.append(item("file-\(index)", parent: parent, directory: false, name: "\(index % 7) Track.flac"))
+            songs.append(song("drive-\(index)", "file-\(index)"))
+        }
+        try temporary.catalog.apply(upserts: songs)
+        let syncIndex = SourceSyncIndex(Dictionary(uniqueKeysWithValues: items.map { ($0.stableKey, $0) }))
+        let bindings = [
+            "folder": PlaylistFolderBinding(nodeID: LibraryFolderNodeID(
+                sourceID: "old-mount", kind: .folder, normalizedRelativePath: "folder-id"
+            ), cloudAccountID: "account"),
+            "nested": PlaylistFolderBinding(nodeID: LibraryFolderNodeID(
+                sourceID: "nas", kind: .folder, normalizedRelativePath: "nested-id"
+            )),
+        ]
+        let fromSongs = FolderPlaylistMembershipPolicy.memberships(bindings: bindings, source: source, songs: songs, syncIndex: syncIndex)
+        let fromCatalog = try FolderPlaylistMembershipPolicy.memberships(
+            bindings: bindings, source: source, catalog: temporary.catalog, syncIndex: syncIndex
+        )
+        #expect(fromCatalog == fromSongs)
+        #expect(fromSongs["folder"]?.count == 20)
+        #expect(try FolderPlaylistMembershipPolicy.memberships(
+            bindings: bindings, source: source, catalog: temporary.catalog, syncIndex: nil
+        ).isEmpty, "unavailable topology is not an empty directory")
+    }
+
     private func song(_ id: String, _ path: String, sourceID: String = "nas") -> Song {
         Song(id: id, title: id, fileFormat: .mp3, filePath: path, sourceID: sourceID)
     }
