@@ -566,6 +566,171 @@ final class SmartPlaylistEngineCacheTests: XCTestCase {
         XCTAssertEqual(library.playlists.filter { $0.id != MusicLibrary.likedSongsPlaylistID }.count, 3)
     }
 
+    func testSwipingToDeleteAISmartPlaylistPresentsConfirmationAndDeletes() async throws {
+        let suite = "PlaylistListAISwipeDelete-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var libraryRef: MusicLibrary? = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        defer {
+            libraryRef = nil
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = try XCTUnwrap(libraryRef)
+        await library.whenReady()
+        let aiPlaylist = SmartPlaylist(
+            name: "AI 夜航歌单",
+            kind: .ai,
+            aiConfiguration: AISmartPlaylistConfiguration(
+                prompts: [AISmartPlaylistPrompt(text: "夜晚安静纯音乐")],
+                selections: [AISmartPlaylistSelection(identity: SongIdentity(
+                    songID: "one",
+                    title: "One",
+                    artistName: "Artist",
+                    duration: 180,
+                    cloudAccountID: nil,
+                    filePath: "/one.flac"
+                ))]
+            )
+        )
+        let rulePlaylist = SmartPlaylist(
+            name: "高频最爱",
+            rules: [SmartPlaylistRule(field: .playCount, op: .greaterThan, value: "3")]
+        )
+        library.saveSmartPlaylist(aiPlaylist)
+        library.saveSmartPlaylist(rulePlaylist)
+        XCTAssertEqual(Set(library.smartPlaylists.map(\.id)), [aiPlaylist.id, rulePlaylist.id])
+
+        let services = AppServices.shared
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        var hostRef: UIViewController? = UIHostingController(
+            rootView: NavigationStack { PlaylistListView() }
+                .environment(library)
+                .environment(services.playerService)
+                .environment(services.sourcesStore)
+                .environment(services.scraperService)
+                .environment(services.scraperSettingsStore)
+                .environment(services.appleMusic)
+                .environment(services.sourceManager)
+                .environment(\.appNavigationMode, .standard)
+                .environment(\.locale, Locale(identifier: "zh-Hans"))
+                .defaultAppStorage(defaults)
+        )
+        let host = try XCTUnwrap(hostRef)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            hostRef?.presentedViewController?.dismiss(animated: false)
+            window.isHidden = true
+            window.rootViewController = nil
+            hostRef = nil
+            originalWindow?.makeKeyAndVisible()
+        }
+
+        try await Task.sleep(for: .milliseconds(600))
+
+        func findViews<T: UIView>(of type: T.Type, in root: UIView) -> [T] {
+            var found: [T] = []
+            if let match = root as? T { found.append(match) }
+            for subview in root.subviews {
+                found.append(contentsOf: findViews(of: type, in: subview))
+            }
+            return found
+        }
+
+        func invokeAlertAction(style: UIAlertAction.Style) async throws {
+            let alert = try XCTUnwrap(host.presentedViewController as? UIAlertController, "Expected removal confirmation alert")
+            let action = try XCTUnwrap(alert.actions.first { $0.style == style })
+            let handlerBlock = action.value(forKey: "handler")
+            host.dismiss(animated: false)
+            if let handlerBlock {
+                typealias AlertActionHandler = @convention(block) (UIAlertAction) -> Void
+                let invoke = unsafeBitCast(handlerBlock as AnyObject, to: AlertActionHandler.self)
+                invoke(action)
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+
+        let collectionView = try XCTUnwrap(findViews(of: UICollectionView.self, in: host.view).first)
+        collectionView.layoutIfNeeded()
+        XCTAssertEqual(collectionView.numberOfSections, 2)
+
+        let swipeGesture = try XCTUnwrap((collectionView.gestureRecognizers ?? []).first {
+            String(describing: type(of: $0)).contains("SwipeAction")
+        })
+        let swipeHandler = try XCTUnwrap(swipeGesture.delegate as? NSObject)
+        let swipeController = try XCTUnwrap(swipeHandler.value(forKey: "swipeController") as? NSObject)
+        let swipeHost = try XCTUnwrap(swipeController.value(forKey: "swipeActionHost") as? NSObject)
+        let configSel = NSSelectorFromString("swipeActionController:trailingSwipeConfigurationForItemAtIndexPath:")
+        let revealSel = NSSelectorFromString("revealTrailingSwipeActionsForIndexPath:")
+        XCTAssertTrue(swipeHost.responds(to: configSel))
+        XCTAssertTrue(swipeHost.responds(to: revealSel))
+
+        func tapTrailingSwipeDeleteButton(at indexPath: IndexPath) async throws {
+            for _ in 0..<20 {
+                if (swipeHost.value(forKey: "hasActiveSwipe") as? Bool) == true {
+                    try await Task.sleep(for: .milliseconds(50))
+                } else {
+                    break
+                }
+            }
+            _ = swipeHost.perform(revealSel, with: indexPath)
+            var revealedButton: UIButton?
+            for _ in 0..<20 {
+                try await Task.sleep(for: .milliseconds(50))
+                if let button = findViews(of: UIButton.self, in: collectionView).first(where: {
+                    String(describing: type(of: $0)).contains("SwipeAction")
+                }) {
+                    revealedButton = button
+                    break
+                }
+            }
+            let deleteButton = try XCTUnwrap(revealedButton, "Expected UISwipeAction button to be revealed")
+            deleteButton.sendActions(for: .touchUpInside)
+            try await Task.sleep(for: .milliseconds(400))
+        }
+
+        // 1. 校验 AI 智能歌单与规则智能歌单均禁用全滑直接删行，且不使用 destructive contextual style 提前销毁 cell。
+        for section in 0..<2 {
+            let indexPath = IndexPath(item: 0, section: section)
+            let config = try XCTUnwrap(
+                swipeHost.perform(configSel, with: swipeController, with: indexPath)?.takeUnretainedValue()
+                    as? UISwipeActionsConfiguration
+            )
+            XCTAssertFalse(config.performsFirstActionWithFullSwipe)
+            XCTAssertEqual(config.actions.count, 1)
+            XCTAssertEqual(config.actions.first?.style, .normal)
+        }
+
+        // 2. 左滑 AI 智能歌单 → 点删除 → 点取消：歌单与列表行保持完好。
+        let firstIndexPath = IndexPath(item: 0, section: 0)
+        try await tapTrailingSwipeDeleteButton(at: firstIndexPath)
+
+        XCTAssertNotNil(host.presentedViewController as? UIAlertController)
+        XCTAssertEqual(Set(library.smartPlaylists.map(\.id)), [aiPlaylist.id, rulePlaylist.id])
+        try await invokeAlertAction(style: .cancel)
+        XCTAssertNotNil(collectionView.cellForItem(at: firstIndexPath))
+
+        // 3. 再次左滑 AI 智能歌单并确认删除 → AI 智能歌单被移除且分区刷新无崩溃。
+        try await tapTrailingSwipeDeleteButton(at: firstIndexPath)
+        try await invokeAlertAction(style: .destructive)
+
+        XCTAssertEqual(library.smartPlaylists.map(\.id), [rulePlaylist.id])
+        collectionView.layoutIfNeeded()
+        XCTAssertEqual(collectionView.numberOfSections, 1)
+
+        // 4. 继续左滑删除剩余的规则智能歌单 → 列表平稳切回空状态，无崩溃。
+        try await tapTrailingSwipeDeleteButton(at: firstIndexPath)
+        try await invokeAlertAction(style: .destructive)
+
+        XCTAssertTrue(library.smartPlaylists.isEmpty)
+        XCTAssertTrue(findViews(of: UICollectionView.self, in: host.view).isEmpty)
+    }
+
     private func song(id: String, title: String) -> Song {
         Song(id: id, title: title, artistName: "Artist", duration: 180,
              fileFormat: .flac, filePath: "/\(id).flac", sourceID: "local-source")

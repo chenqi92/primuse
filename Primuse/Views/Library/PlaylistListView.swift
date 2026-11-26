@@ -348,15 +348,11 @@ struct PlaylistListView: View {
         if !sections.ungroupedAISmartPlaylists.isEmpty {
             Section("ai_smart_playlists_section") {
                 ForEach(sections.ungroupedAISmartPlaylists) { smart in smartPlaylistLink(smart) }
-                    .onDelete { deleteSmartPlaylists(at: $0, in: sections.ungroupedAISmartPlaylists) }
-                    .deleteDisabled(isOrderingPlaylists)
             }
         }
         if !sections.ungroupedRuleSmartPlaylists.isEmpty {
             Section("rule_smart_playlists_section") {
                 ForEach(sections.ungroupedRuleSmartPlaylists) { smart in smartPlaylistLink(smart) }
-                    .onDelete { deleteSmartPlaylists(at: $0, in: sections.ungroupedRuleSmartPlaylists) }
-                    .deleteDisabled(isOrderingPlaylists)
             }
         }
         if !sections.ungroupedPlaylists.isEmpty {
@@ -384,11 +380,15 @@ struct PlaylistListView: View {
             } else {
                 NavigationLink(value: playlist) { playlistRow(playlist) }
                     .mediaZoomSource(.playlist, id: playlist.id)
+                    // 左滑仅弹出确认框而非立即删行，不能走 onDelete 或 destructive role，否则 UIKit 会按已删行提交动画导致集合视图断言崩溃。
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         if playlist.id != MusicLibrary.likedSongsPlaylistID {
-                            Button(role: .destructive) { pendingRemoval = PlaylistRemovalRequest(playlists: [playlist]) } label: {
+                            Button {
+                                pendingRemoval = PlaylistRemovalRequest(playlists: [playlist])
+                            } label: {
                                 Label("delete", systemImage: "trash")
                             }
+                            .tint(.red)
                         }
                     }
                     .contextMenu {
@@ -408,6 +408,16 @@ struct PlaylistListView: View {
     private func smartPlaylistLink(_ smart: SmartPlaylist) -> some View {
         NavigationLink(value: smart) { smartPlaylistRow(smart) }
             .disabled(isOrderingPlaylists)
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if !isOrderingPlaylists {
+                    Button {
+                        pendingRemoval = PlaylistRemovalRequest(smartPlaylistIDs: [smart.id])
+                    } label: {
+                        Label("delete", systemImage: "trash")
+                    }
+                    .tint(.red)
+                }
+            }
             .contextMenu { if !isOrderingPlaylists { smartPlaylistContextMenu(smart) } }
     }
 
@@ -1477,13 +1487,6 @@ struct PlaylistListView: View {
         guard !trimmedName.isEmpty else { return }
         _ = library.createPlaylist(name: trimmedName)
         newPlaylistName = ""
-    }
-
-    private func deleteSmartPlaylists(
-        at offsets: IndexSet,
-        in playlists: [SmartPlaylist]
-    ) {
-        pendingRemoval = PlaylistRemovalRequest(smartPlaylistIDs: Set(offsets.map { playlists[$0].id }))
     }
 
     private func playPlaylist(_ playlist: Playlist, shuffled: Bool = false) {
