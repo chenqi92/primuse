@@ -102,6 +102,13 @@ final class FileLogger: @unchecked Sendable {
         if let note = Self.diagnosticModeNote(diagnosticMode, limits: limits) {
             appendToFile(formatEntry(note, source: Self.internalSource))
         }
+        #if DEBUG
+        // 开发构建记一次启动参数:设备上的对照测试靠它分清这一轮开了哪些开关。
+        let launchArguments = ProcessInfo.processInfo.arguments.dropFirst()
+        if directory == nil, !launchArguments.isEmpty {
+            appendToFile(formatEntry("launch arguments: \(launchArguments.joined(separator: " "))", source: Self.internalSource))
+        }
+        #endif
         // 会话头写完后在队列上做一次收尾, 把跨会话残留的重复计数落到文件里。
         queue.async { [weak self] in
             self?.flushPendingSummaries()

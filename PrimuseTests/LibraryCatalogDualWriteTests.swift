@@ -3590,6 +3590,108 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertEqual(parked.songModelHoldReasons, [])
     }
 
+    // MARK: - Song model residency: the switches and the app-level hooks (P3 step 6d unit b)
+
+    /// 开关从启动参数(参数域里的字符串)或内部设置读;没设时总开关关,两个过渡期开关开。
+    func testResidencySettingsComeFromLaunchArgumentsOrDefaults() throws {
+        typealias Settings = MusicLibrary.SongModelResidencySettings
+        let suite = "residency-settings-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(Settings.current(defaults, environment: [:]), .off)
+        XCTAssertEqual(Settings.off, Settings(isEnabled: false, foregroundHold: true, playbackBlocksRelease: true))
+        XCTAssertEqual(
+            Settings.off.launchLine, "🧠 residency launch=load residency=off foregroundHold=on playbackBlocks=on"
+        )
+        // 启动参数 `-PrimuseSongModelResidency YES` 进参数域时是字符串。
+        defaults.set("YES", forKey: Settings.enabledKey)
+        defaults.set("NO", forKey: Settings.foregroundHoldKey)
+        defaults.set(false, forKey: Settings.playbackBlocksReleaseKey)
+        let settings = Settings.current(defaults, environment: [:])
+        XCTAssertEqual(settings, Settings(isEnabled: true, foregroundHold: false, playbackBlocksRelease: false))
+        XCTAssertEqual(settings.launchLine, "🧠 residency launch=load residency=on foregroundHold=off playbackBlocks=off")
+        // 开发构建里启动环境变量优先(设备脚本只能传环境变量)。
+        let fromEnvironment = Settings.current(defaults, environment: [
+            Settings.enabledEnvironmentKey: "0", Settings.foregroundHoldEnvironmentKey: "1",
+            Settings.playbackBlocksReleaseEnvironmentKey: "true",
+        ])
+        XCTAssertEqual(fromEnvironment, .off)
+    }
+
+    /// 前台的占用跟着场景走:回到前台拿 `.foreground`(放掉了就装回来),退到后台放手之后才放得掉;
+    /// 策略开关关着、总开关关着时从来不拿,总开关关着时也从来不放。
+    func testTheForegroundHoldFollowsTheScenePhase() async throws {
+        let songs = Self.fixture(prefix: "foreground")
+        let library = try makeLaunchedTwin("foreground", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+
+        // 总开关关着:前台不拿占用,也从来不放。
+        library.applySongModelResidencySettings(.off)
+        library.setSongModelForegroundHold(true)
+        XCTAssertEqual(library.songModelHoldReasons, [])
+        let off = await library.releaseSongModelIfIdle(trigger: "test")
+        XCTAssertEqual(off, .skipped("residency is off"))
+
+        library.applySongModelResidencySettings(.init(isEnabled: true, foregroundHold: true, playbackBlocksRelease: true))
+        XCTAssertTrue(library.songModelResidencyEnabled)
+        library.setSongModelForegroundHold(true)
+        library.setSongModelForegroundHold(true)
+        XCTAssertEqual(library.songModelHoldReasons, [.foreground], "one hold however often the scene becomes active")
+        let held = await library.releaseSongModelIfIdle(trigger: "test")
+        XCTAssertEqual(held, .skipped("hold(foreground)"))
+        // 退到后台:放手,之后放得掉。
+        library.setSongModelForegroundHold(false)
+        XCTAssertEqual(library.songModelHoldReasons, [])
+        guard await released(library, "in the background") else { return }
+        // 回到前台:拿占用,模型自己装回来(不等,界面看 isReady)。
+        library.setSongModelForegroundHold(true)
+        XCTAssertEqual(library.songModelHoldReasons, [.foreground])
+        XCTAssertTrue(library.isLoadingSongModelForTesting || library.isReady)
+        try await waitUntilReady(library)
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(library.songModelResidencyStatistics.lastLoadReason, "hold foreground")
+        XCTAssertEqual(library.songs.count, songs.count)
+
+        // 关掉总开关:前台占用一并放下。
+        library.applySongModelResidencySettings(.off)
+        XCTAssertEqual(library.songModelHoldReasons, [])
+        // 前台占用这个开关关着:总开关开着也不拿。
+        library.applySongModelResidencySettings(.init(isEnabled: true, foregroundHold: false, playbackBlocksRelease: true))
+        library.setSongModelForegroundHold(true)
+        XCTAssertEqual(library.songModelHoldReasons, [])
+        guard await released(library, "no foreground hold") else { return }
+    }
+
+    /// 整份装载之前小状态没能落盘:不装(装了会从磁盘拷回旧的小状态),留在放掉的状态,过一会儿再试;
+    /// 等着的占用接着等,落盘成了就装,放掉期间的改动都在。
+    func testAWholeLibraryLoadWhoseSaveFailsStaysReleasedAndRetries() async throws {
+        let songs = Self.fixture(prefix: "deferred")
+        // 这一轮进程里才建起来的旧库:第一次装载走整份装载。
+        let library = try makeTwin("deferred", songs: songs).library
+        library.songModelResidencyEnabled = true
+        await assertShadowMatches(library, "fixture")
+        guard await released(library, "release") else { return }
+        library.setLiked(songID: songs[2].id, isLiked: true, propagatesServerMutation: false)
+        library.songModelLoadRetryDelay = .milliseconds(200)
+        library.songModelFallbackPersistFailsForTesting = true
+        let holder = Task { @MainActor in await library.holdSongModel(.migration) }
+        for _ in 0..<100 where library.songModelResidencyStatistics.deferredWholeLibraryLoads == 0 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(library.songModelResidencyStatistics.deferredWholeLibraryLoads, 0)
+        XCTAssertFalse(library.isReady, "it stays released while the save fails")
+        XCTAssertEqual(library.songModelResidencyStatistics.wholeLibraryLoads, 0)
+        XCTAssertTrue(library.isLiked(songID: songs[2].id))
+        library.songModelFallbackPersistFailsForTesting = false
+        let hold = await holder.value
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(library.songModelResidencyStatistics.wholeLibraryLoads, 1)
+        XCTAssertTrue(library.songModelResidencyStatistics.lastLoadReason?.hasPrefix("retry") == true)
+        XCTAssertTrue(library.isLiked(songID: songs[2].id), "the change made while released survived")
+        XCTAssertEqual(library.songs.count, songs.count)
+        hold.end()
+    }
+
     /// 主线程外的一步停在这里,直到测试放行。
     private actor ResidencyPauseGate {
         private var started = false
@@ -3681,6 +3783,8 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         SpokenWordStore.shared.setKind(nil, forSongIDs: [songs[1].id])
         await library.refreshContentClassificationInBackground()
         await library.waitForPendingIndex()
+        // 分类变了,目录要整份重分组,重分组期间读冻结(那时放掉会被 `catalog reads frozen` 拦下):等它做完。
+        await library.waitForCatalogMirror()
 
         // 等写入链落定的那段时间里库又变了。
         library.songModelReleaseDidSettleForTesting = { [weak library] in

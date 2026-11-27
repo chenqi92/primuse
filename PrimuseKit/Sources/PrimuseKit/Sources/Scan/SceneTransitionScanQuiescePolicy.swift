@@ -208,6 +208,57 @@ public enum BackgroundMemoryTrimPolicy {
     }
 }
 
+/// 退到后台之后什么时候把整个歌曲模型(整库的歌曲与专辑、艺人那一层)从内存里放掉,App 这一层的条件
+/// (P3 设计 15b 第 7 条)。曲库自己的条件(占用、写入链、目录跟上没有……)由曲库在放的那一刻判。
+///
+/// 在后台、场景收尾那一批活已经排上并做完、后台没有要接着用曲库的活儿时才放。放歌另算:每首歌都要的那些
+/// 读者改成读目录之前,放歌也拦着(`playbackBlocksRelease`,过渡期的开关);关掉这个开关就是在找还剩谁。
+public enum SongModelReleasePolicy {
+    public struct Inputs: Sendable, Equatable {
+        public var residencyEnabled: Bool
+        /// iOS:场景在后台;macOS:隐藏或失焦。
+        public var isInBackground: Bool
+        /// 场景收尾的那一批活(恢复扫描、补全、搜索索引……)排上之后过了等待时间,或者是内存告警(不等)。
+        public var sceneSettleFinished: Bool
+        public var activity: BackgroundMemoryTrimPolicy.Activity
+        public var playbackBlocksRelease: Bool
+
+        public init(
+            residencyEnabled: Bool,
+            isInBackground: Bool,
+            sceneSettleFinished: Bool,
+            activity: BackgroundMemoryTrimPolicy.Activity,
+            playbackBlocksRelease: Bool
+        ) {
+            self.residencyEnabled = residencyEnabled
+            self.isInBackground = isInBackground
+            self.sceneSettleFinished = sceneSettleFinished
+            self.activity = activity
+            self.playbackBlocksRelease = playbackBlocksRelease
+        }
+    }
+
+    /// iOS 进后台之后多久试第一次:场景收尾那一批活在 2 秒时排上,再给它们一点时间拿到占用。
+    /// 没有放歌时后台只有几十秒,放掉要在挂起之前做完。
+    public static let backgroundDelay: TimeInterval = 4
+
+    /// 现在不能放的第一条理由;nil = 可以放。
+    public static func refusal(_ inputs: Inputs) -> String? {
+        guard inputs.residencyEnabled else { return "residency is off" }
+        guard inputs.isInBackground else { return "not in the background" }
+        guard inputs.sceneSettleFinished else { return "scene settle not finished" }
+        let activity = inputs.activity
+        if activity.isPlaybackActive, inputs.playbackBlocksRelease { return "playback" }
+        if activity.isScanning { return "scanning" }
+        if activity.isImporting { return "importing" }
+        if activity.isTransferring { return "transferring" }
+        if activity.isDownloadingForOffline { return "offline download" }
+        if activity.isSeparatingKaraoke { return "karaoke separation" }
+        if activity.isCarPlayActive { return "CarPlay" }
+        return nil
+    }
+}
+
 /// 已解码图片缓存的上限,按前后台换。
 ///
 /// 前台是各个缓存原来的上限。退到后台时不论还在不在放歌、扫描都清空、上限压低:后台用得到的图

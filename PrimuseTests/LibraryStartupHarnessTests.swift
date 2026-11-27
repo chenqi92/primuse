@@ -1089,6 +1089,105 @@ final class LibraryStartupHarnessTests: XCTestCase {
         await library.stopCatalogMirror()
     }
 
+    /// 步骤 6d: 经真正的放掉(`releaseSongModelIfIdle`,歌曲与专辑、艺人那一层一起)放掉多少、再放目录的页缓存
+    /// 之后剩多少、装回来(只装歌曲模型)要多久;放掉之后删一首歌时,主线程上读目录的那几下(按源剩余数、
+    /// 歌单引用到的歌找同名的另一份)要多久。
+    func testScaleFixtureResidencyReleaseAndReload() async throws {
+        let fixture = try Self.existingScaleCatalogFixture()
+        let directory = try Self.copyDirectory(fixture)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let before = Self.residentFootprint().current
+        let (library, host) = try await Self.loadLibraryWithCatalog(directory)
+        try await Task.sleep(for: .seconds(2))
+        await library.waitForPendingIndex()
+        await MusicLibrary.drainDisplacedArraysForMeasurement()
+        let songCount = library.songs.count
+        let albumCount = library.albums.count
+        let samples = Array(library.visibleSongs.prefix(2))
+        XCTAssertEqual(samples.count, 2)
+        func settle() async throws -> UInt64 {
+            await MusicLibrary.drainDisplacedArraysForMeasurement()
+            try await Task.sleep(for: .milliseconds(500))
+            await MusicLibrary.returnFreedMemoryToSystem()
+            try await Task.sleep(for: .seconds(1))
+            return Self.residentFootprint().current
+        }
+        let loaded = try await settle()
+        library.applySongModelResidencySettings(.init(isEnabled: true, foregroundHold: false, playbackBlocksRelease: true))
+
+        var started = ContinuousClock.now
+        let outcome = await library.releaseSongModelIfIdle(trigger: "scale harness")
+        let releaseMs = Double((ContinuousClock.now - started) / .microseconds(1)) / 1_000
+        guard case .released = outcome else { return XCTFail("not released: \(outcome)") }
+        await library.songModelReleaseDidReclaimMemory()
+        let released = try await settle()
+        library.releaseCatalogMemory()
+        host.reader.rowCache.removeAll()
+        let catalogReleased = try await settle()
+        XCTAssertEqual(library.storedSong(id: samples[0].id)?.id, samples[0].id, "by-id reads answer from the catalog")
+
+        started = ContinuousClock.now
+        let hold = await library.holdSongModel(.legacyPage)
+        let loadMs = Double((ContinuousClock.now - started) / .microseconds(1)) / 1_000
+        let statistics = library.songModelResidencyStatistics
+        XCTAssertEqual(library.songs.count, songCount)
+        XCTAssertEqual(statistics.wholeLibraryLoads, 0, "the fixture's store is one a launch has seen")
+        let reloaded = try await settle()
+        hold.end()
+
+        // 放掉之后删歌:一首没有歌单引用的(只数按源剩余),一首歌单里有的(另外按标题找另一份)。
+        let playlist = library.createPlaylist(name: "Scale harness", songIDs: [samples[0].id])
+        let second = await library.releaseSongModelIfIdle(trigger: "scale harness delete")
+        guard case .released = second else { return XCTFail("not released again: \(second)") }
+        await library.songModelReleaseDidReclaimMemory()
+        // 删歌那条路在主线程上读目录的两下,单独量:按源剩余数(整表 GROUP BY),同名的另一份(整表标题一列)。
+        let lookup = try XCTUnwrap(host.songLookup(), "the catalog answers right after the release")
+        let usableBeforeDelete = library.isUsable
+        let queuedBeforeDelete = library.deferredMutationCountForTesting
+        var countsAnswered = false
+        let countsRead = Self.microseconds {
+            countsAnswered = (try? lookup.songCountsBySource(treatingAsRemoved: [samples[1].id])) != nil
+        }
+        let titleHead = String(samples[0].title.prefix { !"([（【［".contains($0) }.lowercased().filter { !$0.isWhitespace })
+        var titleCandidates = -2
+        let titleRead = Self.microseconds {
+            do {
+                titleCandidates = try lookup.songs(titleMatching: { title in
+                    String(title.prefix { !"([（【［".contains($0) }.lowercased().filter { !$0.isWhitespace }) == titleHead
+                })?.count ?? -1
+            } catch {
+                titleCandidates = -2
+            }
+        }
+        let plainDelete = Self.microseconds { _ = library.deleteSongs([samples[1]]) }
+        let plainQueued = library.deferredMutationCountForTesting
+        let referencedDelete = Self.microseconds { _ = library.deleteSongs([samples[0]]) }
+        let referencedQueued = library.deferredMutationCountForTesting
+        let loadAfterDelete = library.isLoadingSongModelForTesting
+        for _ in 0..<600 where !library.isReady && library.isLoadingSongModelForTesting {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(library.rawSongIDs(forPlaylist: playlist.id).contains(samples[0].id))
+
+        func megabytes(_ bytes: UInt64) -> Double { Self.megabytes(bytes) }
+        Self.report(String(
+            format: "📏 residency songs=%d albums=%d before=%.1fMB loaded=%.1fMB released=%.1fMB catalogReleased=%.1fMB "
+                + "reloaded=%.1fMB | releaseMs=%.0f loadMs=%.0f (library ms=%d derived=%@ journalRows=%d)",
+            songCount, albumCount, megabytes(before), megabytes(loaded), megabytes(released), megabytes(catalogReleased),
+            megabytes(reloaded), releaseMs, loadMs, statistics.lastLoadMilliseconds,
+            statistics.lastLoadUsedDerivedCache ? "cache" : "rebuilt", statistics.lastLoadJournalRows
+        ))
+        Self.report(String(
+            format: "📏 residency delete while released: usable=%@ queuedBefore=%d countsBySource=%.1fms answered=%@ titleProjection=%.1fms "
+                + "candidates=%d (-1 = more than the cap) | deleteSongs plain=%.1fms (queued=%d) playlistMember=%.1fms "
+                + "(queued=%d, loadStarted=%@)",
+            usableBeforeDelete ? "yes" : "no", queuedBeforeDelete, countsRead / 1_000, countsAnswered ? "yes" : "no", titleRead / 1_000,
+            titleCandidates, plainDelete / 1_000, plainQueued, referencedDelete / 1_000, referencedQueued,
+            loadAfterDelete ? "yes" : "no"
+        ))
+        await library.stopCatalogMirror()
+    }
+
     /// 步骤 0b: 主线程上按 id 读一首(待写登记 → 目录)要多久。冷(这一行还没读过)、重复读、经行缓存、
     /// 一屏列表那么多(50 个不同的 id)连着读、读连接都被整库查询占着的时候。
     func testScaleFixtureByIDReadCost() async throws {

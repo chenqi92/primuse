@@ -4361,11 +4361,19 @@ final class MusicLibrary {
     @ObservationIgnored private(set) var songModelResidencyStatistics = SongModelResidencyStatistics()
     /// 放掉了、装回来了、占用都结束了:App 那一层据此安排下一次空闲时的放掉。
     @ObservationIgnored var songModelResidencyObserver: (@MainActor (SongModelResidencyEvent) -> Void)?
+    /// 启动时读到的不常驻开关与两个过渡期策略开关(`applySongModelResidencySettings`)。
+    @ObservationIgnored private(set) var songModelResidencySettings = SongModelResidencySettings.off
+    /// 前台的场景拿着的那一个占用(`setSongModelForegroundHold`)。
+    @ObservationIgnored private var songModelForegroundHold: SongModelHold?
+    /// 整份装载之前小状态落不了盘时,隔多久再试一次装载。
+    @ObservationIgnored var songModelLoadRetryDelay: Duration = .seconds(5)
     #if DEBUG
     /// 测试:装回来读完旧库、发布之前停一下(这时改旧库,发布要按变更流水补上)。
     @ObservationIgnored var songModelLoadDidReadForTesting: (@MainActor () async -> Void)?
     /// 测试:当作只装歌曲模型装不成,改走整份装载。
     @ObservationIgnored var songModelLoadFailsForTesting = false
+    /// 测试:当作整份装载之前小状态没能落盘。
+    @ObservationIgnored var songModelFallbackPersistFailsForTesting = false
     /// 测试:放掉之前各项都落定之后、最后一次核对之前停一下。
     @ObservationIgnored var songModelReleaseDidSettleForTesting: (@MainActor () async -> Void)?
     #endif
@@ -21584,11 +21592,7 @@ extension MusicLibrary {
         Self.songModelHoldRequestsForTesting?.append((ObjectIdentifier(self), reason))
         #endif
         // 先登记再等:登记之后放不掉,等的这段时间里别处的放掉轮不到它。
-        nextSongModelHoldID &+= 1
-        let id = nextSongModelHoldID
-        songModelHolds[id] = (reason, .now)
-        if songModelResidencyEnabled { plog("🧠 residency hold+ \(reason.rawValue) n=\(songModelHolds.count)") }
-        let token = SongModelHold(reason: reason) { [weak self] in self?.endSongModelHold(id) }
+        let (id, token) = registerSongModelHold(reason)
         guard readiness != .ready else { return token }
         if !Task.isCancelled {
             // 同 `whenReady()`:启动窗口里推迟着的那次读取现在就开始。
@@ -21609,6 +21613,37 @@ extension MusicLibrary {
         let hold = await holdSongModel(reason)
         defer { hold.end() }
         return try await body()
+    }
+
+    /// 登记一个占用(计数、日志),返回它的号与令牌;不请求装载、不等。
+    private func registerSongModelHold(_ reason: SongModelHoldReason) -> (id: UInt64, token: SongModelHold) {
+        nextSongModelHoldID &+= 1
+        let id = nextSongModelHoldID
+        songModelHolds[id] = (reason, .now)
+        if songModelResidencyEnabled { plog("🧠 residency hold+ \(reason.rawValue) n=\(songModelHolds.count)") }
+        return (id, SongModelHold(reason: reason) { [weak self] in self?.endSongModelHold(id) })
+    }
+
+    /// 启动时装上不常驻的开关与两个过渡期策略开关,记一行启动日志。开关关着时与以前完全相同。
+    func applySongModelResidencySettings(_ settings: SongModelResidencySettings) {
+        songModelResidencySettings = settings
+        songModelResidencyEnabled = settings.isEnabled
+        if !settings.isEnabled { setSongModelForegroundHold(false) }
+        plog(settings.launchLine)
+    }
+
+    /// 前台的场景占着歌曲模型(过渡期:页面还没全部改成读目录)。`active` 为真时拿 `.foreground` 占用,
+    /// 为假(退到后台)时放手。不常驻没开、或者这个策略开关关着时什么都不拿。
+    /// 拿的那一刻模型放掉了就开始装回来,不等:界面看 `isReady`,装好之前照样是「加载中」。
+    func setSongModelForegroundHold(_ active: Bool) {
+        let wanted = active && songModelResidencyEnabled && songModelResidencySettings.foregroundHold
+        if wanted, songModelForegroundHold == nil {
+            songModelForegroundHold = registerSongModelHold(.foreground).token
+            if songModelLoadsOnDemand { requestSongModelLoad(reason: "hold foreground") }
+        } else if !wanted, let hold = songModelForegroundHold {
+            songModelForegroundHold = nil
+            hold.end()
+        }
     }
 
     private func endSongModelHold(_ id: UInt64) {
@@ -21649,6 +21684,8 @@ extension MusicLibrary {
         var loadRestarts = 0
         /// 只装歌曲模型装不成、改走整份装载的次数。
         var wholeLibraryLoads = 0
+        /// 整份装载之前小状态没能落盘、留在放掉的状态稍后再试的次数。
+        var deferredWholeLibraryLoads = 0
         var lastLoadReason: String?
         var lastLoadJournalRows = 0
         var lastLoadMilliseconds = 0
@@ -21670,6 +21707,56 @@ extension MusicLibrary {
         case skipped(String)
     }
 
+    /// 歌曲模型不常驻的总开关与过渡期的两个策略开关。启动参数(`-PrimuseSongModelResidency YES`)与内部设置
+    /// (同名的 UserDefaults 键)都认:启动参数落在参数域里,读的是同一个键。开发构建另认启动环境变量
+    /// (`PRIMUSE_SONG_MODEL_RESIDENCY=1` 等,设备脚本只能传环境变量的时候用),它优先。没设时关;电视上恒为关。
+    struct SongModelResidencySettings: Equatable, Sendable {
+        static let enabledKey = "PrimuseSongModelResidency"
+        static let foregroundHoldKey = "PrimuseSongModelResidencyForegroundHold"
+        static let playbackBlocksReleaseKey = "PrimuseSongModelResidencyPlaybackBlocksRelease"
+        static let enabledEnvironmentKey = "PRIMUSE_SONG_MODEL_RESIDENCY"
+        static let foregroundHoldEnvironmentKey = "PRIMUSE_SONG_MODEL_RESIDENCY_FOREGROUND_HOLD"
+        static let playbackBlocksReleaseEnvironmentKey = "PRIMUSE_SONG_MODEL_RESIDENCY_PLAYBACK_BLOCKS"
+
+        var isEnabled: Bool
+        /// 前台的场景占着歌曲模型,退到后台才放手(页面还没改完之前的过渡办法)。默认开。
+        var foregroundHold: Bool
+        /// 后台放歌时不放(每首歌都要的那些读者都改完之前的过渡办法)。默认开。
+        var playbackBlocksRelease: Bool
+
+        static let off = SongModelResidencySettings(isEnabled: false, foregroundHold: true, playbackBlocksRelease: true)
+
+        static func current(
+            _ defaults: UserDefaults = .standard,
+            environment: [String: String] = ProcessInfo.processInfo.environment
+        ) -> SongModelResidencySettings {
+            #if os(tvOS)
+            return .off
+            #else
+            // 启动参数给的是字符串(YES / NO / 1 / 0),`bool(forKey:)` 认它;没设时取默认值。
+            func flag(_ key: String, _ environmentKey: String, default value: Bool) -> Bool {
+                #if DEBUG
+                if let raw = environment[environmentKey]?.lowercased() {
+                    return ["1", "yes", "true", "on"].contains(raw)
+                }
+                #endif
+                return defaults.object(forKey: key) == nil ? value : defaults.bool(forKey: key)
+            }
+            return SongModelResidencySettings(
+                isEnabled: flag(enabledKey, enabledEnvironmentKey, default: false),
+                foregroundHold: flag(foregroundHoldKey, foregroundHoldEnvironmentKey, default: true),
+                playbackBlocksRelease: flag(playbackBlocksReleaseKey, playbackBlocksReleaseEnvironmentKey, default: true)
+            )
+            #endif
+        }
+
+        var launchLine: String {
+            func onOff(_ value: Bool) -> String { value ? "on" : "off" }
+            return "🧠 residency launch=load residency=\(onOff(isEnabled)) foregroundHold=\(onOff(foregroundHold))"
+                + " playbackBlocks=\(onOff(playbackBlocksRelease))"
+        }
+    }
+
     /// 模型不在内存里时有人读了整库数组:既没有改成按 id / 按目录读,也没有先拿占用,读到的是空的。
     fileprivate func noteArrayReadWhileUnloaded(_ property: String) {
         guard songModelArrayReadPolicy != .ignore else { return }
@@ -21677,11 +21764,11 @@ extension MusicLibrary {
         let count = (arrayReadsWhileUnloaded[property] ?? 0) + 1
         arrayReadsWhileUnloaded[property] = count
         guard count <= 10 else { return }
-        let frames = Thread.callStackSymbols.dropFirst(2).prefix(4).map { frame -> String in
-            let parts = frame.split(separator: " ", omittingEmptySubsequences: true)
-            return String((parts.count > 3 ? parts[3] : Substring(frame)).prefix(96))
+        // 主线程上只取返回地址;符号化要查共享缓存的符号表,设备上一次几百毫秒,放到主线程外做。
+        let addresses = Thread.callStackReturnAddresses.dropFirst(2).prefix(4).map(\.uintValue)
+        DispatchQueue.global(qos: .utility).async {
+            plog("🧠 residency array read while unloaded: \(property) from \(Self.symbolNames(addresses).joined(separator: " < "))")
         }
-        plog("🧠 residency array read while unloaded: \(property) from \(frames.joined(separator: " < "))")
         #if DEBUG
         if songModelArrayReadPolicy == .trap {
             assertionFailure("array read while the song model is unloaded: \(property)")
@@ -21689,7 +21776,18 @@ extension MusicLibrary {
         #endif
     }
 
-    private nonisolated static func residencyFootprint() -> String {
+    /// 返回地址所在函数的(改编过的)符号名,查不到的给地址本身。
+    private nonisolated static func symbolNames(_ addresses: [UInt]) -> [String] {
+        addresses.map { address in
+            var info = Dl_info()
+            guard let pointer = UnsafeRawPointer(bitPattern: address), dladdr(pointer, &info) != 0,
+                  let name = info.dli_sname else { return String(format: "0x%lx", address) }
+            return String(String(cString: name).prefix(96))
+        }
+    }
+
+    /// 进程此刻的 phys_footprint(与诊断模式记的是同一个数),诊断日志用。
+    nonisolated static func residencyFootprint() -> String {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(
             MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
@@ -21933,6 +22031,16 @@ extension MusicLibrary {
         }
     }
 
+    /// 整份装载之前小状态没能落盘:过一会儿再请求一次装载(仍然放掉着、没有别的装载在跑时才开始)。
+    private func scheduleSongModelLoadRetry(reason: String) {
+        let delay = songModelLoadRetryDelay
+        let retryReason = reason.hasPrefix("retry ") ? reason : "retry \(reason)"
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            self?.requestSongModelLoad(reason: retryReason)
+        }
+    }
+
     /// 放掉之后有人要歌曲模型:开始装回来。已经在装、没放掉、或者是测量钩子放掉的,都不做事。
     fileprivate func requestSongModelLoad(reason: @autoclosure () -> String) {
         guard songModelLoadsOnDemand, songModelReleased, isPreparing, songModelLoadTask == nil else { return }
@@ -22047,10 +22155,25 @@ extension MusicLibrary {
     /// 只装歌曲模型装不成(旧库读不出来、不再是装载认的那一份):小状态先落盘,再照启动那样整份装
     /// (那条路认得兜底副本、认得坏了的快照)。
     private func loadWholeLibraryInsteadOfTheSongModel(reason: String, startedAt: ContinuousClock.Instant) async {
-        // 小状态此刻落不了盘(快照又要带歌了)时不等:`persistNowAndWait` 那时要等就绪,而就绪正等着这次装载。
-        // 那以后的小状态突变排在队里,发布之后重放。
-        if smallStateIsWritable, case .failure = await persistNowAndWait(materializePortableSnapshot: false) {
-            plog("⚠️ 🧠 residency: small state could not be saved before the whole-library load")
+        // 整份装载发布时会从磁盘拷回小状态:先落盘,放掉期间改的才不会被盖掉。落盘失败就不装,留在放掉的状态,
+        // 过一会儿再试(等着的人接着等)。小状态此刻落不了盘(快照又要带歌了)时不等:`persistNowAndWait` 那时
+        // 要等就绪,而就绪正等着这次装载;那以后的小状态突变排在队里,发布之后重放。
+        if smallStateIsWritable {
+            var saved = true
+            if case .failure = await persistNowAndWait(materializePortableSnapshot: false) { saved = false }
+            #if DEBUG
+            if songModelFallbackPersistFailsForTesting { saved = false }
+            #endif
+            if !saved {
+                songModelLoadTask = nil
+                songModelResidencyStatistics.deferredWholeLibraryLoads += 1
+                plog("⚠️ 🧠 residency load deferred: small state could not be saved before the whole-library load;"
+                     + " staying released, retry in \(songModelLoadRetryDelay)")
+                scheduleSongModelLoadRetry(reason: reason)
+                return
+            }
+        } else if hasPendingPortableSnapshotChanges {
+            plog("⚠️ 🧠 residency: small state cannot be written before the whole-library load; its unsaved changes are replaced from disk")
         }
         guard songModelReleased, isPreparing else {
             songModelLoadTask = nil

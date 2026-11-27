@@ -65,6 +65,14 @@ enum ServerPlaylistMirror {
         library: MusicLibrary,
         readRevision: UInt64? = nil
     ) -> SyncResult {
+        // 歌曲模型不在内存里:对照做不出来(对着空的歌曲表,每个成员都成了占位),不读空数组,交一份「没对照」的
+        // 结果给落地那一步,由它照旧不认。
+        guard library.isReady else {
+            return apply(
+                PreparedSnapshot(entries: [], indexedTrackCount: 0, isMatched: false),
+                snapshot: snapshot, source: source, library: library, readRevision: readRevision
+            )
+        }
         let prepared = prepare(
             snapshot: snapshot,
             sourceID: source.id,

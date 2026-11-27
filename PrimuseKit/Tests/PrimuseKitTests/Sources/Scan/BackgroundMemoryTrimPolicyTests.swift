@@ -40,6 +40,70 @@ struct BackgroundMemoryTrimPolicyTests {
     }
 }
 
+@Suite("Song model release policy")
+struct SongModelReleasePolicyTests {
+    private func inputs(
+        enabled: Bool = true, background: Bool = true, settled: Bool = true,
+        activity: BackgroundMemoryTrimPolicy.Activity = .init(), playbackBlocks: Bool = true
+    ) -> SongModelReleasePolicy.Inputs {
+        .init(residencyEnabled: enabled, isInBackground: background, sceneSettleFinished: settled,
+              activity: activity, playbackBlocksRelease: playbackBlocks)
+    }
+
+    @Test("Released only when residency is on, the app is in the background, settled and idle")
+    func everyConditionHolds() {
+        #expect(SongModelReleasePolicy.refusal(inputs()) == nil)
+        #expect(SongModelReleasePolicy.refusal(inputs(enabled: false)) == "residency is off")
+        #expect(SongModelReleasePolicy.refusal(inputs(background: false)) == "not in the background")
+        #expect(SongModelReleasePolicy.refusal(inputs(settled: false)) == "scene settle not finished")
+    }
+
+    @Test("With residency off nothing is ever released, whatever else holds")
+    func residencyOffNeverReleases() {
+        for background in [true, false] {
+            for settled in [true, false] {
+                for playbackBlocks in [true, false] {
+                    for activity in [BackgroundMemoryTrimPolicy.Activity(), .init(isPlaybackActive: true)] {
+                        let refusal = SongModelReleasePolicy.refusal(inputs(
+                            enabled: false, background: background, settled: settled,
+                            activity: activity, playbackBlocks: playbackBlocks
+                        ))
+                        #expect(refusal == "residency is off")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test("Background work refuses by name; playback only while the switch says so")
+    func backgroundWorkRefuses() {
+        let busy: [(BackgroundMemoryTrimPolicy.Activity, String)] = [
+            (.init(isScanning: true), "scanning"),
+            (.init(isImporting: true), "importing"),
+            (.init(isTransferring: true), "transferring"),
+            (.init(isDownloadingForOffline: true), "offline download"),
+            (.init(isSeparatingKaraoke: true), "karaoke separation"),
+            (.init(isCarPlayActive: true), "CarPlay"),
+        ]
+        for (activity, name) in busy {
+            #expect(SongModelReleasePolicy.refusal(inputs(activity: activity)) == name)
+            #expect(SongModelReleasePolicy.refusal(inputs(activity: activity, playbackBlocks: false)) == name)
+        }
+        let playing = BackgroundMemoryTrimPolicy.Activity(isPlaybackActive: true)
+        #expect(SongModelReleasePolicy.refusal(inputs(activity: playing)) == "playback")
+        #expect(SongModelReleasePolicy.refusal(inputs(activity: playing, playbackBlocks: false)) == nil)
+        // 放歌之外还有别的活儿:开关关着也照样拦。
+        let playingAndScanning = BackgroundMemoryTrimPolicy.Activity(isPlaybackActive: true, isScanning: true)
+        #expect(SongModelReleasePolicy.refusal(inputs(activity: playingAndScanning, playbackBlocks: false)) == "scanning")
+    }
+
+    @Test("The first attempt waits for the scene settle and still runs inside the background window")
+    func backgroundDelayFitsTheWindow() {
+        #expect(SongModelReleasePolicy.backgroundDelay > 2)
+        #expect(SongModelReleasePolicy.backgroundDelay < 10)
+    }
+}
+
 @Suite("Decoded image cache budget")
 struct DecodedImageCacheBudgetTests {
     private let mebibyte = 1_024 * 1_024

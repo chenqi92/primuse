@@ -1350,6 +1350,13 @@ final class BackgroundLibraryMaintenanceCoordinator {
         cancelMaintenance()
     }
 
+    /// 场景收尾的那一步(2 秒后排上扫描、补全、上传这些活)已经跑过才返回;没有排着的就立刻返回。
+    /// 后台放掉歌曲模型之前等它(`RebuildableMemoryReliefCoordinator`)。不等它排上的活做完:那要几十秒,
+    /// 后台时间等不起;要模型的活自己占用,随后的搜索索引准备在模型放掉之后不做(它只在就绪时做)。
+    func waitForSceneSettleWork() async {
+        await sceneSettleTask?.value
+    }
+
     func cancelMaintenance() {
         searchIndexTask?.cancel()
         searchIndexTask = nil
@@ -1396,11 +1403,25 @@ final class RebuildableMemoryReliefCoordinator {
     private var macRewarmTask: Task<Void, Never>?
     private var macTrimGeneration = 0
     #endif
+    #if os(iOS) || os(macOS)
+    /// 歌曲模型不常驻(P3 6d):空闲时放掉整个歌曲模型的那一步,与上面的放法分开排、分开取消。
+    private var songModelReleaseTask: Task<Void, Never>?
+    private var songModelReleaseGeneration = 0
+    /// 这一次退到后台(macOS:隐藏或失焦)的时刻;回到前台时清掉。
+    private var songModelBackgroundSince: ContinuousClock.Instant?
+    #endif
+    #if os(iOS)
+    private var songModelReleaseAssertion: UIBackgroundTaskIdentifier = .invalid
+    private var songModelReleaseActivity: (@MainActor @Sendable () -> BackgroundMemoryTrimPolicy.Activity)?
+    #endif
 
     func install(library: MusicLibrary, player: AudioPlayerService) {
         self.library = library
         self.player = player
         guard memoryPressureObserver == nil else { return }
+        #if os(iOS) || os(macOS)
+        installSongModelResidency(library: library)
+        #endif
         memoryPressureObserver = NotificationCenter.default.addObserver(
             forName: .primuseMemoryPressure,
             object: nil,
@@ -1457,6 +1478,12 @@ final class RebuildableMemoryReliefCoordinator {
             await LibrarySearchIndex.shared.releaseReadCaches()
             await MusicLibrary.returnFreedMemoryToSystem()
         }
+        #if os(iOS)
+        // 后台收到内存告警:不等收尾的那段等待,现在就试着放掉歌曲模型。
+        if LiveApplicationState.isBackground {
+            scheduleSongModelRelease(trigger: "memory warning", after: .zero)
+        }
+        #endif
     }
 
     /// 已解码图片缓存换上限。`inBackground` 时先清空再压到后台那一档, 系统「正在播放」只留当前
@@ -1567,6 +1594,7 @@ final class RebuildableMemoryReliefCoordinator {
     }
 
     private func macDidBecomeActive() {
+        songModelSceneDidBecomeActive()
         cancelMacPendingTrim()
         macRewarmTask?.cancel()
         macRewarmTask = Task { @MainActor [weak self] in
@@ -1578,6 +1606,7 @@ final class RebuildableMemoryReliefCoordinator {
     }
 
     private func scheduleMacBackgroundTrim() {
+        songModelSceneDidEnterBackground(after: .seconds(20))
         cancelMacPendingTrim()
         macRewarmTask?.cancel()
         macRewarmTask = nil
@@ -1681,6 +1710,8 @@ final class RebuildableMemoryReliefCoordinator {
             await MusicLibrary.returnFreedMemoryToSystem()
             plog("Memory trim: released rebuildable caches before suspension")
         }
+        songModelReleaseActivity = activity
+        songModelSceneDidEnterBackground(after: .seconds(SongModelReleasePolicy.backgroundDelay))
     }
 
     /// `.inactive` / `.active` / 断言到期: 还没动手的这一轮不做了。
@@ -1689,12 +1720,14 @@ final class RebuildableMemoryReliefCoordinator {
         trimTask?.cancel()
         trimTask = nil
         endTrimAssertion()
+        cancelSongModelRelease()
     }
 
     /// `.active` 时调用: 等回到前台的头几帧画完, 在主线程外补回后台放掉之前建着的那几份
     /// (没放过的话 `rewarmReleasedCaches()` 什么都不做)。
     func sceneDidBecomeActive() {
         cancelPendingTrim()
+        songModelSceneDidBecomeActive()
         rewarmTask?.cancel()
         // 图片缓存的上限先恢复(不预先解码), 在屏的封面按需重新解码。
         if isDecodedImageBudgetLowered {
@@ -1718,6 +1751,171 @@ final class RebuildableMemoryReliefCoordinator {
     }
     #endif
 }
+
+#if os(iOS) || os(macOS)
+/// 歌曲模型不常驻(P3 设计 15b 第 7 条、19b):空闲的后台里把整个歌曲模型放掉,是上面那套空闲放内存的又一步。
+/// 开关(`MusicLibrary.SongModelResidencySettings`)关着时只记启动那一行和前后台切换时的占用,别的都不做。
+///
+/// iOS:进后台过了等待时间(`SongModelReleasePolicy.backgroundDelay`)、场景收尾的那批活做完、后台没有要接着用
+/// 曲库的活儿(放歌另有开关)时放;后台收到内存告警时立刻试一次;占用都结束了(扫描、补全做完)而还在后台时再试。
+/// 放掉的页还给系统之后才交回后台时间。macOS:隐藏或失焦 20 秒之后,同样的条件。
+/// 前台的场景占着歌曲模型(过渡期开关,默认开):回到前台就拿 `.foreground` 占用,模型放掉了就装回来。
+extension RebuildableMemoryReliefCoordinator {
+    fileprivate func installSongModelResidency(library: MusicLibrary) {
+        library.applySongModelResidencySettings(.current())
+        // 设备上前后对照比的是这几个数:每次启动、模型第一次发布之后记一行(开关关着也记)。
+        library.onReady { [weak library] in
+            guard let library else { return }
+            plog("🧠 library counts songs=\(library.songCount) albums=\(library.albumCount)"
+                 + " playlists=\(library.playlists.count) liked=\(library.likedSongIDSnapshot().count)")
+        }
+        guard library.songModelResidencyEnabled else { return }
+        library.songModelResidencyObserver = { event in
+            guard event == .holdsEnded else { return }
+            RebuildableMemoryReliefCoordinator.shared.songModelHoldsEnded()
+        }
+        #if os(iOS)
+        library.setSongModelForegroundHold(!LiveApplicationState.isBackground)
+        #else
+        library.setSongModelForegroundHold(true)
+        #endif
+    }
+
+    /// iOS 退到后台、macOS 隐藏或失焦:记一行占用,放下前台占用,`delay` 之后试着放掉歌曲模型。
+    fileprivate func songModelSceneDidEnterBackground(after delay: Duration) {
+        plog("🧠 scene=background footprint=\(MusicLibrary.residencyFootprint()) songModel=\(songModelStateName)")
+        guard let library, library.songModelResidencyEnabled else { return }
+        songModelBackgroundSince = .now
+        library.setSongModelForegroundHold(false)
+        scheduleSongModelRelease(trigger: "background", after: delay)
+    }
+
+    /// 回到前台:记一行占用,还没动手的放掉不做了,拿前台占用(放掉了就开始装回来)。
+    fileprivate func songModelSceneDidBecomeActive() {
+        plog("🧠 scene=foreground footprint=\(MusicLibrary.residencyFootprint()) songModel=\(songModelStateName)")
+        guard let library, library.songModelResidencyEnabled else { return }
+        cancelSongModelRelease()
+        songModelBackgroundSince = nil
+        library.setSongModelForegroundHold(true)
+    }
+
+    private var songModelStateName: String {
+        guard let library else { return "none" }
+        return library.isReady ? "loaded" : (library.isUsable ? "released" : "unavailable")
+    }
+
+    /// 最后一个占用结束了(扫描、补全、队列放到头……):还在后台、第一次的等待已经过了、没有排着的放掉时再试一次。
+    fileprivate func songModelHoldsEnded() {
+        guard songModelReleaseTask == nil, let since = songModelBackgroundSince else { return }
+        #if os(iOS)
+        let waited: Duration = .seconds(SongModelReleasePolicy.backgroundDelay)
+        guard LiveApplicationState.isBackground else { return }
+        #else
+        let waited: Duration = .seconds(20)
+        guard !NSApp.isActive || NSApp.isHidden else { return }
+        #endif
+        guard ContinuousClock.now - since >= waited else { return }
+        scheduleSongModelRelease(trigger: "holds ended", after: .zero)
+    }
+
+    private var songModelAppIsInBackground: Bool {
+        #if os(iOS)
+        LiveApplicationState.isBackground
+        #else
+        !NSApp.isActive || NSApp.isHidden
+        #endif
+    }
+
+    private var songModelBackgroundActivity: BackgroundMemoryTrimPolicy.Activity {
+        #if os(iOS)
+        songModelReleaseActivity?() ?? BackgroundMemoryTrimPolicy.Activity(isPlaybackActive: player?.isPlaybackActive ?? false)
+        #else
+        macBackgroundTrimActivity()
+        #endif
+    }
+
+    /// `delay` 之后(iOS 另等场景收尾的那批活做完)按 App 这一层的条件判一次,通过了再请曲库按它自己的条件放。
+    /// 曲库因为一时的原因(维护、写入链、目录还没跟上……)没放时,还在后台就隔几秒再试,最多三次;占用拦着的
+    /// 由占用结束时再来。
+    fileprivate func scheduleSongModelRelease(trigger: String, after delay: Duration) {
+        guard let library, library.songModelResidencyEnabled else { return }
+        cancelSongModelRelease()
+        songModelReleaseGeneration &+= 1
+        let generation = songModelReleaseGeneration
+        #if os(iOS)
+        // 放掉要在挂起之前做完、页还给系统:为这一轮单独要一段后台时间,到期就作罢。
+        let assertion = UIApplication.shared.beginBackgroundTask(withName: "primuse.song-model-release") {
+            MainActor.assumeIsolated {
+                plog("🧠 residency release skipped=app(background time expired) trigger=\(trigger)")
+                RebuildableMemoryReliefCoordinator.shared.cancelSongModelRelease()
+            }
+        }
+        guard songModelReleaseGeneration == generation else {
+            if assertion != .invalid { UIApplication.shared.endBackgroundTask(assertion) }
+            return
+        }
+        songModelReleaseAssertion = assertion
+        #endif
+        songModelReleaseTask = Task { @MainActor [weak library] in
+            defer {
+                if self.songModelReleaseGeneration == generation {
+                    self.songModelReleaseTask = nil
+                    self.endSongModelReleaseAssertion()
+                }
+            }
+            if delay > .zero { try? await Task.sleep(for: delay) }
+            #if os(iOS)
+            await BackgroundLibraryMaintenanceCoordinator.shared.waitForSceneSettleWork()
+            #endif
+            for attempt in 0..<3 {
+                guard !Task.isCancelled, self.songModelReleaseGeneration == generation, let library else { return }
+                let activity = self.songModelBackgroundActivity
+                if let refusal = SongModelReleasePolicy.refusal(.init(
+                    residencyEnabled: library.songModelResidencyEnabled,
+                    isInBackground: self.songModelAppIsInBackground,
+                    sceneSettleFinished: true,
+                    activity: activity,
+                    playbackBlocksRelease: library.songModelResidencySettings.playbackBlocksRelease
+                )) {
+                    plog("🧠 residency release skipped=app(\(refusal)) trigger=\(trigger)")
+                    return
+                }
+                // 放歌时不整理大堆(长时间拿着 malloc 的锁会断音),放掉的页靠系统自己回收。
+                let outcome = await library.releaseSongModelIfIdle(
+                    trigger: attempt == 0 ? trigger : "\(trigger) retry \(attempt)",
+                    returningFreedMemory: !activity.isPlaybackActive
+                )
+                switch outcome {
+                case .released:
+                    await library.songModelReleaseDidReclaimMemory()
+                    return
+                case .skipped(let why) where why.hasPrefix("hold(") || why == "the song model is not loaded"
+                    || why == "residency is off":
+                    return
+                case .skipped:
+                    try? await Task.sleep(for: .seconds(8))
+                }
+            }
+        }
+    }
+
+    fileprivate func cancelSongModelRelease() {
+        songModelReleaseGeneration &+= 1
+        songModelReleaseTask?.cancel()
+        songModelReleaseTask = nil
+        endSongModelReleaseAssertion()
+    }
+
+    private func endSongModelReleaseAssertion() {
+        #if os(iOS)
+        guard songModelReleaseAssertion != .invalid else { return }
+        let identifier = songModelReleaseAssertion
+        songModelReleaseAssertion = .invalid
+        UIApplication.shared.endBackgroundTask(identifier)
+        #endif
+    }
+}
+#endif
 
 /// Keep network-path Observation out of the scene's root modifier chain.
 /// A path update used to invalidate `ContentView` itself, which made SwiftUI
