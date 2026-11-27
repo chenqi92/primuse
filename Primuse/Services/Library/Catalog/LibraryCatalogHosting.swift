@@ -158,6 +158,89 @@ struct LibraryCatalogSongLookup: Sendable {
         return result
     }
 
+    /// 按音乐源数存着的歌(含停用源),还在路上的改动算在内;`removedIDs` 里的当作已经删掉。
+    /// 目录的数是它最近一次提交的:路上写入的新行加上,路上删掉而目录里还在的行扣掉,换了源的行挪过去。
+    /// 要补算的 id 以在路上的批为界(加上 `removedIDs`),只为它们读目录里的行。
+    func songCountsBySource(treatingAsRemoved removedIDs: Set<String> = []) throws -> [String: Int] {
+        guard pendingWrites.answersLikeMemory else { throw LibraryCatalogReaderError.unavailable }
+        var counts = try catalog.songCountsBySource(.everything)
+        let pending = pendingWrites.pendingLookups()
+        var ids = Set(pending.keys).union(removedIDs)
+        for case .renamed(let oldID) in pending.values { ids.insert(oldID) }
+        guard !ids.isEmpty else { return counts }
+        // 这些 id 在目录里此刻算在哪个源头上。
+        var catalogSource: [String: String] = [:]
+        let asked = Array(ids)
+        var start = 0
+        while start < asked.count {
+            let end = min(asked.count, start + LibraryScale.maxMaterializedRows)
+            for song in try catalog.songs(ids: Array(asked[start..<end])) { catalogSource[song.id] = song.sourceID }
+            start = end
+        }
+        for id in ids {
+            let before = catalogSource[id]
+            let after: String?
+            if removedIDs.contains(id) {
+                after = nil
+            } else {
+                switch pending[id] {
+                case .present(let song)?: after = song.sourceID
+                case .deleted?: after = nil
+                // 目录还没改名时这一行还在旧 id 上;已经改了就在新 id 上。
+                case .renamed(let oldID)?: after = catalogSource[oldID] ?? before
+                case .unknown?, nil: after = before
+                }
+            }
+            guard before != after else { continue }
+            if let before { counts[before, default: 0] -= 1 }
+            if let after { counts[after, default: 0] += 1 }
+        }
+        return counts
+    }
+
+    /// 标题满足 `matches` 的歌(含停用源),库内顺序;路上改过的换成路上的那一版,路上删掉的不给,
+    /// 路上新写入而目录还没有的补在后面。只读标题一列来筛,命中的才物化。
+    /// 命中超过 `limit` 时为 nil:候选不全,不能拿来做匹配。
+    func songs(
+        titleMatching matches: (String) -> Bool, limit: Int = LibraryScale.maxMaterializedRows
+    ) throws -> [Song]? {
+        guard pendingWrites.answersLikeMemory else { throw LibraryCatalogReaderError.unavailable }
+        var rowids: [Int32] = []
+        var overflowed = false
+        try catalog.forEachSongTitle(.everything) { rowid, title in
+            guard matches(title) else { return true }
+            guard rowids.count < limit else {
+                overflowed = true
+                return false
+            }
+            rowids.append(rowid)
+            return true
+        }
+        guard !overflowed else { return nil }
+        let committed = try catalog.songs(rowids: rowids)
+        let pending = pendingWrites.pendingLookups()
+        guard !pending.isEmpty else { return committed }
+        var result: [Song] = []
+        var included = Set<String>()
+        for song in committed {
+            switch pending[song.id] {
+            case .present(let current)?:
+                included.insert(song.id)
+                if matches(current.title) { result.append(current) }
+            case .deleted?:
+                continue
+            case .renamed?, .unknown?, nil:
+                included.insert(song.id)
+                result.append(song)
+            }
+        }
+        let late = pending.values.compactMap { state -> Song? in
+            guard case .present(let song) = state, !included.contains(song.id), matches(song.title) else { return nil }
+            return song
+        }.sorted { $0.id < $1.id }
+        return result + late
+    }
+
     /// 同 `LibraryPendingSongWrites.resolve`,一批一起做。
     private func resolve(_ ids: [String]) throws -> [Song?] {
         guard let pending = pendingWrites.lookups(ids) else { return try rowCache.songs(ids: ids, in: catalog) }

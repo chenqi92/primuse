@@ -1370,6 +1370,20 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     }
 }
 
+extension LibraryCatalogMirror {
+    /// 只换停用的源,其余输入照这里手上的那一份。持有方的歌曲模型不在内存里时用:它这时不重新给一整份输入
+    /// (分组输入是跟着模型算的),而停用哪些源只是一份设置。还没收到过输入时不动。
+    func updateDisabledSourceIDs(_ ids: Set<String>) {
+        let wakeup = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            guard var inputs = state.inputs, inputs.disabledSourceIDs != ids else { return nil }
+            inputs.disabledSourceIDs = ids
+            state.inputs = inputs
+            return takeWakeup()
+        }
+        wakeup?.resume()
+    }
+}
+
 /// 线程安全的布尔开关。
 final class InteractionFlag: @unchecked Sendable {
     private let lock = NSLock()

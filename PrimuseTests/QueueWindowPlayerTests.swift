@@ -25,7 +25,8 @@ final class QueueWindowPlayerTests: XCTestCase {
 
     @MainActor
     private func makePlayer(librarySongs: [Song], startsPreparing: Bool = false, includesLibrary: Bool = true,
-                            sessionDirectory: URL? = nil) async throws -> AudioPlayerService {
+                            sessionDirectory: URL? = nil,
+                            catalog: LibraryCatalogMirroring = .automatic) async throws -> AudioPlayerService {
         let suite = "queue-window-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
@@ -43,7 +44,7 @@ final class QueueWindowPlayerTests: XCTestCase {
             try store.markMigrationCompleted(version: 10)
             library = MusicLibrary.makePreparing(storageDirectory: libraryDirectory)
         } else {
-            library = MusicLibrary(storageDirectory: libraryDirectory)
+            library = MusicLibrary(storageDirectory: libraryDirectory, catalogMirroring: catalog)
         }
         if !startsPreparing, !librarySongs.isEmpty {
             library.addSongs(librarySongs, affectedSourceIDs: ["local-source"])
@@ -1079,6 +1080,28 @@ final class QueueWindowPlayerTests: XCTestCase {
             player.previousQueueTraversalTarget()?.queueIndex,
             "the first card on the left is where previous goes"
         )
+    }
+
+    /// 歌曲模型放掉之后按 id 删歌:播放器这位 `.primuseSongsRemoved` 的观察者照通知带的 id 把队列里
+    /// 那几首拿掉,别的不动,正在放的那首留着。
+    @MainActor
+    func testSongsRemovedWithoutTheSongModelLeaveTheQueueWithoutThem() async throws {
+        let catalog = songs(4)
+        let player = try await makePlayer(librarySongs: catalog, catalog: .enabled(startDelay: .zero))
+        let library = try XCTUnwrap(player.library)
+        addTeardownBlock { @MainActor in await library.stopCatalogMirror() }
+        await library.waitForCatalogMirror()
+        player.setQueue(catalog, startAt: 0)
+        player.stagePausedHandoff(song: catalog[0], at: 5)
+
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(library.isReady)
+        let remaining = library.deleteSongs([catalog[1], catalog[3]])
+        XCTAssertEqual(remaining["local-source"], 2, "the delete ran without the song model")
+        await player.waitForLibraryReconciliation()
+
+        XCTAssertEqual(player.queue.map(\.id), ["s0", "s2"])
+        XCTAssertEqual(player.currentSong?.id, "s0")
     }
 
     @MainActor

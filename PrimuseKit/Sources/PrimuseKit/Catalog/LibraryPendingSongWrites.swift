@@ -190,6 +190,11 @@ public final class LibraryPendingSongWrites: @unchecked Sendable {
         }
     }
 
+    /// 还在路上的全部条目,同一时刻看的(`LibrarySongOverlay.pendingLookups`)。
+    public func pendingLookups() -> [String: LibrarySongOverlay.Lookup] {
+        lock.withLock { state.overlay.pendingLookups }
+    }
+
     /// 这一首此刻的样子:这里有就用这里的,没有就读目录。由改名而来的那一首,目录还没改名时读旧 id
     /// 那一行换上新 id,已经改了就读新 id。
     public func resolve(_ id: String, catalogSong: (String) throws -> Song?) rethrows -> Song? {

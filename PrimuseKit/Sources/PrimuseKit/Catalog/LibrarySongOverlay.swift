@@ -91,6 +91,19 @@ public struct LibrarySongOverlay: Sendable {
         }
     }
 
+    /// 还在路上的全部条目:id → 它此刻的样子(没有 `.unknown`)。条目数以在路上的批为界。
+    /// 给要把路上的改动算进去的统计用(按源计数:目录的数要加上还没提交的写入、扣掉还没提交的删除);
+    /// 按 id 读仍用 `lookup`。
+    public var pendingLookups: [String: Lookup] {
+        entries.mapValues { entry in
+            switch entry.state {
+            case .present(let song): return .present(song)
+            case .deleted: return .deleted
+            case .renamed(let from): return .renamed(from: from)
+            }
+        }
+    }
+
     /// 目录已提交到第 `sequence` 批(含):最后一次写在这一批及以前的条目不再需要。
     public mutating func acknowledge(through sequence: UInt64) {
         guard sequence > acknowledgedSequence else { return }

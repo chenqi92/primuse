@@ -377,6 +377,25 @@ extension LibraryCatalog {
         }
     }
 
+    /// 流式遍历一个范围的 (行号, 标题),按库内顺序;`body` 返回 false 时提前结束。只读这两列,不物化整首歌:
+    /// 按标题粗筛候选(找「同一首歌的另一份」)时用,命中的行号再交给 `songs(rowids:)`。
+    public func forEachSongTitle(
+        _ scope: LibrarySongScope,
+        _ body: (_ rowid: Int32, _ title: String) throws -> Bool
+    ) throws {
+        try reader.read { db in
+            let (sql, arguments) = try scope.whereClause(in: db)
+            let rows = try Row.fetchCursor(
+                db,
+                sql: "SELECT s.rowid, s.title FROM song s WHERE \(sql) ORDER BY s.rowid",
+                arguments: arguments
+            )
+            while let row = try rows.next() {
+                guard try body(try Self.rowid32(row[0]), row[1]) else { return }
+            }
+        }
+    }
+
     /// 流式遍历一个范围的整首歌,按库内顺序,每批 `LibraryScale.importBatchSize` 首。
     public func forEachSong(
         _ scope: LibrarySongScope,

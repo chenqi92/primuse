@@ -6004,6 +6004,12 @@ extension MusicLibrary {
         // 这里只记下最新值, 发布拷回之后再对账。
         if isPreparing {
             preparingDisabledSourceIDs = ids
+            // 歌曲模型放掉之后(不是第一次发布之前,也不是再装载期间):目录的可见口径现在就跟上。按 id 读本来就用
+            // 这份最新的设置;目录上的列表、计数、专辑与艺人的可见性靠镜像手上的输入,只换其中停用的源。
+            // 内存里没有可见缓存可重建;模型下次发布时照这份设置对账(`reconcilePreparingConfiguration`)。
+            if songModelReleased, catalogAttached {
+                catalogHost?.mirror.updateDisabledSourceIDs(ids)
+            }
             return
         }
         guard disabledSourceIDs != ids else { return }
@@ -8126,6 +8132,10 @@ extension MusicLibrary {
     /// 上出现另一个文件而被撤销, 所以拿不准的路径必须落在 false 上。
     @discardableResult
     func deleteSong(_ song: Song, sourceFileDeleted: Bool = false) -> Int {
+        if let lookup = smallStateWritesWithoutTheModel,
+           let remaining = deleteSongsWithoutTheModel([song], sourceFileDeleted: sourceFileDeleted, lookup: lookup) {
+            return remaining[song.sourceID] ?? 0
+        }
         if deferringUntilReady({ [weak self] in
             _ = self?.deleteSong(song, sourceFileDeleted: sourceFileDeleted)
         }) { return 0 }
@@ -8165,6 +8175,10 @@ extension MusicLibrary {
         sourceFileDeleted: Bool = false
     ) -> [String: Int] {
         guard !songsToDelete.isEmpty else { return [:] }
+        if let lookup = smallStateWritesWithoutTheModel,
+           let remaining = deleteSongsWithoutTheModel(songsToDelete, sourceFileDeleted: sourceFileDeleted, lookup: lookup) {
+            return remaining
+        }
         if deferringUntilReady({ [weak self] in
             _ = self?.deleteSongs(songsToDelete, sourceFileDeleted: sourceFileDeleted)
         }) { return [:] }
@@ -8269,7 +8283,16 @@ extension MusicLibrary {
         detailsBySongID: [String: String] = [:]
     ) throws -> [String: Int] {
         guard !songsToRemove.isEmpty else { return [:] }
-        if deferringUntilReady({ [weak self] in
+        let idsToRemove = Set(songsToRemove.map(\.id))
+        let affectedSourceIDs = Set(songsToRemove.map(\.sourceID))
+        // 歌曲模型放掉之后: 账本照改, 行按 id 从旧库删, 按源的剩余数从目录算。剩余数此刻读不出来就照旧排队。
+        var remainingWithoutTheModel: [String: Int]?
+        if let lookup = smallStateWritesWithoutTheModel {
+            remainingWithoutTheModel = remainingSongCountsOutsideTheModel(
+                in: affectedSourceIDs, afterRemoving: idsToRemove, lookup: lookup
+            )
+        }
+        if remainingWithoutTheModel == nil, deferringUntilReady({ [weak self] in
             _ = try? self?.removeSongsFromThisDevice(
                 songsToRemove,
                 reason: reason,
@@ -8278,8 +8301,6 @@ extension MusicLibrary {
         }) {
             return [:]
         }
-        let idsToRemove = Set(songsToRemove.map(\.id))
-        let affectedSourceIDs = Set(songsToRemove.map(\.sourceID))
         let previousIdentities = deviceLocalExcludedSongIdentities
         let previousSongs = deviceLocalExcludedSongsByID
         let previousMetadata = deviceLocalRemovalMetadataByID
@@ -8306,6 +8327,12 @@ extension MusicLibrary {
             deviceLocalExcludedSongsByID = previousSongs
             deviceLocalRemovalMetadataByID = previousMetadata
             throw error
+        }
+        if let remainingWithoutTheModel {
+            // 数组不在: 没有可拿掉的行、可修剪的可见缓存, 也没有派生集合可维护。
+            persistSongChanges(deletingIDs: idsToRemove, needsPromptCompatibilitySnapshot: true, withoutTheModel: true)
+            postSongsRemoved(songsToRemove, songIDs: idsToRemove)
+            return remainingWithoutTheModel
         }
         songs.removeAll { idsToRemove.contains($0.id) }
         songIndexByID = Self.makeSongIndex(songs)
@@ -8344,8 +8371,8 @@ extension MusicLibrary {
     }
 
     private func persistDeviceLocalExclusions() throws {
-        // S1: 发布前不写设备本地排除账本。
-        guard !isPreparing else {
+        // S1: 发布前不写设备本地排除账本。(歌曲模型放掉之后照常写: 账本有自己的文件, 不靠数组。)
+        guard smallStateIsWritable else {
             deferredDeviceLocalExclusionWriteRequested = true
             return
         }
@@ -8535,7 +8562,7 @@ extension MusicLibrary {
     /// any Song with the same source/path).
     func restoreDeletedSong(_ song: Song) {
         // S2: 墓碑集合在发布时整体拷回, 排队后重放才能真正撤销删除。
-        if deferringUntilReady({ [weak self] in self?.restoreDeletedSong(song) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.restoreDeletedSong(song) }) { return }
         revokeDeletedSongIdentities([identityKey(for: song)])
     }
 
@@ -9213,7 +9240,7 @@ extension MusicLibrary {
     ) {
         guard previous != current else { return }
         // S2: 发布前的改动会被存储里的值整体覆盖，排队到发布后再做。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.rebindServerRatingTargets(
                 sourceID: sourceID,
                 fromAccountFingerprint: previous,
@@ -9423,7 +9450,7 @@ extension MusicLibrary {
     @discardableResult
     func applyRemoteLibraryReview(_ remote: LibraryReview) -> Bool {
         // S2: 发布前本机的评分还没装载,合并要等到重放时做;返回 false 不回推。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             _ = self?.applyRemoteLibraryReview(remote)
         }) { return false }
         let remote = localizedServerRatingTarget(remote)
@@ -9450,7 +9477,7 @@ extension MusicLibrary {
     /// 修改时间取新的,和 iCloud 合并同一套规则;有变化的照常发通知,iCloud 与别的设备跟着收到。
     func mergeFolderMarkReviews(_ reviews: [LibraryReview]) {
         // S2: 发布前本机的评分还没装载,合并要等到重放时做。
-        if deferringUntilReady({ [weak self] in self?.mergeFolderMarkReviews(reviews) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.mergeFolderMarkReviews(reviews) }) { return }
         var changedKeys: [String] = []
         for review in reviews {
             let key = review.subject.storageKey
@@ -9501,7 +9528,7 @@ extension MusicLibrary {
     /// 每次落盘都是整库快照:批量补简介传更长的 `persistAfter`,把连着存的几十份并成一次写。
     func saveLibraryInsightRecord(_ record: LibraryInsightRecord, persistAfter delay: TimeInterval = 0.2) {
         // S2: 发布时存储里的值会整体覆盖内存,必须排队重放。
-        if deferringUntilReady({ [weak self] in self?.saveLibraryInsightRecord(record, persistAfter: delay) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.saveLibraryInsightRecord(record, persistAfter: delay) }) { return }
         if let existing = libraryInsightRecordsByID[record.id] {
             guard existing != record, LibraryInsightEditing.winner(existing, record) == record else { return }
         }
@@ -9520,7 +9547,7 @@ extension MusicLibrary {
     }
 
     func saveGeneratedChapterRecord(_ record: SpokenChapterRecord) {
-        if deferringUntilReady({ [weak self] in self?.saveGeneratedChapterRecord(record) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.saveGeneratedChapterRecord(record) }) { return }
         let merged = SpokenChapterRecord.merge(Array(generatedChaptersByID.values), [record])
         let next = Dictionary(merged.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         guard next != generatedChaptersByID else { return }
@@ -10263,7 +10290,7 @@ extension MusicLibrary {
         // S2: `setAutomaticArtwork` / `setArtwork` / `setUploadedArtwork` 三个入口
         // 共用这里, 排队一次即可。返回 true 表示"已接受", 与 S1 下
         // `persistPlaylistDurabilityLedger()` 返回 true 的约定一致。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             _ = self?.setArtworkOverride(
                 owner: owner,
                 mode: mode,
@@ -10331,7 +10358,7 @@ extension MusicLibrary {
         guard !remote.owner.id.isEmpty else { return false }
         // S2: 本地值要等发布后才存在, 冲突判定必须在重放时做; 返回 false
         // (= 远端值胜出) 让调用方不要立刻回推本地值。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             _ = self?.applyRemoteArtworkOverride(remote)
         }) { return false }
         if let local = artworkOverridesByOwner[remote.owner.storageKey],
@@ -10354,7 +10381,7 @@ extension MusicLibrary {
 
     func deleteArtworkOverrideFromRemote(owner: LibraryArtworkOwner) {
         // S2: 封面覆盖表在发布时整体拷回, 现在删只会删到空表。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.deleteArtworkOverrideFromRemote(owner: owner)
         }) { return }
         guard let removed = artworkOverridesByOwner.removeValue(forKey: owner.storageKey) else { return }
@@ -11043,7 +11070,7 @@ extension MusicLibrary {
 
     func hideMirrorPlaylist(id: String) {
         // S2: 镜像隐藏表在发布时整体拷回, 且这里要找的镜像歌单此刻还不存在。
-        if deferringUntilReady({ [weak self] in self?.hideMirrorPlaylist(id: id) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.hideMirrorPlaylist(id: id) }) { return }
         guard MirrorPlaylistIdentity.isMirrorPlaylist(id),
               let key = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: id),
               let playlist = allPlaylists.first(where: { $0.id == id }) else { return }
@@ -11066,7 +11093,7 @@ extension MusicLibrary {
 
     func restoreHiddenMirrorPlaylist(_ suppression: MirrorPlaylistSuppression) {
         // S2: 同上, 取消隐藏要落在发布后的抑制表上。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.restoreHiddenMirrorPlaylist(suppression)
         }) { return }
         let suppressionID = keyID(suppression.key)
@@ -11100,10 +11127,10 @@ extension MusicLibrary {
         // S2: 返回值必须当场给出 (调用方拿着它继续加歌 / 跳转), 所以只把插入
         // 排队 —— 重放用的是同一个 playlist 值, id 与时间戳都不会变。成员过滤
         // 也留到重放: 空库上 `validUniqueSongIDs` 会把每一首都滤掉。
-        if deferringUntilReady({ [weak self] in
+        guard let access = songAccessForSmallState(songIDs, orDeferring: { [weak self] in
             self?.insertCreatedPlaylist(playlist, songIDs: songIDs)
-        }) { return playlist }
-        insertCreatedPlaylist(playlist, songIDs: songIDs)
+        }) else { return playlist }
+        insertCreatedPlaylist(playlist, songIDs: songIDs, access: access)
         return allPlaylists.first(where: { $0.id == playlist.id }) ?? playlist
     }
 
@@ -11112,9 +11139,10 @@ extension MusicLibrary {
     private func insertCreatedPlaylist(
         _ playlist: Playlist,
         songIDs: [String],
-        pendingEntries: [PlaylistPendingEntry] = []
+        pendingEntries: [PlaylistPendingEntry] = [],
+        access: SmallStateSongAccess = .memory
     ) {
-        stageCreatedPlaylist(playlist, songIDs: songIDs, pendingEntries: pendingEntries)
+        stageCreatedPlaylist(playlist, songIDs: songIDs, pendingEntries: pendingEntries, access: access)
         commitPlaylistEdits([playlist.id])
     }
 
@@ -11123,10 +11151,11 @@ extension MusicLibrary {
     private func stageCreatedPlaylist(
         _ playlist: Playlist,
         songIDs: [String],
-        pendingEntries: [PlaylistPendingEntry]
+        pendingEntries: [PlaylistPendingEntry],
+        access: SmallStateSongAccess = .memory
     ) {
         for entry in pendingEntries { playlistPendingEntries[entry.id] = entry }
-        let entries = validUniqueSongIDs(songIDs)
+        let entries = validUniqueSongIDs(songIDs, access: access)
         allPlaylists.append(playlist)
         playlistSongIDs[playlist.id] = entries
     }
@@ -11281,7 +11310,7 @@ extension MusicLibrary {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return false }
         // S2: 要改的是发布后的那一行。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             _ = self?.renamePlaylist(id: id, to: name)
         }) { return true }
         guard let index = allPlaylists.firstIndex(where: { $0.id == id }),
@@ -11296,7 +11325,7 @@ extension MusicLibrary {
 
     @discardableResult
     func updatePlaylistDescription(id: String, description: String, fromServer: Bool = false) -> Bool {
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             _ = self?.updatePlaylistDescription(id: id, description: description, fromServer: fromServer)
         }) { return true }
         guard let index = allPlaylists.firstIndex(where: { $0.id == id && !$0.isDeleted }) else { return false }
@@ -11322,9 +11351,18 @@ extension MusicLibrary {
     /// 必须走 `replaceMirrorPlaylistSongs`，防止任一遗漏的 UI 入口改写只读镜像。
     func replacePlaylistSongs(playlistID: String, songIDs: [String]) {
         // S2: 下面的 guard 读的是发布后才存在的歌单行。
-        if deferringUntilReady({ [weak self] in
+        // 歌曲模型放掉之后:「我喜欢」的整份替换照旧等模型 —— 它要把本地播客单集分出去,那份分书表在模型里。
+        let waitsForTheModel: @MainActor () -> Void = { [weak self] in
             self?.replacePlaylistSongs(playlistID: playlistID, songIDs: songIDs)
-        }) { return }
+        }
+        let access: SmallStateSongAccess
+        if playlistID == Self.likedSongsPlaylistID {
+            if deferringUntilReady(waitsForTheModel) { return }
+            access = .memory
+        } else {
+            guard let found = songAccessForSmallState(songIDs, orDeferring: waitsForTheModel) else { return }
+            access = found
+        }
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               let playlist = allPlaylists.first(where: { $0.id == playlistID }),
               !playlist.isDeleted, playlist.allowsManualSongMembership
@@ -11338,7 +11376,7 @@ extension MusicLibrary {
                 keeping: playlistSongIDs[playlistID] ?? []
             ) { podcastShowIDs[$0] != nil }
         }
-        replacePlaylistSongsUnchecked(playlistID: playlistID, songIDs: songIDs)
+        replacePlaylistSongsUnchecked(playlistID: playlistID, songIDs: songIDs, access: access)
     }
 
     /// 置顶(#412):这几首记成歌单的置顶,按它们在歌单里的先后排在原有置顶的前面。成员先后
@@ -11347,7 +11385,7 @@ extension MusicLibrary {
     @discardableResult
     func pinSongs(_ songIDs: [String], inPlaylist playlistID: String) -> Bool {
         // S2: 歌单行要等发布之后才在库里。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             _ = self?.pinSongs(songIDs, inPlaylist: playlistID)
         }) { return false }
         guard let index = editableUserPlaylistIndex(playlistID) else { return false }
@@ -11366,7 +11404,7 @@ extension MusicLibrary {
     @discardableResult
     func unpinSongs(_ songIDs: [String], inPlaylist playlistID: String) -> Bool {
         // S2: 同上。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             _ = self?.unpinSongs(songIDs, inPlaylist: playlistID)
         }) { return false }
         guard let index = editableUserPlaylistIndex(playlistID) else { return false }
@@ -11500,11 +11538,12 @@ extension MusicLibrary {
         songIDs: [String],
         mirrorCoverArtPath: String? = nil,
         replacesCoverArtPath: Bool = false,
-        allowsPendingEntries: Bool = false
+        allowsPendingEntries: Bool = false,
+        access: SmallStateSongAccess = .memory
     ) {
         guard let idx = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
         let kept = songIDs.filter {
-            songIndexByID[$0] != nil || (allowsPendingEntries && playlistPendingEntries[$0] != nil)
+            librarySongIsStored($0, access) || (allowsPendingEntries && playlistPendingEntries[$0] != nil)
         }
         let normalizedCoverArtPath = replacesCoverArtPath
             ? normalizedArtworkReference(mirrorCoverArtPath)
@@ -11541,7 +11580,7 @@ extension MusicLibrary {
         forceRefresh: Bool = false
     ) {
         // S2: 封面刷新落在发布后的镜像歌单行上。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.updateMirrorPlaylistArtwork(
                 playlistID: playlistID,
                 coverArtPath: coverArtPath,
@@ -11589,7 +11628,7 @@ extension MusicLibrary {
 
     private func deletePlaylists(ids: Set<String>, hideMirrors: Bool) {
         // S2: 软删除要打在发布后的歌单行上 (`deletePlaylist(id:)` 也走这里)。
-        if deferringUntilReady({ [weak self] in self?.deletePlaylists(ids: ids, hideMirrors: hideMirrors) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.deletePlaylists(ids: ids, hideMirrors: hideMirrors) }) { return }
         guard !ids.isEmpty else { return }
         var changedIDs: [String] = []
         var originals: [String: Playlist] = [:]
@@ -11663,7 +11702,7 @@ extension MusicLibrary {
         // S2: 彻底删除同样要落在发布后的歌单集合上
         // (`permanentlyDeletePlaylist(id:)` / `prunePlaylists(deletedBefore:)`
         // 都汇到这里)。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.permanentlyDeletePlaylists(ids: ids)
         }) { return }
         // 已经清除过的墓碑不再重清: 重清会推进版本、整库落盘并同步给所有设备。
@@ -11694,7 +11733,7 @@ extension MusicLibrary {
     /// them for good. Called on launch with a 30-day threshold.
     func prunePlaylists(deletedBefore threshold: Date) {
         // S2: 回收站清理要扫发布后的歌单集合。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.prunePlaylists(deletedBefore: threshold)
         }) { return }
         // 清除后墓碑会留下(`isPurged`), 它的 deletedAt 永远早于阈值; 不排除它们,
@@ -11791,7 +11830,7 @@ extension MusicLibrary {
     /// 隐藏过的记录一并清掉,重新添加 Apple Music 才能回到干净状态。
     func pruneAppleMusicMirrorPlaylists() {
         // S2: 镜像歌单与隐藏表都要等发布之后才在集合里。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.pruneAppleMusicMirrorPlaylists()
         }) { return }
         let staleIDs = AppleMusicSourcePolicy.mirrorPlaylistIDs(in: allPlaylists.map(\.id))
@@ -11825,7 +11864,7 @@ extension MusicLibrary {
         guard !prefixes.isEmpty else { return }
         // S2: `prunePlaylists(withIDPrefix:)` 与 `pruneServerPlaylistMirrors` 共用
         // 这里; 镜像歌单要等发布之后才在集合里。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.prunePlaylists(withIDPrefixes: prefixes, keepingIDs: keepingIDs)
         }) { return }
         let staleIDs = allPlaylists
@@ -11854,7 +11893,7 @@ extension MusicLibrary {
     /// "最近更新"时间都改掉,顺序由 `sortOrder` 说了算。
     func reorderPlaylists(_ orderedIDs: [String]) {
         // S2: 歌单集合要等发布之后才在手上。
-        if deferringUntilReady({ [weak self] in self?.reorderPlaylists(orderedIDs) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.reorderPlaylists(orderedIDs) }) { return }
         let known = Set(allPlaylists.lazy.filter { !$0.isDeleted }.map(\.id))
         let targetIDs = orderedIDs.filter { known.contains($0) }
         guard !targetIDs.isEmpty else { return }
@@ -11895,7 +11934,7 @@ extension MusicLibrary {
     /// 只负责存进 allSmartPlaylists 并刷新 updatedAt + 触发同步。
     func saveSmartPlaylist(_ smart: SmartPlaylist) {
         // S2: 智能歌单集合在发布时被存储里的值整体覆盖。
-        if deferringUntilReady({ [weak self] in self?.saveSmartPlaylist(smart) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.saveSmartPlaylist(smart) }) { return }
         var stored = smart
         stored.updatedAt = Date()
         if let idx = allSmartPlaylists.firstIndex(where: { $0.id == smart.id }) {
@@ -11912,7 +11951,7 @@ extension MusicLibrary {
     /// 多设备收敛时间窗。
     func deleteSmartPlaylist(id: String) {
         // S2: 目标行要等发布之后才在集合里。
-        if deferringUntilReady({ [weak self] in self?.deleteSmartPlaylist(id: id) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.deleteSmartPlaylist(id: id) }) { return }
         guard let idx = allSmartPlaylists.firstIndex(where: { $0.id == id }) else { return }
         allSmartPlaylists[idx].isDeleted = true
         allSmartPlaylists[idx].deletedAt = Date()
@@ -11923,7 +11962,7 @@ extension MusicLibrary {
 
     func restoreSmartPlaylist(id: String) {
         // S2: 同上。
-        if deferringUntilReady({ [weak self] in self?.restoreSmartPlaylist(id: id) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.restoreSmartPlaylist(id: id) }) { return }
         guard let idx = allSmartPlaylists.firstIndex(where: { $0.id == id }) else { return }
         allSmartPlaylists[idx].isDeleted = false
         allSmartPlaylists[idx].deletedAt = nil
@@ -11938,7 +11977,7 @@ extension MusicLibrary {
 
     func permanentlyDeleteSmartPlaylists(ids: Set<String>) {
         // S2: `permanentlyDeleteSmartPlaylist(id:)` / `pruneSmartPlaylists` 都汇到这里。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.permanentlyDeleteSmartPlaylists(ids: ids)
         }) { return }
         let targetIDs = Set(allSmartPlaylists.lazy.filter {
@@ -11954,7 +11993,7 @@ extension MusicLibrary {
 
     func pruneSmartPlaylists(deletedBefore threshold: Date) {
         // S2: 清理要扫发布后的智能歌单集合。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.pruneSmartPlaylists(deletedBefore: threshold)
         }) { return }
         let toPrune = allSmartPlaylists.filter { $0.isDeleted && ($0.deletedAt ?? .distantFuture) < threshold }
@@ -12043,11 +12082,11 @@ extension MusicLibrary {
         }
     }
 
-    private func validUniqueSongIDs(_ songIDs: [String]) -> [String] {
+    private func validUniqueSongIDs(_ songIDs: [String], access: SmallStateSongAccess = .memory) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
         result.reserveCapacity(songIDs.count)
-        for songID in songIDs where songIndexByID[songID] != nil || playlistPendingEntries[songID] != nil {
+        for songID in songIDs where librarySongIsStored(songID, access) || playlistPendingEntries[songID] != nil {
             if seen.insert(songID).inserted {
                 result.append(songID)
             }
@@ -12162,7 +12201,7 @@ extension MusicLibrary {
 
     /// 旧版本把「不喜欢」这类记录当成普通歌单,在那边删掉后启动时恢复回来;成员还在,只是撤掉删除。
     func restoreRecordPlaylistsIfDeleted() {
-        if deferringUntilReady({ [weak self] in self?.restoreRecordPlaylistsIfDeleted() }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.restoreRecordPlaylistsIfDeleted() }) { return }
         let deleted = allPlaylists.filter {
             Self.recordPlaylistIDs.contains($0.id) && $0.isDeleted && !$0.isPurged
         }
@@ -12329,10 +12368,13 @@ extension MusicLibrary {
 
     func setShuffleLinked(songID: String, direction: ShuffleLinkDirection, isLinked desired: Bool) {
         // S2: 目标歌曲与记录歌单都要等发布之后才在库里。
-        if deferringUntilReady({ [weak self] in
+        guard let access = songAccessForSmallState([songID], orDeferring: { [weak self] in
             self?.setShuffleLinked(songID: songID, direction: direction, isLinked: desired)
-        }) { return }
-        guard song(id: songID) != nil else { return }
+        }) else { return }
+        switch access {
+        case .memory: guard song(id: songID) != nil else { return }
+        case .stored(let rows): guard rows[songID] != nil else { return }
+        }
         let playlistID = Self.shuffleLinkPlaylistID(direction)
         let isRecorded = (playlistSongIDs[playlistID] ?? []).contains(songID)
         guard isRecorded != desired else { return }
@@ -13393,7 +13435,7 @@ extension MusicLibrary {
     /// Wipe playback history (in response to a remote deletion).
     func clearPlaybackHistory() {
         // S2: 播放历史在发布时被存储里的值整体覆盖, 现在清只会清到空数组。
-        if deferringUntilReady({ [weak self] in self?.clearPlaybackHistory() }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.clearPlaybackHistory() }) { return }
         recentPlaybackSongIDs.removeAll()
         persistSnapshot()
     }
@@ -14175,7 +14217,7 @@ extension MusicLibrary {
     @discardableResult
     func deletePlaylistFromRemote(id: String) -> Bool {
         // S2: 要墓碑化的行要等发布之后才存在; 返回 false 让调用方稍后重试回推。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             _ = self?.deletePlaylistFromRemote(id: id)
         }) { return false }
         guard let index = allPlaylists.firstIndex(where: { $0.id == id }) else { return false }
@@ -14232,7 +14274,7 @@ extension MusicLibrary {
     /// 回声同步。
     func deleteSmartPlaylistFromRemote(id: String) {
         // S2: 目标行要等发布之后才在集合里。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.deleteSmartPlaylistFromRemote(id: id)
         }) { return }
         guard allSmartPlaylists.contains(where: { $0.id == id }) else { return }
@@ -14247,7 +14289,7 @@ extension MusicLibrary {
     @discardableResult
     func applyRemoteSmartPlaylist(_ smart: SmartPlaylist) -> Bool {
         // S2: 智能歌单集合在发布时整体拷回。
-        if deferringUntilReady({ [weak self] in _ = self?.applyRemoteSmartPlaylist(smart) }) { return false }
+        if deferringSmallStateMutation({ [weak self] in _ = self?.applyRemoteSmartPlaylist(smart) }) { return false }
         if let idx = allSmartPlaylists.firstIndex(where: { $0.id == smart.id }) {
             guard allSmartPlaylists[idx] != smart else { return false }
             // 智能歌单没有逻辑版本号, 只能比修改时间。以前拉到什么就覆盖什么:
@@ -20119,6 +20161,253 @@ extension MusicLibrary {
         }
     }
 
+    // MARK: Deleting and device removal without the song model (P3 step 6b)
+
+    /// `deleteSong` / `deleteSongs` 在歌曲模型放掉之后的做法:墓碑、保留目录这些小状态照改;行按 id 从旧库删
+    /// (先登记待写,按 id 读从这一刻起答「没有」);歌单里引用了被删歌曲的成员换成同一首歌的另一份,没有另一份的
+    /// 去掉;最近播放里去掉;按源的剩余数从目录算,路上还没提交的改动算在内;`.primuseSongsRemoved` 照发。
+    /// 不做的(都只有数组在才有):从数组里拿掉行、修剪可见缓存、请求派生集合的维护。
+    ///
+    /// 返回 nil(什么都没动):此刻读不出要用的东西(按源计数、同名候选),或者同名候选多到取不全。调用方照旧排队。
+    private func deleteSongsWithoutTheModel(
+        _ songsToDelete: [Song], sourceFileDeleted: Bool, lookup: LibraryCatalogSongLookup
+    ) -> [String: Int]? {
+        let idsToDelete = Set(songsToDelete.map(\.id))
+        let affectedSourceIDs = Set(songsToDelete.map(\.sourceID))
+        // 要读的先都读出来,读不出就什么都不动。
+        let referenced = removedSongsReferencedByManualPlaylists(songsToDelete)
+        var replacements: [String: String] = [:]
+        if !referenced.isEmpty {
+            guard let found = siblingReplacementsOutsideTheModel(
+                for: referenced, excluding: idsToDelete, lookup: lookup
+            ) else { return nil }
+            replacements = found
+        }
+        guard let remainingCounts = remainingSongCountsOutsideTheModel(
+            in: affectedSourceIDs, afterRemoving: idsToDelete, lookup: lookup
+        ) else { return nil }
+
+        discardRetainedSongs { idsToDelete.contains($0.id) }
+        for song in songsToDelete {
+            deletedSongIdentities.insert(identityKey(for: song))
+        }
+        recordTombstoneEvidence(for: songsToDelete, sourceFileDeleted: sourceFileDeleted)
+        recordExclusionsForRetainedSourceFiles(songsToDelete)
+        // 数组那条路是先改数组、最后才交改动;这里没有数组,先交改动,后面按 id 的读才认得出这些行没了。
+        persistSongChanges(deletingIDs: idsToDelete, needsPromptCompatibilitySnapshot: true, withoutTheModel: true)
+        reassignPlaylistMembers(ofRemoved: songsToDelete, leavingPlaceholders: false, preparedReplacements: replacements)
+        dropRemovedSongsFromPlaylistsAndHistory(idsToDelete)
+        postSongsRemoved(songsToDelete, songIDs: idsToDelete)
+        return remainingCounts
+    }
+
+    /// 这几个源各自还剩多少首(含停用源,同数组那条路数 `songs`),`removedIDs` 当作已经删掉。nil:此刻读不出来。
+    private func remainingSongCountsOutsideTheModel(
+        in sourceIDs: Set<String>, afterRemoving removedIDs: Set<String>, lookup: LibraryCatalogSongLookup
+    ) -> [String: Int]? {
+        do {
+            let counts = try lookup.songCountsBySource(treatingAsRemoved: removedIDs)
+            return Dictionary(uniqueKeysWithValues: sourceIDs.map { ($0, max(0, counts[$0] ?? 0)) })
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 被删的歌里,还被某个手动歌单引用着的那些(同 `reassignPlaylistMembers` 开头那一遍;只看小状态)。
+    private func removedSongsReferencedByManualPlaylists(_ removed: [Song]) -> [Song] {
+        guard !removed.isEmpty, !playlistSongIDs.isEmpty else { return [] }
+        let removedByID = Dictionary(removed.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var referenced: [String: Song] = [:]
+        for playlist in allPlaylists where !playlist.isDeleted && playlist.allowsManualSongMembership {
+            guard let members = playlistSongIDs[playlist.id] else { continue }
+            for id in members {
+                if let song = removedByID[id] { referenced[id] = song }
+            }
+        }
+        return Array(referenced.values)
+    }
+
+    /// `siblingReplacements(for:)` 在歌曲模型不在内存里时的做法:候选(标题粗筛对得上、不在停用的源里、不是这次
+    /// 要删的)从目录按标题一列筛出来,与拿整库数组筛的相同,再交给同一个匹配器。
+    /// nil:此刻读不出来,或者候选多到取不全(匹配不能拿不全的候选做)。
+    private func siblingReplacementsOutsideTheModel(
+        for removed: [Song], excluding removedIDs: Set<String>, lookup: LibraryCatalogSongLookup
+    ) -> [String: String]? {
+        let coarseKeys = Set(removed.map { Self.coarseTitleKey($0.title) }.filter { !$0.isEmpty })
+        guard !coarseKeys.isEmpty else { return [:] }
+        let disabled = preparingDisabledSourceIDs ?? disabledSourceIDs
+        do {
+            guard let matching = try lookup.songs(titleMatching: { coarseKeys.contains(Self.coarseTitleKey($0)) }) else {
+                return nil
+            }
+            let candidates = matching.filter {
+                !removedIDs.contains($0.id) && !disabled.contains($0.sourceID) && admittedOutsideTheModel($0) != nil
+            }
+            guard !candidates.isEmpty else { return [:] }
+            let matcher = PlaylistEntryMatcher(songs: candidates)
+            var result: [String: String] = [:]
+            for song in removed {
+                if let best = matcher.match(PlaylistEntryMatcher.subject(of: song)).best {
+                    result[song.id] = best.id
+                }
+            }
+            return result
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 歌单成员、最近播放里去掉刚删的那些 id(置灰占位、等身份认领的成员不动)。模型在内存里时这一步由
+    /// `cleanPlaylistEntries` / `cleanPlaybackHistoryEntries` 整遍核对来做;这里已经知道删的是哪些,不必把每个
+    /// 成员都拿去问目录。
+    private func dropRemovedSongsFromPlaylistsAndHistory(_ removedIDs: Set<String>) {
+        for playlistID in playlistSongIDs.keys {
+            let current = playlistSongIDs[playlistID] ?? []
+            guard current.contains(where: removedIDs.contains) else { continue }
+            let waiting = Set((pendingPlaylistIdentities[playlistID] ?? []).map { $0.identity.songID })
+            let kept = current.filter {
+                !removedIDs.contains($0) || playlistPendingEntries[$0] != nil || waiting.contains($0)
+            }
+            if kept.count != current.count { playlistSongIDs[playlistID] = kept }
+        }
+        let referenced = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
+        if referenced.count != playlistPendingEntries.count { playlistPendingEntries = referenced }
+        if recentPlaybackSongIDs.contains(where: removedIDs.contains) {
+            recentPlaybackSongIDs = recentPlaybackSongIDs.filter { !removedIDs.contains($0) }
+        }
+    }
+
+    /// 「从本机移除」的账本对着曲库核一遍 —— 装载时对整份歌曲做的那一遍(`loadSnapshot` 里的排除过滤)在歌曲模型
+    /// 不装的时候没有人做。目录里还留着、而账本说本机不要的行(另一台设备的快照带回来的;上一次进程记了账、
+    /// 行还没删完就没了)从旧库删掉,目录跟着删,列表从此看不到它;没有墓碑的记进保留目录,有墓碑的保留行丢掉,
+    /// 与装载那一遍相同。不发 `.primuseSongsRemoved`(装载那一遍也不发)。
+    ///
+    /// 候选只从账本出发找,不扫整库:保留的行按 id、按「源 + 路径」;账本里「源:路径」形态的身份按路径。
+    /// 只对得上分段键的 CUE 分轨行(没有保留行、也不是那条路径上库内顺序的第一首)这里找不到,要等装模型。
+    ///
+    /// 返回从曲库删掉的行数;nil:此刻做不了(模型在内存里、目录这条路不通、读失败)。
+    @discardableResult
+    func reconcileDeviceLocalExclusionsWithoutTheModel() -> Int? {
+        guard let lookup = smallStateWritesWithoutTheModel else { return nil }
+        guard !deviceLocalExcludedSongIdentities.isEmpty else { return 0 }
+        do {
+            var candidateIDs = Set(deviceLocalExcludedSongsByID.keys)
+            for retained in deviceLocalExcludedSongsByID.values {
+                if let id = try lookup.catalog.songID(sourceID: retained.sourceID, filePath: retained.filePath) {
+                    candidateIDs.insert(id)
+                }
+            }
+            let sourceIDs = Array(try lookup.catalog.songCountsBySource(.everything).keys)
+            for identity in deviceLocalExcludedSongIdentities {
+                for sourceID in sourceIDs where identity.hasPrefix(sourceID + ":") {
+                    let filePath = String(identity.dropFirst(sourceID.count + 1))
+                    if let id = try lookup.catalog.songID(sourceID: sourceID, filePath: filePath) {
+                        candidateIDs.insert(id)
+                    }
+                }
+            }
+            let stored = try lookup.songs(ids: Array(candidateIDs)).compactMap { $0 }
+            let excluded = stored.filter { isExcludedOnThisDevice($0) }
+            guard !excluded.isEmpty else { return 0 }
+            // 以下同装载那一遍。
+            var retainedIDBySegmentKey: [String: String] = [:]
+            for retained in deviceLocalExcludedSongsByID.values {
+                if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: retained) {
+                    retainedIDBySegmentKey[key] = retained.id
+                }
+            }
+            for var song in excluded where !deletedSongIdentities.contains(identityKey(for: song)) {
+                if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) {
+                    song.id = retainedIDBySegmentKey[key] ?? song.id
+                    retainedIDBySegmentKey[key] = song.id
+                }
+                deviceLocalExcludedSongsByID[song.id] = song
+            }
+            let discarded = deviceLocalExcludedSongsByID.values.filter {
+                deletedSongIdentities.contains(identityKey(for: $0))
+            }
+            for song in discarded {
+                if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) {
+                    deviceLocalExcludedSongIdentities.remove(key)
+                }
+                deviceLocalExcludedSongsByID[song.id] = nil
+                deviceLocalRemovalMetadataByID[song.id] = nil
+            }
+            do { try persistDeviceLocalExclusions() }
+            catch { plog("Device-local exclusion reconciliation could not be saved: \(error.localizedDescription)") }
+            persistSongChanges(
+                deletingIDs: Set(excluded.map(\.id)), needsPromptCompatibilitySnapshot: true, withoutTheModel: true
+            )
+            plog("ℹ️ Removed \(excluded.count) song(s) excluded on this device without loading the library")
+            return excluded.count
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 歌单成员与最近播放的清理,给歌曲模型没装的启动用:装载里那一遍(`StartupStorage.cleanPlaylistEntries`)拿装好的
+    /// 歌曲数组滤,没装模型就没有数组可对。这里把要问的 id 交给目录查在不在(`existingSongIDs`:只查行号,在主线程外),
+    /// 回到主线程叠上读之前就在路上的改动;本机移除后留着的那一份照旧算在(口径同 `songForSynchronization`),置灰占位、
+    /// 等身份认领的成员不动。读的这段时间里小状态或者曲库的行变过,这一次作废、什么都不动。
+    ///
+    /// 先做 `reconcileDeviceLocalExclusionsWithoutTheModel()` 再做这一步:目录里还留着的本机排除的行在这里算「在」。
+    ///
+    /// 返回清掉的成员数与最近播放条数;nil:没做(模型在内存里、目录这条路不通、读失败、期间状态变了)。
+    func cleanPlaylistAndHistoryEntriesWithoutTheModel() async -> (members: Int, history: Int)? {
+        guard let lookup = smallStateWritesWithoutTheModel, let host = catalogHost else { return nil }
+        let asked = Array(Set(playlistSongIDs.values.joined()).union(recentPlaybackSongIDs))
+        guard !asked.isEmpty else { return (0, 0) }
+        let inputs = playlistCleanupInputs
+        let history = recentPlaybackSongIDs
+        let pending = lookup.pendingWrites.pendingLookups()
+        let sequence = lookup.pendingWrites.lastSequence
+        let existing: Set<String>
+        do {
+            existing = try await host.reader.existingSongIDs(asked)
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+        // 读的这段时间里没有新的改动登记进来:读之前在路上的那些(这期间可能已经提交)照登记的算,其余照目录的算。
+        guard smallStateWritesWithoutTheModel != nil, inputs == playlistCleanupInputs,
+              history == recentPlaybackSongIDs, sequence == host.pendingWrites.lastSequence else { return nil }
+        func isInLibrary(_ id: String) -> Bool {
+            let stored: Bool
+            switch pending[id] {
+            case .present?, .renamed?: stored = true
+            case .deleted?: stored = false
+            case .unknown?, nil: stored = existing.contains(id)
+            }
+            if stored { return true }
+            guard let retained = deviceLocalExcludedSongsByID[id] else { return false }
+            return !deletedSongIdentities.contains(identityKey(for: retained))
+        }
+        var removedMembers = 0
+        for playlistID in playlistSongIDs.keys {
+            let current = playlistSongIDs[playlistID] ?? []
+            let waiting = Set((pendingPlaylistIdentities[playlistID] ?? []).map { $0.identity.songID })
+            var seen = Set<String>()
+            let kept = current.filter {
+                (isInLibrary($0) || playlistPendingEntries[$0] != nil || waiting.contains($0))
+                    && seen.insert($0).inserted
+            }
+            if kept.count != current.count {
+                removedMembers += current.count - kept.count
+                playlistSongIDs[playlistID] = kept
+            }
+        }
+        let referenced = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
+        if referenced.count != playlistPendingEntries.count { playlistPendingEntries = referenced }
+        let keptHistory = recentPlaybackSongIDs.filter(isInLibrary)
+        let removedHistory = recentPlaybackSongIDs.count - keptHistory.count
+        if removedHistory > 0 { recentPlaybackSongIDs = keptHistory }
+        if removedMembers > 0 || removedHistory > 0 { persistSnapshot() }
+        return (removedMembers, removedHistory)
+    }
+
     #if DEBUG
     /// 测试:当作小状态又改过一次,让下一次落盘把同一份状态再写一遍(拿两条路写出来的文件逐字节比)。
     func markPortableSnapshotDirtyForTesting() {
@@ -20462,6 +20751,12 @@ extension MusicLibrary {
                 }
             }
             guard isVisibleOutsideTheModel(song), admittedOutsideTheModel(song) != nil else { continue }
+            // 等模型的整行替换已经排了字段改动的行:叠上,与按 id 读到的同一行一致。它还算不算这一组照目录
+            // 提交的那一份(排队的替换要等模型才重新分组);内容变了,调用方按同一规则再排一次。
+            if queuedSongFieldEdits[song.id] != nil, let edited = withQueuedFieldEdits(song) {
+                song = edited
+                replacedAny = true
+            }
             songs.append(song)
         }
         return (songs, replacedAny)

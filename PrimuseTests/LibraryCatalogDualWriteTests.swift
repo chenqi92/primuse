@@ -827,6 +827,18 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         dropped.replaceSong(timedAgain)
         XCTAssertEqual(dropped.persistedSongChangeSetsForTesting?.count, loadedSets.count)
         XCTAssertEqual(dropped.deferredMutationCountForTesting, queued + 2)
+        // 排了队的字段改动在范围查询里也看得到,与按 id 读到的同一行一致。这一首自成一张专辑(同目录三首署名各不
+        // 相同,推断不出专辑艺人),所以再读一张没有排队改动的专辑:范围查询给的每一行都与按 id 读到的相同。
+        let queuedAlbumID = try XCTUnwrap(timedAgain.albumID)
+        let albumRows = dropped.songs(forAlbum: queuedAlbumID)
+        XCTAssertEqual(albumRows.first { $0.id == songs[4].id }?.title, "Needs the model")
+        XCTAssertEqual(albumRows.first { $0.id == songs[4].id }?.duration, 555)
+        let untouchedAlbumID = try XCTUnwrap(dropped.storedSong(id: songs[0].id)?.albumID)
+        let untouchedRows = dropped.songs(forAlbum: untouchedAlbumID)
+        XCTAssertTrue(untouchedRows.contains { $0.id == songs[0].id })
+        for row in albumRows + untouchedRows {
+            assertSameSong(row, dropped.storedSong(id: row.id), "range row \(row.id)")
+        }
 
         // 两边旧库与目录里的行相同。
         await loaded.waitForCatalogMirror()
@@ -853,7 +865,8 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertEqual(droppedCatalog.first { $0.id == songs[4].id }?.title, songs[4].title, "the queued replacement is not written")
     }
 
-    /// 模型不在内存里时,要数组的写(按 id 删歌、小状态)照旧排队;排在它们后面到的行写也跟着排队,不越到前头。
+    /// 模型不在内存里时,要数组的写(这里用整库换 id)照旧排队;排在它们后面到的行写、小状态的写也跟着排队,
+    /// 不越到前头。
     /// 排队之前已经攒下、还没落地的资源引用补丁,到点时不对着空数组应用(那样会整批丢掉),跟在后面排队。
     func testRowWritesQueueBehindMutationsThatNeedTheSongModel() async throws {
         let library = makeLibrary()
@@ -868,14 +881,14 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         library.updateAssetReferences(songID: songs[0].id, coverRef: "late.jpg")
         XCTAssertEqual(library.deferredMutationCountForTesting, queued)
         XCTAssertEqual(library.persistedSongChangeSetsForTesting?.count, 0)
-        // 按 id 删歌要数组(保留的那一份、歌单成员的改挂、按源计数)和小状态的落盘,排队。
-        XCTAssertTrue(library.deleteSongs([songs[1]]).isEmpty)
+        // 整库换 id 要数组(每一行都重写),排队。
+        library.remapSongIDs([songs[1].id: "renamed-when-the-model-is-back"])
         XCTAssertEqual(library.deferredMutationCountForTesting, queued + 1)
         // 攒着的补丁到点:前面排着突变,不直接写,也不丢 —— 排在后面。
         library.flushPendingAssetReferencePatches()
         XCTAssertEqual(library.deferredMutationCountForTesting, queued + 2)
         // 之后到的行写同样排队。
-        library.updateLyricsText([songs[2].id: "after the delete"])
+        library.updateLyricsText([songs[2].id: "after the queued rename"])
         library.updateMusicVideoReference(songID: songs[3].id, mvPath: "/Videos/later.mp4")
         var timed = try XCTUnwrap(library.storedSong(id: songs[1].id))
         timed.duration = 999
@@ -1055,6 +1068,394 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         let reopened = makeLibrary(catalog: .disabled)
         XCTAssertEqual(reopened.songs.count, songs.count)
         assertSmallState(reopened, "after reopening")
+    }
+
+    // MARK: - Deleting, device removal and launch reconciliation without the song model (P3 step 6b)
+
+    /// 一个库的目录:带目录、停用源 B,同一份夹具;`extra` 是夹具之外另加的行。
+    private func makeTwin(
+        _ name: String, songs: [Song], extra: [Song] = []
+    ) throws -> (library: MusicLibrary, storage: URL) {
+        let sources: Set<String> = [Self.sourceA, Self.sourceB]
+        let storage = directory.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+        let library = MusicLibrary(
+            disabledSourceIDs: [Self.sourceB], storageDirectory: storage, artistNameConfiguration: .defaultValue,
+            deferredMaintenanceAllowed: { true }, catalogMirroring: .enabled(startDelay: .zero)
+        )
+        library.catalogShadowModeOverride = .deep
+        libraries.append(library)
+        library.addSongs(songs + extra, affectedSourceIDs: sources.union(extra.map(\.sourceID)))
+        return (library, storage)
+    }
+
+    /// 绕过曲库直接改旧库,目录按同一个修订号跟上:另一台设备的快照带回来的行、上一次进程没写完的删除。
+    private func writeBehindTheLibrary(
+        _ library: MusicLibrary, storage: URL, upserts: [Song] = [], deletingIDs: Set<String> = []
+    ) async throws {
+        let host = try XCTUnwrap(library.catalogHost)
+        let store = try IncrementalSongStore(path: storage.appendingPathComponent("library-songs.sqlite").path)
+        let revision = try store.apply(upserts: upserts, deletingIDs: deletingIDs)
+        host.mirror.enqueueApply(upserts: upserts, deletingIDs: deletingIDs, storeRevision: revision)
+        await host.mirror.waitUntilIdle()
+    }
+
+    private func catalogSongIDs(_ library: MusicLibrary) throws -> [String] {
+        var ids: [String] = []
+        try XCTUnwrap(library.catalogHost?.mirror.caughtUpCatalog).forEachSongIdentity(.everything) { _, id, _ in
+            ids.append(id)
+            return true
+        }
+        return ids
+    }
+
+    /// 按 id 删歌、「从本机移除」在模型在内存里的库和放掉的库上各做一遍:返回的按源剩余数、交给 `persistSongChanges`
+    /// 的改动、发出去的 `.primuseSongsRemoved`、歌单成员(被删的歌换成另一个源里的同一首,没有另一份的去掉)、
+    /// 喜欢、最近播放、墓碑、本机移除账本都相同;做完之后两边旧库与目录里的行也相同。
+    func testDeletingAndRemovingFromThisDeviceWithoutTheSongModelMatchTheLoadedLibrary() async throws {
+        let songs = Self.fixture(prefix: "gone")
+        // blue-1 在另一个启用的源里还有一份:歌单里引用它的成员在它被删之后换过去。
+        var copy = songs[0]
+        copy.id = "gone-blue-1-copy"
+        copy.sourceID = "dual-write-c"
+        copy.filePath = "/Other/Blue Room/1.flac"
+        var playlistIDs: [String] = []
+        func make(_ name: String) async throws -> (library: MusicLibrary, storage: URL) {
+            let twin = try makeTwin(name, songs: songs, extra: [copy])
+            let playlist = twin.library.createPlaylist(
+                name: "Kept", songIDs: [songs[0].id, songs[4].id, songs[5].id, songs[15].id, songs[2].id]
+            )
+            playlistIDs.append(playlist.id)
+            twin.library.setLiked(songID: songs[4].id, isLiked: true, propagatesServerMutation: false)
+            twin.library.setLiked(songID: songs[2].id, isLiked: true, propagatesServerMutation: false)
+            twin.library.recordPlayback(of: songs[2].id)
+            twin.library.recordPlayback(of: songs[4].id)
+            twin.library.recordPlayback(of: songs[5].id)
+            await assertShadowMatches(twin.library, "\(name) fixture")
+            return twin
+        }
+        let loaded = try await make("loaded")
+        let dropped = try await make("dropped")
+        dropped.library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(dropped.library.isReady)
+
+        struct Outcome {
+            var single = 0
+            var batch: [String: Int] = [:]
+            var device: [String: Int] = [:]
+            var removals: [[String]] = []
+        }
+        func mutate(_ library: MusicLibrary) throws -> Outcome {
+            var outcome = Outcome()
+            let recorder = RemovedSongIDsRecorder()
+            let observer = NotificationCenter.default.addObserver(forName: .primuseSongsRemoved, object: library, queue: nil) { note in
+                recorder.record(((note.userInfo?["songIDs"] as? Set<String>) ?? []).sorted())
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+            library.persistedSongChangeSetsForTesting = []
+            outcome.single = library.deleteSong(songs[5])
+            outcome.batch = library.deleteSongs([songs[0], songs[4], songs[7]], sourceFileDeleted: true)
+            outcome.device = try library.removeSongsFromThisDevice([songs[15], songs[9]])
+            outcome.removals = recorder.all
+            return outcome
+        }
+        let expected = try mutate(loaded.library)
+        let queued = dropped.library.deferredMutationCountForTesting
+        let actual = try mutate(dropped.library)
+        XCTAssertEqual(dropped.library.deferredMutationCountForTesting, queued, "none of these waits for the song model")
+
+        XCTAssertEqual(actual.single, expected.single)
+        XCTAssertEqual(actual.batch, expected.batch)
+        XCTAssertEqual(actual.device, expected.device)
+        XCTAssertEqual(expected.batch[Self.sourceB], 3, "a disabled source is counted too")
+        XCTAssertEqual(actual.removals, expected.removals)
+        XCTAssertEqual(expected.removals.count, 3)
+        let expectedSets = try XCTUnwrap(loaded.library.persistedSongChangeSetsForTesting)
+        let actualSets = try XCTUnwrap(dropped.library.persistedSongChangeSetsForTesting)
+        XCTAssertEqual(actualSets.map(\.deletingIDs), expectedSets.map(\.deletingIDs))
+        XCTAssertEqual(expectedSets.map(\.deletingIDs), [[songs[5].id], [songs[0].id, songs[4].id, songs[7].id], [songs[15].id, songs[9].id]])
+        XCTAssertTrue(actualSets.allSatisfy { $0.upserts.isEmpty && $0.renaming.isEmpty })
+
+        // 小状态。
+        for (index, twin) in [loaded, dropped].enumerated() {
+            let library = twin.library
+            let step = index == 0 ? "loaded" : "released"
+            XCTAssertEqual(
+                library.rawSongIDs(forPlaylist: playlistIDs[index]), [copy.id, songs[15].id, songs[2].id],
+                "\(step): the deleted song moves to its other copy, the ones without a copy go, a device removal keeps its place"
+            )
+            XCTAssertFalse(library.isLiked(songID: songs[4].id), step)
+            XCTAssertTrue(library.isLiked(songID: songs[2].id), step)
+            XCTAssertEqual(library.recentPlaybackSongIDsForSync, [songs[2].id], step)
+            XCTAssertEqual(library.locallyRemovedSongIDs(forSourceID: Self.sourceA), [songs[15].id, songs[9].id], step)
+            XCTAssertNil(library.storedSong(id: songs[0].id), step)
+            XCTAssertNil(library.storedSong(id: songs[15].id), step)
+            XCTAssertNotNil(library.songForSynchronization(id: songs[15].id), "\(step): the retained copy is still seen by synchronization")
+            XCTAssertNotNil(library.storedSong(id: copy.id), step)
+        }
+        XCTAssertEqual(dropped.library.deletedSongIdentities, loaded.library.deletedSongIdentities)
+        XCTAssertEqual(dropped.library.deletedSongIdentities.count, 4)
+        XCTAssertEqual(dropped.library.deviceLocalExcludedSongIdentities, loaded.library.deviceLocalExcludedSongIdentities)
+
+        // 两边旧库与目录里的行相同。
+        await loaded.library.waitForCatalogMirror()
+        let droppedHost = try XCTUnwrap(dropped.library.catalogHost)
+        let acknowledged = await droppedHost.pendingWrites.waitUntilAcknowledged(
+            through: droppedHost.pendingWrites.lastSequence, timeout: .seconds(20)
+        )
+        XCTAssertTrue(acknowledged)
+        await droppedHost.mirror.waitUntilIdle()
+        func storeRows(_ storage: URL) throws -> [Song] {
+            try IncrementalSongStore(path: storage.appendingPathComponent("library-songs.sqlite").path).loadSongs()
+        }
+        let loadedStore = try storeRows(loaded.storage)
+        let droppedStore = try storeRows(dropped.storage)
+        // 行本身逐字段相同。留下的行存着的专辑/艺人 id 另看:模型在内存里时删歌之后的派生重建可能给同专辑的
+        // 其它行换 id(专辑艺人推断变了),模型不在时没有那次重建,旧库里这两个字段要到下次装模型才重新派生
+        // (目录自己那一层照常重新分组)。
+        func withoutDerivedIDs(_ rows: [Song]) -> [Song] {
+            rows.map { row in
+                var copy = row
+                copy.albumID = nil
+                copy.artistID = nil
+                return copy
+            }
+        }
+        assertSameSongs(withoutDerivedIDs(droppedStore), withoutDerivedIDs(loadedStore), "store rows")
+        let regrouped = zip(droppedStore, loadedStore)
+            .filter { $0.albumID != $1.albumID || $0.artistID != $1.artistID }
+            .map { $0.0.id }
+        print("REPORT_DELETE_WITHOUT_MODEL storeRows=\(loadedStore.count) rowsWhoseStoredGroupingIDsDiffer=\(regrouped)")
+        XCTAssertEqual(loadedStore.count, songs.count + 1 - 6)
+        XCTAssertEqual(try catalogSongIDs(dropped.library), try catalogSongIDs(loaded.library))
+        XCTAssertEqual(try catalogSongIDs(dropped.library).sorted(), loadedStore.map(\.id).sorted())
+    }
+
+    /// 「从本机移除」的账本说不要、目录里却还留着的行(另一台设备的快照带回来的):装载时那一遍排除过滤把它滤掉;
+    /// 模型不装时没有人做那一遍,`reconcileDeviceLocalExclusionsWithoutTheModel` 从账本出发把它从旧库删掉,
+    /// 目录跟着删,列表看不到它。结果与从同一份磁盘状态装一次相同。
+    func testDeviceRemovalLedgerIsAppliedToTheCatalogWithoutTheSongModel() async throws {
+        let songs = Self.fixture(prefix: "ledger")
+        func make(_ name: String) async throws -> (library: MusicLibrary, storage: URL) {
+            let twin = try makeTwin(name, songs: songs)
+            XCTAssertFalse(try twin.library.removeSongsFromThisDevice([songs[1], songs[15]]).isEmpty)
+            await assertShadowMatches(twin.library, "\(name) fixture")
+            guard case .success = await twin.library.persistNowAndWait() else { XCTFail("\(name) did not persist"); return twin }
+            // 这两行又回到了旧库和目录里,账本还记着本机不要它们。
+            try await writeBehindTheLibrary(twin.library, storage: twin.storage, upserts: [songs[1], songs[15]])
+            return twin
+        }
+        let loaded = try await make("loaded")
+        let dropped = try await make("dropped")
+
+        // 放掉模型的那一边:目录里有这两行(列表读得到),按 id 读本来就不给。
+        dropped.library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertEqual(try catalogSongIDs(dropped.library).count, songs.count)
+        XCTAssertNil(dropped.library.storedSong(id: songs[1].id))
+        dropped.library.persistedSongChangeSetsForTesting = []
+        XCTAssertEqual(dropped.library.reconcileDeviceLocalExclusionsWithoutTheModel(), 2)
+        XCTAssertEqual(dropped.library.persistedSongChangeSetsForTesting?.map(\.deletingIDs), [[songs[1].id, songs[15].id]])
+        XCTAssertEqual(dropped.library.reconcileDeviceLocalExclusionsWithoutTheModel(), 0, "nothing is left to remove")
+        let host = try XCTUnwrap(dropped.library.catalogHost)
+        let acknowledged = await host.pendingWrites.waitUntilAcknowledged(through: host.pendingWrites.lastSequence, timeout: .seconds(20))
+        XCTAssertTrue(acknowledged)
+        await host.mirror.waitUntilIdle()
+
+        // 另一边:从同一份磁盘状态装一次(装载里的排除过滤)。
+        let reloaded = MusicLibrary(
+            disabledSourceIDs: [Self.sourceB], storageDirectory: loaded.storage, artistNameConfiguration: .defaultValue,
+            deferredMaintenanceAllowed: { true }, catalogMirroring: .disabled
+        )
+        XCTAssertNil(reloaded.storedSong(id: songs[1].id))
+        XCTAssertNil(reloaded.storedSong(id: songs[15].id))
+        XCTAssertEqual(try catalogSongIDs(dropped.library).sorted(), reloaded.songs.map(\.id).sorted())
+        XCTAssertEqual(reloaded.songs.count, songs.count - 2)
+        XCTAssertEqual(
+            dropped.library.locallyRemovedSongIDs(forSourceID: Self.sourceA), reloaded.locallyRemovedSongIDs(forSourceID: Self.sourceA)
+        )
+        XCTAssertEqual(dropped.library.locallyRemovedSongIDs(forSourceID: Self.sourceA), [songs[1].id, songs[15].id])
+        let droppedStore = try IncrementalSongStore(
+            path: dropped.storage.appendingPathComponent("library-songs.sqlite").path
+        ).loadSongs()
+        XCTAssertEqual(droppedStore.map(\.id).sorted(), reloaded.songs.map(\.id).sorted())
+        // 模型在内存里时这个入口不动(那一遍在装载里做过了)。
+        XCTAssertNil(loaded.library.reconcileDeviceLocalExclusionsWithoutTheModel())
+    }
+
+    /// 启动时歌单成员与最近播放的清理:装载里那一遍对着装好的歌曲数组滤;模型不装时把要问的 id 交给目录查在不在。
+    /// 同一份磁盘状态(有的成员对应的行已经不在旧库里了),放掉模型做一遍与装一次的结果相同。
+    func testLaunchCleanupOfPlaylistsAndHistoryWithoutTheSongModelMatchesTheLoad() async throws {
+        let songs = Self.fixture(prefix: "stale")
+        var playlistIDs: [String] = []
+        func make(_ name: String) async throws -> (library: MusicLibrary, storage: URL) {
+            let twin = try makeTwin(name, songs: songs)
+            let playlist = twin.library.createPlaylist(name: "Kept", songIDs: [songs[0].id, songs[1].id, songs[2].id, songs[3].id, songs[15].id])
+            playlistIDs.append(playlist.id)
+            twin.library.setLiked(songID: songs[2].id, isLiked: true, propagatesServerMutation: false)
+            twin.library.setLiked(songID: songs[4].id, isLiked: true, propagatesServerMutation: false)
+            twin.library.recordPlayback(of: songs[0].id)
+            twin.library.recordPlayback(of: songs[1].id)
+            // 本机移除后留着的那一份照旧算在:歌单里的位置留着。
+            XCTAssertFalse(try twin.library.removeSongsFromThisDevice([songs[15]]).isEmpty)
+            await assertShadowMatches(twin.library, "\(name) fixture")
+            guard case .success = await twin.library.persistNowAndWait() else { XCTFail("\(name) did not persist"); return twin }
+            // 这两行从旧库和目录里没了,歌单、喜欢、最近播放还引用着它们。
+            try await writeBehindTheLibrary(twin.library, storage: twin.storage, deletingIDs: [songs[1].id, songs[2].id])
+            return twin
+        }
+        let loaded = try await make("loaded")
+        let dropped = try await make("dropped")
+
+        dropped.library.dropSongModelForMeasurement(includingCollections: true)
+        let cleaned = await dropped.library.cleanPlaylistAndHistoryEntriesWithoutTheModel()
+        XCTAssertEqual(cleaned?.members, 3, "two members of the playlist and one liked song")
+        XCTAssertEqual(cleaned?.history, 1)
+        let again = await dropped.library.cleanPlaylistAndHistoryEntriesWithoutTheModel()
+        XCTAssertEqual(again?.members, 0)
+        XCTAssertEqual(again?.history, 0)
+
+        let reloaded = MusicLibrary(
+            disabledSourceIDs: [Self.sourceB], storageDirectory: loaded.storage, artistNameConfiguration: .defaultValue,
+            deferredMaintenanceAllowed: { true }, catalogMirroring: .disabled
+        )
+        XCTAssertEqual(dropped.library.rawSongIDs(forPlaylist: playlistIDs[1]), [songs[0].id, songs[3].id, songs[15].id])
+        XCTAssertEqual(reloaded.rawSongIDs(forPlaylist: playlistIDs[0]), [songs[0].id, songs[3].id, songs[15].id])
+        XCTAssertEqual(dropped.library.recentPlaybackSongIDsForSync, reloaded.recentPlaybackSongIDsForSync)
+        XCTAssertEqual(dropped.library.recentPlaybackSongIDsForSync, [songs[0].id])
+        XCTAssertEqual(dropped.library.likedSongIDSnapshot(), reloaded.likedSongIDSnapshot())
+        XCTAssertEqual(dropped.library.likedSongIDSnapshot(), [songs[4].id])
+        // 模型在内存里时这个入口不动。
+        let untouched = await loaded.library.cleanPlaylistAndHistoryEntriesWithoutTheModel()
+        XCTAssertNil(untouched)
+    }
+
+    /// 停用、启用音乐源在歌曲模型放掉之后直接交给目录:目录上的可见范围与模型在内存里的那个库的目录相同,
+    /// 按 id 读的可见口径当场就变。
+    func testDisablingASourceWithoutTheSongModelReachesTheCatalog() async throws {
+        let songs = Self.fixture(prefix: "toggle")
+        func make(_ name: String) async throws -> (library: MusicLibrary, storage: URL) {
+            let twin = try makeTwin(name, songs: songs)
+            await assertShadowMatches(twin.library, "\(name) fixture")
+            return twin
+        }
+        let loaded = try await make("loaded")
+        let dropped = try await make("dropped")
+        dropped.library.dropSongModelForMeasurement(includingCollections: true)
+        let host = try XCTUnwrap(dropped.library.catalogHost)
+        func visibleCounts(_ library: MusicLibrary) throws -> [String: Int] {
+            try XCTUnwrap(library.catalogHost?.mirror.caughtUpCatalog).songCountsBySource(.visible)
+        }
+        XCTAssertEqual(try visibleCounts(dropped.library), [Self.sourceA: 14])
+
+        // 停用 A、启用 B。
+        loaded.library.updateDisabledSourceIDs([Self.sourceA])
+        dropped.library.updateDisabledSourceIDs([Self.sourceA])
+        XCTAssertNil(dropped.library.visibleSong(id: songs[0].id), "the by-id path uses the new setting at once")
+        XCTAssertNotNil(dropped.library.visibleSong(id: songs[7].id))
+        await loaded.library.waitForCatalogMirror()
+        await host.mirror.waitUntilIdle()
+        XCTAssertEqual(try visibleCounts(loaded.library), [Self.sourceB: 4])
+        XCTAssertEqual(try visibleCounts(dropped.library), try visibleCounts(loaded.library))
+
+        // 都启用。
+        loaded.library.updateDisabledSourceIDs([])
+        dropped.library.updateDisabledSourceIDs([])
+        await loaded.library.waitForCatalogMirror()
+        await host.mirror.waitUntilIdle()
+        XCTAssertEqual(try visibleCounts(dropped.library), try visibleCounts(loaded.library))
+        XCTAssertEqual(try visibleCounts(dropped.library), [Self.sourceA: 14, Self.sourceB: 4])
+        XCTAssertNotNil(dropped.library.visibleSong(id: songs[0].id))
+    }
+
+    /// 6a 没转的那些小状态入口(歌单的建、改名、简介、置顶、整份替换、删除、恢复、彻底删除,智能歌单,撤销墓碑,
+    /// 清空最近播放,随机连播标记)在歌曲模型放掉之后不排队,做出来的小状态与模型在内存里的库相同,
+    /// 不做任何收尾从同一个目录再开一个库也相同。
+    func testPlaylistAndRecordEditsWithoutTheSongModelMatchTheLoadedLibrary() async throws {
+        let songs = Self.fixture(prefix: "edits")
+        let smart = SmartPlaylist(name: "Smart")
+        let removedSmart = SmartPlaylist(name: "Removed smart")
+        func make(_ name: String) async throws -> (library: MusicLibrary, storage: URL) {
+            let twin = try makeTwin(name, songs: songs)
+            _ = twin.library.deleteSongs([songs[9]])
+            twin.library.recordPlayback(of: songs[0].id)
+            _ = twin.library.createPlaylist(name: "Doomed", songIDs: [songs[0].id])
+            _ = twin.library.createPlaylist(name: "Purged", songIDs: [songs[1].id])
+            twin.library.saveSmartPlaylist(removedSmart)
+            await assertShadowMatches(twin.library, "\(name) fixture")
+            return twin
+        }
+        let loaded = try await make("loaded")
+        let dropped = try await make("dropped")
+        dropped.library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(dropped.library.isReady)
+
+        func mutate(_ library: MusicLibrary, _ step: String) throws {
+            let doomed = try XCTUnwrap(library.allPlaylists.first { $0.name == "Doomed" }).id
+            let purged = try XCTUnwrap(library.allPlaylists.first { $0.name == "Purged" }).id
+            let made = library.createPlaylist(
+                name: "Made", songIDs: [songs[2].id, "never-in-the-library", songs[3].id, songs[2].id]
+            )
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: made.id), [songs[2].id, songs[3].id], step)
+            XCTAssertTrue(library.renamePlaylist(id: made.id, to: "Renamed"), step)
+            XCTAssertTrue(library.updatePlaylistDescription(id: made.id, description: "notes"), step)
+            library.add(songIDs: [songs[4].id], toPlaylist: made.id)
+            XCTAssertTrue(library.pinSongs([songs[3].id], inPlaylist: made.id), step)
+            library.replacePlaylistSongs(
+                playlistID: made.id, songIDs: [songs[4].id, songs[3].id, "never-in-the-library", songs[2].id]
+            )
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: made.id), [songs[4].id, songs[3].id, songs[2].id], step)
+            library.deletePlaylist(id: doomed)
+            library.restorePlaylist(id: doomed)
+            library.deletePlaylist(id: purged)
+            library.permanentlyDeletePlaylist(id: purged)
+            library.saveSmartPlaylist(smart)
+            library.deleteSmartPlaylist(id: removedSmart.id)
+            library.restoreDeletedSong(songs[9])
+            library.clearPlaybackHistory()
+            library.setShuffleLinked(songID: songs[5].id, direction: .next, isLinked: true)
+            library.setShuffleLinked(songID: "never-in-the-library", direction: .next, isLinked: true)
+        }
+        try mutate(loaded.library, "loaded")
+        let queued = dropped.library.deferredMutationCountForTesting
+        try mutate(dropped.library, "released")
+        XCTAssertEqual(dropped.library.deferredMutationCountForTesting, queued, "none of these waits for the song model")
+
+        /// 小状态按名字排好的样子(两个库各自生成的歌单 id 不同,按名字比)。
+        func describe(_ library: MusicLibrary) -> [String] {
+            let playlists = library.allPlaylists.map { playlist in
+                "playlist \(playlist.name) deleted=\(playlist.isDeleted) purged=\(playlist.isPurged)"
+                    + " description=\(playlist.descriptionText) pinned=\(playlist.pinnedSongIDs)"
+                    + " members=\(library.rawSongIDs(forPlaylist: playlist.id))"
+            }
+            let smartPlaylists = library.allSmartPlaylists.map { "smart \($0.name) deleted=\($0.isDeleted)" }
+            return (playlists + smartPlaylists).sorted() + [
+                "tombstones \(library.deletedSongIdentities.sorted())",
+                "recents \(library.recentPlaybackSongIDsForSync)",
+                "linked \(library.isShuffleLinked(songID: songs[5].id, direction: .next))",
+            ]
+        }
+        let expected = describe(loaded.library)
+        XCTAssertEqual(describe(dropped.library), expected)
+        XCTAssertTrue(expected.contains { $0.hasPrefix("playlist Renamed deleted=false purged=false description=notes pinned=[\"\(songs[3].id)\"]") }, "\(expected)")
+        XCTAssertTrue(expected.contains { $0.hasPrefix("playlist Doomed deleted=false") }, "\(expected)")
+        XCTAssertTrue(expected.contains { $0.hasPrefix("playlist Purged deleted=true purged=true") }, "\(expected)")
+        XCTAssertTrue(expected.contains("smart Smart deleted=false"), "\(expected)")
+        XCTAssertTrue(expected.contains("smart Removed smart deleted=true"), "\(expected)")
+        XCTAssertTrue(expected.contains("tombstones []"), "\(expected)")
+        XCTAssertTrue(expected.contains("recents []"), "\(expected)")
+        XCTAssertTrue(expected.contains("linked true"), "\(expected)")
+
+        // 不调任何落盘入口,等武装好的防抖写入自己写完,再从同一个目录开一个库。
+        let deadline = ContinuousClock.now + .seconds(10)
+        while dropped.library.hasPendingPortableSnapshotChanges, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertFalse(dropped.library.hasPendingPortableSnapshotChanges)
+        let reopened = MusicLibrary(
+            disabledSourceIDs: [Self.sourceB], storageDirectory: dropped.storage, artistNameConfiguration: .defaultValue,
+            deferredMaintenanceAllowed: { true }, catalogMirroring: .disabled
+        )
+        XCTAssertEqual(describe(reopened), expected)
     }
 
     /// 进后台、内存警告走的那条路把目录各连接的缓存也放掉;放完目录照常答、照常跟写。
@@ -2745,3 +3146,20 @@ struct SmartPlaylistParityGenerator {
     mutating func chance(_ percent: Int) -> Bool { int(100) < percent }
 }
 
+/// 测试里记 `.primuseSongsRemoved` 带的 id:观察者的闭包不在主 actor 上。
+private final class RemovedSongIDsRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [[String]] = []
+
+    func record(_ ids: [String]) {
+        lock.lock()
+        recorded.append(ids)
+        lock.unlock()
+    }
+
+    var all: [[String]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+}

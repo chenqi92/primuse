@@ -285,6 +285,45 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         XCTAssertEqual(retained.manager.offlineAudioSnapshotRevision, retainedRevision)
     }
 
+    /// 歌曲模型放掉之后按 id 删歌,`.primuseSongsRemoved` 带着被删的行:音乐源缓存这位观察者只凭这些行
+    /// 就把那首歌的本地缓存清掉(它不读曲库),别的歌的缓存不动。
+    func testSongRemovedWithoutTheSongModelClearsOnlyItsLocalCache() async throws {
+        let removed = try await fixture()
+        let retained = try await fixture()
+        defer {
+            removed.manager.deleteLocalCaches(for: [removed.song])
+            retained.manager.deleteLocalCaches(for: [retained.song])
+        }
+        for fixture in [removed, retained] {
+            try Data(repeating: 7, count: 128).write(to: fixture.url)
+            await fixture.manager.refreshOfflineAudioSnapshot(for: fixture.song)
+        }
+        let removedEntry = removed.manager.offlineAudioSnapshotEntry(for: removed.song)
+        let retainedEntry = retained.manager.offlineAudioSnapshotEntry(for: retained.song)
+        XCTAssertTrue(removedEntry.snapshot.isAvailableLocally)
+        XCTAssertTrue(retainedEntry.snapshot.isAvailableLocally)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("removed-without-model-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, catalogMirroring: .enabled(startDelay: .zero))
+        library.addSongs(
+            [removed.song, retained.song], affectedSourceIDs: [removed.song.sourceID, retained.song.sourceID]
+        )
+        await library.waitForCatalogMirror()
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(library.isReady)
+
+        let remaining = library.deleteSongs([removed.song])
+        XCTAssertEqual(remaining[removed.song.sourceID], 0, "the delete ran without the song model")
+        XCTAssertEqual(removedEntry.snapshot.state, .notCached)
+        try await waitUntil { !FileManager.default.fileExists(atPath: removed.url.path) }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retained.url.path), "another song's cached file stays")
+        XCTAssertTrue(retainedEntry.snapshot.isAvailableLocally)
+        await library.stopCatalogMirror()
+    }
+
     func testCompletedPinnedFileRetainsOfflinePinWhenSnapshotRefreshes() async throws {
         let fixture = try await fixture()
         defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }

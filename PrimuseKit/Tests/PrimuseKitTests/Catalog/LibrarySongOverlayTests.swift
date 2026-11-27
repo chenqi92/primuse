@@ -161,6 +161,29 @@ struct LibraryPendingSongWritesTests {
         #expect(writes.pendingCount == 0)
     }
 
+    @Test("The pending entries can be listed with their state, and acknowledged ones are gone")
+    func pendingEntriesAreEnumerable() throws {
+        let writes = LibraryPendingSongWrites()
+        #expect(writes.pendingLookups().isEmpty)
+        let first = try #require(writes.record(upserts: [LibrarySongOverlayTests.song("a", title: "one")]))
+        _ = try #require(writes.record(
+            upserts: [LibrarySongOverlayTests.song("b")], deletingIDs: ["c"], renaming: ["old": "new"]
+        ) { $0 == "old" })
+        let pending = writes.pendingLookups()
+        #expect(Set(pending.keys) == ["a", "b", "c", "old", "new"])
+        #expect(LibrarySongOverlayTests.present(pending["a"] ?? .unknown) == "a/one")
+        #expect(pending["c"] == .deleted)
+        #expect(pending["old"] == .deleted, "the old id of a rename counts as gone")
+        #expect(pending["new"] == .renamed(from: "old"))
+        // 同一时刻逐个查的结果相同。
+        for (id, state) in pending { #expect(writes.lookup(id) == state) }
+
+        // 目录确认第一批之后,只剩后一批写过的。
+        writes.bind(throughSequence: first, storeRevision: 10)
+        writes.catalogMirrored(storeRevision: 10)
+        #expect(Set(writes.pendingLookups().keys) == ["b", "c", "old", "new"])
+    }
+
     @Test("A whole-store replacement keeps the catalog from answering until it is mirrored")
     func replacementBarrier() throws {
         let writes = LibraryPendingSongWrites()

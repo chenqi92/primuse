@@ -10,6 +10,42 @@ struct LibraryCatalogQueryTests {
         Song(id: id, title: title, duration: duration, fileFormat: .flac, filePath: path, sourceID: source)
     }
 
+    @Test("Titles can be streamed without materializing rows, in library order, within a scope")
+    func titleProjection() throws {
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        let songs = [
+            Self.song("a1", source: "A", path: "Music/1.flac", title: "Blue (Live)"),
+            Self.song("a2", source: "A", path: "Music/2.flac", title: "Red"),
+            Self.song("b1", source: "B", path: "Music/1.flac", title: "blue"),
+            Self.song("a3", source: "A", path: "Music/3.flac", title: "Blue"),
+        ]
+        try catalog.apply(upserts: songs)
+        func titles(_ scope: LibrarySongScope, stopAfter limit: Int = .max) throws -> [String] {
+            var result: [String] = []
+            try catalog.forEachSongTitle(scope) { _, title in
+                result.append(title)
+                return result.count < limit
+            }
+            return result
+        }
+        #expect(try titles(.everything) == ["Blue (Live)", "Red", "blue", "Blue"])
+        #expect(try titles(.everything, stopAfter: 2) == ["Blue (Live)", "Red"])
+        #expect(try titles(.source("B")) == ["blue"])
+
+        // 行号就是 `songs(rowids:)` 认的行号:按标题筛出来的行号物化出来是同样的歌。
+        var matching: [Int32] = []
+        try catalog.forEachSongTitle(.everything) { rowid, title in
+            if title.lowercased().hasPrefix("blue") { matching.append(rowid) }
+            return true
+        }
+        #expect(try catalog.songs(rowids: matching).map(\.id) == ["a1", "b1", "a3"])
+
+        try catalog.setSourceEnabled(false, sourceID: "B")
+        #expect(try titles(.visible) == ["Blue (Live)", "Red", "Blue"])
+        #expect(try titles(.everything).count == 4)
+    }
+
     @Test("Source, path and count queries")
     func sourceAndPathQueries() throws {
         let temporary = try TemporaryCatalog()
