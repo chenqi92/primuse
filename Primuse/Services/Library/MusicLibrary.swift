@@ -4334,6 +4334,11 @@ final class MusicLibrary {
     @ObservationIgnored private var catalogStarted = false
     /// 第一次发布已经把正式的输入、旧库的句柄交给目录,列表读者从此能读它。
     @ObservationIgnored private var catalogAttached = false
+    /// 歌曲模型发布之后又从内存里放掉了。今天只有测量用的测试钩子(`dropSongModelForMeasurement`)这样做,
+    /// 以后「放掉」的入口也置它;重新发布时清掉。它把「放掉」与「发布之后再装载一次」
+    /// (`reloadFromDiskInBackground`:同样回到 `.preparing`,旧数组还在,或者本来就是空库)区分开 ——
+    /// 不等模型、按 id 直接写行的那条路只在前一种状态下走(`rowWritesWithoutTheModel`)。
+    @ObservationIgnored private var songModelReleased = false
     /// 这一轮进程里扫描索引已经给过专辑艺人目录(之前目录里留着上一轮的,不先清掉)。
     @ObservationIgnored private var catalogAlbumArtistFoldersReceived = false
     @ObservationIgnored private var catalogSourceNames: [String: String]?
@@ -4353,6 +4358,8 @@ final class MusicLibrary {
     @ObservationIgnored var byIDReadsUseCatalogForTesting = false
     /// 测试:第一次发布之前按 id 读也从已经跟上旧库的目录答(发版里关着,见 `answersByIDBeforeFirstPublish`)。
     @ObservationIgnored var byIDReadsBeforeFirstPublishForTesting = false
+    /// 测试:非 nil 时记下每一次交给 `persistSongChanges` 的改动(模型在不在内存里两条路各算出的那一份拿来比)。
+    @ObservationIgnored var persistedSongChangeSetsForTesting: [LibraryPersistedSongChangeSet]?
     /// 真实使用中按 id 读的抽样比对(只在 DEBUG 里),见 `sampleByIDParity`。
     @ObservationIgnored var byIDParitySampling = LibraryByIDParitySampling()
     @ObservationIgnored private var byIDParityTask: Task<Void, Never>?
@@ -5875,6 +5882,7 @@ extension MusicLibrary {
     private func markReadyBeforeDurableWrites() {
         guard isPreparing else { return }
         readiness = .ready
+        songModelReleased = false
     }
 
     /// 发布步骤第 3 步: 按 FIFO 重放 `.preparing` 期间排队的顶层突变 (S2)。
@@ -6935,6 +6943,7 @@ extension MusicLibrary {
     /// needless main-actor work immediately after the lyrics UI appeared.
     func updateLyricsText(_ lyricsTextBySongID: [String: String]) {
         guard !lyricsTextBySongID.isEmpty else { return }
+        if let lookup = rowWritesWithoutTheModel, updateLyricsTextWithoutTheModel(lyricsTextBySongID, lookup: lookup) { return }
         if deferringUntilReady({ [weak self] in self?.updateLyricsText(lyricsTextBySongID) }) { return }
         if isDeferringSceneTransitionPublications {
             pendingLyricsText.merge(lyricsTextBySongID) { _, latest in latest }
@@ -7007,7 +7016,7 @@ extension MusicLibrary {
     /// 应用: 一批只拷一次、发布一次、落盘一次。需要立刻看到结果的调用方
     /// (整行替换与持久化屏障) 会先同步 flush。
     func updateAssetReferences(songID: String, coverRef: String? = nil, lyricsRef: String? = nil) {
-        if deferringUntilReady({ [weak self] in
+        if rowWritesWithoutTheModel == nil, deferringUntilReady({ [weak self] in
             self?.updateAssetReferences(songID: songID, coverRef: coverRef, lyricsRef: lyricsRef)
         }) { return }
         guard coverRef != nil || lyricsRef != nil else { return }
@@ -7023,7 +7032,7 @@ extension MusicLibrary {
     func updateMusicVideoReference(songID: String, mvPath: String?) {
         // S2: 与 updateAssetReferences / updateLyricsText 同批排队, 否则这条
         // 编辑会因为空库查不到行而被直接丢掉。
-        if deferringUntilReady({ [weak self] in
+        if rowWritesWithoutTheModel == nil, deferringUntilReady({ [weak self] in
             self?.updateMusicVideoReference(songID: songID, mvPath: mvPath)
         }) { return }
         // 与封面/歌词引用共用同一个批次: 两者改的都是同一行的旁挂资源指针,
@@ -7062,7 +7071,26 @@ extension MusicLibrary {
         guard !pendingAssetPatches.isEmpty else { return }
         let pending = pendingAssetPatches
         pendingAssetPatches.removeAll(keepingCapacity: true)
+        // 模型被放掉了、这一刻又不能按 id 直接写行(补丁攒下之后前面排进了等模型的突变): 这批补丁跟着排队,
+        // 不能对着空数组应用 —— 那样一条都对不上, 整批无声丢掉。重放时并回攒批, 这期间新到的补丁比它新。
+        if songModelReleased, isPreparing, rowWritesWithoutTheModel == nil {
+            queueAssetReferencePatchesForTheModel(pending)
+            return
+        }
         applyAssetReferencePatches(pending)
+    }
+
+    /// 这批资源引用补丁排到等模型的队列里;重放时并回攒批(这期间新到的补丁比它新),再照常落地。
+    private func queueAssetReferencePatchesForTheModel(_ pending: [String: PendingAssetReferencePatch]) {
+        deferredMutations.append { [weak self] in
+            guard let self else { return }
+            for (songID, patch) in pending {
+                var merged = patch
+                if let newer = self.pendingAssetPatches[songID] { merged.merge(newer) }
+                self.pendingAssetPatches[songID] = merged
+            }
+            self.flushPendingAssetReferencePatches()
+        }
     }
 
     /// 整行替换的输入通常读自补丁入队之前的 `songs` 快照: 只 flush 会让补丁
@@ -7091,6 +7119,13 @@ extension MusicLibrary {
     }
 
     private func applyAssetReferencePatches(_ patches: [String: PendingAssetReferencePatch]) {
+        if let lookup = rowWritesWithoutTheModel {
+            // 此刻读不出行: 不丢, 排队等模型。
+            if !applyAssetReferencePatchesWithoutTheModel(patches, lookup: lookup) {
+                queueAssetReferencePatchesForTheModel(patches)
+            }
+            return
+        }
         let signpost = PrimuseSignposts.hitch.beginInterval("library.assetPatchBatch")
         defer { PrimuseSignposts.hitch.endInterval("library.assetPatchBatch", signpost) }
         var writes: [(index: Int, song: Song)] = []
@@ -14321,6 +14356,8 @@ extension MusicLibrary {
     func replaceSong(_ updatedSong: Song, choosingCover selectedCover: String? = nil) {
         // S2: 与 `replaceSongs` 一致地排队。空库上 `validatedSongIndex` 返回 nil,
         // 不排队的话标签编辑 / 歌词回写 / 播放时长纠正会被直接丢掉。
+        if let lookup = rowWritesWithoutTheModel,
+           replaceSongsWithoutTheModel([updatedSong], choosingCover: selectedCover, isBatch: false, lookup: lookup) { return }
         if queuingRowEdits(for: [updatedSong], replay: { [weak self] merged in
             if let row = merged.first { self?.replaceSong(row, choosingCover: selectedCover) }
         }) { return }
@@ -14443,6 +14480,8 @@ extension MusicLibrary {
         maintenance: LibraryMaintenanceDisposition = .immediate
     ) {
         guard !updatedSongs.isEmpty else { return }
+        if let lookup = rowWritesWithoutTheModel,
+           replaceSongsWithoutTheModel(updatedSongs, choosingCover: nil, isBatch: true, lookup: lookup) { return }
         if queuingRowEdits(for: updatedSongs, replay: { [weak self] merged in
             self?.replaceSongs(merged, maintenance: maintenance)
         }) { return }
@@ -14636,6 +14675,8 @@ extension MusicLibrary {
         maintenance: LibraryMaintenanceDisposition = .deferred
     ) async {
         guard !updatedSongs.isEmpty else { return }
+        // 模型不在内存里: 交给同步入口, 它按 id 读出行直接写(分组输入变了的照旧排队)。
+        if rowWritesWithoutTheModel != nil { return replaceSongs(updatedSongs, maintenance: maintenance) }
         // S2: 异步入口排队它的同步回退路径。
         if deferringUntilReady({ [weak self] in
             self?.replaceSongs(updatedSongs, maintenance: maintenance)
@@ -17067,15 +17108,25 @@ extension MusicLibrary {
         upserts: [Song] = [],
         deletingIDs: Set<String> = [],
         renaming: [String: String] = [:],
-        needsPromptCompatibilitySnapshot: Bool = false
+        needsPromptCompatibilitySnapshot: Bool = false,
+        withoutTheModel: Bool = false
     ) {
         guard !upserts.isEmpty || !deletingIDs.isEmpty else { return }
         // S1: 发布前不落盘。产生这些改动的顶层突变本身已被排队(S2),
         // 重放时会带着正确的参数再次走到这里。
-        guard !isPreparing else {
+        // 例外(P3 第 5 步): 模型发布过、此刻不在内存里, 而调用方声明这次改动是按 id 从目录读出行算出来的
+        // (`withoutTheModel`, 只有那几个 `…WithoutTheModel` 入口这样调): 歌曲行照常写旧库、登记待写、
+        // 排给目录。对着数组算改动的路径在这个状态下照旧被拦(数组是空的, 算出来的不能写)。随后的便携快照
+        // (小状态、兜底歌曲副本、启动缓存都是对着数组写的)仍被 S1 拦下, 记成待补。
+        guard !isPreparing || (withoutTheModel && rowWritesWithoutTheModel != nil) else {
             deferredPortableSnapshotPersistRequested = true
             return
         }
+        #if DEBUG
+        persistedSongChangeSetsForTesting?.append(
+            LibraryPersistedSongChangeSet(upserts: upserts, deletingIDs: deletingIDs, renaming: renaming)
+        )
+        #endif
         let pendingWriteSequence = recordPendingCatalogWrites(
             upserts: upserts, deletingIDs: deletingIDs, renaming: renaming
         )
@@ -18706,6 +18757,7 @@ extension MusicLibrary {
     /// 环境音、MV、本机播客那三份数组不在这里清(规模夹具里是空的);真正放模型时也要放。
     func dropSongModelForMeasurement(includingCollections: Bool) {
         readiness = .preparing
+        songModelReleased = true
         var displaced: [any Sendable] = [
             songsReference, visibleSongsReference, visibleSongsLookupReference, musicSongsReference,
             spokenWordSongsReference, localPodcastPreviewSongs,
@@ -19861,6 +19913,14 @@ private struct CatalogCollectionLookups {
 }
 
 #if DEBUG
+/// 测试:交给 `persistSongChanges` 的一次改动。
+struct LibraryPersistedSongChangeSet {
+    // crash-pattern: allow library-array-property 只编进 DEBUG、只有测试打开记录时才有;一次突变交来的那几行
+    var upserts: [Song]
+    var deletingIDs: Set<String>
+    var renaming: [String: String]
+}
+
 /// 按 id 读的抽样比对(只在 DEBUG 里编进来)的设置与计数。
 struct LibraryByIDParitySampling: Equatable {
     /// 内存答的按 id 读每这么多次抽一个 id。
@@ -19926,6 +19986,162 @@ extension MusicLibrary {
         guard !deviceLocalExcludedSongsByID.isEmpty else { return stored }
         // 本机移除后留着的那一份,同步照旧看得见。
         return zip(ids, stored).map { id, song in song ?? retainedSongForSynchronization(id) }
+    }
+
+    // MARK: Row writes without the song model (P3 step 5)
+
+    /// 歌曲模型发布过、之后被放掉了(`songModelReleased`),而旧库的句柄在、按 id 读由「待写登记 + 目录」答得出:
+    /// 只动歌曲行的按 id 写(歌词文本、封面/歌词/MV 引用、分组输入没变的整行替换)这时不排队等模型 —— 读出受影响的行,
+    /// 算出与数组那条路相同的改动,交给 `persistSongChanges`。第一次发布之前不算(那时旧库的句柄还没装进来,
+    /// 小状态也没装);发布之后再装载一次的那段时间不算(装载会带来目录里还没有的行,这期间的写照旧排队,
+    /// 重放时对着装载之后的行);删源期间不算;前面已经排着等模型的突变时也不算 —— 这次写跟在它们后面排队,
+    /// 先后与模型在内存里时一样,不会越到排在前面的那一次前头。今天的发版里没有放掉模型的入口,这条路走不到。
+    fileprivate var rowWritesWithoutTheModel: LibraryCatalogSongLookup? {
+        guard songModelReleased, catalogAttached, songStore != nil, !persistenceBlockedByCorruption,
+              !sourceRemovalInProgress, deferredMutations.isEmpty else { return nil }
+        return lookupOutsideTheModel
+    }
+
+    /// 曲库里存着的行(待写登记 + 目录),不叠发布之前排队的整行替换:直接写旧库的那条路拿它当「改之前」。
+    /// nil:此刻读不出来(目录读失败)。
+    private func rowsForWritingWithoutTheModel(_ ids: [String], lookup: LibraryCatalogSongLookup) -> [String: Song]? {
+        do {
+            var rows: [String: Song] = [:]
+            for (id, row) in zip(ids, try lookup.songs(ids: ids)) {
+                if let row = admittedOutsideTheModel(row) { rows[id] = row }
+            }
+            return rows
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// `updateLyricsText` 在模型不在内存里时的做法:改动与数组那条路相同(同样的行、同样的先后)。
+    /// 不做的:按源物化的缓存补丁(`patchSourceAssetReferences`,数组不在就没有这份缓存)。
+    /// 返回 false(什么都没动):此刻读不出行,调用方照旧排队。
+    fileprivate func updateLyricsTextWithoutTheModel(
+        _ lyricsTextBySongID: [String: String], lookup: LibraryCatalogSongLookup
+    ) -> Bool {
+        let ids = Array(lyricsTextBySongID.keys)
+        guard let rows = rowsForWritingWithoutTheModel(ids, lookup: lookup) else { return false }
+        var changed: [Song] = []
+        for (songID, text) in lyricsTextBySongID {
+            guard var row = rows[songID], row.lyricsText != text else { continue }
+            row.lyricsText = text
+            changed.append(row)
+        }
+        guard !changed.isEmpty else { return true }
+        plog("📚 updateLyricsText (model not loaded): requested=\(lyricsTextBySongID.count) applied=\(changed.count)")
+        invalidateSearchCaches()
+        persistSongChanges(upserts: changed, withoutTheModel: true)
+        return true
+    }
+
+    /// `applyAssetReferencePatches` 在模型不在内存里时的做法。逐首的封面失效通知、替换令牌与数组那条路相同。
+    /// 不做的(都要专辑那一层在内存里):封面回退的提升(`promotePreferredArtworkSongIfNeeded`)、
+    /// 首选封面的修订号(`bumpArtworkLookupRevisionIfPreferred`)、按源物化缓存的补丁。那一层重新装载时按行重建。
+    /// 返回 false(什么都没动):此刻读不出行。
+    private func applyAssetReferencePatchesWithoutTheModel(
+        _ patches: [String: PendingAssetReferencePatch], lookup: LibraryCatalogSongLookup
+    ) -> Bool {
+        guard let rows = rowsForWritingWithoutTheModel(Array(patches.keys), lookup: lookup) else { return false }
+        var updatedSongs: [Song] = []
+        var artworkChanges: [(songID: String, oldRef: String?, newRef: String?)] = []
+        for (songID, patch) in patches {
+            guard var updatedSong = rows[songID] else { continue }
+            let oldCoverRef = updatedSong.coverArtFileName
+            var changed = false
+            if let coverRef = patch.coverRef, updatedSong.coverArtFileName != coverRef {
+                updatedSong.coverArtFileName = coverRef
+                changed = true
+            }
+            if let lyricsRef = patch.lyricsRef, updatedSong.lyricsFileName != lyricsRef {
+                updatedSong.lyricsFileName = lyricsRef
+                changed = true
+            }
+            if patch.updatesMusicVideo, updatedSong.mvPath != patch.musicVideoPath {
+                updatedSong.mvPath = patch.musicVideoPath
+                changed = true
+            }
+            guard changed else { continue }
+            updatedSongs.append(updatedSong)
+            if oldCoverRef != updatedSong.coverArtFileName {
+                artworkChanges.append((songID: songID, oldRef: oldCoverRef, newRef: updatedSong.coverArtFileName))
+            }
+        }
+        guard !updatedSongs.isEmpty else { return true }
+        lastReplacedSong = updatedSongs.count == 1 ? updatedSongs.first : nil
+        lastReplacedSongIDs = Set(updatedSongs.map(\.id))
+        songReplacementToken = UUID()
+        for change in artworkChanges {
+            postArtworkInvalidation(songID: change.songID, oldRef: change.oldRef, newRef: change.newRef)
+        }
+        persistSongChanges(upserts: updatedSongs, withoutTheModel: true)
+        return true
+    }
+
+    /// `replaceSong` / `replaceSongs` 在模型不在内存里时的做法,只管「分组输入没变」的替换(播放开始纠正时长、
+    /// 技术信息刷新、补读的时长与码率):专辑/艺人 id 沿用存着的那一行,自动艺人图照常套,改动与数组那条路相同。
+    ///
+    /// 返回 false(什么都没动):有一行的分组输入变了(要按目录判专辑艺人、要整库重新分组,得等模型),或者这些 id
+    /// 上还有发布之前排队的字段改动,或者此刻读不出行。调用方照旧排队。
+    ///
+    /// 不做的(都要数组或专辑那一层):就地发布、首选封面修订号、派生集合的维护请求、待认领身份的重试
+    /// (`schedulePendingIdentityFlush`);歌单与最近播放的清理不需要做(id 一个没动)。
+    fileprivate func replaceSongsWithoutTheModel(
+        _ updatedSongs: [Song], choosingCover selectedCover: String?, isBatch: Bool, lookup: LibraryCatalogSongLookup
+    ) -> Bool {
+        let ids = updatedSongs.map(\.id)
+        guard !ids.contains(where: { queuedSongFieldEdits[$0] != nil }),
+              let before = rowsForWritingWithoutTheModel(ids, lookup: lookup) else { return false }
+        for updated in updatedSongs {
+            guard let previous = before[updated.id] else { continue }
+            var candidate = updated
+            if let selectedCover { candidate.coverArtFileName = selectedCover }
+            guard Self.sharesGroupingInputs(previous, candidate) else { return false }
+        }
+        // 与数组那条路同一个约定:窗口内的资源补丁先落地,再把补丁写过的字段叠回这一批整行。
+        let updatedSongs = flushPendingAssetReferencePatches(overlaying: updatedSongs)
+        // 补丁落地时读不出行会把它们排进队列,这之后再读不出行也一样:这一批跟着排队(调用方照旧排队,
+        // 排的是「相对存着的那一行改了哪些字段」,补丁写的字段不在其中,重放时不会被盖回去)。
+        guard rowWritesWithoutTheModel != nil,
+              var current = rowsForWritingWithoutTheModel(ids, lookup: lookup) else { return false }
+        var appliedIDs: Set<String> = []
+        var lastApplied: Song?
+        var artworkChanges: [(songID: String, oldRef: String?, newRef: String?)] = []
+        var songListSnapshotChanged = false
+        for updated in updatedSongs {
+            guard let previousSong = current[updated.id] else { continue }
+            let oldCoverRef = previousSong.coverArtFileName
+            var s = updated
+            if let selectedCover { s.coverArtFileName = selectedCover }
+            s.albumID = previousSong.albumID
+            s.artistID = previousSong.artistID
+            applyAutomaticArtistArtwork(to: &s)
+            if previousSong.sourceID != s.sourceID || previousSong.isPlayable != s.isPlayable {
+                songListSnapshotChanged = true
+            }
+            current[s.id] = s
+            lastApplied = s
+            appliedIDs.insert(s.id)
+            if oldCoverRef != s.coverArtFileName {
+                artworkChanges.append((s.id, oldCoverRef, s.coverArtFileName))
+            }
+        }
+        guard let lastApplied else { return true }
+        lastReplacedSong = lastApplied
+        lastReplacedSongIDs = appliedIDs
+        if songListSnapshotChanged { songListSnapshotInvalidationRevision &+= 1 }
+        songReplacementToken = UUID()
+        if isBatch {
+            if !artworkChanges.isEmpty { postArtworkInvalidations(ArtworkInvalidationNotice(artworkChanges)) }
+        } else if let change = artworkChanges.first {
+            postArtworkInvalidation(songID: change.songID, oldRef: change.oldRef, newRef: change.newRef)
+        }
+        invalidateSearchCaches()
+        persistSongChanges(upserts: appliedIDs.compactMap { current[$0] }, withoutTheModel: true)
+        return true
     }
 
     // MARK: Row replacements queued before the model is loaded

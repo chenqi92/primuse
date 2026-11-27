@@ -716,6 +716,182 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertEqual(try IncrementalSongStoreScanner(path: storePath).songCount(), storeCount, "the store was not replaced by the empty model")
     }
 
+    // MARK: - Row writes without the song model (P3 step 5)
+
+    /// 只动歌曲行的按 id 写(歌词文本、封面/歌词/MV 引用、分组输入没变的整行替换),在模型在内存里的库和模型
+    /// 被放掉的库上各做一遍:交给 `persistSongChanges` 的改动相同(同样的行、同样的先后、同样的派生字段),
+    /// 做完之后两边旧库与目录里的行也相同。库里有停用的源、本机移除的歌、删过的歌(墓碑)、一次已经落定的改名,
+    /// 和一次还在路上的改名(内存里改完了,旧库与目录都还没写到,只在待写登记里 —— 放掉模型之后按 id 读写
+    /// 都得经登记认出新 id、不认旧 id)。分组输入变了的替换不走这条路,照旧排队等模型。
+    func testRowWritesWithoutTheSongModelMatchTheLoadedLibrary() async throws {
+        // 第二个库的目录放在测试目录里面:收尾时先停下两个库的目录,再一起删。
+        let loadedDirectory = directory.appendingPathComponent("loaded", isDirectory: true)
+        let twinDirectory = directory.appendingPathComponent("dropped", isDirectory: true)
+        try FileManager.default.createDirectory(at: loadedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: twinDirectory, withIntermediateDirectories: true)
+        let songs = Self.fixture(prefix: "twin")
+        let renamedID = "twin-renamed"
+        func make(in storage: URL) async throws -> MusicLibrary {
+            let library = MusicLibrary(
+                disabledSourceIDs: [Self.sourceB], storageDirectory: storage, artistNameConfiguration: .defaultValue,
+                deferredMaintenanceAllowed: { true }, catalogMirroring: .enabled(startDelay: .zero)
+            )
+            library.catalogShadowModeOverride = .deep
+            libraries.append(library)
+            library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+            XCTAssertFalse(try library.removeSongsFromThisDevice([songs[8]]).isEmpty)
+            _ = library.deleteSongs([songs[9]])
+            library.remapSongIDs([songs[5].id: renamedID])
+            await assertShadowMatches(library, "twin fixture")
+            return library
+        }
+        let loaded = try await make(in: loadedDirectory)
+        let dropped = try await make(in: twinDirectory)
+        // 第二次改名交出去就放掉模型:这一刻它只在待写登记里。从这里到两边的写做完,中间不让出主线程。
+        let lateRenamedID = "twin-renamed-late"
+        loaded.remapSongIDs([songs[6].id: lateRenamedID])
+        dropped.remapSongIDs([songs[6].id: lateRenamedID])
+        XCTAssertGreaterThan(try XCTUnwrap(dropped.catalogHost).pendingWrites.pendingCount, 0, "the rename is in flight")
+        dropped.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(dropped.isReady)
+        XCTAssertTrue(dropped.songs.isEmpty)
+        loaded.persistedSongChangeSetsForTesting = []
+        dropped.persistedSongChangeSetsForTesting = []
+
+        // 同一串写,两边各做一遍。要改的行各读各的:一边读内存,一边读「待写登记 + 目录」。
+        let lyrics = [
+            songs[0].id: "la la", songs[1].id: "second verse", lateRenamedID: "renamed a moment ago",
+            songs[6].id: "the id it had before", songs[9].id: "a deleted row", "twin-never-in-the-library": "nobody",
+        ]
+        func mutate(_ library: MusicLibrary) throws {
+            library.updateLyricsText(lyrics)
+            library.updateAssetReferences(songID: songs[0].id, coverRef: "cover-new.jpg", lyricsRef: "lyrics-new.lrc")
+            library.updateMusicVideoReference(songID: songs[1].id, mvPath: "/Videos/one.mp4")
+            library.updateAssetReferences(songID: songs[8].id, coverRef: "removed-from-this-device.jpg")
+            library.flushPendingAssetReferencePatches()
+            var timed = try XCTUnwrap(library.storedSong(id: songs[2].id))
+            timed.duration = 321
+            library.replaceSong(timed)
+            var renamed = try XCTUnwrap(library.storedSong(id: renamedID))
+            renamed.bitRate = 999
+            var disabled = try XCTUnwrap(library.storedSong(id: songs[7].id))
+            disabled.duration = 111
+            var recovered = try XCTUnwrap(library.storedSong(id: songs[3].id))
+            recovered.coverArtFileName = "replaced-cover.jpg"
+            var lateRenamed = try XCTUnwrap(library.storedSong(id: lateRenamedID))
+            XCTAssertEqual(lateRenamed.lyricsText, "renamed a moment ago")
+            lateRenamed.bitRate = 777
+            XCTAssertNil(library.storedSong(id: songs[6].id))
+            library.replaceSongs([renamed, disabled, recovered, lateRenamed])
+        }
+        try mutate(loaded)
+        let loadedSets = try XCTUnwrap(loaded.persistedSongChangeSetsForTesting)
+        try mutate(dropped)
+        let droppedSets = try XCTUnwrap(dropped.persistedSongChangeSetsForTesting)
+
+        XCTAssertEqual(loadedSets.count, 4, "lyrics, asset references, one row, a batch")
+        XCTAssertEqual(droppedSets.count, loadedSets.count)
+        // 歌词那一批两边走的是同一份字典,先后也相同。资源引用和整批替换在数组那条路上就是按各自的字典 / 集合
+        // 的遍历顺序交的(每个实例一个顺序,同一个库跑两次也不保证相同),这两批按 id 排好再比。
+        let unordered: Set<Int> = [1, 3]
+        XCTAssertEqual(loadedSets.map { $0.upserts.count }, [3, 2, 1, 4])
+        for (index, (expected, actual)) in zip(loadedSets, droppedSets).enumerated() {
+            if unordered.contains(index) {
+                assertSameSongs(
+                    actual.upserts.sorted { $0.id < $1.id }, expected.upserts.sorted { $0.id < $1.id }, "change set \(index)"
+                )
+            } else {
+                assertSameSongs(actual.upserts, expected.upserts, "change set \(index)")
+            }
+            XCTAssertEqual(actual.deletingIDs, expected.deletingIDs, "change set \(index)")
+            XCTAssertEqual(actual.renaming, expected.renaming, "change set \(index)")
+        }
+        XCTAssertEqual(loadedSets[3].upserts.first { $0.id == songs[7].id }?.duration, 111, "a row in a disabled source is written too")
+        // 写完当场读得到(待写登记),不用等目录。
+        XCTAssertEqual(dropped.storedSong(id: songs[0].id)?.lyricsText, "la la")
+        XCTAssertEqual(dropped.storedSong(id: songs[0].id)?.coverArtFileName, "cover-new.jpg")
+        XCTAssertEqual(dropped.storedSong(id: songs[2].id)?.duration, 321)
+        XCTAssertEqual(dropped.storedSong(id: renamedID)?.bitRate, 999)
+        XCTAssertEqual(dropped.storedSong(id: lateRenamedID)?.bitRate, 777)
+        XCTAssertNil(dropped.storedSong(id: songs[8].id), "a row removed from this device is not written back")
+
+        // 分组输入变了(改标题):要按目录判专辑艺人、整库重新分组,等模型。之后同一行的技术性替换也跟着排队,
+        // 不能越过排在前面的那一次。
+        let queued = dropped.deferredMutationCountForTesting
+        var retitled = try XCTUnwrap(dropped.storedSong(id: songs[4].id))
+        retitled.title = "Needs the model"
+        dropped.replaceSong(retitled)
+        var timedAgain = try XCTUnwrap(dropped.storedSong(id: songs[4].id))
+        XCTAssertEqual(timedAgain.title, "Needs the model")
+        timedAgain.duration = 555
+        dropped.replaceSong(timedAgain)
+        XCTAssertEqual(dropped.persistedSongChangeSetsForTesting?.count, loadedSets.count)
+        XCTAssertEqual(dropped.deferredMutationCountForTesting, queued + 2)
+
+        // 两边旧库与目录里的行相同。
+        await loaded.waitForCatalogMirror()
+        let droppedHost = try XCTUnwrap(dropped.catalogHost)
+        let acknowledged = await droppedHost.pendingWrites.waitUntilAcknowledged(
+            through: droppedHost.pendingWrites.lastSequence, timeout: .seconds(20)
+        )
+        XCTAssertTrue(acknowledged, "the catalog caught up with the writes made without the model")
+        await droppedHost.mirror.waitUntilIdle()
+        func storeRows(_ storage: URL) throws -> [Song] {
+            try IncrementalSongStore(path: storage.appendingPathComponent("library-songs.sqlite").path).loadSongs()
+        }
+        let loadedStore = try storeRows(loadedDirectory)
+        let droppedStore = try storeRows(twinDirectory)
+        XCTAssertEqual(loadedStore.count, songs.count - 2)
+        assertSameSongs(droppedStore, loadedStore, "store rows")
+        let ids = loadedStore.map(\.id)
+        let loadedCatalog = try XCTUnwrap(loaded.catalogHost?.mirror.caughtUpCatalog).songs(ids: ids)
+        let droppedCatalog = try XCTUnwrap(droppedHost.mirror.caughtUpCatalog).songs(ids: ids)
+        assertSameSongs(droppedCatalog, loadedCatalog, "catalog rows")
+        XCTAssertEqual(droppedCatalog.first { $0.id == songs[2].id }?.duration, 321)
+        XCTAssertEqual(droppedCatalog.first { $0.id == lateRenamedID }?.lyricsText, "renamed a moment ago")
+        XCTAssertNil(droppedCatalog.first { $0.id == songs[6].id })
+        XCTAssertEqual(droppedCatalog.first { $0.id == songs[4].id }?.title, songs[4].title, "the queued replacement is not written")
+    }
+
+    /// 模型不在内存里时,要数组的写(按 id 删歌、小状态)照旧排队;排在它们后面到的行写也跟着排队,不越到前头。
+    /// 排队之前已经攒下、还没落地的资源引用补丁,到点时不对着空数组应用(那样会整批丢掉),跟在后面排队。
+    func testRowWritesQueueBehindMutationsThatNeedTheSongModel() async throws {
+        let library = makeLibrary()
+        let songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        library.dropSongModelForMeasurement(includingCollections: true)
+        library.persistedSongChangeSetsForTesting = []
+        let queued = library.deferredMutationCountForTesting
+
+        // 这一条走得通按 id 直接写的路:补丁先攒着(两秒的合批窗口),还没写。
+        library.updateAssetReferences(songID: songs[0].id, coverRef: "late.jpg")
+        XCTAssertEqual(library.deferredMutationCountForTesting, queued)
+        XCTAssertEqual(library.persistedSongChangeSetsForTesting?.count, 0)
+        // 按 id 删歌要数组(保留的那一份、歌单成员的改挂、按源计数)和小状态的落盘,排队。
+        XCTAssertTrue(library.deleteSongs([songs[1]]).isEmpty)
+        XCTAssertEqual(library.deferredMutationCountForTesting, queued + 1)
+        // 攒着的补丁到点:前面排着突变,不直接写,也不丢 —— 排在后面。
+        library.flushPendingAssetReferencePatches()
+        XCTAssertEqual(library.deferredMutationCountForTesting, queued + 2)
+        // 之后到的行写同样排队。
+        library.updateLyricsText([songs[2].id: "after the delete"])
+        library.updateMusicVideoReference(songID: songs[3].id, mvPath: "/Videos/later.mp4")
+        var timed = try XCTUnwrap(library.storedSong(id: songs[1].id))
+        timed.duration = 999
+        library.replaceSong(timed)
+        XCTAssertEqual(library.deferredMutationCountForTesting, queued + 5)
+        XCTAssertEqual(library.persistedSongChangeSetsForTesting?.count, 0, "nothing reached the store out of order")
+
+        let host = try XCTUnwrap(library.catalogHost)
+        await host.mirror.waitUntilIdle()
+        let stored = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path).loadSongs()
+        assertSameSongs(stored, try XCTUnwrap(host.mirror.caughtUpCatalog).songs(ids: stored.map(\.id)), "store and catalog")
+        XCTAssertEqual(stored.count, songs.count)
+        XCTAssertEqual(stored.first { $0.id == songs[0].id }?.coverArtFileName, songs[0].coverArtFileName)
+        XCTAssertNil(stored.first { $0.id == songs[2].id }?.lyricsText)
+    }
+
     /// 进后台、内存警告走的那条路把目录各连接的缓存也放掉;放完目录照常答、照常跟写。
     func testReleasingRebuildableCachesAlsoReleasesTheCatalogMemory() async throws {
         let library = makeLibrary()
