@@ -63,10 +63,6 @@ final class DLNARendererService {
     /// 最近一条状态行,给 settings 显示 "等待发现" / "正在播放 xx" / "错误: xx"。
     private var transportStatusText = ""
     private var ssdpFailureStatusText: String?
-    private(set) var statusText: String {
-        get { ssdpFailureStatusText ?? transportStatusText }
-        set { transportStatusText = newValue }
-    }
     /// 最近 80 条事件 ── 给 Settings 调试面板按时间倒序展示。包含 M-SEARCH 命中、
     /// SOAP 控制调用、GENA 订阅生命周期。环形覆盖, 太老的事件丢掉。
     private(set) var recentEvents: [DebugEvent] = []
@@ -75,23 +71,6 @@ final class DLNARendererService {
     private(set) var connectedDevices: [ConnectedDevice] = []
     private static let maxRecentEvents = 80
     private static let maxConnectedDevices = 8
-
-    struct DebugEvent: Identifiable, Sendable {
-        let id = UUID()
-        let timestamp: Date
-        let kind: Kind
-        let detail: String
-        enum Kind: Sendable { case discovery, control, event, error }
-    }
-
-    struct ConnectedDevice: Identifiable, Sendable {
-        let id: String
-        var name: String
-        var address: String
-        var clientDescription: String?
-        var lastSeen: Date
-        var isCasting: Bool
-    }
 
     /// LAN 内被发现的可投屏目标 (UPnP MediaRenderer 设备), 按 UDN 去重。
     /// Controller UI 直接读这个让用户选投屏目标。
@@ -114,41 +93,12 @@ final class DLNARendererService {
         return URLSession(configuration: config)
     }()
 
-    private func logEvent(_ kind: DebugEvent.Kind, _ detail: String) {
-        let tag: String
-        switch kind {
-        case .discovery:
-            dlnaLog.info("discovery: \(detail, privacy: .public)")
-            tag = "🔍 discovery"
-        case .control:
-            dlnaLog.info("control: \(detail, privacy: .public)")
-            tag = "🎛 control"
-        case .event:
-            dlnaLog.info("event: \(detail, privacy: .public)")
-            tag = "📣 event"
-        case .error:
-            dlnaLog.error("error: \(detail, privacy: .public)")
-            tag = "❌ error"
-        }
-        // 同时打到 FileLogger, 让用户拉日志做诊断时能看到 DLNA 全程
-        // (os.Logger 进 Console.app, 跨设备不便)。
-        plog("[DLNA] \(tag) \(detail)")
-        recentEvents.insert(
-            DebugEvent(timestamp: Date(), kind: kind, detail: detail),
-            at: 0
-        )
-        if recentEvents.count > Self.maxRecentEvents {
-            recentEvents.removeLast(recentEvents.count - Self.maxRecentEvents)
-        }
-    }
-
     /// SSDP 用 POSIX UDP socket ── Network.framework 的 NWConnectionGroup
     /// / NWListener UDP 在 iOS 上同时绑 1900 端口的 multicast + unicast 时
     /// 有已知问题, 实测一个 M-SEARCH 都收不到 (见 8b1da7c)。退回 BSD socket:
     /// 一个 fd 绑 INADDR_ANY:1900, 同时通过 IP_ADD_MEMBERSHIP 加入
     /// 239.255.255.250, multicast 和 unicast M-SEARCH 都能投递到 read source。
     @ObservationIgnored private var ssdpReceiver: DLNASSDPReadSource?
-    private var ssdpSocket: Int32 { ssdpReceiver?.fileDescriptor ?? -1 }
     @ObservationIgnored private var ssdpRestartMachine = ListenerRestartStateMachine()
     @ObservationIgnored private var ssdpRetryTask: Task<Void, Never>?
     #if os(iOS)
@@ -175,17 +125,6 @@ final class DLNARendererService {
     )
     /// NOTIFY alive 周期任务。`ssdp:byebye` 在 stop() 里同步发掉。
     private var notifyTask: Task<Void, Never>?
-
-    /// GENA 订阅表 ── 控制点 SUBSCRIBE /event/<svc> 时这里加一条;
-    /// 状态变 (TransportState / Volume / Mute 等) 时按 service 路由 NOTIFY。
-    /// 简化掉 SEQ 字段递增 (用 monotonic counter), TIMEOUT 用固定 1800s。
-    private struct Subscription {
-        let sid: String
-        let service: String  // "AVTransport" | "RenderingControl"
-        let callbackURL: URL
-        var seq: UInt32 = 0
-        var expiresAt: Date
-    }
     private var subscriptions: [String: Subscription] = [:]
     /// Player / volume 观察器, 状态变时触发 NOTIFY。在 start() 里 install。
     private var playerObservationToken: Task<Void, Never>?
@@ -202,18 +141,6 @@ final class DLNARendererService {
     /// UPnP RenderingControl 的 mute 是独立状态,不能简单等同于 volume=0。
     private var rendererMuted = false
     private var lastNonMutedVolume: Float = 0.6
-    struct TransportItem: Sendable {
-        let uri: String
-        let metadata: String
-        let title: String
-        let artist: String?
-        let url: URL
-    }
-    private struct RemoteMediaProbe: Sendable {
-        let fileSize: Int64
-        let supportsRange: Bool
-        let detail: String
-    }
     private var currentTransportItem: TransportItem?
     private var nextTransportItem: TransportItem?
     private var activeControllerID: String?
@@ -259,15 +186,6 @@ final class DLNARendererService {
         #endif
     }
 
-    func setFriendlyName(_ name: String) {
-        let normalized = DLNARendererAdvertisement.normalizedName(name, fallback: defaultFriendlyName)
-        guard normalized != friendlyName else { return }
-        sendByebyeBatch()
-        friendlyName = normalized
-        UserDefaults.standard.set(normalized, forKey: "dlna.receiverName")
-        if isRunning, advertisement.listeningPort != nil { startAdvertising() }
-    }
-
     deinit {
         // 排队中的重启任务持有 weak self, 但没必要让它睡满退避再空跑一趟。
         // httpRetryTask / httpRestartMachine 标了 @ObservationIgnored, 是不进
@@ -287,6 +205,91 @@ final class DLNARendererService {
     /// 控制中心会显示 Primuse"在播", 电量略增 ── footer 里写明。
     /// 状态走 @AppStorage 由 UI 侧持久, 这里只暴露 set 入口让设置页 onChange 调。
     private(set) var keepAliveInBackground = false
+}
+
+extension DLNARendererService {
+    private(set) var statusText: String {
+        get { ssdpFailureStatusText ?? transportStatusText }
+        set { transportStatusText = newValue }
+    }
+
+    struct DebugEvent: Identifiable, Sendable {
+        let id = UUID()
+        let timestamp: Date
+        let kind: Kind
+        let detail: String
+        enum Kind: Sendable { case discovery, control, event, error }
+    }
+
+    struct ConnectedDevice: Identifiable, Sendable {
+        let id: String
+        var name: String
+        var address: String
+        var clientDescription: String?
+        var lastSeen: Date
+        var isCasting: Bool
+    }
+
+    private func logEvent(_ kind: DebugEvent.Kind, _ detail: String) {
+        let tag: String
+        switch kind {
+        case .discovery:
+            dlnaLog.info("discovery: \(detail, privacy: .public)")
+            tag = "🔍 discovery"
+        case .control:
+            dlnaLog.info("control: \(detail, privacy: .public)")
+            tag = "🎛 control"
+        case .event:
+            dlnaLog.info("event: \(detail, privacy: .public)")
+            tag = "📣 event"
+        case .error:
+            dlnaLog.error("error: \(detail, privacy: .public)")
+            tag = "❌ error"
+        }
+        // 同时打到 FileLogger, 让用户拉日志做诊断时能看到 DLNA 全程
+        // (os.Logger 进 Console.app, 跨设备不便)。
+        plog("[DLNA] \(tag) \(detail)")
+        recentEvents.insert(
+            DebugEvent(timestamp: Date(), kind: kind, detail: detail),
+            at: 0
+        )
+        if recentEvents.count > Self.maxRecentEvents {
+            recentEvents.removeLast(recentEvents.count - Self.maxRecentEvents)
+        }
+    }
+    private var ssdpSocket: Int32 { ssdpReceiver?.fileDescriptor ?? -1 }
+
+    /// GENA 订阅表 ── 控制点 SUBSCRIBE /event/<svc> 时这里加一条;
+    /// 状态变 (TransportState / Volume / Mute 等) 时按 service 路由 NOTIFY。
+    /// 简化掉 SEQ 字段递增 (用 monotonic counter), TIMEOUT 用固定 1800s。
+    private struct Subscription {
+        let sid: String
+        let service: String  // "AVTransport" | "RenderingControl"
+        let callbackURL: URL
+        var seq: UInt32 = 0
+        var expiresAt: Date
+    }
+    struct TransportItem: Sendable {
+        let uri: String
+        let metadata: String
+        let title: String
+        let artist: String?
+        let url: URL
+    }
+    private struct RemoteMediaProbe: Sendable {
+        let fileSize: Int64
+        let supportsRange: Bool
+        let detail: String
+    }
+
+    func setFriendlyName(_ name: String) {
+        let normalized = DLNARendererAdvertisement.normalizedName(name, fallback: defaultFriendlyName)
+        guard normalized != friendlyName else { return }
+        sendByebyeBatch()
+        friendlyName = normalized
+        UserDefaults.standard.set(normalized, forKey: "dlna.receiverName")
+        if isRunning, advertisement.listeningPort != nil { startAdvertising() }
+    }
 
     func setKeepAliveInBackground(_ enabled: Bool) {
         keepAliveInBackground = enabled

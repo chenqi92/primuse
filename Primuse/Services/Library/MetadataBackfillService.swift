@@ -318,21 +318,6 @@ final class MetadataBackfillService {
     @ObservationIgnored var verifyVisibleLocalFile: ((Song) -> Void)?
     @ObservationIgnored private var peerCoverSweepTask: Task<Void, Never>?
 
-    private struct PeerCoverGroup: Codable, Sendable {
-        var representative: String?
-        var waiting: Set<String> = []
-        /// 代表读到的封面在本机的内容哈希。之后才进库的组员直接指过去。
-        var localContentKey: String?
-    }
-
-    private struct PeerSeedState: Codable, Sendable {
-        var coverGroups: [String: PeerCoverGroup]
-        var lyricsPending: [String]
-        var deferredArtwork: [String]?
-        var playbackArtwork: [String]?
-        var flacPictureHeaders: [String: Int]?
-    }
-
     /// Consecutive transient failure count per song ID. Counts are persisted so
     /// relaunching the app or changing networks cannot reset the automatic retry
     /// budget and keep rereading the same permanently unreachable object.
@@ -382,23 +367,10 @@ final class MetadataBackfillService {
     /// terminal inspection removes the marker.
     @ObservationIgnored private var deferredRetryMembership: MetadataBackfillDeferredRetries
 
-    /// 只读投影, 让原有的读取点保持不变。
-    private var deferredRetrySongIDs: MetadataBackfillFlagSet {
-        deferredRetryMembership.songIDs
-    }
-
     /// 只在延迟重试集合的成员关系真的变化时前进。歌曲行订阅的是这个版本号
     /// 而不是 `statusRevision`, 因此每 5 秒一次的状态对账不会再让所有可见行
     /// 重新求值 body。
     private(set) var deferredRetryRevision: Int = 0
-
-    /// 所有集合改动都经由这里: 变化才发布, 未变化则连版本号都不动。
-    private func mutateDeferredRetries(
-        _ body: (inout MetadataBackfillDeferredRetries) -> Bool
-    ) {
-        guard body(&deferredRetryMembership) else { return }
-        deferredRetryRevision = deferredRetryMembership.revision
-    }
 
     /// Exact context for the latest failed attempt. Queue membership remains in
     /// the dedicated ID sets above; these records exist so the source detail UI
@@ -413,11 +385,6 @@ final class MetadataBackfillService {
     @ObservationIgnored private var maintenanceConnectTask: Task<Void, Never>?
     @ObservationIgnored private var maintenanceCatalogListener: UUID?
     @ObservationIgnored private var startRequestedBeforeMaintenanceReady = false
-    /// 迁移前的那些 JSON(迁进目录、确认落库后删掉)。
-    private var legacyMaintenanceURLs: [URL] {
-        [failedURL, incompleteURL, sourceIssueURL, artworkGivenUpURL, titleCheckedURL, albumArtistCheckedURL,
-         albumArtistRecheckedURL, artistCheckedURL, deferredRetryURL, diagnosticsURL, retryCountsURL]
-    }
 
     /// UserDefaults key for "only run backfill on Wi-Fi". Default true.
     /// User-facing toggle lives in CloudSyncSettingsView.
@@ -432,23 +399,6 @@ final class MetadataBackfillService {
     /// User dismissed the cellular prompt this session — don't re-prompt
     /// automatically until next launch.
     @ObservationIgnored private var cellularPromptDismissedThisSession = false
-
-    /// Publish prompt visibility only on a real state transition. During a
-    /// connector scan `musicLibrary.songs.count` changes repeatedly and each
-    /// change calls `refreshQueue()` → `start()`. Assigning observable `true`
-    /// again for every batch makes SwiftUI treat one cellular pause as many
-    /// alert presentation events even though there is only one source.
-    private func setCellularPromptPresented(_ presented: Bool) {
-        guard pausedForCellular != presented else { return }
-        pausedForCellular = presented
-        if presented {
-            #if os(iOS)
-            AppAlertCoordinator.shared.enqueue(.cellularBackfill)
-            #endif
-        } else {
-            AppAlertCoordinator.shared.cancel(.cellularBackfill)
-        }
-    }
 
     private let library: MusicLibrary
     private let sourceManager: SourceManager
@@ -507,18 +457,6 @@ final class MetadataBackfillService {
         queueMutationGenerationDefaultsKey,
     ])
 
-    private struct QueueState: Codable, Equatable, Sendable {
-        let needsRefresh: Bool
-        let reconciledGeneration: Int
-        let remainingCount: Int
-        let failedCount: Int
-        let deferredRetryCount: Int
-        let statusCount: Int
-        let remainingCountBySourceID: [String: Int]
-        let deferredRetryCountBySourceID: [String: Int]
-        let statusCountBySourceID: [String: Int]
-    }
-
     /// Songs currently being processed (for UI / cancellation).
     private(set) var pendingCount: Int = 0
     private(set) var processedCount: Int = 0
@@ -549,21 +487,6 @@ final class MetadataBackfillService {
     private(set) var manuallyReadingSongIDs: Set<String> = []
     private(set) var batchRereadingSourceIDs: Set<String> = []
     @ObservationIgnored private var activeReadSongIDs: Set<String> = []
-    private struct PlaybackTagReadIdentity: Hashable, Sendable {
-        let songID: String
-        let sourceID: String
-        let filePath: String
-        let revision: String?
-        let fileSize: Int64
-
-        init(_ song: Song) {
-            songID = song.id
-            sourceID = song.sourceID
-            filePath = song.filePath
-            revision = song.revision
-            fileSize = song.fileSize
-        }
-    }
 
     /// A deterministic playback failure is suppressed for this exact remote
     /// object for the rest of the launch. A changed path/revision/size gets a
@@ -573,12 +496,6 @@ final class MetadataBackfillService {
         Set<PlaybackTagReadIdentity> = []
     @ObservationIgnored private var lastRemainingCountRefreshAt = Date.distantPast
     @ObservationIgnored private var remainingCountComputationGeneration: UInt64 = 0
-    /// 整库对账要遍历全部歌曲, 只在发布前后才有新数可算, 所以节流窗口跟着
-    /// 发布节奏走而不是固定 5 秒 —— 固定窗口在低档位上会按更小的快照反复
-    /// 重扫整库, 恰好让档位越低开销越大。
-    private var remainingCountRefreshInterval: TimeInterval {
-        max(5, executionLimits.flushInterval)
-    }
     /// A durable dirty bit separates "the library changed" from "run a full
     /// eligibility sweep on every lifecycle/network callback". The first run
     /// after upgrading reconciles once; a proven-clean library then stays
@@ -654,6 +571,414 @@ final class MetadataBackfillService {
     /// 用深度而不是布尔: 发布中间有 await, 期间到达的完成回调可能再进来一次,
     /// 布尔会被内层提前清掉, 把外层那次发布的代价重新算进读取成本。
     @ObservationIgnored private var libraryPublishDepth = 0
+
+    /// Session-scoped explicit user intent. Scene transitions may suspend the
+    /// worker, but returning active resumes this source until its normal queue
+    /// drains or the user taps Pause. A granted system continuation preserves
+    /// the selected speed while ordinary background windows remain gentler.
+    private(set) var userInitiatedSourceID: String?
+    /// Automatic foreground intent for the iOS sandbox import source. It
+    /// survives an active/inactive transition so a large import resumes from
+    /// the next bounded snapshot instead of stopping after the first 24 rows.
+    @ObservationIgnored private var automaticDeviceLocalSourceID: String?
+    @ObservationIgnored private var automaticForegroundSourceIDs: Set<String> = []
+    /// Source lifecycle notifications can arrive from the view, CloudKit and
+    /// the global cleanup coordinator almost simultaneously. Coalesce them so
+    /// removing several large sources scans the library once instead of once
+    /// per notification/source on the main actor.
+    @ObservationIgnored private var pendingDiscardSourceIDs: Set<String> = []
+    @ObservationIgnored private var discardWorkTask: Task<Void, Never>?
+    /// Exact session progress, kept non-observable so one completed network
+    /// request doesn't invalidate every view that observes this service.
+    @ObservationIgnored private var processedTotal: Int = 0
+    @ObservationIgnored private var processedCountPublishedAt = Date.distantPast
+    /// Debounced writer for the persisted metadata-state ID sets. Encoding and atomic
+    /// file replacement run off the main actor.
+    @ObservationIgnored private var statePersistenceTask: Task<Void, Never>?
+    @ObservationIgnored private var statePersistenceTaskID: UInt64 = 0
+    @ObservationIgnored private var statePersistenceDeadline: ContinuousClock.Instant?
+    private static let statePersistenceDebounce: Duration = .seconds(5)
+    /// Bumped on every `start()` / `stop()`. The worker captures its own
+    /// generation and uses it to decide whether the cleanup at end-of-Task
+    /// should clear shared state — without this, a cancelled-but-still-
+    /// finishing worker can wipe `worker`/`isRunning` set by a new `start()`
+    /// that ran between cancel and Task.value resumption.
+    @ObservationIgnored private var workerGeneration: Int = 0
+
+    /// 速率采样与平台无关 ── iOS 和 macOS 的读取都要能看到这行日志。
+    @ObservationIgnored private var throughputSampler = MetadataReadThroughputSampler()
+
+    /// Worker 持有的 UIBackgroundTask ID, app 切到后台时给 backfill ~30 秒额外
+    /// 收尾时间。worker 完成 / stop 时释放。expirationHandler 兜底 ── 系统提前
+    /// 回收时主动 stop, 不留半挂状态。
+    /// macOS 没有 UIBackgroundTask 机制 ── app 切后台就是后台进程, 不会被立即
+    /// 挂起, 所以这块代码用 `#if os(iOS)` 整体守卫。
+    #if os(iOS)
+    @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored private var backgroundAssertionGeneration: UUID?
+    @ObservationIgnored private var continuedProcessingSession: (any MetadataBackgroundContinuation)?
+    @ObservationIgnored private var systemProcessingSessions: Set<UUID> = []
+    @ObservationIgnored private var backgroundExecutionExpired = false
+    /// 状态页那批重读退到后台时, 把手上在读的几首读完用的后台时间。和上面回填自己的
+    /// 断言分开: 两边各自开始、各自交还, 谁到期都不连累另一边。
+    @ObservationIgnored private var tagRereadBackgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored private var tagRereadBackgroundGeneration: UUID?
+    #endif
+
+    init(
+        library: MusicLibrary,
+        sourceManager: SourceManager,
+        backfillableSourceIDs: @escaping () -> Set<String> = { [] },
+        bareOnlySourceIDs: @escaping () -> Set<String> = { [] },
+        containerCodecOnlySourceIDs: @escaping () -> Set<String> = { [] },
+        offlineReadableSourceIDs: @escaping () -> Set<String> = { [] },
+        localFileSourceIDs: @escaping () -> Set<String> = { [] },
+        directFileSourceIDs: @escaping () -> Set<String> = { [] },
+        manuallyReadableSourceIDs: (() -> Set<String>)? = nil,
+        pooledHTTPRangeSourceIDs: @escaping () -> Set<String> = { [] },
+        sourceFileName: @escaping (Song) -> String? = { _ in nil },
+        playbackIsActive: @escaping () -> Bool = { false },
+        playbackIsLoadingFromSource: @escaping (String) -> Bool = { _ in false },
+        storageDirectory: URL? = nil,
+        artworkStore: MetadataAssetStore = .shared
+    ) {
+        self.artworkStore = artworkStore
+        self.playbackIsActive = playbackIsActive
+        self.playbackIsLoadingFromSource = playbackIsLoadingFromSource
+        self.library = library
+        self.sourceManager = sourceManager
+        self.backfillableSourceIDs = backfillableSourceIDs
+        self.bareOnlySourceIDs = bareOnlySourceIDs
+        self.containerCodecOnlySourceIDs = containerCodecOnlySourceIDs
+        self.offlineReadableSourceIDs = offlineReadableSourceIDs
+        self.localFileSourceIDs = localFileSourceIDs
+        self.directFileSourceIDs = directFileSourceIDs
+        self.manuallyReadableSourceIDs = manuallyReadableSourceIDs ?? backfillableSourceIDs
+        self.pooledHTTPRangeSourceIDs = pooledHTTPRangeSourceIDs
+        self.sourceFileName = sourceFileName
+        self.scrollActivityMonitor = .shared
+        let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+        let directory = storageDirectory ?? appSupport.appendingPathComponent("Primuse", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        self.failedURL = directory.appendingPathComponent("backfill-failed.json")
+        self.incompleteURL = directory.appendingPathComponent("backfill-incomplete.json")
+        self.sourceIssueURL = directory.appendingPathComponent("backfill-source-issues.json")
+        self.artworkGivenUpURL = directory.appendingPathComponent("backfill-artwork-givenup.json")
+        self.titleCheckedURL = directory.appendingPathComponent("backfill-title-checked.json")
+        self.albumArtistCheckedURL = directory.appendingPathComponent("backfill-album-artist-checked.json")
+        self.albumArtistRecheckedURL = directory.appendingPathComponent(
+            "backfill-album-artist-rechecked.json"
+        )
+        self.artistCheckedURL = directory.appendingPathComponent("backfill-artist-checked.json")
+        self.deferredRetryURL = directory.appendingPathComponent("backfill-deferred-retry.json")
+        self.diagnosticsURL = directory.appendingPathComponent("backfill-diagnostics.json")
+        self.retryCountsURL = directory.appendingPathComponent("backfill-retry-counts.json")
+        self.sourceRetryCountsURL = directory.appendingPathComponent("backfill-source-retry-counts.json")
+        self.queueStateURL = directory.appendingPathComponent("backfill-queue-state.json")
+        self.peerSeedStateURL = directory.appendingPathComponent("backfill-peer-seeds.json")
+        // 账存在哪:曲库带目录、而且旧 JSON 已经迁走(或者从来没有)时在目录;否则照旧在内存。
+        let legacyFilesExist = [
+            failedURL, incompleteURL, sourceIssueURL, artworkGivenUpURL, titleCheckedURL, albumArtistCheckedURL,
+            albumArtistRecheckedURL, artistCheckedURL, deferredRetryURL, diagnosticsURL, retryCountsURL,
+        ].contains { FileManager.default.fileExists(atPath: $0.path) }
+        let maintenance = MetadataBackfillMaintenanceStore(
+            storage: library.catalogHost != nil && !legacyFilesExist ? .catalog : .memory,
+            log: { plog($0) }
+        )
+        self.maintenance = maintenance
+        self.failedSongIDs = MetadataBackfillFlagSet(.failed, maintenance)
+        self.incompleteSongIDs = MetadataBackfillFlagSet(.incomplete, maintenance)
+        self.sourceIssueSongIDs = MetadataBackfillFlagSet(.sourceIssue, maintenance)
+        self.artworkGivenUpIDs = MetadataBackfillFlagSet(.artworkGivenUp, maintenance)
+        self.titleCheckedIDs = MetadataBackfillFlagSet(.titleChecked, maintenance)
+        self.albumArtistCheckedIDs = MetadataBackfillFlagSet(.albumArtistChecked, maintenance)
+        self.albumArtistRecheckedIDs = MetadataBackfillFlagSet(.albumArtistRechecked, maintenance)
+        self.albumArtistUnconfirmedIDs = MetadataBackfillFlagSet(.albumArtistUnconfirmed, maintenance)
+        self.artistCheckedIDs = MetadataBackfillFlagSet(.artistChecked, maintenance)
+        self.peerLyricsPendingIDs = MetadataBackfillFlagSet(.peerLyricsPending, maintenance)
+        self.deferredArtworkIDs = MetadataBackfillFlagSet(.deferredArtwork, maintenance)
+        self.playbackArtworkIDs = MetadataBackfillFlagSet(.playbackArtwork, maintenance)
+        self.sessionGivenUpIDs = MetadataBackfillFlagSet(.sessionGivenUp, maintenance)
+        self.sessionNetworkParkedIDs = MetadataBackfillFlagSet(.sessionNetworkParked, maintenance)
+        self.sessionStallParkedIDs = MetadataBackfillFlagSet(.sessionStallParked, maintenance)
+        self.transientFailureCounts = MetadataBackfillRetryCounts(store: maintenance)
+        self.diagnosticRecords = MetadataBackfillDiagnostics(store: maintenance)
+        self.deferredRetryMembership = MetadataBackfillDeferredRetries(maintenance)
+        let defaults = Self.queueDefaults
+        queueMutationGeneration = defaults.integer(
+            forKey: Self.queueMutationGenerationDefaultsKey
+        )
+        if let data = try? Data(contentsOf: queueStateURL),
+           let state = try? JSONDecoder().decode(QueueState.self, from: data) {
+            persistedQueueState = state
+            reconciledQueueGeneration = state.reconciledGeneration
+            queueNeedsRefresh = state.needsRefresh
+                || (defaults.object(forKey: Self.queueDirtyDefaultsKey) as? Bool ?? true)
+                || state.reconciledGeneration != queueMutationGeneration
+            cachedRemainingCount = state.remainingCount
+            cachedFailedCount = state.failedCount
+            cachedDeferredRetryCount = state.deferredRetryCount
+            cachedStatusCount = state.statusCount
+            remainingCountBySourceID = state.remainingCountBySourceID
+            deferredRetryCountBySourceID = state.deferredRetryCountBySourceID
+            statusCountBySourceID = state.statusCountBySourceID
+        }
+        if maintenance.storage == .memory {
+            loadPersistedIDSetCatalogs()
+        }
+        loadSourceRetryCounts()
+        loadPeerSeedState()
+
+        // S3: 这些一次性修复都要遍历 `library.songs`。库若尚未发布,
+        // 它们会在空库上把各自的 done-key 永久标记为完成。改由就绪回调驱动:
+        // 同步启动路径下库在 init 返回前已就绪, 回调立即执行, 顺序保持不变。
+        // 账在目录里时还要等接上目录:没接上之前看到的是空账。
+        library.onReady { [weak self] in
+            self?.whenMaintenanceStateReady { [weak self] in
+                self?.runOneTimeRepairsAfterLibraryReady()
+            }
+        }
+        observeMaintenanceCatalog()
+
+        // A re-scan that found a path with new bytes wipes the failed
+        // mark so backfill re-attempts the song with the fresh file. The
+        // song's metadata in the library is already reset to bare by
+        // `MusicLibrary.addSongs`, so `start()` will pick it up next pass.
+        readingConfigurationChanged()
+        configurationObservers = Self.observeReadingConfigurationChanges { [weak self] name in
+            guard let self else { return }
+            if name == UserDefaults.didChangeNotification {
+                let mode = MetadataReadingMode.resolve(
+                    storedValue: UserDefaults.standard.string(forKey: MetadataBackfillExecutionPolicy.readingModeDefaultsKey),
+                    legacyFastEnabled: UserDefaults.standard.bool(forKey: MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey)
+                )
+                guard mode != self.readingMode else { return }
+            }
+            self.readingConfigurationChanged()
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .primuseSongContentChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let songs = (note.userInfo?["songs"] as? [Song]) ?? []
+            guard !songs.isEmpty else { return }
+            MainActor.assumeIsolated {
+                let ids = Set(songs.map(\.id))
+                self.failedSongIDs.subtract(ids)
+                self.incompleteSongIDs.subtract(ids)
+                self.sourceIssueSongIDs.subtract(ids)
+                self.sessionGivenUpIDs.subtract(ids)
+                self.sessionNetworkParkedIDs.subtract(ids)
+                self.sessionStallParkedIDs.subtract(ids)
+                self.lastProcessedSnapshotIDs.subtract(ids)
+                self.mutateDeferredRetries { $0.subtract(ids) }
+                for id in ids { self.diagnosticRecords[id] = nil }
+                self.titleCheckedIDs.subtract(ids)
+                self.albumArtistCheckedIDs.subtract(ids)
+                self.albumArtistRecheckedIDs.subtract(ids)
+                self.artistCheckedIDs.subtract(ids)
+                self.forgetPeerSeedState(for: ids)
+                for id in ids { self.transientFailureCounts[id] = nil }
+                for sourceID in Set(songs.map(\.sourceID)) {
+                    self.sourceTransientFailureCounts[sourceID] = nil
+                }
+                self.saveFailed()
+                self.saveDeferredRetries()
+                self.saveDiagnostics()
+                self.saveInspectionState()
+                self.saveRetryCounts()
+                self.refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .primuseArtworkContentEvicted,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let refs = (note.userInfo?["refs"] as? Set<String>) ?? []
+            guard !refs.isEmpty else { return }
+            MainActor.assumeIsolated {
+                self.clearEvictedArtworkReferences(refs)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .primuseSourceDidSoftDelete,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self, let id = note.userInfo?["id"] as? String else { return }
+            MainActor.assumeIsolated {
+                self.discardWork(forSourceID: id)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .primuseSourceDidDelete,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self, let id = note.userInfo?["id"] as? String else { return }
+            MainActor.assumeIsolated {
+                self.discardWork(forSourceID: id)
+            }
+        }
+    }
+
+    deinit {
+        for observer in configurationObservers { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    /// A completed source scan proves that catalogue access has recovered and
+    /// may also have committed brand-new bare rows. If an older outage exhausted
+    /// the source-wide backfill circuit breaker, grant the unresolved rows one
+    /// fresh bounded retry budget. Every successful scan with eligible rows
+    /// refreshes the queue; an active iOS scene keeps running gentle serial
+    /// snapshots until the eligible queue drains or the scene changes.
+    @ObservationIgnored var automaticWorkIsAllowed: () -> Bool = { true }
+    @ObservationIgnored private let sourceRecoveryQueue = SourceMaintenanceQueue()
+    @ObservationIgnored private var scannerInspectionRecountTask: Task<Void, Never>?
+
+    @ObservationIgnored private var detailsStatusCells: [String: DetailsStatusCell] = [:]
+    @ObservationIgnored private var detailsStatusUseClock: UInt64 = 0
+    private static let detailsStatusCellLimit = 4000
+
+    @ObservationIgnored private var completedRemainingCounts: (RemainingCountsState, RemainingCountsComputation)?
+    @ObservationIgnored private var pendingRemainingCounts: (RemainingCountsState, Task<RemainingCountsComputation, Never>)?
+    @ObservationIgnored private(set) var remainingCountsComputationCount = 0
+
+    /// 修复一批历史行是一次性的活, 不需要实时性: 库内容没动就不重算, 动过
+    /// 也最多这个间隔算一次。扫描期间每 1.5 s 发布一次库, 跟着代次走会让整
+    /// 场扫描每轮都白折一遍全库。
+    private static let albumArtistVerdictInterval: TimeInterval = 300
+
+    // MARK: - Merged SYLT lyrics repair
+
+    private static let mergedLyricsRepairDoneKey = "primuse.lyrics.mergedSYLTRepair.v1"
+    private static let mergedLyricsRepairAttemptsKey = "primuse.lyrics.mergedSYLTRepair.attempts"
+    @ObservationIgnored private var mergedLyricsRepairTask: Task<Void, Never>?
+    @ObservationIgnored private var didAttemptMergedLyricsRepair = false
+
+    /// 分段读: 每段交给调度器的首数有上限。新并进来的歌下一段就能读到, 要借用这个源的
+    /// 文件夹重读或「恢复文件标签」最多等一段。
+    private static let userTagRereadChunkSize = 48
+
+    // MARK: - Worker
+
+    /// Flush cadence, batch size and worker count all come from
+    /// MetadataBackfillExecutionPolicy. Standard work retains the historical
+    /// three-worker throughput; iOS background modes are serial and throttled.
+    /// Hard cap for a single song's metadata backfill. Some SMB/NAS stacks can
+    /// leave a READ or AVFoundation metadata load suspended indefinitely for a
+    /// damaged or locked file. Let that file go and keep the queue moving.
+    private static let perSongTimeout: TimeInterval = 45
+    /// A manual reread may materialize and probe one complete file after the
+    /// bounded ranges prove insufficient.
+    private static let explicitRereadTimeout: TimeInterval = 180
+
+    /// 明确表示目标资源本身读不到的 HTTP 状态码。408 / 425 / 429 与 5xx 可以
+    /// 重试,401 / 403 多半是 token 或权限还没就绪,都不在其列。
+    private static let permanentAPIErrorCodes: Set<Int> = [
+        400, 404, 405, 410, 414, 415, 416, 451,
+    ]
+    @ObservationIgnored private var batchSelectionCursor = BatchSelectionCursor()
+
+    private nonisolated static let unknownPriority: Int8 = -2
+
+    nonisolated static let maintenanceChunkSize = 1_024
+
+    /// 远端只补读这么多音频帧:补零的 24 bit 立体声一帧十来 KB,够看二三十帧。
+    private nonisolated static let remoteFLACFrameInspectionByteCount = 384 * 1024
+}
+
+extension MetadataBackfillService {
+    private struct PeerCoverGroup: Codable, Sendable {
+        var representative: String?
+        var waiting: Set<String> = []
+        /// 代表读到的封面在本机的内容哈希。之后才进库的组员直接指过去。
+        var localContentKey: String?
+    }
+
+    private struct PeerSeedState: Codable, Sendable {
+        var coverGroups: [String: PeerCoverGroup]
+        var lyricsPending: [String]
+        var deferredArtwork: [String]?
+        var playbackArtwork: [String]?
+        var flacPictureHeaders: [String: Int]?
+    }
+
+    /// 只读投影, 让原有的读取点保持不变。
+    private var deferredRetrySongIDs: MetadataBackfillFlagSet {
+        deferredRetryMembership.songIDs
+    }
+
+    /// 所有集合改动都经由这里: 变化才发布, 未变化则连版本号都不动。
+    private func mutateDeferredRetries(
+        _ body: (inout MetadataBackfillDeferredRetries) -> Bool
+    ) {
+        guard body(&deferredRetryMembership) else { return }
+        deferredRetryRevision = deferredRetryMembership.revision
+    }
+    /// 迁移前的那些 JSON(迁进目录、确认落库后删掉)。
+    private var legacyMaintenanceURLs: [URL] {
+        [failedURL, incompleteURL, sourceIssueURL, artworkGivenUpURL, titleCheckedURL, albumArtistCheckedURL,
+         albumArtistRecheckedURL, artistCheckedURL, deferredRetryURL, diagnosticsURL, retryCountsURL]
+    }
+
+    /// Publish prompt visibility only on a real state transition. During a
+    /// connector scan `musicLibrary.songs.count` changes repeatedly and each
+    /// change calls `refreshQueue()` → `start()`. Assigning observable `true`
+    /// again for every batch makes SwiftUI treat one cellular pause as many
+    /// alert presentation events even though there is only one source.
+    private func setCellularPromptPresented(_ presented: Bool) {
+        guard pausedForCellular != presented else { return }
+        pausedForCellular = presented
+        if presented {
+            #if os(iOS)
+            AppAlertCoordinator.shared.enqueue(.cellularBackfill)
+            #endif
+        } else {
+            AppAlertCoordinator.shared.cancel(.cellularBackfill)
+        }
+    }
+
+    private struct QueueState: Codable, Equatable, Sendable {
+        let needsRefresh: Bool
+        let reconciledGeneration: Int
+        let remainingCount: Int
+        let failedCount: Int
+        let deferredRetryCount: Int
+        let statusCount: Int
+        let remainingCountBySourceID: [String: Int]
+        let deferredRetryCountBySourceID: [String: Int]
+        let statusCountBySourceID: [String: Int]
+    }
+    private struct PlaybackTagReadIdentity: Hashable, Sendable {
+        let songID: String
+        let sourceID: String
+        let filePath: String
+        let revision: String?
+        let fileSize: Int64
+
+        init(_ song: Song) {
+            songID = song.id
+            sourceID = song.sourceID
+            filePath = song.filePath
+            revision = song.revision
+            fileSize = song.fileSize
+        }
+    }
+    /// 整库对账要遍历全部歌曲, 只在发布前后才有新数可算, 所以节流窗口跟着
+    /// 发布节奏走而不是固定 5 秒 —— 固定窗口在低档位上会按更小的快照反复
+    /// 重扫整库, 恰好让档位越低开销越大。
+    private var remainingCountRefreshInterval: TimeInterval {
+        max(5, executionLimits.flushInterval)
+    }
     private var readCPUSampleWindow: MetadataReadCPUSampleWindow {
         .init(publishGeneration: libraryPublishGeneration, publishInFlight: libraryPublishDepth > 0)
     }
@@ -872,59 +1197,6 @@ final class MetadataBackfillService {
         }
     }
 
-    /// Session-scoped explicit user intent. Scene transitions may suspend the
-    /// worker, but returning active resumes this source until its normal queue
-    /// drains or the user taps Pause. A granted system continuation preserves
-    /// the selected speed while ordinary background windows remain gentler.
-    private(set) var userInitiatedSourceID: String?
-    /// Automatic foreground intent for the iOS sandbox import source. It
-    /// survives an active/inactive transition so a large import resumes from
-    /// the next bounded snapshot instead of stopping after the first 24 rows.
-    @ObservationIgnored private var automaticDeviceLocalSourceID: String?
-    @ObservationIgnored private var automaticForegroundSourceIDs: Set<String> = []
-    /// Source lifecycle notifications can arrive from the view, CloudKit and
-    /// the global cleanup coordinator almost simultaneously. Coalesce them so
-    /// removing several large sources scans the library once instead of once
-    /// per notification/source on the main actor.
-    @ObservationIgnored private var pendingDiscardSourceIDs: Set<String> = []
-    @ObservationIgnored private var discardWorkTask: Task<Void, Never>?
-    /// Exact session progress, kept non-observable so one completed network
-    /// request doesn't invalidate every view that observes this service.
-    @ObservationIgnored private var processedTotal: Int = 0
-    @ObservationIgnored private var processedCountPublishedAt = Date.distantPast
-    /// Debounced writer for the persisted metadata-state ID sets. Encoding and atomic
-    /// file replacement run off the main actor.
-    @ObservationIgnored private var statePersistenceTask: Task<Void, Never>?
-    @ObservationIgnored private var statePersistenceTaskID: UInt64 = 0
-    @ObservationIgnored private var statePersistenceDeadline: ContinuousClock.Instant?
-    private static let statePersistenceDebounce: Duration = .seconds(5)
-    /// Bumped on every `start()` / `stop()`. The worker captures its own
-    /// generation and uses it to decide whether the cleanup at end-of-Task
-    /// should clear shared state — without this, a cancelled-but-still-
-    /// finishing worker can wipe `worker`/`isRunning` set by a new `start()`
-    /// that ran between cancel and Task.value resumption.
-    @ObservationIgnored private var workerGeneration: Int = 0
-
-    /// 速率采样与平台无关 ── iOS 和 macOS 的读取都要能看到这行日志。
-    @ObservationIgnored private var throughputSampler = MetadataReadThroughputSampler()
-
-    /// Worker 持有的 UIBackgroundTask ID, app 切到后台时给 backfill ~30 秒额外
-    /// 收尾时间。worker 完成 / stop 时释放。expirationHandler 兜底 ── 系统提前
-    /// 回收时主动 stop, 不留半挂状态。
-    /// macOS 没有 UIBackgroundTask 机制 ── app 切后台就是后台进程, 不会被立即
-    /// 挂起, 所以这块代码用 `#if os(iOS)` 整体守卫。
-    #if os(iOS)
-    @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-    @ObservationIgnored private var backgroundAssertionGeneration: UUID?
-    @ObservationIgnored private var continuedProcessingSession: (any MetadataBackgroundContinuation)?
-    @ObservationIgnored private var systemProcessingSessions: Set<UUID> = []
-    @ObservationIgnored private var backgroundExecutionExpired = false
-    /// 状态页那批重读退到后台时, 把手上在读的几首读完用的后台时间。和上面回填自己的
-    /// 断言分开: 两边各自开始、各自交还, 谁到期都不连累另一边。
-    @ObservationIgnored private var tagRereadBackgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-    @ObservationIgnored private var tagRereadBackgroundGeneration: UUID?
-    #endif
-
     private var hasContinuedProcessingTime: Bool {
         #if os(iOS)
         continuedProcessingSession?.isGranted == true
@@ -1006,211 +1278,6 @@ final class MetadataBackfillService {
         continuedProcessingSession?.finish(success: success)
         continuedProcessingSession = nil
         #endif
-    }
-
-    init(
-        library: MusicLibrary,
-        sourceManager: SourceManager,
-        backfillableSourceIDs: @escaping () -> Set<String> = { [] },
-        bareOnlySourceIDs: @escaping () -> Set<String> = { [] },
-        containerCodecOnlySourceIDs: @escaping () -> Set<String> = { [] },
-        offlineReadableSourceIDs: @escaping () -> Set<String> = { [] },
-        localFileSourceIDs: @escaping () -> Set<String> = { [] },
-        directFileSourceIDs: @escaping () -> Set<String> = { [] },
-        manuallyReadableSourceIDs: (() -> Set<String>)? = nil,
-        pooledHTTPRangeSourceIDs: @escaping () -> Set<String> = { [] },
-        sourceFileName: @escaping (Song) -> String? = { _ in nil },
-        playbackIsActive: @escaping () -> Bool = { false },
-        playbackIsLoadingFromSource: @escaping (String) -> Bool = { _ in false },
-        storageDirectory: URL? = nil,
-        artworkStore: MetadataAssetStore = .shared
-    ) {
-        self.artworkStore = artworkStore
-        self.playbackIsActive = playbackIsActive
-        self.playbackIsLoadingFromSource = playbackIsLoadingFromSource
-        self.library = library
-        self.sourceManager = sourceManager
-        self.backfillableSourceIDs = backfillableSourceIDs
-        self.bareOnlySourceIDs = bareOnlySourceIDs
-        self.containerCodecOnlySourceIDs = containerCodecOnlySourceIDs
-        self.offlineReadableSourceIDs = offlineReadableSourceIDs
-        self.localFileSourceIDs = localFileSourceIDs
-        self.directFileSourceIDs = directFileSourceIDs
-        self.manuallyReadableSourceIDs = manuallyReadableSourceIDs ?? backfillableSourceIDs
-        self.pooledHTTPRangeSourceIDs = pooledHTTPRangeSourceIDs
-        self.sourceFileName = sourceFileName
-        self.scrollActivityMonitor = .shared
-        let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
-        let directory = storageDirectory ?? appSupport.appendingPathComponent("Primuse", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        self.failedURL = directory.appendingPathComponent("backfill-failed.json")
-        self.incompleteURL = directory.appendingPathComponent("backfill-incomplete.json")
-        self.sourceIssueURL = directory.appendingPathComponent("backfill-source-issues.json")
-        self.artworkGivenUpURL = directory.appendingPathComponent("backfill-artwork-givenup.json")
-        self.titleCheckedURL = directory.appendingPathComponent("backfill-title-checked.json")
-        self.albumArtistCheckedURL = directory.appendingPathComponent("backfill-album-artist-checked.json")
-        self.albumArtistRecheckedURL = directory.appendingPathComponent(
-            "backfill-album-artist-rechecked.json"
-        )
-        self.artistCheckedURL = directory.appendingPathComponent("backfill-artist-checked.json")
-        self.deferredRetryURL = directory.appendingPathComponent("backfill-deferred-retry.json")
-        self.diagnosticsURL = directory.appendingPathComponent("backfill-diagnostics.json")
-        self.retryCountsURL = directory.appendingPathComponent("backfill-retry-counts.json")
-        self.sourceRetryCountsURL = directory.appendingPathComponent("backfill-source-retry-counts.json")
-        self.queueStateURL = directory.appendingPathComponent("backfill-queue-state.json")
-        self.peerSeedStateURL = directory.appendingPathComponent("backfill-peer-seeds.json")
-        // 账存在哪:曲库带目录、而且旧 JSON 已经迁走(或者从来没有)时在目录;否则照旧在内存。
-        let legacyFilesExist = [
-            failedURL, incompleteURL, sourceIssueURL, artworkGivenUpURL, titleCheckedURL, albumArtistCheckedURL,
-            albumArtistRecheckedURL, artistCheckedURL, deferredRetryURL, diagnosticsURL, retryCountsURL,
-        ].contains { FileManager.default.fileExists(atPath: $0.path) }
-        let maintenance = MetadataBackfillMaintenanceStore(
-            storage: library.catalogHost != nil && !legacyFilesExist ? .catalog : .memory,
-            log: { plog($0) }
-        )
-        self.maintenance = maintenance
-        self.failedSongIDs = MetadataBackfillFlagSet(.failed, maintenance)
-        self.incompleteSongIDs = MetadataBackfillFlagSet(.incomplete, maintenance)
-        self.sourceIssueSongIDs = MetadataBackfillFlagSet(.sourceIssue, maintenance)
-        self.artworkGivenUpIDs = MetadataBackfillFlagSet(.artworkGivenUp, maintenance)
-        self.titleCheckedIDs = MetadataBackfillFlagSet(.titleChecked, maintenance)
-        self.albumArtistCheckedIDs = MetadataBackfillFlagSet(.albumArtistChecked, maintenance)
-        self.albumArtistRecheckedIDs = MetadataBackfillFlagSet(.albumArtistRechecked, maintenance)
-        self.albumArtistUnconfirmedIDs = MetadataBackfillFlagSet(.albumArtistUnconfirmed, maintenance)
-        self.artistCheckedIDs = MetadataBackfillFlagSet(.artistChecked, maintenance)
-        self.peerLyricsPendingIDs = MetadataBackfillFlagSet(.peerLyricsPending, maintenance)
-        self.deferredArtworkIDs = MetadataBackfillFlagSet(.deferredArtwork, maintenance)
-        self.playbackArtworkIDs = MetadataBackfillFlagSet(.playbackArtwork, maintenance)
-        self.sessionGivenUpIDs = MetadataBackfillFlagSet(.sessionGivenUp, maintenance)
-        self.sessionNetworkParkedIDs = MetadataBackfillFlagSet(.sessionNetworkParked, maintenance)
-        self.sessionStallParkedIDs = MetadataBackfillFlagSet(.sessionStallParked, maintenance)
-        self.transientFailureCounts = MetadataBackfillRetryCounts(store: maintenance)
-        self.diagnosticRecords = MetadataBackfillDiagnostics(store: maintenance)
-        self.deferredRetryMembership = MetadataBackfillDeferredRetries(maintenance)
-        let defaults = Self.queueDefaults
-        queueMutationGeneration = defaults.integer(
-            forKey: Self.queueMutationGenerationDefaultsKey
-        )
-        if let data = try? Data(contentsOf: queueStateURL),
-           let state = try? JSONDecoder().decode(QueueState.self, from: data) {
-            persistedQueueState = state
-            reconciledQueueGeneration = state.reconciledGeneration
-            queueNeedsRefresh = state.needsRefresh
-                || (defaults.object(forKey: Self.queueDirtyDefaultsKey) as? Bool ?? true)
-                || state.reconciledGeneration != queueMutationGeneration
-            cachedRemainingCount = state.remainingCount
-            cachedFailedCount = state.failedCount
-            cachedDeferredRetryCount = state.deferredRetryCount
-            cachedStatusCount = state.statusCount
-            remainingCountBySourceID = state.remainingCountBySourceID
-            deferredRetryCountBySourceID = state.deferredRetryCountBySourceID
-            statusCountBySourceID = state.statusCountBySourceID
-        }
-        if maintenance.storage == .memory {
-            loadPersistedIDSetCatalogs()
-        }
-        loadSourceRetryCounts()
-        loadPeerSeedState()
-
-        // S3: 这些一次性修复都要遍历 `library.songs`。库若尚未发布,
-        // 它们会在空库上把各自的 done-key 永久标记为完成。改由就绪回调驱动:
-        // 同步启动路径下库在 init 返回前已就绪, 回调立即执行, 顺序保持不变。
-        // 账在目录里时还要等接上目录:没接上之前看到的是空账。
-        library.onReady { [weak self] in
-            self?.whenMaintenanceStateReady { [weak self] in
-                self?.runOneTimeRepairsAfterLibraryReady()
-            }
-        }
-        observeMaintenanceCatalog()
-
-        // A re-scan that found a path with new bytes wipes the failed
-        // mark so backfill re-attempts the song with the fresh file. The
-        // song's metadata in the library is already reset to bare by
-        // `MusicLibrary.addSongs`, so `start()` will pick it up next pass.
-        readingConfigurationChanged()
-        configurationObservers = Self.observeReadingConfigurationChanges { [weak self] name in
-            guard let self else { return }
-            if name == UserDefaults.didChangeNotification {
-                let mode = MetadataReadingMode.resolve(
-                    storedValue: UserDefaults.standard.string(forKey: MetadataBackfillExecutionPolicy.readingModeDefaultsKey),
-                    legacyFastEnabled: UserDefaults.standard.bool(forKey: MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey)
-                )
-                guard mode != self.readingMode else { return }
-            }
-            self.readingConfigurationChanged()
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .primuseSongContentChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self else { return }
-            let songs = (note.userInfo?["songs"] as? [Song]) ?? []
-            guard !songs.isEmpty else { return }
-            MainActor.assumeIsolated {
-                let ids = Set(songs.map(\.id))
-                self.failedSongIDs.subtract(ids)
-                self.incompleteSongIDs.subtract(ids)
-                self.sourceIssueSongIDs.subtract(ids)
-                self.sessionGivenUpIDs.subtract(ids)
-                self.sessionNetworkParkedIDs.subtract(ids)
-                self.sessionStallParkedIDs.subtract(ids)
-                self.lastProcessedSnapshotIDs.subtract(ids)
-                self.mutateDeferredRetries { $0.subtract(ids) }
-                for id in ids { self.diagnosticRecords[id] = nil }
-                self.titleCheckedIDs.subtract(ids)
-                self.albumArtistCheckedIDs.subtract(ids)
-                self.albumArtistRecheckedIDs.subtract(ids)
-                self.artistCheckedIDs.subtract(ids)
-                self.forgetPeerSeedState(for: ids)
-                for id in ids { self.transientFailureCounts[id] = nil }
-                for sourceID in Set(songs.map(\.sourceID)) {
-                    self.sourceTransientFailureCounts[sourceID] = nil
-                }
-                self.saveFailed()
-                self.saveDeferredRetries()
-                self.saveDiagnostics()
-                self.saveInspectionState()
-                self.saveRetryCounts()
-                self.refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .primuseArtworkContentEvicted,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self else { return }
-            let refs = (note.userInfo?["refs"] as? Set<String>) ?? []
-            guard !refs.isEmpty else { return }
-            MainActor.assumeIsolated {
-                self.clearEvictedArtworkReferences(refs)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .primuseSourceDidSoftDelete,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self, let id = note.userInfo?["id"] as? String else { return }
-            MainActor.assumeIsolated {
-                self.discardWork(forSourceID: id)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .primuseSourceDidDelete,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self, let id = note.userInfo?["id"] as? String else { return }
-            MainActor.assumeIsolated {
-                self.discardWork(forSourceID: id)
-            }
-        }
     }
 
     /// 一次性修复 / 迁移。它们全部需要读取已发布的 `library.songs`,
@@ -1972,10 +2039,6 @@ final class MetadataBackfillService {
         }
     }
 
-    deinit {
-        for observer in configurationObservers { NotificationCenter.default.removeObserver(observer) }
-    }
-
     /// Changes future dispatch cadence without discarding queue state. Moving
     /// into real background playback also releases the short UIKit assertion
     /// so its expiration cannot stop an audio-backed execution window.
@@ -2389,15 +2452,6 @@ final class MetadataBackfillService {
         refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
     }
 
-    /// A completed source scan proves that catalogue access has recovered and
-    /// may also have committed brand-new bare rows. If an older outage exhausted
-    /// the source-wide backfill circuit breaker, grant the unresolved rows one
-    /// fresh bounded retry budget. Every successful scan with eligible rows
-    /// refreshes the queue; an active iOS scene keeps running gentle serial
-    /// snapshots until the eligible queue drains or the scene changes.
-    @ObservationIgnored var automaticWorkIsAllowed: () -> Bool = { true }
-    @ObservationIgnored private let sourceRecoveryQueue = SourceMaintenanceQueue()
-
     func sourceScanSucceeded(forSourceID sourceID: String) {
         batchSelectionCursor = BatchSelectionCursor()
         guard backfillableSourceIDs().contains(sourceID) else { return }
@@ -2736,7 +2790,6 @@ final class MetadataBackfillService {
             await self.refreshRemainingCountsOffMain(force: true)
         }
     }
-    @ObservationIgnored private var scannerInspectionRecountTask: Task<Void, Never>?
 
     /// True when the system background-processing window this service was
     /// running in has already expired, so the system is taking the execution
@@ -2966,10 +3019,6 @@ final class MetadataBackfillService {
         @ObservationIgnored fileprivate var lastUse: UInt64 = 0
     }
 
-    @ObservationIgnored private var detailsStatusCells: [String: DetailsStatusCell] = [:]
-    @ObservationIgnored private var detailsStatusUseClock: UInt64 = 0
-    private static let detailsStatusCellLimit = 4000
-
     func detailsState(for song: Song, isLocalSource: Bool) -> SongDetailsState {
         // The backing ID sets are intentionally observation-ignored: otherwise
         // completing one file invalidates every visible row that queried a
@@ -3178,10 +3227,6 @@ final class MetadataBackfillService {
         }
     }
 
-    @ObservationIgnored private var completedRemainingCounts: (RemainingCountsState, RemainingCountsComputation)?
-    @ObservationIgnored private var pendingRemainingCounts: (RemainingCountsState, Task<RemainingCountsComputation, Never>)?
-    @ObservationIgnored private(set) var remainingCountsComputationCount = 0
-
     private struct RemainingCountsComputation: Sendable {
         let remainingBySource: [String: Int]
         let deferredBySource: [String: Int]
@@ -3243,11 +3288,6 @@ final class MetadataBackfillService {
         completedRemainingCounts = (state, result)
         applyRemainingCounts(result)
     }
-
-    /// 修复一批历史行是一次性的活, 不需要实时性: 库内容没动就不重算, 动过
-    /// 也最多这个间隔算一次。扫描期间每 1.5 s 发布一次库, 跟着代次走会让整
-    /// 场扫描每轮都白折一遍全库。
-    private static let albumArtistVerdictInterval: TimeInterval = 300
 
     /// 整库才看得见同一目录里的兄弟文件, 所以「存着的专辑艺术家其实定不了
     /// 案」只能折一遍全库得出。放在后台执行器上算, 主 actor 只收结果。
@@ -3759,13 +3799,6 @@ final class MetadataBackfillService {
         refreshRemainingCounts(force: true)
         start()
     }
-
-    // MARK: - Merged SYLT lyrics repair
-
-    private static let mergedLyricsRepairDoneKey = "primuse.lyrics.mergedSYLTRepair.v1"
-    private static let mergedLyricsRepairAttemptsKey = "primuse.lyrics.mergedSYLTRepair.attempts"
-    @ObservationIgnored private var mergedLyricsRepairTask: Task<Void, Never>?
-    @ObservationIgnored private var didAttemptMergedLyricsRepair = false
 
     /// Builds 1.9.8 through 1.10.1 cached every embedded SYLT document as one
     /// word-timed line, and automatic writers never replace word-level lyrics
@@ -4540,10 +4573,6 @@ final class MetadataBackfillService {
         }
     }
 
-    /// 分段读: 每段交给调度器的首数有上限。新并进来的歌下一段就能读到, 要借用这个源的
-    /// 文件夹重读或「恢复文件标签」最多等一段。
-    private static let userTagRereadChunkSize = 48
-
     private func runUserTagReread(sourceID: String, generation: Int) async {
         // 这一趟占着源时的调度器; 段与段之间不放源, 有人请它让路时才放。
         var scheduler: MetadataReadScheduler<String, MetadataTagRereadBatch.Outcome>?
@@ -5019,19 +5048,6 @@ final class MetadataBackfillService {
                 ?? String(localized: "reread_song_tags_failure_no_update")
         )
     }
-
-    // MARK: - Worker
-
-    /// Flush cadence, batch size and worker count all come from
-    /// MetadataBackfillExecutionPolicy. Standard work retains the historical
-    /// three-worker throughput; iOS background modes are serial and throttled.
-    /// Hard cap for a single song's metadata backfill. Some SMB/NAS stacks can
-    /// leave a READ or AVFoundation metadata load suspended indefinitely for a
-    /// damaged or locked file. Let that file go and keep the queue moving.
-    private static let perSongTimeout: TimeInterval = 45
-    /// A manual reread may materialize and probe one complete file after the
-    /// bounded ranges prove insufficient.
-    private static let explicitRereadTimeout: TimeInterval = 180
     private func runWorker() async -> Bool {
         await inspectedArtworkDeferralTask?.value
         guard !Task.isCancelled else { return false }
@@ -5706,12 +5722,6 @@ final class MetadataBackfillService {
         cellularPromptDismissedThisSession = true
         setCellularPromptPresented(false)
     }
-
-    /// 明确表示目标资源本身读不到的 HTTP 状态码。408 / 425 / 429 与 5xx 可以
-    /// 重试,401 / 403 多半是 token 或权限还没就绪,都不在其列。
-    private static let permanentAPIErrorCodes: Set<Int> = [
-        400, 404, 405, 410, 414, 415, 416, 451,
-    ]
 
     /// 服务器不认 Range 的几种说法: 元数据读取对回 200 的尾部/远处读取直接拒绝
     /// (`suffixRangeUnsupported`)、网盘直链回 200 时的 apiError(200)、NAS/S3/媒体服务器
@@ -7849,7 +7859,6 @@ final class MetadataBackfillService {
         var disabledSourceIDs: Set<String> = []
         var songCount = 0
     }
-    @ObservationIgnored private var batchSelectionCursor = BatchSelectionCursor()
 
     nonisolated static func selectBatch(_ input: BatchSelectionInput) -> [Song] {
         var cursor = BatchSelectionCursor()
@@ -7916,8 +7925,6 @@ final class MetadataBackfillService {
         }
         return selection
     }
-
-    private nonisolated static let unknownPriority: Int8 = -2
 
     /// Selection and its cursor are prepared away from the UI actor. Each read rechecks the live row.
     private func pickNextBatchOffMain(
@@ -8102,8 +8109,6 @@ final class MetadataBackfillService {
         _ = drain()
     }
 
-    nonisolated static let maintenanceChunkSize = 1_024
-
     /// 一组 id 里记账满足条件的(按块取账)。
     nonisolated static func filterMaintenance(
         _ ids: Set<String>,
@@ -8251,9 +8256,6 @@ final class MetadataBackfillService {
             declaredBitDepth: declaredBitDepth
         )?.effectiveBitDepth
     }
-
-    /// 远端只补读这么多音频帧:补零的 24 bit 立体声一帧十来 KB,够看二三十帧。
-    private nonisolated static let remoteFLACFrameInspectionByteCount = 384 * 1024
 
     private nonisolated static func needsEmbeddedArtworkBackfill(_ song: Song) -> Bool {
         MetadataBackfillEligibilityPolicy.embeddedArtworkFormats.contains(song.fileFormat)

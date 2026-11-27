@@ -86,6 +86,115 @@ final class AppleMusicLibraryService {
     /// 跟「Apple Music 资料库」全集镜像并存, 同样受 sync 覆盖保护。
     nonisolated static let userPlaylistIDPrefix = AppleMusicLibraryIdentity.userPlaylistIDPrefix
 
+    private(set) var state: SyncState = .idle
+    /// 最近一次完成扫描的时间, 用于 UI 显示。
+    private(set) var lastSyncAt: Date?
+    private(set) var syncHistory: AppleMusicLibrarySyncHistory
+
+    private let library: MusicLibrary
+    private let appleMusic: AppleMusicService
+    @ObservationIgnored private let defaults: UserDefaults
+    private var syncTask: Task<Void, Never>?
+    @ObservationIgnored private var catalogSaveTasks: [String: Task<PrimuseKit.Song, Error>] = [:]
+    /// 点了喜欢、还在等同步进曲库的 Apple Music 目录歌（MusicKit 条目 ID）。红心先亮着，行到了再写进「我喜欢」。
+    private(set) var pendingLikedItemIDs: Set<String> = []
+    private var syncGeneration = UUID()
+    /// 进度看门狗用的时间戳 ── 每收到一页 user library / 处理完一个歌单就续期。
+    /// 看门狗只在「连续 stallTimeout 秒没有任何进度」时才判超时, 而不是给整个 sync
+    /// 一个固定总时限。大库 (几千首 + 几十个歌单, 多次网络往返) 只要还在持续推进就
+    /// 不会被误杀; 真正卡死 (网络挂起) 才会触发, 避免大库用户陷入永久"同步超时"循环。
+    private var lastSyncProgressAt: Date = .distantPast
+    /// 单步无进度的容忍窗口。一页 / 一个歌单的网络往返远小于这个值, 只有真卡住才会超。
+    private static let syncStallTimeout: TimeInterval = 30
+    /// in-memory cache: PrimuseKit.Song.filePath (= MusicItemID.rawValue)
+    /// → MusicKit.Song. sync 时填, play 时查 — 让 player.play(primuseSong)
+    /// 不用每次再发 catalog lookup。冷启动后 cache 空, miss 时回退到
+    /// MusicCatalogResourceRequest 拉一次。
+    private var songCache: [String: MusicKit.Song] = [:]
+    private var songArtworkCache: [String: SongArtworkSnapshot] = [:]
+    @ObservationIgnored private var songArtworkSnapshotGeneration: UInt64 = 0
+    @ObservationIgnored private var songArtworkItemGenerations: [String: UInt64] = [:]
+    /// Distinguishes a completed (possibly empty) library snapshot from a
+    /// one-off cold artwork lookup that happened to insert a single item.
+    private var hasCompletedLibrarySnapshot = false
+    /// Canonical user-library entries only. `songCache` may also contain
+    /// catalog-only tracks discovered through a playlist; using that mixed map
+    /// for identity resolution can accidentally prefer the transient catalog
+    /// object over its stable `i.*` library counterpart.
+    private var canonicalLibrarySongCache: [String: MusicKit.Song] = [:]
+    /// The MusicKit identity projection is intentionally updated only when the
+    /// canonical cache changes. Playlist reconciliation can then resolve each
+    /// relationship without JSON-decoding every library song again.
+    private var canonicalLibraryTrackIdentityIndex = AppleMusicTrackIdentityIndex()
+    /// 同一套索引，但建自曲库里存着的行(见 `librarySongIdentityIndex()`)。
+    @ObservationIgnored private var librarySongIdentityCache: (
+        generation: UInt64,
+        identities: [AppleMusicTrackIdentity],
+        index: AppleMusicTrackIdentityIndex
+    )?
+    /// MusicKit artwork objects cannot be reconstructed from their persisted
+    /// `musicKit://` URL. Keep the official playlist artwork beside the song
+    /// cache so the shared playlist resolver can render it with ArtworkImage.
+    private var playlistArtworkCache: [String: MusicKit.Artwork] = [:]
+    /// Music.app rows that the platform media library independently resolves
+    /// to readable, non-cloud, non-DRM assets. MusicKit may identify these rows
+    /// with a library ID, signed decimal persistent ID, or hexadecimal ID.
+    private var subscriptionIndependentLocalFileIDs: Set<String> = []
+    /// 媒体库里只在云端、不带版权保护的条目（下载下来就是本机文件），各种 ID 写法都收。
+    @ObservationIgnored private var downloadableCloudItemIDs: Set<String> = []
+    /// 最近一次完整同步里要订阅才能放的行（曲库歌曲 ID → 原因）。账号能放目录内容时为空；
+    /// 行仍留在曲库里，没订阅时列表置灰、播放跳过。
+    private(set) var playbackRestrictions: [String: AppleMusicPlaybackRestriction] = [:]
+    /// 其中属于资料库「歌曲」的条数，和「已同步 N 首」同一口径。
+    private(set) var restrictedLibrarySongCount = 0
+    /// Direct single-song playback can resolve a MusicKit row before the first
+    /// full sync. Load device provenance separately so that cold playback does
+    /// not classify an imported item with an empty trust set.
+    private var hasLoadedLocalFileProvenance = false
+    /// Imported files by persistent ID, refreshed together with provenance.
+    /// MusicKit knows nothing about their lyrics or audio properties.
+    @ObservationIgnored private var localFiles: [UInt64: AppleMusicLocalFile] = [:]
+    @ObservationIgnored private var localFileMatchIndex = AppleMusicLocalFileMatchIndex()
+    /// Library rows matched to an imported file during the last sync.
+    @ObservationIgnored private var localFileIDsBySongID: [String: UInt64] = [:]
+    @ObservationIgnored private let localFileDetailsStore = AppleMusicLocalFileDetailsStore()
+    /// Probed details, loaded from disk with the first provenance refresh.
+    @ObservationIgnored private var localFileDetails: [UInt64: AppleMusicLocalFileDetails] = [:]
+    @ObservationIgnored private var hasLoadedLocalFileDetails = false
+    @ObservationIgnored private var localFileProbeTask: Task<Void, Never>?
+
+    @ObservationIgnored private var subscriptionUpdatesTask: Task<Void, Never>?
+    @ObservationIgnored private var deviceLibraryUpdatesTask: Task<Void, Never>?
+    @ObservationIgnored private var deviceLibraryRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var isRefreshingAccess = false
+    private var lastAccess: AppleMusicLibraryAccess?
+    @ObservationIgnored private var lastSyncedDeviceLibraryModificationDate: Date?
+    private static let syncedStorefrontKey = "primuse.appleMusic.syncedStorefront"
+
+    deinit {
+        subscriptionUpdatesTask?.cancel()
+        deviceLibraryUpdatesTask?.cancel()
+        deviceLibraryRefreshTask?.cancel()
+        localFileProbeTask?.cancel()
+    }
+
+    init(library: MusicLibrary, appleMusic: AppleMusicService, defaults: UserDefaults = .standard) {
+        self.library = library
+        self.appleMusic = appleMusic
+        self.defaults = defaults
+        syncHistory = AppleMusicLibrarySyncHistory.load(from: defaults)
+        if library.appleMusicSourceInstalled, let at = syncHistory.completedAt {
+            lastSyncAt = at
+            state = .done(songCount: syncHistory.songCount, at: at)
+        }
+    }
+
+    private static let dislikedCatalogIDsKey = "primuse.appleMusic.dislikedCatalogIDs"
+
+    private nonisolated static let importedArtworkPixels = 1024
+}
+
+extension AppleMusicLibraryService {
     /// 是否任意 Apple Music 镜像歌单 (全集 / 用户自建)。给 UI 用来决定要不要
     /// 禁删 / 禁移除单曲。
     nonisolated static func isAppleMusicMirrorPlaylist(_ playlistID: String) -> Bool {
@@ -157,32 +266,6 @@ final class AppleMusicLibraryService {
         case done(songCount: Int, at: Date)
         case failed(String)
     }
-
-    private(set) var state: SyncState = .idle
-    /// 最近一次完成扫描的时间, 用于 UI 显示。
-    private(set) var lastSyncAt: Date?
-    private(set) var syncHistory: AppleMusicLibrarySyncHistory
-
-    private let library: MusicLibrary
-    private let appleMusic: AppleMusicService
-    @ObservationIgnored private let defaults: UserDefaults
-    private var syncTask: Task<Void, Never>?
-    @ObservationIgnored private var catalogSaveTasks: [String: Task<PrimuseKit.Song, Error>] = [:]
-    /// 点了喜欢、还在等同步进曲库的 Apple Music 目录歌（MusicKit 条目 ID）。红心先亮着，行到了再写进「我喜欢」。
-    private(set) var pendingLikedItemIDs: Set<String> = []
-    private var syncGeneration = UUID()
-    /// 进度看门狗用的时间戳 ── 每收到一页 user library / 处理完一个歌单就续期。
-    /// 看门狗只在「连续 stallTimeout 秒没有任何进度」时才判超时, 而不是给整个 sync
-    /// 一个固定总时限。大库 (几千首 + 几十个歌单, 多次网络往返) 只要还在持续推进就
-    /// 不会被误杀; 真正卡死 (网络挂起) 才会触发, 避免大库用户陷入永久"同步超时"循环。
-    private var lastSyncProgressAt: Date = .distantPast
-    /// 单步无进度的容忍窗口。一页 / 一个歌单的网络往返远小于这个值, 只有真卡住才会超。
-    private static let syncStallTimeout: TimeInterval = 30
-    /// in-memory cache: PrimuseKit.Song.filePath (= MusicItemID.rawValue)
-    /// → MusicKit.Song. sync 时填, play 时查 — 让 player.play(primuseSong)
-    /// 不用每次再发 catalog lookup。冷启动后 cache 空, miss 时回退到
-    /// MusicCatalogResourceRequest 拉一次。
-    private var songCache: [String: MusicKit.Song] = [:]
     private struct SongArtworkSnapshot: Sendable {
         let artwork: MusicKit.Artwork?
     }
@@ -191,65 +274,6 @@ final class AppleMusicLibraryService {
         let identity: AppleMusicTrackIdentity?
         let artwork: SongArtworkSnapshot
     }
-    private var songArtworkCache: [String: SongArtworkSnapshot] = [:]
-    @ObservationIgnored private var songArtworkSnapshotGeneration: UInt64 = 0
-    @ObservationIgnored private var songArtworkItemGenerations: [String: UInt64] = [:]
-    /// Distinguishes a completed (possibly empty) library snapshot from a
-    /// one-off cold artwork lookup that happened to insert a single item.
-    private var hasCompletedLibrarySnapshot = false
-    /// Canonical user-library entries only. `songCache` may also contain
-    /// catalog-only tracks discovered through a playlist; using that mixed map
-    /// for identity resolution can accidentally prefer the transient catalog
-    /// object over its stable `i.*` library counterpart.
-    private var canonicalLibrarySongCache: [String: MusicKit.Song] = [:]
-    /// The MusicKit identity projection is intentionally updated only when the
-    /// canonical cache changes. Playlist reconciliation can then resolve each
-    /// relationship without JSON-decoding every library song again.
-    private var canonicalLibraryTrackIdentityIndex = AppleMusicTrackIdentityIndex()
-    /// 同一套索引，但建自曲库里存着的行(见 `librarySongIdentityIndex()`)。
-    @ObservationIgnored private var librarySongIdentityCache: (
-        generation: UInt64,
-        identities: [AppleMusicTrackIdentity],
-        index: AppleMusicTrackIdentityIndex
-    )?
-    /// MusicKit artwork objects cannot be reconstructed from their persisted
-    /// `musicKit://` URL. Keep the official playlist artwork beside the song
-    /// cache so the shared playlist resolver can render it with ArtworkImage.
-    private var playlistArtworkCache: [String: MusicKit.Artwork] = [:]
-    /// Music.app rows that the platform media library independently resolves
-    /// to readable, non-cloud, non-DRM assets. MusicKit may identify these rows
-    /// with a library ID, signed decimal persistent ID, or hexadecimal ID.
-    private var subscriptionIndependentLocalFileIDs: Set<String> = []
-    /// 媒体库里只在云端、不带版权保护的条目（下载下来就是本机文件），各种 ID 写法都收。
-    @ObservationIgnored private var downloadableCloudItemIDs: Set<String> = []
-    /// 最近一次完整同步里要订阅才能放的行（曲库歌曲 ID → 原因）。账号能放目录内容时为空；
-    /// 行仍留在曲库里，没订阅时列表置灰、播放跳过。
-    private(set) var playbackRestrictions: [String: AppleMusicPlaybackRestriction] = [:]
-    /// 其中属于资料库「歌曲」的条数，和「已同步 N 首」同一口径。
-    private(set) var restrictedLibrarySongCount = 0
-    /// Direct single-song playback can resolve a MusicKit row before the first
-    /// full sync. Load device provenance separately so that cold playback does
-    /// not classify an imported item with an empty trust set.
-    private var hasLoadedLocalFileProvenance = false
-    /// Imported files by persistent ID, refreshed together with provenance.
-    /// MusicKit knows nothing about their lyrics or audio properties.
-    @ObservationIgnored private var localFiles: [UInt64: AppleMusicLocalFile] = [:]
-    @ObservationIgnored private var localFileMatchIndex = AppleMusicLocalFileMatchIndex()
-    /// Library rows matched to an imported file during the last sync.
-    @ObservationIgnored private var localFileIDsBySongID: [String: UInt64] = [:]
-    @ObservationIgnored private let localFileDetailsStore = AppleMusicLocalFileDetailsStore()
-    /// Probed details, loaded from disk with the first provenance refresh.
-    @ObservationIgnored private var localFileDetails: [UInt64: AppleMusicLocalFileDetails] = [:]
-    @ObservationIgnored private var hasLoadedLocalFileDetails = false
-    @ObservationIgnored private var localFileProbeTask: Task<Void, Never>?
-
-    @ObservationIgnored private var subscriptionUpdatesTask: Task<Void, Never>?
-    @ObservationIgnored private var deviceLibraryUpdatesTask: Task<Void, Never>?
-    @ObservationIgnored private var deviceLibraryRefreshTask: Task<Void, Never>?
-    @ObservationIgnored private var isRefreshingAccess = false
-    private var lastAccess: AppleMusicLibraryAccess?
-    @ObservationIgnored private var lastSyncedDeviceLibraryModificationDate: Date?
-    private static let syncedStorefrontKey = "primuse.appleMusic.syncedStorefront"
 
     private static var usesCompleteDeviceLibrary: Bool {
         #if os(iOS)
@@ -358,24 +382,6 @@ final class AppleMusicLibraryService {
         localFileProbeTask = nil
         localFileIDsBySongID.removeAll()
         replaceLocalFiles([])
-    }
-
-    deinit {
-        subscriptionUpdatesTask?.cancel()
-        deviceLibraryUpdatesTask?.cancel()
-        deviceLibraryRefreshTask?.cancel()
-        localFileProbeTask?.cancel()
-    }
-
-    init(library: MusicLibrary, appleMusic: AppleMusicService, defaults: UserDefaults = .standard) {
-        self.library = library
-        self.appleMusic = appleMusic
-        self.defaults = defaults
-        syncHistory = AppleMusicLibrarySyncHistory.load(from: defaults)
-        if library.appleMusicSourceInstalled, let at = syncHistory.completedAt {
-            lastSyncAt = at
-            state = .done(songCount: syncHistory.songCount, at: at)
-        }
     }
 
     /// 启动一次完整拉取。不持有任何分页 cursor — Apple Music user library 量
@@ -1005,8 +1011,6 @@ final class AppleMusicLibraryService {
         return try await addCatalogSongToLibrary(catalog)
     }
 
-    private static let dislikedCatalogIDsKey = "primuse.appleMusic.dislikedCatalogIDs"
-
     var dislikedCatalogIDs: Set<String> {
         Set(defaults.stringArray(forKey: Self.dislikedCatalogIDsKey) ?? [])
     }
@@ -1336,8 +1340,6 @@ final class AppleMusicLibraryService {
         _ = await MetadataAssetStore.shared.cacheCover(data, forSongID: cacheKey)
         return data
     }
-
-    private nonisolated static let importedArtworkPixels = 1024
 
     /// 跟按歌曲 id 存的封面分开放, 不和别的路径写的镜像混在一起。
     nonisolated static func importedArtworkCacheKey(songID: String) -> String {

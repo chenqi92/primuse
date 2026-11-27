@@ -59,7 +59,6 @@ enum TVPlaybackCommandRoutingPolicy {
 @MainActor
 @Observable
 final class TVAudioEngine {
-    enum Status: Equatable { case idle, loading, playing, paused, failed(String) }
 
     private(set) var status: Status = .idle
     private(set) var isPlaying = false {
@@ -98,18 +97,9 @@ final class TVAudioEngine {
         repeating: 0,
         count: TVSpectrumConfiguration.bandCount
     )
-    var displayPlayer: AVPlayer { player }
 
     /// 挂频谱时发现没有音轨可读的那一项(部分直播流)。只对眼前这一项有效。
     private var spectrumUnavailableItemID: ObjectIdentifier?
-
-    /// 眼前这首拿不到声音数据:Apple Music 交给系统播放器、MV、读不到音轨的直播流。
-    /// 全屏页据此写明跟着声音动的效果为什么停着。
-    var isSpectrumSourceUnavailable: Bool {
-        if isExternallyDriven || isVideoMode { return true }
-        guard let spectrumUnavailableItemID, !usingSFB else { return false }
-        return spectrumUnavailableItemID == activeItemID
-    }
 
     // MARK: 外部播放器接管(Apple Music)
 
@@ -121,123 +111,12 @@ final class TVAudioEngine {
     /// 进度条、逐字歌词、正在播放页都不必知道换了播放器。
     private(set) var isExternallyDriven = false
 
-    /// 外部驱动时的传输控制,由接管的播放器安装。装上之后 `pause()` / `play()` /
-    /// `seek(to:)` 一律转交出去 —— 这样界面与遥控中心的调用点一个都不用改。
-    struct ExternalTransport {
-        let pause: @MainActor () -> Void
-        let resume: @MainActor () -> Void
-        let seek: @MainActor (Double) -> Void
-        /// 引擎被停下时一并放下外部播放器。任何调用 `stop()` 的路径都会走到这里,
-        /// 所以不会出现「引擎以为自己停了、系统播放器还在出声」。
-        let stop: @MainActor () -> Void
-    }
-
     @ObservationIgnored private var externalTransport: ExternalTransport?
     @ObservationIgnored private var externalOwnsAudioSession = false
-
-    /// 交出音频会话并进入外部驱动模式。调用方随后用 `updateExternalPlayback`
-    /// 把系统播放器的状态回灌进来。
-    func beginExternalPlayback(duration: Double, transport: ExternalTransport, ownsAudioSession: Bool = false) {
-        stop()
-        isExternallyDriven = true
-        externalTransport = transport
-        externalOwnsAudioSession = ownsAudioSession
-        isLiveStream = false
-        isVideoMode = false
-        self.duration = duration.isFinite && duration > 0 ? duration : 0
-        currentTime = 0
-        isPlaying = false
-        status = .loading
-        resetSpectrumLevels()
-        if ownsAudioSession { activateAudioSession() }
-    }
-
-    /// 回灌系统播放器的状态。`currentTime` 的 `didSet` 会顺带刷新外推锚点,
-    /// 所以逐字歌词在外部驱动下同样按帧推进。
-    func updateExternalPlayback(currentTime: Double, duration: Double?, isPlaying: Bool,
-                                status externalStatus: Status? = nil, spectrum: [Float]? = nil) {
-        guard isExternallyDriven else { return }
-        let previousSecond = Int(self.currentTime)
-        let previousStatus = status
-        if let duration, duration.isFinite, duration > 0, duration != self.duration {
-            self.duration = duration
-        }
-        if currentTime.isFinite, currentTime >= 0,
-           abs(currentTime - self.currentTime) >= 0.02 || (!isPlaying && currentTime != self.currentTime) {
-            self.currentTime = currentTime
-        }
-        if self.isPlaying != isPlaying { self.isPlaying = isPlaying }
-        let resolved: Status = externalStatus ?? (isPlaying ? .playing : .paused)
-        if status != resolved { status = resolved }
-        if spectrumAnalysisEnabled, let spectrum { publishSpectrumLevels(spectrum) }
-        if externalStatus != nil, previousSecond != Int(self.currentTime) || previousStatus != status {
-            updateNowPlayingInfo()
-        }
-    }
-
-    /// 外部播放器把整条队列放完了。走引擎自己的结束回调,队列推进逻辑与本机播放同一条。
-    func externalPlaybackDidEnd() {
-        guard isExternallyDriven else { return }
-        isPlaying = false
-        status = .paused
-        onEnded?()
-    }
-
-    func failExternalPlayback(_ message: String) {
-        guard isExternallyDriven else { return }
-        isPlaying = false
-        status = .failed(message)
-    }
-
-    /// 退出外部驱动模式。`stop()` 自己会放下外部播放器并把状态清回 idle。
-    func endExternalPlayback() {
-        guard isExternallyDriven else { return }
-        stop()
-    }
-
-    /// 把两次时间回调之间的空档按墙上时钟补出来,供逐字歌词这种需要按帧推进的
-    /// 绘制使用。外推量由 `PlaybackClockFreezePolicy` 限幅(最多 1 秒),暂停、
-    /// 缓冲或播放结束时自动停在最后一个真实时间上,不会越跑越远。
-    func interpolatedTime(at date: Date = Date()) -> TimeInterval {
-        let advanced = PlaybackClockFreezePolicy.frozenTime(
-            cachedCurrentTime: currentTime,
-            currentTimeAnchor: currentTimeAnchor,
-            eventTime: date,
-            isAdvancing: isPlaying && status != .loading,
-            duration: 0
-        )
-        let time = currentTime + (advanced - currentTime) * effectivePlaybackRate
-        return !isLiveStream && duration > 0 ? min(time, duration) : time
-    }
 
     private(set) var karaokePracticeRate: Double = 1
     /// 有声内容的语速(0.5–2)。由 TVStore 按正在播的这本书设置,音乐为 1。
     private(set) var spokenWordRate: Double = 1
-    var supportsKaraokePractice: Bool {
-        !isExternallyDriven && !isLiveStream && !usingSFB && !usingLivePCM
-    }
-    /// 能不能变速:AVPlayer 用自带的变速,SFB / FFmpeg 解码的文件经 `TVSFBEngine` 里的变速单元;
-    /// 直播与外部驱动(AirPlay 接管)按 1× 播。
-    var supportsPlaybackRate: Bool { !isExternallyDriven && !isLiveStream && !usingLivePCM }
-    private var effectivePlaybackRate: Double {
-        guard supportsPlaybackRate else { return 1 }
-        if usingSFB { return spokenWordRate }
-        // 卡拉OK练习与听书不会同时发生;练习速度在用时优先。
-        return karaokePracticeRate != 1 ? karaokePracticeRate : spokenWordRate
-    }
-
-    func setSpokenWordRate(_ rate: Double) {
-        let clamped = rate.isFinite ? min(2, max(0.5, rate)) : 1
-        guard clamped != spokenWordRate else { return }
-        currentTime = interpolatedTime()
-        spokenWordRate = clamped
-        // SFB 那边的变速单元每换一个文件都要重建,速度记在它自己那里,换文件后照样生效。
-        sfb.setPlaybackRate(Float(clamped))
-        player.defaultRate = Float(effectivePlaybackRate)
-        player.currentItem?.audioTimePitchAlgorithm = .timeDomain
-        if isPlaying, supportsKaraokePractice { player.rate = Float(effectivePlaybackRate) }
-        updateNowPlayingInfo()
-    }
 
     // MARK: 章节标记(有声内容)
 
@@ -247,86 +126,8 @@ final class TVAudioEngine {
     @ObservationIgnored var wantsChapters = false
     @ObservationIgnored private var chapterTask: Task<Void, Never>?
 
-    /// AVPlayer 路径:从资产里读章节元数据。经 resource loader 按需取 moov 所在的那几段,
-    /// 不会为此把整本书下载下来(与 iPhone 读本机文件得到的是同一份章节)。
-    private func loadChapters(from asset: AVAsset, expectedItemID: ObjectIdentifier) {
-        chapterTask?.cancel()
-        chapters = []
-        // 只有有声内容要章节;当节目听的视频(#365)放画面时照样读。
-        guard wantsChapters, playbackSegment.physicalStart == 0 else { return }
-        // AVAsset 的 async load 接口本身是线程安全的,只是类型没标 Sendable。
-        nonisolated(unsafe) let chapterAsset = asset
-        chapterTask = Task { [weak self] in
-            let found = await Self.readChapters(from: chapterAsset)
-            guard !Task.isCancelled, let self, self.activeItemID == expectedItemID else { return }
-            self.applyChapters(found)
-        }
-    }
-
-    /// 在主线程之外读章节,只把 `MediaChapter` 交回来。
-    nonisolated private static func readChapters(from asset: AVAsset) async -> [MediaChapter] {
-        let groups = (try? await asset.loadChapterMetadataGroups(
-            bestMatchingPreferredLanguages: Locale.preferredLanguages
-        )) ?? []
-        var result: [MediaChapter] = []
-        for (index, group) in groups.enumerated() {
-            let start = group.timeRange.start.seconds
-            guard start.isFinite, start >= 0 else { continue }
-            var title = ""
-            if let item = AVMetadataItem.metadataItems(
-                from: group.items,
-                filteredByIdentifier: .commonIdentifierTitle
-            ).first {
-                title = (try? await item.load(.stringValue)) ?? ""
-            }
-            result.append(MediaChapter(startTime: start, title: title.isEmpty ? String(index + 1) : title))
-        }
-        return result
-    }
-
-    /// SFB / FFmpeg 路径:文件已经下到本地,直接解析 ISO base media 的章节。
-    private func loadChapters(fromLocalFile url: URL) {
-        chapterTask?.cancel()
-        chapters = []
-        guard wantsChapters,
-              ["m4a", "m4b", "mp4", "m4v", "mov", "alac"].contains(url.pathExtension.lowercased()) else { return }
-        chapterTask = Task { [weak self] in
-            let parsed = await Task.detached(priority: .utility) { () -> [MediaChapter] in
-                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return [] }
-                return ISOBaseMediaChapterParser.chapters(in: data)
-            }.value
-            guard !Task.isCancelled, let self, self.decodedTemporaryFileURL == url else { return }
-            self.applyChapters(parsed)
-        }
-    }
-
-    private func applyChapters(_ found: [MediaChapter]) {
-        let sorted = found.sorted { $0.startTime < $1.startTime }
-        chapters = sorted.count > 1 ? sorted : []
-        if !chapters.isEmpty {
-            plog("📺 TV chapters: \(chapters.count) marks")
-        }
-    }
-
-    func setKaraokePracticeRate(_ rate: Double) {
-        let clamped = rate.isFinite ? min(1, max(0.5, rate)) : 1
-        guard clamped != karaokePracticeRate else { return }
-        currentTime = interpolatedTime()
-        karaokePracticeRate = clamped
-        player.defaultRate = Float(effectivePlaybackRate)
-        player.currentItem?.audioTimePitchAlgorithm = .timeDomain
-        if isPlaying, supportsKaraokePractice { player.rate = Float(effectivePlaybackRate) }
-        updateNowPlayingInfo()
-    }
-
     /// A practice loop can consume the natural end before queue advancement.
     @ObservationIgnored var karaokeLoopStartAtEnd: (() -> TimeInterval?)?
-
-    private func restartKaraokeLoopAtEnd() -> Bool {
-        guard supportsKaraokePractice, let start = karaokeLoopStartAtEnd?() else { return false }
-        startPlayback(at: start, autoPlay: true, forceSeek: true)
-        return true
-    }
 
     /// 一曲播完回调(队列推进用;Phase 1 可空)。
     var onEnded: (() -> Void)?
@@ -410,26 +211,8 @@ final class TVAudioEngine {
     /// The karaoke processor sits in the playing item's tap. False on the
     /// SFB / live PCM paths, which karaoke does not cover.
     private(set) var isKaraokeTapInstalled = false
-
-    /// Where the playing song starts inside its file: a CUE track's start,
-    /// 0 for an ordinary file. The karaoke tap sees file time.
-    var playbackPhysicalStart: TimeInterval { playbackSegment.physicalStart }
     @ObservationIgnored private var remotePreviousTrackCommandEnabled = false
     @ObservationIgnored private var remoteNextTrackCommandEnabled = false
-
-    private struct LiveRequest: Sendable {
-        let id: UUID
-        let url: URL
-        let headers: [String: String]
-        /// 电台改名时就地更新(`updateLiveTitle`),断线重连沿用新名字。
-        var title: String
-        let subtitle: String
-        let format: String
-        let streamFormat: RadioStreamFormat
-        /// 源内电台的流地址由音乐源解析出来,可能带鉴权头、也可能落在自签证书
-        /// 的私有主机上,只有这类才需要自定义 scheme 的 resource loader。
-        let isSourceBacked: Bool
-    }
     private var liveRequest: LiveRequest?
 
     // 非原生格式(APE/WavPack/DSD 等 AVPlayer 解不了的)走 SFBAudioEngine。两引擎并列,
@@ -484,6 +267,238 @@ final class TVAudioEngine {
             setupAudioSessionObservers()
             setupRemoteCommands()
         }
+    }
+
+    /// 设置里「匹配歌曲采样率」的开关,只存在这台 Apple TV 上。
+    static let matchSongSampleRateKey = "tv.playback.matchSongSampleRate"
+    /// 上一次替歌曲请求的输出采样率;nil 表示没请求过,会话保持系统默认。
+    @ObservationIgnored private var requestedOutputSampleRate: Double?
+
+    /// 暂停后等一会儿再到后台队列停用:很快又按播放就不用停,遥控器的暂停键也不再等这次调用。
+    private static let pausedSessionDeactivationDelay: Duration = .seconds(2)
+
+    // MARK: 载入 / 传输
+
+    var downloadProgress: Double?
+}
+
+extension TVAudioEngine {
+    enum Status: Equatable { case idle, loading, playing, paused, failed(String) }
+    var displayPlayer: AVPlayer { player }
+
+    /// 眼前这首拿不到声音数据:Apple Music 交给系统播放器、MV、读不到音轨的直播流。
+    /// 全屏页据此写明跟着声音动的效果为什么停着。
+    var isSpectrumSourceUnavailable: Bool {
+        if isExternallyDriven || isVideoMode { return true }
+        guard let spectrumUnavailableItemID, !usingSFB else { return false }
+        return spectrumUnavailableItemID == activeItemID
+    }
+
+    /// 外部驱动时的传输控制,由接管的播放器安装。装上之后 `pause()` / `play()` /
+    /// `seek(to:)` 一律转交出去 —— 这样界面与遥控中心的调用点一个都不用改。
+    struct ExternalTransport {
+        let pause: @MainActor () -> Void
+        let resume: @MainActor () -> Void
+        let seek: @MainActor (Double) -> Void
+        /// 引擎被停下时一并放下外部播放器。任何调用 `stop()` 的路径都会走到这里,
+        /// 所以不会出现「引擎以为自己停了、系统播放器还在出声」。
+        let stop: @MainActor () -> Void
+    }
+
+    /// 交出音频会话并进入外部驱动模式。调用方随后用 `updateExternalPlayback`
+    /// 把系统播放器的状态回灌进来。
+    func beginExternalPlayback(duration: Double, transport: ExternalTransport, ownsAudioSession: Bool = false) {
+        stop()
+        isExternallyDriven = true
+        externalTransport = transport
+        externalOwnsAudioSession = ownsAudioSession
+        isLiveStream = false
+        isVideoMode = false
+        self.duration = duration.isFinite && duration > 0 ? duration : 0
+        currentTime = 0
+        isPlaying = false
+        status = .loading
+        resetSpectrumLevels()
+        if ownsAudioSession { activateAudioSession() }
+    }
+
+    /// 回灌系统播放器的状态。`currentTime` 的 `didSet` 会顺带刷新外推锚点,
+    /// 所以逐字歌词在外部驱动下同样按帧推进。
+    func updateExternalPlayback(currentTime: Double, duration: Double?, isPlaying: Bool,
+                                status externalStatus: Status? = nil, spectrum: [Float]? = nil) {
+        guard isExternallyDriven else { return }
+        let previousSecond = Int(self.currentTime)
+        let previousStatus = status
+        if let duration, duration.isFinite, duration > 0, duration != self.duration {
+            self.duration = duration
+        }
+        if currentTime.isFinite, currentTime >= 0,
+           abs(currentTime - self.currentTime) >= 0.02 || (!isPlaying && currentTime != self.currentTime) {
+            self.currentTime = currentTime
+        }
+        if self.isPlaying != isPlaying { self.isPlaying = isPlaying }
+        let resolved: Status = externalStatus ?? (isPlaying ? .playing : .paused)
+        if status != resolved { status = resolved }
+        if spectrumAnalysisEnabled, let spectrum { publishSpectrumLevels(spectrum) }
+        if externalStatus != nil, previousSecond != Int(self.currentTime) || previousStatus != status {
+            updateNowPlayingInfo()
+        }
+    }
+
+    /// 外部播放器把整条队列放完了。走引擎自己的结束回调,队列推进逻辑与本机播放同一条。
+    func externalPlaybackDidEnd() {
+        guard isExternallyDriven else { return }
+        isPlaying = false
+        status = .paused
+        onEnded?()
+    }
+
+    func failExternalPlayback(_ message: String) {
+        guard isExternallyDriven else { return }
+        isPlaying = false
+        status = .failed(message)
+    }
+
+    /// 退出外部驱动模式。`stop()` 自己会放下外部播放器并把状态清回 idle。
+    func endExternalPlayback() {
+        guard isExternallyDriven else { return }
+        stop()
+    }
+
+    /// 把两次时间回调之间的空档按墙上时钟补出来,供逐字歌词这种需要按帧推进的
+    /// 绘制使用。外推量由 `PlaybackClockFreezePolicy` 限幅(最多 1 秒),暂停、
+    /// 缓冲或播放结束时自动停在最后一个真实时间上,不会越跑越远。
+    func interpolatedTime(at date: Date = Date()) -> TimeInterval {
+        let advanced = PlaybackClockFreezePolicy.frozenTime(
+            cachedCurrentTime: currentTime,
+            currentTimeAnchor: currentTimeAnchor,
+            eventTime: date,
+            isAdvancing: isPlaying && status != .loading,
+            duration: 0
+        )
+        let time = currentTime + (advanced - currentTime) * effectivePlaybackRate
+        return !isLiveStream && duration > 0 ? min(time, duration) : time
+    }
+    var supportsKaraokePractice: Bool {
+        !isExternallyDriven && !isLiveStream && !usingSFB && !usingLivePCM
+    }
+    /// 能不能变速:AVPlayer 用自带的变速,SFB / FFmpeg 解码的文件经 `TVSFBEngine` 里的变速单元;
+    /// 直播与外部驱动(AirPlay 接管)按 1× 播。
+    var supportsPlaybackRate: Bool { !isExternallyDriven && !isLiveStream && !usingLivePCM }
+    private var effectivePlaybackRate: Double {
+        guard supportsPlaybackRate else { return 1 }
+        if usingSFB { return spokenWordRate }
+        // 卡拉OK练习与听书不会同时发生;练习速度在用时优先。
+        return karaokePracticeRate != 1 ? karaokePracticeRate : spokenWordRate
+    }
+
+    func setSpokenWordRate(_ rate: Double) {
+        let clamped = rate.isFinite ? min(2, max(0.5, rate)) : 1
+        guard clamped != spokenWordRate else { return }
+        currentTime = interpolatedTime()
+        spokenWordRate = clamped
+        // SFB 那边的变速单元每换一个文件都要重建,速度记在它自己那里,换文件后照样生效。
+        sfb.setPlaybackRate(Float(clamped))
+        player.defaultRate = Float(effectivePlaybackRate)
+        player.currentItem?.audioTimePitchAlgorithm = .timeDomain
+        if isPlaying, supportsKaraokePractice { player.rate = Float(effectivePlaybackRate) }
+        updateNowPlayingInfo()
+    }
+
+    /// AVPlayer 路径:从资产里读章节元数据。经 resource loader 按需取 moov 所在的那几段,
+    /// 不会为此把整本书下载下来(与 iPhone 读本机文件得到的是同一份章节)。
+    private func loadChapters(from asset: AVAsset, expectedItemID: ObjectIdentifier) {
+        chapterTask?.cancel()
+        chapters = []
+        // 只有有声内容要章节;当节目听的视频(#365)放画面时照样读。
+        guard wantsChapters, playbackSegment.physicalStart == 0 else { return }
+        // AVAsset 的 async load 接口本身是线程安全的,只是类型没标 Sendable。
+        nonisolated(unsafe) let chapterAsset = asset
+        chapterTask = Task { [weak self] in
+            let found = await Self.readChapters(from: chapterAsset)
+            guard !Task.isCancelled, let self, self.activeItemID == expectedItemID else { return }
+            self.applyChapters(found)
+        }
+    }
+
+    /// 在主线程之外读章节,只把 `MediaChapter` 交回来。
+    nonisolated private static func readChapters(from asset: AVAsset) async -> [MediaChapter] {
+        let groups = (try? await asset.loadChapterMetadataGroups(
+            bestMatchingPreferredLanguages: Locale.preferredLanguages
+        )) ?? []
+        var result: [MediaChapter] = []
+        for (index, group) in groups.enumerated() {
+            let start = group.timeRange.start.seconds
+            guard start.isFinite, start >= 0 else { continue }
+            var title = ""
+            if let item = AVMetadataItem.metadataItems(
+                from: group.items,
+                filteredByIdentifier: .commonIdentifierTitle
+            ).first {
+                title = (try? await item.load(.stringValue)) ?? ""
+            }
+            result.append(MediaChapter(startTime: start, title: title.isEmpty ? String(index + 1) : title))
+        }
+        return result
+    }
+
+    /// SFB / FFmpeg 路径:文件已经下到本地,直接解析 ISO base media 的章节。
+    private func loadChapters(fromLocalFile url: URL) {
+        chapterTask?.cancel()
+        chapters = []
+        guard wantsChapters,
+              ["m4a", "m4b", "mp4", "m4v", "mov", "alac"].contains(url.pathExtension.lowercased()) else { return }
+        chapterTask = Task { [weak self] in
+            let parsed = await Task.detached(priority: .utility) { () -> [MediaChapter] in
+                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return [] }
+                return ISOBaseMediaChapterParser.chapters(in: data)
+            }.value
+            guard !Task.isCancelled, let self, self.decodedTemporaryFileURL == url else { return }
+            self.applyChapters(parsed)
+        }
+    }
+
+    private func applyChapters(_ found: [MediaChapter]) {
+        let sorted = found.sorted { $0.startTime < $1.startTime }
+        chapters = sorted.count > 1 ? sorted : []
+        if !chapters.isEmpty {
+            plog("📺 TV chapters: \(chapters.count) marks")
+        }
+    }
+
+    func setKaraokePracticeRate(_ rate: Double) {
+        let clamped = rate.isFinite ? min(1, max(0.5, rate)) : 1
+        guard clamped != karaokePracticeRate else { return }
+        currentTime = interpolatedTime()
+        karaokePracticeRate = clamped
+        player.defaultRate = Float(effectivePlaybackRate)
+        player.currentItem?.audioTimePitchAlgorithm = .timeDomain
+        if isPlaying, supportsKaraokePractice { player.rate = Float(effectivePlaybackRate) }
+        updateNowPlayingInfo()
+    }
+
+    private func restartKaraokeLoopAtEnd() -> Bool {
+        guard supportsKaraokePractice, let start = karaokeLoopStartAtEnd?() else { return false }
+        startPlayback(at: start, autoPlay: true, forceSeek: true)
+        return true
+    }
+
+    /// Where the playing song starts inside its file: a CUE track's start,
+    /// 0 for an ordinary file. The karaoke tap sees file time.
+    var playbackPhysicalStart: TimeInterval { playbackSegment.physicalStart }
+
+    private struct LiveRequest: Sendable {
+        let id: UUID
+        let url: URL
+        let headers: [String: String]
+        /// 电台改名时就地更新(`updateLiveTitle`),断线重连沿用新名字。
+        var title: String
+        let subtitle: String
+        let format: String
+        let streamFormat: RadioStreamFormat
+        /// 源内电台的流地址由音乐源解析出来,可能带鉴权头、也可能落在自签证书
+        /// 的私有主机上,只有这类才需要自定义 scheme 的 resource loader。
+        let isSourceBacked: Bool
     }
 
     var isReadyForPreparedPlayback: Bool {
@@ -552,11 +567,6 @@ final class TVAudioEngine {
         }
     }
 
-    /// 设置里「匹配歌曲采样率」的开关,只存在这台 Apple TV 上。
-    static let matchSongSampleRateKey = "tv.playback.matchSongSampleRate"
-    /// 上一次替歌曲请求的输出采样率;nil 表示没请求过,会话保持系统默认。
-    @ObservationIgnored private var requestedOutputSampleRate: Double?
-
     /// 起播前请求这首歌的 HDMI 输出采样率。tvOS 27 起 Apple TV 4K(第三代)接功放时
     /// 输出能跟着切;更早的系统、机型和电视喇叭固定 48 kHz,请求被忽略,播放页照实
     /// 写出被重采样。传 nil(开关关着、视频、采样率未知)时,只有请求过才改回 48 kHz。
@@ -599,9 +609,6 @@ final class TVAudioEngine {
         }
     }
 
-    /// 暂停后等一会儿再到后台队列停用:很快又按播放就不用停,遥控器的暂停键也不再等这次调用。
-    private static let pausedSessionDeactivationDelay: Duration = .seconds(2)
-
     private func deactivateAudioSessionAfterPause() {
         guard managesSystemPlayback, sessionIsActive else { return }
         pendingSessionDeactivation?.cancel()
@@ -625,10 +632,6 @@ final class TVAudioEngine {
             }
         }
     }
-
-    // MARK: 载入 / 传输
-
-    var downloadProgress: Double?
 
     func failPreparation(_ message: String) {
         guard status == .loading, !hasPreparedAudio else { return }

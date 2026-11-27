@@ -440,7 +440,6 @@ final class ScanService {
     /// Successful catalogue access can reopen an exhausted metadata-read
     /// circuit breaker without coupling ScanService to the backfill worker.
     @ObservationIgnored var successfulSourceScanHandler: ((String, SourceScanLifecycleCompletion) -> Void)?
-    typealias FolderTagReread = @MainActor ([String], String, @escaping (MetadataTagRereadProgress) -> Void) async -> MetadataTagRereadProgress
     @ObservationIgnored var folderTagRereadHandler: FolderTagReread?
     /// Called whenever `folderHierarchyRevision` advances. AppServices uses it
     /// to hand the ID-addressed drives' folders to the library's album-artist
@@ -463,104 +462,22 @@ final class ScanService {
     /// 用户给这个源选的「服务端删掉的歌」移除方式（来源卡片上的选项，AppServices 接到
     /// `ServerCatalogAutoRefreshCoordinator`）。没接上时按默认的「确认后移除」。
     @ObservationIgnored var serverCatalogRemovalModeHandler: ((String) -> ServerCatalogRemovalMode)?
-    struct ScanState: Equatable {
-        var isScanning: Bool = false
-        var currentFile: String = ""
-        var scannedCount: Int = 0
-        /// Newly-added songs from the current scan run (excludes already-known
-        /// files that the scanner skipped). UI surfaces this as "新增 N 首"
-        /// so a re-scan that finds nothing new shows 0 instead of "2205
-        /// files scanned" — which used to make users think every file was
-        /// being reprocessed.
-        var addedCount: Int = 0
-        var totalCount: Int = 0
-        var failureMessage: String?
-        /// A safe first-pass snapshot retained unmatched rows. The next
-        /// foreground scan is the explicit confirmation required before prune.
-        var reconciliationMessage: String?
-        /// A checkpoint may contain only an unfinished directory queue, before
-        /// the scanner has discovered its first song.
-        var hasPendingWork: Bool = false
-
-        var progress: Double {
-            guard totalCount > 0 else { return 0 }
-            return Double(scannedCount) / Double(totalCount)
-        }
-
-        var canResume: Bool {
-            // Progress counts can survive a terminal failure that already
-            // discarded its checkpoint; they do not imply resumable work.
-            !isScanning && hasPendingWork
-        }
-    }
 
     /// 真正被观察的那一份。写入一律经过下面的 `scanStates`。
     private var scanStateStorage: [String: ScanState] = [:]
-
-    /// 扫描期间目录对账、变更清点这些回调一秒能来几十次, 而 Observation 从不
-    /// 比较新旧值 —— 哪怕写进去的和上一次一模一样, 来源页整张列表也会跟着重算
-    /// 一遍, 在主线程上跟滑动抢帧。内容没变的写入在这里就挡掉。
-    private(set) var scanStates: [String: ScanState] {
-        get { scanStateStorage }
-        set {
-            guard newValue != scanStateStorage else { return }
-            scanStateStorage = newValue
-            refreshScanningSourceIDs()
-        }
-    }
 
     /// 哪些源此刻在扫。进度一秒变好几次, 但"在不在扫"一轮通常只翻两次 ——
     /// 只需要这个判定的地方(按钮禁用态、长按菜单项)读它, 就不必跟着每一帧
     /// 进度重算。长按菜单在 SwiftUI 里是独立宿主, 那里也不适合再挂一层读
     /// `@Environment` 的子视图。
     private(set) var scanningSourceIDs: Set<String> = []
-
-    private func refreshScanningSourceIDs() {
-        var next: Set<String> = []
-        for (sourceID, state) in scanStateStorage where state.isScanning {
-            next.insert(sourceID)
-        }
-        guard next != scanningSourceIDs else { return }
-        scanningSourceIDs = next
-    }
     var synologyAPIs: [String: SynologyAPI] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var activeFolderScans: Set<String> = []
     private let postScanMaintenance = SourceMaintenanceQueue(defaults: .standard, persistenceKey: "scan.postMaintenance.pending")
-    private struct QueuedAutomaticScan {
-        let isRefresh: Bool
-        let start: () -> Void
-    }
     @ObservationIgnored private var queuedAutomaticScans: [String: QueuedAutomaticScan] = [:]
     @ObservationIgnored private var automaticScanOrder: [String] = []
     @ObservationIgnored private var automaticScanDrainTask: Task<Void, Never>?
-
-    func cancelQueuedAutomaticRefresh(for sourceID: String) {
-        guard queuedAutomaticScans[sourceID]?.isRefresh == true else { return }
-        discardQueuedAutomaticScan(for: sourceID)
-    }
-
-    private func discardQueuedAutomaticScan(for sourceID: String) {
-        queuedAutomaticScans.removeValue(forKey: sourceID)
-        automaticScanOrder.removeAll { $0 == sourceID }
-    }
-
-    private func drainAutomaticScansIfIdle() {
-        while activeTasks.isEmpty, !automaticScanOrder.isEmpty {
-            let sourceID = automaticScanOrder.removeFirst()
-            queuedAutomaticScans.removeValue(forKey: sourceID)?.start()
-        }
-    }
-
-    private func scheduleAutomaticScanDrain() {
-        guard automaticScanDrainTask == nil, !automaticScanOrder.isEmpty else { return }
-        automaticScanDrainTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.automaticScanDrainTask = nil
-            guard !Task.isCancelled else { return }
-            self.drainAutomaticScansIfIdle()
-        }
-    }
     /// Monotonic token bumped on every `scanSource` launch and every
     /// `cancelScan`. A scan task captures its generation at registration
     /// and checks it before any terminal write (defer cleanup, final
@@ -598,16 +515,6 @@ final class ScanService {
     /// (Navidrome `getScanStatus.scanning`) before parking as interrupted.
     private static let maximumServerScanWait: TimeInterval = 20 * 60
     private static let serverScanPollInterval: Duration = .seconds(15)
-    /// macOS has no scene-background flush before quit, so keep the widest
-    /// checkpoint interval shorter there than on iOS, where cancellation on
-    /// `.inactive` always forces a final write.
-    private static var maximumCheckpointPersistenceInterval: TimeInterval {
-        #if os(macOS)
-        60
-        #else
-        ScanCheckpointPersistencePolicy.maximumInterval
-        #endif
-    }
     #if os(iOS)
     private var backgroundTaskIDs: [String: UIBackgroundTaskIdentifier] = [:]
     /// True while the app is backgrounded with audio playing. Playback keeps
@@ -625,59 +532,6 @@ final class ScanService {
     /// Unlike `userInitiatedScanIntents` this covers every platform and every
     /// source type; it only decides whether a failure notification is sent.
     @ObservationIgnored private var userInitiatedScanSourceIDs: Set<String> = []
-
-    /// The profile every running scan currently obeys. Derived rather than
-    /// stored per scan: a scan started in the foreground and still running
-    /// after the scene backgrounds during playback must adopt the reduced
-    /// cadence too.
-    var currentExecutionProfile: ScanExecutionProfile {
-        #if os(iOS)
-        backgroundPlaybackProfileActive && UIApplication.shared.applicationState != .active
-            ? .backgroundPlayback
-            : .standard
-        #else
-        .standard
-        #endif
-    }
-
-    /// True while at least one scan task is in flight.
-    var hasActiveScans: Bool { !activeTasks.isEmpty }
-
-    /// 系统已经为这个源的扫描授予了 continued processing 时间: 进程会一直活到
-    /// 任务结束或被系统收回, 所以场景切到后台不该再把它取消掉。
-    func hasContinuedProcessingTime(for sourceID: String) -> Bool {
-        #if os(iOS)
-        continuedScanSessions[sourceID]?.isGranted == true
-        #else
-        false
-        #endif
-    }
-
-    #if os(iOS)
-    /// Enters/leaves the background-playback execution profile.
-    ///
-    /// Entering releases the per-scan UIApplication assertions: background
-    /// audio already keeps the process alive, and holding a ~30 s assertion
-    /// would only let its expiration handler cancel an otherwise healthy scan
-    /// (the same reasoning as `MetadataBackfillService.setExecutionMode`).
-    /// Leaving re-acquires an assertion for every active scan while the app is
-    /// still backgrounded, so the existing expiration → `cancelScan` →
-    /// forced-checkpoint path protects the data before iOS suspends us.
-    func setBackgroundPlaybackActive(_ active: Bool) {
-        guard backgroundPlaybackProfileActive != active else { return }
-        backgroundPlaybackProfileActive = active
-        if active {
-            for sourceID in Array(backgroundTaskIDs.keys) {
-                endBackgroundTask(for: sourceID)
-            }
-        } else {
-            guard UIApplication.shared.applicationState != .active else { return }
-            for sourceID in Array(activeTasks.keys) where backgroundTaskIDs[sourceID] == nil {
-                beginBackgroundTask(for: sourceID)
-            }
-        }
-    }
-    #endif
 
     private let checkpointStore: ScanCheckpointFileStore
     private let pagedCatalogStore: PagedSongCatalogStagingStore?
@@ -814,6 +668,182 @@ final class ScanService {
         observeSourceConfigurationChanges()
     }
 
+    private nonisolated static let checkpointFileName = "scan-checkpoints.json"
+    private nonisolated static let syncStateFileName = "source-sync-states.json"
+
+    /// Identifier used for BGProcessingTask scheduling.
+    /// Must match `BGTaskSchedulerPermittedIdentifiers` in Info.plist.
+    nonisolated static let backgroundTaskIdentifier = "com.welape.yuanyin.scan-resume"
+
+    /// 进度帧的发布闸门。`publishScanProgress` 自己带节流, 而按页/按目录驱动的
+    /// 那两路回调原本一次不漏地写进 `scanStates` —— 连接器快起来一秒几十次,
+    /// 每一次都让来源页整张列表重算。收尾帧不受限, 否则进度条会停在中途。
+    private var lastProgressFrameBySourceID: [String: Date] = [:]
+
+    /// 测试看:每个源最近一次走查的「已有的歌」在曲库目录上的影子比对结果。
+    private(set) var lastExistingLookupShadowReports: [String: ScanExistingSongsShadowReport] = [:]
+
+    /// 测试看:每个源最近一次文件走查的提交(只交遇到的 id 与改过的行)和原来整份终态快照的比对结果
+    /// (`ScanFileWalkCommitShadow`)。没做比对的那一轮是 nil。
+    private(set) var lastFileWalkCommitShadowReports: [String: ScanExistingSongsShadowReport] = [:]
+    /// 测试用:强行开或关上面的比对(关掉时走查不带整份快照,与发布版相同)。
+    @ObservationIgnored var fileWalkCommitShadowOverride: Bool?
+
+    @ObservationIgnored private var normalizedDirectoryMemo: [[String]: [String]] = [:]
+
+    private nonisolated static let scopeFingerprintMemo =
+        OSAllocatedUnfairLock<[String: ScopeFingerprintMemoEntry]>(initialState: [:])
+
+}
+
+extension ScanService {
+    typealias FolderTagReread = @MainActor ([String], String, @escaping (MetadataTagRereadProgress) -> Void) async -> MetadataTagRereadProgress
+    struct ScanState: Equatable {
+        var isScanning: Bool = false
+        var currentFile: String = ""
+        var scannedCount: Int = 0
+        /// Newly-added songs from the current scan run (excludes already-known
+        /// files that the scanner skipped). UI surfaces this as "新增 N 首"
+        /// so a re-scan that finds nothing new shows 0 instead of "2205
+        /// files scanned" — which used to make users think every file was
+        /// being reprocessed.
+        var addedCount: Int = 0
+        var totalCount: Int = 0
+        var failureMessage: String?
+        /// A safe first-pass snapshot retained unmatched rows. The next
+        /// foreground scan is the explicit confirmation required before prune.
+        var reconciliationMessage: String?
+        /// A checkpoint may contain only an unfinished directory queue, before
+        /// the scanner has discovered its first song.
+        var hasPendingWork: Bool = false
+
+        var progress: Double {
+            guard totalCount > 0 else { return 0 }
+            return Double(scannedCount) / Double(totalCount)
+        }
+
+        var canResume: Bool {
+            // Progress counts can survive a terminal failure that already
+            // discarded its checkpoint; they do not imply resumable work.
+            !isScanning && hasPendingWork
+        }
+    }
+
+    /// 扫描期间目录对账、变更清点这些回调一秒能来几十次, 而 Observation 从不
+    /// 比较新旧值 —— 哪怕写进去的和上一次一模一样, 来源页整张列表也会跟着重算
+    /// 一遍, 在主线程上跟滑动抢帧。内容没变的写入在这里就挡掉。
+    private(set) var scanStates: [String: ScanState] {
+        get { scanStateStorage }
+        set {
+            guard newValue != scanStateStorage else { return }
+            scanStateStorage = newValue
+            refreshScanningSourceIDs()
+        }
+    }
+
+    private func refreshScanningSourceIDs() {
+        var next: Set<String> = []
+        for (sourceID, state) in scanStateStorage where state.isScanning {
+            next.insert(sourceID)
+        }
+        guard next != scanningSourceIDs else { return }
+        scanningSourceIDs = next
+    }
+    private struct QueuedAutomaticScan {
+        let isRefresh: Bool
+        let start: () -> Void
+    }
+
+    func cancelQueuedAutomaticRefresh(for sourceID: String) {
+        guard queuedAutomaticScans[sourceID]?.isRefresh == true else { return }
+        discardQueuedAutomaticScan(for: sourceID)
+    }
+
+    private func discardQueuedAutomaticScan(for sourceID: String) {
+        queuedAutomaticScans.removeValue(forKey: sourceID)
+        automaticScanOrder.removeAll { $0 == sourceID }
+    }
+
+    private func drainAutomaticScansIfIdle() {
+        while activeTasks.isEmpty, !automaticScanOrder.isEmpty {
+            let sourceID = automaticScanOrder.removeFirst()
+            queuedAutomaticScans.removeValue(forKey: sourceID)?.start()
+        }
+    }
+
+    private func scheduleAutomaticScanDrain() {
+        guard automaticScanDrainTask == nil, !automaticScanOrder.isEmpty else { return }
+        automaticScanDrainTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.automaticScanDrainTask = nil
+            guard !Task.isCancelled else { return }
+            self.drainAutomaticScansIfIdle()
+        }
+    }
+    /// macOS has no scene-background flush before quit, so keep the widest
+    /// checkpoint interval shorter there than on iOS, where cancellation on
+    /// `.inactive` always forces a final write.
+    private static var maximumCheckpointPersistenceInterval: TimeInterval {
+        #if os(macOS)
+        60
+        #else
+        ScanCheckpointPersistencePolicy.maximumInterval
+        #endif
+    }
+
+    /// The profile every running scan currently obeys. Derived rather than
+    /// stored per scan: a scan started in the foreground and still running
+    /// after the scene backgrounds during playback must adopt the reduced
+    /// cadence too.
+    var currentExecutionProfile: ScanExecutionProfile {
+        #if os(iOS)
+        backgroundPlaybackProfileActive && UIApplication.shared.applicationState != .active
+            ? .backgroundPlayback
+            : .standard
+        #else
+        .standard
+        #endif
+    }
+
+    /// True while at least one scan task is in flight.
+    var hasActiveScans: Bool { !activeTasks.isEmpty }
+
+    /// 系统已经为这个源的扫描授予了 continued processing 时间: 进程会一直活到
+    /// 任务结束或被系统收回, 所以场景切到后台不该再把它取消掉。
+    func hasContinuedProcessingTime(for sourceID: String) -> Bool {
+        #if os(iOS)
+        continuedScanSessions[sourceID]?.isGranted == true
+        #else
+        false
+        #endif
+    }
+
+    #if os(iOS)
+    /// Enters/leaves the background-playback execution profile.
+    ///
+    /// Entering releases the per-scan UIApplication assertions: background
+    /// audio already keeps the process alive, and holding a ~30 s assertion
+    /// would only let its expiration handler cancel an otherwise healthy scan
+    /// (the same reasoning as `MetadataBackfillService.setExecutionMode`).
+    /// Leaving re-acquires an assertion for every active scan while the app is
+    /// still backgrounded, so the existing expiration → `cancelScan` →
+    /// forced-checkpoint path protects the data before iOS suspends us.
+    func setBackgroundPlaybackActive(_ active: Bool) {
+        guard backgroundPlaybackProfileActive != active else { return }
+        backgroundPlaybackProfileActive = active
+        if active {
+            for sourceID in Array(backgroundTaskIDs.keys) {
+                endBackgroundTask(for: sourceID)
+            }
+        } else {
+            guard UIApplication.shared.applicationState != .active else { return }
+            for sourceID in Array(activeTasks.keys) where backgroundTaskIDs[sourceID] == nil {
+                beginBackgroundTask(for: sourceID)
+            }
+        }
+    }
+    #endif
+
     func whenStartupStateReady() async {
         if let preparation = startupPreparation {
             await preparation.waitUntilReady()
@@ -901,9 +931,6 @@ final class ScanService {
             plog("🗂️ Source sync index format upgrade mapped=\(swapped) rewritten=\(upgraded.count)/\(sourceIDs.count)")
         }
     }
-
-    private nonisolated static let checkpointFileName = "scan-checkpoints.json"
-    private nonisolated static let syncStateFileName = "source-sync-states.json"
 
     private nonisolated static func startupDirectory(fileManager: FileManager) -> URL {
         fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
@@ -1926,10 +1953,6 @@ final class ScanService {
         )
     }
 
-    /// Identifier used for BGProcessingTask scheduling.
-    /// Must match `BGTaskSchedulerPermittedIdentifiers` in Info.plist.
-    nonisolated static let backgroundTaskIdentifier = "com.welape.yuanyin.scan-resume"
-
     /// A completed source has no continuation work. Lifecycle code uses this
     /// gate so entering the background does not manufacture a scan task just
     /// to discover that the checkpoint store is empty.
@@ -2032,11 +2055,6 @@ final class ScanService {
     private var currentProgressPublishInterval: TimeInterval {
         ScanExecutionProfilePolicy.progressPublishInterval(for: currentExecutionProfile)
     }
-
-    /// 进度帧的发布闸门。`publishScanProgress` 自己带节流, 而按页/按目录驱动的
-    /// 那两路回调原本一次不漏地写进 `scanStates` —— 连接器快起来一秒几十次,
-    /// 每一次都让来源页整张列表重算。收尾帧不受限, 否则进度条会停在中途。
-    private var lastProgressFrameBySourceID: [String: Date] = [:]
 
     private func allowsProgressFrame(for sourceID: String, isFinal: Bool = false) -> Bool {
         let now = Date()
@@ -4355,18 +4373,9 @@ final class ScanService {
         #endif
     }
 
-    /// 测试看:每个源最近一次走查的「已有的歌」在曲库目录上的影子比对结果。
-    private(set) var lastExistingLookupShadowReports: [String: ScanExistingSongsShadowReport] = [:]
-
     /// 文件走查交给 `completeScan` 的终态(一次提交里的局部值,不常驻):这一轮遇到的歌的 id(含没变的);
     /// 扫描开始时资料库里这个源的歌(不算仅歌单的行)有没有不在权威集合里、要删的;当时一共多少首。
     private typealias FileWalkCommit = (songIDs: Set<String>, removesKnownSongs: Bool, knownSongCount: Int)
-
-    /// 测试看:每个源最近一次文件走查的提交(只交遇到的 id 与改过的行)和原来整份终态快照的比对结果
-    /// (`ScanFileWalkCommitShadow`)。没做比对的那一轮是 nil。
-    private(set) var lastFileWalkCommitShadowReports: [String: ScanExistingSongsShadowReport] = [:]
-    /// 测试用:强行开或关上面的比对(关掉时走查不带整份快照,与发布版相同)。
-    @ObservationIgnored var fileWalkCommitShadowOverride: Bool?
 
     /// 文件走查的提交要不要拿整份终态快照对一遍:深度影子校验开着时,以及 DEBUG 下不超过 10 万首的源
     /// (与深度影子校验的默认范围相同)。比对要走查照旧拼出整份快照,发布版默认不做。
@@ -6611,8 +6620,6 @@ final class ScanService {
         #endif
     }
 
-    @ObservationIgnored private var normalizedDirectoryMemo: [[String]: [String]] = [:]
-
     private func normalizedDirectories(_ directories: [String]) -> [String] {
         if let normalized = normalizedDirectoryMemo[directories] { return normalized }
         let normalized = SynologyScanner.deduplicateDirectories(directories).sorted()
@@ -6684,9 +6691,6 @@ final class ScanService {
         let securityRevision: UInt64?
         let fingerprint: String
     }
-
-    private nonisolated static let scopeFingerprintMemo =
-        OSAllocatedUnfairLock<[String: ScopeFingerprintMemoEntry]>(initialState: [:])
 
     nonisolated static func shouldDeferAutomaticServerCatalogWork(
         context: BaiduSnapshotExecutionContext,
@@ -6831,5 +6835,4 @@ final class ScanService {
         }
         guard live.isEnabled else { throw CancellationError() }
     }
-
 }

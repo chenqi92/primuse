@@ -724,29 +724,9 @@ final class TVStore {
     @ObservationIgnored private let snapshotRecovery: @MainActor () throws -> Bool
     @ObservationIgnored private let scanPersistence: @MainActor @Sendable (MusicLibrary) async -> Result<Void, AppleTVTransferFailure>
     @ObservationIgnored let engine = TVAudioEngine()
-    var replayGainPlaybackInfo: ReplayGainPlaybackInfo {
-        let settings = TVReplayGainSettings.shared
-        let song = currentSongID.flatMap { library.song(id: $0) }
-        let sourceType = song.flatMap { sourcesStore.source(id: $0.sourceID) }?.type
-        let isAppleMusic = appleMusicSelection != nil
-            || sourceType == .appleMusic || sourceType == .appleMusicLibrary
-        let supportsReplayGain = song.map(ReplayGainAnalysisService.supports) == true
-        guard settings.enabled, !isLiveRadio, !isAppleMusic, supportsReplayGain else {
-            return .init(enabled: settings.enabled, supported: !isLiveRadio && !isAppleMusic && supportsReplayGain)
-        }
-        return medleyPlayback?.replayGainPlaybackInfo ?? engine.replayGainPlaybackInfo
-    }
     @ObservationIgnored private lazy var coordinator = TVPlaybackCoordinator(store: self, engine: engine)
     @ObservationIgnored private var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var activePlaybackRequestID: UUID?
-    /// 云盘本月下载流量用完、队列里还有别的来源的歌时,倒数几秒后跳过这个来源。
-    private struct SourceQuotaSkip {
-        let id = UUID()
-        let requestID: UUID
-        let sourceID: String
-        let serviceName: String
-        let reason: String
-    }
     @ObservationIgnored private var sourceQuotaSkip: SourceQuotaSkip?
     @ObservationIgnored private var sourceQuotaSkipTask: Task<Void, Never>?
     /// 这个月已经倒数跳过过一次的源(值是年月):再遇到同源失败直接跳过,不再每首都倒数。
@@ -768,50 +748,6 @@ final class TVStore {
 
     @ObservationIgnored private(set) var embeddedKaraokeFile: EmbeddedKaraokeFile?
     @ObservationIgnored private var loadingPlaybackIntent: (requestID: UUID, autoPlay: Bool)?
-
-    func endEmbeddedKaraokeAudio() {
-        guard let file = embeddedKaraokeFile else { return }
-        if let song = library.song(id: file.songID), switchEmbeddedKaraokeAudio(nil, for: song) { return }
-        embeddedKaraokeFile = nil
-    }
-
-    func embeddedTrackInventory(for song: Song) async -> EmbeddedMediaTrackInventory? {
-        guard let source = sourcesStore.source(id: song.sourceID), source.isEnabled, !source.isDeleted else { return nil }
-        let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
-        return await TVMetadataEnricher.embeddedTrackInventory(for: song, source: source, credential: credential)
-    }
-
-    func switchEmbeddedKaraokeAudio(_ file: EmbeddedKaraokeFile?, for song: Song) -> Bool {
-        guard currentSongID == song.id, let current = library.song(id: song.id),
-              EmbeddedMediaTrackInventory.sameMediaFile(current, song), !isMedleyActive,
-              !isLiveRadio, !engine.isExternallyDriven, let source = sourcesStore.source(id: song.sourceID), source.isEnabled, !source.isDeleted else { return false }
-        let position = interpolatedTime()
-        let resuming = engine.status == .loading && loadingPlaybackIntent?.requestID == activePlaybackRequestID
-            && loadingPlaybackIntent?.autoPlay == true
-        let shouldPlay = isPlaying || resuming
-        let requestID = UUID()
-        loadingPlaybackIntent = (requestID, shouldPlay)
-        playbackTask?.cancel()
-        activePlaybackRequestID = requestID
-        playbackIssue = nil
-        embeddedKaraokeFile = file
-        engine.prepareForSelection(startAt: position, seekFloor: currentPlaybackRange?.start ?? 0)
-        playbackTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await coordinator.play(songID: song.id, requestID: requestID, preferMusicVideo: isMusicVideoModeEnabled,
-                                   startAt: position, autoPlay: shouldPlay,
-                                   playbackSongOverride: playbackRangeSong(forSongID: song.id))
-            guard isCurrentPlaybackRequest(requestID, isCancelled: Task.isCancelled) else { return }
-            playbackTask = nil
-            handleDownloadQuotaFailure(requestID: requestID)
-        }
-        return true
-    }
-
-    func karaokeAudioFile(for song: Song) async throws -> KaraokeAudioFile {
-        guard currentSongID == song.id else { throw CancellationError() }
-        return try await coordinator.karaokeAudioFile(for: song, requestID: activePlaybackRequestID)
-    }
     @ObservationIgnored private var radioReconnectTask: Task<Void, Never>?
     @ObservationIgnored private var radioReconnectAttempt = 0
     @ObservationIgnored private lazy var radioStore = RadioStationsStore()
@@ -1052,48 +988,6 @@ final class TVStore {
         }
     }
 
-    /// 曲库已发布、源类型等查找状态还没跟上的那一小段(下一轮主循环就会补上)。
-    /// 这段时间首页继续显示「加载中」,不先画一个只有电台排(或「没有音乐」空态)
-    /// 的首页再跳出内容。
-    var isPreparingLibraryContent: Bool {
-        _ = libraryContentRevision
-        return library.isReady && !hasBuiltLookupSinceLibraryReady
-    }
-
-    /// 可见专辑数、音乐歌曲数、艺人数(资料库标题、播放页书架的分栏)。目录可读时读目录的计数,
-    /// 与 `albums.count`、`songs.count`、`artists.count` 相同。
-    var visibleAlbumCount: Int {
-        _ = libraryContentRevision
-        return catalogLookups.presence()?.albums ?? library.visibleAlbums.count
-    }
-
-    var musicSongCount: Int {
-        _ = libraryContentRevision
-        return catalogLookups.presence()?.musicSongs ?? library.musicSongs.count
-    }
-
-    var visibleArtistCount: Int {
-        _ = libraryContentRevision
-        return catalogLookups.presence()?.artists ?? library.visibleArtists.count
-    }
-
-    /// 有没有本机播客文件(播客页决定要不要显示欢迎卡)。
-    var hasLocalPodcastSongs: Bool {
-        if let count = catalogLookups.songCount(LibrarySongScope(kinds: [.podcast])) { return count > 0 }
-        return !library.localPodcastSongs.isEmpty
-    }
-
-    var hasRealLibrary: Bool {
-        _ = libraryContentRevision
-        if let presence = catalogLookups.presence() {
-            return VisibleLibraryPresencePolicy.hasContent(songCount: presence.musicSongs, albumCount: presence.albums)
-        }
-        return VisibleLibraryPresencePolicy.hasContent(
-            songCount: library.musicSongs.count,
-            albumCount: library.visibleAlbums.count
-        )
-    }
-
     /// 当前选中的歌曲或电台；未选中时“正在播放”tab 展示空态。
     @ObservationIgnored private var playingArtworkRefreshTask: Task<Void, Never>?
     var nowPlaying: TVNowPlaying = .none {
@@ -1119,11 +1013,6 @@ final class TVStore {
         }
     }
     var queueUpNextIDs: [String] = []
-    struct PlaybackAuthentication: Identifiable {
-        let id: UUID
-        let songID: String
-        let source: TVSource
-    }
     var playbackAuthentication: PlaybackAuthentication?
     @ObservationIgnored private var lastAuthenticationRequestID: UUID?
     var playbackIssue: TVPlaybackIssue? {
@@ -1142,18 +1031,7 @@ final class TVStore {
             }
         }
     }
-    private enum AppleMusicSelection {
-        case catalog(AppleMusicCatalogHit)
-        case collection(TVPlaybackCoordinator.AppleMusicCollection, songID: String,
-                        title: String, artist: String, album: String, glyph: String)
-    }
     @ObservationIgnored private var appleMusicSelection: AppleMusicSelection?
-
-    func resumeAfterAuthentication(_ request: PlaybackAuthentication) {
-        guard request.id == activePlaybackRequestID, request.songID == currentSongID,
-              library.song(id: request.songID)?.sourceID == request.source.id else { return }
-        resumePlayback()
-    }
     var radioStations: [RadioStation] = [] {
         didSet {
             rebuildRadioDerivedState()
@@ -1262,27 +1140,12 @@ final class TVStore {
     @ObservationIgnored private var containerCodecPlaybackReads: Set<String> = []
     @ObservationIgnored private var playbackMediaInspection: (song: Song, task: Task<Void, Never>)?
     @ObservationIgnored private var containerCodecUnreadableSongIDs: Set<String> = []
-    private struct ScanCheckpoint: Codable {
-        let connectionIdentity: String
-        let roots: [String]
-        let state: SourceScanResumeState
-    }
-    /// 完整列表扫描里没再列到的歌各被看到过几次（`ServerCatalogDeletionConfirmationPolicy`），
-    /// 按源存在扫描断点旁边。连接或扫描目录换了就作废。
-    private struct ScanDeletionEvidence: Codable {
-        let connectionIdentity: String
-        let roots: [String]
-        let missingCounts: [String: Int]
-    }
     private var isApplyingSnapshot = false
     /// 每次进入 `installSnapshot` 自增。安装的纯计算挪到主 actor 之外后,回到主
     /// actor 的那一段要靠它确认自己仍然是当前这次安装。
     private var installGeneration = 0
     private var hasPendingSnapshotImport = false
     private var hasPendingSnapshotRecovery = false
-    private var canMutateLibrary: Bool {
-        library.isReady && !isApplyingSnapshot && !hasPendingSnapshotRecovery && sourcesStore.hasCompleteSnapshot
-    }
     @ObservationIgnored private var pendingImportTask: Task<Bool, Never>?
     @ObservationIgnored private var syncTask: Task<TVSyncOutcome, Never>?
     private var locallyRemovedSourceIDs: Set<String>
@@ -1300,28 +1163,6 @@ final class TVStore {
 
     // 内网自动发现(Bonjour),与 iOS/macOS 同一实现。
     @ObservationIgnored let discovery = NetworkDiscoveryService()
-    /// 过滤掉打印机 / 路由器等噪声(_http/_https 猜成 webdav 的),但保留所有正常文件/NAS 源。
-    var discoveredDevices: [DiscoveredDevice] { discovery.devices.filter(Self.isLikelyMusicSource) }
-    func startDeviceDiscovery() { discovery.startDiscovery() }
-    func stopDeviceDiscovery() { discovery.stopDiscovery() }
-
-    /// 明确的文件/NAS 协议服务一律保留(SMB/WebDAV/FTP/SFTP/NFS/群晖广播);只有 `_http/_https`
-    /// 猜出来的(端口 80/443→webdav,常是打印机/路由器/网页)才需要名字或端口佐证才保留。
-    nonisolated static func isLikelyMusicSource(_ d: DiscoveredDevice) -> Bool {
-        let explicit: Set<String> = [
-            "_smb._tcp.", "_webdav._tcp.", "_webdavs._tcp.", "_ftp._tcp.",
-            "_sftp-ssh._tcp.", "_nfs._tcp.", "_diskstation._tcp.", "_synology-dsm._tcp.",
-        ]
-        if explicit.contains(d.serviceType) { return true }
-        // _http/_https:名字含 NAS/媒体关键词,或端口是已知媒体/NAS 端口,才认为是源。
-        // 飞牛必须明确广播为音乐服务；通用 fnOS 名称或 5666 端口不能证明已安装飞牛音乐。
-        let n = d.name.lowercased()
-        let keywords = ["synology", "diskstation", "qnap", "ugreen", "fnmusic", "feiniu music", "飞牛音乐", "nas",
-                        "jellyfin", "emby", "plex", "navidrome", "subsonic", "airsonic", "truenas"]
-        if keywords.contains(where: { n.contains($0) }) { return true }
-        let mediaPorts: Set<Int> = [5000, 5001, 8080, 9999, 8096, 32400, 4040, 4533, 4747]
-        return mediaPorts.contains(d.port)
-    }
     private var queue: [String] = [] {    // 当前队列(真实 Song id)
         didSet { syncTrackNavigationCommands() }
     }
@@ -1346,10 +1187,6 @@ final class TVStore {
     nonisolated static let spokenWordSmartRewindLimitKey = "primuse.tv.spokenWordSmartRewindLimit"
     /// 随机播放的抽歌偏好(#332),只存在这台电视上;默认完全随机。
     nonisolated static let shufflePreferenceKey = "primuse.tv.shufflePreference"
-    static var shufflePreference: ShufflePreference {
-        UserDefaults.standard.string(forKey: shufflePreferenceKey)
-            .flatMap(ShufflePreference.init(rawValue:)) ?? .defaultValue
-    }
     @ObservationIgnored private var queueContinuationWriteTask: Task<Void, Never>?
     @ObservationIgnored private var topShelfTask: Task<Void, Never>?
     @ObservationIgnored private var playbackSessionTask: Task<Void, Never>?
@@ -1399,14 +1236,6 @@ final class TVStore {
     @ObservationIgnored private var ratingPlaylistContentRevision = -1
     private var playHistoryRevision = 0
     @ObservationIgnored private var sourceTypeByID: [String: MusicSourceType] = [:]
-    private struct LookupRevision: Equatable {
-        let visibleSongs: Int
-        let replacements: UUID
-        let artwork: Int
-        let playlists: Int
-        let spokenWord: Int
-        let sourceTypes: [String: MusicSourceType]
-    }
     @ObservationIgnored private var lookupRevision: LookupRevision?
     /// 曲库发布后首页要用的查找表是否已按就绪的曲库建过一次。只在启动时起作用,
     /// 之后扫描、同步引起的重建不会让首页退回「加载中」。
@@ -1429,10 +1258,6 @@ final class TVStore {
     @ObservationIgnored private var normalPlaylistCollectionRevision = -1
     @ObservationIgnored private var smartPlaylistCollectionRevision = -1
     @ObservationIgnored private var artworkPalettes: [String: TVArtworkPalette] = [:]
-    private enum ArtworkPaletteInvalidationScope: Hashable {
-        case album
-        case song
-    }
     @ObservationIgnored private var pendingArtworkPaletteInvalidationScopes:
         Set<ArtworkPaletteInvalidationScope> = []
     @ObservationIgnored private var artworkPaletteInvalidationTask: Task<Void, Never>?
@@ -1448,10 +1273,6 @@ final class TVStore {
     /// `hidesSingleOnly`: 专辑艺术家里不列只有单曲、EP 的人(`AlbumArtistReleaseFilter`)。
     @ObservationIgnored private var artistBrowseLayoutCache:
         (mode: ArtistBrowseMode, hidesSingleOnly: Bool, revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<Artist>)?
-
-    private var hidesSingleOnlyAlbumArtists: Bool {
-        UserDefaults.standard.bool(forKey: AlbumArtistReleaseFilter.storageKey)
-    }
     @ObservationIgnored private var songBrowseLayoutCache:
         (revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<String>)?
     /// 目录排好的专辑墙 / 艺人墙(P3):目录可读、排法目录排得出时用,这时内存里那份不排也不留。
@@ -1468,9 +1289,6 @@ final class TVStore {
     // uploadNow 单飞:串行化改源后的快照上传,避免快速连续切源时
     // 两个 detached 任务交错 delete + save。
     @ObservationIgnored private var pendingUpload: Task<Void, Never>?
-
-    // 播放模式(随机 / 循环)——供正在播放页传输键展示与切换。
-    enum RepeatMode { case off, all, one }
     /// 放环境音之前的循环与随机,放回音乐时还回去(`followAmbientPlayMode`)。
     @ObservationIgnored private var repeatModeBeforeAmbient: RepeatMode?
     @ObservationIgnored private var shuffleBeforeAmbient: Bool?
@@ -1480,21 +1298,6 @@ final class TVStore {
     }
     var isMusicVideoModeEnabled = false
     @ObservationIgnored private var musicVideoSongIDsCache: (revision: UInt64, ids: [String])?
-
-    /// 资料库「MV」页的列表:有 MV 的音乐(独立 MV 与带同名 MV 的歌),新添加的在前。
-    /// 按 MV 列表的修订号缓存,焦点每挪一格网格重算时不必再排一遍。
-    var musicVideoSongIDs: [String] {
-        let revision = library.musicVideoContentRevision
-        if let cache = musicVideoSongIDsCache, cache.revision == revision { return cache.ids }
-        let ids = library.musicVideoSongs.sorted { $0.dateAdded > $1.dateAdded }.map(\.id)
-        musicVideoSongIDsCache = (revision, ids)
-        return ids
-    }
-
-    /// 从「MV」页点播:先打开 MV 模式,带同名 MV 的歌一开播就走视频管线。
-    func prefersMusicVideoForNextPlay() {
-        isMusicVideoModeEnabled = true
-    }
     /// 有声内容里的视频(视频播客单集、当节目听的视频文件,#365)放画面还是只放声音。这台电视自己记着,
     /// 播放页上切;规则见 `SpokenWordVideoPolicy`,和 iPhone 同一套。
     private(set) var showsSpokenWordVideo = UserDefaults.standard
@@ -1509,10 +1312,6 @@ final class TVStore {
     /// 「本章结束后停止」锁住的那一条里的那个章节标记。
     private(set) var sleepStopAfterChapter: (songID: String, chapterIndex: Int)?
     private(set) var selectedChapterSleep: SpokenWordSleepSelection?
-    var isSleepTimerActive: Bool {
-        sleepTimerMinutes > 0 || sleepStopAfterItemID != nil || sleepStopAfterBookID != nil
-            || sleepStopAfterChapter != nil || selectedChapterSleep != nil
-    }
 
     // 有声内容的续播:每一条记住自己听到哪一秒(与 iPhone / Mac 共用 SpokenWordStore)。
     /// 正在播的这条是有声内容。正在播放页据此把上一首 / 下一首换成后退 15 / 前进 30 秒。
@@ -1530,28 +1329,6 @@ final class TVStore {
     /// 上一次报给服务端(Audiobookshelf、Ting Reader)的位置;本机 15 秒存一次,服务端 30 秒报一次。
     @ObservationIgnored private var lastServerSpokenWordPositionPush: Double = 0
     @ObservationIgnored private var cachedTingReaderProgressSync: TingReaderProgressSyncCoordinator?
-    var tingReaderProgressSync: TingReaderProgressSyncCoordinator {
-        if let cachedTingReaderProgressSync { return cachedTingReaderProgressSync }
-        let sync = TingReaderProgressSyncCoordinator(
-            defaults: defaults,
-            store: .shared,
-            sources: { [weak self] in self?.sourcesStore.sources ?? [] },
-            songs: { [weak self] in self?.library.visibleSongs(forSourceID: $0) ?? [] },
-            fetch: { [weak self] source in
-                guard let self else { throw CancellationError() }
-                let credential = TVCredentialStore.credential(for: source, bundle: self.credentialBundle)
-                return try await TVSourceAssetReader.shared.recentTingReaderProgress(source: source, credential: credential)
-            },
-            protectedSongID: { [weak self] in
-                guard let self, self.isPlaying || self.engine.status == .loading else { return nil }
-                return self.currentSongID
-            },
-            didAdopt: { [weak self] song in self?.applySyncedSpokenWordPosition(for: song) },
-            didFinishAdopting: { [weak self] in self?.followSpokenWordBookIfPaused() }
-        )
-        cachedTingReaderProgressSync = sync
-        return sync
-    }
     @ObservationIgnored private var serverSpokenWordStateRequestID: UUID?
     /// 换条目时去服务端取这一条位置的那一次。
     @ObservationIgnored private var serverSpokenWordStateTask: Task<Void, Never>?
@@ -1574,6 +1351,566 @@ final class TVStore {
     @ObservationIgnored private let spokenWordBookShelf = TVSpokenWordShelfModel()
     @ObservationIgnored private let topShelfBookShelf = TVSpokenWordShelfModel()
     @ObservationIgnored private let localPodcastShelf = TVSpokenWordShelfModel()
+    /// 下一条从这里开始而不是记住的位置:目录里点了另一条里的书签。
+    @ObservationIgnored private var pendingSpokenWordStartOverride: (songID: String, position: Double)?
+
+    /// 喜欢的专辑 / 艺人（最近喜欢的在前）。按曲库修订号与喜欢的修订号记住，首页每次重绘
+    /// 不必把整库专辑再对一遍。
+    @ObservationIgnored private var likedAlbumsCache: (library: Int, favorites: Int, albums: [Album])?
+    @ObservationIgnored private var likedArtistsCache:
+        (mode: ArtistBrowseMode, library: Int, favorites: Int, artists: [Artist])?
+    nonisolated static let ratingPlaylistRatings = [5, 4, 3]
+    /// 媒体服务器实时搜索到的未入库临时曲目，只用于即时流式播放与队列切歌，不写入本地资料库。
+    // crash-pattern: allow library-array-property 仅保存单次服务器搜索结果(每源上限 25 首)，切回本地曲库即清空
+    @ObservationIgnored private var transientServerSongs: [String: Song] = [:]
+    /// 当前搜索页展示的媒体服务器未入库候选，供封面视图按需解析 `sourceID`。
+    // crash-pattern: allow library-array-property 仅保存当前搜索页的服务器候选窗口(每源上限 25 首)，每次搜索替换
+    @ObservationIgnored private var serverSearchPreviewSongs: [String: Song] = [:]
+
+    // MARK: 艺人页的专辑
+
+    /// 只留最近打开的那位艺人:从专辑页、播放页回来重开艺人页时那几排马上就在,不先空一下。
+    @ObservationIgnored private var artistAlbumShelvesCache:
+        (key: TVArtistAlbumShelvesKey, shelves: TVArtistAlbumShelves)?
+
+    @ObservationIgnored private var searchCache = LibrarySearchCache()
+
+    /// 从这么多首命中的歌里找它们所在的专辑。和手机端一样有个上限:很短的查询词能命中半个曲库。
+    nonisolated static let searchRelatedAlbumSongLimit = 240
+
+    /// 搜索页每次重算(焦点移动也算)都要问一遍建议,同一查询按曲库修订号记住结果。
+    @ObservationIgnored private var searchSuggestionsCache: (query: String, revision: Int, names: [String])?
+
+    private static let pendingAppleMusicLikesKey = "tv.pendingAppleMusicLikes"
+    /// 等这么久 iPhone 还没把歌同步过来(多半没开同步 Apple Music 资料库),就不再等了。
+    private static let pendingAppleMusicLikeLifetime: TimeInterval = 30 * 24 * 3600
+    static let playlistArtworkCandidateLimit = 16
+
+    // MARK: - TV 可播放性判断 + 手动凭据
+
+    /// 用「服务端账号 + 密码」登录、且能在 TV 直连的源类型 —— 适合在 TV 上手动输入凭据。
+    /// 云盘(OAuth)、relay 类(凭据在 iPhone 侧)、原生库源不在此列。
+    private static let manualCredentialTypes: Set<MusicSourceType> = [
+        .subsonic, .navidrome, .airsonic, .gonic, .zspace, .fnMusic, .daoliyu, .songloft, .audiobookshelf, .tingReader,
+        .synology, .synologyAudioStation, .qnap, .ugreen,
+        .jellyfin, .emby, .plex,
+    ]
+
+    /// 判断一个源能否在 Apple TV 上播放(注册表支持类型 + 凭据/中继可用性)。
+    /// 在 TV 上本机直连播放(不经 iPhone 中继)的协议类型。与 TVPlaybackCoordinator.makeDirectReader 对应。
+    static let directProtocolTypes: Set<MusicSourceType> = [.smb, .nfs, .ftp, .sftp]
+
+    /// 完成提示停留一会儿再收起,露出换新的二维码。
+    /// 上一次装好的云端快照记录的 changeTag, 与上一次局域网直传装库的时刻:
+    /// 引导时据此决定云端快照装不装(`TVCloudSnapshotInstallPolicy`)。
+    private static let installedCloudSnapshotTagKey = "tv.installedCloudSnapshotTag"
+    private static let lastLANInstallKey = "tv.lastLANInstallAt"
+
+    #if DEBUG
+    /// 截图用:直接注入一条「正在播放」+ 演示歌词,不走真实播放(模拟器无可达源)。
+    /// `preferSongArtwork` 用来专门覆盖无 albumID 散曲的歌曲缓存/远程封面路径。
+    @discardableResult
+    func loadDemoNowPlaying(preferSongArtwork: Bool = false) async -> Bool {
+        let usesImmersiveEvidence = ProcessInfo.processInfo.environment["TV_IMMERSIVE_EFFECT"] != nil
+        var rawSong: Song?
+        var selectedAlbum: TVAlbum?
+
+        if preferSongArtwork {
+            rawSong = await demoStandaloneArtworkSong()
+            guard rawSong != nil else {
+                plog("TV debug artwork route failed: no standalone song with loadable artwork")
+                return false
+            }
+        }
+        if rawSong == nil,
+           let album = albums.first(where: {
+               MetadataAssetStore.shared.hasAlbumCover(forAlbumID: $0.id)
+           }) ?? albums.first {
+            selectedAlbum = album
+            rawSong = library.visibleSongs.first(where: { $0.albumID == album.id })
+        }
+        if rawSong == nil {
+            rawSong = library.visibleSongs.first
+        }
+        if rawSong == nil, usesImmersiveEvidence {
+            let fallback = Self.tint("immersive-evidence")
+            nowPlaying = TVNowPlaying(
+                songID: "immersive-evidence",
+                coverRef: nil,
+                title: ImmersiveDemoContent.title,
+                artist: ImmersiveDemoContent.artist,
+                album: ImmersiveDemoContent.album,
+                albumID: "",
+                tint: fallback.0,
+                tint2: fallback.1,
+                glyph: "♪",
+                duration: Double(Self.immersiveEvidenceLyrics.count + 1) * 4,
+                currentTime: 0,
+                format: "FLAC",
+                bitrate: 1411,
+                sampleRate: 96,
+                sourcePath: ""
+            )
+            updateAutomaticThemePalette(nil)
+            playbackIssue = nil
+            hasNowPlaying = true
+            queueUpNextIDs = []
+            lyrics = Self.immersiveEvidenceLyrics
+            return true
+        }
+        guard let rawSong, let song = song(rawSong.id) else { return false }
+
+        let album = selectedAlbum ?? album(song.albumID)
+        let fallback = Self.tint(song.id)
+        let albumPalette = artworkPalettes[song.albumID]
+        let songPalette = artworkPalettes[Self.songArtworkPaletteKey(song.id)]
+        let tint = albumPalette?.primary.color ?? songPalette?.primary.color
+            ?? album?.tint ?? fallback.0
+        let tint2 = albumPalette?.secondary.color ?? songPalette?.secondary.color
+            ?? album?.tint2 ?? fallback.1
+        nowPlaying = TVNowPlaying(
+            songID: song.id,
+            coverRef: rawSong.coverArtFileName,
+            title: usesImmersiveEvidence ? ImmersiveDemoContent.title : song.title,
+            artist: usesImmersiveEvidence ? ImmersiveDemoContent.artist : song.artist,
+            album: usesImmersiveEvidence
+                ? ImmersiveDemoContent.album
+                : (album?.title ?? rawSong.albumTitle ?? ""),
+            albumID: song.albumID,
+            tint: tint, tint2: tint2, glyph: album?.glyph ?? Self.glyph(song.title),
+            duration: song.duration > 0 ? song.duration : 245,
+            currentTime: 0,
+            format: song.format,
+            bitrate: max(0, song.bitrate),
+            sampleRate: max(0, song.sampleRate),
+            sourcePath: "")
+        updateAutomaticThemePalette(albumPalette ?? songPalette)
+        hasNowPlaying = true
+        queueUpNextIDs = songs.lazy
+            .filter { $0.id != song.id }
+            .prefix(12)
+            .map(\.id)
+        lyrics = usesImmersiveEvidence ? Self.immersiveEvidenceLyrics : Self.demoLyrics
+        return true
+    }
+
+    /// 截图用:演示播放态 + 英语演示歌词,歌词按真实加载路径交给离线翻译,
+    /// 用来在模拟器里看电视端的译文刷新(目标语言由 `PRIMUSE_DEBUG_LYRICS_TRANSLATION_TARGET` 指定)。
+    func loadLyricsTranslationDemo() async -> Bool {
+        guard await loadDemoNowPlaying() else { return false }
+        let songID = nowPlaying.songID
+        queue = [songID]
+        queueIndex = 0
+        let texts = [
+            "I've been walking in the rain all night",
+            "Baby, don't you let me go",
+            "We were young and wild and free",
+            "Every time I close my eyes, I see your face",
+            "My heart is breaking, can't you see?",
+            "We'll be dancing in the streets tonight, yeah!",
+            "She said \"I love you\" and then she walked away...",
+            "I got a feeling that tonight's gonna be a good night",
+        ]
+        let lines = texts.enumerated().map { index, text in
+            LyricLine(id: "translation-demo-\(index)", timestamp: Double(index) * 4, text: text)
+        }
+        applyLyrics(TVPlaybackCoordinator.toTVLyrics(lines, duration: 0), forSongID: songID)
+        TVLyricsTranslationController.shared.lyricsDidLoad(lines, forSongID: songID, store: self)
+        return true
+    }
+
+    private func demoStandaloneArtworkSong() async -> Song? {
+        let candidates = library.visibleSongs.filter {
+            $0.albumID?.isEmpty != false && $0.coverArtFileName?.isEmpty == false
+        }
+        for song in candidates {
+            if await TVArtworkLoader.shared.songCover(
+                songID: song.id,
+                coverRef: song.coverArtFileName
+            ) != nil {
+                return song
+            }
+        }
+        return nil
+    }
+
+    static let demoLyrics: [TVLyricLine] = [
+        .init(time: 0, text: PMString("ext.tv.demo.lyric1"), syllables: [], translation: ""),
+        .init(time: 4, text: PMString("ext.tv.demo.lyric2"), syllables: [], translation: ""),
+        .init(time: 9, text: PMString("ext.tv.demo.lyric3"), syllables: [], translation: ""),
+        .init(time: 14, text: PMString("ext.tv.demo.lyric4"), syllables: [], translation: ""),
+        .init(time: 19, text: PMString("ext.tv.demo.lyric5"), syllables: [], translation: ""),
+        .init(time: 24, text: PMString("ext.tv.demo.lyric6"), syllables: [], translation: ""),
+        .init(time: 29, text: PMString("ext.tv.demo.lyric7"), syllables: [], translation: ""),
+        .init(time: 34, text: PMString("ext.tv.demo.lyric8"), syllables: [], translation: ""),
+    ]
+
+    static let immersiveEvidenceLyrics: [TVLyricLine] = ImmersiveDemoContent.lyrics
+        .enumerated()
+        .map { index, text in
+            let lineStart = Double(index) * 4
+            let syllables: [TVSyllable]
+            if index == 1 {
+                let characters = text.map(String.init)
+                let duration = 4 / Double(max(characters.count, 1))
+                syllables = characters.enumerated().map { offset, character in
+                    let start = lineStart + Double(offset) * duration
+                    return TVSyllable(
+                        w: character,
+                        start: start,
+                        end: start + duration,
+                        endTiming: .explicit
+                    )
+                }
+            } else {
+                syllables = []
+            }
+            return TVLyricLine(
+                id: "immersive-evidence-\(index)",
+                time: lineStart,
+                text: text,
+                isSynchronized: true,
+                syllables: syllables,
+                translation: ""
+            )
+        }
+    #endif
+
+    #if DEBUG
+    /// 截图用:`TV_DEMO_RADIO=1` 时在内存里的电台列表前面放几个演示台。
+    /// 只进 `radioStations`,不写电台存储,不会落盘也不会同步。
+    private static let showsDemoRadioStations =
+        ProcessInfo.processInfo.environment["TV_DEMO_RADIO"] == "1"
+
+    private static let demoRadioStations: [RadioStation] = {
+        let now = Date()
+        func demo(
+            _ index: Int,
+            _ name: String,
+            folder: String? = nil,
+            logo: String? = nil
+        ) -> RadioStation {
+            RadioStation(
+                id: "tv-demo-radio-\(index)",
+                name: name,
+                streamURL: "https://demo.primuse.invalid/radio/\(index)",
+                createdAt: now,
+                modifiedAt: now,
+                sortOrder: index,
+                remoteLogoURL: logo,
+                remoteLogoSource: logo == nil ? nil : .directoryFavicon,
+                folderName: folder
+            )
+        }
+        return [
+            demo(0, "Groove Salad", folder: "Music",
+                 logo: "https://somafm.com/img3/groovesalad-400.jpg"),
+            demo(1, "Drone Zone", folder: "Music",
+                 logo: "https://somafm.com/img3/dronezone-400.jpg"),
+            demo(2, "Morning News", folder: "News"),
+            demo(3, "World News Hour", folder: "News"),
+            demo(4, "City Jazz FM"),
+            demo(5, "Classic Rock 101"),
+            demo(6, "Lo-Fi Beats"),
+            demo(7, "Evening Talk"),
+        ]
+    }()
+    #endif
+
+    private static let topShelfLastPlayedKey = "tv.topShelf.lastPlayedAt.v1"
+
+    // MARK: 深链(主屏 Top Shelf 点击 → 播放)
+
+    /// 曲库未就绪时暂存的深链,reload/bootstrap 完成后再执行。
+    @ObservationIgnored private var pendingDeepLink: URL? {
+        didSet {
+            guard pendingDeepLink != oldValue else { return }
+            pendingPodcastDeepLinkTask?.cancel()
+            pendingPodcastDeepLinkTask = nil
+            didRefreshPendingPodcast = false
+        }
+    }
+    @ObservationIgnored private var pendingPodcastDeepLinkTask: Task<Void, Never>?
+    @ObservationIgnored private var didRefreshPendingPodcast = false
+    /// 这次启动的电台列表已经到齐过(首轮同步结束,或这次启动不会同步)。
+    /// 之后再来的电台深链找不到目标台,就不必再等。
+    @ObservationIgnored private var hasSettledRadioList = false
+
+    /// 只展示能由 Apple TV 自行建立曲库的来源。其余来源必须先在 iPhone / Mac
+    /// 完成授权与扫描，再通过配对或同步传入完整曲库，不能保存成一个空来源冒充成功。
+    /// 「在 Apple TV 上手动添加」能选的类型 —— 必须是电视端自己能建库的
+    /// (`TVSourceLocalLibraryPolicy.directScanTypes`),否则加完只是个空壳。
+    /// 网盘也在列:没有浏览器的设备改走提供方的扫码 / 设备码授权
+    /// (`CloudDeviceAuthSupport`),或者像 123 云盘、Drime 那样直接填开发者密钥。
+    static let addableTypes: [MusicSourceType] = [
+        .smb, .synology, .qnap, .ugreen,
+        .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
+        .jellyfin, .emby, .plex,
+        .subsonic, .navidrome, .airsonic, .gonic, .zspace,
+        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
+        .aliyunDrive, .baiduPan, .oneDrive, .dropbox,
+        .googleDrive, .pan115, .pan123, .drime, .guangya, .pcloud, .infiniCloud,
+    ]
+
+    // MARK: 服务端删掉的歌
+
+    private static let immediateCatalogRemovalKey = "tv.immediateCatalogRemovalSourceIDs"
+    private static let catalogDeletionHoldsKey = "tv.catalogDeletionHolds"
+
+    /// 换行、间奏提示点与它们的心跳共用的提前量。
+    static let lyricsLookahead: TimeInterval = 0.25
+
+    private static let selectedSpokenWordItemDefaultsKey = "primuse.spokenWord.selectedItem.v1"
+
+    /// 跳回服务端位置的窗口:开播后还停在起点这么近以内,才算「还没开始听」。
+    private static let serverSpokenWordResumeWindow: Double = 10
+
+    /// 接下来几首预取的数量;每首依次进行, 下一首拿到约 20 秒的开头。
+    static let upcomingPrefetchCount = 3
+
+    /// 当前这首剩下不到这么多秒时, 把下一首的流地址再解析一次。
+    private static let preparedStreamRefreshLeadSeconds: Double = 15
+
+    // MARK: 播客
+
+    /// 正在放的播客单集。换成曲库、电台、目录歌曲时清掉(见 `resetPodcastPlayback`)。
+    private(set) var currentPodcastEpisodeID: String?
+    /// 这一集放完接着放的单集(连续播放开着时):节目页按收听顺序,最新单集按列表顺序。
+    private(set) var podcastUpNext: [PodcastEpisode] = []
+    /// 正在放的单集当作一首虚拟歌:续播位置、按节目记的语速都按它算(专辑 = 节目名),和手机一致。
+    @ObservationIgnored private var currentPodcastSong: Song?
+    /// 这一集的片尾已经跳过了,别每拍再触发一次。
+    @ObservationIgnored private var podcastOutroHandledEpisodeID: String?
+    /// 媒体流没有章节时使用 ABS 条目或 RSS 单集提供的章节。
+    private var sourceChapters: [MediaChapter] = []
+    private(set) var libraryPodcastShowNotes: String?
+    @ObservationIgnored private var sourceChapterTask: Task<Void, Never>?
+}
+
+extension TVStore {
+    var replayGainPlaybackInfo: ReplayGainPlaybackInfo {
+        let settings = TVReplayGainSettings.shared
+        let song = currentSongID.flatMap { library.song(id: $0) }
+        let sourceType = song.flatMap { sourcesStore.source(id: $0.sourceID) }?.type
+        let isAppleMusic = appleMusicSelection != nil
+            || sourceType == .appleMusic || sourceType == .appleMusicLibrary
+        let supportsReplayGain = song.map(ReplayGainAnalysisService.supports) == true
+        guard settings.enabled, !isLiveRadio, !isAppleMusic, supportsReplayGain else {
+            return .init(enabled: settings.enabled, supported: !isLiveRadio && !isAppleMusic && supportsReplayGain)
+        }
+        return medleyPlayback?.replayGainPlaybackInfo ?? engine.replayGainPlaybackInfo
+    }
+    /// 云盘本月下载流量用完、队列里还有别的来源的歌时,倒数几秒后跳过这个来源。
+    private struct SourceQuotaSkip {
+        let id = UUID()
+        let requestID: UUID
+        let sourceID: String
+        let serviceName: String
+        let reason: String
+    }
+
+    func endEmbeddedKaraokeAudio() {
+        guard let file = embeddedKaraokeFile else { return }
+        if let song = library.song(id: file.songID), switchEmbeddedKaraokeAudio(nil, for: song) { return }
+        embeddedKaraokeFile = nil
+    }
+
+    func embeddedTrackInventory(for song: Song) async -> EmbeddedMediaTrackInventory? {
+        guard let source = sourcesStore.source(id: song.sourceID), source.isEnabled, !source.isDeleted else { return nil }
+        let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        return await TVMetadataEnricher.embeddedTrackInventory(for: song, source: source, credential: credential)
+    }
+
+    func switchEmbeddedKaraokeAudio(_ file: EmbeddedKaraokeFile?, for song: Song) -> Bool {
+        guard currentSongID == song.id, let current = library.song(id: song.id),
+              EmbeddedMediaTrackInventory.sameMediaFile(current, song), !isMedleyActive,
+              !isLiveRadio, !engine.isExternallyDriven, let source = sourcesStore.source(id: song.sourceID), source.isEnabled, !source.isDeleted else { return false }
+        let position = interpolatedTime()
+        let resuming = engine.status == .loading && loadingPlaybackIntent?.requestID == activePlaybackRequestID
+            && loadingPlaybackIntent?.autoPlay == true
+        let shouldPlay = isPlaying || resuming
+        let requestID = UUID()
+        loadingPlaybackIntent = (requestID, shouldPlay)
+        playbackTask?.cancel()
+        activePlaybackRequestID = requestID
+        playbackIssue = nil
+        embeddedKaraokeFile = file
+        engine.prepareForSelection(startAt: position, seekFloor: currentPlaybackRange?.start ?? 0)
+        playbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await coordinator.play(songID: song.id, requestID: requestID, preferMusicVideo: isMusicVideoModeEnabled,
+                                   startAt: position, autoPlay: shouldPlay,
+                                   playbackSongOverride: playbackRangeSong(forSongID: song.id))
+            guard isCurrentPlaybackRequest(requestID, isCancelled: Task.isCancelled) else { return }
+            playbackTask = nil
+            handleDownloadQuotaFailure(requestID: requestID)
+        }
+        return true
+    }
+
+    func karaokeAudioFile(for song: Song) async throws -> KaraokeAudioFile {
+        guard currentSongID == song.id else { throw CancellationError() }
+        return try await coordinator.karaokeAudioFile(for: song, requestID: activePlaybackRequestID)
+    }
+
+    /// 曲库已发布、源类型等查找状态还没跟上的那一小段(下一轮主循环就会补上)。
+    /// 这段时间首页继续显示「加载中」,不先画一个只有电台排(或「没有音乐」空态)
+    /// 的首页再跳出内容。
+    var isPreparingLibraryContent: Bool {
+        _ = libraryContentRevision
+        return library.isReady && !hasBuiltLookupSinceLibraryReady
+    }
+
+    /// 可见专辑数、音乐歌曲数、艺人数(资料库标题、播放页书架的分栏)。目录可读时读目录的计数,
+    /// 与 `albums.count`、`songs.count`、`artists.count` 相同。
+    var visibleAlbumCount: Int {
+        _ = libraryContentRevision
+        return catalogLookups.presence()?.albums ?? library.visibleAlbums.count
+    }
+
+    var musicSongCount: Int {
+        _ = libraryContentRevision
+        return catalogLookups.presence()?.musicSongs ?? library.musicSongs.count
+    }
+
+    var visibleArtistCount: Int {
+        _ = libraryContentRevision
+        return catalogLookups.presence()?.artists ?? library.visibleArtists.count
+    }
+
+    /// 有没有本机播客文件(播客页决定要不要显示欢迎卡)。
+    var hasLocalPodcastSongs: Bool {
+        if let count = catalogLookups.songCount(LibrarySongScope(kinds: [.podcast])) { return count > 0 }
+        return !library.localPodcastSongs.isEmpty
+    }
+
+    var hasRealLibrary: Bool {
+        _ = libraryContentRevision
+        if let presence = catalogLookups.presence() {
+            return VisibleLibraryPresencePolicy.hasContent(songCount: presence.musicSongs, albumCount: presence.albums)
+        }
+        return VisibleLibraryPresencePolicy.hasContent(
+            songCount: library.musicSongs.count,
+            albumCount: library.visibleAlbums.count
+        )
+    }
+    struct PlaybackAuthentication: Identifiable {
+        let id: UUID
+        let songID: String
+        let source: TVSource
+    }
+    private enum AppleMusicSelection {
+        case catalog(AppleMusicCatalogHit)
+        case collection(TVPlaybackCoordinator.AppleMusicCollection, songID: String,
+                        title: String, artist: String, album: String, glyph: String)
+    }
+
+    func resumeAfterAuthentication(_ request: PlaybackAuthentication) {
+        guard request.id == activePlaybackRequestID, request.songID == currentSongID,
+              library.song(id: request.songID)?.sourceID == request.source.id else { return }
+        resumePlayback()
+    }
+    private struct ScanCheckpoint: Codable {
+        let connectionIdentity: String
+        let roots: [String]
+        let state: SourceScanResumeState
+    }
+    /// 完整列表扫描里没再列到的歌各被看到过几次（`ServerCatalogDeletionConfirmationPolicy`），
+    /// 按源存在扫描断点旁边。连接或扫描目录换了就作废。
+    private struct ScanDeletionEvidence: Codable {
+        let connectionIdentity: String
+        let roots: [String]
+        let missingCounts: [String: Int]
+    }
+    private var canMutateLibrary: Bool {
+        library.isReady && !isApplyingSnapshot && !hasPendingSnapshotRecovery && sourcesStore.hasCompleteSnapshot
+    }
+    /// 过滤掉打印机 / 路由器等噪声(_http/_https 猜成 webdav 的),但保留所有正常文件/NAS 源。
+    var discoveredDevices: [DiscoveredDevice] { discovery.devices.filter(Self.isLikelyMusicSource) }
+    func startDeviceDiscovery() { discovery.startDiscovery() }
+    func stopDeviceDiscovery() { discovery.stopDiscovery() }
+
+    /// 明确的文件/NAS 协议服务一律保留(SMB/WebDAV/FTP/SFTP/NFS/群晖广播);只有 `_http/_https`
+    /// 猜出来的(端口 80/443→webdav,常是打印机/路由器/网页)才需要名字或端口佐证才保留。
+    nonisolated static func isLikelyMusicSource(_ d: DiscoveredDevice) -> Bool {
+        let explicit: Set<String> = [
+            "_smb._tcp.", "_webdav._tcp.", "_webdavs._tcp.", "_ftp._tcp.",
+            "_sftp-ssh._tcp.", "_nfs._tcp.", "_diskstation._tcp.", "_synology-dsm._tcp.",
+        ]
+        if explicit.contains(d.serviceType) { return true }
+        // _http/_https:名字含 NAS/媒体关键词,或端口是已知媒体/NAS 端口,才认为是源。
+        // 飞牛必须明确广播为音乐服务；通用 fnOS 名称或 5666 端口不能证明已安装飞牛音乐。
+        let n = d.name.lowercased()
+        let keywords = ["synology", "diskstation", "qnap", "ugreen", "fnmusic", "feiniu music", "飞牛音乐", "nas",
+                        "jellyfin", "emby", "plex", "navidrome", "subsonic", "airsonic", "truenas"]
+        if keywords.contains(where: { n.contains($0) }) { return true }
+        let mediaPorts: Set<Int> = [5000, 5001, 8080, 9999, 8096, 32400, 4040, 4533, 4747]
+        return mediaPorts.contains(d.port)
+    }
+    static var shufflePreference: ShufflePreference {
+        UserDefaults.standard.string(forKey: shufflePreferenceKey)
+            .flatMap(ShufflePreference.init(rawValue:)) ?? .defaultValue
+    }
+    private struct LookupRevision: Equatable {
+        let visibleSongs: Int
+        let replacements: UUID
+        let artwork: Int
+        let playlists: Int
+        let spokenWord: Int
+        let sourceTypes: [String: MusicSourceType]
+    }
+    private enum ArtworkPaletteInvalidationScope: Hashable {
+        case album
+        case song
+    }
+
+    private var hidesSingleOnlyAlbumArtists: Bool {
+        UserDefaults.standard.bool(forKey: AlbumArtistReleaseFilter.storageKey)
+    }
+
+    // 播放模式(随机 / 循环)——供正在播放页传输键展示与切换。
+    enum RepeatMode { case off, all, one }
+
+    /// 资料库「MV」页的列表:有 MV 的音乐(独立 MV 与带同名 MV 的歌),新添加的在前。
+    /// 按 MV 列表的修订号缓存,焦点每挪一格网格重算时不必再排一遍。
+    var musicVideoSongIDs: [String] {
+        let revision = library.musicVideoContentRevision
+        if let cache = musicVideoSongIDsCache, cache.revision == revision { return cache.ids }
+        let ids = library.musicVideoSongs.sorted { $0.dateAdded > $1.dateAdded }.map(\.id)
+        musicVideoSongIDsCache = (revision, ids)
+        return ids
+    }
+
+    /// 从「MV」页点播:先打开 MV 模式,带同名 MV 的歌一开播就走视频管线。
+    func prefersMusicVideoForNextPlay() {
+        isMusicVideoModeEnabled = true
+    }
+    var isSleepTimerActive: Bool {
+        sleepTimerMinutes > 0 || sleepStopAfterItemID != nil || sleepStopAfterBookID != nil
+            || sleepStopAfterChapter != nil || selectedChapterSleep != nil
+    }
+    var tingReaderProgressSync: TingReaderProgressSyncCoordinator {
+        if let cachedTingReaderProgressSync { return cachedTingReaderProgressSync }
+        let sync = TingReaderProgressSyncCoordinator(
+            defaults: defaults,
+            store: .shared,
+            sources: { [weak self] in self?.sourcesStore.sources ?? [] },
+            songs: { [weak self] in self?.library.visibleSongs(forSourceID: $0) ?? [] },
+            fetch: { [weak self] source in
+                guard let self else { throw CancellationError() }
+                let credential = TVCredentialStore.credential(for: source, bundle: self.credentialBundle)
+                return try await TVSourceAssetReader.shared.recentTingReaderProgress(source: source, credential: credential)
+            },
+            protectedSongID: { [weak self] in
+                guard let self, self.isPlaying || self.engine.status == .loading else { return nil }
+                return self.currentSongID
+            },
+            didAdopt: { [weak self] song in self?.applySyncedSpokenWordPosition(for: song) },
+            didFinishAdopting: { [weak self] in self?.followSpokenWordBookIfPaused() }
+        )
+        cachedTingReaderProgressSync = sync
+        return sync
+    }
 
     func spokenWordShelf(_ kind: TVSpokenWordShelfKind) -> TVSpokenWordShelfModel {
         switch kind {
@@ -1581,8 +1918,6 @@ final class TVStore {
         case .localPodcasts: localPodcastShelf
         }
     }
-    /// 下一条从这里开始而不是记住的位置:目录里点了另一条里的书签。
-    @ObservationIgnored private var pendingSpokenWordStartOverride: (songID: String, position: Double)?
 
     /// 当前正在播放的真实 Song id(队列当前位)。
     var currentSongID: String? { queue.indices.contains(queueIndex) ? queue[queueIndex] : nil }
@@ -1822,12 +2157,6 @@ final class TVStore {
         case .liked: return albums &+ LibraryFavoritesStore.shared.revision
         }
     }
-
-    /// 喜欢的专辑 / 艺人（最近喜欢的在前）。按曲库修订号与喜欢的修订号记住，首页每次重绘
-    /// 不必把整库专辑再对一遍。
-    @ObservationIgnored private var likedAlbumsCache: (library: Int, favorites: Int, albums: [Album])?
-    @ObservationIgnored private var likedArtistsCache:
-        (mode: ArtistBrowseMode, library: Int, favorites: Int, artists: [Artist])?
 
     private func likedLibraryAlbums() -> [Album] {
         let favorites = LibraryFavoritesStore.shared
@@ -2096,7 +2425,6 @@ final class TVStore {
         rebuildRatingPlaylistCacheIfNeeded()
         return cachedRatingPlaylists
     }
-    nonisolated static let ratingPlaylistRatings = [5, 4, 3]
     /// 歌单页按排序方式摆好的歌单:「我喜欢」在最前、智能歌单在最后,中间的普通歌单
     /// 和手机歌单页同一套 `PlaylistListOrder`;自定义顺序就是 `playlists`。
     func playlists(ordered order: PlaylistListOrder) -> [TVPlaylist] {
@@ -2129,12 +2457,6 @@ final class TVStore {
         _ = albumArtworkPaletteRevision
         return library.visibleAlbum(id: id).map(albumMapper.map)
     }
-    /// 媒体服务器实时搜索到的未入库临时曲目，只用于即时流式播放与队列切歌，不写入本地资料库。
-    // crash-pattern: allow library-array-property 仅保存单次服务器搜索结果(每源上限 25 首)，切回本地曲库即清空
-    @ObservationIgnored private var transientServerSongs: [String: Song] = [:]
-    /// 当前搜索页展示的媒体服务器未入库候选，供封面视图按需解析 `sourceID`。
-    // crash-pattern: allow library-array-property 仅保存当前搜索页的服务器候选窗口(每源上限 25 首)，每次搜索替换
-    @ObservationIgnored private var serverSearchPreviewSongs: [String: Song] = [:]
 
     func registerServerSearchPreviewSongs(_ hits: [ServerSearchHit]) {
         serverSearchPreviewSongs = Dictionary(
@@ -2160,12 +2482,6 @@ final class TVStore {
             nonMusicIDs.contains($0.id) ? nil : song($0.id)
         }
     }
-
-    // MARK: 艺人页的专辑
-
-    /// 只留最近打开的那位艺人:从专辑页、播放页回来重开艺人页时那几排马上就在,不先空一下。
-    @ObservationIgnored private var artistAlbumShelvesCache:
-        (key: TVArtistAlbumShelvesKey, shelves: TVArtistAlbumShelves)?
 
     /// 视图拿它做 `.task(id:)`:读它同时登记对这几样修订号的观察,变了就重分。
     func artistAlbumShelvesKey(for artist: TVArtist) -> TVArtistAlbumShelvesKey {
@@ -2254,8 +2570,6 @@ final class TVStore {
         var id: String { song.id }
     }
 
-    @ObservationIgnored private var searchCache = LibrarySearchCache()
-
     /// 搜索时攒下的歌词全文与分行(搜过几轮歌词就是大半个曲库的)。退到后台、内存告警时放掉,
     /// 下一次搜索在后台按需重新读。
     func releaseSearchCache() {
@@ -2323,9 +2637,6 @@ final class TVStore {
                                                excludingSongIDs: spokenWordIDs).map(albumMapper.map),
                      songs: hits, relatedConcepts: relatedConcepts, libraryRevision: revision)
     }
-
-    /// 从这么多首命中的歌里找它们所在的专辑。和手机端一样有个上限:很短的查询词能命中半个曲库。
-    nonisolated static let searchRelatedAlbumSongLimit = 240
 
     /// 搜索结果里的专辑:先是专辑名、专辑艺人对上的,再补上命中的歌所在的专辑。后一种是只有
     /// 曲目署了这位歌手的合辑、合作专辑,艺人页里列着,以前搜索结果里却没有(与手机端一致)。
@@ -2404,9 +2715,6 @@ final class TVStore {
         let supplement = composition.intelligentSupplementIDs.compactMap { candidatesByID[$0] }
         return (primary.top, primary.songs + supplement)
     }
-
-    /// 搜索页每次重算(焦点移动也算)都要问一遍建议,同一查询按曲库修订号记住结果。
-    @ObservationIgnored private var searchSuggestionsCache: (query: String, revision: Int, names: [String])?
 
     /// 空查询时的建议(艺术家名),与旧逻辑一致。
     func searchSuggestions(_ query: String) -> [String] {
@@ -2619,10 +2927,6 @@ final class TVStore {
         let target: AppleMusicLikeTarget
         let requestedAt: Date
     }
-
-    private static let pendingAppleMusicLikesKey = "tv.pendingAppleMusicLikes"
-    /// 等这么久 iPhone 还没把歌同步过来(多半没开同步 Apple Music 资料库),就不再等了。
-    private static let pendingAppleMusicLikeLifetime: TimeInterval = 30 * 24 * 3600
 
     nonisolated static func appleMusicLikeTarget(_ hit: AppleMusicCatalogHit) -> AppleMusicLikeTarget {
         AppleMusicLikeTarget(
@@ -2864,7 +3168,6 @@ final class TVStore {
         )
     }
     private func map(_ s: Song) -> TVSong { songMapper.map(s) }
-    static let playlistArtworkCandidateLimit = 16
 
     private func mapPlaylist(_ p: Playlist, kind: TVPlaylistKind) -> TVPlaylist {
         let summary = library.playlistBrowseSummary(
@@ -3081,20 +3384,6 @@ final class TVStore {
             return error.localizedDescription
         }
     }
-
-    // MARK: - TV 可播放性判断 + 手动凭据
-
-    /// 用「服务端账号 + 密码」登录、且能在 TV 直连的源类型 —— 适合在 TV 上手动输入凭据。
-    /// 云盘(OAuth)、relay 类(凭据在 iPhone 侧)、原生库源不在此列。
-    private static let manualCredentialTypes: Set<MusicSourceType> = [
-        .subsonic, .navidrome, .airsonic, .gonic, .zspace, .fnMusic, .daoliyu, .songloft, .audiobookshelf, .tingReader,
-        .synology, .synologyAudioStation, .qnap, .ugreen,
-        .jellyfin, .emby, .plex,
-    ]
-
-    /// 判断一个源能否在 Apple TV 上播放(注册表支持类型 + 凭据/中继可用性)。
-    /// 在 TV 上本机直连播放(不经 iPhone 中继)的协议类型。与 TVPlaybackCoordinator.makeDirectReader 对应。
-    static let directProtocolTypes: Set<MusicSourceType> = [.smb, .nfs, .ftp, .sftp]
     private static var tvScannableTypes: Set<MusicSourceType> {
         TVSourceLocalLibraryPolicy.directScanTypes
     }
@@ -3737,12 +4026,6 @@ final class TVStore {
         pairingSettingsCategories = categories
     }
 
-    /// 完成提示停留一会儿再收起,露出换新的二维码。
-    /// 上一次装好的云端快照记录的 changeTag, 与上一次局域网直传装库的时刻:
-    /// 引导时据此决定云端快照装不装(`TVCloudSnapshotInstallPolicy`)。
-    private static let installedCloudSnapshotTagKey = "tv.installedCloudSnapshotTag"
-    private static let lastLANInstallKey = "tv.lastLANInstallAt"
-
     private func finishPairingTransfer(requestSerial: Int, generation: Int, scanningSourceCount: Int? = nil) {
         defaults.set(Date(), forKey: Self.lastLANInstallKey)
         setPairingTransfer(LANReceiveStatus(phase: .finished, stage: .finish, songCount: library.songs.count,
@@ -4098,176 +4381,6 @@ final class TVStore {
     }
     #endif
 
-    #if DEBUG
-    /// 截图用:直接注入一条「正在播放」+ 演示歌词,不走真实播放(模拟器无可达源)。
-    /// `preferSongArtwork` 用来专门覆盖无 albumID 散曲的歌曲缓存/远程封面路径。
-    @discardableResult
-    func loadDemoNowPlaying(preferSongArtwork: Bool = false) async -> Bool {
-        let usesImmersiveEvidence = ProcessInfo.processInfo.environment["TV_IMMERSIVE_EFFECT"] != nil
-        var rawSong: Song?
-        var selectedAlbum: TVAlbum?
-
-        if preferSongArtwork {
-            rawSong = await demoStandaloneArtworkSong()
-            guard rawSong != nil else {
-                plog("TV debug artwork route failed: no standalone song with loadable artwork")
-                return false
-            }
-        }
-        if rawSong == nil,
-           let album = albums.first(where: {
-               MetadataAssetStore.shared.hasAlbumCover(forAlbumID: $0.id)
-           }) ?? albums.first {
-            selectedAlbum = album
-            rawSong = library.visibleSongs.first(where: { $0.albumID == album.id })
-        }
-        if rawSong == nil {
-            rawSong = library.visibleSongs.first
-        }
-        if rawSong == nil, usesImmersiveEvidence {
-            let fallback = Self.tint("immersive-evidence")
-            nowPlaying = TVNowPlaying(
-                songID: "immersive-evidence",
-                coverRef: nil,
-                title: ImmersiveDemoContent.title,
-                artist: ImmersiveDemoContent.artist,
-                album: ImmersiveDemoContent.album,
-                albumID: "",
-                tint: fallback.0,
-                tint2: fallback.1,
-                glyph: "♪",
-                duration: Double(Self.immersiveEvidenceLyrics.count + 1) * 4,
-                currentTime: 0,
-                format: "FLAC",
-                bitrate: 1411,
-                sampleRate: 96,
-                sourcePath: ""
-            )
-            updateAutomaticThemePalette(nil)
-            playbackIssue = nil
-            hasNowPlaying = true
-            queueUpNextIDs = []
-            lyrics = Self.immersiveEvidenceLyrics
-            return true
-        }
-        guard let rawSong, let song = song(rawSong.id) else { return false }
-
-        let album = selectedAlbum ?? album(song.albumID)
-        let fallback = Self.tint(song.id)
-        let albumPalette = artworkPalettes[song.albumID]
-        let songPalette = artworkPalettes[Self.songArtworkPaletteKey(song.id)]
-        let tint = albumPalette?.primary.color ?? songPalette?.primary.color
-            ?? album?.tint ?? fallback.0
-        let tint2 = albumPalette?.secondary.color ?? songPalette?.secondary.color
-            ?? album?.tint2 ?? fallback.1
-        nowPlaying = TVNowPlaying(
-            songID: song.id,
-            coverRef: rawSong.coverArtFileName,
-            title: usesImmersiveEvidence ? ImmersiveDemoContent.title : song.title,
-            artist: usesImmersiveEvidence ? ImmersiveDemoContent.artist : song.artist,
-            album: usesImmersiveEvidence
-                ? ImmersiveDemoContent.album
-                : (album?.title ?? rawSong.albumTitle ?? ""),
-            albumID: song.albumID,
-            tint: tint, tint2: tint2, glyph: album?.glyph ?? Self.glyph(song.title),
-            duration: song.duration > 0 ? song.duration : 245,
-            currentTime: 0,
-            format: song.format,
-            bitrate: max(0, song.bitrate),
-            sampleRate: max(0, song.sampleRate),
-            sourcePath: "")
-        updateAutomaticThemePalette(albumPalette ?? songPalette)
-        hasNowPlaying = true
-        queueUpNextIDs = songs.lazy
-            .filter { $0.id != song.id }
-            .prefix(12)
-            .map(\.id)
-        lyrics = usesImmersiveEvidence ? Self.immersiveEvidenceLyrics : Self.demoLyrics
-        return true
-    }
-
-    /// 截图用:演示播放态 + 英语演示歌词,歌词按真实加载路径交给离线翻译,
-    /// 用来在模拟器里看电视端的译文刷新(目标语言由 `PRIMUSE_DEBUG_LYRICS_TRANSLATION_TARGET` 指定)。
-    func loadLyricsTranslationDemo() async -> Bool {
-        guard await loadDemoNowPlaying() else { return false }
-        let songID = nowPlaying.songID
-        queue = [songID]
-        queueIndex = 0
-        let texts = [
-            "I've been walking in the rain all night",
-            "Baby, don't you let me go",
-            "We were young and wild and free",
-            "Every time I close my eyes, I see your face",
-            "My heart is breaking, can't you see?",
-            "We'll be dancing in the streets tonight, yeah!",
-            "She said \"I love you\" and then she walked away...",
-            "I got a feeling that tonight's gonna be a good night",
-        ]
-        let lines = texts.enumerated().map { index, text in
-            LyricLine(id: "translation-demo-\(index)", timestamp: Double(index) * 4, text: text)
-        }
-        applyLyrics(TVPlaybackCoordinator.toTVLyrics(lines, duration: 0), forSongID: songID)
-        TVLyricsTranslationController.shared.lyricsDidLoad(lines, forSongID: songID, store: self)
-        return true
-    }
-
-    private func demoStandaloneArtworkSong() async -> Song? {
-        let candidates = library.visibleSongs.filter {
-            $0.albumID?.isEmpty != false && $0.coverArtFileName?.isEmpty == false
-        }
-        for song in candidates {
-            if await TVArtworkLoader.shared.songCover(
-                songID: song.id,
-                coverRef: song.coverArtFileName
-            ) != nil {
-                return song
-            }
-        }
-        return nil
-    }
-
-    static let demoLyrics: [TVLyricLine] = [
-        .init(time: 0, text: PMString("ext.tv.demo.lyric1"), syllables: [], translation: ""),
-        .init(time: 4, text: PMString("ext.tv.demo.lyric2"), syllables: [], translation: ""),
-        .init(time: 9, text: PMString("ext.tv.demo.lyric3"), syllables: [], translation: ""),
-        .init(time: 14, text: PMString("ext.tv.demo.lyric4"), syllables: [], translation: ""),
-        .init(time: 19, text: PMString("ext.tv.demo.lyric5"), syllables: [], translation: ""),
-        .init(time: 24, text: PMString("ext.tv.demo.lyric6"), syllables: [], translation: ""),
-        .init(time: 29, text: PMString("ext.tv.demo.lyric7"), syllables: [], translation: ""),
-        .init(time: 34, text: PMString("ext.tv.demo.lyric8"), syllables: [], translation: ""),
-    ]
-
-    static let immersiveEvidenceLyrics: [TVLyricLine] = ImmersiveDemoContent.lyrics
-        .enumerated()
-        .map { index, text in
-            let lineStart = Double(index) * 4
-            let syllables: [TVSyllable]
-            if index == 1 {
-                let characters = text.map(String.init)
-                let duration = 4 / Double(max(characters.count, 1))
-                syllables = characters.enumerated().map { offset, character in
-                    let start = lineStart + Double(offset) * duration
-                    return TVSyllable(
-                        w: character,
-                        start: start,
-                        end: start + duration,
-                        endTiming: .explicit
-                    )
-                }
-            } else {
-                syllables = []
-            }
-            return TVLyricLine(
-                id: "immersive-evidence-\(index)",
-                time: lineStart,
-                text: text,
-                isSynchronized: true,
-                syllables: syllables,
-                translation: ""
-            )
-        }
-    #endif
-
     /// 仅从本地磁盘重载(不联网),用于关闭自动同步时的启动。
     func prepareLocalLibrary() async {
         await library.whenReady()
@@ -4434,47 +4547,6 @@ final class TVStore {
         let keys = Set(stations.compactMap { RadioImportParser.streamIdentityKey($0.streamURL) })
         if radioStreamIdentityKeys != keys { radioStreamIdentityKeys = keys }
     }
-
-    #if DEBUG
-    /// 截图用:`TV_DEMO_RADIO=1` 时在内存里的电台列表前面放几个演示台。
-    /// 只进 `radioStations`,不写电台存储,不会落盘也不会同步。
-    private static let showsDemoRadioStations =
-        ProcessInfo.processInfo.environment["TV_DEMO_RADIO"] == "1"
-
-    private static let demoRadioStations: [RadioStation] = {
-        let now = Date()
-        func demo(
-            _ index: Int,
-            _ name: String,
-            folder: String? = nil,
-            logo: String? = nil
-        ) -> RadioStation {
-            RadioStation(
-                id: "tv-demo-radio-\(index)",
-                name: name,
-                streamURL: "https://demo.primuse.invalid/radio/\(index)",
-                createdAt: now,
-                modifiedAt: now,
-                sortOrder: index,
-                remoteLogoURL: logo,
-                remoteLogoSource: logo == nil ? nil : .directoryFavicon,
-                folderName: folder
-            )
-        }
-        return [
-            demo(0, "Groove Salad", folder: "Music",
-                 logo: "https://somafm.com/img3/groovesalad-400.jpg"),
-            demo(1, "Drone Zone", folder: "Music",
-                 logo: "https://somafm.com/img3/dronezone-400.jpg"),
-            demo(2, "Morning News", folder: "News"),
-            demo(3, "World News Hour", folder: "News"),
-            demo(4, "City Jazz FM"),
-            demo(5, "Classic Rock 101"),
-            demo(6, "Lo-Fi Beats"),
-            demo(7, "Evening Talk"),
-        ]
-    }()
-    #endif
 
     // MARK: 电台管理(电视端添加 / 删除 / 置顶)
 
@@ -4877,8 +4949,6 @@ final class TVStore {
         )
     }
 
-    private static let topShelfLastPlayedKey = "tv.topShelf.lastPlayedAt.v1"
-
     private var topShelfPlaybackSectionID: String {
         if currentItemIsPodcast { return "podcasts" }
         if isLiveRadio { return "radio" }
@@ -4945,23 +5015,6 @@ final class TVStore {
         c.queryItems = [URLQueryItem(name: key, value: value)]
         return c.url?.absoluteString ?? "primuse://\(host)"
     }
-
-    // MARK: 深链(主屏 Top Shelf 点击 → 播放)
-
-    /// 曲库未就绪时暂存的深链,reload/bootstrap 完成后再执行。
-    @ObservationIgnored private var pendingDeepLink: URL? {
-        didSet {
-            guard pendingDeepLink != oldValue else { return }
-            pendingPodcastDeepLinkTask?.cancel()
-            pendingPodcastDeepLinkTask = nil
-            didRefreshPendingPodcast = false
-        }
-    }
-    @ObservationIgnored private var pendingPodcastDeepLinkTask: Task<Void, Never>?
-    @ObservationIgnored private var didRefreshPendingPodcast = false
-    /// 这次启动的电台列表已经到齐过(首轮同步结束,或这次启动不会同步)。
-    /// 之后再来的电台深链找不到目标台,就不必再等。
-    @ObservationIgnored private var hasSettledRadioList = false
 
     /// 处理 primuse:// 深链(主屏 Top Shelf 点击)。冷启动时曲库可能还没加载好,
     /// 先暂存,bootstrap/reload 完成后由 flushPendingDeepLink 执行。
@@ -5346,22 +5399,6 @@ final class TVStore {
         return sourcesStore.allSources.filter { $0.isDeleted || locallyRemovedSourceIDs.contains($0.id) }
             .map { self.map($0) }
     }
-
-    /// 只展示能由 Apple TV 自行建立曲库的来源。其余来源必须先在 iPhone / Mac
-    /// 完成授权与扫描，再通过配对或同步传入完整曲库，不能保存成一个空来源冒充成功。
-    /// 「在 Apple TV 上手动添加」能选的类型 —— 必须是电视端自己能建库的
-    /// (`TVSourceLocalLibraryPolicy.directScanTypes`),否则加完只是个空壳。
-    /// 网盘也在列:没有浏览器的设备改走提供方的扫码 / 设备码授权
-    /// (`CloudDeviceAuthSupport`),或者像 123 云盘、Drime 那样直接填开发者密钥。
-    static let addableTypes: [MusicSourceType] = [
-        .smb, .synology, .qnap, .ugreen,
-        .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
-        .jellyfin, .emby, .plex,
-        .subsonic, .navidrome, .airsonic, .gonic, .zspace,
-        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
-        .aliyunDrive, .baiduPan, .oneDrive, .dropbox,
-        .googleDrive, .pan115, .pan123, .drime, .guangya, .pcloud, .infiniCloud,
-    ]
 
     nonisolated static func canBuildLibraryOnTV(_ type: MusicSourceType) -> Bool {
         TVSourceLocalLibraryPolicy.capability(for: type) == .directScan
@@ -6359,11 +6396,6 @@ final class TVStore {
         return listed + collectionOnly + existing.filter { plan.pendingSongIDs.contains($0.id) }
     }
 
-    // MARK: 服务端删掉的歌
-
-    private static let immediateCatalogRemovalKey = "tv.immediateCatalogRemovalSourceIDs"
-    private static let catalogDeletionHoldsKey = "tv.catalogDeletionHolds"
-
     /// 源页上给不给「服务端删掉的歌」这个选择:和手机一样,只有删歌走证词模型的服务器源。
     func supportsCatalogRemovalModeChoice(sourceID: String) -> Bool {
         sourcesStore.source(id: sourceID)?.type.holdsServerDeletionsForConfirmation == true
@@ -6863,9 +6895,6 @@ final class TVStore {
         )
     }
 
-    /// 换行、间奏提示点与它们的心跳共用的提前量。
-    static let lyricsLookahead: TimeInterval = 0.25
-
     /// 当前播放时间所在的歌词行索引。纯文本歌词没有时间轴，不参与自动跟随。
     var currentLyricIndex: Int? {
         guard lyricsFollowPlayback else { return nil }
@@ -7320,8 +7349,6 @@ final class TVStore {
         if adopted > 0 { SpokenWordStore.shared.persistLocally() }
     }
 
-    private static let selectedSpokenWordItemDefaultsKey = "primuse.spokenWord.selectedItem.v1"
-
     /// 记下本机换到这一条的时间。
     private func noteSpokenWordItemSelected(_ songID: String) {
         let now = Date()
@@ -7461,9 +7488,6 @@ final class TVStore {
         spokenWordStoppedAt = nil
         persistPlaybackSession()
     }
-
-    /// 跳回服务端位置的窗口:开播后还停在起点这么近以内,才算「还没开始听」。
-    private static let serverSpokenWordResumeWindow: Double = 10
 
     private func applyPendingServerSpokenWordResumeIfNeeded() {
         guard let pending = pendingServerSpokenWordResume else { return }
@@ -9006,9 +9030,6 @@ final class TVStore {
         queueUpNextIDs = Array(queue[(queueIndex + 1)...])
     }
 
-    /// 接下来几首预取的数量;每首依次进行, 下一首拿到约 20 秒的开头。
-    static let upcomingPrefetchCount = 3
-
     /// 当前这首真正出声后, 按实际播放顺序给后面几首预取开头, 让自动切到下一首时
     /// 不用等网络。换歌、换电台、串烧都会先停掉上一轮。
     private func scheduleUpcomingPrefetch() {
@@ -9044,9 +9065,6 @@ final class TVStore {
               upcomingPrefetchRequestID == requestID else { return }
         scheduleUpcomingPrefetch()
     }
-
-    /// 当前这首剩下不到这么多秒时, 把下一首的流地址再解析一次。
-    private static let preparedStreamRefreshLeadSeconds: Double = 15
 
     /// 播放监视每秒调一次: 快放完时让下一首的连接检查、网盘换下载链接在这首还在放的时候做完,
     /// 切过去就不用等。签名链接几分钟就会过期, 预取时解析的那份放到这时可能已经太旧。
@@ -9373,25 +9391,10 @@ final class TVStore {
     nonisolated static func appleMusicCatalogSongID(_ itemID: String) -> String {
         "appleMusic:\(itemID)"
     }
-
-    // MARK: 播客
-
-    /// 正在放的播客单集。换成曲库、电台、目录歌曲时清掉(见 `resetPodcastPlayback`)。
-    private(set) var currentPodcastEpisodeID: String?
     var currentItemIsPodcast: Bool {
         guard hasNowPlaying, currentItemIsSpokenWord, !isLiveRadio else { return false }
         return currentPodcastEpisodeID != nil || library.localPodcastShowID(forSongID: nowPlaying.songID) != nil
     }
-    /// 这一集放完接着放的单集(连续播放开着时):节目页按收听顺序,最新单集按列表顺序。
-    private(set) var podcastUpNext: [PodcastEpisode] = []
-    /// 正在放的单集当作一首虚拟歌:续播位置、按节目记的语速都按它算(专辑 = 节目名),和手机一致。
-    @ObservationIgnored private var currentPodcastSong: Song?
-    /// 这一集的片尾已经跳过了,别每拍再触发一次。
-    @ObservationIgnored private var podcastOutroHandledEpisodeID: String?
-    /// 媒体流没有章节时使用 ABS 条目或 RSS 单集提供的章节。
-    private var sourceChapters: [MediaChapter] = []
-    private(set) var libraryPodcastShowNotes: String?
-    @ObservationIgnored private var sourceChapterTask: Task<Void, Never>?
 
     /// 播一集播客。不进曲库队列;有声那一套照常生效:记位置、续播、按节目变速、睡眠定时。
     /// 已经在放这一集就只是继续。

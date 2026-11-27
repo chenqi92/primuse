@@ -3687,46 +3687,7 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
 @MainActor
 @Observable
 final class SourceManager {
-    private struct EditorTagReadKey: Equatable {
-        let songID: String
-        let path: String
-        let scope: String
-        let revision: String?
-        let modified: Date?
-        let bytes: Int64
-    }
     @ObservationIgnored private var editorTagRead: (key: EditorTagReadKey, id: UUID, task: Task<Data, Error>, expires: Date?)?
-
-    private enum PlaybackAudioCacheReservationMode: Equatable {
-        case readOnly
-        case persistentCache
-        case canonicalPhysical
-        case temporaryPhysical
-
-        var respectsConfiguredCacheLimit: Bool {
-            self != .canonicalPhysical && self != .temporaryPhysical
-        }
-
-        var usesCanonicalStorage: Bool {
-            self != .temporaryPhysical
-        }
-    }
-
-    private struct PlaybackAudioCacheLeaseRecord {
-        let lease: AudioCachePathLease
-        let sourceID: String
-        let relativePath: String
-        var generation: UInt64
-        var mode: PlaybackAudioCacheReservationMode
-        var maximumTransferBytes: Int64?
-    }
-
-    private struct PlaybackAudioCacheLeaseFinalization {
-        let id: UUID
-        let generation: UInt64
-        let sourceID: String
-        let task: Task<Void, Never>
-    }
 
     /// Connector lifecycle and scope validation are internal bookkeeping. Directory
     /// browser views resolve a connector while SwiftUI is evaluating `body`; tracking
@@ -3760,11 +3721,6 @@ final class SourceManager {
     @ObservationIgnored private var playbackAvailabilityPassCount = 0
     @ObservationIgnored private var playbackAvailabilityPathTask: Task<Void, Never>?
     @ObservationIgnored private var playbackAvailabilityRecheckTask: Task<Void, Never>?
-    private struct UnavailableConnectorCacheEntry {
-        let connector: any MusicSourceConnector
-        let capturedAt: Date
-        let scopeFingerprint: String
-    }
     /// Credential failures are intentionally not kept in the durable connector
     /// cache, but callers such as an artwork grid can request the same source
     /// many times in one render pass. Coalesce that short burst and retry after
@@ -3948,6 +3904,154 @@ final class SourceManager {
         observeLibraryInvalidations()
         scheduleInitialAudioCacheScopeValidation()
         syncAudioCacheEvictionForOfflineMode()
+    }
+
+    /// 体检时要单独试一次下载的源(见 `SourceDiagnosticDownloadProbing`)。
+    nonisolated static let diagnosticDownloadProbeTypes: Set<MusicSourceType> = [.pan123]
+
+    /// Custom URL scheme that signals "play this song via streaming
+    /// SFBInputSource" — AudioPlayerService intercepts it and routes to
+    /// CloudPlaybackSource instead of doing a full download.
+    static let cloudStreamingScheme = "primuse-stream"
+
+    /// Query 参数标记: 服务端转码流(大小未知)。AudioPlayerService 看到它就
+    /// 不走"按已知大小做 HTTP Range"那条路, 改用 AVAssetReader 渐进解码,
+    /// 且不做按 fileSize 校验的持久缓存。Subsonic WMA 转码流会带上。
+    /// nonisolated: SubsonicSource(独立 actor)与下面的 nonisolated 静态方法都要读它。
+    nonisolated static let transcodedStreamQueryKey = SourceStreamQuery.transcoded
+
+    /// 在途的转码物化。**全局只保留一个** —— 按转码文件名识别: 同名的请求
+    /// 直接 join 已有的那个(所以同一个路径永远只有一个写者), 换了名字就把
+    /// 上一个取消掉(用户已经翻页了, 那份预取没人要了)。
+    ///
+    /// `control` 是这份下载自己的中断句柄: `Task.value` 的等待不响应取消,
+    /// 光取消 Task 也不保证立刻断开 URLSession, 要靠它 `invalidateAndCancel`。
+    private var adaptiveTranscodeMaterialization: (
+        name: String,
+        task: Task<URL?, Never>,
+        control: StreamingDownloadSessionControl
+    )?
+
+    /// 最近一次交出去的转码产物 —— 正在播的那首就是它。清理时一并保护,
+    /// 不依赖文件系统的 access time(有的卷是 noatime 挂载的)。
+    private var lastServedAdaptiveTranscodeName: String?
+
+    // MARK: - Music Video Cache
+
+    private nonisolated static let videoCacheDirName = "primuse_video_cache"
+    private nonisolated static let videoCacheLimitBytes: Int64 = 10 * 1024 * 1024 * 1024
+    private nonisolated static let videoCacheChunkBytes: Int64 = 4 * 1024 * 1024
+
+    // MARK: - Audio Cache
+
+    private nonisolated static let audioCacheDirName = "primuse_audio_cache"
+    private nonisolated static let audioCacheScopeStateFileName = "audio_cache_source_scopes.json"
+    private nonisolated static let audioCacheCredentialScopeStateFileName =
+        "audio_cache_source_credential_scopes.json"
+    private nonisolated static let legacyAudioCacheAdoptionStateFileName =
+        "audio_cache_legacy_adoption.json"
+    private static let offlineBatchConcurrency = 2
+    private static let directDownloadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+
+    /// 缓存根目录在进程里不变，算一次就够。
+    private nonisolated static let audioCacheRootURL: URL = FileManager.default
+        .primuseDirectoryURL(for: .cachesDirectory)
+        .appendingPathComponent(audioCacheDirName, isDirectory: true)
+
+    /// 歌曲行的观察节点按最近使用留至多 `offlineAudioEntryCapacity` 个:滑过整个大曲库不再每行留一个。
+    /// 屏上的行每次重画都会取一次,被挤掉的是很久没画过的行;它再出现时取到的是新节点和当前状态。
+    private static let offlineAudioEntryCapacity = 4_096
+
+    private static let offlineSnapshotProbeBatchSize = 1000
+
+    /// 正在下载时的进度;nil 表示没在下。
+    private(set) var companionAssetProgress: CompanionAssetProgress?
+    /// 上一轮的结果,设置页拿它说「存下了几张封面、几份歌词」。
+    private(set) var lastCompanionAssetResult: CompanionAssetProgress?
+    let companionAssetFlow = CompanionAssetDownloadFlow()
+    @ObservationIgnored private var companionAssetTask: Task<Void, Never>?
+    /// 下载到了新封面时调用(让 Spotlight 补上缩略图),由 AppServices 装上。
+    @ObservationIgnored var onCompanionArtworkDownloaded: (@MainActor () -> Void)?
+    /// 同时在取的条数。界面上看得见的封面也走同一条取封面的限流,留出余地给它。
+    private nonisolated static let companionAssetConcurrency = 3
+
+    /// 「转换已缓存的歌曲」正在进行时的进度; nil 表示没在转。
+    private(set) var offlineCompactionSweepProgress: OfflineCompactionSweepProgress?
+    /// 上一轮转换的结果, 设置页拿它显示「已转换 N 首, 省下 X」。
+    private(set) var lastOfflineCompactionSweepResult: OfflineCompactionSweepProgress?
+    @ObservationIgnored private var offlineCompactionSweepTask: Task<Void, Never>?
+
+    /// 每删多少个文件复核一次保护集。复核要回主 actor, 太小会让清缓存被
+    /// 主线程的渲染节奏拖住; 256 个文件的 unlink 通常在几十毫秒级。
+    private nonisolated static let audioCacheDeletionBatchSize = 256
+
+    static let prewarmHeadSize: Int64 = CloudPlaybackSource.prewarmHeadBytes
+    static let prewarmTailSize: Int64 = CloudPlaybackSource.prewarmTailBytes
+
+    /// Synology is not here: its download URL carries a `_sid` that DSM
+    /// revokes on its own (idle timeout, or a client address change on IPv6
+    /// privacy addresses). A plain URL keeps the dead sid for the rest of the
+    /// song, while the connector re-logs in and repeats the range. Its per-chunk
+    /// connector cost is the same single GET.
+    private static let nasAPIPlainStreamingTypes: Set<MusicSourceType> = [
+        .qnap,
+        .ugreen,
+    ]
+
+    private static let publicHTTPConnectorStreamingTypes: Set<MusicSourceType> = [
+        .synology,
+        .qnap,
+        .ugreen,
+    ]
+
+
+    @ObservationIgnored private var playingArtworkRefreshTask: Task<Void, Never>?
+}
+
+extension SourceManager {
+    private struct EditorTagReadKey: Equatable {
+        let songID: String
+        let path: String
+        let scope: String
+        let revision: String?
+        let modified: Date?
+        let bytes: Int64
+    }
+
+    private enum PlaybackAudioCacheReservationMode: Equatable {
+        case readOnly
+        case persistentCache
+        case canonicalPhysical
+        case temporaryPhysical
+
+        var respectsConfiguredCacheLimit: Bool {
+            self != .canonicalPhysical && self != .temporaryPhysical
+        }
+
+        var usesCanonicalStorage: Bool {
+            self != .temporaryPhysical
+        }
+    }
+
+    private struct PlaybackAudioCacheLeaseRecord {
+        let lease: AudioCachePathLease
+        let sourceID: String
+        let relativePath: String
+        var generation: UInt64
+        var mode: PlaybackAudioCacheReservationMode
+        var maximumTransferBytes: Int64?
+    }
+
+    private struct PlaybackAudioCacheLeaseFinalization {
+        let id: UUID
+        let generation: UInt64
+        let sourceID: String
+        let task: Task<Void, Never>
+    }
+    private struct UnavailableConnectorCacheEntry {
+        let connector: any MusicSourceConnector
+        let capturedAt: Date
+        let scopeFingerprint: String
     }
 
     private func observeLibraryInvalidations() {
@@ -4871,9 +4975,6 @@ final class SourceManager {
         )
     }
 
-    /// 体检时要单独试一次下载的源(见 `SourceDiagnosticDownloadProbing`)。
-    nonisolated static let diagnosticDownloadProbeTypes: Set<MusicSourceType> = [.pan123]
-
     /// A login or relay resolution that timed out, dropped or failed TLS after
     /// the port had answered.
     nonisolated static func isStalledDiagnosticHandshake(_ error: any Error) -> Bool {
@@ -5641,17 +5742,6 @@ final class SourceManager {
         }
     }
 
-    /// Custom URL scheme that signals "play this song via streaming
-    /// SFBInputSource" — AudioPlayerService intercepts it and routes to
-    /// CloudPlaybackSource instead of doing a full download.
-    static let cloudStreamingScheme = "primuse-stream"
-
-    /// Query 参数标记: 服务端转码流(大小未知)。AudioPlayerService 看到它就
-    /// 不走"按已知大小做 HTTP Range"那条路, 改用 AVAssetReader 渐进解码,
-    /// 且不做按 fileSize 校验的持久缓存。Subsonic WMA 转码流会带上。
-    /// nonisolated: SubsonicSource(独立 actor)与下面的 nonisolated 静态方法都要读它。
-    nonisolated static let transcodedStreamQueryKey = SourceStreamQuery.transcoded
-
     /// `url` 是否是服务端转码流(带 transcoded 标记)。
     nonisolated static func isTranscodedStreamURL(_ url: URL) -> Bool {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
@@ -5797,26 +5887,10 @@ final class SourceManager {
         )
     }
 
-    /// 在途的转码物化。**全局只保留一个** —— 按转码文件名识别: 同名的请求
-    /// 直接 join 已有的那个(所以同一个路径永远只有一个写者), 换了名字就把
-    /// 上一个取消掉(用户已经翻页了, 那份预取没人要了)。
-    ///
-    /// `control` 是这份下载自己的中断句柄: `Task.value` 的等待不响应取消,
-    /// 光取消 Task 也不保证立刻断开 URLSession, 要靠它 `invalidateAndCancel`。
-    private var adaptiveTranscodeMaterialization: (
-        name: String,
-        task: Task<URL?, Never>,
-        control: StreamingDownloadSessionControl
-    )?
-
     /// 正在物化的那份转码产物的文件名, 清理时要保护它。
     private var inFlightAdaptiveTranscodeName: String? {
         adaptiveTranscodeMaterialization?.name
     }
-
-    /// 最近一次交出去的转码产物 —— 正在播的那首就是它。清理时一并保护,
-    /// 不依赖文件系统的 access time(有的卷是 noatime 挂载的)。
-    private var lastServedAdaptiveTranscodeName: String?
 
     /// 取一份完整的转码产物 —— 已经在盘上就直接返回, 否则下载+校验+原子安装。
     ///
@@ -6538,12 +6612,6 @@ final class SourceManager {
         return (dir as NSString).appendingPathComponent(raw)
     }
 
-    // MARK: - Music Video Cache
-
-    private nonisolated static let videoCacheDirName = "primuse_video_cache"
-    private nonisolated static let videoCacheLimitBytes: Int64 = 10 * 1024 * 1024 * 1024
-    private nonisolated static let videoCacheChunkBytes: Int64 = 4 * 1024 * 1024
-
     private func videoCacheDirectory(
         for sourceID: String,
         namespace explicitNamespace: String? = nil
@@ -6984,17 +7052,6 @@ final class SourceManager {
         )
         Self.removeCacheFileFamily(at: videoCacheURL(sourceID: song.sourceID, path: mvPath))
     }
-
-    // MARK: - Audio Cache
-
-    private nonisolated static let audioCacheDirName = "primuse_audio_cache"
-    private nonisolated static let audioCacheScopeStateFileName = "audio_cache_source_scopes.json"
-    private nonisolated static let audioCacheCredentialScopeStateFileName =
-        "audio_cache_source_credential_scopes.json"
-    private nonisolated static let legacyAudioCacheAdoptionStateFileName =
-        "audio_cache_legacy_adoption.json"
-    private static let offlineBatchConcurrency = 2
-    private static let directDownloadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
     private enum AudioCacheScopeReconciliationResult: Equatable {
         case validated
@@ -7819,11 +7876,6 @@ final class SourceManager {
         }
     }
 
-    /// 缓存根目录在进程里不变，算一次就够。
-    private nonisolated static let audioCacheRootURL: URL = FileManager.default
-        .primuseDirectoryURL(for: .cachesDirectory)
-        .appendingPathComponent(audioCacheDirName, isDirectory: true)
-
     /// 显式标明是目录：不带 `isDirectory` 的 `appendingPathComponent` 遇到文件 URL 会先
     /// lstat 一次看要不要补斜杠，歌单每一行出现时都在主线程上查好几次盘（10-13 真机采样）。
     private nonisolated static func audioCacheDirectoryURL(for sourceID: String) -> URL {
@@ -8472,10 +8524,6 @@ final class SourceManager {
         return entry
     }
 
-    /// 歌曲行的观察节点按最近使用留至多 `offlineAudioEntryCapacity` 个:滑过整个大曲库不再每行留一个。
-    /// 屏上的行每次重画都会取一次,被挤掉的是很久没画过的行;它再出现时取到的是新节点和当前状态。
-    private static let offlineAudioEntryCapacity = 4_096
-
     private func noteOfflineAudioEntryUse(_ songID: String) {
         offlineAudioEntryClock &+= 1
         offlineAudioEntryAccess[songID] = offlineAudioEntryClock
@@ -8757,8 +8805,6 @@ final class SourceManager {
         let exists: Bool
         let byteCount: Int64?
     }
-
-    private static let offlineSnapshotProbeBatchSize = 1000
 
     /// Resolves the filter membership after the bounded background probe has
     /// populated missing states. Only explicitly retained downloads belong in
@@ -10607,17 +10653,6 @@ final class SourceManager {
         var succeeded: Bool { !cancelled && completed == total && failed == 0 }
     }
 
-    /// 正在下载时的进度;nil 表示没在下。
-    private(set) var companionAssetProgress: CompanionAssetProgress?
-    /// 上一轮的结果,设置页拿它说「存下了几张封面、几份歌词」。
-    private(set) var lastCompanionAssetResult: CompanionAssetProgress?
-    let companionAssetFlow = CompanionAssetDownloadFlow()
-    @ObservationIgnored private var companionAssetTask: Task<Void, Never>?
-    /// 下载到了新封面时调用(让 Spotlight 补上缩略图),由 AppServices 装上。
-    @ObservationIgnored var onCompanionArtworkDownloaded: (@MainActor () -> Void)?
-    /// 同时在取的条数。界面上看得见的封面也走同一条取封面的限流,留出余地给它。
-    private nonisolated static let companionAssetConcurrency = 3
-
     /// 挑出本机还没存下的封面与歌词。只查文件在不在,不联网;整库几万首也只是一轮目录查询。
     nonisolated static func companionAssetPlan(
         for songs: [Song], artists: [Artist] = [], playlists: [Playlist] = [],
@@ -10924,12 +10959,6 @@ final class SourceManager {
         var convertedCount: Int
         var savedBytes: Int64
     }
-
-    /// 「转换已缓存的歌曲」正在进行时的进度; nil 表示没在转。
-    private(set) var offlineCompactionSweepProgress: OfflineCompactionSweepProgress?
-    /// 上一轮转换的结果, 设置页拿它显示「已转换 N 首, 省下 X」。
-    private(set) var lastOfflineCompactionSweepResult: OfflineCompactionSweepProgress?
-    @ObservationIgnored private var offlineCompactionSweepTask: Task<Void, Never>?
 
     /// 把已经离线、仍是原文件的歌按当前「离线缓存音质」逐首转换。改了设置之后,
     /// 不必重新下载就能腾出空间。一次只跑一轮, 一次只转一首。
@@ -12647,10 +12676,6 @@ final class SourceManager {
     /// 这首歌再也 promote 不了。所以每批删除前都回主 actor 复核一次。
     typealias AudioCacheProtectionRefresher =
         @Sendable () async -> (pinned: Set<String>, protected: Set<String>)
-
-    /// 每删多少个文件复核一次保护集。复核要回主 actor, 太小会让清缓存被
-    /// 主线程的渲染节奏拖住; 256 个文件的 unlink 通常在几十毫秒级。
-    private nonisolated static let audioCacheDeletionBatchSize = 256
 
     /// 组装 `AudioCacheProtectionRefresher`: pinned 走 AudioCacheManager
     /// 这个 actor, 在途集合回主 actor 重算。SourceManager 已经释放时退回
@@ -14944,9 +14969,6 @@ final class SourceManager {
         }
     }
 
-    static let prewarmHeadSize: Int64 = CloudPlaybackSource.prewarmHeadBytes
-    static let prewarmTailSize: Int64 = CloudPlaybackSource.prewarmTailBytes
-
     /// Same as `prewarmCloudSong` but accepts a Song directly and resolves
     /// the connector itself. Exposed so `ScanService` can run a serialized
     /// prewarm sweep over every cloud song in a fresh scan (avoiding the
@@ -16488,22 +16510,6 @@ final class SourceManager {
         return !Self.isProbablyLocalHost(host)
     }
 
-    /// Synology is not here: its download URL carries a `_sid` that DSM
-    /// revokes on its own (idle timeout, or a client address change on IPv6
-    /// privacy addresses). A plain URL keeps the dead sid for the rest of the
-    /// song, while the connector re-logs in and repeats the range. Its per-chunk
-    /// connector cost is the same single GET.
-    private static let nasAPIPlainStreamingTypes: Set<MusicSourceType> = [
-        .qnap,
-        .ugreen,
-    ]
-
-    private static let publicHTTPConnectorStreamingTypes: Set<MusicSourceType> = [
-        .synology,
-        .qnap,
-        .ugreen,
-    ]
-
     private func permitsConfiguredDirectURL(
         for source: MusicSource,
         song: Song,
@@ -17843,9 +17849,6 @@ final class SourceManager {
     nonisolated static func supportsSidecarWriting(sourceType: MusicSourceType) -> Bool {
         sourceType.supportsSidecarWriting
     }
-
-
-    @ObservationIgnored private var playingArtworkRefreshTask: Task<Void, Never>?
 
     func refreshArtworkForPlayingSong(_ song: Song?) {
         playingArtworkRefreshTask?.cancel()

@@ -86,6 +86,143 @@ enum ScrapeResumePolicy {
 @MainActor
 @Observable
 final class MusicScraperService {
+
+    nonisolated static let batchLyricsEmbeddingAcknowledgedKey = "primuse.scrape.batchLyricsEmbeddingAcknowledged"
+
+    /// 任务 B 接线用：这首歌的歌词是不是用户主动清空的。为真时刮到的歌词不写，按「没去刮」算，不进失败清单。
+    static var lyricsWereClearedByUser: (String) -> Bool = { _ in false }
+
+    nonisolated static let sidecarCoverWriteEnabledKey = "primuse.sidecar.coverWriteEnabled"
+    nonisolated static let sidecarLyricsWriteEnabledKey = "primuse.sidecar.lyricsWriteEnabled"
+    nonisolated static let sidecarWriteTimeoutKey = "primuse.sidecar.writeTimeout"
+
+    private let sourceManager: SourceManager
+    private let sourceFileName: (Song) -> String?
+    private let metadataService: MetadataService
+    private let scrapeRetrySleep: @Sendable (TimeInterval) async throws -> Void
+    private var scrapingTask: Task<Void, Never>?
+    private var scrapingGeneration = 0
+    private var backgroundEnrichmentTask: Task<Void, Never>?
+    @ObservationIgnored var automaticWorkIsAllowed: () -> Bool = { true }
+    private var enrichmentEnqueueTask: Task<Void, Never>?
+    private var sidecarWriteTasks: [UUID: Task<Void, Never>] = [:]
+    private let sidecarCircuitBreaker = SidecarWriteCircuitBreaker()
+    private var singleScrapeTask: Task<SingleScrapeResult, Error>?
+    private var pendingSingleScrapeCompletions: [SingleSongScrapeKey: SingleScrapeCompletion] = [:]
+    private var singleScrapeCompletionOrder: [SingleSongScrapeKey] = []
+    private var recentSingleScrapeCompletions: [UUID: SingleScrapeCompletion] = [:]
+    private var singleScrapeRunOrder: [UUID] = []
+    /// 联网补全的待办队列。只在动作里读、不进界面观察: 扫完一个上万首的源时逐首入队,
+    /// 每加一首都会给观察者发一次通知。出队用游标, 不再每取一首就把整个数组往前挪一格。
+    @ObservationIgnored private var pendingEnrichmentSongIDs: [String] = []
+    @ObservationIgnored private var pendingEnrichmentHead = 0
+    @ObservationIgnored private var pendingEnrichmentSongIDSet: Set<String> = []
+    /// 这首歌的标签还没读、读标签那边还会去读它时为真(网盘、NAS 扫描入库时只有文件名,歌手、时长都是空的)。
+    /// 后台补全先放着,等读完由 `tagReadsConcluded` 交回来:只凭文件名去搜,同名的别人的歌会被当成它,
+    /// 封面、歌手、专辑一起配错。由 AppServices 接到 `MetadataBackfillService.willReadTags(of:)`。
+    @ObservationIgnored var awaitsTagRead: ((Song) -> Bool)?
+    @ObservationIgnored private var enrichmentAwaitingTagReadIDs: Set<String> = []
+    /// 补全因为网络不通停下后, 正在等网络回来。
+    @ObservationIgnored private var isWaitingForNetworkToEnrich = false
+    private var isPausedForSceneTransition = false
+    /// A batch scrape that the transition gate interrupted. Only that scrape
+    /// restarts when the scene returns to the foreground without a background
+    /// phase; the background continuation path handles the other case.
+    private var sceneTransitionInterruptedScrape = false
+    /// Bound both observable full-library publications and checkpoint replay.
+    /// A large library cannot afford a complete observable-array publication
+    /// every few songs. Forty still bounds idempotent checkpoint replay, while
+    /// the time gate below publishes slow network work at least every 5 seconds.
+    private static let songPublicationBatchSize = 40
+    private static let songPublicationInterval: TimeInterval = 5
+    /// Sidecar writes run one at a time per source, and each queued write
+    /// holds its scraped cover until it has written it. On a slow share
+    /// (embedding covers rewrites whole audio files) lookups outrun the writes
+    /// and covers used to pile up without bound; the batch waits instead.
+    /// Two publication batches (`songPublicationBatchSize`).
+    nonisolated static let maximumQueuedSidecarWrites = 80
+    private let scrapeCheckpointURL: URL
+    private var scrapeCheckpoint: ScrapeCheckpoint?
+    /// 断点是从盘上读来的、这个进程还没跑过它(被系统回收或闪退后重新打开)。
+    @ObservationIgnored private var checkpointIsFromPreviousProcess = false
+    /// 回到前台后隔一会儿再从断点续刮的那一次。场景又离开前台、用户停止时作废。
+    @ObservationIgnored private var interruptedScrapeResumeTask: Task<Void, Never>?
+    @ObservationIgnored private var interruptedScrapeResumeGeneration = 0
+    #if os(iOS)
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    #endif
+
+    private(set) var isScraping = false { didSet { publishBatchActivity() } }
+    private(set) var isBackgroundEnriching = false
+    private(set) var currentSongTitle = ""
+    private(set) var processedCount = 0 { didSet { publishBatchActivity() } }
+    private(set) var totalCount = 0
+    private(set) var updatedCount = 0
+    private(set) var skippedCount = 0
+    private(set) var failedCount = 0
+    private(set) var batchPhase: BatchScrapePhase = .songs { didSet { publishBatchActivity() } }
+    private(set) var songTotalCount = 0
+    private(set) var artworkTotalCount = 0
+    private(set) var artworkProcessedCount = 0 { didSet { publishBatchActivity() } }
+    private(set) var artworkAvailableCount = 0
+    private(set) var artworkUnavailableCount = 0
+    /// 这一轮按部分的计数。只在完成和断点里读，不进界面观察：写回结果一首一首到，不该每到一首刷一次界面。
+    @ObservationIgnored private var tally = BatchScrapeTally()
+    private var sourceWritebackFailureCount = 0
+    @ObservationIgnored private var runTallyIsPartial = false
+    /// 这一轮歌词要不要嵌进音频文件（批量刮削开始前确认过的结果）。
+    @ObservationIgnored private var runEmbedsLyrics = false
+    /// 这个进程里发起、还没结束的写回，按「轮次 + 歌曲」记。完成前等它们（`awaitRunWritebacks`），
+    /// 被打断、等不到的从这里取出来记成失败；之后迟到的结果不再重复记。
+    @ObservationIgnored private var inFlightWritebacks: [String: InFlightWriteback] = [:]
+    /// 这个进程里最慢的一次写回用了多久，等写回的兜底按它放宽。
+    @ObservationIgnored private var longestWritebackDuration: TimeInterval = 0
+    /// 正在等这一轮的写回时为非空：这时点停止也要给出摘要。
+    @ObservationIgnored private var awaitingRunContext: RunContext?
+    @ObservationIgnored private var pendingBatchRequest: PendingBatchRequest?
+    private(set) var pendingLyricsEmbeddingConfirmation: LyricsEmbeddingConfirmation?
+
+    private(set) var lastCompletion: BatchScrapeCompletion?
+    private(set) var completionRevision: UInt = 0
+    private(set) var activeRunID: UUID?
+    private(set) var activeOriginPlaylistID: String?
+    private(set) var activeSingleScrape: SingleSongScrapeActivity? {
+        didSet {
+            if let oldValue { PlayerActivityStore.shared.remove(oldValue.runID) }
+            if let activeSingleScrape {
+                PlayerActivityStore.shared.publish(.init(
+                    id: activeSingleScrape.runID, songID: activeSingleScrape.key.songID,
+                    title: String(localized: activeSingleScrape.key.purpose.requestedParts == .lyrics
+                        ? "player_activity_lyrics" : "player_activity_scraping"), progress: nil
+                ))
+            }
+        }
+    }
+    private let batchActivityID = UUID()
+    private(set) var singleScrapeCompletionRevision: UInt = 0
+    private var pendingPlaylistCompletions: [String: BatchScrapeCompletion] = [:]
+    private var artworkTargetIDs: [String] = []
+
+    init(sourceManager: SourceManager, metadataService: MetadataService = MetadataService(),
+         checkpointDirectory: URL? = nil,
+         scrapeRetrySleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) },
+         sourceFileName: @escaping (Song) -> String? = { _ in nil }) {
+        self.sourceManager = sourceManager
+        self.metadataService = metadataService
+        self.scrapeRetrySleep = scrapeRetrySleep
+        self.sourceFileName = sourceFileName
+        let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+        let directory = checkpointDirectory ?? appSupport.appendingPathComponent("Primuse", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        scrapeCheckpointURL = directory.appendingPathComponent("scrape-checkpoint.json")
+        if let data = try? Data(contentsOf: scrapeCheckpointURL) {
+            scrapeCheckpoint = try? JSONDecoder().decode(ScrapeCheckpoint.self, from: data)
+        }
+        checkpointIsFromPreviousProcess = scrapeCheckpoint?.songIDs.isEmpty == false
+    }
+}
+
+extension MusicScraperService {
     enum BatchScrapeStartResult: Equatable {
         case started(runID: UUID, songCount: Int)
         case busy
@@ -119,11 +256,6 @@ final class MusicScraperService {
         case onlyIfAcknowledged
         case decided(Bool)
     }
-
-    nonisolated static let batchLyricsEmbeddingAcknowledgedKey = "primuse.scrape.batchLyricsEmbeddingAcknowledged"
-
-    /// 任务 B 接线用：这首歌的歌词是不是用户主动清空的。为真时刮到的歌词不写，按「没去刮」算，不进失败清单。
-    static var lyricsWereClearedByUser: (String) -> Bool = { _ in false }
 
     enum BatchScrapePhase: Equatable {
         case songs
@@ -191,75 +323,15 @@ final class MusicScraperService {
         let errorMessage: String?
     }
 
-    nonisolated static let sidecarCoverWriteEnabledKey = "primuse.sidecar.coverWriteEnabled"
-    nonisolated static let sidecarLyricsWriteEnabledKey = "primuse.sidecar.lyricsWriteEnabled"
-    nonisolated static let sidecarWriteTimeoutKey = "primuse.sidecar.writeTimeout"
-
-    private let sourceManager: SourceManager
-    private let sourceFileName: (Song) -> String?
-    private let metadataService: MetadataService
-    private let scrapeRetrySleep: @Sendable (TimeInterval) async throws -> Void
-    private var scrapingTask: Task<Void, Never>?
-    private var scrapingGeneration = 0
-    private var backgroundEnrichmentTask: Task<Void, Never>?
-    @ObservationIgnored var automaticWorkIsAllowed: () -> Bool = { true }
-    private var enrichmentEnqueueTask: Task<Void, Never>?
-    private var sidecarWriteTasks: [UUID: Task<Void, Never>] = [:]
-    private let sidecarCircuitBreaker = SidecarWriteCircuitBreaker()
-    private var singleScrapeTask: Task<SingleScrapeResult, Error>?
-    private var pendingSingleScrapeCompletions: [SingleSongScrapeKey: SingleScrapeCompletion] = [:]
-    private var singleScrapeCompletionOrder: [SingleSongScrapeKey] = []
-    private var recentSingleScrapeCompletions: [UUID: SingleScrapeCompletion] = [:]
-    private var singleScrapeRunOrder: [UUID] = []
-    /// 联网补全的待办队列。只在动作里读、不进界面观察: 扫完一个上万首的源时逐首入队,
-    /// 每加一首都会给观察者发一次通知。出队用游标, 不再每取一首就把整个数组往前挪一格。
-    @ObservationIgnored private var pendingEnrichmentSongIDs: [String] = []
-    @ObservationIgnored private var pendingEnrichmentHead = 0
-    @ObservationIgnored private var pendingEnrichmentSongIDSet: Set<String> = []
-    /// 这首歌的标签还没读、读标签那边还会去读它时为真(网盘、NAS 扫描入库时只有文件名,歌手、时长都是空的)。
-    /// 后台补全先放着,等读完由 `tagReadsConcluded` 交回来:只凭文件名去搜,同名的别人的歌会被当成它,
-    /// 封面、歌手、专辑一起配错。由 AppServices 接到 `MetadataBackfillService.willReadTags(of:)`。
-    @ObservationIgnored var awaitsTagRead: ((Song) -> Bool)?
-    @ObservationIgnored private var enrichmentAwaitingTagReadIDs: Set<String> = []
-    /// 补全因为网络不通停下后, 正在等网络回来。
-    @ObservationIgnored private var isWaitingForNetworkToEnrich = false
-
     private var hasPendingEnrichment: Bool {
         pendingEnrichmentHead < pendingEnrichmentSongIDs.count
     }
-    private var isPausedForSceneTransition = false
-    /// A batch scrape that the transition gate interrupted. Only that scrape
-    /// restarts when the scene returns to the foreground without a background
-    /// phase; the background continuation path handles the other case.
-    private var sceneTransitionInterruptedScrape = false
     /// True while `pauseForSceneTransition()` holds new scraping work back.
     var isGatedForSceneTransition: Bool { isPausedForSceneTransition }
-    /// Bound both observable full-library publications and checkpoint replay.
-    /// A large library cannot afford a complete observable-array publication
-    /// every few songs. Forty still bounds idempotent checkpoint replay, while
-    /// the time gate below publishes slow network work at least every 5 seconds.
-    private static let songPublicationBatchSize = 40
-    private static let songPublicationInterval: TimeInterval = 5
-    /// Sidecar writes run one at a time per source, and each queued write
-    /// holds its scraped cover until it has written it. On a slow share
-    /// (embedding covers rewrites whole audio files) lookups outrun the writes
-    /// and covers used to pile up without bound; the batch waits instead.
-    /// Two publication batches (`songPublicationBatchSize`).
-    nonisolated static let maximumQueuedSidecarWrites = 80
 
     nonisolated static func sidecarBacklogIsFull(queuedWrites: Int) -> Bool {
         queuedWrites >= maximumQueuedSidecarWrites
     }
-    private let scrapeCheckpointURL: URL
-    private var scrapeCheckpoint: ScrapeCheckpoint?
-    /// 断点是从盘上读来的、这个进程还没跑过它(被系统回收或闪退后重新打开)。
-    @ObservationIgnored private var checkpointIsFromPreviousProcess = false
-    /// 回到前台后隔一会儿再从断点续刮的那一次。场景又离开前台、用户停止时作废。
-    @ObservationIgnored private var interruptedScrapeResumeTask: Task<Void, Never>?
-    @ObservationIgnored private var interruptedScrapeResumeGeneration = 0
-    #if os(iOS)
-    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-    #endif
 
     private struct ScrapeCheckpoint: Codable {
         var songIDs: [String]
@@ -289,24 +361,6 @@ final class MusicScraperService {
         }
     }
 
-    private(set) var isScraping = false { didSet { publishBatchActivity() } }
-    private(set) var isBackgroundEnriching = false
-    private(set) var currentSongTitle = ""
-    private(set) var processedCount = 0 { didSet { publishBatchActivity() } }
-    private(set) var totalCount = 0
-    private(set) var updatedCount = 0
-    private(set) var skippedCount = 0
-    private(set) var failedCount = 0
-    private(set) var batchPhase: BatchScrapePhase = .songs { didSet { publishBatchActivity() } }
-    private(set) var songTotalCount = 0
-    private(set) var artworkTotalCount = 0
-    private(set) var artworkProcessedCount = 0 { didSet { publishBatchActivity() } }
-    private(set) var artworkAvailableCount = 0
-    private(set) var artworkUnavailableCount = 0
-    /// 这一轮按部分的计数。只在完成和断点里读，不进界面观察：写回结果一首一首到，不该每到一首刷一次界面。
-    @ObservationIgnored private var tally = BatchScrapeTally()
-    private var sourceWritebackFailureCount = 0
-
     var liveSongSummary: String {
         let library = String(format: String(localized: "batch_scrape_completed_format"),
                              updatedCount + skippedCount + failedCount, songTotalCount, updatedCount, skippedCount, failedCount)
@@ -315,18 +369,6 @@ final class MusicScraperService {
         }
         return library + "\n" + source
     }
-    @ObservationIgnored private var runTallyIsPartial = false
-    /// 这一轮歌词要不要嵌进音频文件（批量刮削开始前确认过的结果）。
-    @ObservationIgnored private var runEmbedsLyrics = false
-    /// 这个进程里发起、还没结束的写回，按「轮次 + 歌曲」记。完成前等它们（`awaitRunWritebacks`），
-    /// 被打断、等不到的从这里取出来记成失败；之后迟到的结果不再重复记。
-    @ObservationIgnored private var inFlightWritebacks: [String: InFlightWriteback] = [:]
-    /// 这个进程里最慢的一次写回用了多久，等写回的兜底按它放宽。
-    @ObservationIgnored private var longestWritebackDuration: TimeInterval = 0
-    /// 正在等这一轮的写回时为非空：这时点停止也要给出摘要。
-    @ObservationIgnored private var awaitingRunContext: RunContext?
-    @ObservationIgnored private var pendingBatchRequest: PendingBatchRequest?
-    private(set) var pendingLyricsEmbeddingConfirmation: LyricsEmbeddingConfirmation?
 
     private struct InFlightWriteback {
         let runID: UUID
@@ -368,24 +410,6 @@ final class MusicScraperService {
         return text
     }
 
-    private(set) var lastCompletion: BatchScrapeCompletion?
-    private(set) var completionRevision: UInt = 0
-    private(set) var activeRunID: UUID?
-    private(set) var activeOriginPlaylistID: String?
-    private(set) var activeSingleScrape: SingleSongScrapeActivity? {
-        didSet {
-            if let oldValue { PlayerActivityStore.shared.remove(oldValue.runID) }
-            if let activeSingleScrape {
-                PlayerActivityStore.shared.publish(.init(
-                    id: activeSingleScrape.runID, songID: activeSingleScrape.key.songID,
-                    title: String(localized: activeSingleScrape.key.purpose.requestedParts == .lyrics
-                        ? "player_activity_lyrics" : "player_activity_scraping"), progress: nil
-                ))
-            }
-        }
-    }
-    private let batchActivityID = UUID()
-
     private func publishBatchActivity() {
         guard isScraping else {
             PlayerActivityStore.shared.remove(batchActivityID)
@@ -398,27 +422,6 @@ final class MusicScraperService {
                 : (scrapeCheckpoint?.parts == .lyrics ? "player_activity_lyrics" : "player_activity_scraping")),
             progress: phaseTotalCount > 0 ? phaseProgress : nil
         ))
-    }
-    private(set) var singleScrapeCompletionRevision: UInt = 0
-    private var pendingPlaylistCompletions: [String: BatchScrapeCompletion] = [:]
-    private var artworkTargetIDs: [String] = []
-
-    init(sourceManager: SourceManager, metadataService: MetadataService = MetadataService(),
-         checkpointDirectory: URL? = nil,
-         scrapeRetrySleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) },
-         sourceFileName: @escaping (Song) -> String? = { _ in nil }) {
-        self.sourceManager = sourceManager
-        self.metadataService = metadataService
-        self.scrapeRetrySleep = scrapeRetrySleep
-        self.sourceFileName = sourceFileName
-        let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
-        let directory = checkpointDirectory ?? appSupport.appendingPathComponent("Primuse", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        scrapeCheckpointURL = directory.appendingPathComponent("scrape-checkpoint.json")
-        if let data = try? Data(contentsOf: scrapeCheckpointURL) {
-            scrapeCheckpoint = try? JSONDecoder().decode(ScrapeCheckpoint.self, from: data)
-        }
-        checkpointIsFromPreviousProcess = scrapeCheckpoint?.songIDs.isEmpty == false
     }
 
     /// True when an interrupted batch scrape can be resumed after foregrounding

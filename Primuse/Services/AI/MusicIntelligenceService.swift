@@ -568,6 +568,93 @@ final class MusicIntelligenceService {
     private(set) var lyricsTranscriptionCredentialAvailable = false
     private(set) var builtInLyricAlignmentOffered = false
 
+    /// 内置 AI 的后台有没有配好转写模型(service-info 说的),且当前套餐能用;没问到
+    /// 之前当作没有,免得给出一个点了必失败的入口。
+    private(set) var builtInTranscriptionOffered = false
+    /// 后台开放了听歌识词,但当前套餐没有(免费档不给,或转写线路只留给更高的套餐)。
+    private(set) var builtInTranscriptionNotInPlan = false
+    @ObservationIgnored private var builtInTranscriptionCheckedAt: Date?
+    /// 内置 AI 有没有给文稿生成配转写模型、当前套餐能不能用(#314);没问到之前当作没有。
+    private(set) var builtInTranscriptGenerationOffered = false
+    private(set) var builtInTranscriptGenerationNotInPlan = false
+    @ObservationIgnored private var builtInTranscriptGenerationCheckedAt: Date?
+    /// 内置 AI 回过「没有罗马音这项功能」（中转还是老版本）的时间。几个小时之内不再问它，
+    /// 罗马音直接用本机生成，设置页据此说明。
+    private(set) var builtInRomanizationUnsupportedAt: Date?
+    /// 内置 AI 的额度,设置页的「额度」区块读它;每次调用的回复都会顺带更新。
+    let builtInQuota: BuiltInAIQuotaModel
+    /// 中转收不收 AI 额度兑换码(service-info 说的);没问到之前当作不收,不给一个点了必失败的入口。
+    private(set) var builtInRedeemOffered = false
+    @ObservationIgnored private var builtInRedeemCheckedAt: Date?
+
+    private let credentialStore: any AICredentialStoring
+    private let engine: MusicIntelligenceEngine
+    /// 诊断报告上传也走它:同一台设备只该有一份注册凭据,两个客户端各自注册会互相覆盖。
+    let primuseRelayClient: PrimuseAIRelayClient
+    private let primuseRelayRecommendationCoordinator: PrimuseRelayRecommendationCoordinator
+    @ObservationIgnored private var semanticPlanCache: [SemanticPlanCacheKey: SemanticPlanCacheEntry] = [:]
+    @ObservationIgnored private var recommendationCache: [
+        RecommendationCacheKey: RecommendationCacheEntry
+    ] = [:]
+    @ObservationIgnored private var primuseRelaySemanticPlanCache: [
+        PrimuseRelaySemanticCacheKey: SemanticPlanCacheEntry
+    ] = [:]
+    @ObservationIgnored private var primuseRelayRecommendationCache: [
+        PrimuseRelayRecommendationCacheKey: RecommendationCacheEntry
+    ] = [:]
+    private let recommendationReuseStore: AIRecommendationReuseStore
+
+    private static let semanticPlanCacheLifetime: TimeInterval = 15 * 60
+    private static let semanticPlanCacheLimit = 64
+    private static let recommendationCacheLifetime: TimeInterval = 6 * 60 * 60
+    private static let recommendationCacheLimit = 24
+
+    init(
+        settingsStore: AISettingsStore = AISettingsStore(),
+        lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore? = nil,
+        regionAvailability: AIRegionAvailabilityService = AIRegionAvailabilityService(),
+        credentialStore: any AICredentialStoring = AICredentialStore(),
+        recommendationReuseDefaults: UserDefaults = .standard
+    ) {
+        self.settingsStore = settingsStore
+        recommendationReuseStore = AIRecommendationReuseStore(defaults: recommendationReuseDefaults)
+        self.lyricsTranscriptionSettingsStore = lyricsTranscriptionSettingsStore
+            ?? LyricsTranscriptionSettingsStore(legacySettingsStore: settingsStore)
+        self.regionAvailability = regionAvailability
+        self.credentialStore = credentialStore
+        engine = MusicIntelligenceEngine(credentialStore: credentialStore, appleCloudAuthorization: { id in
+            await MainActor.run {
+                settingsStore.hasExplicitRemoteConsent && settingsStore.providerSet.providers.contains {
+                    $0.id == id && $0.isEnabled && $0.backend == .appleOnDevice && $0.allowsPrivateCloudComputeFallback
+                }
+            }
+        })
+        let builtInQuota = BuiltInAIQuotaModel()
+        self.builtInQuota = builtInQuota
+        let primuseRelayClient = PrimuseAIRelayClient(onQuota: { quota in
+            Task { @MainActor in builtInQuota.record(quota) }
+        })
+        self.primuseRelayClient = primuseRelayClient
+        primuseRelayRecommendationCoordinator = PrimuseRelayRecommendationCoordinator(
+            client: primuseRelayClient
+        )
+        let refreshTranscriptionSettings: () -> Void = { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.prepareLyricsTranscriptionCredentialMigration()
+            }
+        }
+        self.settingsStore.externalReloadHandler = refreshTranscriptionSettings
+        self.lyricsTranscriptionSettingsStore.externalReloadHandler = refreshTranscriptionSettings
+    }
+
+    private static let builtInRomanizationRetryInterval: TimeInterval = 6 * 3600
+
+    private static let builtInRecommendationLogRoute = "built-in"
+
+    private static let builtInRecommendationRoute = "builtIn"
+}
+
+extension MusicIntelligenceService {
     func refreshLyricAlignmentOffer() async {
         guard settingsStore.primuseRelayEnabled, settingsStore.hasBuiltInAIConsent,
               PrimuseAIRelayClient.isSupportedOnCurrentDevice,
@@ -612,42 +699,6 @@ final class MusicIntelligenceService {
         #endif
     }
 
-    /// 内置 AI 的后台有没有配好转写模型(service-info 说的),且当前套餐能用;没问到
-    /// 之前当作没有,免得给出一个点了必失败的入口。
-    private(set) var builtInTranscriptionOffered = false
-    /// 后台开放了听歌识词,但当前套餐没有(免费档不给,或转写线路只留给更高的套餐)。
-    private(set) var builtInTranscriptionNotInPlan = false
-    @ObservationIgnored private var builtInTranscriptionCheckedAt: Date?
-    /// 内置 AI 有没有给文稿生成配转写模型、当前套餐能不能用(#314);没问到之前当作没有。
-    private(set) var builtInTranscriptGenerationOffered = false
-    private(set) var builtInTranscriptGenerationNotInPlan = false
-    @ObservationIgnored private var builtInTranscriptGenerationCheckedAt: Date?
-    /// 内置 AI 回过「没有罗马音这项功能」（中转还是老版本）的时间。几个小时之内不再问它，
-    /// 罗马音直接用本机生成，设置页据此说明。
-    private(set) var builtInRomanizationUnsupportedAt: Date?
-    /// 内置 AI 的额度,设置页的「额度」区块读它;每次调用的回复都会顺带更新。
-    let builtInQuota: BuiltInAIQuotaModel
-    /// 中转收不收 AI 额度兑换码(service-info 说的);没问到之前当作不收,不给一个点了必失败的入口。
-    private(set) var builtInRedeemOffered = false
-    @ObservationIgnored private var builtInRedeemCheckedAt: Date?
-
-    private let credentialStore: any AICredentialStoring
-    private let engine: MusicIntelligenceEngine
-    /// 诊断报告上传也走它:同一台设备只该有一份注册凭据,两个客户端各自注册会互相覆盖。
-    let primuseRelayClient: PrimuseAIRelayClient
-    private let primuseRelayRecommendationCoordinator: PrimuseRelayRecommendationCoordinator
-    @ObservationIgnored private var semanticPlanCache: [SemanticPlanCacheKey: SemanticPlanCacheEntry] = [:]
-    @ObservationIgnored private var recommendationCache: [
-        RecommendationCacheKey: RecommendationCacheEntry
-    ] = [:]
-    @ObservationIgnored private var primuseRelaySemanticPlanCache: [
-        PrimuseRelaySemanticCacheKey: SemanticPlanCacheEntry
-    ] = [:]
-    @ObservationIgnored private var primuseRelayRecommendationCache: [
-        PrimuseRelayRecommendationCacheKey: RecommendationCacheEntry
-    ] = [:]
-    private let recommendationReuseStore: AIRecommendationReuseStore
-
     private struct SemanticPlanCacheKey: Hashable {
         var profileID: UUID
         var baseURL: String
@@ -690,49 +741,6 @@ final class MusicIntelligenceService {
     private struct PrimuseRelayRecommendationCacheKey: Hashable {
         var request: AIRecommendationRequest
         var regionRevision: UInt64
-    }
-
-    private static let semanticPlanCacheLifetime: TimeInterval = 15 * 60
-    private static let semanticPlanCacheLimit = 64
-    private static let recommendationCacheLifetime: TimeInterval = 6 * 60 * 60
-    private static let recommendationCacheLimit = 24
-
-    init(
-        settingsStore: AISettingsStore = AISettingsStore(),
-        lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore? = nil,
-        regionAvailability: AIRegionAvailabilityService = AIRegionAvailabilityService(),
-        credentialStore: any AICredentialStoring = AICredentialStore(),
-        recommendationReuseDefaults: UserDefaults = .standard
-    ) {
-        self.settingsStore = settingsStore
-        recommendationReuseStore = AIRecommendationReuseStore(defaults: recommendationReuseDefaults)
-        self.lyricsTranscriptionSettingsStore = lyricsTranscriptionSettingsStore
-            ?? LyricsTranscriptionSettingsStore(legacySettingsStore: settingsStore)
-        self.regionAvailability = regionAvailability
-        self.credentialStore = credentialStore
-        engine = MusicIntelligenceEngine(credentialStore: credentialStore, appleCloudAuthorization: { id in
-            await MainActor.run {
-                settingsStore.hasExplicitRemoteConsent && settingsStore.providerSet.providers.contains {
-                    $0.id == id && $0.isEnabled && $0.backend == .appleOnDevice && $0.allowsPrivateCloudComputeFallback
-                }
-            }
-        })
-        let builtInQuota = BuiltInAIQuotaModel()
-        self.builtInQuota = builtInQuota
-        let primuseRelayClient = PrimuseAIRelayClient(onQuota: { quota in
-            Task { @MainActor in builtInQuota.record(quota) }
-        })
-        self.primuseRelayClient = primuseRelayClient
-        primuseRelayRecommendationCoordinator = PrimuseRelayRecommendationCoordinator(
-            client: primuseRelayClient
-        )
-        let refreshTranscriptionSettings: () -> Void = { [weak self] in
-            Task { @MainActor [weak self] in
-                await self?.prepareLyricsTranscriptionCredentialMigration()
-            }
-        }
-        self.settingsStore.externalReloadHandler = refreshTranscriptionSettings
-        self.lyricsTranscriptionSettingsStore.externalReloadHandler = refreshTranscriptionSettings
     }
 
     func start() {
@@ -936,8 +944,6 @@ final class MusicIntelligenceService {
         if isPrimuseRelayAvailable(for: .lyricsRomanization) || ownProviders { return .ready }
         return .noService
     }
-
-    private static let builtInRomanizationRetryInterval: TimeInterval = 6 * 3600
 
     var isBuiltInRomanizationUnsupported: Bool {
         guard let builtInRomanizationUnsupportedAt else { return false }
@@ -2557,8 +2563,6 @@ final class MusicIntelligenceService {
         }
     }
 
-    private static let builtInRecommendationLogRoute = "built-in"
-
     /// 日志里怎么称呼自己的服务:名字、模型、协议、是否自托管和这次的限时。名字是用户自己
     /// 填的,像地址或带 @ 的(可能夹着账号)就只写 custom;不写地址和密钥。
     private static func recommendationLogRoute(
@@ -2752,8 +2756,6 @@ final class MusicIntelligenceService {
         AIRecommendationRefreshInterval.automatic
             .resolved(usesBuiltIn: isPrimuseRelayAvailable(for: .recommendations))
     }
-
-    private static let builtInRecommendationRoute = "builtIn"
 
     private static func recommendationRoute(for configuration: AIRemoteProviderConfiguration) -> String {
         "provider:\(configuration.id.uuidString):\(configuration.generationModel):\(configuration.baseURL)"

@@ -83,27 +83,6 @@ final class CloudKitSyncService {
     /// 的设备按需单条去取、去传（`MotionCoverCloudVideoTransfer`）。区不属于 schema，不用部署。
     nonisolated static let motionCoverVideoZoneID = CKRecordZone.ID(zoneName: "PrimuseMotionCovers")
 
-    /// 私有库引擎手动拉取时用的范围。自动拉取走 `nextFetchChangesOptions`，结果一样。
-    nonisolated static var privateFetchChangesOptions: CKSyncEngine.FetchChangesOptions {
-        CKSyncEngine.FetchChangesOptions(scope: excludingMotionCoverVideoZone(.all))
-    }
-
-    nonisolated static func excludingMotionCoverVideoZone(
-        _ scope: CKSyncEngine.FetchChangesOptions.Scope
-    ) -> CKSyncEngine.FetchChangesOptions.Scope {
-        let zone = motionCoverVideoZoneID
-        switch scope {
-        case .all:
-            return .allExcluding([zone])
-        case .allExcluding(let zones):
-            return .allExcluding(zones.contains(zone) ? zones : zones + [zone])
-        case .zoneIDs(let zones):
-            return .zoneIDs(zones.filter { $0 != zone })
-        @unknown default:
-            return scope
-        }
-    }
-
     /// 家庭共享 zone ── owner 在这里创建 CKShare, 邀请的 participant 通过
     /// 系统 sharing 接受后能看到这个 zone 里的 record。
     /// 哪些 record 类型进 family zone 由 `recordTypeIsShareable(_:)` 决定:
@@ -114,85 +93,9 @@ final class CloudKitSyncService {
     /// 共享 CKShare 的固定 recordName, 跟 family zone 1:1 绑定。
     nonisolated static let familyShareRecordName = "primuse.family.share"
 
-    enum RecordType {
-        static let playlist = "Playlist"
-        static let smartPlaylist = "SmartPlaylist"
-        static let musicSource = "MusicSource"
-        static let cloudAccount = "CloudAccount"
-        static let radioStation = "RadioStation"
-        static let playbackHistory = "PlaybackHistory"
-        static let listeningStats = "ListeningStats"
-        static let scraperConfig = "ScraperConfig"
-        /// 专辑 / 艺人的喜欢，一条一条存（见 `LibraryFavorite`）。个人偏好，不进家庭共享。
-        static let libraryFavorite = "LibraryFavorite"
-        /// 评分与评论，一个对象（歌曲、专辑、歌单、流派）一条（见 `LibraryReview`）。个人偏好，不进家庭共享。
-        static let libraryReview = "LibraryReview"
-        /// 一首歌手改过的标签（见 `SongTagEdit`）。Apple TV 不收：它装手机的整库快照。
-        static let songTagEdit = "SongTagEdit"
-        /// 手改标签用到的封面图，按内容哈希一张一条，几首歌共用。
-        static let songTagEditCover = "SongTagEditCover"
-    }
-
     // Large song covers reuse Playlist's deployed asset field. A distinct ID
     // and no playlist name keep these records out of playlist decoding.
     nonisolated static let songCoverAssetPrefix = "__song_cover_asset__:"
-
-    nonisolated static func songCoverAssetContentID(_ id: String) -> String? {
-        guard id.hasPrefix(songCoverAssetPrefix) else { return nil }
-        let contentID = String(id.dropFirst(songCoverAssetPrefix.count))
-        return LibraryArtworkContentIDPolicy.isValid(contentID) ? contentID : nil
-    }
-
-    /// 是否家庭共享, 启用后 shareable record 写到 family zone, 否则继续走老的
-    /// PrimuseSync zone (向后兼容现有用户)。用 UserDefaults 持久化 (CloudKit 自己
-    /// 那 share 状态由 server 维护, 本地只缓存开关)。
-    @MainActor
-    static var familySharingEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: "primuse.familySharing.enabled") }
-        set { UserDefaults.standard.set(newValue, forKey: "primuse.familySharing.enabled") }
-    }
-
-    /// 哪些 record 类型属于"家庭共享内容"。匹配的 record 启用 family sharing
-    /// 后写入 familyZoneID, 否则一律 PrimuseSync。
-    nonisolated static func recordTypeIsShareable(_ recordType: String) -> Bool {
-        switch recordType {
-        case RecordType.playlist, RecordType.smartPlaylist,
-             RecordType.musicSource, RecordType.cloudAccount, RecordType.radioStation:
-            return true
-        default:
-            return false   // history / stats / scraperConfig 属于个人偏好不共享
-        }
-    }
-
-    /// 当前应该用哪个 zone 写指定 recordType + id。三层决定:
-    /// - 未启用 family sharing → 一律 PrimuseSync
-    /// - 启用 + 非共享类型 (history / stats / scraperConfig) → PrimuseSync
-    /// - 启用 + 共享类型 + 例外 record id → PrimuseSync
-    ///   (「我喜欢」每人独立, 不进家庭共享; 升级前已在 PrimuseSync 的 record
-    ///   也继续在那里, 不强制迁)
-    /// - 启用 + 共享类型 + 普通 id → familyZoneID
-    @MainActor
-    static func zoneFor(recordType: String, id: String) -> CKRecordZone.ID {
-        guard Self.familySharingEnabled, recordTypeIsShareable(recordType) else {
-            return Self.zoneID
-        }
-        // Playlist 类型按 id 例外: 「我喜欢」及它的封面规则、「不喜欢」「随机时连播」这些记录每人独立。
-        if recordType == RecordType.playlist {
-            if songCoverAssetContentID(id) != nil { return Self.zoneID }
-            // 自己设的视频动态封面是个人内容，不进家庭共享。
-            if MotionCoverCloudRecordID.isMotionCover(id) { return Self.zoneID }
-            if id == MusicLibrary.likedSongsPlaylistID || MusicLibrary.recordPlaylistIDs.contains(id) {
-                return Self.zoneID
-            }
-            if let owner = LibraryArtworkOwner.fromCloudRecordID(id),
-               owner.kind == .playlist,
-               owner.id == MusicLibrary.likedSongsPlaylistID {
-                return Self.zoneID
-            }
-        }
-        // participant 写到所有者的共享 zone; 所有者写自己的 PrimuseFamily。
-        return participantSharedZoneID ?? Self.familyZoneID
-    }
 
     /// Singleton ID used for the playback-history record (one per user).
     static let playbackHistoryRecordName = "primuse.playbackHistory.singleton"
@@ -289,13 +192,6 @@ final class CloudKitSyncService {
     /// 记录只活在内存里。本机自己推上去的保存回执不算 —— 以前每个回执都提前写一次
     /// 整库, 扫描收尾逐个落地几十个服务端歌单时, 一个歌单就是一份 30MB 的整库快照。
     @ObservationIgnored private var remoteLibraryMergeAwaitingDurableWrite = false
-
-    /// Listening-stats payload precomputed by the throttled flush, keyed by the
-    /// store revision it was built from. A miss simply encodes synchronously.
-    private struct StatsPayload: Sendable {
-        let payload: Data
-        let entryCount: Int
-    }
     private var statsPayloadCache: (revision: Int, payload: StatsPayload)?
 
     /// Set true once the consumer calls `start()`. While false we don't propagate
@@ -310,7 +206,6 @@ final class CloudKitSyncService {
         didSet { Self.notifyOnErrorTransition(old: oldValue, new: status) }
     }
     private(set) var lastSyncedAt: Date?
-    var isAvailableInCurrentBuild: Bool { CloudKitRuntime.canCreateContainer }
 
     /// Listens for `CKAccountChanged` so we can flip into `.accountUnavailable`
     /// when the user signs out of iCloud while the app is running.
@@ -326,10 +221,6 @@ final class CloudKitSyncService {
     /// 同一进程里 `start()` 可能被调多次(开关同步、换账号), 测试场景只模拟一次。
     private static var didApplySyncTestScenario = false
     #endif
-    private var didCompleteInitialUpload: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.initialUploadDoneKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.initialUploadDoneKey) }
-    }
     /// Set by record-level callbacks when a send pass contains a failure that
     /// the app neither resolved nor expects CKSyncEngine to retry automatically.
     private var unresolvedRecordSaveError: String?
@@ -365,6 +256,374 @@ final class CloudKitSyncService {
         if !CloudKitRuntime.canCreateContainer {
             self.status = .unavailableInBuild
         }
+    }
+
+    // MARK: - Family Sharing
+
+    /// Participant 端的第二个 sync engine, 监听 .sharedCloudDatabase。
+    /// owner 端不需要 (owner 写自己的 privateDB + family zone, 走 privateEngine)。
+    private(set) var sharedEngine: CKSyncEngine?
+
+    private static let seededRecordTypesKey = "primuse.cloudSync.seededRecordTypes"
+    nonisolated static let recordTypesAddedAfterInitialUpload: Set<String> = [
+        RecordType.libraryReview, RecordType.songTagEdit, RecordType.songTagEditCover,
+    ]
+
+    private static let deferredRecordChangesKey = "primuse.cloudSync.deferredRecordChanges"
+    private static let deferredRecordChangesLimit = 20_000
+
+    #if !os(tvOS)
+    func songTagEditsChanged(ids: [String]) {
+        guard CloudSyncChannel.isEnabled(.sources), !ids.isEmpty else { return }
+        enqueueOrDefer(recordType: RecordType.songTagEdit, ids: ids.map(CloudRecordNameEncoding.recordName(for:)))
+    }
+
+    /// 封面图先于用到它的标签记录排队；没有歌再用的那张从云端删掉。
+    func songTagEditCoversChanged(uploads: [String], deleted: [String]) {
+        guard CloudSyncChannel.isEnabled(.sources) else { return }
+        let assets = uploads.filter {
+            guard LibraryArtworkContentIDPolicy.isValid($0) else { return false }
+            let url = MetadataAssetStore.shared.customArtworkDirectoryURL.appendingPathComponent("\($0).jpg")
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            return size > LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes
+        }
+        let assetIDs = Set(assets)
+        enqueueOrDefer(recordType: RecordType.songTagEditCover, ids: uploads.filter { !assetIDs.contains($0) })
+        enqueueOrDefer(recordType: RecordType.playlist, ids: assets.map { Self.songCoverAssetPrefix + $0 })
+        enqueueOrDefer(recordType: RecordType.songTagEditCover, ids: deleted, deleting: true)
+        enqueueOrDefer(recordType: RecordType.playlist, ids: deleted.map { Self.songCoverAssetPrefix + $0 }, deleting: true)
+    }
+
+    private func enqueueAllSongTagEdits() {
+        let store = SongTagEditStore.shared
+        songTagEditCoversChanged(uploads: store.allPortableCoverIDs, deleted: [])
+        songTagEditsChanged(ids: store.allSongIDs)
+    }
+
+    /// 用户在这台设备上改了视频动态封面。设置走同步引擎；视频本体交给 `motionCoverVideos`
+    /// 单独上传，没有设置再用的视频从云端删掉。
+    func motionCoversChanged(bindings: [String], uploads: [String], deletedVideos: [String]) {
+        guard Self.isMotionCoverSyncEnabled else { return }
+        let store = MotionCoverStore.shared
+        let syncable = bindings.filter { id in
+            store.owner(forBindingID: id).map { self.motionCoverOwnerIsSyncable($0) } ?? false
+        }
+        enqueueOrDefer(recordType: RecordType.playlist, ids: syncable)
+        motionCoverVideos.videosChanged(uploads: uploads, deleted: deletedVideos)
+    }
+
+    /// 打开同步、首次上传时：本机所有设置（含墓碑）和云端还没有的视频。
+    private func enqueueAllMotionCovers() {
+        guard Self.isMotionCoverSyncEnabled else { return }
+        let store = MotionCoverStore.shared
+        let owners = store.syncOwners.filter { self.motionCoverOwnerIsSyncable($0) }
+        plog("☁️ CloudKitSync: motion covers bindings=\(owners.count)")
+        enqueueOrDefer(recordType: RecordType.playlist, ids: owners.map(MotionCoverCloudRecordID.binding(for:)))
+        motionCoverVideos.schedulePass()
+    }
+
+    /// 设置页「iCloud 同步动态封面」开关变了。关掉不用做什么：之后排着的由 `isSyncableRecordID`
+    /// 挡下，收到的记录不再应用，本机和云端已有的都保留。
+    func motionCoverSyncSettingChanged(isOn: Bool) {
+        plog("☁️ CloudKitSync: motion cover sync \(isOn ? "on" : "off")")
+        guard isOn else {
+            UserDefaults.standard.removeObject(forKey: Self.motionCoverCatchUpPendingKey)
+            motionCoverVideos.cancel()
+            return
+        }
+        // 引擎这会儿没在跑（总开关关着、刚启动）时先记着，起来以后补做。
+        UserDefaults.standard.set(true, forKey: Self.motionCoverCatchUpPendingKey)
+        Task { await catchUpMotionCovers() }
+    }
+
+    private static let motionCoverCatchUpPendingKey = "primuse.motionCover.iCloudCatchUpPending"
+
+    /// 打开开关时没能补同步的，引擎起来后补一次。
+    func resumePendingMotionCoverCatchUp() async {
+        guard UserDefaults.standard.bool(forKey: Self.motionCoverCatchUpPendingKey) else { return }
+        await catchUpMotionCovers()
+    }
+
+    /// 关着的时候别的设备传的设置被跳过、游标照样往前走了，所以和通道打开一样先丢掉游标
+    /// 重拉一遍，再补传本机的。
+    private func catchUpMotionCovers() async {
+        guard isStarted, Self.isMotionCoverSyncEnabled else { return }
+        UserDefaults.standard.removeObject(forKey: Self.motionCoverCatchUpPendingKey)
+        await refetchEverythingBeforeCatchUp()
+        guard isStarted else { return }
+        enqueueAllMotionCovers()
+        await syncNow()
+    }
+    #endif
+
+    /// 身份信封内联进记录的上限。记录还带着 songIDs 数组和几个小字段, 留够余量。
+    private nonisolated static let playlistEnvelopeInlineLimit = 700_000
+    /// 超大歌单的信封附件字段。新字段: 发布前要把 Playlist 的 schema 部署到生产环境。
+    nonisolated static let songIdentitiesAssetField = "songIdentitiesAsset"
+
+    #if !os(tvOS)
+    // MARK: - Motion cover mapping (#428)
+    //
+    // 借用 `Playlist` 记录（见 `MotionCoverCloudRecordID`），不需要部署新的记录类型或字段。
+
+    /// 视频本体的上传、下载、删除（见 `MotionCoverCloudVideoTransfer`），用到时才建。
+    var motionCoverVideos: MotionCoverCloudVideoTransfer {
+        if let motionCoverVideoTransfer { return motionCoverVideoTransfer }
+        let transfer = MotionCoverCloudVideoTransfer(
+            database: { [weak self] in self?.isStarted == true ? self?.configuredDatabase() : nil },
+            isSyncable: { [weak self] owner in self?.motionCoverOwnerIsSyncable(owner) ?? false }
+        )
+        motionCoverVideoTransfer = transfer
+        return transfer
+    }
+
+    /// 专辑 id 由专辑名和专辑艺人算出，各台设备一致，都同步。歌曲和手改标签一样只同步跨设备
+    /// 音乐源上的：本机文件夹这类源的歌曲 id 每台设备各自生成，传过去也对不上。
+    private func motionCoverOwnerIsSyncable(_ owner: MotionCoverOwner) -> Bool {
+        switch owner {
+        case .album: return true
+        case .song(let id): return songTagEditIsSyncable(songID: id)
+        }
+    }
+
+    private func populateMotionCoverRecord(_ record: CKRecord, id: String) -> Bool {
+        guard Self.isMotionCoverSyncEnabled else { return false }
+        let store = MotionCoverStore.shared
+        // 视频本体不经引擎上传（见 `MotionCoverCloudVideoTransfer`）。
+        guard MotionCoverCloudRecordID.isBinding(id),
+              let owner = store.owner(forBindingID: id),
+              motionCoverOwnerIsSyncable(owner),
+              let entry = store.syncEntry(for: owner),
+              entry.isAcceptable,
+              let data = try? JSONEncoder().encode(entry) else { return false }
+        record[Self.songIdentitiesField] = data
+        record[Self.songIdentitiesAssetField] = nil
+        return true
+    }
+
+    /// 返回 true：本机这条比云端的新，要传回去。
+    @discardableResult
+    private func applyMotionCoverRecord(_ record: CKRecord, id: String) -> Bool {
+        guard Self.isMotionCoverSyncEnabled else { return false }
+        let store = MotionCoverStore.shared
+        guard MotionCoverCloudRecordID.isBinding(id),
+              let data = record[Self.songIdentitiesField] as? Data,
+              data.count <= Self.motionCoverEntryByteLimit,
+              let entry = try? JSONDecoder().decode(MotionCoverSyncEntry.self, from: data),
+              MotionCoverCloudRecordID.entry(entry, matchesBinding: id),
+              let owner = entry.owner,
+              motionCoverOwnerIsSyncable(owner) else { return false }
+        let result = store.applyRemoteSyncEntry(entry)
+        // 别的设备设的视频本机还没有：去取（开关开着、网络允许时）。
+        if case .applied = result { motionCoverVideos.schedulePass() }
+        return result == .localNewer
+    }
+
+    private static let motionCoverEntryByteLimit = 64 * 1_024
+
+    /// 拉到的动态封面记录。关着同步时也记下 changeTag：之后打开再传同一条才是更新，
+    /// 不会撞「记录已存在」。
+    private func applyFetchedMotionCoverRecord(_ record: CKRecord, id: String, syncEngine: CKSyncEngine) {
+        storeSystemFields(record)
+        guard Self.isMotionCoverSyncEnabled else { return }
+        isApplyingRemote = true
+        let localNewer = applyMotionCoverRecord(record, id: id)
+        isApplyingRemote = false
+        if localNewer {
+            addCoalescedRecordZoneChanges([.saveRecord(record.recordID)], to: syncEngine)
+        } else {
+            dropPendingSaveIfServerMatches(record, syncEngine: syncEngine)
+        }
+    }
+
+    /// 云端这条没了。返回 true：本机还有、要传回去。
+    private func applyMotionCoverDeletion(id: String) -> Bool {
+        guard Self.isMotionCoverSyncEnabled else { return false }
+        let store = MotionCoverStore.shared
+        // 视频本体不在引擎管的区里，不会经这里收到删除。
+        guard MotionCoverCloudRecordID.isBinding(id) else { return false }
+        // 设置记录平时只换成墓碑、不删；被删了（比如清空了 iCloud 里的 App 数据）而本机还有就传回去。
+        guard let owner = store.owner(forBindingID: id) else { return false }
+        return motionCoverOwnerIsSyncable(owner) && store.syncEntry(for: owner) != nil
+    }
+
+    private func resolveMotionCoverConflict(server: CKRecord, id: String, syncEngine: CKSyncEngine) {
+        guard Self.isMotionCoverSyncEnabled else {
+            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
+            return
+        }
+        guard MotionCoverCloudRecordID.isBinding(id) else {
+            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
+            return
+        }
+        isApplyingRemote = true
+        applyMotionCoverRecord(server, id: id)
+        isApplyingRemote = false
+        // 并进本机后本机这条就是两边里新的那份：和服务器相同就不传，否则带着新的 changeTag 重传。
+        addCoalescedRecordZoneChanges([.saveRecord(server.recordID)], to: syncEngine)
+        dropPendingSaveIfServerMatches(server, syncEngine: syncEngine)
+    }
+
+    /// 动态封面记录保存失败。冲突、云端已删、网络、iCloud 空间不足这些照通用流程处理；其余
+    /// （生产环境缺字段、附件过大、附件文件没了等）只丢掉这一条：不把整个同步标成出错，
+    /// 也不清「首次上传已完成」去触发整份重传。
+    private func resolveFailedMotionCoverSave(
+        recordID: CKRecord.ID,
+        error: CKError,
+        syncEngine: CKSyncEngine
+    ) -> Bool {
+        guard let meta = recordMetadata(for: recordID),
+              meta.recordType == RecordType.playlist,
+              MotionCoverCloudRecordID.isMotionCover(meta.localID) else { return false }
+        if Self.schemaError(in: error) == nil {
+            switch error.code {
+            case .serverRecordChanged, .constraintViolation, .unknownItem, .zoneNotFound, .userDeletedZone,
+                 .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy,
+                 .quotaExceeded, .notAuthenticated:
+                return false
+            default:
+                break
+            }
+        }
+        syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+        plog(
+            "☁️ CloudKitSync: dropped motion cover save \(meta.localID.prefix(40)) "
+                + "code=\(error.code.rawValue): \(error.localizedDescription)"
+        )
+        return true
+    }
+    #endif
+
+    // MARK: - Listening stats mapping
+
+    /// CloudKit 单字段 ~1MB 上限, 留余量。听歌历史最多 5000 条, 原始 JSON 接近上限,
+    /// gzip 后约 100-200KB —— 内联压缩既稳过限又向后兼容。
+    /// 这个上限是编译期常量, 且压缩后的裁剪判定要在主 actor 之外做, 所以
+    /// 显式声明为 nonisolated —— 值本身不可变, 不需要任何隔离。
+    private nonisolated static let statsInlineLimit = 900_000
+
+    /// 「清空听歌记录」的时刻, 随统计记录同步; 早于它的条目在合并时一律丢弃。
+    /// 新字段: 发布前要把 ListeningStats 的 schema 部署到生产环境。
+    private nonisolated static let listeningStatsClearedAtField = "clearedAt"
+
+    // MARK: - Song identity / cross-device resolution
+
+    nonisolated static let songIdentitiesField = "songIdentities"
+
+    // The cross-device 3-tier resolver lives on `MusicLibrary` — it
+    // owns the songs collection, can use `sourceIdentityResolver` to map
+    // a song's mount UUID back to a stable cloud account, and persists
+    // unresolved identities as pending so a later scan can fill them in.
+}
+
+extension CloudKitSyncService {
+    /// 私有库引擎手动拉取时用的范围。自动拉取走 `nextFetchChangesOptions`，结果一样。
+    nonisolated static var privateFetchChangesOptions: CKSyncEngine.FetchChangesOptions {
+        CKSyncEngine.FetchChangesOptions(scope: excludingMotionCoverVideoZone(.all))
+    }
+
+    nonisolated static func excludingMotionCoverVideoZone(
+        _ scope: CKSyncEngine.FetchChangesOptions.Scope
+    ) -> CKSyncEngine.FetchChangesOptions.Scope {
+        let zone = motionCoverVideoZoneID
+        switch scope {
+        case .all:
+            return .allExcluding([zone])
+        case .allExcluding(let zones):
+            return .allExcluding(zones.contains(zone) ? zones : zones + [zone])
+        case .zoneIDs(let zones):
+            return .zoneIDs(zones.filter { $0 != zone })
+        @unknown default:
+            return scope
+        }
+    }
+
+    enum RecordType {
+        static let playlist = "Playlist"
+        static let smartPlaylist = "SmartPlaylist"
+        static let musicSource = "MusicSource"
+        static let cloudAccount = "CloudAccount"
+        static let radioStation = "RadioStation"
+        static let playbackHistory = "PlaybackHistory"
+        static let listeningStats = "ListeningStats"
+        static let scraperConfig = "ScraperConfig"
+        /// 专辑 / 艺人的喜欢，一条一条存（见 `LibraryFavorite`）。个人偏好，不进家庭共享。
+        static let libraryFavorite = "LibraryFavorite"
+        /// 评分与评论，一个对象（歌曲、专辑、歌单、流派）一条（见 `LibraryReview`）。个人偏好，不进家庭共享。
+        static let libraryReview = "LibraryReview"
+        /// 一首歌手改过的标签（见 `SongTagEdit`）。Apple TV 不收：它装手机的整库快照。
+        static let songTagEdit = "SongTagEdit"
+        /// 手改标签用到的封面图，按内容哈希一张一条，几首歌共用。
+        static let songTagEditCover = "SongTagEditCover"
+    }
+
+    nonisolated static func songCoverAssetContentID(_ id: String) -> String? {
+        guard id.hasPrefix(songCoverAssetPrefix) else { return nil }
+        let contentID = String(id.dropFirst(songCoverAssetPrefix.count))
+        return LibraryArtworkContentIDPolicy.isValid(contentID) ? contentID : nil
+    }
+
+    /// 是否家庭共享, 启用后 shareable record 写到 family zone, 否则继续走老的
+    /// PrimuseSync zone (向后兼容现有用户)。用 UserDefaults 持久化 (CloudKit 自己
+    /// 那 share 状态由 server 维护, 本地只缓存开关)。
+    @MainActor
+    static var familySharingEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "primuse.familySharing.enabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "primuse.familySharing.enabled") }
+    }
+
+    /// 哪些 record 类型属于"家庭共享内容"。匹配的 record 启用 family sharing
+    /// 后写入 familyZoneID, 否则一律 PrimuseSync。
+    nonisolated static func recordTypeIsShareable(_ recordType: String) -> Bool {
+        switch recordType {
+        case RecordType.playlist, RecordType.smartPlaylist,
+             RecordType.musicSource, RecordType.cloudAccount, RecordType.radioStation:
+            return true
+        default:
+            return false   // history / stats / scraperConfig 属于个人偏好不共享
+        }
+    }
+
+    /// 当前应该用哪个 zone 写指定 recordType + id。三层决定:
+    /// - 未启用 family sharing → 一律 PrimuseSync
+    /// - 启用 + 非共享类型 (history / stats / scraperConfig) → PrimuseSync
+    /// - 启用 + 共享类型 + 例外 record id → PrimuseSync
+    ///   (「我喜欢」每人独立, 不进家庭共享; 升级前已在 PrimuseSync 的 record
+    ///   也继续在那里, 不强制迁)
+    /// - 启用 + 共享类型 + 普通 id → familyZoneID
+    @MainActor
+    static func zoneFor(recordType: String, id: String) -> CKRecordZone.ID {
+        guard Self.familySharingEnabled, recordTypeIsShareable(recordType) else {
+            return Self.zoneID
+        }
+        // Playlist 类型按 id 例外: 「我喜欢」及它的封面规则、「不喜欢」「随机时连播」这些记录每人独立。
+        if recordType == RecordType.playlist {
+            if songCoverAssetContentID(id) != nil { return Self.zoneID }
+            // 自己设的视频动态封面是个人内容，不进家庭共享。
+            if MotionCoverCloudRecordID.isMotionCover(id) { return Self.zoneID }
+            if id == MusicLibrary.likedSongsPlaylistID || MusicLibrary.recordPlaylistIDs.contains(id) {
+                return Self.zoneID
+            }
+            if let owner = LibraryArtworkOwner.fromCloudRecordID(id),
+               owner.kind == .playlist,
+               owner.id == MusicLibrary.likedSongsPlaylistID {
+                return Self.zoneID
+            }
+        }
+        // participant 写到所有者的共享 zone; 所有者写自己的 PrimuseFamily。
+        return participantSharedZoneID ?? Self.familyZoneID
+    }
+
+    /// Listening-stats payload precomputed by the throttled flush, keyed by the
+    /// store revision it was built from. A miss simply encodes synchronously.
+    private struct StatsPayload: Sendable {
+        let payload: Data
+        let entryCount: Int
+    }
+    var isAvailableInCurrentBuild: Bool { CloudKitRuntime.canCreateContainer }
+    private var didCompleteInitialUpload: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.initialUploadDoneKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.initialUploadDoneKey) }
     }
 
     // MARK: - Lifecycle
@@ -479,12 +738,6 @@ final class CloudKitSyncService {
             await startSharedDatabaseEngine()
         }
     }
-
-    // MARK: - Family Sharing
-
-    /// Participant 端的第二个 sync engine, 监听 .sharedCloudDatabase。
-    /// owner 端不需要 (owner 写自己的 privateDB + family zone, 走 privateEngine)。
-    private(set) var sharedEngine: CKSyncEngine?
 
     /// 标记是不是 participant (接受过别人的 share)。owner 自己也算开了 family,
     /// 但 owner 不需要 sharedEngine, 走 privateEngine 就行。
@@ -1500,11 +1753,6 @@ final class CloudKitSyncService {
         enqueueDeletes(recordType: RecordType.libraryFavorite, ids: ids)
     }
 
-    private static let seededRecordTypesKey = "primuse.cloudSync.seededRecordTypes"
-    nonisolated static let recordTypesAddedAfterInitialUpload: Set<String> = [
-        RecordType.libraryReview, RecordType.songTagEdit, RecordType.songTagEditCover,
-    ]
-
     /// 生产环境还没有这类记录:下次启动整批补传(封面图跟着手改标签一起补)。
     private func forgetSeededRecordType(_ recordType: String) {
         let seededType = recordType == RecordType.songTagEditCover ? RecordType.songTagEdit : recordType
@@ -1537,9 +1785,6 @@ final class CloudKitSyncService {
         seeded.formUnion(missing)
         UserDefaults.standard.set(Array(seeded).sorted(), forKey: Self.seededRecordTypesKey)
     }
-
-    private static let deferredRecordChangesKey = "primuse.cloudSync.deferredRecordChanges"
-    private static let deferredRecordChangesLimit = 20_000
 
     /// 评分评论、手改标签逐条随改随传，没有整份重传兜底：引擎还没起来（启动早期、账号短暂
     /// 不可用）时的改动先记在本机，下次 `start()` 补传。通道或总开关关着时不记 —— 打开时会整批补传。
@@ -1610,90 +1855,6 @@ final class CloudKitSyncService {
         do { lyricLineCommentsChanged(keys: try lyricLineCommentsStore.syncRecords(pendingOnly: pendingOnly).map(\.id)) }
         catch { plog("CloudKitSync: read lyric comments failed: \(error.localizedDescription)") }
     }
-
-    #if !os(tvOS)
-    func songTagEditsChanged(ids: [String]) {
-        guard CloudSyncChannel.isEnabled(.sources), !ids.isEmpty else { return }
-        enqueueOrDefer(recordType: RecordType.songTagEdit, ids: ids.map(CloudRecordNameEncoding.recordName(for:)))
-    }
-
-    /// 封面图先于用到它的标签记录排队；没有歌再用的那张从云端删掉。
-    func songTagEditCoversChanged(uploads: [String], deleted: [String]) {
-        guard CloudSyncChannel.isEnabled(.sources) else { return }
-        let assets = uploads.filter {
-            guard LibraryArtworkContentIDPolicy.isValid($0) else { return false }
-            let url = MetadataAssetStore.shared.customArtworkDirectoryURL.appendingPathComponent("\($0).jpg")
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            return size > LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes
-        }
-        let assetIDs = Set(assets)
-        enqueueOrDefer(recordType: RecordType.songTagEditCover, ids: uploads.filter { !assetIDs.contains($0) })
-        enqueueOrDefer(recordType: RecordType.playlist, ids: assets.map { Self.songCoverAssetPrefix + $0 })
-        enqueueOrDefer(recordType: RecordType.songTagEditCover, ids: deleted, deleting: true)
-        enqueueOrDefer(recordType: RecordType.playlist, ids: deleted.map { Self.songCoverAssetPrefix + $0 }, deleting: true)
-    }
-
-    private func enqueueAllSongTagEdits() {
-        let store = SongTagEditStore.shared
-        songTagEditCoversChanged(uploads: store.allPortableCoverIDs, deleted: [])
-        songTagEditsChanged(ids: store.allSongIDs)
-    }
-
-    /// 用户在这台设备上改了视频动态封面。设置走同步引擎；视频本体交给 `motionCoverVideos`
-    /// 单独上传，没有设置再用的视频从云端删掉。
-    func motionCoversChanged(bindings: [String], uploads: [String], deletedVideos: [String]) {
-        guard Self.isMotionCoverSyncEnabled else { return }
-        let store = MotionCoverStore.shared
-        let syncable = bindings.filter { id in
-            store.owner(forBindingID: id).map { self.motionCoverOwnerIsSyncable($0) } ?? false
-        }
-        enqueueOrDefer(recordType: RecordType.playlist, ids: syncable)
-        motionCoverVideos.videosChanged(uploads: uploads, deleted: deletedVideos)
-    }
-
-    /// 打开同步、首次上传时：本机所有设置（含墓碑）和云端还没有的视频。
-    private func enqueueAllMotionCovers() {
-        guard Self.isMotionCoverSyncEnabled else { return }
-        let store = MotionCoverStore.shared
-        let owners = store.syncOwners.filter { self.motionCoverOwnerIsSyncable($0) }
-        plog("☁️ CloudKitSync: motion covers bindings=\(owners.count)")
-        enqueueOrDefer(recordType: RecordType.playlist, ids: owners.map(MotionCoverCloudRecordID.binding(for:)))
-        motionCoverVideos.schedulePass()
-    }
-
-    /// 设置页「iCloud 同步动态封面」开关变了。关掉不用做什么：之后排着的由 `isSyncableRecordID`
-    /// 挡下，收到的记录不再应用，本机和云端已有的都保留。
-    func motionCoverSyncSettingChanged(isOn: Bool) {
-        plog("☁️ CloudKitSync: motion cover sync \(isOn ? "on" : "off")")
-        guard isOn else {
-            UserDefaults.standard.removeObject(forKey: Self.motionCoverCatchUpPendingKey)
-            motionCoverVideos.cancel()
-            return
-        }
-        // 引擎这会儿没在跑（总开关关着、刚启动）时先记着，起来以后补做。
-        UserDefaults.standard.set(true, forKey: Self.motionCoverCatchUpPendingKey)
-        Task { await catchUpMotionCovers() }
-    }
-
-    private static let motionCoverCatchUpPendingKey = "primuse.motionCover.iCloudCatchUpPending"
-
-    /// 打开开关时没能补同步的，引擎起来后补一次。
-    func resumePendingMotionCoverCatchUp() async {
-        guard UserDefaults.standard.bool(forKey: Self.motionCoverCatchUpPendingKey) else { return }
-        await catchUpMotionCovers()
-    }
-
-    /// 关着的时候别的设备传的设置被跳过、游标照样往前走了，所以和通道打开一样先丢掉游标
-    /// 重拉一遍，再补传本机的。
-    private func catchUpMotionCovers() async {
-        guard isStarted, Self.isMotionCoverSyncEnabled else { return }
-        UserDefaults.standard.removeObject(forKey: Self.motionCoverCatchUpPendingKey)
-        await refetchEverythingBeforeCatchUp()
-        guard isStarted else { return }
-        enqueueAllMotionCovers()
-        await syncNow()
-    }
-    #endif
 
     /// 总开关和「iCloud 同步动态封面」都开着。Apple TV 不收不传。
     nonisolated static var isMotionCoverSyncEnabled: Bool {
@@ -2953,11 +3114,6 @@ final class CloudKitSyncService {
         return true
     }
 
-    /// 身份信封内联进记录的上限。记录还带着 songIDs 数组和几个小字段, 留够余量。
-    private nonisolated static let playlistEnvelopeInlineLimit = 700_000
-    /// 超大歌单的信封附件字段。新字段: 发布前要把 Playlist 的 schema 部署到生产环境。
-    nonisolated static let songIdentitiesAssetField = "songIdentitiesAsset"
-
     /// 附件文件要活到引擎真正上传完为止, 所以按歌单 id 放在固定路径、每次构建
     /// 记录时整份覆盖, 不用临时目录。
     private func stagePlaylistEnvelopeAsset(_ data: Data, playlistID: String) -> URL? {
@@ -3551,139 +3707,6 @@ final class CloudKitSyncService {
     }
     #endif
 
-    #if !os(tvOS)
-    // MARK: - Motion cover mapping (#428)
-    //
-    // 借用 `Playlist` 记录（见 `MotionCoverCloudRecordID`），不需要部署新的记录类型或字段。
-
-    /// 视频本体的上传、下载、删除（见 `MotionCoverCloudVideoTransfer`），用到时才建。
-    var motionCoverVideos: MotionCoverCloudVideoTransfer {
-        if let motionCoverVideoTransfer { return motionCoverVideoTransfer }
-        let transfer = MotionCoverCloudVideoTransfer(
-            database: { [weak self] in self?.isStarted == true ? self?.configuredDatabase() : nil },
-            isSyncable: { [weak self] owner in self?.motionCoverOwnerIsSyncable(owner) ?? false }
-        )
-        motionCoverVideoTransfer = transfer
-        return transfer
-    }
-
-    /// 专辑 id 由专辑名和专辑艺人算出，各台设备一致，都同步。歌曲和手改标签一样只同步跨设备
-    /// 音乐源上的：本机文件夹这类源的歌曲 id 每台设备各自生成，传过去也对不上。
-    private func motionCoverOwnerIsSyncable(_ owner: MotionCoverOwner) -> Bool {
-        switch owner {
-        case .album: return true
-        case .song(let id): return songTagEditIsSyncable(songID: id)
-        }
-    }
-
-    private func populateMotionCoverRecord(_ record: CKRecord, id: String) -> Bool {
-        guard Self.isMotionCoverSyncEnabled else { return false }
-        let store = MotionCoverStore.shared
-        // 视频本体不经引擎上传（见 `MotionCoverCloudVideoTransfer`）。
-        guard MotionCoverCloudRecordID.isBinding(id),
-              let owner = store.owner(forBindingID: id),
-              motionCoverOwnerIsSyncable(owner),
-              let entry = store.syncEntry(for: owner),
-              entry.isAcceptable,
-              let data = try? JSONEncoder().encode(entry) else { return false }
-        record[Self.songIdentitiesField] = data
-        record[Self.songIdentitiesAssetField] = nil
-        return true
-    }
-
-    /// 返回 true：本机这条比云端的新，要传回去。
-    @discardableResult
-    private func applyMotionCoverRecord(_ record: CKRecord, id: String) -> Bool {
-        guard Self.isMotionCoverSyncEnabled else { return false }
-        let store = MotionCoverStore.shared
-        guard MotionCoverCloudRecordID.isBinding(id),
-              let data = record[Self.songIdentitiesField] as? Data,
-              data.count <= Self.motionCoverEntryByteLimit,
-              let entry = try? JSONDecoder().decode(MotionCoverSyncEntry.self, from: data),
-              MotionCoverCloudRecordID.entry(entry, matchesBinding: id),
-              let owner = entry.owner,
-              motionCoverOwnerIsSyncable(owner) else { return false }
-        let result = store.applyRemoteSyncEntry(entry)
-        // 别的设备设的视频本机还没有：去取（开关开着、网络允许时）。
-        if case .applied = result { motionCoverVideos.schedulePass() }
-        return result == .localNewer
-    }
-
-    private static let motionCoverEntryByteLimit = 64 * 1_024
-
-    /// 拉到的动态封面记录。关着同步时也记下 changeTag：之后打开再传同一条才是更新，
-    /// 不会撞「记录已存在」。
-    private func applyFetchedMotionCoverRecord(_ record: CKRecord, id: String, syncEngine: CKSyncEngine) {
-        storeSystemFields(record)
-        guard Self.isMotionCoverSyncEnabled else { return }
-        isApplyingRemote = true
-        let localNewer = applyMotionCoverRecord(record, id: id)
-        isApplyingRemote = false
-        if localNewer {
-            addCoalescedRecordZoneChanges([.saveRecord(record.recordID)], to: syncEngine)
-        } else {
-            dropPendingSaveIfServerMatches(record, syncEngine: syncEngine)
-        }
-    }
-
-    /// 云端这条没了。返回 true：本机还有、要传回去。
-    private func applyMotionCoverDeletion(id: String) -> Bool {
-        guard Self.isMotionCoverSyncEnabled else { return false }
-        let store = MotionCoverStore.shared
-        // 视频本体不在引擎管的区里，不会经这里收到删除。
-        guard MotionCoverCloudRecordID.isBinding(id) else { return false }
-        // 设置记录平时只换成墓碑、不删；被删了（比如清空了 iCloud 里的 App 数据）而本机还有就传回去。
-        guard let owner = store.owner(forBindingID: id) else { return false }
-        return motionCoverOwnerIsSyncable(owner) && store.syncEntry(for: owner) != nil
-    }
-
-    private func resolveMotionCoverConflict(server: CKRecord, id: String, syncEngine: CKSyncEngine) {
-        guard Self.isMotionCoverSyncEnabled else {
-            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
-            return
-        }
-        guard MotionCoverCloudRecordID.isBinding(id) else {
-            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
-            return
-        }
-        isApplyingRemote = true
-        applyMotionCoverRecord(server, id: id)
-        isApplyingRemote = false
-        // 并进本机后本机这条就是两边里新的那份：和服务器相同就不传，否则带着新的 changeTag 重传。
-        addCoalescedRecordZoneChanges([.saveRecord(server.recordID)], to: syncEngine)
-        dropPendingSaveIfServerMatches(server, syncEngine: syncEngine)
-    }
-
-    /// 动态封面记录保存失败。冲突、云端已删、网络、iCloud 空间不足这些照通用流程处理；其余
-    /// （生产环境缺字段、附件过大、附件文件没了等）只丢掉这一条：不把整个同步标成出错，
-    /// 也不清「首次上传已完成」去触发整份重传。
-    private func resolveFailedMotionCoverSave(
-        recordID: CKRecord.ID,
-        error: CKError,
-        syncEngine: CKSyncEngine
-    ) -> Bool {
-        guard let meta = recordMetadata(for: recordID),
-              meta.recordType == RecordType.playlist,
-              MotionCoverCloudRecordID.isMotionCover(meta.localID) else { return false }
-        if Self.schemaError(in: error) == nil {
-            switch error.code {
-            case .serverRecordChanged, .constraintViolation, .unknownItem, .zoneNotFound, .userDeletedZone,
-                 .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy,
-                 .quotaExceeded, .notAuthenticated:
-                return false
-            default:
-                break
-            }
-        }
-        syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
-        plog(
-            "☁️ CloudKitSync: dropped motion cover save \(meta.localID.prefix(40)) "
-                + "code=\(error.code.rawValue): \(error.localizedDescription)"
-        )
-        return true
-    }
-    #endif
-
     // MARK: - Playback history mapping
 
     private func populatePlaybackHistoryRecord(_ record: CKRecord) -> Bool {
@@ -3701,14 +3724,6 @@ final class CloudKitSyncService {
         let identities = decodeIdentities(record[Self.songIdentitiesField] as? Data)
         library.applyRemotePlaybackHistory(songIDs: songIDs, identities: identities)
     }
-
-    // MARK: - Listening stats mapping
-
-    /// CloudKit 单字段 ~1MB 上限, 留余量。听歌历史最多 5000 条, 原始 JSON 接近上限,
-    /// gzip 后约 100-200KB —— 内联压缩既稳过限又向后兼容。
-    /// 这个上限是编译期常量, 且压缩后的裁剪判定要在主 actor 之外做, 所以
-    /// 显式声明为 nonisolated —— 值本身不可变, 不需要任何隔离。
-    private nonisolated static let statsInlineLimit = 900_000
 
     private func populateListeningStatsRecord(_ record: CKRecord) -> Bool {
         // 最多 5000 条历史的 JSON 编码 + zlib 压缩。节流刷新会提前把这份 payload
@@ -3738,10 +3753,6 @@ final class CloudKitSyncService {
         }
         return true
     }
-
-    /// 「清空听歌记录」的时刻, 随统计记录同步; 早于它的条目在合并时一律丢弃。
-    /// 新字段: 发布前要把 ListeningStats 的 schema 部署到生产环境。
-    private nonisolated static let listeningStatsClearedAtField = "clearedAt"
 
     private nonisolated static func decodeListeningStatsClearedAt(_ record: CKRecord) -> Date? {
         record[listeningStatsClearedAtField] as? Date
@@ -3800,10 +3811,6 @@ final class CloudKitSyncService {
         return try? decoder.decode([PlayHistoryStore.Entry].self, from: data)
     }
 
-    // MARK: - Song identity / cross-device resolution
-
-    nonisolated static let songIdentitiesField = "songIdentities"
-
     /// Build cross-device identities for a batch of locally-stored song
     /// IDs. Songs that have already been deleted locally still get a stub
     /// identity so the receiving device can attempt a fuzzy match — at
@@ -3839,11 +3846,6 @@ final class CloudKitSyncService {
         guard let data else { return nil }
         return try? JSONDecoder().decode([SongIdentity].self, from: data)
     }
-
-    // The cross-device 3-tier resolver lives on `MusicLibrary` — it
-    // owns the songs collection, can use `sourceIdentityResolver` to map
-    // a song's mount UUID back to a stable cloud account, and persists
-    // unresolved identities as pending so a later scan can fill them in.
 }
 
 // MARK: - CKSyncEngineDelegate

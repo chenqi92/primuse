@@ -394,9 +394,6 @@ final class AudioEngine {
             if isPlaying != oldValue, spatialHeadTrackingEnabled { updateSpatialHeadTracking() }
         }
     }
-    var isActuallyPlaying: Bool {
-        engine?.isRunning == true && playerNode?.isPlaying == true
-    }
     private(set) var outputFormat: AVAudioFormat?
     /// 输出设备此刻的采样率,给界面显示用。`currentHardwareSampleRate` 每次现读、
     /// 不可观察,界面读它的话换输出设备、协商完采样率之后不会重绘。
@@ -415,11 +412,6 @@ final class AudioEngine {
     nonisolated let nodeRegistry = PlayerNodeRegistry()
     private var directSourceFormat: AVAudioFormat?
     private var hardwareConfigurationRecoveryState = AudioHardwareConfigurationRecoveryState()
-    /// A hardware change was reported and the graph has not been rebuilt for
-    /// it yet: what the nodes hold was prepared for the old output.
-    var hardwareConfigurationRequiresGraphRebuild: Bool {
-        hardwareConfigurationRecoveryState.requiresGraphRebuild
-    }
     #if os(macOS)
     /// A pinned route must be applied to AUHAL before graph formats are read.
     private var pendingGraphOutputDeviceID: AudioDeviceID?
@@ -519,6 +511,511 @@ final class AudioEngine {
         #endif
     }
 
+    deinit {
+        #if os(iOS)
+        if let outputRouteObserver {
+            NotificationCenter.default.removeObserver(outputRouteObserver)
+        }
+        #endif
+    }
+
+    // MARK: - Output device routing (macOS only)
+
+    #if os(macOS)
+    private static func systemDefaultOutputDeviceID() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id
+        )
+        return status == noErr && id != AudioDeviceID(kAudioObjectUnknown) ? id : nil
+    }
+
+    private static func nominalSampleRate(deviceID: AudioDeviceID) -> Double {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var rate: Double = 0
+        var size = UInt32(MemoryLayout<Double>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &rate)
+        return status == noErr ? rate : 0
+    }
+
+    private static func availableNominalSampleRates(
+        deviceID: AudioDeviceID
+    ) -> [AudioValueRange]? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyAvailableNominalSampleRates,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            deviceID, &address, 0, nil, &dataSize
+        ) == noErr, dataSize >= MemoryLayout<AudioValueRange>.size else {
+            return nil
+        }
+        var ranges = [AudioValueRange](
+            repeating: AudioValueRange(mMinimum: 0, mMaximum: 0),
+            count: Int(dataSize) / MemoryLayout<AudioValueRange>.size
+        )
+        let status = ranges.withUnsafeMutableBytes { bytes in
+            AudioObjectGetPropertyData(
+                deviceID, &address, 0, nil, &dataSize, bytes.baseAddress!
+            )
+        }
+        return status == noErr ? ranges : nil
+    }
+
+    private static func deviceIsAlive(_ deviceID: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceIsAlive,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var alive: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        return AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &alive) == noErr
+            && alive != 0
+    }
+
+    private static func shouldRequestNominalSampleRate(
+        _ targetHz: Double,
+        deviceID: AudioDeviceID,
+        currentRate: Double
+    ) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var settable = DarwinBoolean(false)
+        let propertyIsSettable = AudioObjectIsPropertySettable(
+            deviceID, &address, &settable
+        ) == noErr && settable.boolValue
+        return DirectPCMOutputSampleRatePolicy.shouldRequestNominalSampleRateChange(
+            requestedSampleRate: targetHz,
+            currentHardwareSampleRate: currentRate,
+            propertyIsSettable: propertyIsSettable,
+            requestedRateIsSupported: availableNominalSampleRates(deviceID: deviceID)?
+                .contains { range in
+                    targetHz >= range.mMinimum && targetHz <= range.mMaximum
+                },
+            isSystemManagedWirelessOutput: isSystemManagedWirelessOutput(deviceID: deviceID)
+        )
+    }
+
+    private static func isSystemManagedWirelessOutput(deviceID: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transport: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(
+            deviceID, &address, 0, nil, &size, &transport
+        ) == noErr else { return false }
+        return transport == kAudioDeviceTransportTypeAirPlay
+            || transport == kAudioDeviceTransportTypeBluetooth
+            || transport == kAudioDeviceTransportTypeBluetoothLE
+    }
+
+    private static func observeHardwareSampleRate(
+        deviceID: AudioDeviceID,
+        followsSystem: Bool,
+        callback: @escaping @Sendable (HardwareSampleRateNegotiator.Event) -> Void
+    ) throws -> @MainActor () -> Void {
+        let queue = DispatchQueue(label: "com.primuse.hardware-sample-rate")
+        var registrations: [(AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
+        func removeListeners() {
+            for (object, address, listener) in registrations {
+                var address = address
+                AudioObjectRemovePropertyListenerBlock(object, &address, queue, listener)
+            }
+        }
+        var properties: [(AudioObjectID, AudioObjectPropertySelector, HardwareSampleRateNegotiator.Event)] = [
+            (deviceID, kAudioDevicePropertyNominalSampleRate, .sampleRateChanged),
+            (deviceID, kAudioDevicePropertyDeviceIsAlive, .deviceChanged),
+        ]
+        if followsSystem {
+            properties.append((
+                AudioObjectID(kAudioObjectSystemObject),
+                kAudioHardwarePropertyDefaultOutputDevice,
+                .deviceChanged
+            ))
+        }
+        do {
+            for (object, selector, event) in properties {
+                var address = AudioObjectPropertyAddress(
+                    mSelector: selector,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                let listener: AudioObjectPropertyListenerBlock = { _, _ in callback(event) }
+                let status = AudioObjectAddPropertyListenerBlock(object, &address, queue, listener)
+                guard status == noErr else {
+                    throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+                }
+                registrations.append((object, address, listener))
+            }
+        } catch {
+            removeListeners()
+            plog("⚠️ Cannot observe hardware rate changes; keeping the current format: \(error)")
+            throw error
+        }
+        return { removeListeners() }
+    }
+
+    private static func applyOutputDevice(
+        _ deviceID: AudioDeviceID,
+        to engine: AVAudioEngine
+    ) throws {
+        guard let outputUnit = engine.outputNode.audioUnit else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioUnitErr_Uninitialized))
+        }
+        // 唯一输出被独占时，系统默认设备暂时为空，新输出单元会关闭 I/O。
+        // 只设置 CurrentDevice 不会重新开启，播放节点会一直等不到渲染周期。
+        var outputEnabled: UInt32 = 0
+        var outputEnabledSize = UInt32(MemoryLayout<UInt32>.size)
+        let readStatus = AudioUnitGetProperty(
+            outputUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output,
+            0, &outputEnabled, &outputEnabledSize
+        )
+        guard readStatus == noErr else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(readStatus))
+        }
+        if outputEnabled == 0 {
+            outputEnabled = 1
+            let enableStatus = AudioUnitSetProperty(
+                outputUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output,
+                0, &outputEnabled, UInt32(MemoryLayout<UInt32>.size)
+            )
+            guard enableStatus == noErr else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(enableStatus))
+            }
+        }
+        var id = deviceID
+        let status = AudioUnitSetProperty(
+            outputUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
+                NSLocalizedDescriptionKey: String(
+                    format: String(localized: "audio_output_error_set_device %d"),
+                    status
+                )
+            ])
+        }
+    }
+
+    /// 先停止旧图，再在新输出单元上绑定设备。修改旧单元后立即销毁会与
+    /// HAL 尚未处理完的设备通知竞争，独占切换时可能被拒绝或卡在读硬件格式。
+    private func replaceOutputGraph(deviceID: AudioDeviceID) throws {
+        guard !isSetUp || currentOutputDeviceID != deviceID else { return }
+        let shouldHoldExclusive = exclusiveOutputRequested && outputMode == .highFidelity && isPlaying
+        let previousDevice = hardwareOutputDeviceID
+        tearDownGraph()
+        if exclusiveOutputController.heldDeviceID != deviceID {
+            releaseExclusiveOutput(restoringFormats: true)
+        }
+        if shouldHoldExclusive { claimExclusiveOutput(deviceID: deviceID) }
+        pendingGraphOutputDeviceID = deviceID
+        defer {
+            pendingGraphOutputDeviceID = nil
+            // 暂停时也要使旧调度失效，下次恢复才会重新送入当前曲目。
+            if let engine {
+                NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: engine)
+            }
+        }
+        do {
+            try setUp()
+            hardwareConfigurationRecoveryState.graphRebuiltSuccessfully()
+        } catch {
+            releaseExclusiveOutput(restoringFormats: true)
+            pendingGraphOutputDeviceID = previousDevice
+            try? setUp()
+            throw error
+        }
+    }
+
+    /// 把这个 app 的音频输出切到指定的 Core Audio 设备。系统默认输出
+    /// 不变 —— 这只影响 Primuse 自己。设备 ID 来自 AudioOutputDeviceManager,
+    /// 通常对应内置扬声器、AirPlay 接收器(HomePod / Apple TV)、蓝牙
+    /// 耳机等。设备拔掉后会自动回退到系统默认。
+    func setOutputDevice(deviceID: AudioDeviceID) throws {
+        guard let uid = AudioOutputDeviceManager.deviceUID(for: deviceID),
+              AudioOutputDeviceManager.deviceID(forUID: uid) == deviceID,
+              Self.deviceIsAlive(deviceID) else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioHardwareBadDeviceError))
+        }
+        try replaceOutputGraph(deviceID: deviceID)
+        // 显式钉到了某设备, 退出跟随系统状态并持久化。
+        selectedOutputDeviceUID = uid
+        followsSystemOutput = false
+        outputDefaults.set(uid, forKey: Self.outputDeviceUIDKey)
+        outputDefaults.set(false, forKey: Self.followsSystemKey)
+        refreshObservedOutputSampleRate()
+        NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil)
+    }
+
+    /// 让 Primuse 回到「跟随系统默认输出」—— 用户之前用 picker 钉死过某台设备
+    /// (applyDevice 把 CurrentDevice 设成了具体 id)后, 点「跟随系统」把 output
+    /// unit 重新指向**当前系统默认输出设备的真实 id**。
+    ///
+    /// ⚠️ 不能把 CurrentDevice 设成 kAudioObjectUnknown(0): 那不是「跟随默认」,
+    /// 而是让 AUHAL 失去有效设备, engine 启动直接报 -10875、所有播放失败。
+    func followSystemOutput() throws {
+        guard let defaultID = Self.systemDefaultOutputDeviceID() else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioHardwareBadDeviceError))
+        }
+        try replaceOutputGraph(deviceID: defaultID)
+        followsSystemOutput = true
+        selectedOutputDeviceUID = nil
+        outputDefaults.set(true, forKey: Self.followsSystemKey)
+        outputDefaults.removeObject(forKey: Self.outputDeviceUIDKey)
+        refreshObservedOutputSampleRate()
+        NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil)
+    }
+
+    private static let followsSystemKey = "primuse_output_follows_system"
+    private static let outputDeviceUIDKey = "primuse_output_device_uid"
+
+    /// 只回读实际音频单元；切换过程中的旧值不能覆盖用户选择。
+    var currentOutputDeviceID: AudioDeviceID? {
+        guard let engine, let outputUnit = engine.outputNode.audioUnit else { return nil }
+        var id: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(
+            outputUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            &size
+        )
+        return status == noErr && id != kAudioObjectUnknown ? id : nil
+    }
+
+    // MARK: - Exclusive output (macOS only)
+
+    /// 开始出声前调用：要独占就拿下当前输出设备，不该独占就放掉并把位深改回去。
+    private func claimExclusiveOutputIfRequested() {
+        cancelExclusiveOutputIdleRelease()
+        guard exclusiveOutputRequested, outputMode == .highFidelity else {
+            releaseExclusiveOutput(restoringFormats: true)
+            return
+        }
+        // 跟随系统输出时，第一次拿设备要等配图那一步把图钉在设备上之后再拿。
+        guard !followsSystemOutput || exclusiveSessionDeviceID != nil,
+              let deviceID = hardwareOutputDeviceID else { return }
+        if let engine, currentOutputDeviceID != deviceID {
+            // 暂停时用户换了系统输出：先把图挪过去再拿。
+            do {
+                try Self.applyOutputDevice(deviceID, to: engine)
+                hardwareConfigurationRecoveryState.configurationChanged()
+            } catch {
+                plog("⚠️ Exclusive output could not move to device=\(deviceID): \(error.localizedDescription)")
+                return
+            }
+        }
+        claimExclusiveOutput(deviceID: deviceID)
+    }
+
+    private func claimExclusiveOutput(deviceID: AudioDeviceID) {
+        let status = exclusiveOutputController.claim(
+            deviceID: deviceID,
+            isSystemManagedWireless: Self.isSystemManagedWirelessOutput(deviceID: deviceID)
+        )
+        if status != exclusiveOutputStatus { exclusiveOutputStatus = status }
+    }
+
+    /// 起播配图之前调用：这首要独占就先拿下设备，后面切采样率和位深时别的 App
+    /// 插不进来。图这时还没换，所以由调用方告诉这首走哪种图。这首没能播起来的话，
+    /// 过一会儿照常放掉。
+    func prepareExclusiveOutput(requested: Bool, graphMode: AudioOutputMode) {
+        exclusiveOutputRequested = requested
+        guard requested, graphMode == .highFidelity else {
+            releaseExclusiveOutput(restoringFormats: true)
+            return
+        }
+        guard let deviceID = hardwareOutputDeviceID else { return }
+        if followsSystemOutput, exclusiveSessionDeviceID != deviceID {
+            // 接下来的配图要重建，并钉在这台设备上。
+            exclusiveSessionDeviceID = deviceID
+            hardwareConfigurationRecoveryState.configurationChanged()
+            observeSystemDefaultOutput()
+        }
+        let previouslyHeldDevice = exclusiveOutputController.heldDeviceID
+        claimExclusiveOutput(deviceID: deviceID)
+        if previouslyHeldDevice != deviceID,
+           exclusiveOutputController.heldDeviceID == deviceID {
+            // 拿下独占会改变系统默认路由；旧输出单元可能已经被 HAL 挪走，
+            // 必须在独占生效后重新绑定，不能沿用拿独占之前创建的图。
+            hardwareConfigurationRecoveryState.configurationChanged()
+        }
+        if !isActuallyPlaying { scheduleExclusiveOutputIdleRelease() }
+    }
+
+    /// 独占时让设备的物理位深跟随这首歌。在采样率协商之后、配图之前调用。
+    func matchExclusiveOutputBitDepth(_ targetBitDepth: Int) async {
+        guard exclusiveOutputRequested,
+              case .exclusive(let deviceName, _) = exclusiveOutputStatus,
+              let deviceID = exclusiveOutputController.heldDeviceID,
+              deviceID == hardwareOutputDeviceID else { return }
+        let bitDepth = await exclusiveOutputController.matchPhysicalBitDepth(
+            targetBitDepth,
+            deviceID: deviceID
+        )
+        guard case .exclusive = exclusiveOutputStatus,
+              exclusiveOutputController.heldDeviceID == deviceID else { return }
+        exclusiveOutputStatus = .exclusive(deviceName: deviceName, bitDepth: bitDepth)
+    }
+
+    /// 放掉独占。restoringFormats 是整轮结束(关掉独占、换设备、退出)：改过位深的
+    /// 设备改回去，跟随系统输出时下一次配图也不再钉在那台设备上。
+    func releaseExclusiveOutput(restoringFormats: Bool) {
+        cancelExclusiveOutputIdleRelease()
+        exclusiveOutputController.release()
+        if restoringFormats {
+            exclusiveOutputController.restorePhysicalFormats()
+            if exclusiveSessionDeviceID != nil {
+                exclusiveSessionDeviceID = nil
+                stopObservingSystemDefaultOutput()
+                hardwareConfigurationRecoveryState.configurationChanged()
+            }
+        }
+        if exclusiveOutputStatus != .inactive {
+            exclusiveOutputStatus = .inactive
+        }
+    }
+
+    /// 暂停、停下或换歌后不马上放：换歌一般在延时之内就重新出声。到点还没出声
+    /// 才放掉，别的 App 这时就能用这台设备了。
+    private func scheduleExclusiveOutputIdleRelease() {
+        cancelExclusiveOutputIdleRelease()
+        guard exclusiveOutputController.heldDeviceID != nil
+                || exclusiveOutputStatus != .inactive else { return }
+        exclusiveOutputIdleReleaseTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.exclusiveOutputIdleReleaseDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.exclusiveOutputIdleReleaseTask = nil
+            guard !self.isActuallyPlaying else { return }
+            self.releaseExclusiveOutput(restoringFormats: false)
+        }
+    }
+
+    /// 跟随系统输出、这一轮独占还没结束时盯着系统默认输出：只有没在独占(暂停后
+    /// 放掉了)时的变化才是用户换了设备，独占期间的变化是独占本身挪走的。
+    private func observeSystemDefaultOutput() {
+        guard systemDefaultOutputListener == nil else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.systemDefaultOutputDidChange() }
+        }
+        guard AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, .main, listener
+        ) == noErr else { return }
+        systemDefaultOutputListener = listener
+    }
+
+    private func stopObservingSystemDefaultOutput() {
+        guard let listener = systemDefaultOutputListener else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, .main, listener
+        )
+        systemDefaultOutputListener = nil
+    }
+
+    private func systemDefaultOutputDidChange() {
+        guard followsSystemOutput,
+              let session = exclusiveSessionDeviceID,
+              exclusiveOutputController.heldDeviceID == nil,
+              let newDefault = Self.systemDefaultOutputDeviceID(),
+              newDefault != session else { return }
+        plog("🎧 Exclusive output follows the new system output device=\(newDefault)")
+        exclusiveSessionDeviceID = newDefault
+        hardwareConfigurationRecoveryState.configurationChanged()
+    }
+
+    private func cancelExclusiveOutputIdleRelease() {
+        exclusiveOutputIdleReleaseTask?.cancel()
+        exclusiveOutputIdleReleaseTask = nil
+    }
+    #endif
+
+    /// 上一次读主节点时钟时,这一首到那里为止被智能速度拿掉的文件时长(秒)。跳转、换歌后从 0 算起。
+    @ObservationIgnored private(set) var primarySmartSpeedSkippedDuration: TimeInterval = 0
+
+    private static let volumeKey = "primuse_volume"
+
+    #if os(macOS)
+    /// 输出单元（AUHAL）的应用级音量参数 `kHALOutputParam_Volume`。
+    ///
+    /// 它缩放的是本 app 送往设备的数据流，不是设备的硬件音量 —— 系统音量、
+    /// 其它 app 的音量都不会跟着动。高保真直通图里没有混音器，这是唯一能给它
+    /// 加增益的地方。
+    private static let halOutputVolumeParameterID = AudioUnitParameterID(14)
+
+    @discardableResult
+    private func applyDirectOutputVolume(_ value: Float) -> Bool {
+        guard let outputUnit = engine?.outputNode.audioUnit else {
+            directOutputVolumeIsSupported = false
+            return false
+        }
+        let status = AudioUnitSetParameter(
+            outputUnit,
+            Self.halOutputVolumeParameterID,
+            kAudioUnitScope_Global,
+            0,
+            value,
+            0
+        )
+        if status != noErr, engine?.isRunning == true {
+            plog("⚠️ 直通输出音量写不进去, 音量条会退回禁用 status=\(status)")
+        }
+        directOutputVolumeIsSupported = status == noErr
+        return status == noErr
+    }
+    #endif
+
+}
+
+extension AudioEngine {
+    var isActuallyPlaying: Bool {
+        engine?.isRunning == true && playerNode?.isPlaying == true
+    }
+    /// A hardware change was reported and the graph has not been rebuilt for
+    /// it yet: what the nodes hold was prepared for the old output.
+    var hardwareConfigurationRequiresGraphRebuild: Bool {
+        hardwareConfigurationRecoveryState.requiresGraphRebuild
+    }
+
     #if os(iOS)
     private func outputRouteDidChange() {
         refreshObservedOutputSampleRate()
@@ -530,14 +1027,6 @@ final class AudioEngine {
         }
     }
     #endif
-
-    deinit {
-        #if os(iOS)
-        if let outputRouteObserver {
-            NotificationCenter.default.removeObserver(outputRouteObserver)
-        }
-        #endif
-    }
 
     /// 重读输出采样率;差不到 1Hz 不发布,免得无谓重绘。
     func refreshObservedOutputSampleRate() {
@@ -1233,456 +1722,6 @@ final class AudioEngine {
             actualHardwareSampleRate: currentHardwareSampleRate
         )
     }
-
-    // MARK: - Output device routing (macOS only)
-
-    #if os(macOS)
-    private static func systemDefaultOutputDeviceID() -> AudioDeviceID? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var id = AudioDeviceID(kAudioObjectUnknown)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        let status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id
-        )
-        return status == noErr && id != AudioDeviceID(kAudioObjectUnknown) ? id : nil
-    }
-
-    private static func nominalSampleRate(deviceID: AudioDeviceID) -> Double {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyNominalSampleRate,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var rate: Double = 0
-        var size = UInt32(MemoryLayout<Double>.size)
-        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &rate)
-        return status == noErr ? rate : 0
-    }
-
-    private static func availableNominalSampleRates(
-        deviceID: AudioDeviceID
-    ) -> [AudioValueRange]? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyAvailableNominalSampleRates,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var dataSize: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(
-            deviceID, &address, 0, nil, &dataSize
-        ) == noErr, dataSize >= MemoryLayout<AudioValueRange>.size else {
-            return nil
-        }
-        var ranges = [AudioValueRange](
-            repeating: AudioValueRange(mMinimum: 0, mMaximum: 0),
-            count: Int(dataSize) / MemoryLayout<AudioValueRange>.size
-        )
-        let status = ranges.withUnsafeMutableBytes { bytes in
-            AudioObjectGetPropertyData(
-                deviceID, &address, 0, nil, &dataSize, bytes.baseAddress!
-            )
-        }
-        return status == noErr ? ranges : nil
-    }
-
-    private static func deviceIsAlive(_ deviceID: AudioDeviceID) -> Bool {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceIsAlive,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var alive: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        return AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &alive) == noErr
-            && alive != 0
-    }
-
-    private static func shouldRequestNominalSampleRate(
-        _ targetHz: Double,
-        deviceID: AudioDeviceID,
-        currentRate: Double
-    ) -> Bool {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyNominalSampleRate,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var settable = DarwinBoolean(false)
-        let propertyIsSettable = AudioObjectIsPropertySettable(
-            deviceID, &address, &settable
-        ) == noErr && settable.boolValue
-        return DirectPCMOutputSampleRatePolicy.shouldRequestNominalSampleRateChange(
-            requestedSampleRate: targetHz,
-            currentHardwareSampleRate: currentRate,
-            propertyIsSettable: propertyIsSettable,
-            requestedRateIsSupported: availableNominalSampleRates(deviceID: deviceID)?
-                .contains { range in
-                    targetHz >= range.mMinimum && targetHz <= range.mMaximum
-                },
-            isSystemManagedWirelessOutput: isSystemManagedWirelessOutput(deviceID: deviceID)
-        )
-    }
-
-    private static func isSystemManagedWirelessOutput(deviceID: AudioDeviceID) -> Bool {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyTransportType,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var transport: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        guard AudioObjectGetPropertyData(
-            deviceID, &address, 0, nil, &size, &transport
-        ) == noErr else { return false }
-        return transport == kAudioDeviceTransportTypeAirPlay
-            || transport == kAudioDeviceTransportTypeBluetooth
-            || transport == kAudioDeviceTransportTypeBluetoothLE
-    }
-
-    private static func observeHardwareSampleRate(
-        deviceID: AudioDeviceID,
-        followsSystem: Bool,
-        callback: @escaping @Sendable (HardwareSampleRateNegotiator.Event) -> Void
-    ) throws -> @MainActor () -> Void {
-        let queue = DispatchQueue(label: "com.primuse.hardware-sample-rate")
-        var registrations: [(AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
-        func removeListeners() {
-            for (object, address, listener) in registrations {
-                var address = address
-                AudioObjectRemovePropertyListenerBlock(object, &address, queue, listener)
-            }
-        }
-        var properties: [(AudioObjectID, AudioObjectPropertySelector, HardwareSampleRateNegotiator.Event)] = [
-            (deviceID, kAudioDevicePropertyNominalSampleRate, .sampleRateChanged),
-            (deviceID, kAudioDevicePropertyDeviceIsAlive, .deviceChanged),
-        ]
-        if followsSystem {
-            properties.append((
-                AudioObjectID(kAudioObjectSystemObject),
-                kAudioHardwarePropertyDefaultOutputDevice,
-                .deviceChanged
-            ))
-        }
-        do {
-            for (object, selector, event) in properties {
-                var address = AudioObjectPropertyAddress(
-                    mSelector: selector,
-                    mScope: kAudioObjectPropertyScopeGlobal,
-                    mElement: kAudioObjectPropertyElementMain
-                )
-                let listener: AudioObjectPropertyListenerBlock = { _, _ in callback(event) }
-                let status = AudioObjectAddPropertyListenerBlock(object, &address, queue, listener)
-                guard status == noErr else {
-                    throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-                }
-                registrations.append((object, address, listener))
-            }
-        } catch {
-            removeListeners()
-            plog("⚠️ Cannot observe hardware rate changes; keeping the current format: \(error)")
-            throw error
-        }
-        return { removeListeners() }
-    }
-
-    private static func applyOutputDevice(
-        _ deviceID: AudioDeviceID,
-        to engine: AVAudioEngine
-    ) throws {
-        guard let outputUnit = engine.outputNode.audioUnit else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioUnitErr_Uninitialized))
-        }
-        // 唯一输出被独占时，系统默认设备暂时为空，新输出单元会关闭 I/O。
-        // 只设置 CurrentDevice 不会重新开启，播放节点会一直等不到渲染周期。
-        var outputEnabled: UInt32 = 0
-        var outputEnabledSize = UInt32(MemoryLayout<UInt32>.size)
-        let readStatus = AudioUnitGetProperty(
-            outputUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output,
-            0, &outputEnabled, &outputEnabledSize
-        )
-        guard readStatus == noErr else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(readStatus))
-        }
-        if outputEnabled == 0 {
-            outputEnabled = 1
-            let enableStatus = AudioUnitSetProperty(
-                outputUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output,
-                0, &outputEnabled, UInt32(MemoryLayout<UInt32>.size)
-            )
-            guard enableStatus == noErr else {
-                throw NSError(domain: NSOSStatusErrorDomain, code: Int(enableStatus))
-            }
-        }
-        var id = deviceID
-        let status = AudioUnitSetProperty(
-            outputUnit,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
-            0,
-            &id,
-            UInt32(MemoryLayout<AudioDeviceID>.size)
-        )
-        if status != noErr {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
-                NSLocalizedDescriptionKey: String(
-                    format: String(localized: "audio_output_error_set_device %d"),
-                    status
-                )
-            ])
-        }
-    }
-
-    /// 先停止旧图，再在新输出单元上绑定设备。修改旧单元后立即销毁会与
-    /// HAL 尚未处理完的设备通知竞争，独占切换时可能被拒绝或卡在读硬件格式。
-    private func replaceOutputGraph(deviceID: AudioDeviceID) throws {
-        guard !isSetUp || currentOutputDeviceID != deviceID else { return }
-        let shouldHoldExclusive = exclusiveOutputRequested && outputMode == .highFidelity && isPlaying
-        let previousDevice = hardwareOutputDeviceID
-        tearDownGraph()
-        if exclusiveOutputController.heldDeviceID != deviceID {
-            releaseExclusiveOutput(restoringFormats: true)
-        }
-        if shouldHoldExclusive { claimExclusiveOutput(deviceID: deviceID) }
-        pendingGraphOutputDeviceID = deviceID
-        defer {
-            pendingGraphOutputDeviceID = nil
-            // 暂停时也要使旧调度失效，下次恢复才会重新送入当前曲目。
-            if let engine {
-                NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: engine)
-            }
-        }
-        do {
-            try setUp()
-            hardwareConfigurationRecoveryState.graphRebuiltSuccessfully()
-        } catch {
-            releaseExclusiveOutput(restoringFormats: true)
-            pendingGraphOutputDeviceID = previousDevice
-            try? setUp()
-            throw error
-        }
-    }
-
-    /// 把这个 app 的音频输出切到指定的 Core Audio 设备。系统默认输出
-    /// 不变 —— 这只影响 Primuse 自己。设备 ID 来自 AudioOutputDeviceManager,
-    /// 通常对应内置扬声器、AirPlay 接收器(HomePod / Apple TV)、蓝牙
-    /// 耳机等。设备拔掉后会自动回退到系统默认。
-    func setOutputDevice(deviceID: AudioDeviceID) throws {
-        guard let uid = AudioOutputDeviceManager.deviceUID(for: deviceID),
-              AudioOutputDeviceManager.deviceID(forUID: uid) == deviceID,
-              Self.deviceIsAlive(deviceID) else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioHardwareBadDeviceError))
-        }
-        try replaceOutputGraph(deviceID: deviceID)
-        // 显式钉到了某设备, 退出跟随系统状态并持久化。
-        selectedOutputDeviceUID = uid
-        followsSystemOutput = false
-        outputDefaults.set(uid, forKey: Self.outputDeviceUIDKey)
-        outputDefaults.set(false, forKey: Self.followsSystemKey)
-        refreshObservedOutputSampleRate()
-        NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil)
-    }
-
-    /// 让 Primuse 回到「跟随系统默认输出」—— 用户之前用 picker 钉死过某台设备
-    /// (applyDevice 把 CurrentDevice 设成了具体 id)后, 点「跟随系统」把 output
-    /// unit 重新指向**当前系统默认输出设备的真实 id**。
-    ///
-    /// ⚠️ 不能把 CurrentDevice 设成 kAudioObjectUnknown(0): 那不是「跟随默认」,
-    /// 而是让 AUHAL 失去有效设备, engine 启动直接报 -10875、所有播放失败。
-    func followSystemOutput() throws {
-        guard let defaultID = Self.systemDefaultOutputDeviceID() else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioHardwareBadDeviceError))
-        }
-        try replaceOutputGraph(deviceID: defaultID)
-        followsSystemOutput = true
-        selectedOutputDeviceUID = nil
-        outputDefaults.set(true, forKey: Self.followsSystemKey)
-        outputDefaults.removeObject(forKey: Self.outputDeviceUIDKey)
-        refreshObservedOutputSampleRate()
-        NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil)
-    }
-
-    private static let followsSystemKey = "primuse_output_follows_system"
-    private static let outputDeviceUIDKey = "primuse_output_device_uid"
-
-    /// 只回读实际音频单元；切换过程中的旧值不能覆盖用户选择。
-    var currentOutputDeviceID: AudioDeviceID? {
-        guard let engine, let outputUnit = engine.outputNode.audioUnit else { return nil }
-        var id: AudioDeviceID = 0
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        let status = AudioUnitGetProperty(
-            outputUnit,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
-            0,
-            &id,
-            &size
-        )
-        return status == noErr && id != kAudioObjectUnknown ? id : nil
-    }
-
-    // MARK: - Exclusive output (macOS only)
-
-    /// 开始出声前调用：要独占就拿下当前输出设备，不该独占就放掉并把位深改回去。
-    private func claimExclusiveOutputIfRequested() {
-        cancelExclusiveOutputIdleRelease()
-        guard exclusiveOutputRequested, outputMode == .highFidelity else {
-            releaseExclusiveOutput(restoringFormats: true)
-            return
-        }
-        // 跟随系统输出时，第一次拿设备要等配图那一步把图钉在设备上之后再拿。
-        guard !followsSystemOutput || exclusiveSessionDeviceID != nil,
-              let deviceID = hardwareOutputDeviceID else { return }
-        if let engine, currentOutputDeviceID != deviceID {
-            // 暂停时用户换了系统输出：先把图挪过去再拿。
-            do {
-                try Self.applyOutputDevice(deviceID, to: engine)
-                hardwareConfigurationRecoveryState.configurationChanged()
-            } catch {
-                plog("⚠️ Exclusive output could not move to device=\(deviceID): \(error.localizedDescription)")
-                return
-            }
-        }
-        claimExclusiveOutput(deviceID: deviceID)
-    }
-
-    private func claimExclusiveOutput(deviceID: AudioDeviceID) {
-        let status = exclusiveOutputController.claim(
-            deviceID: deviceID,
-            isSystemManagedWireless: Self.isSystemManagedWirelessOutput(deviceID: deviceID)
-        )
-        if status != exclusiveOutputStatus { exclusiveOutputStatus = status }
-    }
-
-    /// 起播配图之前调用：这首要独占就先拿下设备，后面切采样率和位深时别的 App
-    /// 插不进来。图这时还没换，所以由调用方告诉这首走哪种图。这首没能播起来的话，
-    /// 过一会儿照常放掉。
-    func prepareExclusiveOutput(requested: Bool, graphMode: AudioOutputMode) {
-        exclusiveOutputRequested = requested
-        guard requested, graphMode == .highFidelity else {
-            releaseExclusiveOutput(restoringFormats: true)
-            return
-        }
-        guard let deviceID = hardwareOutputDeviceID else { return }
-        if followsSystemOutput, exclusiveSessionDeviceID != deviceID {
-            // 接下来的配图要重建，并钉在这台设备上。
-            exclusiveSessionDeviceID = deviceID
-            hardwareConfigurationRecoveryState.configurationChanged()
-            observeSystemDefaultOutput()
-        }
-        let previouslyHeldDevice = exclusiveOutputController.heldDeviceID
-        claimExclusiveOutput(deviceID: deviceID)
-        if previouslyHeldDevice != deviceID,
-           exclusiveOutputController.heldDeviceID == deviceID {
-            // 拿下独占会改变系统默认路由；旧输出单元可能已经被 HAL 挪走，
-            // 必须在独占生效后重新绑定，不能沿用拿独占之前创建的图。
-            hardwareConfigurationRecoveryState.configurationChanged()
-        }
-        if !isActuallyPlaying { scheduleExclusiveOutputIdleRelease() }
-    }
-
-    /// 独占时让设备的物理位深跟随这首歌。在采样率协商之后、配图之前调用。
-    func matchExclusiveOutputBitDepth(_ targetBitDepth: Int) async {
-        guard exclusiveOutputRequested,
-              case .exclusive(let deviceName, _) = exclusiveOutputStatus,
-              let deviceID = exclusiveOutputController.heldDeviceID,
-              deviceID == hardwareOutputDeviceID else { return }
-        let bitDepth = await exclusiveOutputController.matchPhysicalBitDepth(
-            targetBitDepth,
-            deviceID: deviceID
-        )
-        guard case .exclusive = exclusiveOutputStatus,
-              exclusiveOutputController.heldDeviceID == deviceID else { return }
-        exclusiveOutputStatus = .exclusive(deviceName: deviceName, bitDepth: bitDepth)
-    }
-
-    /// 放掉独占。restoringFormats 是整轮结束(关掉独占、换设备、退出)：改过位深的
-    /// 设备改回去，跟随系统输出时下一次配图也不再钉在那台设备上。
-    func releaseExclusiveOutput(restoringFormats: Bool) {
-        cancelExclusiveOutputIdleRelease()
-        exclusiveOutputController.release()
-        if restoringFormats {
-            exclusiveOutputController.restorePhysicalFormats()
-            if exclusiveSessionDeviceID != nil {
-                exclusiveSessionDeviceID = nil
-                stopObservingSystemDefaultOutput()
-                hardwareConfigurationRecoveryState.configurationChanged()
-            }
-        }
-        if exclusiveOutputStatus != .inactive {
-            exclusiveOutputStatus = .inactive
-        }
-    }
-
-    /// 暂停、停下或换歌后不马上放：换歌一般在延时之内就重新出声。到点还没出声
-    /// 才放掉，别的 App 这时就能用这台设备了。
-    private func scheduleExclusiveOutputIdleRelease() {
-        cancelExclusiveOutputIdleRelease()
-        guard exclusiveOutputController.heldDeviceID != nil
-                || exclusiveOutputStatus != .inactive else { return }
-        exclusiveOutputIdleReleaseTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: Self.exclusiveOutputIdleReleaseDelay)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, let self else { return }
-            self.exclusiveOutputIdleReleaseTask = nil
-            guard !self.isActuallyPlaying else { return }
-            self.releaseExclusiveOutput(restoringFormats: false)
-        }
-    }
-
-    /// 跟随系统输出、这一轮独占还没结束时盯着系统默认输出：只有没在独占(暂停后
-    /// 放掉了)时的变化才是用户换了设备，独占期间的变化是独占本身挪走的。
-    private func observeSystemDefaultOutput() {
-        guard systemDefaultOutputListener == nil else { return }
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.systemDefaultOutputDidChange() }
-        }
-        guard AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject), &address, .main, listener
-        ) == noErr else { return }
-        systemDefaultOutputListener = listener
-    }
-
-    private func stopObservingSystemDefaultOutput() {
-        guard let listener = systemDefaultOutputListener else { return }
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        AudioObjectRemovePropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject), &address, .main, listener
-        )
-        systemDefaultOutputListener = nil
-    }
-
-    private func systemDefaultOutputDidChange() {
-        guard followsSystemOutput,
-              let session = exclusiveSessionDeviceID,
-              exclusiveOutputController.heldDeviceID == nil,
-              let newDefault = Self.systemDefaultOutputDeviceID(),
-              newDefault != session else { return }
-        plog("🎧 Exclusive output follows the new system output device=\(newDefault)")
-        exclusiveSessionDeviceID = newDefault
-        hardwareConfigurationRecoveryState.configurationChanged()
-    }
-
-    private func cancelExclusiveOutputIdleRelease() {
-        exclusiveOutputIdleReleaseTask?.cancel()
-        exclusiveOutputIdleReleaseTask = nil
-    }
-    #endif
 
     // MARK: - DLNA Background Keep-Alive (主要 iOS 用; macOS 没 background
     // suspend 问题, 但 API 保留跨平台一致, 调用方一律可用)
@@ -2473,9 +2512,6 @@ final class AudioEngine {
             .map { $0.time + crossfadeTimelineOrigin }
     }
 
-    /// 上一次读主节点时钟时,这一首到那里为止被智能速度拿掉的文件时长(秒)。跳转、换歌后从 0 算起。
-    @ObservationIgnored private(set) var primarySmartSpeedSkippedDuration: TimeInterval = 0
-
     /// 节点播到的位置换算成这一首里的时间。智能速度拿掉的帧补回来,进度、锁屏、续播位置都照文件时间;
     /// 没开智能速度时接缝表是空的,补 0。
     private func playbackTime(
@@ -2533,8 +2569,6 @@ final class AudioEngine {
         sampleTimeOffset = frameCursor
         return true
     }
-
-    private static let volumeKey = "primuse_volume"
 
     var volume: Float {
         // The control must retain its value before playback prepares a graph
@@ -2611,36 +2645,6 @@ final class AudioEngine {
         applyDirectOutputVolume(requestedVolume)
         #endif
     }
-
-    #if os(macOS)
-    /// 输出单元（AUHAL）的应用级音量参数 `kHALOutputParam_Volume`。
-    ///
-    /// 它缩放的是本 app 送往设备的数据流，不是设备的硬件音量 —— 系统音量、
-    /// 其它 app 的音量都不会跟着动。高保真直通图里没有混音器，这是唯一能给它
-    /// 加增益的地方。
-    private static let halOutputVolumeParameterID = AudioUnitParameterID(14)
-
-    @discardableResult
-    private func applyDirectOutputVolume(_ value: Float) -> Bool {
-        guard let outputUnit = engine?.outputNode.audioUnit else {
-            directOutputVolumeIsSupported = false
-            return false
-        }
-        let status = AudioUnitSetParameter(
-            outputUnit,
-            Self.halOutputVolumeParameterID,
-            kAudioUnitScope_Global,
-            0,
-            value,
-            0
-        )
-        if status != noErr, engine?.isRunning == true {
-            plog("⚠️ 直通输出音量写不进去, 音量条会退回禁用 status=\(status)")
-        }
-        directOutputVolumeIsSupported = status == noErr
-        return status == noErr
-    }
-    #endif
 
     /// Continuous slider tracking must not broadcast preference changes on
     /// every pointer event. Commit the latest audible value when tracking ends.
@@ -2733,5 +2737,4 @@ final class AudioEngine {
             scheduleBuffer(buffer)
         }
     }
-
 }

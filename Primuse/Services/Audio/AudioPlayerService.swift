@@ -784,11 +784,6 @@ final class AudioPlayerService {
     var radioSubtitleText: String?
     var radioStreamFormat: RadioStreamFormat = .automatic
     var radioBitRate: Int?
-    var isLiveRadio: Bool { playbackKind == .liveRadio }
-    var canSwitchRadioStation: Bool { isLiveRadio && radioStationOrder.count > 1 }
-    var playbackCapabilities: PlaybackPresentationCapabilities {
-        .capabilities(for: playbackKind)
-    }
     /// 「歌播完了但 queue 没下一首」的状态 —— Apple Music / Spotify 风格的
     /// "已播完待重播"。currentSong / queue / currentIndex 全保留, 只是
     /// 引擎停了 + currentTime = 0 + isPlaying = false。用户点 play 会从头
@@ -829,20 +824,6 @@ final class AudioPlayerService {
     private(set) var showsLoadingIndicator = false
     @ObservationIgnored private var loadingIndicatorTask: Task<Void, Never>?
     static let loadingIndicatorDelay: Duration = .milliseconds(400)
-
-    private func refreshLoadingIndicator() {
-        loadingIndicatorTask?.cancel()
-        loadingIndicatorTask = nil
-        guard isLoading else {
-            if showsLoadingIndicator { showsLoadingIndicator = false }
-            return
-        }
-        loadingIndicatorTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.loadingIndicatorDelay)
-            guard !Task.isCancelled, let self, self.isLoading else { return }
-            self.showsLoadingIndicator = true
-        }
-    }
     private(set) var lastPlaybackError: String?
     /// 整个来源暂时放不了(云盘本月下载流量用完)、队列后面还有别的歌能播时,跳过这个来源之前的倒计时。
     /// 界面据此在出错提示上加「取消」「立即跳过」。
@@ -906,31 +887,6 @@ final class AudioPlayerService {
         streamEpoch: UInt64
     )?
 
-    var isSystemMediaPlaybackActive: Bool {
-        isMusicVideoPlaybackActive || isSystemAudioPlaybackActive
-    }
-
-    var activeSystemMediaPlayer: AVPlayer? {
-        isSystemAudioPlaybackActive ? systemAudioPlayer : musicVideoPlayer
-    }
-
-    func handoffPlaybackTimeSnapshot() -> TimeInterval {
-        handoffCurrentTime
-    }
-
-    /// 在 `currentTime` 与下一次 0.5s 采样之间做线性外推，每次 currentTime
-    /// 真实更新（didSet 重置 anchor）就跟引擎报告时间校准一次,不会累积漂移。
-    func interpolatedTime(at date: Date = Date(), rate: Double = 1) -> TimeInterval {
-        PlaybackClockFreezePolicy.frozenTime(
-            cachedCurrentTime: currentTime,
-            currentTimeAnchor: currentTimeAnchor,
-            eventTime: date,
-            isAdvancing: isPlaying && !isLoading && remotePlaybackBufferingStartedAt == nil,
-            duration: duration,
-            rate: rate
-        )
-    }
-
     /// Stored backing for the queue. Each entry pairs a Song with a
     /// stable UUID — see `QueueEntry`. Mutate via `setQueue`,
     /// `clearQueue`, `moveQueueItems`, or `syncSongMetadata`; do NOT
@@ -957,74 +913,6 @@ final class AudioPlayerService {
     /// The last entry of a queue a top-up found nothing for, so the same dead
     /// end is not searched again on every prefetch.
     @ObservationIgnored var autoContinuationDeadEndEntryID: UUID?
-    /// Backward-compatible read-only view over the queue's songs.
-    /// Internal callers and observers keep using `player.queue` —
-    /// the @Observable macro tracks reads through `queueEntries`,
-    /// so SwiftUI re-renders correctly when entries change.
-    var queue: [Song] { queueEntries.map(\.song) }
-    /// Queue metadata accessors for views that only need a count or one row.
-    /// Avoid materializing a complete `[Song]` on every playback-time update.
-    var queueCount: Int { queueEntries.count }
-    /// Lets non-UI bridges skip materializing the complete queue until its
-    /// rows or metadata have actually changed.
-    var watchQueueSnapshotRevision: Int { queueSnapshotRevision }
-    #if os(iOS)
-    func makeWatchQueueDigestSnapshot(
-        byteBudget: Int,
-        perItemOverhead: Int,
-        artistConfiguration: ArtistNameConfiguration = .defaultValue
-    ) -> WatchQueueDigestSnapshot {
-        let safeBudget = max(0, byteBudget)
-        let safeOverhead = max(0, perItemOverhead)
-        let expectedPrefixCount = min(queueEntries.count, safeBudget / 64)
-        var songIDs: [String] = []
-        var titles: [String] = []
-        var artists: [String] = []
-        songIDs.reserveCapacity(expectedPrefixCount)
-        titles.reserveCapacity(expectedPrefixCount)
-        artists.reserveCapacity(expectedPrefixCount)
-
-        var hasher = Hasher()
-        var retainedBytes = 0
-        var acceptsMoreRows = safeBudget > 0
-        for entry in queueEntries {
-            let songID = entry.song.id
-            let title = entry.song.title
-            let artist = entry.song.displayArtistName(configuration: artistConfiguration) ?? ""
-            hasher.combine(songID)
-            hasher.combine(title)
-            hasher.combine(artist)
-
-            guard acceptsMoreRows else { continue }
-            let rowBytes = songID.utf8.count + title.utf8.count
-                + artist.utf8.count + safeOverhead
-            guard retainedBytes + rowBytes < safeBudget else {
-                acceptsMoreRows = false
-                continue
-            }
-            songIDs.append(songID)
-            titles.append(title)
-            artists.append(artist)
-            retainedBytes += rowBytes
-        }
-
-        return WatchQueueDigestSnapshot(
-            songIDs: songIDs,
-            titles: titles,
-            artists: artists,
-            totalCount: queueEntries.count,
-            digest: hasher.finalize(),
-            estimatedPayloadBytes: retainedBytes
-        )
-    }
-    #endif
-    func queuedSong(at index: Int) -> Song? {
-        guard queueEntries.indices.contains(index) else { return nil }
-        return queueEntries[index].song
-    }
-    var canRemoveUpcomingQueueEntries: Bool {
-        !(isAppleMusicMode && !isPrimuseManagingAppleMusicQueue)
-    }
     var currentIndex: Int = 0
     var shuffleEnabled = false {
         didSet {
@@ -1129,25 +1017,6 @@ final class AudioPlayerService {
     /// 离 B 不到一拍时排好的那一下准点跳回。
     @ObservationIgnored var abRepeatJumpTask: Task<Void, Never>?
 
-    /// 这一首播完时停住、不接着放下一首的几种情况变了:停住时先把已经备好的下一首放掉,免得 gapless
-    /// 或淡入淡出抢先接过去;放开时重新准备下一首。
-    private func queueEndHoldDidChange(wasHolding: Bool) {
-        synchronizeAppleMusicQueue()
-        if holdsQueueAtCurrentTrackEnd {
-            cancelPreparedQueueSuccessor()
-        } else if wasHolding {
-            prefetchNextSong()
-        }
-    }
-
-    /// 当前 currentSong 是不是 Apple Music 来源 ── 一切跨 player 路由 (next /
-    /// previous / seek / togglePlayPause / 进度 / queue / repeat / shuffle) 都
-    /// 通过这个 flag 走系统侧 ApplicationMusicPlayer, 让 NowPlayingView 一份
-    /// 实现两套播放器通吃。
-    var isAppleMusicMode: Bool {
-        currentSong?.sourceID == AppleMusicLibraryService.systemSourceID
-    }
-
     /// mirror task 写自己字段时设为 true, 让 didSet 跳过"再写回 Apple Music"
     /// 的副作用, 避免 mirror → setRepeat/setShuffle → polling → mirror 的回环。
     var isMirroringFromAppleMusic = false
@@ -1191,33 +1060,6 @@ final class AudioPlayerService {
     var appleMusicCastingHandoffID = UUID()
     var appleMusicCastingHandoffController: RemoteRendererController?
     var appleMusicCastingHandoffRenderer: RemoteRenderer?
-
-    var isCastingMode: Bool { castingRenderer != nil }
-    var isPlaybackActuallyActive: Bool {
-        if isLiveRadio || isAppleMusicMode || isCastingMode || isSystemMediaPlaybackActive {
-            return isPlaying
-        }
-        return isPlaying && audioEngine.isActuallyPlaying
-    }
-    var isRemotePlaybackBuffering: Bool {
-        remotePlaybackBufferingStartedAt != nil && isPlaying
-            && interruptionResumePolicy.playbackIsIntended
-    }
-    /// Buffering retains the user's play intent, so Pause remains available
-    /// while the audio node and the system playback clock are stopped.
-    var isPlaybackActive: Bool { isPlaybackActuallyActive || isRemotePlaybackBuffering }
-    /// The current item is read from its source over the network, not from a
-    /// file already on this device. Background transfers yield to it.
-    var currentItemStreamsFromNetwork: Bool {
-        guard let song = currentSong,
-              !isLiveRadio, !isAppleMusicMode, !isCastingMode else { return false }
-        switch activeDecoderKind {
-        case .cloudStream, .httpStream, .streaming:
-            return sourceManager?.cachedURL(for: song) == nil
-        default:
-            return false
-        }
-    }
     var appleMusicPlaybackTask: Task<Void, Never>?
     var appleMusicTimeoutTask: Task<Void, Never>?
     var activeAppleMusicRequestID: UUID?
@@ -1243,11 +1085,6 @@ final class AudioPlayerService {
     private var musicVideoFailedObserver: NSObjectProtocol?
     var musicVideoObserverGeneration: UInt64 = 0
     var pendingMusicVideoPlayID: UUID?
-    struct MusicVideoSeekActivityEvidence {
-        let itemID: String
-        let playID: UUID
-        let observerGeneration: UInt64
-    }
     var musicVideoSeekActivityEvidence: MusicVideoSeekActivityEvidence?
     let radioPlaybackController = RadioPlaybackController()
     var radioLiveStreamSource: RadioLiveStreamSource?
@@ -1274,116 +1111,6 @@ final class AudioPlayerService {
     private var carAudioRouteObserver: NSObjectProtocol?
     #endif
 
-    var canPlayMusicVideo: Bool {
-        guard let song = currentSong,
-              song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            return false
-        }
-        return !isLiveRadio && !isAppleMusicMode && !isCastingMode && !shouldForceAudioOnly
-    }
-
-    private var shouldForceAudioOnly: Bool {
-        #if os(iOS)
-        return isCarPlaySceneActive || isCarAudioRouteConnected
-        #else
-        return false
-        #endif
-    }
-
-    /// 这条视频能不能只放声音:音频管线打得开的容器才行(`SpokenWordVideoPolicy`)。
-    func spokenWordVideoSupportsAudioOnly(_ song: Song) -> Bool {
-        guard let mvPath = song.mvPath, !mvPath.isEmpty else { return false }
-        return PodcastPlaybackSong.hasSeparateVideo(song)
-            || SpokenWordVideoPolicy.supportsAudioOnly(path: mvPath, fallbackExtension: song.fileFormat.rawValue)
-    }
-
-    /// 这一条开播时走视频管线(AVPlayer 放画面)还是音频管线。音乐 MV 照旧,有声内容的视频听播放页上的选择。
-    func usesVideoPipeline(for song: Song) -> Bool {
-        if embeddedKaraokeFile?.songID == song.id { return false }
-        guard let mvPath = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !mvPath.isEmpty else { return false }
-        return SpokenWordVideoPolicy.usesVideoPipeline(
-            isStandaloneVideo: song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song),
-            hasSidecarVideo: !song.isStandaloneMusicVideo && !PodcastPlaybackSong.isVideoEpisode(song),
-            isSpokenWord: SpokenWordStore.shared.isSpokenWord(song),
-            showsSpokenWordVideo: showsSpokenWordVideo,
-            musicVideoModeEnabled: isMusicVideoModeEnabled,
-            forcesAudioOnly: shouldForceAudioOnly,
-            supportsAudioOnly: spokenWordVideoSupportsAudioOnly(song),
-            videoFailed: spokenWordVideoFailedSongID == song.id
-        )
-    }
-
-    /// 播放页上给不给「显示视频 / 只听声音」。
-    var offersSpokenWordVideoToggle: Bool {
-        guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio, !isAppleMusicMode else { return false }
-        return SpokenWordVideoPolicy.offersToggle(
-            isStandaloneVideo: song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song),
-            isSpokenWord: true,
-            supportsAudioOnly: spokenWordVideoSupportsAudioOnly(song),
-            forcesAudioOnly: shouldForceAudioOnly,
-            isCasting: isCastingMode
-        )
-    }
-
-    /// 播放页那颗键现在该说「只听声音」(画面开着)还是「显示视频」。
-    var isSpokenWordVideoShown: Bool {
-        isMusicVideoPlaybackActive && musicVideoPlayer != nil
-    }
-
-    /// 播放页上点了「显示视频 / 只听声音」。记下选择,这一条马上换管线、从现在的位置接着:
-    /// 放着的照放;停着切到只听声音就收起画面、原地备好音频;停着要看画面就从这里接着放。
-    func setShowsSpokenWordVideo(_ shows: Bool) {
-        showsSpokenWordVideo = shows
-        UserDefaults.standard.set(shows, forKey: SpokenWordVideoPolicy.preferenceKey)
-        guard let song = currentSong else { return }
-        if spokenWordVideoFailedSongID == song.id { spokenWordVideoFailedSongID = nil }
-        guard offersSpokenWordVideoToggle, usesVideoPipeline(for: song) != isMusicVideoPlaybackActive else { return }
-        if isPlaying || isLoading {
-            let position = currentTime
-            Task { await replayCurrentSpokenWordItem(at: position) }
-        } else if isMusicVideoPlaybackActive {
-            Task { await replayCurrentSongAsAudio(restoreMusicVideoModeAfterPlay: true) }
-        } else {
-            resume()
-        }
-    }
-
-    /// 有声视频换管线(放画面 ⇄ 只放声音):同一条从 `position` 重开,开在那儿,不先放开头再跳。
-    private func replayCurrentSpokenWordItem(at position: TimeInterval) async {
-        guard let song = currentSong else { return }
-        rememberSpokenWordPosition(force: true)
-        pendingSpokenWordSeekOverride = (song.id, position)
-        pendingSpokenWordResumeSongID = song.id
-        await play(song: song)
-    }
-
-    #if os(iOS)
-    private static func isCarAudioRouteActive() -> Bool {
-        AVAudioSession.sharedInstance().currentRoute.outputs.contains { output in
-            output.portType == .carAudio
-        }
-    }
-
-    private static func currentOutputPortTypes() -> String {
-        AVAudioSession.sharedInstance().currentRoute.outputs
-            .map { $0.portType.rawValue }
-            .joined(separator: ",")
-    }
-
-    /// 在手机上打开 App 时车机已经连着:启动那一刻会话还没激活,读到的路由可能不是车机,
-    /// 之后路由没变也就没有路由变化通知,车机场景又要等用户在车机上点进来才连。会话激活、
-    /// 回到前台时各重取一次,别让锁屏那套标题歌词一直留在车机上。
-    func resampleCarAudioRoute(reason: String) {
-        let wasConnected = isCarAudioRouteConnected
-        isCarAudioRouteConnected = Self.isCarAudioRouteActive()
-        guard wasConnected != isCarAudioRouteConnected else { return }
-        plog("🚗 car audio route resampled reason=\(reason) carAudio=\(isCarAudioRouteConnected) scene=\(isCarPlaySceneActive) outputs=[\(Self.currentOutputPortTypes())]")
-        refreshAudioSessionOutputDelay()
-        refreshSystemLyricsPresentation()
-    }
-    #endif
-
     // MARK: - Shuffle Order
     var shuffledIndices: [Int] = []
     var shufflePosition: Int = 0
@@ -1402,52 +1129,6 @@ final class AudioPlayerService {
     /// only matters to the transport when it changes this slot.
     @ObservationIgnored var plannedSuccessorEntryID: UUID?
     @ObservationIgnored private var isSuccessorReplanScheduled = false
-
-    // MARK: - Decoder Tracking (for seek)
-    /// Tracks which decoder pipeline produced the currently-playing audio
-    /// stream so seek/crossfade/recovery can reproduce the exact same path.
-    /// `cloudStream` means SFBAudio decoding from a `CloudPlaybackSource`
-    /// `InputSource` (Range-fetch + sparse cache). Seeking that path
-    /// requires building a NEW `InputSource` — feeding the
-    /// `primuse-stream://` URL to SFB's URL-based opener fails because
-    /// the scheme isn't registered with the file system.
-    enum DecoderKind: Sendable, Equatable { case native, ffmpeg, streaming, httpStream, cloudStream, assetReader }
-    struct CommittedCrossfade {
-        let attemptID: UUID
-        let playID: UUID
-        let song: Song
-        let url: URL
-        let decoderKind: DecoderKind
-        /// 提交交叉淡入时正在播放的那一首的 playID。ramp 结束前它仍然拥有
-        /// primary 节点, 解码泵靠它判断自己还能不能继续投递。
-        let outgoingPlayID: UUID
-        /// 下一首的稳态音量(回放增益换算后的线性值, 没有标签就是 1)。
-        /// ramp 直接淡入到这个值, 换节点时原样交给 primary。
-        let programVolume: Float
-        /// The incoming node may already hold the song's final buffer before the ramp ends.
-        var pendingGaplessBoundary: GaplessTransitionState?
-    }
-    enum CrossfadeCompletionMode: Equatable {
-        case activePlayback
-        case preserveCachedProgress
-    }
-    /// Which queue neighbour a crossfade attempt is heading for. The automatic
-    /// boundary follows repeat and shuffle exactly like track end; a manual
-    /// skip uses the traversal of the hard-cut `next()` / `previous()`, so the
-    /// blended skip and the cut always land on the same song.
-    enum CrossfadeSuccessorRule: Equatable {
-        case automatic
-        case manualNext
-        case manualPrevious
-    }
-    /// A manual skip whose neighbour is still being prepared. Until it commits
-    /// the queue position has not moved, so a second skip has to account for
-    /// this one before it looks for its own neighbour.
-    struct PendingManualSkipCrossfade {
-        let attemptID: UUID
-        let target: QueueTraversalTarget
-        let queueGeneration: Int
-    }
     var activeDecoderKind: DecoderKind = .native
     var activeDSDPlaybackMode: DSDPlaybackMode = .pcm
     /// 当前这首歌的取流计划。一次播放内固定不变, 换歌时由 `playFromURL`
@@ -1475,10 +1156,6 @@ final class AudioPlayerService {
     var sleepStopAfterChapter: SpokenWordChapterSleepLock?
     /// "本书结束后停止": 锁住这本书在队列里的条目, 播到最后一条时转成曲终停止。
     var sleepStopAfterBook: SpokenWordBookSleepLock?
-    var isSleepTimerActive: Bool {
-        sleepTimerEndDate != nil || sleepStopAfterSongID != nil || sleepStopAfterChapter != nil
-            || sleepStopAfterBook != nil || selectedChapterSleep != nil
-    }
 
     // MARK: - Spoken word
 
@@ -1486,13 +1163,6 @@ final class AudioPlayerService {
     /// Populated off the main actor after playback starts; see
     /// `AudioPlayerService+SpokenWord`.
     var originalSpokenWordChapters: [MediaChapter] = []
-    var spokenWordChapters: [MediaChapter] {
-        get {
-            if let id = currentSong?.id, let chapters = library?.generatedChapters(for: id) { return chapters }
-            return originalSpokenWordChapters
-        }
-        set { originalSpokenWordChapters = newValue }
-    }
     /// Which of `spokenWordChapters` covers the play head, or nil before the
     /// first mark. Refreshed on the playback clock.
     var currentChapterIndex: Int?
@@ -1604,28 +1274,8 @@ final class AudioPlayerService {
     /// NowPlayingView 调 `clearPendingLyricsJump()` 清空。
     /// userInfo: (songID, snippet)。songID 防止匹配到错首歌 (用户快速切歌)。
     private(set) var pendingLyricsJump: (songID: String, snippet: String)?
-
-    func requestLyricsJump(songID: String, snippet: String) {
-        pendingLyricsJump = (songID, snippet)
-    }
-
-    func clearPendingLyricsJump() {
-        pendingLyricsJump = nil
-    }
     let assetReaderDecoder = AssetReaderDecoder()
     private let streamingDecoder = StreamingDownloadDecoder()
-    struct ActiveStreamingDownloadPreparation {
-        let id: UUID
-        let song: Song
-        let control: StreamingDownloadSessionControl
-    }
-    private struct StreamingDownloadRetirement {
-        let id: UUID
-        /// 退役任务收尾时要 finalize 的曲目。finalizeStreamingSession 是按
-        /// .partial 路径定位会话的, 所以重新播放同一首之前必须先等它跑完。
-        let songID: String
-        let task: Task<Void, Never>
-    }
     @ObservationIgnored var activeStreamingDownloadPreparation:
         ActiveStreamingDownloadPreparation?
     @ObservationIgnored private var streamingDownloadRetirement:
@@ -1644,10 +1294,6 @@ final class AudioPlayerService {
     /// decoding. A cancellation marks it stale once its buffers already sit
     /// behind the current track's final buffer.
     @ObservationIgnored var gaplessPreparationTransition: GaplessTransitionState?
-    struct ActiveGaplessFeed {
-        let playID: UUID
-        let transition: GaplessTransitionState
-    }
     /// The preparation loop that a gapless boundary promoted to the current
     /// track's decoder, so a traversal edit can re-arm its follow-up.
     @ObservationIgnored var activeGaplessFeed: ActiveGaplessFeed?
@@ -1674,10 +1320,6 @@ final class AudioPlayerService {
     var crossfadeTriggered = false
     @ObservationIgnored var silenceProfiles: [String: AudioSilenceProfile] = [:]
     @ObservationIgnored var smartMixAnalyses: [String: SmartMixTrackAnalysis] = [:]
-    private struct SmartMixPlatformAnalysisTask {
-        let id: UUID
-        let task: Task<Void, Never>
-    }
     @ObservationIgnored private var smartMixPlatformAnalysisTasks: [
         String: SmartMixPlatformAnalysisTask
     ] = [:]
@@ -1705,23 +1347,6 @@ final class AudioPlayerService {
     /// 起播计时的起点（`play(song:)` 入口）。`⏱️ play` 行按它报到各阶段的累计
     /// 耗时，用来分清「点了歌好一会儿才出声」的时间花在哪一段（#170）。
     @ObservationIgnored private var playStartTimeline: (playID: UUID, startedAt: TimeInterval)?
-
-    private func logPlayStage(_ stage: String, playID id: UUID) {
-        guard let timeline = playStartTimeline, timeline.playID == id else { return }
-        let elapsed = Int(((ProcessInfo.processInfo.systemUptime - timeline.startedAt) * 1000).rounded())
-        plog("⏱️ play \(id.uuidString.prefix(8)) \(stage) +\(elapsed)ms")
-    }
-
-    /// `logPlayStage` for a stage the decoder reaches off the main actor.
-    private func offMainPlayStageLogger(_ stage: String, playID id: UUID) -> (@Sendable () -> Void)? {
-        guard let timeline = playStartTimeline, timeline.playID == id else { return nil }
-        let startedAt = timeline.startedAt
-        let label = String(id.uuidString.prefix(8))
-        return {
-            let elapsed = Int(((ProcessInfo.processInfo.systemUptime - startedAt) * 1000).rounded())
-            plog("⏱️ play \(label) \(stage) +\(elapsed)ms")
-        }
-    }
     /// 解码泵不再跑在 MainActor 上, 所以它们无法直接读 playID / crossfade 状态。
     /// 这三个值每次变化都推到 lease 里, 泵按缓冲逐块同步查询归属, 既不用回主
     /// actor, 判定规则也仍然只有 `CrossfadePumpContinuationPolicy` 一处。
@@ -1747,10 +1372,6 @@ final class AudioPlayerService {
     @ObservationIgnored var interruptionResumePolicy = PlaybackInterruptionResumePolicy()
     @ObservationIgnored var playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
     @ObservationIgnored var localPipelineAdvanceTicket: PlaybackAdvanceTicket?
-    struct ConfigurationRecoveryActivityEvidence {
-        let itemID: String
-        var rebuildPlayID: UUID?
-    }
     var configurationRecoveryOwnerPlayID: UUID?
     private var outputPipelineConfiguration: (token: UUID, playID: UUID)?
     /// The AirPlay-return rebuild deliberately toggles AVAudioSession inactive
@@ -1824,84 +1445,9 @@ final class AudioPlayerService {
     static let requiredDecodedBufferUnhealthySamples = 3
     static let maxDecodedBufferRecoveryAttempts = 2
     static let decodedBufferRecoveryCooldown: TimeInterval = 8
-
-    nonisolated static func decodedBufferDuration(_ buffer: AVAudioPCMBuffer) -> TimeInterval {
-        let sampleRate = buffer.format.sampleRate
-        guard sampleRate.isFinite, sampleRate > 0, buffer.frameLength > 0 else {
-            // Preserve the old 16-buffer behavior when a decoder reports an
-            // unusable format rather than letting hundreds of buffers queue.
-            return decodedAudioLookahead / 16
-        }
-        return Double(buffer.frameLength) / sampleRate
-    }
-
-    nonisolated static func decodedBufferByteCount(_ buffer: AVAudioPCMBuffer) -> Int {
-        let audioBuffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
-        let reportedBytes = audioBuffers.reduce(into: 0) {
-            $0 += Int($1.mDataByteSize)
-        }
-        if reportedBytes > 0 { return reportedBytes }
-
-        // Some decoder/converter combinations leave mDataByteSize at zero
-        // even though frameLength is valid. Preserve the byte watermark by
-        // deriving the PCM footprint from the stream description instead of
-        // silently falling back to duration-only admission.
-        let bytesPerFrame = Int(buffer.format.streamDescription.pointee.mBytesPerFrame)
-        return Int(buffer.frameLength) * bytesPerFrame * max(1, audioBuffers.count)
-    }
-
-    func scheduleTrackedDecodedBuffer(
-        _ buffer: AVAudioPCMBuffer,
-        onCrossfadeNode: Bool = false,
-        gate: DecodedBufferGate
-    ) async {
-        let bufferedDuration = Self.decodedBufferDuration(buffer)
-        let bufferedByteCount = Self.decodedBufferByteCount(buffer)
-        await gate.acquire(
-            duration: bufferedDuration,
-            byteCount: bufferedByteCount
-        )
-        guard !Task.isCancelled else { return }
-
-        let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { _ in
-            gate.release(
-                duration: bufferedDuration,
-                byteCount: bufferedByteCount
-            )
-        }
-        if onCrossfadeNode {
-            audioEngine.scheduleCrossfadeBuffer(
-                buffer,
-                completionCallbackType: .dataPlayedBack,
-                completionHandler: completion
-            )
-        } else {
-            audioEngine.scheduleBuffer(
-                buffer,
-                completionCallbackType: .dataPlayedBack,
-                completionHandler: completion
-            )
-        }
-    }
     static let firstBufferTimeoutSeconds = 35
     private static let remoteFallbackFirstBufferTimeoutSeconds = 60
     static let dlnaSourceID = "dlna"
-
-    private struct PlaybackMetadataIdentity: Hashable, Sendable {
-        let songID: String
-        let sourceID: String
-        let filePath: String
-        let revision: String?
-        let fileSize: Int64
-
-        init(_ song: Song) {
-            songID = song.id
-            sourceID = song.sourceID
-            filePath = song.filePath
-            revision = song.revision
-            fileSize = song.fileSize
-        }
-    }
 
     let playbackSettings: PlaybackSettingsStore
     @ObservationIgnored private let activateAudioSession: @MainActor (Bool) throws -> Void
@@ -2060,6 +1606,1224 @@ final class AudioPlayerService {
             }
         }
         observePlaybackRangeChanges()
+    }
+
+    private static let authorizedResumeVerificationAttemptLimit = 6
+
+    private var seekTimeOffset: TimeInterval = 0
+    @ObservationIgnored var seekTask: Task<Void, Never>?
+    @ObservationIgnored var pausedLocalPipeline: PausedLocalPipeline?
+    @ObservationIgnored var pausedPipelineExpirationTask: Task<Void, Never>?
+    /// Advanced by every interruption and hardware change: either may have
+    /// stopped or replaced what a paused pipeline holds.
+    @ObservationIgnored var transportDisturbanceGeneration: UInt64 = 0
+    /// The play generation whose last buffer has already gone to the node.
+    @ObservationIgnored var finalBufferScheduledPlayID: UUID?
+    /// The local seek or rebuild in flight and whether it starts playback.
+    @ObservationIgnored var pendingLocalSeek: (playID: UUID, startsPlayback: Bool, isRecovery: Bool)?
+    /// A rebuild still waiting for its first decoded buffer. A hardware change
+    /// in that window rebuilds only the output before the first buffer plays,
+    /// instead of cancelling the fetch and starting the whole rebuild over.
+    @ObservationIgnored var seekAwaitingFirstBufferPlayID: UUID?
+    @ObservationIgnored var seekOutputRebuildPendingPlayID: UUID?
+
+    /// 进度 timer 间隔 (秒)。同时作为 scrobble 的真实收听增量 —— 见下方 handleProgressTick。
+    static let timeUpdateInterval: TimeInterval = 0.5
+
+    // MARK: - Now Playing Info
+
+    #if os(iOS)
+    @ObservationIgnored private var systemLyricsLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var systemLyricsRetryTask: Task<Void, Never>?
+    @ObservationIgnored private var systemLyricsLoadGeneration: UInt64 = 0
+    @ObservationIgnored private var systemLyricsEmptyResultCount = 0
+    @ObservationIgnored private var systemLyricsSongID: String?
+    @ObservationIgnored private var systemLyrics: [LyricLine] = []
+    /// `systemLyrics` 里能驱动锁屏行的子集。锁屏每 0.5s 刷一次,
+    /// 过滤只跟歌词文档有关, 所以随 `systemLyrics` 一起缓存。
+    @ObservationIgnored private var systemSynchronizedLyrics: [LyricLine] = []
+    @ObservationIgnored var lastPublishedLockScreenLyricsPresentation:
+        NowPlayingLyricsMetadataPresentation?
+    /// 最近一次把歌词行发布给 MediaRemote 的时刻, 用于 1 秒限流。
+    @ObservationIgnored var lastLockScreenLyricsPublishAt: Date?
+    /// 限流窗口内到达的那一行: 不丢弃, 窗口结束后补发(通常 0.5 秒的时钟
+    /// tick 会先到并发出去)。
+    @ObservationIgnored var pendingLockScreenLyricsPublish = false
+    @ObservationIgnored private var lockScreenLyricsCatchUpTask: Task<Void, Never>?
+    /// 标识当前补发任务的归属。任务句柄本身无法在闭包里和自己比较, 用这个
+    /// 单调递增的令牌代替身份比较: 只有仍然是最新一次调度的任务才可以清空
+    /// 句柄, 否则被取消的旧任务会抹掉后继任务的句柄。
+    @ObservationIgnored private var lockScreenLyricsCatchUpToken: UInt64 = 0
+    /// CarPlay 主标题下一行的准点发布任务, 令牌用法同上面的补发任务。
+    @ObservationIgnored private var carTitleLyricsBoundaryTask: Task<Void, Never>?
+    @ObservationIgnored private var carTitleLyricsBoundaryToken: UInt64 = 0
+    @ObservationIgnored private var carTitleLyricsBoundaryFireDate: Date?
+    /// 输出缓冲加线路延迟。读取要走 IPC, 路由变化时刷新, 歌词 tick 只读这份快照。
+    @ObservationIgnored private var audioSessionOutputDelay: TimeInterval = 0
+    @ObservationIgnored private var lastPublishedWidgetLyricsSignature: String?
+    @ObservationIgnored private var lyricsWidgetConfigurationRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var lastLyricsWidgetConfigurationRefreshAt = Date.distantPast
+    @ObservationIgnored private var hasInstalledLyricsWidgetSurface = false
+    @ObservationIgnored private var lastWidgetLyricsDemandAt = Date.distantPast
+    @ObservationIgnored private var hasInstalledSmallLyricsWidget = false
+    @ObservationIgnored private var publishedWidgetLyricsRange: Range<Int>?
+    @ObservationIgnored private var lastSmallWidgetLyricIndex: Int?
+
+    private var widgetLyricsSharingEnabled: Bool {
+        WidgetSettings.syncEnabled()
+            && WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey)
+            && WidgetSettings.sharedDataScope().includesLyrics
+    }
+
+    private var shouldPublishWidgetLyrics: Bool {
+        widgetLyricsSharingEnabled && hasInstalledLyricsWidgetSurface
+    }
+
+    private var shouldLoadLyricsForSystemSurfaces: Bool {
+        #if DEBUG
+        if LyricsLiveActivityService.isProbeEnabled { return true }
+        #endif
+        return systemNowPlayingLyricsEnabled || shouldPublishWidgetLyrics
+    }
+
+    private var systemNowPlayingLyricsEnabled: Bool {
+        shouldForceAudioOnly
+            ? CarPlaySettingsStore.shared.configuration.lyricsPosition.isEnabled(phoneEnabled: playbackSettings.lockScreenLyricsEnabled)
+            : playbackSettings.lockScreenLyricsEnabled
+    }
+
+    private func refreshSystemLyricsPresentation() {
+        if !shouldLoadLyricsForSystemSurfaces { resetSystemLyricsState() }
+        updateNowPlayingInfo()
+        if systemLyricsSongID != currentSong?.id {
+            loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
+        }
+    }
+
+    private func observeLockScreenLyricsSetting() {
+        withObservationTracking {
+            _ = playbackSettings.lockScreenLyricsEnabled
+            _ = CarPlaySettingsStore.shared.configuration.lyricsPosition
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.refreshSystemLyricsPresentation()
+                self.observeLockScreenLyricsSetting()
+            }
+        }
+    }
+
+    private func prepareLyricsForSystemSurfaces(previousSong: Song?) {
+        let previousIdentity = previousSong.map { ($0.id, $0.lyricsFileName) }
+        let currentIdentity = currentSong.map { ($0.id, $0.lyricsFileName) }
+        guard previousIdentity?.0 != currentIdentity?.0
+                || previousIdentity?.1 != currentIdentity?.1 else { return }
+
+        resetSystemLyricsState()
+        refreshInstalledLyricsWidgetDemand()
+        loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
+    }
+
+    /// Lyrics loading can reach a remote sidecar or metadata provider. Only do
+    /// that work for a widget when the user has actually placed a lyrics-capable
+    /// family on the Home Screen; lock-screen lyrics remains independently gated.
+    func refreshInstalledLyricsWidgetDemand(force: Bool = false) {
+        guard widgetLyricsSharingEnabled else {
+            hasInstalledSmallLyricsWidget = false
+            clearWidgetLyricsSnapshotIfNeeded()
+            if !shouldLoadLyricsForSystemSurfaces {
+                resetSystemLyricsState()
+            }
+            return
+        }
+        guard lyricsWidgetConfigurationRefreshTask == nil else { return }
+        let now = Date()
+        guard force || now.timeIntervalSince(lastLyricsWidgetConfigurationRefreshAt) >= 15 else {
+            return
+        }
+
+        lyricsWidgetConfigurationRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.lyricsWidgetConfigurationRefreshTask = nil
+                self.lastLyricsWidgetConfigurationRefreshAt = Date()
+            }
+
+            guard let configurations = try? await WidgetCenter.shared.currentConfigurations()
+            else { return }
+            if #available(iOS 26.0, *) {
+                self.hasInstalledSmallLyricsWidget = configurations.contains {
+                    $0.kind == "LyricsWidget" && $0.family == .systemSmall
+                }
+            }
+            // 经典款的中号写正唱到的那一句, 大号有歌词面板。
+            let isInstalled = configurations.contains { configuration in
+                configuration.kind == "LyricsWidget"
+                    || (configuration.kind == "NowPlayingWidget"
+                        && configuration.family == .systemLarge)
+                    || (configuration.kind == "NowPlayingClassicWidget"
+                        && (configuration.family == .systemMedium || configuration.family == .systemLarge))
+            }
+            guard isInstalled != self.hasInstalledLyricsWidgetSurface else {
+                if isInstalled { self.publishOrLoadWidgetLyrics() }
+                return
+            }
+
+            self.hasInstalledLyricsWidgetSurface = isInstalled
+            if isInstalled {
+                self.publishOrLoadWidgetLyrics()
+            } else {
+                self.clearWidgetLyricsSnapshotIfNeeded()
+                if !self.shouldLoadLyricsForSystemSurfaces {
+                    self.resetSystemLyricsState()
+                }
+            }
+        }
+    }
+
+    /// 锁屏歌词开着时这首的歌词往往已经读好:直接交给小组件,不再读一遍;还没读才去读。
+    private func publishOrLoadWidgetLyrics() {
+        if systemLyricsSongID == currentSong?.id, !systemLyrics.isEmpty {
+            publishWidgetLyricsIfNeeded()
+        } else if systemLyricsLoadTask == nil, systemLyricsSongID != currentSong?.id {
+            loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
+        }
+    }
+
+    /// 小组件拿不到这首的歌词时会叫一声(`WidgetLyricsDemandSignal`):后台播放时刚放到桌面上的
+    /// 歌词小组件,App 不必等到切歌或回到前台才去查桌面上的小组件、发布歌词。
+    private func observeWidgetLyricsDemand() {
+        NotificationCenter.default.addObserver(
+            forName: .primuseWidgetLyricsDemand,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.widgetRequestedLyrics()
+            }
+        }
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            nil,
+            { _, _, _, _, _ in
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .primuseWidgetLyricsDemand, object: nil)
+                }
+            },
+            WidgetLyricsDemandSignal.name as CFString,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    private func widgetRequestedLyrics() {
+        // 歌本来就没有歌词时小组件每次刷新都会叫:几秒内只查一次。
+        let now = Date()
+        guard now.timeIntervalSince(lastWidgetLyricsDemandAt) >= 3 else { return }
+        lastWidgetLyricsDemandAt = now
+        refreshInstalledLyricsWidgetDemand(force: true)
+    }
+
+    private func resetSystemLyricsState() {
+        systemLyricsLoadTask?.cancel()
+        systemLyricsLoadTask = nil
+        systemLyricsRetryTask?.cancel()
+        systemLyricsRetryTask = nil
+        systemLyricsLoadGeneration &+= 1
+        systemLyricsEmptyResultCount = 0
+        systemLyricsSongID = nil
+        systemLyrics = []
+        systemSynchronizedLyrics = []
+        lastPublishedLockScreenLyricsPresentation = nil
+        lockScreenLyricsCatchUpTask?.cancel()
+        lockScreenLyricsCatchUpTask = nil
+        lockScreenLyricsCatchUpToken &+= 1
+        cancelCarTitleLyricsBoundary()
+        pendingLockScreenLyricsPublish = false
+        clearWidgetLyricsSnapshotIfNeeded()
+        publishLyricsActivityProbe()
+    }
+
+    private func loadLyricsForSystemSurfacesIfNeeded(for song: Song?) {
+        guard shouldLoadLyricsForSystemSurfaces,
+              !isLiveRadio,
+              let song else { return }
+        guard systemLyricsLoadTask == nil,
+              systemLyricsRetryTask == nil else { return }
+
+        let expectedSongID = song.id
+        let expectedGeneration = systemLyricsLoadGeneration
+        let capturedSourceManager = sourceManager
+        systemLyricsLoadTask = Task { @MainActor [weak self, capturedSourceManager] in
+            let lyrics: [LyricLine]
+            if song.sourceID == AppleMusicLibraryService.systemSourceID {
+                if await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) {
+                    // 用户清空过这首歌的歌词：锁屏、小组件也显示没有歌词。
+                    lyrics = []
+                } else if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+                    lyrics = cached
+                } else if let fetched = await AppServices.shared.appleMusicLibrary
+                    .fetchLyrics(for: song), !fetched.isEmpty {
+                    _ = await MetadataAssetStore.shared.cacheLyrics(
+                        fetched,
+                        forSongID: song.id,
+                        force: true
+                    )
+                    lyrics = fetched
+                } else {
+                    lyrics = []
+                }
+            } else if let capturedSourceManager {
+                lyrics = await LyricsLoader.loadForDisplay(
+                    for: song,
+                    sourceManager: capturedSourceManager
+                )
+            } else {
+                lyrics = []
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  self.systemLyricsLoadGeneration == expectedGeneration,
+                  self.shouldLoadLyricsForSystemSurfaces,
+                  !self.isLiveRadio,
+                  self.currentSong?.id == expectedSongID else { return }
+
+            self.systemLyricsLoadTask = nil
+            self.systemLyricsSongID = expectedSongID
+            self.systemLyrics = lyrics
+            self.systemSynchronizedLyrics = NowPlayingLyricsMetadataPolicy
+                .synchronizedLines(lyrics)
+            plog("📜 system lyrics '\(song.title)' lines=\(lyrics.count) synchronized=\(self.systemSynchronizedLyrics.count) appleMusic=\(self.isAppleMusicMode) lockScreen=\(self.systemNowPlayingLyricsEnabled) widget=\(self.shouldPublishWidgetLyrics)")
+            if lyrics.isEmpty {
+                self.scheduleSystemLyricsRetryIfNeeded(
+                    forSongID: expectedSongID,
+                    generation: expectedGeneration
+                )
+            } else {
+                self.systemLyricsEmptyResultCount = 0
+            }
+            self.publishLockScreenLyricsIfNeeded()
+            self.publishWidgetLyricsIfNeeded()
+        }
+    }
+
+    private func scheduleSystemLyricsRetryIfNeeded(
+        forSongID songID: String,
+        generation: UInt64
+    ) {
+        systemLyricsEmptyResultCount += 1
+        guard let delay = NowPlayingLyricsLoadRetryPolicy.delay(
+            afterEmptyResultCount: systemLyricsEmptyResultCount,
+            hasDemand: shouldLoadLyricsForSystemSurfaces,
+            isLiveStream: isLiveRadio
+        ) else { return }
+
+        systemLyricsRetryTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self,
+                  self.systemLyricsLoadGeneration == generation,
+                  self.shouldLoadLyricsForSystemSurfaces,
+                  !self.isLiveRadio,
+                  self.currentSong?.id == songID else { return }
+            self.systemLyricsRetryTask = nil
+            self.systemLyricsSongID = nil
+            self.systemLyrics = []
+            self.systemSynchronizedLyrics = []
+            self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
+        }
+    }
+
+    func retryEmptySystemLyricsAfterForegroundingIfNeeded() {
+        guard shouldLoadLyricsForSystemSurfaces,
+              !isLiveRadio,
+              systemLyricsLoadTask == nil,
+              systemLyricsRetryTask == nil,
+              let song = currentSong,
+              systemLyricsSongID == song.id,
+              systemLyrics.isEmpty else { return }
+
+        systemLyricsEmptyResultCount = 0
+        systemLyricsSongID = nil
+        loadLyricsForSystemSurfacesIfNeeded(for: song)
+    }
+
+    func lockScreenLyricsPresentation(at playbackTime: TimeInterval? = nil) -> NowPlayingLyricsMetadataPresentation {
+        if let presentation = audiobookNowPlayingPresentation { return presentation }
+        guard let song = currentSong else {
+            return NowPlayingLyricsMetadataPresentation(title: "", artist: "", lyricLineID: nil)
+        }
+        let lyrics = systemLyricsSongID == song.id ? systemSynchronizedLyrics : []
+        let carTitle = publishesCarTitleLyrics
+        return NowPlayingLyricsMetadataPolicy.presentation(
+            canonicalTitle: song.title,
+            artistName: displayedArtistName(for: song),
+            synchronizedLyrics: lyrics,
+            playbackTime: playbackTime ?? systemLyricsPlaybackTime(),
+            isEnabled: systemNowPlayingLyricsEnabled,
+            isLiveStream: isLiveRadio,
+            prefersStableTitle: shouldForceAudioOnly && CarPlaySettingsStore.shared.configuration.lyricsPosition != .title,
+            lookahead: carTitle ? carTitleLyricsLookahead : 0
+        )
+    }
+
+    /// CarPlay 或车载线路用主标题显示歌词。这种模式逐行立即发布, 按下一行时间
+    /// 精确定时, 并提前一点发布抵消车机的显示延迟。
+    var publishesCarTitleLyrics: Bool {
+        shouldForceAudioOnly && CarPlaySettingsStore.shared.configuration.lyricsPosition == .title
+    }
+
+    /// 系统播放信息里的时间按这个倍速走; 系统音频播放器不变速。
+    private var systemNowPlayingClockRate: Double {
+        let rate = isSystemAudioPlaybackActive ? 1 : Double(requestedPlaybackRate)
+        return rate.isFinite && rate > 0 ? rate : 1
+    }
+
+    /// 两次 0.5 秒采样之间的播放位置, 按倍速外推。歌词边界定时器到点时
+    /// `currentTime` 还是上一拍的值, 换行判断和发布的进度都用它。
+    func systemLyricsPlaybackTime(at date: Date = Date()) -> TimeInterval {
+        guard publishesCarTitleLyrics, !isLiveRadio, !currentItemIsAudiobook else { return currentTime }
+        return interpolatedTime(at: date, rate: systemNowPlayingClockRate)
+    }
+
+    /// 本地引擎的时钟是渲染位置, 声音还要过输出缓冲和线路才出来, 这段已经
+    /// 替显示延迟抵掉一部分; 系统播放器、Apple Music 和投放给的是出声位置。
+    var carTitleLyricsLookahead: TimeInterval {
+        let usesRenderClock = !isSystemMediaPlaybackActive && !isAppleMusicMode && !isCastingMode
+        return CarPlayLyricsTimingPolicy.lookahead(
+            audioOutputDelay: usesRenderClock ? audioSessionOutputDelay : 0
+        )
+    }
+
+    private func refreshAudioSessionOutputDelay() {
+        let session = AVAudioSession.sharedInstance()
+        audioSessionOutputDelay = session.outputLatency + session.ioBufferDuration
+    }
+
+    private func publishLockScreenLyricsIfNeeded() {
+        publishLyricsActivityProbe()
+        defer { scheduleCarTitleLyricsBoundary() }
+        guard systemNowPlayingLyricsEnabled,
+              !isLiveRadio,
+              systemLyricsSongID == currentSong?.id,
+              !systemLyrics.isEmpty else { return }
+
+        let presentation = lockScreenLyricsPresentation()
+        let lineChanged = presentation != lastPublishedLockScreenLyricsPresentation
+        guard lineChanged || pendingLockScreenLyricsPublish else { return }
+
+        // 车载主标题换行立即发布，避免短句被限流合并；其余系统歌词继续限流。
+        let publishesCarTitle = publishesCarTitleLyrics
+        let now = Date()
+        guard publishesCarTitle || NowPlayingLyricsPublishPolicy.shouldPublish(
+            lastPublishedAt: lastLockScreenLyricsPublishAt,
+            now: now,
+            lineChanged: true
+        ) else {
+            pendingLockScreenLyricsPublish = true
+            scheduleLockScreenLyricsCatchUp(
+                after: NowPlayingLyricsPublishPolicy.delayUntilNextPublish(
+                    lastPublishedAt: lastLockScreenLyricsPublishAt,
+                    now: now
+                )
+            )
+            return
+        }
+        updateNowPlayingInfo(lyricsLineOnly: true)
+    }
+
+    /// 播放时 0.5 秒的时钟 tick 通常会先把补发做掉; 暂停、路由切换等没有
+    /// tick 的场景靠这个一次性任务保证当前歌词行仍然会被发布出去。
+    private func scheduleLockScreenLyricsCatchUp(after delay: TimeInterval) {
+        guard lockScreenLyricsCatchUpTask == nil else { return }
+        lockScreenLyricsCatchUpToken &+= 1
+        let token = lockScreenLyricsCatchUpToken
+        lockScreenLyricsCatchUpTask = Task { @MainActor [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(for: .seconds(delay))
+            }
+            guard let self else { return }
+            // 取消后的 sleep 会立刻返回, 但这一段要等到之后的某个主 actor
+            // 轮次才执行; 那时句柄可能已经属于新一次调度, 清空它会让单飞
+            // 不变量失效并允许重复补发。
+            guard self.lockScreenLyricsCatchUpToken == token else { return }
+            self.lockScreenLyricsCatchUpTask = nil
+            guard !Task.isCancelled else { return }
+            self.publishLockScreenLyricsIfNeeded()
+        }
+    }
+
+    /// 车机主标题在下一行(含提前量)到点时就发布, 不等 0.5 秒一拍的时钟采样。
+    /// 每次采样、拖动、换行后重算; 暂停、缓冲、采样过期或没有下一行时撤销。
+    private func scheduleCarTitleLyricsBoundary() {
+        let now = Date()
+        guard publishesCarTitleLyrics,
+              !isLiveRadio,
+              !currentItemIsAudiobook,
+              isPlaying,
+              !isLoading,
+              remotePlaybackBufferingStartedAt == nil,
+              now.timeIntervalSince(currentTimeAnchor) < PlaybackClockFreezePolicy.maximumExtrapolation,
+              let song = currentSong,
+              systemLyricsSongID == song.id else {
+            cancelCarTitleLyricsBoundary()
+            return
+        }
+        let position = systemLyricsPlaybackTime(at: now)
+        guard let changeTime = CarPlayLyricsTimingPolicy.nextChangeTime(
+                  in: systemSynchronizedLyrics,
+                  after: position,
+                  lookahead: carTitleLyricsLookahead
+              ),
+              duration <= 0 || changeTime < duration,
+              let delay = CarPlayLyricsTimingPolicy.delay(
+                  until: changeTime,
+                  from: position,
+                  rate: systemNowPlayingClockRate
+              ) else {
+            cancelCarTitleLyricsBoundary()
+            return
+        }
+        let fireDate = now.addingTimeInterval(delay)
+        // 每拍采样只带来几毫秒抖动, 沿用已排好的任务, 不必每 0.5 秒重建。
+        if carTitleLyricsBoundaryTask != nil,
+           let scheduled = carTitleLyricsBoundaryFireDate,
+           abs(scheduled.timeIntervalSince(fireDate)) < 0.015 {
+            return
+        }
+        cancelCarTitleLyricsBoundary()
+        let token = carTitleLyricsBoundaryToken
+        carTitleLyricsBoundaryFireDate = fireDate
+        carTitleLyricsBoundaryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay), tolerance: .milliseconds(5))
+            guard let self, self.carTitleLyricsBoundaryToken == token else { return }
+            self.carTitleLyricsBoundaryTask = nil
+            self.carTitleLyricsBoundaryFireDate = nil
+            guard !Task.isCancelled else { return }
+            self.publishLockScreenLyricsIfNeeded()
+        }
+    }
+
+    private func cancelCarTitleLyricsBoundary() {
+        carTitleLyricsBoundaryToken &+= 1
+        carTitleLyricsBoundaryTask?.cancel()
+        carTitleLyricsBoundaryTask = nil
+        carTitleLyricsBoundaryFireDate = nil
+    }
+
+    func publishLyricsActivityProbe() {
+        #if DEBUG
+        guard LyricsLiveActivityService.isProbeEnabled else { return }
+        guard let song = currentSong, !isLiveRadio, !isAtTrackEnd else {
+            LyricsLiveActivityService.shared.publish(nil)
+            return
+        }
+        let presentation = NowPlayingLyricsMetadataPolicy.presentation(
+            canonicalTitle: song.title,
+            artistName: displayedArtistName(for: song),
+            lyrics: systemLyricsSongID == song.id ? systemLyrics : [],
+            playbackTime: currentTime,
+            isEnabled: true,
+            isLiveStream: false
+        )
+        LyricsLiveActivityService.shared.publish(.init(
+            songID: String(song.id.prefix(120)),
+            title: String(song.title.prefix(120)),
+            artist: String((displayedArtistName(for: song) ?? "").prefix(120)),
+            lyric: presentation.lyricLineID == nil ? "" : String(presentation.title.prefix(200)),
+            isPlaying: isPlaybackActuallyActive
+        ))
+        #endif
+    }
+
+    private func observeLockScreenLyricsChanges() {
+        let center = NotificationCenter.default
+        center.addObserver(
+            forName: .primuseLyricsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let songID = notification.object as? String else { return }
+            Task { @MainActor [weak self] in
+                self?.reloadSystemLyricsIfCurrent(songID: songID)
+            }
+        }
+        center.addObserver(
+            forName: .primuseLyricsDidCache,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let songID = notification.userInfo?["songID"] as? String else { return }
+            Task { @MainActor [weak self] in
+                self?.reloadSystemLyricsIfCurrent(songID: songID)
+            }
+        }
+    }
+
+    private func reloadSystemLyricsIfCurrent(songID: String) {
+        guard shouldLoadLyricsForSystemSurfaces,
+              currentSong?.id == songID else { return }
+        resetSystemLyricsState()
+        updateNowPlayingInfo()
+        loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
+    }
+
+    private func refreshSmallLyricsWidgetOnLineChange() {
+        guard hasInstalledSmallLyricsWidget, shouldForceAudioOnly, isPlaying, !isLoading,
+              !systemSynchronizedLyrics.isEmpty, let window = publishedWidgetLyricsRange else { return }
+        let index = LyricPlaybackPositionPolicy.activeLineIndex(in: systemLyrics, at: currentTime, lookahead: 0)
+        guard index != lastSmallWidgetLyricIndex else { return }
+        guard widgetLyricsSharingEnabled else {
+            hasInstalledSmallLyricsWidget = false
+            clearWidgetLyricsSnapshotIfNeeded()
+            return
+        }
+        if let index, !window.contains(index) || (index == window.upperBound - 1 && window.upperBound < systemLyrics.count) {
+            publishWidgetLyricsIfNeeded()
+            return
+        }
+        lastSmallWidgetLyricIndex = index
+        // CarPlay can coalesce the precomputed timeline down to one entry per minute.
+        // The extension can select the current line from the snapshot already on disk.
+        WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
+    }
+
+    func publishWidgetLyricsIfNeeded(coverImageName: String? = nil) {
+        guard shouldPublishWidgetLyrics, !isLiveRadio else {
+            clearWidgetLyricsSnapshotIfNeeded()
+            return
+        }
+        guard let song = currentSong,
+              systemLyricsSongID == song.id,
+              !systemLyrics.isEmpty else {
+            clearWidgetLyricsSnapshotIfNeeded()
+            return
+        }
+
+        let sampledAt = Date()
+        let rate = systemNowPlayingClockRate
+        let isActivelyPlaying = isPlaybackActuallyActive
+        let position = isActivelyPlaying ? interpolatedTime(at: sampledAt, rate: rate) : max(0, currentTime)
+        // 有声书整本的文字稿上万行:小组件只看当前这句前后,只写这一段,
+        // 不然每次刷新都要把整份文稿编码进共享的 UserDefaults(#420)。
+        let window = Self.widgetLyricsWindow(in: systemLyrics, at: position)
+        let windowLines = window.count == systemLyrics.count ? systemLyrics : Array(systemLyrics[window])
+        let widgetLines = windowLines.map {
+            WidgetLyricLine(time: $0.timestamp, text: $0.text)
+        }
+        let anchor = WidgetLyricsPresentationPolicy.anchorIndex(
+            for: position,
+            in: widgetLines
+        )
+        let playback = PlaybackState.load()
+        let resolvedCoverName = coverImageName
+            ?? (playback?.currentSongID == song.id ? playback?.coverImageName : nil)
+        let direction = LyricWritingDirectionPolicy.resolve(in: windowLines)
+        let signature = [
+            song.id,
+            song.title,
+            displayedArtistName(for: song) ?? "",
+            resolvedCoverName ?? "",
+            String(anchor),
+            String((position * 2).rounded().finiteInt()),
+            String(rate),
+            isActivelyPlaying ? "1" : "0",
+            direction.rawValue,
+            String(widgetLines.count),
+            String(widgetLines.last?.time ?? 0),
+        ].joined(separator: "|")
+        guard signature != lastPublishedWidgetLyricsSignature else { return }
+
+        LyricsSnapshot(
+            songID: song.id,
+            title: song.title,
+            artist: displayedArtistName(for: song) ?? "",
+            coverImageName: resolvedCoverName,
+            lines: widgetLines,
+            anchorIndex: anchor,
+            playbackPosition: position,
+            playbackRate: rate,
+            isPlaying: isActivelyPlaying,
+            writingDirection: direction,
+            updatedAt: sampledAt
+        ).save()
+        lastPublishedWidgetLyricsSignature = signature
+        publishedWidgetLyricsRange = window
+        lastSmallWidgetLyricIndex = LyricPlaybackPositionPolicy.activeLineIndex(in: systemLyrics, at: position, lookahead: 0)
+        WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
+        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingWidget")
+        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingClassicWidget")
+    }
+
+    /// 写给小组件的那一段歌词:行数不多时整份;很长时从当前句往前 40 行、往后 200 行,
+    /// 够小组件一条时间线往后排的几句。
+    private nonisolated static func widgetLyricsWindow(in lines: [LyricLine], at position: TimeInterval) -> Range<Int> {
+        let limit = 600
+        guard lines.count > limit else { return lines.indices }
+        var low = 0
+        var high = lines.count
+        while low < high {
+            let mid = (low + high) / 2
+            if lines[mid].timestamp <= position { low = mid + 1 } else { high = mid }
+        }
+        let start = max(0, low - 1 - 40)
+        let end = min(lines.count, start + 240)
+        return start..<end
+    }
+
+    private func clearWidgetLyricsSnapshotIfNeeded() {
+        lastPublishedWidgetLyricsSignature = nil
+        publishedWidgetLyricsRange = nil
+        lastSmallWidgetLyricIndex = nil
+        guard LyricsSnapshot.load() != nil else { return }
+        LyricsSnapshot.clear()
+        WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
+        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingWidget")
+        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingClassicWidget")
+    }
+
+    private func observeLikedSongChanges() {
+        NotificationCenter.default.addObserver(
+            forName: .primusePlaylistsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let ids = notification.userInfo?["ids"] as? [String]
+            guard ids?.contains(MusicLibrary.likedSongsPlaylistID) ?? true else { return }
+            Task { @MainActor [weak self] in
+                self?.republishNowPlayingSurfaces()
+            }
+        }
+    }
+    #endif
+
+    /// Tracks which song last started an artwork lookup to avoid redundant IO.
+    var lastArtworkSongID: String?
+
+    /// Identifies the song that owns the artwork currently published to the
+    /// system. It must match `currentSong` before metadata refreshes can carry
+    /// that image forward.
+    var publishedArtworkSongID: String?
+    let lockScreenMotionArtworkPublisher = LockScreenMotionArtworkPublisher()
+
+    /// 解码并降采样后的系统封面内存缓存(songID → artwork)。蓝牙 AVRCP
+    /// 车机只在曲目元数据变化的那一刻采样一次封面, 异步补发的图不会被
+    /// 重新拉取; 只有切歌后的第一份 nowPlayingInfo 快照就带上新歌封面,
+    /// 车机才能显示。命中该缓存即可同步做到, 冷路径仍走异步加载回填。
+    let nowPlayingArtworkCache: NSCache<NSString, MPMediaItemArtwork> = {
+        let cache = NSCache<NSString, MPMediaItemArtwork>()
+        cache.countLimit = 8
+        cache.totalCostLimit = 24 * 1_024 * 1_024
+        return cache
+    }()
+
+    /// 最近一次发布给 MediaRemote 的完整 nowPlayingInfo 快照及其身份。歌词
+    /// 行推进时直接在这份字典上改标题/副标题与进度, 其余键(尤其是封面)原样
+    /// 复用, 避免每行都重建字典并让系统重新序列化封面位图。
+    @ObservationIgnored var cachedNowPlayingInfo: [String: Any]?
+    /// 诊断日志:上一次记下整份「正在播放」快照的歌和时刻(换歌或隔一分钟才再记)。
+    @ObservationIgnored var lastLoggedNowPlayingSongID: String?
+    @ObservationIgnored var lastNowPlayingLogUptime: TimeInterval = 0
+    @ObservationIgnored var cachedNowPlayingInfoKey: NowPlayingInfoSnapshotKey?
+    /// 快照里当前携带的封面对象。它换成另一个实例时封面版本号才前进。
+    @ObservationIgnored var cachedNowPlayingArtwork: MPMediaItemArtwork?
+    @ObservationIgnored var nowPlayingArtworkRevision: Int = 0
+
+    /// 正在预取封面的 songID, 防止对同一首歌重复启动预取任务。
+    @ObservationIgnored var prefetchingArtworkSongID: String?
+
+    /// 每首歌当前有效的系统封面加载票据。同曲重新刮削可能与先前的远程封面
+    /// 请求重叠;只有最后一次请求可以回写内存缓存和 Now Playing,避免旧任务
+    /// 在新封面发布后又把车机显示回滚。
+    @ObservationIgnored var nowPlayingArtworkLoadTokens: [String: UUID] = [:]
+    @ObservationIgnored var nowPlayingArtworkLoadTask: Task<Void, Never>?
+    @ObservationIgnored var nowPlayingArtworkPrefetchTask: Task<Void, Never>?
+    @ObservationIgnored var nowPlayingArtworkCacheObservation: AnyCancellable?
+
+    /// 单调递增的封面刷新 token。当刮削回写完成、cache 失效但 coverArtFileName
+    /// 字符串可能没变（hash deterministic）时, view 上的 onChange(coverRef) 不会
+    /// 触发 reload, @State image 卡在旧 UIImage。CachedArtworkView 监听这个
+    /// token, 任意 bump 都能强制三个封面位重新走 loadImage。
+    var coverRevision: Int = 0
+
+    @ObservationIgnored var lastWrittenRemoteCommandAvailability:
+        RemoteCommandAvailability?
+
+    /// Tracks the last cover written for the widget (song, and whether it was
+    /// drawn as a whole book cover), to avoid redundant writes.
+    var lastWidgetCoverKey: String?
+    /// Coalesces repeated WidgetKit reload requests with identical content.
+    var lastWidgetTimelineSignature: String?
+    /// 「收听台」最近播放里每张专辑封面写的是哪一份封面(按专辑键),封面换了才重写。
+    /// 不落盘:重启后每张专辑第一次放时重写一次。
+    @ObservationIgnored var widgetAlbumCoverContents: [String: String] = [:]
+    #if os(iOS)
+    /// 小组件给当前这首 Apple Music 资料库歌取到的官方封面, 只留一首。
+    @ObservationIgnored var widgetAppleMusicArtwork: (songID: String, data: Data)?
+    /// 已经为它取过官方封面的那首。取不到时只按 `WidgetCoverPublishPolicy` 有限地重取几次。
+    @ObservationIgnored var widgetAppleMusicArtworkRequestSongID: String?
+    /// 这首取官方封面失败了几次。
+    @ObservationIgnored var widgetAppleMusicArtworkFailures = 0
+    #endif
+}
+
+extension AudioPlayerService {
+    var isLiveRadio: Bool { playbackKind == .liveRadio }
+    var canSwitchRadioStation: Bool { isLiveRadio && radioStationOrder.count > 1 }
+    var playbackCapabilities: PlaybackPresentationCapabilities {
+        .capabilities(for: playbackKind)
+    }
+
+    private func refreshLoadingIndicator() {
+        loadingIndicatorTask?.cancel()
+        loadingIndicatorTask = nil
+        guard isLoading else {
+            if showsLoadingIndicator { showsLoadingIndicator = false }
+            return
+        }
+        loadingIndicatorTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.loadingIndicatorDelay)
+            guard !Task.isCancelled, let self, self.isLoading else { return }
+            self.showsLoadingIndicator = true
+        }
+    }
+
+    var isSystemMediaPlaybackActive: Bool {
+        isMusicVideoPlaybackActive || isSystemAudioPlaybackActive
+    }
+
+    var activeSystemMediaPlayer: AVPlayer? {
+        isSystemAudioPlaybackActive ? systemAudioPlayer : musicVideoPlayer
+    }
+
+    func handoffPlaybackTimeSnapshot() -> TimeInterval {
+        handoffCurrentTime
+    }
+
+    /// 在 `currentTime` 与下一次 0.5s 采样之间做线性外推，每次 currentTime
+    /// 真实更新（didSet 重置 anchor）就跟引擎报告时间校准一次,不会累积漂移。
+    func interpolatedTime(at date: Date = Date(), rate: Double = 1) -> TimeInterval {
+        PlaybackClockFreezePolicy.frozenTime(
+            cachedCurrentTime: currentTime,
+            currentTimeAnchor: currentTimeAnchor,
+            eventTime: date,
+            isAdvancing: isPlaying && !isLoading && remotePlaybackBufferingStartedAt == nil,
+            duration: duration,
+            rate: rate
+        )
+    }
+    /// Backward-compatible read-only view over the queue's songs.
+    /// Internal callers and observers keep using `player.queue` —
+    /// the @Observable macro tracks reads through `queueEntries`,
+    /// so SwiftUI re-renders correctly when entries change.
+    var queue: [Song] { queueEntries.map(\.song) }
+    /// Queue metadata accessors for views that only need a count or one row.
+    /// Avoid materializing a complete `[Song]` on every playback-time update.
+    var queueCount: Int { queueEntries.count }
+    /// Lets non-UI bridges skip materializing the complete queue until its
+    /// rows or metadata have actually changed.
+    var watchQueueSnapshotRevision: Int { queueSnapshotRevision }
+    #if os(iOS)
+    func makeWatchQueueDigestSnapshot(
+        byteBudget: Int,
+        perItemOverhead: Int,
+        artistConfiguration: ArtistNameConfiguration = .defaultValue
+    ) -> WatchQueueDigestSnapshot {
+        let safeBudget = max(0, byteBudget)
+        let safeOverhead = max(0, perItemOverhead)
+        let expectedPrefixCount = min(queueEntries.count, safeBudget / 64)
+        var songIDs: [String] = []
+        var titles: [String] = []
+        var artists: [String] = []
+        songIDs.reserveCapacity(expectedPrefixCount)
+        titles.reserveCapacity(expectedPrefixCount)
+        artists.reserveCapacity(expectedPrefixCount)
+
+        var hasher = Hasher()
+        var retainedBytes = 0
+        var acceptsMoreRows = safeBudget > 0
+        for entry in queueEntries {
+            let songID = entry.song.id
+            let title = entry.song.title
+            let artist = entry.song.displayArtistName(configuration: artistConfiguration) ?? ""
+            hasher.combine(songID)
+            hasher.combine(title)
+            hasher.combine(artist)
+
+            guard acceptsMoreRows else { continue }
+            let rowBytes = songID.utf8.count + title.utf8.count
+                + artist.utf8.count + safeOverhead
+            guard retainedBytes + rowBytes < safeBudget else {
+                acceptsMoreRows = false
+                continue
+            }
+            songIDs.append(songID)
+            titles.append(title)
+            artists.append(artist)
+            retainedBytes += rowBytes
+        }
+
+        return WatchQueueDigestSnapshot(
+            songIDs: songIDs,
+            titles: titles,
+            artists: artists,
+            totalCount: queueEntries.count,
+            digest: hasher.finalize(),
+            estimatedPayloadBytes: retainedBytes
+        )
+    }
+    #endif
+    func queuedSong(at index: Int) -> Song? {
+        guard queueEntries.indices.contains(index) else { return nil }
+        return queueEntries[index].song
+    }
+    var canRemoveUpcomingQueueEntries: Bool {
+        !(isAppleMusicMode && !isPrimuseManagingAppleMusicQueue)
+    }
+
+    /// 这一首播完时停住、不接着放下一首的几种情况变了:停住时先把已经备好的下一首放掉,免得 gapless
+    /// 或淡入淡出抢先接过去;放开时重新准备下一首。
+    private func queueEndHoldDidChange(wasHolding: Bool) {
+        synchronizeAppleMusicQueue()
+        if holdsQueueAtCurrentTrackEnd {
+            cancelPreparedQueueSuccessor()
+        } else if wasHolding {
+            prefetchNextSong()
+        }
+    }
+
+    /// 当前 currentSong 是不是 Apple Music 来源 ── 一切跨 player 路由 (next /
+    /// previous / seek / togglePlayPause / 进度 / queue / repeat / shuffle) 都
+    /// 通过这个 flag 走系统侧 ApplicationMusicPlayer, 让 NowPlayingView 一份
+    /// 实现两套播放器通吃。
+    var isAppleMusicMode: Bool {
+        currentSong?.sourceID == AppleMusicLibraryService.systemSourceID
+    }
+
+    var isCastingMode: Bool { castingRenderer != nil }
+    var isPlaybackActuallyActive: Bool {
+        if isLiveRadio || isAppleMusicMode || isCastingMode || isSystemMediaPlaybackActive {
+            return isPlaying
+        }
+        return isPlaying && audioEngine.isActuallyPlaying
+    }
+    var isRemotePlaybackBuffering: Bool {
+        remotePlaybackBufferingStartedAt != nil && isPlaying
+            && interruptionResumePolicy.playbackIsIntended
+    }
+    /// Buffering retains the user's play intent, so Pause remains available
+    /// while the audio node and the system playback clock are stopped.
+    var isPlaybackActive: Bool { isPlaybackActuallyActive || isRemotePlaybackBuffering }
+    /// The current item is read from its source over the network, not from a
+    /// file already on this device. Background transfers yield to it.
+    var currentItemStreamsFromNetwork: Bool {
+        guard let song = currentSong,
+              !isLiveRadio, !isAppleMusicMode, !isCastingMode else { return false }
+        switch activeDecoderKind {
+        case .cloudStream, .httpStream, .streaming:
+            return sourceManager?.cachedURL(for: song) == nil
+        default:
+            return false
+        }
+    }
+    struct MusicVideoSeekActivityEvidence {
+        let itemID: String
+        let playID: UUID
+        let observerGeneration: UInt64
+    }
+
+    var canPlayMusicVideo: Bool {
+        guard let song = currentSong,
+              song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return false
+        }
+        return !isLiveRadio && !isAppleMusicMode && !isCastingMode && !shouldForceAudioOnly
+    }
+
+    private var shouldForceAudioOnly: Bool {
+        #if os(iOS)
+        return isCarPlaySceneActive || isCarAudioRouteConnected
+        #else
+        return false
+        #endif
+    }
+
+    /// 这条视频能不能只放声音:音频管线打得开的容器才行(`SpokenWordVideoPolicy`)。
+    func spokenWordVideoSupportsAudioOnly(_ song: Song) -> Bool {
+        guard let mvPath = song.mvPath, !mvPath.isEmpty else { return false }
+        return PodcastPlaybackSong.hasSeparateVideo(song)
+            || SpokenWordVideoPolicy.supportsAudioOnly(path: mvPath, fallbackExtension: song.fileFormat.rawValue)
+    }
+
+    /// 这一条开播时走视频管线(AVPlayer 放画面)还是音频管线。音乐 MV 照旧,有声内容的视频听播放页上的选择。
+    func usesVideoPipeline(for song: Song) -> Bool {
+        if embeddedKaraokeFile?.songID == song.id { return false }
+        guard let mvPath = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !mvPath.isEmpty else { return false }
+        return SpokenWordVideoPolicy.usesVideoPipeline(
+            isStandaloneVideo: song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song),
+            hasSidecarVideo: !song.isStandaloneMusicVideo && !PodcastPlaybackSong.isVideoEpisode(song),
+            isSpokenWord: SpokenWordStore.shared.isSpokenWord(song),
+            showsSpokenWordVideo: showsSpokenWordVideo,
+            musicVideoModeEnabled: isMusicVideoModeEnabled,
+            forcesAudioOnly: shouldForceAudioOnly,
+            supportsAudioOnly: spokenWordVideoSupportsAudioOnly(song),
+            videoFailed: spokenWordVideoFailedSongID == song.id
+        )
+    }
+
+    /// 播放页上给不给「显示视频 / 只听声音」。
+    var offersSpokenWordVideoToggle: Bool {
+        guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio, !isAppleMusicMode else { return false }
+        return SpokenWordVideoPolicy.offersToggle(
+            isStandaloneVideo: song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song),
+            isSpokenWord: true,
+            supportsAudioOnly: spokenWordVideoSupportsAudioOnly(song),
+            forcesAudioOnly: shouldForceAudioOnly,
+            isCasting: isCastingMode
+        )
+    }
+
+    /// 播放页那颗键现在该说「只听声音」(画面开着)还是「显示视频」。
+    var isSpokenWordVideoShown: Bool {
+        isMusicVideoPlaybackActive && musicVideoPlayer != nil
+    }
+
+    /// 播放页上点了「显示视频 / 只听声音」。记下选择,这一条马上换管线、从现在的位置接着:
+    /// 放着的照放;停着切到只听声音就收起画面、原地备好音频;停着要看画面就从这里接着放。
+    func setShowsSpokenWordVideo(_ shows: Bool) {
+        showsSpokenWordVideo = shows
+        UserDefaults.standard.set(shows, forKey: SpokenWordVideoPolicy.preferenceKey)
+        guard let song = currentSong else { return }
+        if spokenWordVideoFailedSongID == song.id { spokenWordVideoFailedSongID = nil }
+        guard offersSpokenWordVideoToggle, usesVideoPipeline(for: song) != isMusicVideoPlaybackActive else { return }
+        if isPlaying || isLoading {
+            let position = currentTime
+            Task { await replayCurrentSpokenWordItem(at: position) }
+        } else if isMusicVideoPlaybackActive {
+            Task { await replayCurrentSongAsAudio(restoreMusicVideoModeAfterPlay: true) }
+        } else {
+            resume()
+        }
+    }
+
+    /// 有声视频换管线(放画面 ⇄ 只放声音):同一条从 `position` 重开,开在那儿,不先放开头再跳。
+    private func replayCurrentSpokenWordItem(at position: TimeInterval) async {
+        guard let song = currentSong else { return }
+        rememberSpokenWordPosition(force: true)
+        pendingSpokenWordSeekOverride = (song.id, position)
+        pendingSpokenWordResumeSongID = song.id
+        await play(song: song)
+    }
+
+    #if os(iOS)
+    private static func isCarAudioRouteActive() -> Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains { output in
+            output.portType == .carAudio
+        }
+    }
+
+    private static func currentOutputPortTypes() -> String {
+        AVAudioSession.sharedInstance().currentRoute.outputs
+            .map { $0.portType.rawValue }
+            .joined(separator: ",")
+    }
+
+    /// 在手机上打开 App 时车机已经连着:启动那一刻会话还没激活,读到的路由可能不是车机,
+    /// 之后路由没变也就没有路由变化通知,车机场景又要等用户在车机上点进来才连。会话激活、
+    /// 回到前台时各重取一次,别让锁屏那套标题歌词一直留在车机上。
+    func resampleCarAudioRoute(reason: String) {
+        let wasConnected = isCarAudioRouteConnected
+        isCarAudioRouteConnected = Self.isCarAudioRouteActive()
+        guard wasConnected != isCarAudioRouteConnected else { return }
+        plog("🚗 car audio route resampled reason=\(reason) carAudio=\(isCarAudioRouteConnected) scene=\(isCarPlaySceneActive) outputs=[\(Self.currentOutputPortTypes())]")
+        refreshAudioSessionOutputDelay()
+        refreshSystemLyricsPresentation()
+    }
+    #endif
+
+    // MARK: - Decoder Tracking (for seek)
+    /// Tracks which decoder pipeline produced the currently-playing audio
+    /// stream so seek/crossfade/recovery can reproduce the exact same path.
+    /// `cloudStream` means SFBAudio decoding from a `CloudPlaybackSource`
+    /// `InputSource` (Range-fetch + sparse cache). Seeking that path
+    /// requires building a NEW `InputSource` — feeding the
+    /// `primuse-stream://` URL to SFB's URL-based opener fails because
+    /// the scheme isn't registered with the file system.
+    enum DecoderKind: Sendable, Equatable { case native, ffmpeg, streaming, httpStream, cloudStream, assetReader }
+    struct CommittedCrossfade {
+        let attemptID: UUID
+        let playID: UUID
+        let song: Song
+        let url: URL
+        let decoderKind: DecoderKind
+        /// 提交交叉淡入时正在播放的那一首的 playID。ramp 结束前它仍然拥有
+        /// primary 节点, 解码泵靠它判断自己还能不能继续投递。
+        let outgoingPlayID: UUID
+        /// 下一首的稳态音量(回放增益换算后的线性值, 没有标签就是 1)。
+        /// ramp 直接淡入到这个值, 换节点时原样交给 primary。
+        let programVolume: Float
+        /// The incoming node may already hold the song's final buffer before the ramp ends.
+        var pendingGaplessBoundary: GaplessTransitionState?
+    }
+    enum CrossfadeCompletionMode: Equatable {
+        case activePlayback
+        case preserveCachedProgress
+    }
+    /// Which queue neighbour a crossfade attempt is heading for. The automatic
+    /// boundary follows repeat and shuffle exactly like track end; a manual
+    /// skip uses the traversal of the hard-cut `next()` / `previous()`, so the
+    /// blended skip and the cut always land on the same song.
+    enum CrossfadeSuccessorRule: Equatable {
+        case automatic
+        case manualNext
+        case manualPrevious
+    }
+    /// A manual skip whose neighbour is still being prepared. Until it commits
+    /// the queue position has not moved, so a second skip has to account for
+    /// this one before it looks for its own neighbour.
+    struct PendingManualSkipCrossfade {
+        let attemptID: UUID
+        let target: QueueTraversalTarget
+        let queueGeneration: Int
+    }
+    var isSleepTimerActive: Bool {
+        sleepTimerEndDate != nil || sleepStopAfterSongID != nil || sleepStopAfterChapter != nil
+            || sleepStopAfterBook != nil || selectedChapterSleep != nil
+    }
+    var spokenWordChapters: [MediaChapter] {
+        get {
+            if let id = currentSong?.id, let chapters = library?.generatedChapters(for: id) { return chapters }
+            return originalSpokenWordChapters
+        }
+        set { originalSpokenWordChapters = newValue }
+    }
+
+    func requestLyricsJump(songID: String, snippet: String) {
+        pendingLyricsJump = (songID, snippet)
+    }
+
+    func clearPendingLyricsJump() {
+        pendingLyricsJump = nil
+    }
+    struct ActiveStreamingDownloadPreparation {
+        let id: UUID
+        let song: Song
+        let control: StreamingDownloadSessionControl
+    }
+    private struct StreamingDownloadRetirement {
+        let id: UUID
+        /// 退役任务收尾时要 finalize 的曲目。finalizeStreamingSession 是按
+        /// .partial 路径定位会话的, 所以重新播放同一首之前必须先等它跑完。
+        let songID: String
+        let task: Task<Void, Never>
+    }
+    struct ActiveGaplessFeed {
+        let playID: UUID
+        let transition: GaplessTransitionState
+    }
+    private struct SmartMixPlatformAnalysisTask {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
+    private func logPlayStage(_ stage: String, playID id: UUID) {
+        guard let timeline = playStartTimeline, timeline.playID == id else { return }
+        let elapsed = Int(((ProcessInfo.processInfo.systemUptime - timeline.startedAt) * 1000).rounded())
+        plog("⏱️ play \(id.uuidString.prefix(8)) \(stage) +\(elapsed)ms")
+    }
+
+    /// `logPlayStage` for a stage the decoder reaches off the main actor.
+    private func offMainPlayStageLogger(_ stage: String, playID id: UUID) -> (@Sendable () -> Void)? {
+        guard let timeline = playStartTimeline, timeline.playID == id else { return nil }
+        let startedAt = timeline.startedAt
+        let label = String(id.uuidString.prefix(8))
+        return {
+            let elapsed = Int(((ProcessInfo.processInfo.systemUptime - startedAt) * 1000).rounded())
+            plog("⏱️ play \(label) \(stage) +\(elapsed)ms")
+        }
+    }
+    struct ConfigurationRecoveryActivityEvidence {
+        let itemID: String
+        var rebuildPlayID: UUID?
+    }
+
+    nonisolated static func decodedBufferDuration(_ buffer: AVAudioPCMBuffer) -> TimeInterval {
+        let sampleRate = buffer.format.sampleRate
+        guard sampleRate.isFinite, sampleRate > 0, buffer.frameLength > 0 else {
+            // Preserve the old 16-buffer behavior when a decoder reports an
+            // unusable format rather than letting hundreds of buffers queue.
+            return decodedAudioLookahead / 16
+        }
+        return Double(buffer.frameLength) / sampleRate
+    }
+
+    nonisolated static func decodedBufferByteCount(_ buffer: AVAudioPCMBuffer) -> Int {
+        let audioBuffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+        let reportedBytes = audioBuffers.reduce(into: 0) {
+            $0 += Int($1.mDataByteSize)
+        }
+        if reportedBytes > 0 { return reportedBytes }
+
+        // Some decoder/converter combinations leave mDataByteSize at zero
+        // even though frameLength is valid. Preserve the byte watermark by
+        // deriving the PCM footprint from the stream description instead of
+        // silently falling back to duration-only admission.
+        let bytesPerFrame = Int(buffer.format.streamDescription.pointee.mBytesPerFrame)
+        return Int(buffer.frameLength) * bytesPerFrame * max(1, audioBuffers.count)
+    }
+
+    func scheduleTrackedDecodedBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        onCrossfadeNode: Bool = false,
+        gate: DecodedBufferGate
+    ) async {
+        let bufferedDuration = Self.decodedBufferDuration(buffer)
+        let bufferedByteCount = Self.decodedBufferByteCount(buffer)
+        await gate.acquire(
+            duration: bufferedDuration,
+            byteCount: bufferedByteCount
+        )
+        guard !Task.isCancelled else { return }
+
+        let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { _ in
+            gate.release(
+                duration: bufferedDuration,
+                byteCount: bufferedByteCount
+            )
+        }
+        if onCrossfadeNode {
+            audioEngine.scheduleCrossfadeBuffer(
+                buffer,
+                completionCallbackType: .dataPlayedBack,
+                completionHandler: completion
+            )
+        } else {
+            audioEngine.scheduleBuffer(
+                buffer,
+                completionCallbackType: .dataPlayedBack,
+                completionHandler: completion
+            )
+        }
+    }
+
+    private struct PlaybackMetadataIdentity: Hashable, Sendable {
+        let songID: String
+        let sourceID: String
+        let filePath: String
+        let revision: String?
+        let fileSize: Int64
+
+        init(_ song: Song) {
+            songID = song.id
+            sourceID = song.sourceID
+            filePath = song.filePath
+            revision = song.revision
+            fileSize = song.fileSize
+        }
     }
 
     func configurePlaybackMetadataBackfill(
@@ -3582,8 +4346,6 @@ final class AudioPlayerService {
             self.scheduleAuthorizedResumeVerification(requiresWirelessOutput: requiresWirelessOutput, attempt: attempt + 1)
         }
     }
-
-    private static let authorizedResumeVerificationAttemptLimit = 6
 
     private func cancelPendingConfigurationRecovery() {
         configurationRecoveryTask?.cancel()
@@ -9219,9 +9981,6 @@ final class AudioPlayerService {
         updatePlaybackState()
     }
 
-    private var seekTimeOffset: TimeInterval = 0
-    @ObservationIgnored var seekTask: Task<Void, Never>?
-
     /// What a local pause left in place, so a quick Play can start the same
     /// pipeline again instead of rebuilding it (`PausedPipelineResumePolicy`).
     struct PausedLocalPipeline {
@@ -9231,762 +9990,6 @@ final class AudioPlayerService {
         let recoveryWasArmed: Bool
         let disturbanceGeneration: UInt64
     }
-    @ObservationIgnored var pausedLocalPipeline: PausedLocalPipeline?
-    @ObservationIgnored var pausedPipelineExpirationTask: Task<Void, Never>?
-    /// Advanced by every interruption and hardware change: either may have
-    /// stopped or replaced what a paused pipeline holds.
-    @ObservationIgnored var transportDisturbanceGeneration: UInt64 = 0
-    /// The play generation whose last buffer has already gone to the node.
-    @ObservationIgnored var finalBufferScheduledPlayID: UUID?
-    /// The local seek or rebuild in flight and whether it starts playback.
-    @ObservationIgnored var pendingLocalSeek: (playID: UUID, startsPlayback: Bool, isRecovery: Bool)?
-    /// A rebuild still waiting for its first decoded buffer. A hardware change
-    /// in that window rebuilds only the output before the first buffer plays,
-    /// instead of cancelling the fetch and starting the whole rebuild over.
-    @ObservationIgnored var seekAwaitingFirstBufferPlayID: UUID?
-    @ObservationIgnored var seekOutputRebuildPendingPlayID: UUID?
-
-    /// 进度 timer 间隔 (秒)。同时作为 scrobble 的真实收听增量 —— 见下方 handleProgressTick。
-    static let timeUpdateInterval: TimeInterval = 0.5
-
-    // MARK: - Now Playing Info
-
-    #if os(iOS)
-    @ObservationIgnored private var systemLyricsLoadTask: Task<Void, Never>?
-    @ObservationIgnored private var systemLyricsRetryTask: Task<Void, Never>?
-    @ObservationIgnored private var systemLyricsLoadGeneration: UInt64 = 0
-    @ObservationIgnored private var systemLyricsEmptyResultCount = 0
-    @ObservationIgnored private var systemLyricsSongID: String?
-    @ObservationIgnored private var systemLyrics: [LyricLine] = []
-    /// `systemLyrics` 里能驱动锁屏行的子集。锁屏每 0.5s 刷一次,
-    /// 过滤只跟歌词文档有关, 所以随 `systemLyrics` 一起缓存。
-    @ObservationIgnored private var systemSynchronizedLyrics: [LyricLine] = []
-    @ObservationIgnored var lastPublishedLockScreenLyricsPresentation:
-        NowPlayingLyricsMetadataPresentation?
-    /// 最近一次把歌词行发布给 MediaRemote 的时刻, 用于 1 秒限流。
-    @ObservationIgnored var lastLockScreenLyricsPublishAt: Date?
-    /// 限流窗口内到达的那一行: 不丢弃, 窗口结束后补发(通常 0.5 秒的时钟
-    /// tick 会先到并发出去)。
-    @ObservationIgnored var pendingLockScreenLyricsPublish = false
-    @ObservationIgnored private var lockScreenLyricsCatchUpTask: Task<Void, Never>?
-    /// 标识当前补发任务的归属。任务句柄本身无法在闭包里和自己比较, 用这个
-    /// 单调递增的令牌代替身份比较: 只有仍然是最新一次调度的任务才可以清空
-    /// 句柄, 否则被取消的旧任务会抹掉后继任务的句柄。
-    @ObservationIgnored private var lockScreenLyricsCatchUpToken: UInt64 = 0
-    /// CarPlay 主标题下一行的准点发布任务, 令牌用法同上面的补发任务。
-    @ObservationIgnored private var carTitleLyricsBoundaryTask: Task<Void, Never>?
-    @ObservationIgnored private var carTitleLyricsBoundaryToken: UInt64 = 0
-    @ObservationIgnored private var carTitleLyricsBoundaryFireDate: Date?
-    /// 输出缓冲加线路延迟。读取要走 IPC, 路由变化时刷新, 歌词 tick 只读这份快照。
-    @ObservationIgnored private var audioSessionOutputDelay: TimeInterval = 0
-    @ObservationIgnored private var lastPublishedWidgetLyricsSignature: String?
-    @ObservationIgnored private var lyricsWidgetConfigurationRefreshTask: Task<Void, Never>?
-    @ObservationIgnored private var lastLyricsWidgetConfigurationRefreshAt = Date.distantPast
-    @ObservationIgnored private var hasInstalledLyricsWidgetSurface = false
-    @ObservationIgnored private var lastWidgetLyricsDemandAt = Date.distantPast
-    @ObservationIgnored private var hasInstalledSmallLyricsWidget = false
-    @ObservationIgnored private var publishedWidgetLyricsRange: Range<Int>?
-    @ObservationIgnored private var lastSmallWidgetLyricIndex: Int?
-
-    private var widgetLyricsSharingEnabled: Bool {
-        WidgetSettings.syncEnabled()
-            && WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey)
-            && WidgetSettings.sharedDataScope().includesLyrics
-    }
-
-    private var shouldPublishWidgetLyrics: Bool {
-        widgetLyricsSharingEnabled && hasInstalledLyricsWidgetSurface
-    }
-
-    private var shouldLoadLyricsForSystemSurfaces: Bool {
-        #if DEBUG
-        if LyricsLiveActivityService.isProbeEnabled { return true }
-        #endif
-        return systemNowPlayingLyricsEnabled || shouldPublishWidgetLyrics
-    }
-
-    private var systemNowPlayingLyricsEnabled: Bool {
-        shouldForceAudioOnly
-            ? CarPlaySettingsStore.shared.configuration.lyricsPosition.isEnabled(phoneEnabled: playbackSettings.lockScreenLyricsEnabled)
-            : playbackSettings.lockScreenLyricsEnabled
-    }
-
-    private func refreshSystemLyricsPresentation() {
-        if !shouldLoadLyricsForSystemSurfaces { resetSystemLyricsState() }
-        updateNowPlayingInfo()
-        if systemLyricsSongID != currentSong?.id {
-            loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
-        }
-    }
-
-    private func observeLockScreenLyricsSetting() {
-        withObservationTracking {
-            _ = playbackSettings.lockScreenLyricsEnabled
-            _ = CarPlaySettingsStore.shared.configuration.lyricsPosition
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.refreshSystemLyricsPresentation()
-                self.observeLockScreenLyricsSetting()
-            }
-        }
-    }
-
-    private func prepareLyricsForSystemSurfaces(previousSong: Song?) {
-        let previousIdentity = previousSong.map { ($0.id, $0.lyricsFileName) }
-        let currentIdentity = currentSong.map { ($0.id, $0.lyricsFileName) }
-        guard previousIdentity?.0 != currentIdentity?.0
-                || previousIdentity?.1 != currentIdentity?.1 else { return }
-
-        resetSystemLyricsState()
-        refreshInstalledLyricsWidgetDemand()
-        loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
-    }
-
-    /// Lyrics loading can reach a remote sidecar or metadata provider. Only do
-    /// that work for a widget when the user has actually placed a lyrics-capable
-    /// family on the Home Screen; lock-screen lyrics remains independently gated.
-    func refreshInstalledLyricsWidgetDemand(force: Bool = false) {
-        guard widgetLyricsSharingEnabled else {
-            hasInstalledSmallLyricsWidget = false
-            clearWidgetLyricsSnapshotIfNeeded()
-            if !shouldLoadLyricsForSystemSurfaces {
-                resetSystemLyricsState()
-            }
-            return
-        }
-        guard lyricsWidgetConfigurationRefreshTask == nil else { return }
-        let now = Date()
-        guard force || now.timeIntervalSince(lastLyricsWidgetConfigurationRefreshAt) >= 15 else {
-            return
-        }
-
-        lyricsWidgetConfigurationRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                self.lyricsWidgetConfigurationRefreshTask = nil
-                self.lastLyricsWidgetConfigurationRefreshAt = Date()
-            }
-
-            guard let configurations = try? await WidgetCenter.shared.currentConfigurations()
-            else { return }
-            if #available(iOS 26.0, *) {
-                self.hasInstalledSmallLyricsWidget = configurations.contains {
-                    $0.kind == "LyricsWidget" && $0.family == .systemSmall
-                }
-            }
-            // 经典款的中号写正唱到的那一句, 大号有歌词面板。
-            let isInstalled = configurations.contains { configuration in
-                configuration.kind == "LyricsWidget"
-                    || (configuration.kind == "NowPlayingWidget"
-                        && configuration.family == .systemLarge)
-                    || (configuration.kind == "NowPlayingClassicWidget"
-                        && (configuration.family == .systemMedium || configuration.family == .systemLarge))
-            }
-            guard isInstalled != self.hasInstalledLyricsWidgetSurface else {
-                if isInstalled { self.publishOrLoadWidgetLyrics() }
-                return
-            }
-
-            self.hasInstalledLyricsWidgetSurface = isInstalled
-            if isInstalled {
-                self.publishOrLoadWidgetLyrics()
-            } else {
-                self.clearWidgetLyricsSnapshotIfNeeded()
-                if !self.shouldLoadLyricsForSystemSurfaces {
-                    self.resetSystemLyricsState()
-                }
-            }
-        }
-    }
-
-    /// 锁屏歌词开着时这首的歌词往往已经读好:直接交给小组件,不再读一遍;还没读才去读。
-    private func publishOrLoadWidgetLyrics() {
-        if systemLyricsSongID == currentSong?.id, !systemLyrics.isEmpty {
-            publishWidgetLyricsIfNeeded()
-        } else if systemLyricsLoadTask == nil, systemLyricsSongID != currentSong?.id {
-            loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
-        }
-    }
-
-    /// 小组件拿不到这首的歌词时会叫一声(`WidgetLyricsDemandSignal`):后台播放时刚放到桌面上的
-    /// 歌词小组件,App 不必等到切歌或回到前台才去查桌面上的小组件、发布歌词。
-    private func observeWidgetLyricsDemand() {
-        NotificationCenter.default.addObserver(
-            forName: .primuseWidgetLyricsDemand,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.widgetRequestedLyrics()
-            }
-        }
-        CFNotificationCenterAddObserver(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            nil,
-            { _, _, _, _, _ in
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .primuseWidgetLyricsDemand, object: nil)
-                }
-            },
-            WidgetLyricsDemandSignal.name as CFString,
-            nil,
-            .deliverImmediately
-        )
-    }
-
-    private func widgetRequestedLyrics() {
-        // 歌本来就没有歌词时小组件每次刷新都会叫:几秒内只查一次。
-        let now = Date()
-        guard now.timeIntervalSince(lastWidgetLyricsDemandAt) >= 3 else { return }
-        lastWidgetLyricsDemandAt = now
-        refreshInstalledLyricsWidgetDemand(force: true)
-    }
-
-    private func resetSystemLyricsState() {
-        systemLyricsLoadTask?.cancel()
-        systemLyricsLoadTask = nil
-        systemLyricsRetryTask?.cancel()
-        systemLyricsRetryTask = nil
-        systemLyricsLoadGeneration &+= 1
-        systemLyricsEmptyResultCount = 0
-        systemLyricsSongID = nil
-        systemLyrics = []
-        systemSynchronizedLyrics = []
-        lastPublishedLockScreenLyricsPresentation = nil
-        lockScreenLyricsCatchUpTask?.cancel()
-        lockScreenLyricsCatchUpTask = nil
-        lockScreenLyricsCatchUpToken &+= 1
-        cancelCarTitleLyricsBoundary()
-        pendingLockScreenLyricsPublish = false
-        clearWidgetLyricsSnapshotIfNeeded()
-        publishLyricsActivityProbe()
-    }
-
-    private func loadLyricsForSystemSurfacesIfNeeded(for song: Song?) {
-        guard shouldLoadLyricsForSystemSurfaces,
-              !isLiveRadio,
-              let song else { return }
-        guard systemLyricsLoadTask == nil,
-              systemLyricsRetryTask == nil else { return }
-
-        let expectedSongID = song.id
-        let expectedGeneration = systemLyricsLoadGeneration
-        let capturedSourceManager = sourceManager
-        systemLyricsLoadTask = Task { @MainActor [weak self, capturedSourceManager] in
-            let lyrics: [LyricLine]
-            if song.sourceID == AppleMusicLibraryService.systemSourceID {
-                if await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) {
-                    // 用户清空过这首歌的歌词：锁屏、小组件也显示没有歌词。
-                    lyrics = []
-                } else if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
-                    lyrics = cached
-                } else if let fetched = await AppServices.shared.appleMusicLibrary
-                    .fetchLyrics(for: song), !fetched.isEmpty {
-                    _ = await MetadataAssetStore.shared.cacheLyrics(
-                        fetched,
-                        forSongID: song.id,
-                        force: true
-                    )
-                    lyrics = fetched
-                } else {
-                    lyrics = []
-                }
-            } else if let capturedSourceManager {
-                lyrics = await LyricsLoader.loadForDisplay(
-                    for: song,
-                    sourceManager: capturedSourceManager
-                )
-            } else {
-                lyrics = []
-            }
-            guard !Task.isCancelled,
-                  let self,
-                  self.systemLyricsLoadGeneration == expectedGeneration,
-                  self.shouldLoadLyricsForSystemSurfaces,
-                  !self.isLiveRadio,
-                  self.currentSong?.id == expectedSongID else { return }
-
-            self.systemLyricsLoadTask = nil
-            self.systemLyricsSongID = expectedSongID
-            self.systemLyrics = lyrics
-            self.systemSynchronizedLyrics = NowPlayingLyricsMetadataPolicy
-                .synchronizedLines(lyrics)
-            plog("📜 system lyrics '\(song.title)' lines=\(lyrics.count) synchronized=\(self.systemSynchronizedLyrics.count) appleMusic=\(self.isAppleMusicMode) lockScreen=\(self.systemNowPlayingLyricsEnabled) widget=\(self.shouldPublishWidgetLyrics)")
-            if lyrics.isEmpty {
-                self.scheduleSystemLyricsRetryIfNeeded(
-                    forSongID: expectedSongID,
-                    generation: expectedGeneration
-                )
-            } else {
-                self.systemLyricsEmptyResultCount = 0
-            }
-            self.publishLockScreenLyricsIfNeeded()
-            self.publishWidgetLyricsIfNeeded()
-        }
-    }
-
-    private func scheduleSystemLyricsRetryIfNeeded(
-        forSongID songID: String,
-        generation: UInt64
-    ) {
-        systemLyricsEmptyResultCount += 1
-        guard let delay = NowPlayingLyricsLoadRetryPolicy.delay(
-            afterEmptyResultCount: systemLyricsEmptyResultCount,
-            hasDemand: shouldLoadLyricsForSystemSurfaces,
-            isLiveStream: isLiveRadio
-        ) else { return }
-
-        systemLyricsRetryTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(delay))
-            } catch {
-                return
-            }
-            guard let self,
-                  self.systemLyricsLoadGeneration == generation,
-                  self.shouldLoadLyricsForSystemSurfaces,
-                  !self.isLiveRadio,
-                  self.currentSong?.id == songID else { return }
-            self.systemLyricsRetryTask = nil
-            self.systemLyricsSongID = nil
-            self.systemLyrics = []
-            self.systemSynchronizedLyrics = []
-            self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
-        }
-    }
-
-    func retryEmptySystemLyricsAfterForegroundingIfNeeded() {
-        guard shouldLoadLyricsForSystemSurfaces,
-              !isLiveRadio,
-              systemLyricsLoadTask == nil,
-              systemLyricsRetryTask == nil,
-              let song = currentSong,
-              systemLyricsSongID == song.id,
-              systemLyrics.isEmpty else { return }
-
-        systemLyricsEmptyResultCount = 0
-        systemLyricsSongID = nil
-        loadLyricsForSystemSurfacesIfNeeded(for: song)
-    }
-
-    func lockScreenLyricsPresentation(at playbackTime: TimeInterval? = nil) -> NowPlayingLyricsMetadataPresentation {
-        if let presentation = audiobookNowPlayingPresentation { return presentation }
-        guard let song = currentSong else {
-            return NowPlayingLyricsMetadataPresentation(title: "", artist: "", lyricLineID: nil)
-        }
-        let lyrics = systemLyricsSongID == song.id ? systemSynchronizedLyrics : []
-        let carTitle = publishesCarTitleLyrics
-        return NowPlayingLyricsMetadataPolicy.presentation(
-            canonicalTitle: song.title,
-            artistName: displayedArtistName(for: song),
-            synchronizedLyrics: lyrics,
-            playbackTime: playbackTime ?? systemLyricsPlaybackTime(),
-            isEnabled: systemNowPlayingLyricsEnabled,
-            isLiveStream: isLiveRadio,
-            prefersStableTitle: shouldForceAudioOnly && CarPlaySettingsStore.shared.configuration.lyricsPosition != .title,
-            lookahead: carTitle ? carTitleLyricsLookahead : 0
-        )
-    }
-
-    /// CarPlay 或车载线路用主标题显示歌词。这种模式逐行立即发布, 按下一行时间
-    /// 精确定时, 并提前一点发布抵消车机的显示延迟。
-    var publishesCarTitleLyrics: Bool {
-        shouldForceAudioOnly && CarPlaySettingsStore.shared.configuration.lyricsPosition == .title
-    }
-
-    /// 系统播放信息里的时间按这个倍速走; 系统音频播放器不变速。
-    private var systemNowPlayingClockRate: Double {
-        let rate = isSystemAudioPlaybackActive ? 1 : Double(requestedPlaybackRate)
-        return rate.isFinite && rate > 0 ? rate : 1
-    }
-
-    /// 两次 0.5 秒采样之间的播放位置, 按倍速外推。歌词边界定时器到点时
-    /// `currentTime` 还是上一拍的值, 换行判断和发布的进度都用它。
-    func systemLyricsPlaybackTime(at date: Date = Date()) -> TimeInterval {
-        guard publishesCarTitleLyrics, !isLiveRadio, !currentItemIsAudiobook else { return currentTime }
-        return interpolatedTime(at: date, rate: systemNowPlayingClockRate)
-    }
-
-    /// 本地引擎的时钟是渲染位置, 声音还要过输出缓冲和线路才出来, 这段已经
-    /// 替显示延迟抵掉一部分; 系统播放器、Apple Music 和投放给的是出声位置。
-    var carTitleLyricsLookahead: TimeInterval {
-        let usesRenderClock = !isSystemMediaPlaybackActive && !isAppleMusicMode && !isCastingMode
-        return CarPlayLyricsTimingPolicy.lookahead(
-            audioOutputDelay: usesRenderClock ? audioSessionOutputDelay : 0
-        )
-    }
-
-    private func refreshAudioSessionOutputDelay() {
-        let session = AVAudioSession.sharedInstance()
-        audioSessionOutputDelay = session.outputLatency + session.ioBufferDuration
-    }
-
-    private func publishLockScreenLyricsIfNeeded() {
-        publishLyricsActivityProbe()
-        defer { scheduleCarTitleLyricsBoundary() }
-        guard systemNowPlayingLyricsEnabled,
-              !isLiveRadio,
-              systemLyricsSongID == currentSong?.id,
-              !systemLyrics.isEmpty else { return }
-
-        let presentation = lockScreenLyricsPresentation()
-        let lineChanged = presentation != lastPublishedLockScreenLyricsPresentation
-        guard lineChanged || pendingLockScreenLyricsPublish else { return }
-
-        // 车载主标题换行立即发布，避免短句被限流合并；其余系统歌词继续限流。
-        let publishesCarTitle = publishesCarTitleLyrics
-        let now = Date()
-        guard publishesCarTitle || NowPlayingLyricsPublishPolicy.shouldPublish(
-            lastPublishedAt: lastLockScreenLyricsPublishAt,
-            now: now,
-            lineChanged: true
-        ) else {
-            pendingLockScreenLyricsPublish = true
-            scheduleLockScreenLyricsCatchUp(
-                after: NowPlayingLyricsPublishPolicy.delayUntilNextPublish(
-                    lastPublishedAt: lastLockScreenLyricsPublishAt,
-                    now: now
-                )
-            )
-            return
-        }
-        updateNowPlayingInfo(lyricsLineOnly: true)
-    }
-
-    /// 播放时 0.5 秒的时钟 tick 通常会先把补发做掉; 暂停、路由切换等没有
-    /// tick 的场景靠这个一次性任务保证当前歌词行仍然会被发布出去。
-    private func scheduleLockScreenLyricsCatchUp(after delay: TimeInterval) {
-        guard lockScreenLyricsCatchUpTask == nil else { return }
-        lockScreenLyricsCatchUpToken &+= 1
-        let token = lockScreenLyricsCatchUpToken
-        lockScreenLyricsCatchUpTask = Task { @MainActor [weak self] in
-            if delay > 0 {
-                try? await Task.sleep(for: .seconds(delay))
-            }
-            guard let self else { return }
-            // 取消后的 sleep 会立刻返回, 但这一段要等到之后的某个主 actor
-            // 轮次才执行; 那时句柄可能已经属于新一次调度, 清空它会让单飞
-            // 不变量失效并允许重复补发。
-            guard self.lockScreenLyricsCatchUpToken == token else { return }
-            self.lockScreenLyricsCatchUpTask = nil
-            guard !Task.isCancelled else { return }
-            self.publishLockScreenLyricsIfNeeded()
-        }
-    }
-
-    /// 车机主标题在下一行(含提前量)到点时就发布, 不等 0.5 秒一拍的时钟采样。
-    /// 每次采样、拖动、换行后重算; 暂停、缓冲、采样过期或没有下一行时撤销。
-    private func scheduleCarTitleLyricsBoundary() {
-        let now = Date()
-        guard publishesCarTitleLyrics,
-              !isLiveRadio,
-              !currentItemIsAudiobook,
-              isPlaying,
-              !isLoading,
-              remotePlaybackBufferingStartedAt == nil,
-              now.timeIntervalSince(currentTimeAnchor) < PlaybackClockFreezePolicy.maximumExtrapolation,
-              let song = currentSong,
-              systemLyricsSongID == song.id else {
-            cancelCarTitleLyricsBoundary()
-            return
-        }
-        let position = systemLyricsPlaybackTime(at: now)
-        guard let changeTime = CarPlayLyricsTimingPolicy.nextChangeTime(
-                  in: systemSynchronizedLyrics,
-                  after: position,
-                  lookahead: carTitleLyricsLookahead
-              ),
-              duration <= 0 || changeTime < duration,
-              let delay = CarPlayLyricsTimingPolicy.delay(
-                  until: changeTime,
-                  from: position,
-                  rate: systemNowPlayingClockRate
-              ) else {
-            cancelCarTitleLyricsBoundary()
-            return
-        }
-        let fireDate = now.addingTimeInterval(delay)
-        // 每拍采样只带来几毫秒抖动, 沿用已排好的任务, 不必每 0.5 秒重建。
-        if carTitleLyricsBoundaryTask != nil,
-           let scheduled = carTitleLyricsBoundaryFireDate,
-           abs(scheduled.timeIntervalSince(fireDate)) < 0.015 {
-            return
-        }
-        cancelCarTitleLyricsBoundary()
-        let token = carTitleLyricsBoundaryToken
-        carTitleLyricsBoundaryFireDate = fireDate
-        carTitleLyricsBoundaryTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(delay), tolerance: .milliseconds(5))
-            guard let self, self.carTitleLyricsBoundaryToken == token else { return }
-            self.carTitleLyricsBoundaryTask = nil
-            self.carTitleLyricsBoundaryFireDate = nil
-            guard !Task.isCancelled else { return }
-            self.publishLockScreenLyricsIfNeeded()
-        }
-    }
-
-    private func cancelCarTitleLyricsBoundary() {
-        carTitleLyricsBoundaryToken &+= 1
-        carTitleLyricsBoundaryTask?.cancel()
-        carTitleLyricsBoundaryTask = nil
-        carTitleLyricsBoundaryFireDate = nil
-    }
-
-    func publishLyricsActivityProbe() {
-        #if DEBUG
-        guard LyricsLiveActivityService.isProbeEnabled else { return }
-        guard let song = currentSong, !isLiveRadio, !isAtTrackEnd else {
-            LyricsLiveActivityService.shared.publish(nil)
-            return
-        }
-        let presentation = NowPlayingLyricsMetadataPolicy.presentation(
-            canonicalTitle: song.title,
-            artistName: displayedArtistName(for: song),
-            lyrics: systemLyricsSongID == song.id ? systemLyrics : [],
-            playbackTime: currentTime,
-            isEnabled: true,
-            isLiveStream: false
-        )
-        LyricsLiveActivityService.shared.publish(.init(
-            songID: String(song.id.prefix(120)),
-            title: String(song.title.prefix(120)),
-            artist: String((displayedArtistName(for: song) ?? "").prefix(120)),
-            lyric: presentation.lyricLineID == nil ? "" : String(presentation.title.prefix(200)),
-            isPlaying: isPlaybackActuallyActive
-        ))
-        #endif
-    }
-
-    private func observeLockScreenLyricsChanges() {
-        let center = NotificationCenter.default
-        center.addObserver(
-            forName: .primuseLyricsDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let songID = notification.object as? String else { return }
-            Task { @MainActor [weak self] in
-                self?.reloadSystemLyricsIfCurrent(songID: songID)
-            }
-        }
-        center.addObserver(
-            forName: .primuseLyricsDidCache,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let songID = notification.userInfo?["songID"] as? String else { return }
-            Task { @MainActor [weak self] in
-                self?.reloadSystemLyricsIfCurrent(songID: songID)
-            }
-        }
-    }
-
-    private func reloadSystemLyricsIfCurrent(songID: String) {
-        guard shouldLoadLyricsForSystemSurfaces,
-              currentSong?.id == songID else { return }
-        resetSystemLyricsState()
-        updateNowPlayingInfo()
-        loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
-    }
-
-    private func refreshSmallLyricsWidgetOnLineChange() {
-        guard hasInstalledSmallLyricsWidget, shouldForceAudioOnly, isPlaying, !isLoading,
-              !systemSynchronizedLyrics.isEmpty, let window = publishedWidgetLyricsRange else { return }
-        let index = LyricPlaybackPositionPolicy.activeLineIndex(in: systemLyrics, at: currentTime, lookahead: 0)
-        guard index != lastSmallWidgetLyricIndex else { return }
-        guard widgetLyricsSharingEnabled else {
-            hasInstalledSmallLyricsWidget = false
-            clearWidgetLyricsSnapshotIfNeeded()
-            return
-        }
-        if let index, !window.contains(index) || (index == window.upperBound - 1 && window.upperBound < systemLyrics.count) {
-            publishWidgetLyricsIfNeeded()
-            return
-        }
-        lastSmallWidgetLyricIndex = index
-        // CarPlay can coalesce the precomputed timeline down to one entry per minute.
-        // The extension can select the current line from the snapshot already on disk.
-        WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
-    }
-
-    func publishWidgetLyricsIfNeeded(coverImageName: String? = nil) {
-        guard shouldPublishWidgetLyrics, !isLiveRadio else {
-            clearWidgetLyricsSnapshotIfNeeded()
-            return
-        }
-        guard let song = currentSong,
-              systemLyricsSongID == song.id,
-              !systemLyrics.isEmpty else {
-            clearWidgetLyricsSnapshotIfNeeded()
-            return
-        }
-
-        let sampledAt = Date()
-        let rate = systemNowPlayingClockRate
-        let isActivelyPlaying = isPlaybackActuallyActive
-        let position = isActivelyPlaying ? interpolatedTime(at: sampledAt, rate: rate) : max(0, currentTime)
-        // 有声书整本的文字稿上万行:小组件只看当前这句前后,只写这一段,
-        // 不然每次刷新都要把整份文稿编码进共享的 UserDefaults(#420)。
-        let window = Self.widgetLyricsWindow(in: systemLyrics, at: position)
-        let windowLines = window.count == systemLyrics.count ? systemLyrics : Array(systemLyrics[window])
-        let widgetLines = windowLines.map {
-            WidgetLyricLine(time: $0.timestamp, text: $0.text)
-        }
-        let anchor = WidgetLyricsPresentationPolicy.anchorIndex(
-            for: position,
-            in: widgetLines
-        )
-        let playback = PlaybackState.load()
-        let resolvedCoverName = coverImageName
-            ?? (playback?.currentSongID == song.id ? playback?.coverImageName : nil)
-        let direction = LyricWritingDirectionPolicy.resolve(in: windowLines)
-        let signature = [
-            song.id,
-            song.title,
-            displayedArtistName(for: song) ?? "",
-            resolvedCoverName ?? "",
-            String(anchor),
-            String((position * 2).rounded().finiteInt()),
-            String(rate),
-            isActivelyPlaying ? "1" : "0",
-            direction.rawValue,
-            String(widgetLines.count),
-            String(widgetLines.last?.time ?? 0),
-        ].joined(separator: "|")
-        guard signature != lastPublishedWidgetLyricsSignature else { return }
-
-        LyricsSnapshot(
-            songID: song.id,
-            title: song.title,
-            artist: displayedArtistName(for: song) ?? "",
-            coverImageName: resolvedCoverName,
-            lines: widgetLines,
-            anchorIndex: anchor,
-            playbackPosition: position,
-            playbackRate: rate,
-            isPlaying: isActivelyPlaying,
-            writingDirection: direction,
-            updatedAt: sampledAt
-        ).save()
-        lastPublishedWidgetLyricsSignature = signature
-        publishedWidgetLyricsRange = window
-        lastSmallWidgetLyricIndex = LyricPlaybackPositionPolicy.activeLineIndex(in: systemLyrics, at: position, lookahead: 0)
-        WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
-        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingWidget")
-        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingClassicWidget")
-    }
-
-    /// 写给小组件的那一段歌词:行数不多时整份;很长时从当前句往前 40 行、往后 200 行,
-    /// 够小组件一条时间线往后排的几句。
-    private nonisolated static func widgetLyricsWindow(in lines: [LyricLine], at position: TimeInterval) -> Range<Int> {
-        let limit = 600
-        guard lines.count > limit else { return lines.indices }
-        var low = 0
-        var high = lines.count
-        while low < high {
-            let mid = (low + high) / 2
-            if lines[mid].timestamp <= position { low = mid + 1 } else { high = mid }
-        }
-        let start = max(0, low - 1 - 40)
-        let end = min(lines.count, start + 240)
-        return start..<end
-    }
-
-    private func clearWidgetLyricsSnapshotIfNeeded() {
-        lastPublishedWidgetLyricsSignature = nil
-        publishedWidgetLyricsRange = nil
-        lastSmallWidgetLyricIndex = nil
-        guard LyricsSnapshot.load() != nil else { return }
-        LyricsSnapshot.clear()
-        WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
-        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingWidget")
-        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingClassicWidget")
-    }
-
-    private func observeLikedSongChanges() {
-        NotificationCenter.default.addObserver(
-            forName: .primusePlaylistsDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            let ids = notification.userInfo?["ids"] as? [String]
-            guard ids?.contains(MusicLibrary.likedSongsPlaylistID) ?? true else { return }
-            Task { @MainActor [weak self] in
-                self?.republishNowPlayingSurfaces()
-            }
-        }
-    }
-    #endif
-
-    /// Tracks which song last started an artwork lookup to avoid redundant IO.
-    var lastArtworkSongID: String?
-
-    /// Identifies the song that owns the artwork currently published to the
-    /// system. It must match `currentSong` before metadata refreshes can carry
-    /// that image forward.
-    var publishedArtworkSongID: String?
-    let lockScreenMotionArtworkPublisher = LockScreenMotionArtworkPublisher()
-
-    /// 解码并降采样后的系统封面内存缓存(songID → artwork)。蓝牙 AVRCP
-    /// 车机只在曲目元数据变化的那一刻采样一次封面, 异步补发的图不会被
-    /// 重新拉取; 只有切歌后的第一份 nowPlayingInfo 快照就带上新歌封面,
-    /// 车机才能显示。命中该缓存即可同步做到, 冷路径仍走异步加载回填。
-    let nowPlayingArtworkCache: NSCache<NSString, MPMediaItemArtwork> = {
-        let cache = NSCache<NSString, MPMediaItemArtwork>()
-        cache.countLimit = 8
-        cache.totalCostLimit = 24 * 1_024 * 1_024
-        return cache
-    }()
-
-    /// 最近一次发布给 MediaRemote 的完整 nowPlayingInfo 快照及其身份。歌词
-    /// 行推进时直接在这份字典上改标题/副标题与进度, 其余键(尤其是封面)原样
-    /// 复用, 避免每行都重建字典并让系统重新序列化封面位图。
-    @ObservationIgnored var cachedNowPlayingInfo: [String: Any]?
-    /// 诊断日志:上一次记下整份「正在播放」快照的歌和时刻(换歌或隔一分钟才再记)。
-    @ObservationIgnored var lastLoggedNowPlayingSongID: String?
-    @ObservationIgnored var lastNowPlayingLogUptime: TimeInterval = 0
-    @ObservationIgnored var cachedNowPlayingInfoKey: NowPlayingInfoSnapshotKey?
-    /// 快照里当前携带的封面对象。它换成另一个实例时封面版本号才前进。
-    @ObservationIgnored var cachedNowPlayingArtwork: MPMediaItemArtwork?
-    @ObservationIgnored var nowPlayingArtworkRevision: Int = 0
-
-    /// 正在预取封面的 songID, 防止对同一首歌重复启动预取任务。
-    @ObservationIgnored var prefetchingArtworkSongID: String?
-
-    /// 每首歌当前有效的系统封面加载票据。同曲重新刮削可能与先前的远程封面
-    /// 请求重叠;只有最后一次请求可以回写内存缓存和 Now Playing,避免旧任务
-    /// 在新封面发布后又把车机显示回滚。
-    @ObservationIgnored var nowPlayingArtworkLoadTokens: [String: UUID] = [:]
-    @ObservationIgnored var nowPlayingArtworkLoadTask: Task<Void, Never>?
-    @ObservationIgnored var nowPlayingArtworkPrefetchTask: Task<Void, Never>?
-    @ObservationIgnored var nowPlayingArtworkCacheObservation: AnyCancellable?
-
-    /// 单调递增的封面刷新 token。当刮削回写完成、cache 失效但 coverArtFileName
-    /// 字符串可能没变（hash deterministic）时, view 上的 onChange(coverRef) 不会
-    /// 触发 reload, @State image 卡在旧 UIImage。CachedArtworkView 监听这个
-    /// token, 任意 bump 都能强制三个封面位重新走 loadImage。
-    var coverRevision: Int = 0
-
-    @ObservationIgnored var lastWrittenRemoteCommandAvailability:
-        RemoteCommandAvailability?
-
-    /// Tracks the last cover written for the widget (song, and whether it was
-    /// drawn as a whole book cover), to avoid redundant writes.
-    var lastWidgetCoverKey: String?
-    /// Coalesces repeated WidgetKit reload requests with identical content.
-    var lastWidgetTimelineSignature: String?
-    /// 「收听台」最近播放里每张专辑封面写的是哪一份封面(按专辑键),封面换了才重写。
-    /// 不落盘:重启后每张专辑第一次放时重写一次。
-    @ObservationIgnored var widgetAlbumCoverContents: [String: String] = [:]
-    #if os(iOS)
-    /// 小组件给当前这首 Apple Music 资料库歌取到的官方封面, 只留一首。
-    @ObservationIgnored var widgetAppleMusicArtwork: (songID: String, data: Data)?
-    /// 已经为它取过官方封面的那首。取不到时只按 `WidgetCoverPublishPolicy` 有限地重取几次。
-    @ObservationIgnored var widgetAppleMusicArtworkRequestSongID: String?
-    /// 这首取官方封面失败了几次。
-    @ObservationIgnored var widgetAppleMusicArtworkFailures = 0
-    #endif
 }
 
 /// 跳过整个来源之前的倒计时(见 `AudioPlayerService.handleUnavailableSourceFailure`)。
