@@ -12,13 +12,6 @@ import UIKit
 @MainActor
 @Observable
 final class SongCommentsSession {
-    enum Phase: Equatable {
-        case idle
-        case loading
-        case loaded
-        case empty
-        case failed(String)
-    }
 
     var sort: SongCommentSort = .hot
     /// `nil` 表示按配置顺序自动回退；非空表示用户手动锁定某一个评论服务。
@@ -43,6 +36,16 @@ final class SongCommentsSession {
 
     init(service: SongCommentService = .shared) {
         self.service = service
+    }
+}
+
+extension SongCommentsSession {
+    enum Phase: Equatable {
+        case idle
+        case loading
+        case loaded
+        case empty
+        case failed(String)
     }
 
     private struct RequestSignature: Equatable {

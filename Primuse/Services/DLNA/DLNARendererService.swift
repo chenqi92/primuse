@@ -69,8 +69,6 @@ final class DLNARendererService {
     /// 最近接触过本机 renderer 的控制端。DLNA 不保证控制点会暴露设备昵称,
     /// 所以优先用 User-Agent 识别应用,否则回退到来源 IP。
     private(set) var connectedDevices: [ConnectedDevice] = []
-    private static let maxRecentEvents = 80
-    private static let maxConnectedDevices = 8
 
     /// LAN 内被发现的可投屏目标 (UPnP MediaRenderer 设备), 按 UDN 去重。
     /// Controller UI 直接读这个让用户选投屏目标。
@@ -106,23 +104,12 @@ final class DLNARendererService {
     #endif
     private var ssdpJoinedInterfaceAddresses: Set<UInt32> = []
     private var httpListener: NWListener?
-    /// 半开连接防护: 凑齐请求头前的 idle 超时 + 并发连接上限, 防 LAN 端
-    /// slow-loris 式只 connect 不发完整请求头拖死 fd。
-    private static let httpHeaderTimeout: TimeInterval = 12
-    private static let maxHTTPConnections = 16
-    private static let maxSubscriptions = 64
-    private static let minSubscriptionTimeout = 60
-    private static let maxSubscriptionTimeout = 1_800
     private var activeHTTPConnections = 0
     /// HTTP listener 自愈状态机 ── 代际 + 单飞 + 退避, 防止固定端口 bind 持续
     /// 失败时 .failed → 立即重建 的死循环烧 CPU / 刷爆日志。
     @ObservationIgnored private var httpRestartMachine = ListenerRestartStateMachine()
     /// 当前排队中的重启任务; 只可能有一个 (状态机保证单飞)。
     @ObservationIgnored private var httpRetryTask: Task<Void, Never>?
-    /// listener 的 bookkeeping 队列。放主队列会让失败回调直接压主线程。
-    nonisolated private static let httpListenerQueue = DispatchQueue(
-        label: "com.welape.yuanyin.dlna.http-listener"
-    )
     /// NOTIFY alive 周期任务。`ssdp:byebye` 在 stop() 里同步发掉。
     private var notifyTask: Task<Void, Never>?
     private var subscriptions: [String: Subscription] = [:]
@@ -147,8 +134,6 @@ final class DLNARendererService {
     private(set) var transportPlaybackTask: Task<Void, Never>?
 
     private var advertisement = DLNARendererAdvertisement()
-    private static let ssdpMulticastHost: NWEndpoint.Host = "239.255.255.250"
-    private static let ssdpPort: NWEndpoint.Port = 1900
 
     init(player: AudioPlayerService) {
         self.player = player
@@ -205,6 +190,24 @@ final class DLNARendererService {
     /// 控制中心会显示 Primuse"在播", 电量略增 ── footer 里写明。
     /// 状态走 @AppStorage 由 UI 侧持久, 这里只暴露 set 入口让设置页 onChange 调。
     private(set) var keepAliveInBackground = false
+}
+
+extension DLNARendererService {
+    private static let maxRecentEvents = 80
+    private static let maxConnectedDevices = 8
+    /// 半开连接防护: 凑齐请求头前的 idle 超时 + 并发连接上限, 防 LAN 端
+    /// slow-loris 式只 connect 不发完整请求头拖死 fd。
+    private static let httpHeaderTimeout: TimeInterval = 12
+    private static let maxHTTPConnections = 16
+    private static let maxSubscriptions = 64
+    private static let minSubscriptionTimeout = 60
+    private static let maxSubscriptionTimeout = 1_800
+    /// listener 的 bookkeeping 队列。放主队列会让失败回调直接压主线程。
+    nonisolated private static let httpListenerQueue = DispatchQueue(
+        label: "com.welape.yuanyin.dlna.http-listener"
+    )
+    private static let ssdpMulticastHost: NWEndpoint.Host = "239.255.255.250"
+    private static let ssdpPort: NWEndpoint.Port = 1900
 }
 
 extension DLNARendererService {

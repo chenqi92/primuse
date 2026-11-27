@@ -179,7 +179,9 @@ final class LibraryListModel<Query: LibraryListQuery> {
         self.prefetchDistance = max(0, prefetchDistance)
         self.debounce = debounce
     }
+}
 
+extension LibraryListModel {
     /// 开始跟踪目录变化并取第一次行号。重复调用无效。
     /// `initialReload` 为 false:调用方已经 `reload()` 过,只开始跟踪变化。
     func activate(initialReload: Bool = true) {

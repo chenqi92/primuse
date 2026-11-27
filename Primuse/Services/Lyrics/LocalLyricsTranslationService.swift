@@ -321,22 +321,9 @@ struct LocalLyricsTranslationOutcome: Sendable {
 @MainActor
 @Observable
 final class LocalLyricsTranslationService {
-    static let shared = LocalLyricsTranslationService()
-
-    enum ModelState: Equatable, Sendable {
-        case unsupportedSystem
-        case notDownloaded
-        case downloading(Double)
-        case ready
-        case failed
-    }
-
-    typealias Pack = LocalLyricsTranslationModel.Pack
     private(set) var requestedPack: Pack = .persian
     private var states: [Pack: ModelState] = [:]
     private var failureReasons: [Pack: String] = [:]
-    var modelState: ModelState { modelState(for: requestedPack) }
-    var modelFailureReason: String? { modelFailureReason(for: requestedPack) }
     private(set) var modelRevision: UInt = 0 {
         didSet { NotificationCenter.default.post(name: .localLyricsTranslationModelChanged, object: nil) }
     }
@@ -358,6 +345,22 @@ final class LocalLyricsTranslationService {
             states[pack] = isSupported ? .notDownloaded : .unsupportedSystem
         }
     }
+}
+
+extension LocalLyricsTranslationService {
+    static let shared = LocalLyricsTranslationService()
+
+    enum ModelState: Equatable, Sendable {
+        case unsupportedSystem
+        case notDownloaded
+        case downloading(Double)
+        case ready
+        case failed
+    }
+
+    typealias Pack = LocalLyricsTranslationModel.Pack
+    var modelState: ModelState { modelState(for: requestedPack) }
+    var modelFailureReason: String? { modelFailureReason(for: requestedPack) }
 
     func modelState(for pack: Pack) -> ModelState { states[pack] ?? .unsupportedSystem }
     func modelFailureReason(for pack: Pack) -> String? { failureReasons[pack] }

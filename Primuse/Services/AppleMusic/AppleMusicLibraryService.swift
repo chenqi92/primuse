@@ -72,19 +72,6 @@ struct AppleMusicCatalogLibraryWriter: Sendable {
 @MainActor
 @Observable
 final class AppleMusicLibraryService {
-    /// Apple Music 音乐源的固定 ID — 全 Primuse 里 hard-code 这个值,
-    /// 不走 UUID, 让 song.sourceID 一致, 移除后重新添加也能 match 上。
-    nonisolated static let systemSourceID = AppleMusicLibraryIdentity.sourceID
-
-    /// 「Apple Music 资料库」镜像歌单的固定 ID。每次 sync 完整覆盖,
-    /// UI 上按这个 id 识别后 *禁用从歌单移除单首歌* — 不能反向 push 到
-    /// Apple Music 删收藏, 移除一首本地视图意味着下次 sync 又回来,
-    /// 体验上是"删了又出现"的 bug, 索性禁用。
-    nonisolated static let systemPlaylistID = AppleMusicLibraryIdentity.systemPlaylistID
-
-    /// 用户在 Apple Music 自建的 playlist 镜像 ID 前缀, 后面接 amID。
-    /// 跟「Apple Music 资料库」全集镜像并存, 同样受 sync 覆盖保护。
-    nonisolated static let userPlaylistIDPrefix = AppleMusicLibraryIdentity.userPlaylistIDPrefix
 
     private(set) var state: SyncState = .idle
     /// 最近一次完成扫描的时间, 用于 UI 显示。
@@ -104,8 +91,6 @@ final class AppleMusicLibraryService {
     /// 一个固定总时限。大库 (几千首 + 几十个歌单, 多次网络往返) 只要还在持续推进就
     /// 不会被误杀; 真正卡死 (网络挂起) 才会触发, 避免大库用户陷入永久"同步超时"循环。
     private var lastSyncProgressAt: Date = .distantPast
-    /// 单步无进度的容忍窗口。一页 / 一个歌单的网络往返远小于这个值, 只有真卡住才会超。
-    private static let syncStallTimeout: TimeInterval = 30
     /// in-memory cache: PrimuseKit.Song.filePath (= MusicItemID.rawValue)
     /// → MusicKit.Song. sync 时填, play 时查 — 让 player.play(primuseSong)
     /// 不用每次再发 catalog lookup。冷启动后 cache 空, miss 时回退到
@@ -169,7 +154,6 @@ final class AppleMusicLibraryService {
     @ObservationIgnored private var isRefreshingAccess = false
     private var lastAccess: AppleMusicLibraryAccess?
     @ObservationIgnored private var lastSyncedDeviceLibraryModificationDate: Date?
-    private static let syncedStorefrontKey = "primuse.appleMusic.syncedStorefront"
 
     deinit {
         subscriptionUpdatesTask?.cancel()
@@ -188,6 +172,25 @@ final class AppleMusicLibraryService {
             state = .done(songCount: syncHistory.songCount, at: at)
         }
     }
+}
+
+extension AppleMusicLibraryService {
+    /// Apple Music 音乐源的固定 ID — 全 Primuse 里 hard-code 这个值,
+    /// 不走 UUID, 让 song.sourceID 一致, 移除后重新添加也能 match 上。
+    nonisolated static let systemSourceID = AppleMusicLibraryIdentity.sourceID
+
+    /// 「Apple Music 资料库」镜像歌单的固定 ID。每次 sync 完整覆盖,
+    /// UI 上按这个 id 识别后 *禁用从歌单移除单首歌* — 不能反向 push 到
+    /// Apple Music 删收藏, 移除一首本地视图意味着下次 sync 又回来,
+    /// 体验上是"删了又出现"的 bug, 索性禁用。
+    nonisolated static let systemPlaylistID = AppleMusicLibraryIdentity.systemPlaylistID
+
+    /// 用户在 Apple Music 自建的 playlist 镜像 ID 前缀, 后面接 amID。
+    /// 跟「Apple Music 资料库」全集镜像并存, 同样受 sync 覆盖保护。
+    nonisolated static let userPlaylistIDPrefix = AppleMusicLibraryIdentity.userPlaylistIDPrefix
+    /// 单步无进度的容忍窗口。一页 / 一个歌单的网络往返远小于这个值, 只有真卡住才会超。
+    private static let syncStallTimeout: TimeInterval = 30
+    private static let syncedStorefrontKey = "primuse.appleMusic.syncedStorefront"
 
     private static let dislikedCatalogIDsKey = "primuse.appleMusic.dislikedCatalogIDs"
 

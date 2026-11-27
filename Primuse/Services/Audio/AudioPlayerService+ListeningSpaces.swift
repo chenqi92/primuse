@@ -8,25 +8,6 @@ import UIKit
 @MainActor
 @Observable
 final class MusicSessionMemoryStore {
-    struct Memory: Codable, Equatable, Sendable {
-        var snapshot: PlaybackSessionSnapshot
-        var title: String
-        var subtitle: String?
-        var coverRef: String?
-        var songID: String
-        var sourceID: String
-        var savedAt: Date
-        var continuation: QueueContinuation? = nil
-        /// 只在存盘的那份里有:单独存的续接的令牌(读回时对上才接回来,随即清掉)。
-        var storedContinuationToken: String? = nil
-
-        /// 这张队列请求的整张 id(续接在映射文件里时不读成数组)。
-        var requestedSongs: QueueRequestedSongs {
-            continuation.map(QueueRequestedSongs.continuation) ?? .ids(snapshot.queueSongIDs)
-        }
-    }
-
-    static let shared = MusicSessionMemoryStore()
     private(set) var memory: Memory? {
         didSet { prepareStartupWindow() }
     }
@@ -43,7 +24,6 @@ final class MusicSessionMemoryStore {
     @ObservationIgnored private var writeTask: Task<Void, Never>?
     @ObservationIgnored private var pendingWrite: Memory?
     @ObservationIgnored private var hasPendingWrite = false
-    private static let key = "primuse.listeningSpaces.musicMemory.v1"
     #if os(iOS)
     @ObservationIgnored private var backgroundWrite: UIBackgroundTaskIdentifier = .invalid
     #endif
@@ -85,6 +65,29 @@ final class MusicSessionMemoryStore {
             if legacy != nil || read.embedded { self.save(loaded) }
         }
     }
+}
+
+extension MusicSessionMemoryStore {
+    struct Memory: Codable, Equatable, Sendable {
+        var snapshot: PlaybackSessionSnapshot
+        var title: String
+        var subtitle: String?
+        var coverRef: String?
+        var songID: String
+        var sourceID: String
+        var savedAt: Date
+        var continuation: QueueContinuation? = nil
+        /// 只在存盘的那份里有:单独存的续接的令牌(读回时对上才接回来,随即清掉)。
+        var storedContinuationToken: String? = nil
+
+        /// 这张队列请求的整张 id(续接在映射文件里时不读成数组)。
+        var requestedSongs: QueueRequestedSongs {
+            continuation.map(QueueRequestedSongs.continuation) ?? .ids(snapshot.queueSongIDs)
+        }
+    }
+
+    static let shared = MusicSessionMemoryStore()
+    private static let key = "primuse.listeningSpaces.musicMemory.v1"
 
     func save(_ memory: Memory) {
         revision &+= 1

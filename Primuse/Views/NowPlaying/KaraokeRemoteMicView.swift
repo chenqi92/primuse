@@ -17,14 +17,6 @@ struct KaraokeRemoteMicTarget: Identifiable {
 @MainActor
 @Observable
 final class KaraokeRemoteMicController {
-    enum State: Equatable {
-        case starting
-        case connecting
-        case connected
-        case rejected
-        case micDenied
-        case failed
-    }
 
     private(set) var state: State = .starting
     private(set) var songTitle = ""
@@ -32,24 +24,7 @@ final class KaraokeRemoteMicController {
     private(set) var score: Int?
     private(set) var currentNote: Double?
     private(set) var sendsLiveVoice = false
-    struct VoiceRequest: Identifiable, Equatable {
-        let port: UInt16
-        let token: String
-        var id: String { token }
-    }
     var presentedVoiceRequest: VoiceRequest?
-
-    /// The AI vocal this phone provides for the TV's current song.
-    enum StemStatus: Equatable {
-        case none
-        case needsModel
-        case downloadingModel(Double)
-        case preparing
-        case separating(Double)
-        case sending
-        case sent
-        case unavailable
-    }
     private(set) var stemStatus: StemStatus = .none
     @ObservationIgnored private var tvSongID: String?
     @ObservationIgnored private var sentSongID: String?
@@ -71,6 +46,34 @@ final class KaraokeRemoteMicController {
 
     init(endpoint: KaraokeMicLink.Endpoint) {
         self.endpoint = endpoint
+    }
+}
+
+extension KaraokeRemoteMicController {
+    enum State: Equatable {
+        case starting
+        case connecting
+        case connected
+        case rejected
+        case micDenied
+        case failed
+    }
+    struct VoiceRequest: Identifiable, Equatable {
+        let port: UInt16
+        let token: String
+        var id: String { token }
+    }
+
+    /// The AI vocal this phone provides for the TV's current song.
+    enum StemStatus: Equatable {
+        case none
+        case needsModel
+        case downloadingModel(Double)
+        case preparing
+        case separating(Double)
+        case sending
+        case sent
+        case unavailable
     }
 
     func start() {

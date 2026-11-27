@@ -24,7 +24,6 @@ struct SmartNudge: Identifiable, Equatable {
 @MainActor
 @Observable
 final class SmartNudgeCenter {
-    static let shared = SmartNudgeCenter()
 
     private(set) var activeNudge: SmartNudge?
 
@@ -44,13 +43,6 @@ final class SmartNudgeCenter {
     @ObservationIgnored private var listeningSince: Date?
     @ObservationIgnored private var lastPlayingSeenAt: Date?
 
-    private static let historyKey = "primuse.smartNudge.history.v1"
-    private static let skipsKey = "primuse.smartNudge.skips.v1"
-    private static let enabledKey = "primuse.smartNudge.enabled.v1"
-    private static let disabledKindsKey = "primuse.smartNudge.disabledKinds.v1"
-    /// A pause shorter than this does not end a listening session.
-    private static let sessionGap: TimeInterval = 10 * 60
-
     /// `defaults` is for tests; the app uses `shared`.
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -64,6 +56,17 @@ final class SmartNudgeCenter {
         skips = (defaults.data(forKey: Self.skipsKey))
             .flatMap { try? JSONDecoder().decode([String: [Date]].self, from: $0) } ?? [:]
     }
+}
+
+extension SmartNudgeCenter {
+    static let shared = SmartNudgeCenter()
+
+    private static let historyKey = "primuse.smartNudge.history.v1"
+    private static let skipsKey = "primuse.smartNudge.skips.v1"
+    private static let enabledKey = "primuse.smartNudge.enabled.v1"
+    private static let disabledKindsKey = "primuse.smartNudge.disabledKinds.v1"
+    /// A pause shorter than this does not end a listening session.
+    private static let sessionGap: TimeInterval = 10 * 60
 
     func isKindEnabled(_ kind: SmartNudgeKind) -> Bool { !disabledKinds.contains(kind) }
 

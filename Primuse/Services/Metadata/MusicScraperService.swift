@@ -87,15 +87,6 @@ enum ScrapeResumePolicy {
 @Observable
 final class MusicScraperService {
 
-    nonisolated static let batchLyricsEmbeddingAcknowledgedKey = "primuse.scrape.batchLyricsEmbeddingAcknowledged"
-
-    /// 任务 B 接线用：这首歌的歌词是不是用户主动清空的。为真时刮到的歌词不写，按「没去刮」算，不进失败清单。
-    static var lyricsWereClearedByUser: (String) -> Bool = { _ in false }
-
-    nonisolated static let sidecarCoverWriteEnabledKey = "primuse.sidecar.coverWriteEnabled"
-    nonisolated static let sidecarLyricsWriteEnabledKey = "primuse.sidecar.lyricsWriteEnabled"
-    nonisolated static let sidecarWriteTimeoutKey = "primuse.sidecar.writeTimeout"
-
     private let sourceManager: SourceManager
     private let sourceFileName: (Song) -> String?
     private let metadataService: MetadataService
@@ -129,18 +120,6 @@ final class MusicScraperService {
     /// restarts when the scene returns to the foreground without a background
     /// phase; the background continuation path handles the other case.
     private var sceneTransitionInterruptedScrape = false
-    /// Bound both observable full-library publications and checkpoint replay.
-    /// A large library cannot afford a complete observable-array publication
-    /// every few songs. Forty still bounds idempotent checkpoint replay, while
-    /// the time gate below publishes slow network work at least every 5 seconds.
-    private static let songPublicationBatchSize = 40
-    private static let songPublicationInterval: TimeInterval = 5
-    /// Sidecar writes run one at a time per source, and each queued write
-    /// holds its scraped cover until it has written it. On a slow share
-    /// (embedding covers rewrites whole audio files) lookups outrun the writes
-    /// and covers used to pile up without bound; the batch waits instead.
-    /// Two publication batches (`songPublicationBatchSize`).
-    nonisolated static let maximumQueuedSidecarWrites = 80
     private let scrapeCheckpointURL: URL
     private var scrapeCheckpoint: ScrapeCheckpoint?
     /// 断点是从盘上读来的、这个进程还没跑过它(被系统回收或闪退后重新打开)。
@@ -220,6 +199,29 @@ final class MusicScraperService {
         }
         checkpointIsFromPreviousProcess = scrapeCheckpoint?.songIDs.isEmpty == false
     }
+}
+
+extension MusicScraperService {
+    nonisolated static let batchLyricsEmbeddingAcknowledgedKey = "primuse.scrape.batchLyricsEmbeddingAcknowledged"
+
+    /// 任务 B 接线用：这首歌的歌词是不是用户主动清空的。为真时刮到的歌词不写，按「没去刮」算，不进失败清单。
+    static var lyricsWereClearedByUser: (String) -> Bool = { _ in false }
+
+    nonisolated static let sidecarCoverWriteEnabledKey = "primuse.sidecar.coverWriteEnabled"
+    nonisolated static let sidecarLyricsWriteEnabledKey = "primuse.sidecar.lyricsWriteEnabled"
+    nonisolated static let sidecarWriteTimeoutKey = "primuse.sidecar.writeTimeout"
+    /// Bound both observable full-library publications and checkpoint replay.
+    /// A large library cannot afford a complete observable-array publication
+    /// every few songs. Forty still bounds idempotent checkpoint replay, while
+    /// the time gate below publishes slow network work at least every 5 seconds.
+    private static let songPublicationBatchSize = 40
+    private static let songPublicationInterval: TimeInterval = 5
+    /// Sidecar writes run one at a time per source, and each queued write
+    /// holds its scraped cover until it has written it. On a slow share
+    /// (embedding covers rewrites whole audio files) lookups outrun the writes
+    /// and covers used to pile up without bound; the batch waits instead.
+    /// Two publication batches (`songPublicationBatchSize`).
+    nonisolated static let maximumQueuedSidecarWrites = 80
 }
 
 extension MusicScraperService {

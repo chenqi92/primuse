@@ -43,14 +43,6 @@ private enum RadioLogoDiscoveryTransport {
 @MainActor
 @Observable
 final class RadioLogoDiscoveryService {
-    static let shared = RadioLogoDiscoveryService()
-
-    /// 同时最多两个电台在发现中。台标是背景任务，不该和用户正在听的流抢带宽。
-    private static let maximumConcurrentDiscoveries = 2
-
-    /// 一批最多排这么多个。用户可能有几百个电台，一次全排进去只会让队列
-    /// 空转很久 —— 剩下的下次进列表时自然会补上。
-    private static let maximumBatchSize = 12
 
     private var states: [String: RadioLogoDiscoveryState] = [:]
     private var inFlight: Set<String> = []
@@ -78,6 +70,17 @@ final class RadioLogoDiscoveryService {
             NotificationCenter.default.removeObserver(deletionObserver)
         }
     }
+}
+
+extension RadioLogoDiscoveryService {
+    static let shared = RadioLogoDiscoveryService()
+
+    /// 同时最多两个电台在发现中。台标是背景任务，不该和用户正在听的流抢带宽。
+    private static let maximumConcurrentDiscoveries = 2
+
+    /// 一批最多排这么多个。用户可能有几百个电台，一次全排进去只会让队列
+    /// 空转很久 —— 剩下的下次进列表时自然会补上。
+    private static let maximumBatchSize = 12
 
     /// 电台被删掉后清掉它的退避记录。不这么做的话，状态文件会随着「加了又删」
     /// 无限长大，而且同一个电台被重新添加时还会继承上一轮的退避。

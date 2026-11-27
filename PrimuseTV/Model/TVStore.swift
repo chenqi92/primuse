@@ -731,7 +731,6 @@ final class TVStore {
     @ObservationIgnored private var sourceQuotaSkipTask: Task<Void, Never>?
     /// 这个月已经倒数跳过过一次的源(值是年月):再遇到同源失败直接跳过,不再每首都倒数。
     @ObservationIgnored private var quotaSkippedSourceMonths: [String: Int] = [:]
-    static let sourceQuotaSkipSeconds = 5
     private(set) var isMedleyActive = false
     private(set) var medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength
     /// 每段按那首歌高潮本身的长短播;关掉才用固定秒数。
@@ -1178,15 +1177,6 @@ final class TVStore {
     @ObservationIgnored private var autoContinuationTask: Task<Void, Never>?
     /// 上一次续播什么也没找到时的队尾,同一个死胡同不反复整库找。
     @ObservationIgnored private var autoContinuationDeadEndSongID: String?
-    /// 「播完后继续播放相似歌曲」,默认开。
-    nonisolated static let autoContinueSimilarKey = "primuse.tv.autoContinueSimilar"
-    /// 「上一首」先回到这首开头(#348)。关掉后遥控器的上一首一律直接切歌。
-    nonisolated static let previousRestartsCurrentSongKey = "primuse.tv.previousRestartsCurrentSong"
-    /// 智能回退(#363):有声内容停得越久,继续时往回退得越多,最多退到上限(秒)。只存在这台电视上。
-    nonisolated static let spokenWordSmartRewindEnabledKey = "primuse.tv.spokenWordSmartRewindEnabled"
-    nonisolated static let spokenWordSmartRewindLimitKey = "primuse.tv.spokenWordSmartRewindLimit"
-    /// 随机播放的抽歌偏好(#332),只存在这台电视上;默认完全随机。
-    nonisolated static let shufflePreferenceKey = "primuse.tv.shufflePreference"
     @ObservationIgnored private var queueContinuationWriteTask: Task<Void, Never>?
     @ObservationIgnored private var topShelfTask: Task<Void, Never>?
     @ObservationIgnored private var playbackSessionTask: Task<Void, Never>?
@@ -1359,7 +1349,6 @@ final class TVStore {
     @ObservationIgnored private var likedAlbumsCache: (library: Int, favorites: Int, albums: [Album])?
     @ObservationIgnored private var likedArtistsCache:
         (mode: ArtistBrowseMode, library: Int, favorites: Int, artists: [Artist])?
-    nonisolated static let ratingPlaylistRatings = [5, 4, 3]
     /// 媒体服务器实时搜索到的未入库临时曲目，只用于即时流式播放与队列切歌，不写入本地资料库。
     // crash-pattern: allow library-array-property 仅保存单次服务器搜索结果(每源上限 25 首)，切回本地曲库即清空
     @ObservationIgnored private var transientServerSongs: [String: Song] = [:]
@@ -1375,11 +1364,57 @@ final class TVStore {
 
     @ObservationIgnored private var searchCache = LibrarySearchCache()
 
-    /// 从这么多首命中的歌里找它们所在的专辑。和手机端一样有个上限:很短的查询词能命中半个曲库。
-    nonisolated static let searchRelatedAlbumSongLimit = 240
-
     /// 搜索页每次重算(焦点移动也算)都要问一遍建议,同一查询按曲库修订号记住结果。
     @ObservationIgnored private var searchSuggestionsCache: (query: String, revision: Int, names: [String])?
+
+    // MARK: 深链(主屏 Top Shelf 点击 → 播放)
+
+    /// 曲库未就绪时暂存的深链,reload/bootstrap 完成后再执行。
+    @ObservationIgnored private var pendingDeepLink: URL? {
+        didSet {
+            guard pendingDeepLink != oldValue else { return }
+            pendingPodcastDeepLinkTask?.cancel()
+            pendingPodcastDeepLinkTask = nil
+            didRefreshPendingPodcast = false
+        }
+    }
+    @ObservationIgnored private var pendingPodcastDeepLinkTask: Task<Void, Never>?
+    @ObservationIgnored private var didRefreshPendingPodcast = false
+    /// 这次启动的电台列表已经到齐过(首轮同步结束,或这次启动不会同步)。
+    /// 之后再来的电台深链找不到目标台,就不必再等。
+    @ObservationIgnored private var hasSettledRadioList = false
+
+    // MARK: 播客
+
+    /// 正在放的播客单集。换成曲库、电台、目录歌曲时清掉(见 `resetPodcastPlayback`)。
+    private(set) var currentPodcastEpisodeID: String?
+    /// 这一集放完接着放的单集(连续播放开着时):节目页按收听顺序,最新单集按列表顺序。
+    private(set) var podcastUpNext: [PodcastEpisode] = []
+    /// 正在放的单集当作一首虚拟歌:续播位置、按节目记的语速都按它算(专辑 = 节目名),和手机一致。
+    @ObservationIgnored private var currentPodcastSong: Song?
+    /// 这一集的片尾已经跳过了,别每拍再触发一次。
+    @ObservationIgnored private var podcastOutroHandledEpisodeID: String?
+    /// 媒体流没有章节时使用 ABS 条目或 RSS 单集提供的章节。
+    private var sourceChapters: [MediaChapter] = []
+    private(set) var libraryPodcastShowNotes: String?
+    @ObservationIgnored private var sourceChapterTask: Task<Void, Never>?
+}
+
+extension TVStore {
+    static let sourceQuotaSkipSeconds = 5
+    /// 「播完后继续播放相似歌曲」,默认开。
+    nonisolated static let autoContinueSimilarKey = "primuse.tv.autoContinueSimilar"
+    /// 「上一首」先回到这首开头(#348)。关掉后遥控器的上一首一律直接切歌。
+    nonisolated static let previousRestartsCurrentSongKey = "primuse.tv.previousRestartsCurrentSong"
+    /// 智能回退(#363):有声内容停得越久,继续时往回退得越多,最多退到上限(秒)。只存在这台电视上。
+    nonisolated static let spokenWordSmartRewindEnabledKey = "primuse.tv.spokenWordSmartRewindEnabled"
+    nonisolated static let spokenWordSmartRewindLimitKey = "primuse.tv.spokenWordSmartRewindLimit"
+    /// 随机播放的抽歌偏好(#332),只存在这台电视上;默认完全随机。
+    nonisolated static let shufflePreferenceKey = "primuse.tv.shufflePreference"
+    nonisolated static let ratingPlaylistRatings = [5, 4, 3]
+
+    /// 从这么多首命中的歌里找它们所在的专辑。和手机端一样有个上限:很短的查询词能命中半个曲库。
+    nonisolated static let searchRelatedAlbumSongLimit = 240
 
     private static let pendingAppleMusicLikesKey = "tv.pendingAppleMusicLikes"
     /// 等这么久 iPhone 还没把歌同步过来(多半没开同步 Apple Music 资料库),就不再等了。
@@ -1619,23 +1654,6 @@ final class TVStore {
 
     private static let topShelfLastPlayedKey = "tv.topShelf.lastPlayedAt.v1"
 
-    // MARK: 深链(主屏 Top Shelf 点击 → 播放)
-
-    /// 曲库未就绪时暂存的深链,reload/bootstrap 完成后再执行。
-    @ObservationIgnored private var pendingDeepLink: URL? {
-        didSet {
-            guard pendingDeepLink != oldValue else { return }
-            pendingPodcastDeepLinkTask?.cancel()
-            pendingPodcastDeepLinkTask = nil
-            didRefreshPendingPodcast = false
-        }
-    }
-    @ObservationIgnored private var pendingPodcastDeepLinkTask: Task<Void, Never>?
-    @ObservationIgnored private var didRefreshPendingPodcast = false
-    /// 这次启动的电台列表已经到齐过(首轮同步结束,或这次启动不会同步)。
-    /// 之后再来的电台深链找不到目标台,就不必再等。
-    @ObservationIgnored private var hasSettledRadioList = false
-
     /// 只展示能由 Apple TV 自行建立曲库的来源。其余来源必须先在 iPhone / Mac
     /// 完成授权与扫描，再通过配对或同步传入完整曲库，不能保存成一个空来源冒充成功。
     /// 「在 Apple TV 上手动添加」能选的类型 —— 必须是电视端自己能建库的
@@ -1670,21 +1688,6 @@ final class TVStore {
 
     /// 当前这首剩下不到这么多秒时, 把下一首的流地址再解析一次。
     private static let preparedStreamRefreshLeadSeconds: Double = 15
-
-    // MARK: 播客
-
-    /// 正在放的播客单集。换成曲库、电台、目录歌曲时清掉(见 `resetPodcastPlayback`)。
-    private(set) var currentPodcastEpisodeID: String?
-    /// 这一集放完接着放的单集(连续播放开着时):节目页按收听顺序,最新单集按列表顺序。
-    private(set) var podcastUpNext: [PodcastEpisode] = []
-    /// 正在放的单集当作一首虚拟歌:续播位置、按节目记的语速都按它算(专辑 = 节目名),和手机一致。
-    @ObservationIgnored private var currentPodcastSong: Song?
-    /// 这一集的片尾已经跳过了,别每拍再触发一次。
-    @ObservationIgnored private var podcastOutroHandledEpisodeID: String?
-    /// 媒体流没有章节时使用 ABS 条目或 RSS 单集提供的章节。
-    private var sourceChapters: [MediaChapter] = []
-    private(set) var libraryPodcastShowNotes: String?
-    @ObservationIgnored private var sourceChapterTask: Task<Void, Never>?
 }
 
 extension TVStore {

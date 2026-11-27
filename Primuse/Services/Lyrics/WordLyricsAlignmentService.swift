@@ -695,6 +695,34 @@ extension Notification.Name {
 @MainActor
 @Observable
 final class WordLyricsAlignmentService {
+
+    private(set) var modelState: ModelState
+    private(set) var modelFailureReason: String?
+    private(set) var modelRevision: UInt = 0 {
+        didSet { NotificationCenter.default.post(name: .wordLyricsAlignmentModelChanged, object: nil) }
+    }
+    /// Increments whenever an alignment overlay becomes available or upgrades to a higher tier.
+    private(set) var alignmentRevision: UInt = 0
+
+    @ObservationIgnored private var locatedModel: LyricsAlignmentModel.Located?
+    @ObservationIgnored private var downloadTask: Task<Void, Never>?
+    @ObservationIgnored private var hasRequestedAvailability = false
+    @ObservationIgnored private var availabilityRefresh: Task<Void, Never>?
+    @ObservationIgnored private var isRemovingModel = false
+    @ObservationIgnored private var availabilityRevision: UInt = 0
+    @ObservationIgnored private let predictor = WordLyricsAlignmentPredictor()
+
+    @ObservationIgnored private var memoryCache: [OverlayKey: WordLyricsTimingOverlay] = [:]
+    @ObservationIgnored private var memoryOrder: [OverlayKey] = []
+    @ObservationIgnored private var activeJobs: [OverlayKey: (tier: WordTimingTier, task: Task<Void, Never>)] = [:]
+
+    private init() {
+        let supported = LyricsAlignmentModel.isSystemSupported
+        modelState = supported ? .notDownloaded : .unsupportedSystem
+    }
+}
+
+extension WordLyricsAlignmentService {
     static let shared = WordLyricsAlignmentService()
 
     enum ModelState: Equatable, Sendable {
@@ -705,36 +733,11 @@ final class WordLyricsAlignmentService {
         case failed
     }
 
-    private(set) var modelState: ModelState
-    private(set) var modelFailureReason: String?
-    private(set) var modelRevision: UInt = 0 {
-        didSet { NotificationCenter.default.post(name: .wordLyricsAlignmentModelChanged, object: nil) }
-    }
-    /// Increments whenever an alignment overlay becomes available or upgrades to a higher tier.
-    private(set) var alignmentRevision: UInt = 0
-
     var isModelReady: Bool { modelState == .ready }
-
-    @ObservationIgnored private var locatedModel: LyricsAlignmentModel.Located?
-    @ObservationIgnored private var downloadTask: Task<Void, Never>?
-    @ObservationIgnored private var hasRequestedAvailability = false
-    @ObservationIgnored private var availabilityRefresh: Task<Void, Never>?
-    @ObservationIgnored private var isRemovingModel = false
-    @ObservationIgnored private var availabilityRevision: UInt = 0
-    @ObservationIgnored private let predictor = WordLyricsAlignmentPredictor()
 
     private struct OverlayKey: Hashable {
         let songKey: String
         let lyricsFingerprint: String
-    }
-
-    @ObservationIgnored private var memoryCache: [OverlayKey: WordLyricsTimingOverlay] = [:]
-    @ObservationIgnored private var memoryOrder: [OverlayKey] = []
-    @ObservationIgnored private var activeJobs: [OverlayKey: (tier: WordTimingTier, task: Task<Void, Never>)] = [:]
-
-    private init() {
-        let supported = LyricsAlignmentModel.isSystemSupported
-        modelState = supported ? .notDownloaded : .unsupportedSystem
     }
 
     // MARK: - Model Pack Lifecycle

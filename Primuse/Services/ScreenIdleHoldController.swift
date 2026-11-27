@@ -72,7 +72,6 @@ enum ScreenWakeLeases {
 @MainActor
 @Observable
 final class ScreenIdleHoldController {
-    static let shared = ScreenIdleHoldController()
 
     private(set) var keepsImmersivePresentationAwake = false
 
@@ -94,14 +93,18 @@ final class ScreenIdleHoldController {
     @ObservationIgnored private var reevaluation: Task<Void, Never>?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
+    private init() {}
+}
+
+extension ScreenIdleHoldController {
+    static let shared = ScreenIdleHoldController()
+
     private static let playbackOwner = "playback"
     private static let fullscreenPageOwner = "fullscreenPage"
     #if os(macOS)
     /// Mac 读的是整机的最近输入：放手以后隔这么久看一眼，有人动过就重新拿。
     private static let macResumePollInterval: TimeInterval = 15
     #endif
-
-    private init() {}
 
     /// 启动时调一次。`isPlaying` 在观察里读，播放状态一变就重算。
     func start(isPlaying: @escaping @MainActor @Sendable () -> Bool) {

@@ -33,7 +33,9 @@ final class WiFiTransferSender {
     private var songByFileID: [String: String] = [:]
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
+}
 
+extension WiFiTransferSender {
     var externalFiles: [WiFiTransferOutgoingFile] { selection?.files.filter { !excluded.contains($0.id) } ?? [] }
     var files: [WiFiTransferOutgoingFile] { externalFiles + (preparedMusic?.files ?? []) }
     var bytes: Int64 { files.reduce(0) { $0 + $1.size } }

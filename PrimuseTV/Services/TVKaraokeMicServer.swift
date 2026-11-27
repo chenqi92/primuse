@@ -10,12 +10,6 @@ import os.lock
 @MainActor
 @Observable
 final class TVKaraokeMicServer {
-    enum State: Equatable {
-        case idle
-        case listening(KaraokeMicLink.Endpoint)
-        case connected(deviceName: String, endpoint: KaraokeMicLink.Endpoint)
-        case failed
-    }
 
     private(set) var state: State = .idle
     private(set) var supportsLiveVoice = false
@@ -34,13 +28,22 @@ final class TVKaraokeMicServer {
     /// uploads in progress. Bounded so nobody on the network can pile them up.
     @ObservationIgnored private var pending: [NWConnection] = []
     @ObservationIgnored private var uploads: [NWConnection] = []
-    static let maximumPendingConnections = 4
-    static let handshakeTimeout: Duration = .seconds(5)
 
     @ObservationIgnored private var listener: NWListener?
     @ObservationIgnored private var connection: NWConnection?
     @ObservationIgnored private var key = KaraokeMicLink.makeKey()
     private let queue = DispatchQueue(label: "primuse.tv.karaoke-mic")
+}
+
+extension TVKaraokeMicServer {
+    enum State: Equatable {
+        case idle
+        case listening(KaraokeMicLink.Endpoint)
+        case connected(deviceName: String, endpoint: KaraokeMicLink.Endpoint)
+        case failed
+    }
+    static let maximumPendingConnections = 4
+    static let handshakeTimeout: Duration = .seconds(5)
 
     var endpoint: KaraokeMicLink.Endpoint? {
         switch state {

@@ -16,7 +16,6 @@ import AppKit
 @MainActor
 @Observable
 final class AnimatedArtworkPreferences {
-    static let shared = AnimatedArtworkPreferences()
 
     private(set) var animatedArtworkEnabled: Bool
     private(set) var animatedArtworkUnmeteredOnly: Bool
@@ -91,6 +90,10 @@ final class AnimatedArtworkPreferences {
             }
         }
     }
+}
+
+extension AnimatedArtworkPreferences {
+    static let shared = AnimatedArtworkPreferences()
 
     private func refresh() {
         let scraperData = defaults.data(forKey: ScraperSettings.defaultsKey)

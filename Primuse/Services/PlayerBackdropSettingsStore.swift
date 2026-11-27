@@ -7,7 +7,6 @@ import PrimuseKit
 @MainActor
 @Observable
 final class PlayerBackdropSettingsStore {
-    static let shared = PlayerBackdropSettingsStore()
 
     private(set) var settings: PlayerBackdropSettings
     /// 本机自选图片，按添加顺序。只记文件确实还在的。
@@ -29,6 +28,10 @@ final class PlayerBackdropSettingsStore {
         applyDebugLaunchOverrides()
         #endif
     }
+}
+
+extension PlayerBackdropSettingsStore {
+    static let shared = PlayerBackdropSettingsStore()
 
     var hasCustomImages: Bool { !customImageIDs.isEmpty }
 

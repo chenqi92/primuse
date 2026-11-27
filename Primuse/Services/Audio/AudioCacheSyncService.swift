@@ -336,8 +336,6 @@ final class AudioCacheSyncService {
     private(set) var receivedFileCount = 0
     private(set) var receivedByteCount: Int64 = 0
     private(set) var incomingError: String?
-    var isReceiving: Bool { (receiverState == .ready || receiverState == .directOnly) && connectionCode != nil }
-    var localDeviceName: String { "\(deviceName) · \(deviceID.prefix(4))" }
     private(set) var operation: AudioCacheSyncOperation = .idle
     private(set) var activePeerID: String?
     private(set) var localInventory: AudioCacheSyncInventorySummary?
@@ -369,11 +367,6 @@ final class AudioCacheSyncService {
     @ObservationIgnored private let deviceName: String
     @ObservationIgnored private let platform: AudioCacheSyncPlatform
     @ObservationIgnored private let advertisesBonjour: Bool
-    /// 浏览器启动时 Network 要和 mDNSResponder 同步建连(放在主线程上时打开同步页要卡 80ms 上下),
-    /// 启动和取消都排到这条串行队列上,先后不会乱;回调仍投到主队列。
-    private nonisolated static let browserControlQueue = DispatchQueue(
-        label: "com.welape.primuse.cache-sync.browser"
-    )
 
     init(advertisesBonjour: Bool = true) {
         self.advertisesBonjour = advertisesBonjour
@@ -388,6 +381,18 @@ final class AudioCacheSyncService {
         platform = .mac
         #endif
     }
+
+    @ObservationIgnored private var activeOperationID = UUID()
+}
+
+extension AudioCacheSyncService {
+    var isReceiving: Bool { (receiverState == .ready || receiverState == .directOnly) && connectionCode != nil }
+    var localDeviceName: String { "\(deviceName) · \(deviceID.prefix(4))" }
+    /// 浏览器启动时 Network 要和 mDNSResponder 同步建连(放在主线程上时打开同步页要卡 80ms 上下),
+    /// 启动和取消都排到这条串行队列上,先后不会乱;回调仍投到主队列。
+    private nonisolated static let browserControlQueue = DispatchQueue(
+        label: "com.welape.primuse.cache-sync.browser"
+    )
 
     func attach(
         sourceManager: SourceManager,
@@ -688,8 +693,6 @@ final class AudioCacheSyncService {
         lastError = nil
         lastCompletion = nil
     }
-
-    @ObservationIgnored private var activeOperationID = UUID()
 
     private func failCurrentOperation(_ message: String) {
         lastError = message

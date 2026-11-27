@@ -3276,9 +3276,6 @@ private actor AlwaysDownloadWorker {
 @MainActor
 @Observable
 final class AlwaysDownloadCoordinator {
-    private static let defaultsKey = "primuse.playlist-always-download.v1"
-    /// 开着「保持离线」的有声书(#283):book id → 书名与上次分组时的章节。和歌单一样只存本机。
-    private static let booksDefaultsKey = "primuse.book-always-download.v1"
 
     private let library: MusicLibrary
     private let sourcesStore: SourcesStore
@@ -3326,6 +3323,15 @@ final class AlwaysDownloadCoordinator {
                 .appendingPathComponent("always-download-queue-v1.json")
         )
     }
+
+    /// 去抖期间攒下的触发原因，下一轮核对一起记进日志。
+    private var pendingReconciliationReasons: Set<String> = []
+}
+
+extension AlwaysDownloadCoordinator {
+    private static let defaultsKey = "primuse.playlist-always-download.v1"
+    /// 开着「保持离线」的有声书(#283):book id → 书名与上次分组时的章节。和歌单一样只存本机。
+    private static let booksDefaultsKey = "primuse.book-always-download.v1"
 
     func isEnabled(for playlistID: String) -> Bool {
         if let bookID = AudiobookOfflinePolicy.bookID(fromOwnerID: playlistID) {
@@ -3484,9 +3490,6 @@ final class AlwaysDownloadCoordinator {
             await self?.worker.invalidateCompletedSong(songID)
         }
     }
-
-    /// 去抖期间攒下的触发原因，下一轮核对一起记进日志。
-    private var pendingReconciliationReasons: Set<String> = []
 
     private func observeLibraryAndSources() {
         withObservationTracking {

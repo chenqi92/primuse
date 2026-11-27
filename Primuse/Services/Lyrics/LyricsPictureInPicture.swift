@@ -9,7 +9,6 @@ import UIKit
 @Observable
 final class LyricsPictureInPicture: NSObject, @preconcurrency AVPictureInPictureControllerDelegate,
     @preconcurrency AVPictureInPictureSampleBufferPlaybackDelegate {
-    static let shared = LyricsPictureInPicture()
     private(set) var isPossible = false
     private(set) var isActive = false
     private(set) var isStarting = false
@@ -30,6 +29,10 @@ final class LyricsPictureInPicture: NSObject, @preconcurrency AVPictureInPicture
     @ObservationIgnored private var artworkGeneration: UInt = 0
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
     @ObservationIgnored private var artworkObservers: [NSObjectProtocol] = []
+}
+
+extension LyricsPictureInPicture {
+    static let shared = LyricsPictureInPicture()
 
     static var isSupported: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
 

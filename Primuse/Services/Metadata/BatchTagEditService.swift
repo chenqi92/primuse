@@ -827,6 +827,30 @@ final class ArtistMergeService {
 @MainActor
 @Observable
 final class PendingTagWritebackStore {
+
+    private(set) var entries: [Entry] = []
+    private(set) var isRetrying = false
+    /// Songs written to their files by retries from the list since launch.
+    private(set) var rewrittenCount = 0
+
+    @ObservationIgnored private let fileURL: URL?
+    @ObservationIgnored private var context: Context?
+    @ObservationIgnored private var persistTask: Task<Void, Never>?
+    @ObservationIgnored private var automaticTask: Task<Void, Never>?
+    @ObservationIgnored private var automaticFollowUp = false
+    @ObservationIgnored private var reachableSourceIDs: Set<String> = []
+
+    init(fileURL: URL? = PendingTagWritebackStore.defaultFileURL()) {
+        self.fileURL = fileURL
+        // A few hundred bytes per song; read once, before anything records.
+        if let fileURL, let data = try? Data(contentsOf: fileURL),
+           let storage = try? JSONDecoder().decode(Storage.self, from: data) {
+            entries = storage.entries
+        }
+    }
+}
+
+extension PendingTagWritebackStore {
     static let shared = PendingTagWritebackStore()
 
     /// The text tags as the file holds them.
@@ -895,28 +919,7 @@ final class PendingTagWritebackStore {
         let sourceManager: SourceManager
         let player: AudioPlayerService
     }
-
-    private(set) var entries: [Entry] = []
-    private(set) var isRetrying = false
-    /// Songs written to their files by retries from the list since launch.
-    private(set) var rewrittenCount = 0
-
-    @ObservationIgnored private let fileURL: URL?
-    @ObservationIgnored private var context: Context?
-    @ObservationIgnored private var persistTask: Task<Void, Never>?
-    @ObservationIgnored private var automaticTask: Task<Void, Never>?
-    @ObservationIgnored private var automaticFollowUp = false
-    @ObservationIgnored private var reachableSourceIDs: Set<String> = []
     private static let writeQueue = DispatchQueue(label: "primuse.pendingTagWritebacks.write", qos: .utility)
-
-    init(fileURL: URL? = PendingTagWritebackStore.defaultFileURL()) {
-        self.fileURL = fileURL
-        // A few hundred bytes per song; read once, before anything records.
-        if let fileURL, let data = try? Data(contentsOf: fileURL),
-           let storage = try? JSONDecoder().decode(Storage.self, from: data) {
-            entries = storage.entries
-        }
-    }
 
     nonisolated static func defaultFileURL() -> URL {
         FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)

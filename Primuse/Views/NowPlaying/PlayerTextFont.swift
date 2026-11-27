@@ -362,17 +362,6 @@ final class ImportedFontDescriptorStore: @unchecked Sendable {
 @MainActor
 @Observable
 final class PlayerTextFontLibrary {
-    enum State: Equatable {
-        case available
-        case needsDownload
-        case downloading(Double)
-        /// 内置字体下载失败;导入的字体这台设备上注册不上。
-        case failed
-        /// 导入的字体这台设备上没有(在别的设备上导入、选中值随 iCloud 同步过来的)。
-        case unavailable
-    }
-
-    static let shared = PlayerTextFontLibrary(descriptorStore: .shared)
 
     /// 下载中、失败与这次启动里下好的。字体块上的进度与标记读它。
     private var states: [String: State] = [:]
@@ -406,6 +395,20 @@ final class PlayerTextFontLibrary {
         importedFontsLoaded = true
         #endif
     }
+}
+
+extension PlayerTextFontLibrary {
+    enum State: Equatable {
+        case available
+        case needsDownload
+        case downloading(Double)
+        /// 内置字体下载失败;导入的字体这台设备上注册不上。
+        case failed
+        /// 导入的字体这台设备上没有(在别的设备上导入、选中值随 iCloud 同步过来的)。
+        case unavailable
+    }
+
+    static let shared = PlayerTextFontLibrary(descriptorStore: .shared)
 
     /// 字体预览先用系统字体占位，后台一次查好，避免列表测量时同步访问字体服务。
     func preparePreviews(

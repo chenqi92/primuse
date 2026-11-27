@@ -463,6 +463,29 @@ nonisolated enum DiagnosticReportPackager {
 @MainActor
 @Observable
 final class DiagnosticReportUploader {
+
+    /// 正在进行的步骤;nil 表示空闲。
+    private(set) var phase: Phase?
+    /// 中转收不收上传;nil 表示还在问。
+    private(set) var availability: Bool?
+    private(set) var cleanupError: String?
+
+    @ObservationIgnored private let clientProvider: @MainActor () -> PrimuseAIRelayClient
+    /// 构建里带了 Palveni 的上传密钥才有;有就不再经过中转。
+    @ObservationIgnored private let palveni = PalveniDiagnosticsClient.configured()
+
+    private init(clientProvider: @escaping @MainActor () -> PrimuseAIRelayClient) {
+        self.clientProvider = clientProvider
+        if palveni == nil && !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+            availability = false
+        } else if let cached = Self.cachedAvailability,
+                  Date().timeIntervalSince(cached.checkedAt) < Self.availabilityLifetime {
+            availability = cached.value
+        }
+    }
+}
+
+extension DiagnosticReportUploader {
     enum Phase: Equatable {
         case packaging
         case uploading(Double)
@@ -477,19 +500,9 @@ final class DiagnosticReportUploader {
         var screenshots: [Data]
     }
 
-    /// 正在进行的步骤;nil 表示空闲。
-    private(set) var phase: Phase?
-    /// 中转收不收上传;nil 表示还在问。
-    private(set) var availability: Bool?
-    private(set) var cleanupError: String?
-
     /// 十分钟内问过就沿用,反馈页再打开时按钮不再跳一下。
     private static var cachedAvailability: (value: Bool, checkedAt: Date)?
     private static let availabilityLifetime: TimeInterval = 10 * 60
-
-    @ObservationIgnored private let clientProvider: @MainActor () -> PrimuseAIRelayClient
-    /// 构建里带了 Palveni 的上传密钥才有;有就不再经过中转。
-    @ObservationIgnored private let palveni = PalveniDiagnosticsClient.configured()
 
     #if os(tvOS)
     convenience init(client: PrimuseAIRelayClient) {
@@ -500,16 +513,6 @@ final class DiagnosticReportUploader {
         self.init(clientProvider: { AppServices.shared.musicIntelligence.primuseRelayClient })
     }
     #endif
-
-    private init(clientProvider: @escaping @MainActor () -> PrimuseAIRelayClient) {
-        self.clientProvider = clientProvider
-        if palveni == nil && !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
-            availability = false
-        } else if let cached = Self.cachedAvailability,
-                  Date().timeIntervalSince(cached.checkedAt) < Self.availabilityLifetime {
-            availability = cached.value
-        }
-    }
 
     var isRunning: Bool { phase != nil }
 

@@ -20,22 +20,11 @@ extension Notification.Name {
 @MainActor
 @Observable
 final class MotionCoverStore {
-    static let shared = MotionCoverStore()
 
     /// 设置一变就加一。只有大封面位和编辑页读它，列表里的封面不订阅。
     private(set) var revision = 0
     @ObservationIgnored private var index: MotionCoverIndex
     @ObservationIgnored private var removalObserver: NSObjectProtocol?
-
-    nonisolated static let directoryURL: URL = FileManager.default
-        .primuseDirectoryURL(for: .applicationSupportDirectory)
-        .appendingPathComponent("Primuse/MotionCovers", isDirectory: true)
-    /// 导入中的临时文件。整个目录在启动时清掉：上次没导完的都是半成品。
-    nonisolated static let stagingDirectoryURL: URL = directoryURL
-        .appendingPathComponent("staging", isDirectory: true)
-    nonisolated private static let indexURL: URL = directoryURL.appendingPathComponent("index.json")
-    /// 刚放进目录、还没写进索引的视频不能被清理当成没人用的删掉。
-    nonisolated private static let orphanGracePeriod: TimeInterval = 10 * 60
 
     private init() {
         let fileManager = FileManager.default
@@ -57,6 +46,20 @@ final class MotionCoverStore {
         }
         scheduleUnreferencedFileCleanup()
     }
+}
+
+extension MotionCoverStore {
+    static let shared = MotionCoverStore()
+
+    nonisolated static let directoryURL: URL = FileManager.default
+        .primuseDirectoryURL(for: .applicationSupportDirectory)
+        .appendingPathComponent("Primuse/MotionCovers", isDirectory: true)
+    /// 导入中的临时文件。整个目录在启动时清掉：上次没导完的都是半成品。
+    nonisolated static let stagingDirectoryURL: URL = directoryURL
+        .appendingPathComponent("staging", isDirectory: true)
+    nonisolated private static let indexURL: URL = directoryURL.appendingPathComponent("index.json")
+    /// 刚放进目录、还没写进索引的视频不能被清理当成没人用的删掉。
+    nonisolated private static let orphanGracePeriod: TimeInterval = 10 * 60
 
     // MARK: - Lookup
 

@@ -127,11 +127,6 @@ final class AppAlertCoordinator {
 @MainActor
 @Observable
 final class SSLTrustStore {
-    static let shared = SSLTrustStore()
-
-    nonisolated private static let defaultsKey = "primuse_trusted_ssl_domains"
-    nonisolated private static let certificateDefaultsKey = "primuse_trusted_ssl_certificates_v1"
-    nonisolated private static let insecureHTTPDefaultsKey = "primuse_trusted_insecure_http_domains_v1"
 
     private(set) var trustedDomains: [String] = []
     private(set) var trustedCertificates: [TrustedCertificateInfo] = []
@@ -139,6 +134,31 @@ final class SSLTrustStore {
     /// intentionally separate from HTTPS certificate trust so an old SSL
     /// decision can never silently authorize an unencrypted downgrade.
     private(set) var insecureHTTPDomains: [String] = []
+
+    /// 当前正在向用户征询的请求 (UI 的 `.sslTrustAlert` 绑定它)。
+    private var pendingTrustRequest: TrustRequest?
+
+    /// 等待中的请求队列,逐个弹出向用户征询。每个不同 domain 一条。
+    private var waitingTrustRequests: [TrustRequest] = []
+
+    /// Dynamic routes such as FN Connect can reveal their public HTTP endpoint
+    /// only after discovery. They use this global queue so the same explicit
+    /// warning still applies before the first cleartext request is sent.
+    private var pendingInsecureHTTPTrustRequest: InsecureHTTPTrustRequest?
+    private var waitingInsecureHTTPTrustRequests: [InsecureHTTPTrustRequest] = []
+
+    private init() {
+        loadFromDefaults()
+        seedDefaultsIfNeeded()
+    }
+}
+
+extension SSLTrustStore {
+    static let shared = SSLTrustStore()
+
+    nonisolated private static let defaultsKey = "primuse_trusted_ssl_domains"
+    nonisolated private static let certificateDefaultsKey = "primuse_trusted_ssl_certificates_v1"
+    nonisolated private static let insecureHTTPDefaultsKey = "primuse_trusted_insecure_http_domains_v1"
 
     // MARK: - SSL Trust Request (for UI alert flow)
 
@@ -210,18 +230,6 @@ final class SSLTrustStore {
         }
     }
 
-    /// 当前正在向用户征询的请求 (UI 的 `.sslTrustAlert` 绑定它)。
-    private var pendingTrustRequest: TrustRequest?
-
-    /// 等待中的请求队列,逐个弹出向用户征询。每个不同 domain 一条。
-    private var waitingTrustRequests: [TrustRequest] = []
-
-    /// Dynamic routes such as FN Connect can reveal their public HTTP endpoint
-    /// only after discovery. They use this global queue so the same explicit
-    /// warning still applies before the first cleartext request is sent.
-    private var pendingInsecureHTTPTrustRequest: InsecureHTTPTrustRequest?
-    private var waitingInsecureHTTPTrustRequests: [InsecureHTTPTrustRequest] = []
-
     /// True while a certificate or cleartext-HTTP confirmation is waiting for
     /// the user. Transfers blocked on it wait for a decision, not for bytes.
     var isAwaitingTransportDecision: Bool {
@@ -240,11 +248,6 @@ final class SSLTrustStore {
         #else
         return true
         #endif
-    }
-
-    private init() {
-        loadFromDefaults()
-        seedDefaultsIfNeeded()
     }
 
     private func seedDefaultsIfNeeded() {

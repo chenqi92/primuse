@@ -618,31 +618,6 @@ final class PlaybackSettingsStore {
     }
     var medleyAutomaticLength: Bool { didSet { persist() } }
     var medleyPrefersPlaybackRange: Bool { didSet { persist() } }
-    /// The one-line "play as medley" menu title, naming the length per song.
-    var medleyPlayQueueTitle: String {
-        medleyAutomaticLength
-            ? String(localized: "medley_play_queue_automatic")
-            : String(format: String(localized: "medley_play_queue_format"), medleySegmentSeconds)
-    }
-    /// The badge shown while a medley plays.
-    var medleyBadgeTitle: String {
-        medleyAutomaticLength
-            ? String(localized: "medley_badge_automatic")
-            : String(format: String(localized: "medley_badge_format"), medleySegmentSeconds)
-    }
-    /// What the length picker shows: `MedleySegmentPolicy.automaticSegmentChoice`
-    /// for the highlight's own length, otherwise the fixed seconds.
-    var medleySegmentChoice: Int {
-        get { medleyAutomaticLength ? MedleySegmentPolicy.automaticSegmentChoice : medleySegmentSeconds }
-        set {
-            if newValue == MedleySegmentPolicy.automaticSegmentChoice {
-                medleyAutomaticLength = true
-            } else {
-                medleySegmentSeconds = newValue
-                medleyAutomaticLength = false
-            }
-        }
-    }
     var autoContinueSimilarEnabled: Bool { didSet { persist() } }
     var previousRestartsCurrentSong: Bool { didSet { persist() } }
     var shufflePreference: ShufflePreference { didSet { persist() } }
@@ -753,6 +728,34 @@ final class PlaybackSettingsStore {
             reloadFromDefaults()
             if hadPersistedSettings {
                 cloudSync.markChanged(key: PlaybackSettings.defaultsKey)
+            }
+        }
+    }
+}
+
+extension PlaybackSettingsStore {
+    /// The one-line "play as medley" menu title, naming the length per song.
+    var medleyPlayQueueTitle: String {
+        medleyAutomaticLength
+            ? String(localized: "medley_play_queue_automatic")
+            : String(format: String(localized: "medley_play_queue_format"), medleySegmentSeconds)
+    }
+    /// The badge shown while a medley plays.
+    var medleyBadgeTitle: String {
+        medleyAutomaticLength
+            ? String(localized: "medley_badge_automatic")
+            : String(format: String(localized: "medley_badge_format"), medleySegmentSeconds)
+    }
+    /// What the length picker shows: `MedleySegmentPolicy.automaticSegmentChoice`
+    /// for the highlight's own length, otherwise the fixed seconds.
+    var medleySegmentChoice: Int {
+        get { medleyAutomaticLength ? MedleySegmentPolicy.automaticSegmentChoice : medleySegmentSeconds }
+        set {
+            if newValue == MedleySegmentPolicy.automaticSegmentChoice {
+                medleyAutomaticLength = true
+            } else {
+                medleySegmentSeconds = newValue
+                medleyAutomaticLength = false
             }
         }
     }

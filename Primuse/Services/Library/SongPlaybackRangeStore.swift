@@ -13,10 +13,6 @@ import PrimuseKit
 @MainActor
 @Observable
 final class SongPlaybackRangeStore {
-    static let cloudStorageKey = "primuse_song_playback_ranges_v1"
-    private static let cloudPushDelay: Duration = .seconds(2)
-
-    static let shared = SongPlaybackRangeStore()
 
     /// Records by song id, including clearings (`range == nil`).
     private(set) var records: [String: SongPlaybackRangeRecord] = [:]
@@ -61,6 +57,13 @@ final class SongPlaybackRangeStore {
             isRegisteredWithCloud = true
         }
     }
+}
+
+extension SongPlaybackRangeStore {
+    static let cloudStorageKey = "primuse_song_playback_ranges_v1"
+    private static let cloudPushDelay: Duration = .seconds(2)
+
+    static let shared = SongPlaybackRangeStore()
 
     // MARK: - Reading
 

@@ -7,6 +7,35 @@ import PrimuseKit
 @MainActor
 @Observable
 final class SpokenTranscriptGenerator {
+
+    private(set) var activeJob: Job?
+    private(set) var lastOutcome: Outcome? {
+        didSet { lastOutcomeAt = lastOutcome == nil ? nil : Date() }
+    }
+    /// 上一次结果出来的时刻。播放页里的结果提示看它,几秒后自己收起。
+    private(set) var lastOutcomeAt: Date?
+    private(set) var records: [String: Record]
+
+    @ObservationIgnored private var task: Task<Void, Never>?
+    /// 云端识别做完的段,失败后重试从没做的那段接着来。只留最近一次的。
+    @ObservationIgnored private var partial: (key: String, results: [Int: AIAudioTranscriptionResult])?
+    /// 交给阿里云百炼、还没拿到结果的任务。超时、停下或断网后重试时接着等它,不再上传、不再计费;
+    /// 服务端说任务失败了才丢掉。
+    @ObservationIgnored private var aliyunPendingTask: (key: String, taskID: String, submittedAt: Date)?
+    @ObservationIgnored private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let data = defaults.data(forKey: Self.recordsKey),
+           let decoded = try? JSONDecoder().decode([String: Record].self, from: data) {
+            records = decoded
+        } else {
+            records = [:]
+        }
+    }
+}
+
+extension SpokenTranscriptGenerator {
     static let shared = SpokenTranscriptGenerator()
 
     enum Phase: Equatable {
@@ -79,37 +108,11 @@ final class SpokenTranscriptGenerator {
         var generatedAt: Date
     }
 
-    private(set) var activeJob: Job?
-    private(set) var lastOutcome: Outcome? {
-        didSet { lastOutcomeAt = lastOutcome == nil ? nil : Date() }
-    }
-    /// 上一次结果出来的时刻。播放页里的结果提示看它,几秒后自己收起。
-    private(set) var lastOutcomeAt: Date?
-    private(set) var records: [String: Record]
-
-    @ObservationIgnored private var task: Task<Void, Never>?
-    /// 云端识别做完的段,失败后重试从没做的那段接着来。只留最近一次的。
-    @ObservationIgnored private var partial: (key: String, results: [Int: AIAudioTranscriptionResult])?
-    /// 交给阿里云百炼、还没拿到结果的任务。超时、停下或断网后重试时接着等它,不再上传、不再计费;
-    /// 服务端说任务失败了才丢掉。
-    @ObservationIgnored private var aliyunPendingTask: (key: String, taskID: String, submittedAt: Date)?
-    @ObservationIgnored private let defaults: UserDefaults
-
     private static let recordsKey = "primuse.transcriptGeneration.records.v1"
     private static let uploadConsentKey = "primuse.transcriptGeneration.uploadConsent"
     /// 阿里云百炼是另一家第三方,第一次用它要另外点一次头;老的总开关只管内置智能与 Google。
     private static let aliyunUploadConsentKey = "primuse.transcriptGeneration.uploadConsent.aliyun"
     private static let recordLimit = 1_000
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        if let data = defaults.data(forKey: Self.recordsKey),
-           let decoded = try? JSONDecoder().decode([String: Record].self, from: data) {
-            records = decoded
-        } else {
-            records = [:]
-        }
-    }
 
     /// 上传音频去识别(内置智能、自己的密钥)之前用户点过头没有。
     var hasAudioUploadConsent: Bool {

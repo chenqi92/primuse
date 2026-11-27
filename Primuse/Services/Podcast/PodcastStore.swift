@@ -40,7 +40,6 @@ struct PodcastLikedEpisodeItem: Identifiable {
 @MainActor
 @Observable
 final class PodcastStore {
-    static let shared = PodcastStore()
 
     /// 全部订阅,含当前店面不显示的那些。存盘、iCloud 同步、刷新结果落回都用它;界面读 `shows`。
     private(set) var subscribedShows: [PodcastShow] = []
@@ -78,9 +77,6 @@ final class PodcastStore {
 
     private let defaults: UserDefaults
     private let directory: URL
-    private var episodesDirectory: URL { directory.appendingPathComponent("Episodes", isDirectory: true) }
-    private var showsURL: URL { directory.appendingPathComponent("shows.json") }
-    private var likedURL: URL { directory.appendingPathComponent("liked.json") }
 
     init(defaults: UserDefaults = .standard, directory: URL? = nil) {
         self.defaults = defaults
@@ -95,6 +91,13 @@ final class PodcastStore {
             self.directory = base.appendingPathComponent("Primuse/Podcasts", isDirectory: true)
         }
     }
+}
+
+extension PodcastStore {
+    static let shared = PodcastStore()
+    private var episodesDirectory: URL { directory.appendingPathComponent("Episodes", isDirectory: true) }
+    private var showsURL: URL { directory.appendingPathComponent("shows.json") }
+    private var likedURL: URL { directory.appendingPathComponent("liked.json") }
 
     // MARK: - Loading
 

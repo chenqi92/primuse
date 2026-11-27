@@ -10,7 +10,6 @@ typealias LibraryInsightDraft = (answer: LibraryInsightAIExchange.Answer, provid
 @MainActor
 @Observable
 final class LibraryInsightStore {
-    static let shared = LibraryInsightStore()
 
     private(set) var generatingIDs: Set<String> = []
     private(set) var failures: [String: AILibraryContentFailure] = [:]
@@ -58,6 +57,10 @@ final class LibraryInsightStore {
             try? FileManager.default.removeItem(at: legacy)
         }
     }
+}
+
+extension LibraryInsightStore {
+    static let shared = LibraryInsightStore()
 
     /// AI 用界面语言写。
     static var languageCode: String {

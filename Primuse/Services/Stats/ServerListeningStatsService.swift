@@ -139,22 +139,6 @@ enum ServerListeningStatsServiceError: LocalizedError, Equatable {
 @MainActor
 @Observable
 final class ServerListeningStatsService {
-    typealias PayloadFetcher = @MainActor @Sendable (
-        MusicSource
-    ) async throws -> ServerListeningStatsPayload?
-
-    struct SourceSnapshotState: Equatable, Sendable {
-        var snapshot: ServerListeningStatsSnapshot?
-        var isRefreshing = false
-        var staleReasons: Set<ServerListeningStatsStaleReason> = []
-        var errorMessage: String?
-
-        var isStale: Bool { !staleReasons.isEmpty }
-    }
-
-    static let freshnessInterval: TimeInterval = 24 * 60 * 60
-    static let futureClockTolerance: TimeInterval = 5 * 60
-    static let backgroundRetryCooldown: TimeInterval = 5 * 60
 
     private(set) var sourceID: String?
     private(set) var snapshot: ServerListeningStatsSnapshot? {
@@ -185,15 +169,6 @@ final class ServerListeningStatsService {
     private let now: @Sendable () -> Date
     private var generation = 0
 
-    convenience init(sourceManager: SourceManager) {
-        self.init(
-            snapshotStore: ServerListeningStatsSnapshotStore(),
-            fetchPayload: { source in
-                try await sourceManager.fetchServerListeningStats(for: source)
-            }
-        )
-    }
-
     init(
         snapshotStore: ServerListeningStatsSnapshotStore,
         now: @escaping @Sendable () -> Date = Date.init,
@@ -202,6 +177,34 @@ final class ServerListeningStatsService {
         self.snapshotStore = snapshotStore
         self.now = now
         self.fetchPayload = fetchPayload
+    }
+}
+
+extension ServerListeningStatsService {
+    typealias PayloadFetcher = @MainActor @Sendable (
+        MusicSource
+    ) async throws -> ServerListeningStatsPayload?
+
+    struct SourceSnapshotState: Equatable, Sendable {
+        var snapshot: ServerListeningStatsSnapshot?
+        var isRefreshing = false
+        var staleReasons: Set<ServerListeningStatsStaleReason> = []
+        var errorMessage: String?
+
+        var isStale: Bool { !staleReasons.isEmpty }
+    }
+
+    static let freshnessInterval: TimeInterval = 24 * 60 * 60
+    static let futureClockTolerance: TimeInterval = 5 * 60
+    static let backgroundRetryCooldown: TimeInterval = 5 * 60
+
+    convenience init(sourceManager: SourceManager) {
+        self.init(
+            snapshotStore: ServerListeningStatsSnapshotStore(),
+            fetchPayload: { source in
+                try await sourceManager.fetchServerListeningStats(for: source)
+            }
+        )
     }
 
     var isStale: Bool { !staleReasons.isEmpty }

@@ -7,6 +7,49 @@ import PrimuseKit
 @MainActor
 @Observable
 final class DuplicateCleanupService {
+
+    /// 当前进度。nil 表示空闲。
+    private(set) var progress: Progress?
+    /// 最近一次完成的总数 (= 真正从库里移除的歌曲数), view 用于「已清理 N 首」
+    /// 尾巴提示。源端删除失败、仍残留在 NAS/云盘上的歌不计入。
+    private(set) var lastCompletedCount: Int = 0
+    /// 最近一次清理里源端删除失败、因而保留在库中的歌曲标题。空表示全部成功。
+    /// 让 view 能向用户反馈「N 首删除失败」, 同时这些歌不会被 tombstone,
+    /// 下次重扫仍可见。
+    private(set) var lastFailedTitles: [String] = []
+    private(set) var lastSourceFailures: [SourceFailure] = []
+    /// 每次资料库批量删除和结果字段都提交后递增。界面监听它刷新扫描，不能
+    /// 监听源文件进度的 100%，因为那一刻资料库事务尚未落地。
+    private(set) var completionRevision: UInt = 0
+    /// 设备本地移除 (不动源端) 后递增。界面监听它刷新重复分组, 让被隐藏的行
+    /// 立即消失, 而不会触发 completionRevision 的「已清理 N 首」结果提示。
+    private(set) var deviceLocalRemovalRevision = 0
+
+    private let library: MusicLibrary
+    private let sourceManager: SourceManager
+    private let sourcesStore: SourcesStore
+    /// 删到正在放的那一份时先让播放器放开它（同 `SongBatchRemovalService`）。
+    private let player: AudioPlayerService?
+
+    private var activeTask: Task<Void, Never>?
+
+    init(
+        library: MusicLibrary,
+        sourceManager: SourceManager,
+        sourcesStore: SourcesStore,
+        player: AudioPlayerService? = nil
+    ) {
+        self.library = library
+        self.sourceManager = sourceManager
+        self.sourcesStore = sourcesStore
+        self.player = player
+    }
+
+    /// 正在为一次「清理选中的副本」重新找分组(还没开始删)。
+    private var isResolvingCleanup = false
+}
+
+extension DuplicateCleanupService {
     struct Progress: Equatable {
         let done: Int
         let total: Int
@@ -53,43 +96,6 @@ final class DuplicateCleanupService {
             reasonsBySongID = reasonsBySongID.filter { keptIDs.contains($0.key) }
             reasons = Set(reasonsBySongID.values.joined())
         }
-    }
-
-    /// 当前进度。nil 表示空闲。
-    private(set) var progress: Progress?
-    /// 最近一次完成的总数 (= 真正从库里移除的歌曲数), view 用于「已清理 N 首」
-    /// 尾巴提示。源端删除失败、仍残留在 NAS/云盘上的歌不计入。
-    private(set) var lastCompletedCount: Int = 0
-    /// 最近一次清理里源端删除失败、因而保留在库中的歌曲标题。空表示全部成功。
-    /// 让 view 能向用户反馈「N 首删除失败」, 同时这些歌不会被 tombstone,
-    /// 下次重扫仍可见。
-    private(set) var lastFailedTitles: [String] = []
-    private(set) var lastSourceFailures: [SourceFailure] = []
-    /// 每次资料库批量删除和结果字段都提交后递增。界面监听它刷新扫描，不能
-    /// 监听源文件进度的 100%，因为那一刻资料库事务尚未落地。
-    private(set) var completionRevision: UInt = 0
-    /// 设备本地移除 (不动源端) 后递增。界面监听它刷新重复分组, 让被隐藏的行
-    /// 立即消失, 而不会触发 completionRevision 的「已清理 N 首」结果提示。
-    private(set) var deviceLocalRemovalRevision = 0
-
-    private let library: MusicLibrary
-    private let sourceManager: SourceManager
-    private let sourcesStore: SourcesStore
-    /// 删到正在放的那一份时先让播放器放开它（同 `SongBatchRemovalService`）。
-    private let player: AudioPlayerService?
-
-    private var activeTask: Task<Void, Never>?
-
-    init(
-        library: MusicLibrary,
-        sourceManager: SourceManager,
-        sourcesStore: SourcesStore,
-        player: AudioPlayerService? = nil
-    ) {
-        self.library = library
-        self.sourceManager = sourceManager
-        self.sourcesStore = sourcesStore
-        self.player = player
     }
 
     @discardableResult
@@ -215,9 +221,6 @@ final class DuplicateCleanupService {
         }
         return cleanup(verified)
     }
-
-    /// 正在为一次「清理选中的副本」重新找分组(还没开始删)。
-    private var isResolvingCleanup = false
 
     /// 这首歌此刻在整个资料库(含停用源)里的副本,库内顺序。曲库目录跟上内存模型之后在目录上逐首找,
     /// 不取整库数组;目录读不了、跟不上时照旧筛内存里的整库。

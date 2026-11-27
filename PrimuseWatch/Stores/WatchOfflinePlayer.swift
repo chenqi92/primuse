@@ -25,10 +25,6 @@ final class WatchOfflinePlayer: NSObject, AVAudioPlayerDelegate {
     private var storage: WatchOfflineStorage?
     private var generation = UUID()
 
-    var isPlaying: Bool { player?.isPlaying == true }
-    var currentTime: TimeInterval { player?.currentTime ?? 0 }
-    var duration: TimeInterval { player?.duration ?? 0 }
-
     override init() {
         super.init()
         interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
@@ -54,6 +50,12 @@ final class WatchOfflinePlayer: NSObject, AVAudioPlayerDelegate {
         }
         registerRemoteCommands()
     }
+}
+
+extension WatchOfflinePlayer {
+    var isPlaying: Bool { player?.isPlaying == true }
+    var currentTime: TimeInterval { player?.currentTime ?? 0 }
+    var duration: TimeInterval { player?.duration ?? 0 }
 
     func play(_ track: WatchOfflineFile, in queue: [WatchOfflineFile], storage: WatchOfflineStorage) {
         playTask?.cancel()

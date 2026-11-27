@@ -15,18 +15,6 @@ import PrimuseKit
 @MainActor
 @Observable
 final class AlbumRecommendationService {
-    static let shared = AlbumRecommendationService()
-
-    /// Album IDs never to recommend again. Local to this device, not synced.
-    nonisolated static let dismissedKey = "primuse.albumPick.dismissed.v1"
-    /// "Another one": which alternate is showing, for which moment.
-    nonisolated static let selectionKey = "primuse.albumPick.selection.v1"
-    nonisolated static let dismissedLimit = 500
-    /// The home section's switch (iPhone/iPad home editor, Mac settings).
-    nonisolated static let homeVisibilityKey = "primuse.home.showAlbumPick"
-    /// Whole albums ranked after the moment's picks, for the album cards at
-    /// the head of "For You" (and the candidates an AI service reranks).
-    nonisolated static let forYouAlbumCount = 12
 
     private(set) var recommendations: AlbumRecommendationSet?
     /// Ranked right after `picks`, so the two never show the same album.
@@ -34,25 +22,6 @@ final class AlbumRecommendationService {
     private(set) var selectedIndex = 0
     /// Bumped whenever a refresh lands, for views that key work on it.
     private(set) var revision = 0
-
-    var picks: [AlbumRecommendation] { recommendations?.picks ?? [] }
-
-    var currentPick: AlbumRecommendation? {
-        let picks = picks
-        guard !picks.isEmpty else { return nil }
-        return picks[min(max(0, selectedIndex), picks.count - 1)]
-    }
-
-    var moment: ListeningMoment? { recommendations?.moment }
-    var canShowAnother: Bool { picks.count > 1 }
-
-    /// The batch the iPhone/iPad home section shows: `visibleCount` picks
-    /// from the current one on, wrapping round.
-    var visiblePicks: [AlbumRecommendation] {
-        let picks = picks
-        return AlbumPickBatchPolicy.indices(start: selectedIndex, count: visibleCount, total: picks.count)
-            .map { picks[$0] }
-    }
 
     /// How many albums the iPhone/iPad home section shows at once (home
     /// editor, 1–10). Mac and Apple TV show one and never change it.
@@ -79,6 +48,41 @@ final class AlbumRecommendationService {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+    }
+
+}
+
+extension AlbumRecommendationService {
+    static let shared = AlbumRecommendationService()
+
+    /// Album IDs never to recommend again. Local to this device, not synced.
+    nonisolated static let dismissedKey = "primuse.albumPick.dismissed.v1"
+    /// "Another one": which alternate is showing, for which moment.
+    nonisolated static let selectionKey = "primuse.albumPick.selection.v1"
+    nonisolated static let dismissedLimit = 500
+    /// The home section's switch (iPhone/iPad home editor, Mac settings).
+    nonisolated static let homeVisibilityKey = "primuse.home.showAlbumPick"
+    /// Whole albums ranked after the moment's picks, for the album cards at
+    /// the head of "For You" (and the candidates an AI service reranks).
+    nonisolated static let forYouAlbumCount = 12
+
+    var picks: [AlbumRecommendation] { recommendations?.picks ?? [] }
+
+    var currentPick: AlbumRecommendation? {
+        let picks = picks
+        guard !picks.isEmpty else { return nil }
+        return picks[min(max(0, selectedIndex), picks.count - 1)]
+    }
+
+    var moment: ListeningMoment? { recommendations?.moment }
+    var canShowAnother: Bool { picks.count > 1 }
+
+    /// The batch the iPhone/iPad home section shows: `visibleCount` picks
+    /// from the current one on, wrapping round.
+    var visiblePicks: [AlbumRecommendation] {
+        let picks = picks
+        return AlbumPickBatchPolicy.indices(start: selectedIndex, count: visibleCount, total: picks.count)
+            .map { picks[$0] }
     }
 
     /// Chinese festivals only for listeners who would expect them.
@@ -474,7 +478,6 @@ final class AlbumRecommendationService {
         }
         return library.songs(forAlbum: albumID).filteredPlayable()
     }
-
 }
 
 // MARK: - Copy

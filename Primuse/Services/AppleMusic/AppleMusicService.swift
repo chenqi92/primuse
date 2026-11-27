@@ -71,32 +71,9 @@ enum AppleMusicAuthorizationGuidance {
 @MainActor
 @Observable
 final class AppleMusicService {
-    enum PlaybackPhase: Equatable, Sendable {
-        case pending
-        case started
-        case failed(String)
-    }
-
-    struct PlaybackRequestState: Equatable, Sendable {
-        let id: UUID
-        var phase: PlaybackPhase
-    }
-
-    enum AuthState: Sendable {
-        case notDetermined
-        case denied
-        case restricted
-        case authorized
-    }
 
     private(set) var authState: AuthState = .notDetermined
     private(set) var libraryAccess: AppleMusicLibraryAccess?
-
-    var libraryAccessMessage: String? {
-        guard let libraryAccess, !libraryAccess.canPlayCatalogContent else { return nil }
-        return String(localized: libraryAccess.canBecomeSubscriber
-                      ? "apple_music_needs_subscription" : "apple_music_unavailable")
-    }
 
     /// 置位后由挂在根视图上的 `appleMusicSubscriptionOffer()` 接住，弹出系统的
     /// Apple Music 订阅页。只有 `canBecomeSubscriber` 为真时才置位 —— 地区不支持
@@ -104,46 +81,6 @@ final class AppleMusicService {
     var subscriptionOfferRequested = false
     /// 触发订阅页的那首歌的目录 ID，交给系统让订阅页显示对应的曲目信息。
     private(set) var subscriptionOfferItemID: String?
-
-    func requestSubscriptionOffer(forItemID itemID: String?) {
-        subscriptionOfferItemID = itemID
-        subscriptionOfferRequested = true
-    }
-
-    private struct LibraryAccessFailure: LocalizedError {
-        let message: String
-        var errorDescription: String? { message }
-    }
-
-    func refreshLibraryAccess() async throws -> AppleMusicLibraryAccess {
-        authState = Self.mapStatus(MusicAuthorization.currentStatus)
-        guard authState == .authorized else {
-            libraryAccess = nil
-            throw LibraryAccessFailure(message: AppleMusicAuthorizationGuidance.notAuthorizedMessage)
-        }
-        do {
-            let subscription = try await MusicSubscription.current
-            let countryCode: String?
-            if subscription.canPlayCatalogContent {
-                countryCode = try await MusicDataRequest.currentCountryCode
-            } else {
-                countryCode = try? await MusicDataRequest.currentCountryCode
-            }
-            try Task.checkCancellation()
-            let access = AppleMusicLibraryAccess(
-                storefrontCountryCode: countryCode,
-                canPlayCatalogContent: subscription.canPlayCatalogContent,
-                canBecomeSubscriber: subscription.canBecomeSubscriber
-            )
-            libraryAccess = access
-            return access
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            libraryAccess = nil
-            throw LibraryAccessFailure(message: String(localized: "apple_music_subscription_check_failed"))
-        }
-    }
 
     private(set) var searchResults: [MusicKit.Song] = []
     /// 同一次目录搜索里的艺人与专辑, 搜索页放在歌曲上面。
@@ -187,12 +124,6 @@ final class AppleMusicService {
     private(set) var queueSongs: [PrimuseKit.Song] = []
     private(set) var nowPlayingQueueEntryID: UUID?
     @ObservationIgnored private var managedQueueEntryIDs: [String: UUID] = [:]
-    private struct ManagedQueueProjection {
-        let songs: [MusicKit.Song]
-        let songIDs: [String]
-        let entryIDs: [UUID]
-        let identities: AppleMusicTrackIdentityIndex
-    }
     @ObservationIgnored private var managedQueueProjection: ManagedQueueProjection?
     @ObservationIgnored private var installedManagedQueue = AppleMusicQueueInstallationCache()
     @ObservationIgnored private var managedQueueUpdateID: UUID?
@@ -205,7 +136,6 @@ final class AppleMusicService {
     /// Every observable playback field belongs to this request. Callers and
     /// mirrors must match both its ID and phase before consuming a result.
     private(set) var playbackRequestState: PlaybackRequestState?
-    var activePlaybackRequestID: UUID? { playbackRequestState?.id }
 
     private var searchTask: Task<Void, Never>?
     private var catalogPlaybackTask: Task<Void, Never>?
@@ -230,7 +160,6 @@ final class AppleMusicService {
     @ObservationIgnored private var lastObservedPlaybackTime: TimeInterval?
     @ObservationIgnored private var furthestObservedPlaybackTime: TimeInterval = 0
     @ObservationIgnored private var nearEndStallSampleCount = 0
-    private static let playbackEndStallSampleThreshold = 6
     @ObservationIgnored private var nativeQueueSnapshot = AppleMusicQueueSnapshotCache()
     private let playbackSettings: PlaybackSettingsStore
     /// 只读:判断 Apple Music 是否还是一个已添加且启用的音乐源。
@@ -242,6 +171,80 @@ final class AppleMusicService {
         self.authState = Self.mapStatus(MusicAuthorization.currentStatus)
         plog("AppleMusicService init: authState=\(String(describing: self.authState))")
     }
+}
+
+extension AppleMusicService {
+    enum PlaybackPhase: Equatable, Sendable {
+        case pending
+        case started
+        case failed(String)
+    }
+
+    struct PlaybackRequestState: Equatable, Sendable {
+        let id: UUID
+        var phase: PlaybackPhase
+    }
+
+    enum AuthState: Sendable {
+        case notDetermined
+        case denied
+        case restricted
+        case authorized
+    }
+
+    var libraryAccessMessage: String? {
+        guard let libraryAccess, !libraryAccess.canPlayCatalogContent else { return nil }
+        return String(localized: libraryAccess.canBecomeSubscriber
+                      ? "apple_music_needs_subscription" : "apple_music_unavailable")
+    }
+
+    func requestSubscriptionOffer(forItemID itemID: String?) {
+        subscriptionOfferItemID = itemID
+        subscriptionOfferRequested = true
+    }
+
+    private struct LibraryAccessFailure: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    func refreshLibraryAccess() async throws -> AppleMusicLibraryAccess {
+        authState = Self.mapStatus(MusicAuthorization.currentStatus)
+        guard authState == .authorized else {
+            libraryAccess = nil
+            throw LibraryAccessFailure(message: AppleMusicAuthorizationGuidance.notAuthorizedMessage)
+        }
+        do {
+            let subscription = try await MusicSubscription.current
+            let countryCode: String?
+            if subscription.canPlayCatalogContent {
+                countryCode = try await MusicDataRequest.currentCountryCode
+            } else {
+                countryCode = try? await MusicDataRequest.currentCountryCode
+            }
+            try Task.checkCancellation()
+            let access = AppleMusicLibraryAccess(
+                storefrontCountryCode: countryCode,
+                canPlayCatalogContent: subscription.canPlayCatalogContent,
+                canBecomeSubscriber: subscription.canBecomeSubscriber
+            )
+            libraryAccess = access
+            return access
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            libraryAccess = nil
+            throw LibraryAccessFailure(message: String(localized: "apple_music_subscription_check_failed"))
+        }
+    }
+    private struct ManagedQueueProjection {
+        let songs: [MusicKit.Song]
+        let songIDs: [String]
+        let entryIDs: [UUID]
+        let identities: AppleMusicTrackIdentityIndex
+    }
+    var activePlaybackRequestID: UUID? { playbackRequestState?.id }
+    private static let playbackEndStallSampleThreshold = 6
 
     /// 曲库搜索跟资料库同步共用一个前提:Apple Music 得先被添加成音乐源。
     /// 用户把这个源移除之后,搜索里不该再冒出 Apple Music 的结果。

@@ -11,6 +11,64 @@ struct SpokenChapterServiceFailure: Error {
 @MainActor
 @Observable
 final class SpokenChapterGenerator {
+
+    private(set) var isRunning = false
+    private(set) var isApplying = false
+    private(set) var currentTitle = ""
+    private(set) var completedItems = 0
+    private(set) var totalItems = 0
+    private(set) var progress: Double = 0
+    private(set) var failure: String?
+    private(set) var retryAt: Date?
+    private(set) var previews: [Preview] = []
+    private(set) var savedJobs: [SavedJob] = []
+    private(set) var activeJobID: String?
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var memoryAnswers: [String: SpokenChapterGeneration.Answer] = [:]
+    @ObservationIgnored private var legacyAnswers: [String: SpokenChapterGeneration.Answer] = [:]
+    @ObservationIgnored private var transcriptLoader: (@MainActor (Song) async -> [LyricLine])?
+    @ObservationIgnored private let checkpointURL: URL?
+    @ObservationIgnored private var storageLoadFailed = false
+
+    init(checkpointURL: URL? = nil, usesDefaultStorage: Bool = true) {
+        if usesDefaultStorage {
+            #if os(tvOS)
+            let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            #else
+            let base = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+            #endif
+            self.checkpointURL = base.appendingPathComponent("Primuse/chapter-generation-resume.json")
+        } else { self.checkpointURL = checkpointURL }
+        do {
+            if let url = self.checkpointURL, FileManager.default.fileExists(atPath: url.path) {
+                let data = try Data(contentsOf: url)
+                if let archive = try? JSONDecoder().decode(Archive.self, from: data), archive.version == 1 {
+                    guard Set(archive.jobs.map(\.id)).count == archive.jobs.count,
+                          archive.jobs.allSatisfy({ job in
+                              job.id.count == 64 && job.id.allSatisfy { "0123456789abcdef".contains($0) }
+                                  && !job.songIDs.isEmpty && job.songIDs.count == job.sourceIDs.count
+                          }) else { throw CheckpointFailure.storage }
+                    savedJobs = archive.jobs.map { job in
+                        var job = job
+                        if job.status == .running { job.status = .paused }
+                        return job
+                    }
+                } else {
+                    legacyAnswers = try JSONDecoder().decode([String: SpokenChapterGeneration.Answer].self, from: data)
+                }
+            }
+            if let url = legacyURL, FileManager.default.fileExists(atPath: url.path) {
+                legacyAnswers.merge(try JSONDecoder().decode([String: SpokenChapterGeneration.Answer].self,
+                    from: Data(contentsOf: url)), uniquingKeysWith: { current, _ in current })
+            }
+        } catch {
+            storageLoadFailed = true
+            failure = String(localized: "chapter_generation_save_failed")
+        }
+    }
+}
+
+extension SpokenChapterGenerator {
     static let shared = SpokenChapterGenerator()
     struct Preview: Identifiable {
         var id: String { song.id }
@@ -56,63 +114,8 @@ final class SpokenChapterGenerator {
 
     enum CheckpointFailure: Error { case storage, settingsChanged, missingSongs }
 
-    private(set) var isRunning = false
-    private(set) var isApplying = false
-    private(set) var currentTitle = ""
-    private(set) var completedItems = 0
-    private(set) var totalItems = 0
-    private(set) var progress: Double = 0
-    private(set) var failure: String?
-    private(set) var retryAt: Date?
-    private(set) var previews: [Preview] = []
-    private(set) var savedJobs: [SavedJob] = []
-    private(set) var activeJobID: String?
-    @ObservationIgnored private var task: Task<Void, Never>?
-    @ObservationIgnored private var memoryAnswers: [String: SpokenChapterGeneration.Answer] = [:]
-    @ObservationIgnored private var legacyAnswers: [String: SpokenChapterGeneration.Answer] = [:]
-    @ObservationIgnored private var transcriptLoader: (@MainActor (Song) async -> [LyricLine])?
-    @ObservationIgnored private let checkpointURL: URL?
-    @ObservationIgnored private var storageLoadFailed = false
-
     private var chunksURL: URL? { checkpointURL?.deletingPathExtension().appendingPathExtension("chunks") }
     private var legacyURL: URL? { checkpointURL?.appendingPathExtension("legacy") }
-
-    init(checkpointURL: URL? = nil, usesDefaultStorage: Bool = true) {
-        if usesDefaultStorage {
-            #if os(tvOS)
-            let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
-            #else
-            let base = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
-            #endif
-            self.checkpointURL = base.appendingPathComponent("Primuse/chapter-generation-resume.json")
-        } else { self.checkpointURL = checkpointURL }
-        do {
-            if let url = self.checkpointURL, FileManager.default.fileExists(atPath: url.path) {
-                let data = try Data(contentsOf: url)
-                if let archive = try? JSONDecoder().decode(Archive.self, from: data), archive.version == 1 {
-                    guard Set(archive.jobs.map(\.id)).count == archive.jobs.count,
-                          archive.jobs.allSatisfy({ job in
-                              job.id.count == 64 && job.id.allSatisfy { "0123456789abcdef".contains($0) }
-                                  && !job.songIDs.isEmpty && job.songIDs.count == job.sourceIDs.count
-                          }) else { throw CheckpointFailure.storage }
-                    savedJobs = archive.jobs.map { job in
-                        var job = job
-                        if job.status == .running { job.status = .paused }
-                        return job
-                    }
-                } else {
-                    legacyAnswers = try JSONDecoder().decode([String: SpokenChapterGeneration.Answer].self, from: data)
-                }
-            }
-            if let url = legacyURL, FileManager.default.fileExists(atPath: url.path) {
-                legacyAnswers.merge(try JSONDecoder().decode([String: SpokenChapterGeneration.Answer].self,
-                    from: Data(contentsOf: url)), uniquingKeysWith: { current, _ in current })
-            }
-        } catch {
-            storageLoadFailed = true
-            failure = String(localized: "chapter_generation_save_failed")
-        }
-    }
 
     func jobs(for songID: String) -> [SavedJob] {
         savedJobs.filter { $0.songIDs.contains(songID) }.sorted { $0.updatedAt > $1.updatedAt }

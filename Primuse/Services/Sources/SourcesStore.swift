@@ -430,46 +430,15 @@ private actor SourceCredentialPurgeExecutor {
 @MainActor
 @Observable
 final class SourcesStore {
-    typealias CredentialPurger = @Sendable (MusicSource) async -> Bool
-
-    enum PermanentDeleteResult: Equatable {
-        case deleted
-        case sourceNotFound
-        case sourceChanged
-        case alreadyInProgress
-        case credentialCleanupFailed
-        case deletionLedgerPersistFailed
-    }
 
     /// Backing storage including soft-deleted entries. `sources` filters this
     /// for normal UI use; `recentlyDeletedSources` exposes the deleted ones.
     private(set) var allSources: [MusicSource]
     private(set) var hasCompleteSnapshot = true
 
-    func validatedSourcesForSnapshot() throws -> [MusicSource] {
-        guard hasCompleteSnapshot else { throw CocoaError(.fileReadCorruptFile) }
-        return allSources
-    }
-
-    /// Live (non-deleted) sources for normal UI use.
-    var sources: [MusicSource] { allSources.filter { !$0.isDeleted } }
-
-    var typesByID: [String: MusicSourceType] {
-        allSources.reduce(into: [:]) { $0[$1.id] = $1.type }
-    }
-
     /// Deletion evidence lives independently from user-facing source rows so a
     /// permanent prune cannot make an old CloudKit record eligible to restore.
     private(set) var sourceDeletionRecords: [MusicSourceDeletionRecord]
-
-    var sourceDeletionIDs: [String] { sourceDeletionRecords.map(\.id) }
-
-    /// Soft-deleted sources, newest deletion first.
-    var recentlyDeletedSources: [MusicSource] {
-        allSources
-            .filter { $0.isDeleted }
-            .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
-    }
 
     /// Source tombstones whose required credential cleanup failed during this
     /// run. Keeping this observable lets both automatic pruning and manual
@@ -487,15 +456,9 @@ final class SourcesStore {
     /// duplicate-account-from-reconnect.
     private(set) var allAccounts: [CloudAccount]
 
-    /// Live (non-deleted) accounts.
-    var accounts: [CloudAccount] { allAccounts.filter { !$0.isDeleted } }
-
     /// 每个源在这台设备上的设置:同步配置里的启用值、是否经 iCloud 同步、关着期间收到的
     /// 远端配置。启用状态本身就是 `allSources` 里的 `isEnabled`,只在这台设备上生效。
     private(set) var deviceSettings = MusicSourceDeviceSettings()
-
-    /// 只改了这台设备上的状态(启用 / 停用)。iCloud 同步不把这种变更当成要上传的修改。
-    nonisolated static let deviceOnlyChangeOrigin = "device"
 
     private let storeURL: URL
     private let accountsURL: URL
@@ -582,6 +545,46 @@ final class SourcesStore {
         }
         #endif
     }
+}
+
+extension SourcesStore {
+    typealias CredentialPurger = @Sendable (MusicSource) async -> Bool
+
+    enum PermanentDeleteResult: Equatable {
+        case deleted
+        case sourceNotFound
+        case sourceChanged
+        case alreadyInProgress
+        case credentialCleanupFailed
+        case deletionLedgerPersistFailed
+    }
+
+    func validatedSourcesForSnapshot() throws -> [MusicSource] {
+        guard hasCompleteSnapshot else { throw CocoaError(.fileReadCorruptFile) }
+        return allSources
+    }
+
+    /// Live (non-deleted) sources for normal UI use.
+    var sources: [MusicSource] { allSources.filter { !$0.isDeleted } }
+
+    var typesByID: [String: MusicSourceType] {
+        allSources.reduce(into: [:]) { $0[$1.id] = $1.type }
+    }
+
+    var sourceDeletionIDs: [String] { sourceDeletionRecords.map(\.id) }
+
+    /// Soft-deleted sources, newest deletion first.
+    var recentlyDeletedSources: [MusicSource] {
+        allSources
+            .filter { $0.isDeleted }
+            .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+    }
+
+    /// Live (non-deleted) accounts.
+    var accounts: [CloudAccount] { allAccounts.filter { !$0.isDeleted } }
+
+    /// 只改了这台设备上的状态(启用 / 停用)。iCloud 同步不把这种变更当成要上传的修改。
+    nonisolated static let deviceOnlyChangeOrigin = "device"
 
     func source(id: String) -> MusicSource? {
         allSources.first(where: { $0.id == id })

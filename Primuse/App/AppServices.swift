@@ -100,6 +100,74 @@ private enum DeviceLocalSongFilePresence {
 @MainActor
 @Observable
 final class ServerCatalogAutoRefreshCoordinator {
+
+    private let sourceManager: SourceManager
+    private let scanService: ScanService
+    private let library: MusicLibrary
+    private let sourcesStore: SourcesStore
+    private let scraperService: MusicScraperService
+    private let player: AudioPlayerService
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var markers: [String: SourceMarker]
+    @ObservationIgnored private var pendingMarkers: [String: PendingMarker] = [:]
+    @ObservationIgnored private var retryTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var deferredSourceIDs: Set<String> = []
+    @ObservationIgnored private var checkInFlightSourceIDs: Set<String> = []
+    /// When each source was last asked, whatever the answer. Automatic
+    /// triggers space themselves out from this, so a failed or deferred check
+    /// does not turn every foreground return into another round trip.
+    @ObservationIgnored private var lastProbeStartedAt: [String: Date]
+    @ObservationIgnored private var lastFileRefreshAttemptAt: [String: Date]
+    @ObservationIgnored private var serverScanRequestFingerprints: [String: String] = [:]
+    @ObservationIgnored private var serverScanRequestInFlightSourceIDs: Set<String> = []
+    /// An explicitly requested server scan may finish before the next automatic
+    /// interval. Its status follow-up belongs to that request, not a new refresh.
+    @ObservationIgnored private var serverScanFollowUpSourceIDs: Set<String> = []
+    @ObservationIgnored private var userRequestedRefreshes: [String: UserRequestedRefresh] = [:]
+    @ObservationIgnored private var feedbackDismissTask: Task<Void, Never>?
+    @ObservationIgnored private var didScheduleColdLaunch = false
+    @ObservationIgnored private var didRunColdLaunch = false
+    @ObservationIgnored private var applicationIsActive = false
+    private var disabledSourceIDs: Set<String>
+    private var optedInSourceIDs: Set<String>
+    private var fileRefreshIntervalHours: [String: Int]
+    @ObservationIgnored var automaticRefreshPreferencesDidChangeHandler: (() -> Void)?
+    private var serverScanOnLaunchSourceIDs: Set<String>
+    /// 和上面两个开关一样按源、只存在本机：它们在来源卡片的同一块里，删源时一起清掉。
+    /// 删除证词（`SourceSyncState`）本来就是每台设备各记各的。
+    private var immediateCatalogRemovalSourceIDs: Set<String>
+    /// Shown by `serverCatalogRefreshFeedback()` at the app root.
+    private(set) var feedback: Feedback?
+
+    init(
+        sourceManager: SourceManager,
+        scanService: ScanService,
+        library: MusicLibrary,
+        sourcesStore: SourcesStore,
+        scraperService: MusicScraperService,
+        player: AudioPlayerService,
+        defaults: UserDefaults = .standard
+    ) {
+        self.sourceManager = sourceManager
+        self.scanService = scanService
+        self.library = library
+        self.sourcesStore = sourcesStore
+        self.scraperService = scraperService
+        self.player = player
+        self.defaults = defaults
+        let state = Self.loadState(from: defaults)
+        disabledSourceIDs = state.disabledSourceIDs
+        optedInSourceIDs = state.optedInSourceIDs ?? []
+        fileRefreshIntervalHours = state.fileRefreshIntervalHours ?? [:]
+        lastFileRefreshAttemptAt = state.lastFileRefreshAttemptAt ?? [:]
+        lastProbeStartedAt = state.lastProbeStartedAt ?? [:]
+        serverScanOnLaunchSourceIDs = state.serverScanOnLaunchSourceIDs ?? []
+        immediateCatalogRemovalSourceIDs = state.immediateCatalogRemovalSourceIDs ?? []
+        markers = state.markers
+    }
+}
+
+extension ServerCatalogAutoRefreshCoordinator {
     private struct SourceMarker: Codable, Sendable {
         var identityFingerprint: String
         var lastAppliedServerScanAt: Date?
@@ -170,71 +238,6 @@ final class ServerCatalogAutoRefreshCoordinator {
     private static let userRequestWait: Duration = .seconds(10)
     private static let feedbackDuration: Duration = .seconds(3.5)
     private static let userRequestReportWindow: TimeInterval = 30 * 60
-
-    private let sourceManager: SourceManager
-    private let scanService: ScanService
-    private let library: MusicLibrary
-    private let sourcesStore: SourcesStore
-    private let scraperService: MusicScraperService
-    private let player: AudioPlayerService
-    @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private var markers: [String: SourceMarker]
-    @ObservationIgnored private var pendingMarkers: [String: PendingMarker] = [:]
-    @ObservationIgnored private var retryTasks: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private var deferredSourceIDs: Set<String> = []
-    @ObservationIgnored private var checkInFlightSourceIDs: Set<String> = []
-    /// When each source was last asked, whatever the answer. Automatic
-    /// triggers space themselves out from this, so a failed or deferred check
-    /// does not turn every foreground return into another round trip.
-    @ObservationIgnored private var lastProbeStartedAt: [String: Date]
-    @ObservationIgnored private var lastFileRefreshAttemptAt: [String: Date]
-    @ObservationIgnored private var serverScanRequestFingerprints: [String: String] = [:]
-    @ObservationIgnored private var serverScanRequestInFlightSourceIDs: Set<String> = []
-    /// An explicitly requested server scan may finish before the next automatic
-    /// interval. Its status follow-up belongs to that request, not a new refresh.
-    @ObservationIgnored private var serverScanFollowUpSourceIDs: Set<String> = []
-    @ObservationIgnored private var userRequestedRefreshes: [String: UserRequestedRefresh] = [:]
-    @ObservationIgnored private var feedbackDismissTask: Task<Void, Never>?
-    @ObservationIgnored private var didScheduleColdLaunch = false
-    @ObservationIgnored private var didRunColdLaunch = false
-    @ObservationIgnored private var applicationIsActive = false
-    private var disabledSourceIDs: Set<String>
-    private var optedInSourceIDs: Set<String>
-    private var fileRefreshIntervalHours: [String: Int]
-    @ObservationIgnored var automaticRefreshPreferencesDidChangeHandler: (() -> Void)?
-    private var serverScanOnLaunchSourceIDs: Set<String>
-    /// 和上面两个开关一样按源、只存在本机：它们在来源卡片的同一块里，删源时一起清掉。
-    /// 删除证词（`SourceSyncState`）本来就是每台设备各记各的。
-    private var immediateCatalogRemovalSourceIDs: Set<String>
-    /// Shown by `serverCatalogRefreshFeedback()` at the app root.
-    private(set) var feedback: Feedback?
-
-    init(
-        sourceManager: SourceManager,
-        scanService: ScanService,
-        library: MusicLibrary,
-        sourcesStore: SourcesStore,
-        scraperService: MusicScraperService,
-        player: AudioPlayerService,
-        defaults: UserDefaults = .standard
-    ) {
-        self.sourceManager = sourceManager
-        self.scanService = scanService
-        self.library = library
-        self.sourcesStore = sourcesStore
-        self.scraperService = scraperService
-        self.player = player
-        self.defaults = defaults
-        let state = Self.loadState(from: defaults)
-        disabledSourceIDs = state.disabledSourceIDs
-        optedInSourceIDs = state.optedInSourceIDs ?? []
-        fileRefreshIntervalHours = state.fileRefreshIntervalHours ?? [:]
-        lastFileRefreshAttemptAt = state.lastFileRefreshAttemptAt ?? [:]
-        lastProbeStartedAt = state.lastProbeStartedAt ?? [:]
-        serverScanOnLaunchSourceIDs = state.serverScanOnLaunchSourceIDs ?? []
-        immediateCatalogRemovalSourceIDs = state.immediateCatalogRemovalSourceIDs ?? []
-        markers = state.markers
-    }
 
     func isEnabled(for sourceID: String) -> Bool {
         guard let source = sourcesStore.source(id: sourceID) else { return false }

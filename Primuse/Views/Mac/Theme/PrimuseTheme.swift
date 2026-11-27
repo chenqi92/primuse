@@ -2102,7 +2102,6 @@ enum MacIconStyle {
 @MainActor
 @Observable
 final class MacUIPreferences {
-    static let shared = MacUIPreferences()
 
     @ObservationIgnored private let defaults: UserDefaults
     private let automaticAppearance: PMAppearanceMode
@@ -2175,71 +2174,9 @@ final class MacUIPreferences {
     }
 
     private(set) var artworkBrandColor: Color? = nil
-
-    /// 固定回退色与当前生效色分开，自动模式下全套 Mac 自绘控件会随封面更新。
-    var fixedBrandColor: Color { AppThemePreferences.themeColor(hex: brandColorHex) }
     /// 固定色用在控件和文字上的版本(浅色外观压暗、深色外观提亮到 4.5:1)。`brandColor`
     /// 每个视图都读，换色时算一次存着。
     private(set) var legibleFixedBrandColor: Color = .accentColor
-    var brandColor: Color {
-        themeColorMode == .automatic
-            ? artworkBrandColor ?? legibleFixedBrandColor
-            : legibleFixedBrandColor
-    }
-
-    func updateArtworkBrandColor(_ color: Color?) {
-        artworkBrandColor = color
-    }
-
-    /// 别的设备改过、经 iCloud 拉下来的主题色设置(#320)。没变的不赋,免得 didSet 再写一遍。
-    /// 返回有没有变。
-    func reloadThemeFromDefaults() -> Bool {
-        var changed = false
-        let mode = AppThemePreferences.colorMode(in: defaults)
-        if themeColorMode != mode {
-            themeColorMode = mode
-            changed = true
-        }
-        if let hex = Self.brandHex(fromStored: defaults.string(forKey: AppThemePreferences.accentHexKey)),
-           brandColorHex != hex {
-            brandColorHex = hex
-            changed = true
-        }
-        if let stored = defaults.object(forKey: AppThemePreferences.coverDrivenAmbientKey) as? Bool,
-           coverDrivenAmbient != stored {
-            coverDrivenAmbient = stored
-            changed = true
-        }
-        if let stored = defaults.object(forKey: AppThemePreferences.ambientStrengthKey) as? Double {
-            let strength = AppThemePreferences.normalizedAmbientStrength(stored)
-            if ambientStrength != strength {
-                ambientStrength = strength
-                changed = true
-            }
-        }
-        return changed
-    }
-
-    /// 存着的固定色在这台 Mac 上用哪个。「白色」只在 iPhone / iPad 的色板里有,Mac 的自绘控件
-    /// 没按它验证过(白底上的白字),从那边同步来时这台 Mac 照旧用原来的颜色;存着的值不动,
-    /// 在 Mac 上再选一次色才盖掉。
-    private static func brandHex(fromStored stored: String?) -> String? {
-        guard let stored else { return nil }
-        let hex = AppThemePreferences.normalizedHex(stored, fallback: defaultBrandHex)
-        return AppThemePreferences.isMonochrome(hex) ? nil : hex
-    }
-
-    private static let keyAppearance   = "pm.mac.appearance"
-    private static let keyAutoDetectMaterial = "pm.mac.autoDetectMaterial"
-    private static let keyLyricsScale  = "pm.mac.lyricsScale"
-    private static let keySidebarWidth = "pm.mac.sidebarWidth"
-    private static let legacyAmbientKey = "pm.mac.ambientStrength"
-    private static let legacyCoverDrivenAmbientKey = "pm.mac.coverDrivenAmbient"
-    private static let legacyBrandKey = "pm.mac.brandColor"
-    private static let keyColorScheme  = "pm.mac.colorScheme"
-    private static let keyAppIcon      = "pm.mac.appIcon"
-
-    static let defaultBrandHex = AppThemePreferences.defaultAccentHex
 
     init(defaults: UserDefaults = .standard,
          operatingSystemMajorVersion: Int = ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
@@ -2301,6 +2238,75 @@ final class MacUIPreferences {
         legibleFixedBrandColor = ThemeService.legibleAccent(fixedBrandColor)
     }
 
+    @ObservationIgnored private var appliedIconStyle: String?
+    @ObservationIgnored private var iconStyleObservers: [NSObjectProtocol] = []
+}
+
+extension MacUIPreferences {
+    static let shared = MacUIPreferences()
+
+    /// 固定回退色与当前生效色分开，自动模式下全套 Mac 自绘控件会随封面更新。
+    var fixedBrandColor: Color { AppThemePreferences.themeColor(hex: brandColorHex) }
+    var brandColor: Color {
+        themeColorMode == .automatic
+            ? artworkBrandColor ?? legibleFixedBrandColor
+            : legibleFixedBrandColor
+    }
+
+    func updateArtworkBrandColor(_ color: Color?) {
+        artworkBrandColor = color
+    }
+
+    /// 别的设备改过、经 iCloud 拉下来的主题色设置(#320)。没变的不赋,免得 didSet 再写一遍。
+    /// 返回有没有变。
+    func reloadThemeFromDefaults() -> Bool {
+        var changed = false
+        let mode = AppThemePreferences.colorMode(in: defaults)
+        if themeColorMode != mode {
+            themeColorMode = mode
+            changed = true
+        }
+        if let hex = Self.brandHex(fromStored: defaults.string(forKey: AppThemePreferences.accentHexKey)),
+           brandColorHex != hex {
+            brandColorHex = hex
+            changed = true
+        }
+        if let stored = defaults.object(forKey: AppThemePreferences.coverDrivenAmbientKey) as? Bool,
+           coverDrivenAmbient != stored {
+            coverDrivenAmbient = stored
+            changed = true
+        }
+        if let stored = defaults.object(forKey: AppThemePreferences.ambientStrengthKey) as? Double {
+            let strength = AppThemePreferences.normalizedAmbientStrength(stored)
+            if ambientStrength != strength {
+                ambientStrength = strength
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    /// 存着的固定色在这台 Mac 上用哪个。「白色」只在 iPhone / iPad 的色板里有,Mac 的自绘控件
+    /// 没按它验证过(白底上的白字),从那边同步来时这台 Mac 照旧用原来的颜色;存着的值不动,
+    /// 在 Mac 上再选一次色才盖掉。
+    private static func brandHex(fromStored stored: String?) -> String? {
+        guard let stored else { return nil }
+        let hex = AppThemePreferences.normalizedHex(stored, fallback: defaultBrandHex)
+        return AppThemePreferences.isMonochrome(hex) ? nil : hex
+    }
+
+    private static let keyAppearance   = "pm.mac.appearance"
+    private static let keyAutoDetectMaterial = "pm.mac.autoDetectMaterial"
+    private static let keyLyricsScale  = "pm.mac.lyricsScale"
+    private static let keySidebarWidth = "pm.mac.sidebarWidth"
+    private static let legacyAmbientKey = "pm.mac.ambientStrength"
+    private static let legacyCoverDrivenAmbientKey = "pm.mac.coverDrivenAmbient"
+    private static let legacyBrandKey = "pm.mac.brandColor"
+    private static let keyColorScheme  = "pm.mac.colorScheme"
+    private static let keyAppIcon      = "pm.mac.appIcon"
+
+    static let defaultBrandHex = AppThemePreferences.defaultAccentHex
+
     func selectAppearance(_ mode: PMAppearanceMode) {
         autoDetectMaterial = false
         appearance = mode
@@ -2344,9 +2350,6 @@ final class MacUIPreferences {
         appliedIconStyle = MacIconStyle.signature()
         NSApp.applicationIconImage = MacAppIcon.runtimeDockImage(for: MacAppIcon.option(for: appIconID))
     }
-
-    @ObservationIgnored private var appliedIconStyle: String?
-    @ObservationIgnored private var iconStyleObservers: [NSObjectProtocol] = []
 
     /// 系统换了图标样式、明暗(样式选「自动」时)或着色颜色，备选图标跟着重画。
     /// 图标样式的变更通知没有公开名字，回到前台时再核对一次兜底。

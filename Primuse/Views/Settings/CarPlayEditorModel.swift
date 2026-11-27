@@ -33,7 +33,9 @@ final class CarPlayEditorModel {
         previewConfiguration = settings.configuration
         selectedID = configuration.blocks.first?.id
     }
+}
 
+extension CarPlayEditorModel {
     var selected: CarPlayLayoutBlock? { configuration.blocks.first { $0.id == selectedID } }
     var maximumTabCount: Int { max(1, CPTabBarTemplate.maximumTabCount) }
     var visibleTabs: [CarPlayMainTab] { configuration.visibleTabs(maximumCount: maximumTabCount) }

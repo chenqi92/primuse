@@ -3909,20 +3909,6 @@ final class SourceManager {
         syncAudioCacheEvictionForOfflineMode()
     }
 
-    /// 体检时要单独试一次下载的源(见 `SourceDiagnosticDownloadProbing`)。
-    nonisolated static let diagnosticDownloadProbeTypes: Set<MusicSourceType> = [.pan123]
-
-    /// Custom URL scheme that signals "play this song via streaming
-    /// SFBInputSource" — AudioPlayerService intercepts it and routes to
-    /// CloudPlaybackSource instead of doing a full download.
-    static let cloudStreamingScheme = "primuse-stream"
-
-    /// Query 参数标记: 服务端转码流(大小未知)。AudioPlayerService 看到它就
-    /// 不走"按已知大小做 HTTP Range"那条路, 改用 AVAssetReader 渐进解码,
-    /// 且不做按 fileSize 校验的持久缓存。Subsonic WMA 转码流会带上。
-    /// nonisolated: SubsonicSource(独立 actor)与下面的 nonisolated 静态方法都要读它。
-    nonisolated static let transcodedStreamQueryKey = SourceStreamQuery.transcoded
-
     /// 在途的转码物化。**全局只保留一个** —— 按转码文件名识别: 同名的请求
     /// 直接 join 已有的那个(所以同一个路径永远只有一个写者), 换了名字就把
     /// 上一个取消掉(用户已经翻页了, 那份预取没人要了)。
@@ -3938,6 +3924,40 @@ final class SourceManager {
     /// 最近一次交出去的转码产物 —— 正在播的那首就是它。清理时一并保护,
     /// 不依赖文件系统的 access time(有的卷是 noatime 挂载的)。
     private var lastServedAdaptiveTranscodeName: String?
+
+    /// 正在下载时的进度;nil 表示没在下。
+    private(set) var companionAssetProgress: CompanionAssetProgress?
+    /// 上一轮的结果,设置页拿它说「存下了几张封面、几份歌词」。
+    private(set) var lastCompanionAssetResult: CompanionAssetProgress?
+    let companionAssetFlow = CompanionAssetDownloadFlow()
+    @ObservationIgnored private var companionAssetTask: Task<Void, Never>?
+    /// 下载到了新封面时调用(让 Spotlight 补上缩略图),由 AppServices 装上。
+    @ObservationIgnored var onCompanionArtworkDownloaded: (@MainActor () -> Void)?
+
+    /// 「转换已缓存的歌曲」正在进行时的进度; nil 表示没在转。
+    private(set) var offlineCompactionSweepProgress: OfflineCompactionSweepProgress?
+    /// 上一轮转换的结果, 设置页拿它显示「已转换 N 首, 省下 X」。
+    private(set) var lastOfflineCompactionSweepResult: OfflineCompactionSweepProgress?
+    @ObservationIgnored private var offlineCompactionSweepTask: Task<Void, Never>?
+
+
+    @ObservationIgnored private var playingArtworkRefreshTask: Task<Void, Never>?
+}
+
+extension SourceManager {
+    /// 体检时要单独试一次下载的源(见 `SourceDiagnosticDownloadProbing`)。
+    nonisolated static let diagnosticDownloadProbeTypes: Set<MusicSourceType> = [.pan123]
+
+    /// Custom URL scheme that signals "play this song via streaming
+    /// SFBInputSource" — AudioPlayerService intercepts it and routes to
+    /// CloudPlaybackSource instead of doing a full download.
+    static let cloudStreamingScheme = "primuse-stream"
+
+    /// Query 参数标记: 服务端转码流(大小未知)。AudioPlayerService 看到它就
+    /// 不走"按已知大小做 HTTP Range"那条路, 改用 AVAssetReader 渐进解码,
+    /// 且不做按 fileSize 校验的持久缓存。Subsonic WMA 转码流会带上。
+    /// nonisolated: SubsonicSource(独立 actor)与下面的 nonisolated 静态方法都要读它。
+    nonisolated static let transcodedStreamQueryKey = SourceStreamQuery.transcoded
 
     // MARK: - Music Video Cache
 
@@ -3966,23 +3986,8 @@ final class SourceManager {
     private static let offlineAudioEntryCapacity = 4_096
 
     private static let offlineSnapshotProbeBatchSize = 1000
-
-    /// 正在下载时的进度;nil 表示没在下。
-    private(set) var companionAssetProgress: CompanionAssetProgress?
-    /// 上一轮的结果,设置页拿它说「存下了几张封面、几份歌词」。
-    private(set) var lastCompanionAssetResult: CompanionAssetProgress?
-    let companionAssetFlow = CompanionAssetDownloadFlow()
-    @ObservationIgnored private var companionAssetTask: Task<Void, Never>?
-    /// 下载到了新封面时调用(让 Spotlight 补上缩略图),由 AppServices 装上。
-    @ObservationIgnored var onCompanionArtworkDownloaded: (@MainActor () -> Void)?
     /// 同时在取的条数。界面上看得见的封面也走同一条取封面的限流,留出余地给它。
     private nonisolated static let companionAssetConcurrency = 3
-
-    /// 「转换已缓存的歌曲」正在进行时的进度; nil 表示没在转。
-    private(set) var offlineCompactionSweepProgress: OfflineCompactionSweepProgress?
-    /// 上一轮转换的结果, 设置页拿它显示「已转换 N 首, 省下 X」。
-    private(set) var lastOfflineCompactionSweepResult: OfflineCompactionSweepProgress?
-    @ObservationIgnored private var offlineCompactionSweepTask: Task<Void, Never>?
 
     /// 每删多少个文件复核一次保护集。复核要回主 actor, 太小会让清缓存被
     /// 主线程的渲染节奏拖住; 256 个文件的 unlink 通常在几十毫秒级。
@@ -4006,9 +4011,6 @@ final class SourceManager {
         .qnap,
         .ugreen,
     ]
-
-
-    @ObservationIgnored private var playingArtworkRefreshTask: Task<Void, Never>?
 }
 
 extension SourceManager {

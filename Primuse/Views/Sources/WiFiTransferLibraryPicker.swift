@@ -167,12 +167,6 @@ final class TransferTreeRows {
 
 @MainActor @Observable
 final class TransferLibraryTreeModel {
-    struct Source {
-        let id: String
-        let name: String
-        let type: MusicSourceType
-        let count: Int
-    }
 
     private(set) var rows = TransferTreeRows()
     private(set) var selected: Set<String> = []
@@ -205,6 +199,15 @@ final class TransferLibraryTreeModel {
     @ObservationIgnored private var sourceScopes: [String: String] = [:]
     @ObservationIgnored private var snapshot: ((String) -> [Song])?
     @ObservationIgnored private var commit: ((Set<String>) -> Void)?
+}
+
+extension TransferLibraryTreeModel {
+    struct Source {
+        let id: String
+        let name: String
+        let type: MusicSourceType
+        let count: Int
+    }
 
     var canSelectAll: Bool {
         guard rows.count > 0, snapshot != nil else { return false }

@@ -6,7 +6,6 @@ import PrimuseKit
 @MainActor
 @Observable
 final class FloatingLyricsService {
-    static let shared = FloatingLyricsService()
 
     private(set) var presentation = FloatingLyricsPresentation(lines: [], time: 0)
     private(set) var title = ""
@@ -30,10 +29,6 @@ final class FloatingLyricsService {
     @ObservationIgnored var onPresentationChange: (() -> Void)?
     @ObservationIgnored private let loader: @MainActor (Song) async -> [LyricLine]
     @ObservationIgnored private let cachedLyricsLoader: @MainActor (String) async -> [LyricLine]?
-
-    convenience init(loader: @escaping @MainActor (Song) async -> [LyricLine] = FloatingLyricsService.loadLyrics) {
-        self.init(cachedLyricsLoader: { await MetadataAssetStore.shared.cachedLyrics(forSongID: $0) }, loader: loader)
-    }
 
     init(cachedLyricsLoader: @escaping @MainActor (String) async -> [LyricLine]?,
          loader: @escaping @MainActor (Song) async -> [LyricLine]) {
@@ -68,6 +63,14 @@ final class FloatingLyricsService {
         cacheReloadTask?.cancel()
         if let lyricsObserver { NotificationCenter.default.removeObserver(lyricsObserver) }
         if let lyricsCacheObserver { NotificationCenter.default.removeObserver(lyricsCacheObserver) }
+    }
+}
+
+extension FloatingLyricsService {
+    static let shared = FloatingLyricsService()
+
+    convenience init(loader: @escaping @MainActor (Song) async -> [LyricLine] = FloatingLyricsService.loadLyrics) {
+        self.init(cachedLyricsLoader: { await MetadataAssetStore.shared.cachedLyrics(forSongID: $0) }, loader: loader)
     }
 
     private static func loadLyrics(_ song: Song) async -> [LyricLine] {

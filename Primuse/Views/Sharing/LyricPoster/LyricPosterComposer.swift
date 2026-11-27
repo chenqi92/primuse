@@ -91,14 +91,6 @@ final class LyricPosterComposer: Identifiable {
     private let artworkRequest: ArtworkRequest?
     private let song: Song?
 
-    struct ArtworkRequest {
-        let coverRef: String?
-        let songID: String?
-        let sourceID: String?
-        let filePath: String?
-        let fileFormat: AudioFormat?
-    }
-
     init(
         songTitle: String,
         artistName: String?,
@@ -146,6 +138,16 @@ final class LyricPosterComposer: Identifiable {
         )
         self.styleID = resolved?.id ?? .gradientQuote
         self.canvas = resolved?.canvas(preferring: canvas) ?? .portrait
+    }
+}
+
+extension LyricPosterComposer {
+    struct ArtworkRequest {
+        let coverRef: String?
+        let songID: String?
+        let sourceID: String?
+        let filePath: String?
+        let fileFormat: AudioFormat?
     }
 
     // MARK: - 派生内容

@@ -194,22 +194,6 @@ private final class HomeDiscoveryFolderIndexCache: @unchecked Sendable {
 @MainActor
 @Observable
 final class HomeDiscoveryModel {
-    struct Request: Equatable {
-        let collection: Int
-        let playlists: Int
-        let hierarchy: Int
-        let names: Int
-        let sources: [LibraryFolderSourceDescriptor]
-        /// 目录的成员修订号:索引按目录建时,目录跟上内存(新加的歌入了目录)要再建一次。
-        var catalogMembership: UInt64 = 0
-    }
-
-    private struct HistorySignature: Equatable {
-        let revision: Int
-        let day: Date
-        let calendar: Calendar
-        let localeIdentifier: String
-    }
 
     private(set) var index: LibraryFolderIndex?
     /// The audiobook chapters the index was built with; their folders read as on the shelf.
@@ -241,8 +225,6 @@ final class HomeDiscoveryModel {
     @ObservationIgnored private var historySignature: HistorySignature?
     @ObservationIgnored nonisolated(unsafe) private var memoryPressureObserver: NSObjectProtocol?
 
-    private static let maximumCachedCoverFolders = 256
-
     init() {
         memoryPressureObserver = NotificationCenter.default.addObserver(
             forName: .primuseMemoryPressure,
@@ -260,6 +242,27 @@ final class HomeDiscoveryModel {
             NotificationCenter.default.removeObserver(memoryPressureObserver)
         }
     }
+}
+
+extension HomeDiscoveryModel {
+    struct Request: Equatable {
+        let collection: Int
+        let playlists: Int
+        let hierarchy: Int
+        let names: Int
+        let sources: [LibraryFolderSourceDescriptor]
+        /// 目录的成员修订号:索引按目录建时,目录跟上内存(新加的歌入了目录)要再建一次。
+        var catalogMembership: UInt64 = 0
+    }
+
+    private struct HistorySignature: Equatable {
+        let revision: Int
+        let day: Date
+        let calendar: Calendar
+        let localeIdentifier: String
+    }
+
+    private static let maximumCachedCoverFolders = 256
 
     func bindLibrary(_ library: MusicLibrary) {
         boundLibrary = library

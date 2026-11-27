@@ -25,14 +25,6 @@ import AppKit
 @MainActor
 @Observable
 final class AppUpdateChecker {
-    struct UpdateInfo: Sendable, Equatable {
-        let version: String
-        let storeURL: URL
-        let releaseNotes: String?
-        let releaseDate: Date?
-        let minimumOSVersion: String?
-        let trackName: String?
-    }
 
     /// Non-nil when a strictly newer App Store version exists AND the
     /// user hasn't dismissed it. Banner observes this.
@@ -53,18 +45,6 @@ final class AppUpdateChecker {
     private let automaticCheckIsAllowed: @MainActor () async -> Bool
     /// 自动检查失败后, 这之前不再自动查。只记在内存里: 下次启动照常查一次。
     private var automaticRetryNotBefore: Date?
-
-    private static let skippedVersionKey = "primuse.update.skippedVersion"
-    private static let snoozeUntilKey = "primuse.update.snoozeUntil"
-    private static let lastCheckKey = "primuse.update.lastCheckedAt"
-    /// "稍后提醒" 静默 7 天 ── 跟微信 / 抖音的更新提示节奏对齐。24 小时
-    /// 太频繁; 一周一提既能让用户记起, 又不至于打扰。
-    private static let snoozeDuration: TimeInterval = 7 * 24 * 3600
-    /// 一天 fetch 一次 App Store 足够 ── 用户实际感知的"有新版"决策
-    /// 颗粒度本来就是天级。频繁 hit Apple lookup 浪费流量也可能被节流。
-    private static let throttleInterval: TimeInterval = 24 * 3600
-    /// 只在成功后记下检查时间, 失败的不能每回前台就重来一遍(每次两个地区, 各带重试)。
-    private static let automaticRetryInterval: TimeInterval = 3600
 
     init(defaults: UserDefaults = .standard, session: URLSession = .shared,
          quotaRegistry: RequestQuotaRegistry = .shared,
@@ -92,6 +72,29 @@ final class AppUpdateChecker {
         self.automaticCheckIsAllowed = automaticCheckIsAllowed
         self.lastCheckedAt = defaults.object(forKey: Self.lastCheckKey) as? Date
     }
+}
+
+extension AppUpdateChecker {
+    struct UpdateInfo: Sendable, Equatable {
+        let version: String
+        let storeURL: URL
+        let releaseNotes: String?
+        let releaseDate: Date?
+        let minimumOSVersion: String?
+        let trackName: String?
+    }
+
+    private static let skippedVersionKey = "primuse.update.skippedVersion"
+    private static let snoozeUntilKey = "primuse.update.snoozeUntil"
+    private static let lastCheckKey = "primuse.update.lastCheckedAt"
+    /// "稍后提醒" 静默 7 天 ── 跟微信 / 抖音的更新提示节奏对齐。24 小时
+    /// 太频繁; 一周一提既能让用户记起, 又不至于打扰。
+    private static let snoozeDuration: TimeInterval = 7 * 24 * 3600
+    /// 一天 fetch 一次 App Store 足够 ── 用户实际感知的"有新版"决策
+    /// 颗粒度本来就是天级。频繁 hit Apple lookup 浪费流量也可能被节流。
+    private static let throttleInterval: TimeInterval = 24 * 3600
+    /// 只在成功后记下检查时间, 失败的不能每回前台就重来一遍(每次两个地区, 各带重试)。
+    private static let automaticRetryInterval: TimeInterval = 3600
 
     var installedVersion: String { currentVersion }
     var appStoreBundleID: String { bundleID }

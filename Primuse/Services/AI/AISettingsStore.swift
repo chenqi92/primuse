@@ -6,6 +6,55 @@ import StoreKit
 @MainActor
 @Observable
 final class AISettingsStore {
+    private let defaults: UserDefaults
+    private let syncsThroughICloud: Bool
+    @ObservationIgnored var externalReloadHandler: (() -> Void)?
+
+    private(set) var providerSet: AIRemoteProviderSet
+    private(set) var primuseRelayEnabled: Bool
+    private(set) var semanticSearchEnabled: Bool
+    private(set) var recommendationsEnabled: Bool
+    private(set) var audioTranscriptionEnabled: Bool
+    private(set) var hasExplicitRemoteConsent: Bool
+    private(set) var hasExplicitListeningContextConsent: Bool
+    private(set) var hasExplicitAudioUploadConsent: Bool
+    private(set) var hasPersistedSettings: Bool
+    /// 最近一次在内置 AI 同意页点同意时的版本,没同意过或撤回了是 0。
+    private(set) var builtInConsentVersion: Int
+    private(set) var revision: UInt64 = 0
+
+    init(
+        defaults: UserDefaults = .standard,
+        syncsThroughICloud: Bool? = nil
+    ) {
+        self.defaults = defaults
+        self.syncsThroughICloud = syncsThroughICloud ?? (defaults === UserDefaults.standard)
+        let persistedData = defaults.data(forKey: Self.storageKey)
+        let loaded = Self.decodeSettings(from: persistedData)
+        providerSet = loaded.providerSet
+        primuseRelayEnabled = loaded.primuseRelayEnabled
+        semanticSearchEnabled = loaded.semanticSearchEnabled
+        recommendationsEnabled = loaded.recommendationsEnabled
+        audioTranscriptionEnabled = loaded.audioTranscriptionEnabled
+        hasExplicitRemoteConsent = loaded.hasExplicitRemoteConsent
+        hasExplicitListeningContextConsent = loaded.hasExplicitListeningContextConsent
+        hasExplicitAudioUploadConsent = loaded.hasExplicitAudioUploadConsent
+        hasPersistedSettings = persistedData != nil
+        builtInConsentVersion = defaults.integer(forKey: Self.builtInConsentKey)
+        applyDebugOverrides()
+
+        if self.syncsThroughICloud {
+            CloudKVSSync.shared.register(key: Self.storageKey) { [weak self] in
+                self?.reloadFromDefaults()
+            }
+            CloudKVSSync.shared.register(key: Self.builtInConsentKey) { [weak self] in
+                self?.reloadBuiltInConsent()
+            }
+        }
+    }
+}
+
+extension AISettingsStore {
     private struct PersistedSettingsV5: Codable {
         var schemaVersion: Int
         var providerSet: AIRemoteProviderSet
@@ -64,22 +113,6 @@ final class AISettingsStore {
     nonisolated static let builtInConsentKey = "ai.builtIn.consent.v1"
     /// 同意页说明的内容有实质变化(多发了一类数据、换了处理方式)时加一,所有人重新确认一次。
     nonisolated static let currentBuiltInConsentVersion = 1
-    private let defaults: UserDefaults
-    private let syncsThroughICloud: Bool
-    @ObservationIgnored var externalReloadHandler: (() -> Void)?
-
-    private(set) var providerSet: AIRemoteProviderSet
-    private(set) var primuseRelayEnabled: Bool
-    private(set) var semanticSearchEnabled: Bool
-    private(set) var recommendationsEnabled: Bool
-    private(set) var audioTranscriptionEnabled: Bool
-    private(set) var hasExplicitRemoteConsent: Bool
-    private(set) var hasExplicitListeningContextConsent: Bool
-    private(set) var hasExplicitAudioUploadConsent: Bool
-    private(set) var hasPersistedSettings: Bool
-    /// 最近一次在内置 AI 同意页点同意时的版本,没同意过或撤回了是 0。
-    private(set) var builtInConsentVersion: Int
-    private(set) var revision: UInt64 = 0
 
     /// 同意页当前这一版点过同意。没有它,内置 AI 即使选上了也不发任何请求。
     var hasBuiltInAIConsent: Bool {
@@ -88,36 +121,6 @@ final class AISettingsStore {
 
     var configuration: AIRemoteProviderConfiguration {
         providerSet.primaryProvider
-    }
-
-    init(
-        defaults: UserDefaults = .standard,
-        syncsThroughICloud: Bool? = nil
-    ) {
-        self.defaults = defaults
-        self.syncsThroughICloud = syncsThroughICloud ?? (defaults === UserDefaults.standard)
-        let persistedData = defaults.data(forKey: Self.storageKey)
-        let loaded = Self.decodeSettings(from: persistedData)
-        providerSet = loaded.providerSet
-        primuseRelayEnabled = loaded.primuseRelayEnabled
-        semanticSearchEnabled = loaded.semanticSearchEnabled
-        recommendationsEnabled = loaded.recommendationsEnabled
-        audioTranscriptionEnabled = loaded.audioTranscriptionEnabled
-        hasExplicitRemoteConsent = loaded.hasExplicitRemoteConsent
-        hasExplicitListeningContextConsent = loaded.hasExplicitListeningContextConsent
-        hasExplicitAudioUploadConsent = loaded.hasExplicitAudioUploadConsent
-        hasPersistedSettings = persistedData != nil
-        builtInConsentVersion = defaults.integer(forKey: Self.builtInConsentKey)
-        applyDebugOverrides()
-
-        if self.syncsThroughICloud {
-            CloudKVSSync.shared.register(key: Self.storageKey) { [weak self] in
-                self?.reloadFromDefaults()
-            }
-            CloudKVSSync.shared.register(key: Self.builtInConsentKey) { [weak self] in
-                self?.reloadBuiltInConsent()
-            }
-        }
     }
 
     /// 同意页上点了同意。

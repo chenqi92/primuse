@@ -11,6 +11,40 @@ import PrimuseKit
 @MainActor
 @Observable
 final class TVLyricsTranslationController {
+
+    private(set) var activity: Activity = .idle
+    private(set) var intelligentIssue: IntelligentIssue?
+    /// The song the activity belongs to.
+    private(set) var activitySongID: String?
+    private(set) var sourceCompanionTracks: LyricBundledTranslationPolicy.Tracks = []
+
+    /// Set by the app at launch; smart translation needs it.
+    @ObservationIgnored weak var intelligence: MusicIntelligenceService?
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var generation: UInt = 0
+    @ObservationIgnored private var lastLoaded: (songID: String, lines: [LyricLine])?
+    @ObservationIgnored private weak var store: TVStore?
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+
+    private init() {
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .lyricsTranslationSettingsChanged,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { TVLyricsTranslationController.shared.retranslateCurrentLyrics() }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .localLyricsTranslationModelChanged,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { TVLyricsTranslationController.shared.retranslateCurrentLyrics() }
+        })
+    }
+}
+
+extension TVLyricsTranslationController {
     static let shared = TVLyricsTranslationController()
 
     enum Engine: Equatable {
@@ -44,12 +78,6 @@ final class TVLyricsTranslationController {
         case baidu(BaiduTranslateIssue)
     }
 
-    private(set) var activity: Activity = .idle
-    private(set) var intelligentIssue: IntelligentIssue?
-    /// The song the activity belongs to.
-    private(set) var activitySongID: String?
-    private(set) var sourceCompanionTracks: LyricBundledTranslationPolicy.Tracks = []
-
     func availableCompanionTracks(for songID: String?) -> LyricBundledTranslationPolicy.Tracks {
         guard let songID, activitySongID == songID else { return [] }
         let readings = TVLyricsRomanizationController.shared
@@ -57,34 +85,9 @@ final class TVLyricsTranslationController {
         return sourceCompanionTracks
     }
 
-    /// Set by the app at launch; smart translation needs it.
-    @ObservationIgnored weak var intelligence: MusicIntelligenceService?
-    @ObservationIgnored private var task: Task<Void, Never>?
-    @ObservationIgnored private var generation: UInt = 0
-    @ObservationIgnored private var lastLoaded: (songID: String, lines: [LyricLine])?
-    @ObservationIgnored private weak var store: TVStore?
-    @ObservationIgnored private var observers: [NSObjectProtocol] = []
-
     /// One provider request takes up to 80 lines; ten rounds cover any lyrics
     /// without retrying forever when the service keeps failing.
     private static let maximumIntelligentRounds = 10
-
-    private init() {
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .lyricsTranslationSettingsChanged,
-            object: nil,
-            queue: .main
-        ) { _ in
-            MainActor.assumeIsolated { TVLyricsTranslationController.shared.retranslateCurrentLyrics() }
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .localLyricsTranslationModelChanged,
-            object: nil,
-            queue: .main
-        ) { _ in
-            MainActor.assumeIsolated { TVLyricsTranslationController.shared.retranslateCurrentLyrics() }
-        })
-    }
 
     /// The lyrics as the screen shows them: with "show built-in translations"
     /// off, the translations written in the file are left out (readings stay)

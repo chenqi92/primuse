@@ -3919,10 +3919,6 @@ final class MusicLibrary {
     #else
     @ObservationIgnored private var allowsPendingIdentityFlush = true
     #endif
-    /// 30 days. Pending identities older than this are considered
-    /// permanently unresolvable (user removed the song, or the source
-    /// was never re-added) and dropped on the next flush.
-    private static let pendingIdentityTTL: TimeInterval = 30 * 24 * 3600
     /// Tombstones for songs the user has explicitly removed via the
     /// row's "delete song" action. Persisted so the next scan doesn't
     /// re-add the same path.
@@ -4372,11 +4368,6 @@ final class MusicLibrary {
     @ObservationIgnored private var startupFolderValidationSignature: String?
     @ObservationIgnored private var startupFolderValidationTask: Task<Void, Never>?
     @ObservationIgnored private var startupFolderValidationGeneration: UInt64 = 0
-    /// 2: 启动缓存不再带歌曲数组, 歌曲总是从 SQLite 读。1 是带整库歌曲的旧格式,
-    /// 仍然读得懂, 读到后按 2 重写一次。
-    private nonisolated static let startupCacheFormatVersion = 2
-    private nonisolated static let legacyStartupCacheFormatVersion = 1
-    private nonisolated static let loadedSongMigrationVersion = 10
 
     // MARK: - Readiness
 
@@ -4647,15 +4638,10 @@ final class MusicLibrary {
         }
         catalogHost?.link.owner = self
     }
-
-    private static let pendingLyricsFlushDelay: TimeInterval = 0.5
     /// 等待写入的 (songID → 最新 lyricsText)。同一 songID 多次 schedule 后,
     /// flush 时只用最新值, 中间快照丢弃。
     private var pendingLyricsText: [String: String] = [:]
     private var pendingLyricsFlushTask: Task<Void, Never>?
-    /// 一批资源引用补丁的最长等待时间。刮削逐首回调, 这个窗口把一轮刮削
-    /// 压成一次发布, 又短到用户看不出封面是"批量"刷新的。
-    private static let pendingAssetPatchFlushDelay: TimeInterval = 0.3
     /// 等待应用的 (songID → 旁挂资源补丁)。同一首歌多次入队按字段合并,
     /// 最后一次写入获胜。
     private var pendingAssetPatches: [String: PendingAssetReferencePatch] = [:]
@@ -4673,16 +4659,7 @@ final class MusicLibrary {
     @ObservationIgnored private var externalSnapshotWriteOwners = 0
     @ObservationIgnored private var externalSnapshotWriteWaiters: [CheckedContinuation<Void, Never>] = []
 
-    static let legacyLocalRemovalReason = SongLocalRemovalLedger.legacyReason
-
     @ObservationIgnored var sourceSongRemovalPreparationDelayForTesting: Duration?
-
-    /// 只防一直换歌却从不发布新表时越攒越多；平时一首歌就几条。
-    private static let nameLookupCacheLimit = 256
-
-    /// 只防一直翻专辑却从不换可见数组时越攒越多。
-    private static let materializedAlbumSongsLimit = 256
-    static let materializedSongRowLimit = 8_192
 
     @ObservationIgnored private var releasedWarmCaches: ReleasedWarmCaches?
     @ObservationIgnored private var rebuildableCacheRewarmTask: Task<Void, Never>?
@@ -4690,8 +4667,6 @@ final class MusicLibrary {
     @ObservationIgnored private var artworkLookupTokens: [ArtworkLookupKey: LibraryArtworkLookupToken] = [:]
     @ObservationIgnored private var artworkLookupIdentities: [ArtworkLookupKey: String] = [:]
     @ObservationIgnored private var artworkLookupTokenRefreshScheduled = false
-
-    private static let artistDisplayNameCacheLimit = 20_000
 
     /// 歌单页一次重绘要问十几遍成员表; 成员与置顶都没变就用上次排好的。
     @ObservationIgnored private var pinnedFirstMemberIDs:
@@ -4710,38 +4685,8 @@ final class MusicLibrary {
         [String: (key: PlaylistMaterializationKey, songs: [Song])] = [:]
     @ObservationIgnored private var materializedPlaylistEntries:
         [String: (key: PlaylistMaterializationKey, entries: [PlaylistEntry])] = [:]
-    private static let materializedPlaylistLimit = 32
 
     @ObservationIgnored private var playlistVisibleSummaries: [String: PlaylistVisibleSummary] = [:]
-
-    /// 「我喜欢」系统级歌单的固定 ID。NowPlayingView 的 heart 按钮直接 toggle
-    /// 这个歌单, 跟 Apple Music 镜像歌单一样按 fixed ID 走 ensurePlaylist /
-    /// add / remove 三件套, 多端 / 重装后稳定收敛。
-    nonisolated static let likedSongsPlaylistID = "primuse.system.liked"
-
-    // MARK: - Disliked songs (#193)
-
-    /// 「不喜欢」的固定 ID。和「我喜欢」一样是按固定 ID 走 ensurePlaylist / add / remove 的
-    /// 系统歌单, 借歌单那一套 iCloud 同步与跨设备对歌(各设备的 `Song.id` 不同), 但只是
-    /// 一份记录: 不进歌单列表(`playlists`)、不推到服务端。
-    ///
-    /// 不喜欢的歌照样在曲库、专辑、歌单里, 点名播放照样能听; 只是 App 替人挑歌时
-    /// (整库随机、随机续播、自动续播相似歌曲、单曲电台、相似歌曲、推荐)不再挑它。
-    /// 喜欢与不喜欢互斥: 点了一个就撤掉另一个。
-    nonisolated static let dislikedSongsPlaylistID = "primuse.system.disliked"
-
-    /// 只是一份记录、不进歌单列表的系统歌单: 「不喜欢」与「随机时连播」的两边(#335)。
-    nonisolated static let recordPlaylistIDs: Set<String> = [
-        dislikedSongsPlaylistID, shuffleLinkNextPlaylistID, shuffleLinkPreviousPlaylistID,
-    ]
-
-    // MARK: - Shuffle links (#335)
-
-    /// 「随机时连播」两边的固定 ID。和「不喜欢」一样借歌单的 iCloud 同步与跨设备对歌, 只是记录:
-    /// 设了「接着放下一首」的歌记在 next 那份, 设了「先放上一首」的记在 previous 那份。
-    /// 上一首 / 下一首不存, 每次按专辑曲序现算, 重扫换了 ID、改了曲号也连不错。
-    nonisolated static let shuffleLinkNextPlaylistID = "primuse.system.shuffleLinkNext"
-    nonisolated static let shuffleLinkPreviousPlaylistID = "primuse.system.shuffleLinkPrevious"
 
     // MARK: - 换了 id 的歌: 找回评分、评论与「我喜欢」
 
@@ -4756,10 +4701,6 @@ final class MusicLibrary {
     /// (扫描期间每次提交都会来问, 对不上的条目一直留着时不能每次都重建匹配表)。
     @ObservationIgnored private var carriedSongMarksRevision: UInt64 = 0
     @ObservationIgnored private var carriedSongMarksCheckedState: CarriedSongMarksCheckState?
-    private nonisolated static let carriedSongMarksWriteQueue = DispatchQueue(
-        label: "com.welape.primuse.library.carriedSongMarks",
-        qos: .utility
-    )
 
     /// Most recently replaced song — observable so consumers (e.g. player) can sync.
     /// Use songReplacementToken for onChange triggers (it changes on every replace, even same song).
@@ -4805,17 +4746,6 @@ final class MusicLibrary {
     /// 观察补发是否被合并。
     @ObservationIgnored private(set) var immediateIndexRequeueCountForMaintenance = 0
     @ObservationIgnored private let deferredMaintenanceAllowed: @MainActor () -> Bool
-    /// Collapse mutations published in the same run-loop burst before starting
-    /// a full-library grouping/sort. More importantly, cancellation can happen
-    /// while the task is still sleeping instead of after expensive work began.
-    private static let rebuildIndexDebounce: Duration = .milliseconds(250)
-
-    /// Stage 2b: 准备任务与主线程上的 `makePreparing` 现在是真并发了, 而首次
-    /// 启动时两边都会看到"键还不存在"并各自铸一个 UUID —— 写赢的那个与库内存
-    /// 里用的那个可能不是同一个, 于是同一台设备的歌单会带上两个 writer ID,
-    /// LWW 会把它们当成两台设备的改动。UserDefaults 本身线程安全, 但这里是
-    /// 一个读-铸-写序列, 用进程内的锁把它合成一步。
-    private nonisolated static let startupPlaylistWriterIDLock = NSLock()
 
     private var persistTask: Task<Void, Never>?
     /// 已武装的 `persistTask` 的到期时刻。用来保留"最早的那个截止时间",
@@ -4848,6 +4778,98 @@ final class MusicLibrary {
     @ObservationIgnored private var remotePlaylistLedgerWritePending = false
     @ObservationIgnored private var remotePlaylistLedgerWriteTask: Task<Void, Never>?
 
+    /// 增量库健康时, 写盘的可移植快照一律不带歌(`separateSongStore`)。歌已经
+    /// 逐行进了 SQLite, 启动也只认 SQLite; 快照里那份整库歌曲只在 iCloud /
+    /// Apple TV 传输时用得上, 而传输读到不带歌的快照会从内存现编一份
+    /// (`portableSnapshotIncludingSongs`)。原先十万首以下照样整份带歌, 于是每次
+    /// 点心、播放记录、远端歌单并进来都要把几万首歌连同歌词重新编码写一遍。
+    ///
+    /// 测试钩子: 设了它, 少于这么多首的曲库仍把歌写进快照。
+    @ObservationIgnored var separateSongStoreMinimumSongsOverride: Int?
+
+    /// 这一轮进程里上次安排写兜底的时间与当时的首数; 没安排过时按文件的修改时间算。
+    @ObservationIgnored private var songFallbackScheduledAt: Date?
+    @ObservationIgnored private var songFallbackScheduledSongCount: Int?
+    /// 换成别处导入的整库之后, 下一次落盘不等间隔就重写兜底。
+    @ObservationIgnored private var songFallbackRefreshRequested = false
+
+    @ObservationIgnored private var verifiedPlaylistCleanupInputs: PlaylistCleanupInputs?
+    /// 整遍核对的次数, 只给测试看。
+    @ObservationIgnored private(set) var playlistCleanupFullPassCount = 0
+}
+
+extension MusicLibrary {
+    /// 30 days. Pending identities older than this are considered
+    /// permanently unresolvable (user removed the song, or the source
+    /// was never re-added) and dropped on the next flush.
+    private static let pendingIdentityTTL: TimeInterval = 30 * 24 * 3600
+    /// 2: 启动缓存不再带歌曲数组, 歌曲总是从 SQLite 读。1 是带整库歌曲的旧格式,
+    /// 仍然读得懂, 读到后按 2 重写一次。
+    private nonisolated static let startupCacheFormatVersion = 2
+    private nonisolated static let legacyStartupCacheFormatVersion = 1
+    private nonisolated static let loadedSongMigrationVersion = 10
+
+    private static let pendingLyricsFlushDelay: TimeInterval = 0.5
+    /// 一批资源引用补丁的最长等待时间。刮削逐首回调, 这个窗口把一轮刮削
+    /// 压成一次发布, 又短到用户看不出封面是"批量"刷新的。
+    private static let pendingAssetPatchFlushDelay: TimeInterval = 0.3
+
+    static let legacyLocalRemovalReason = SongLocalRemovalLedger.legacyReason
+
+    /// 只防一直换歌却从不发布新表时越攒越多；平时一首歌就几条。
+    private static let nameLookupCacheLimit = 256
+
+    /// 只防一直翻专辑却从不换可见数组时越攒越多。
+    private static let materializedAlbumSongsLimit = 256
+    static let materializedSongRowLimit = 8_192
+
+    private static let artistDisplayNameCacheLimit = 20_000
+    private static let materializedPlaylistLimit = 32
+
+    /// 「我喜欢」系统级歌单的固定 ID。NowPlayingView 的 heart 按钮直接 toggle
+    /// 这个歌单, 跟 Apple Music 镜像歌单一样按 fixed ID 走 ensurePlaylist /
+    /// add / remove 三件套, 多端 / 重装后稳定收敛。
+    nonisolated static let likedSongsPlaylistID = "primuse.system.liked"
+
+    // MARK: - Disliked songs (#193)
+
+    /// 「不喜欢」的固定 ID。和「我喜欢」一样是按固定 ID 走 ensurePlaylist / add / remove 的
+    /// 系统歌单, 借歌单那一套 iCloud 同步与跨设备对歌(各设备的 `Song.id` 不同), 但只是
+    /// 一份记录: 不进歌单列表(`playlists`)、不推到服务端。
+    ///
+    /// 不喜欢的歌照样在曲库、专辑、歌单里, 点名播放照样能听; 只是 App 替人挑歌时
+    /// (整库随机、随机续播、自动续播相似歌曲、单曲电台、相似歌曲、推荐)不再挑它。
+    /// 喜欢与不喜欢互斥: 点了一个就撤掉另一个。
+    nonisolated static let dislikedSongsPlaylistID = "primuse.system.disliked"
+
+    /// 只是一份记录、不进歌单列表的系统歌单: 「不喜欢」与「随机时连播」的两边(#335)。
+    nonisolated static let recordPlaylistIDs: Set<String> = [
+        dislikedSongsPlaylistID, shuffleLinkNextPlaylistID, shuffleLinkPreviousPlaylistID,
+    ]
+
+    // MARK: - Shuffle links (#335)
+
+    /// 「随机时连播」两边的固定 ID。和「不喜欢」一样借歌单的 iCloud 同步与跨设备对歌, 只是记录:
+    /// 设了「接着放下一首」的歌记在 next 那份, 设了「先放上一首」的记在 previous 那份。
+    /// 上一首 / 下一首不存, 每次按专辑曲序现算, 重扫换了 ID、改了曲号也连不错。
+    nonisolated static let shuffleLinkNextPlaylistID = "primuse.system.shuffleLinkNext"
+    nonisolated static let shuffleLinkPreviousPlaylistID = "primuse.system.shuffleLinkPrevious"
+    private nonisolated static let carriedSongMarksWriteQueue = DispatchQueue(
+        label: "com.welape.primuse.library.carriedSongMarks",
+        qos: .utility
+    )
+    /// Collapse mutations published in the same run-loop burst before starting
+    /// a full-library grouping/sort. More importantly, cancellation can happen
+    /// while the task is still sleeping instead of after expensive work began.
+    private static let rebuildIndexDebounce: Duration = .milliseconds(250)
+
+    /// Stage 2b: 准备任务与主线程上的 `makePreparing` 现在是真并发了, 而首次
+    /// 启动时两边都会看到"键还不存在"并各自铸一个 UUID —— 写赢的那个与库内存
+    /// 里用的那个可能不是同一个, 于是同一台设备的歌单会带上两个 writer ID,
+    /// LWW 会把它们当成两台设备的改动。UserDefaults 本身线程安全, 但这里是
+    /// 一个读-铸-写序列, 用进程内的锁把它合成一步。
+    private nonisolated static let startupPlaylistWriterIDLock = NSLock()
+
     /// 歌曲元数据已进 SQLite；最近播放与快照修订号按低优先级合并保存。
     /// 日常保存只写相对基线的增量，进后台和导出前仍有持久化屏障。
     /// 这段延迟只影响意外终止前最近几分钟的播放记录，不延迟歌曲入库。
@@ -4857,15 +4879,6 @@ final class MusicLibrary {
     /// 扫描收尾逐个落地几十个歌单时, 2 秒档意味着同步期间每两秒一份整库快照。
     /// 已经为用户改动武装的更早截止时间不受影响(persistSnapshot 保留最早的那个)。
     static let mirrorPlaylistSnapshotDelay: TimeInterval = 15
-
-    /// 增量库健康时, 写盘的可移植快照一律不带歌(`separateSongStore`)。歌已经
-    /// 逐行进了 SQLite, 启动也只认 SQLite; 快照里那份整库歌曲只在 iCloud /
-    /// Apple TV 传输时用得上, 而传输读到不带歌的快照会从内存现编一份
-    /// (`portableSnapshotIncludingSongs`)。原先十万首以下照样整份带歌, 于是每次
-    /// 点心、播放记录、远端歌单并进来都要把几万首歌连同歌词重新编码写一遍。
-    ///
-    /// 测试钩子: 设了它, 少于这么多首的曲库仍把歌写进快照。
-    @ObservationIgnored var separateSongStoreMinimumSongsOverride: Int?
 
     nonisolated static let songFallbackFileName = "library-songs-fallback.json"
 
@@ -4877,20 +4890,10 @@ final class MusicLibrary {
     /// 超过这么多首不写兜底: 那种规模原先就不带歌, 整库编码一次要几百 MB 内存。
     static let songFallbackMaximumSongs = 100_000
 
-    /// 这一轮进程里上次安排写兜底的时间与当时的首数; 没安排过时按文件的修改时间算。
-    @ObservationIgnored private var songFallbackScheduledAt: Date?
-    @ObservationIgnored private var songFallbackScheduledSongCount: Int?
-    /// 换成别处导入的整库之后, 下一次落盘不等间隔就重写兜底。
-    @ObservationIgnored private var songFallbackRefreshRequested = false
-
     nonisolated static let portableArtworkBudgetBytes = 24 * 1024 * 1024
 
     /// `MetadataAssetStore.coverContentIdentifier` 给按内容存放的封面的前缀。
     private nonisolated static let coverContentIdentityPrefix = "sha256:"
-
-    @ObservationIgnored private var verifiedPlaylistCleanupInputs: PlaylistCleanupInputs?
-    /// 整遍核对的次数, 只给测试看。
-    @ObservationIgnored private(set) var playlistCleanupFullPassCount = 0
 }
 
 extension MusicLibrary {

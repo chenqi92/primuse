@@ -204,22 +204,6 @@ private final class MetadataBackfillWorkerWaitLatch {
 @Observable
 final class MetadataBackfillService {
     @ObservationIgnored private let artworkStore: MetadataAssetStore
-    // 首段读多少字节由 `RemoteMetadataReadPolicy.backfillInitialHeadByteCount`
-    // 按格式和「要不要顺带取封面」决定: 取封面的仍然整段读 256 KB(封面多半就
-    // 在里面), 不取的只读 32 KB, 不够再按标签自己声明的长度补。
-
-    /// 一次性数据修复用的「文件大到头部读不完整」判据。原本写成 `headBytes * 2`,
-    /// 认的是当年那一版的读取大小 —— 这些修复要认的是当年那个数, 不该跟着现在
-    /// 的读取策略一起漂, 所以固化成字面量。
-    private static let legacyTruncatedDurationFileSizeFloor: Int64 = 512 * 1024
-    /// A declared ID3 boundary may place both artwork and the first MPEG frame
-    /// beyond the initial slice. Expansion stays capped so one outlier cannot
-    /// turn a library backfill into full-file downloads.
-    private nonisolated static let maxMetadataHeadBytes = RemoteMetadataReadPolicy.maximumHeadByteCount
-    private static let defaultMP3Bitrate = RemoteMetadataReadPolicy.defaultMP3BitRateKbps
-
-    private nonisolated static let fallbackTailBytes: Int64 = 256 * 1024
-    private nonisolated static let boundedHeadTagExtensions: Set<String> = ["ogg", "opus", "speex", "wma"]
 
     /// Persisted IDs whose bytes were read successfully but the expected
     /// metadata parser still produced no usable details.
@@ -334,10 +318,6 @@ final class MetadataBackfillService {
     @ObservationIgnored private var gatewayBackoff = RemoteGatewayBackoffState()
     /// 退让期内正占着读取位的源。同一个源同时只放一个读取在飞。
     @ObservationIgnored private var gatewaySerializedSourceIDs: Set<String> = []
-    /// 等同源的那一个读取最多等这么久。等到了就接着读, 等不到就让出这一轮 ——
-    /// 别的源的读取位不该被一个卡住的网关长期占着。取值要盖得住"最长退让 +
-    /// 一次正常读取", 否则等待的读取位只会一轮轮空转。
-    private static let gatewaySerializationWaitLimit: TimeInterval = 20
 
     /// Songs parked until another usable network path is observed. Every real
     /// transient failure parks immediately instead of being retried five times
@@ -385,10 +365,6 @@ final class MetadataBackfillService {
     @ObservationIgnored private var maintenanceConnectTask: Task<Void, Never>?
     @ObservationIgnored private var maintenanceCatalogListener: UUID?
     @ObservationIgnored private var startRequestedBeforeMaintenanceReady = false
-
-    /// UserDefaults key for "only run backfill on Wi-Fi". Default true.
-    /// User-facing toggle lives in CloudSyncSettingsView.
-    static let wifiOnlyDefaultsKey = "primuse.cloudScanWifiOnly"
 
     /// Whether the cellular opt-in alert is currently visible. This is kept
     /// separate from `isWaitingForWiFi`: dismissing the alert must not make a
@@ -447,15 +423,6 @@ final class MetadataBackfillService {
     private let sourceRetryCountsURL: URL
     private let queueStateURL: URL
     private let peerSeedStateURL: URL
-    private nonisolated static let queueDirtyDefaultsKey =
-        "primuse.metadataBackfill.queueDirty.v1"
-    private nonisolated static let queueMutationGenerationDefaultsKey =
-        "primuse.metadataBackfill.queueMutationGeneration.v1"
-    /// 队列状态每变一次都要写, 不能写进 standard, 见 `LibraryMaintenanceDefaults`。
-    nonisolated(unsafe) private static let queueDefaults = LibraryMaintenanceDefaults.migrating([
-        queueDirtyDefaultsKey,
-        queueMutationGenerationDefaultsKey,
-    ])
 
     /// Songs currently being processed (for UI / cancellation).
     private(set) var pendingCount: Int = 0
@@ -597,7 +564,6 @@ final class MetadataBackfillService {
     @ObservationIgnored private var statePersistenceTask: Task<Void, Never>?
     @ObservationIgnored private var statePersistenceTaskID: UInt64 = 0
     @ObservationIgnored private var statePersistenceDeadline: ContinuousClock.Instant?
-    private static let statePersistenceDebounce: Duration = .seconds(5)
     /// Bumped on every `start()` / `stop()`. The worker captures its own
     /// generation and uses it to decide whether the cleanup at end-of-Task
     /// should clear shared state — without this, a cancelled-but-still-
@@ -846,11 +812,51 @@ final class MetadataBackfillService {
 
     @ObservationIgnored private var detailsStatusCells: [String: DetailsStatusCell] = [:]
     @ObservationIgnored private var detailsStatusUseClock: UInt64 = 0
-    private static let detailsStatusCellLimit = 4000
 
     @ObservationIgnored private var completedRemainingCounts: (RemainingCountsState, RemainingCountsComputation)?
     @ObservationIgnored private var pendingRemainingCounts: (RemainingCountsState, Task<RemainingCountsComputation, Never>)?
     @ObservationIgnored private(set) var remainingCountsComputationCount = 0
+    @ObservationIgnored private var mergedLyricsRepairTask: Task<Void, Never>?
+    @ObservationIgnored private var didAttemptMergedLyricsRepair = false
+    @ObservationIgnored private var batchSelectionCursor = BatchSelectionCursor()
+}
+
+extension MetadataBackfillService {
+    // 首段读多少字节由 `RemoteMetadataReadPolicy.backfillInitialHeadByteCount`
+    // 按格式和「要不要顺带取封面」决定: 取封面的仍然整段读 256 KB(封面多半就
+    // 在里面), 不取的只读 32 KB, 不够再按标签自己声明的长度补。
+
+    /// 一次性数据修复用的「文件大到头部读不完整」判据。原本写成 `headBytes * 2`,
+    /// 认的是当年那一版的读取大小 —— 这些修复要认的是当年那个数, 不该跟着现在
+    /// 的读取策略一起漂, 所以固化成字面量。
+    private static let legacyTruncatedDurationFileSizeFloor: Int64 = 512 * 1024
+    /// A declared ID3 boundary may place both artwork and the first MPEG frame
+    /// beyond the initial slice. Expansion stays capped so one outlier cannot
+    /// turn a library backfill into full-file downloads.
+    private nonisolated static let maxMetadataHeadBytes = RemoteMetadataReadPolicy.maximumHeadByteCount
+    private static let defaultMP3Bitrate = RemoteMetadataReadPolicy.defaultMP3BitRateKbps
+
+    private nonisolated static let fallbackTailBytes: Int64 = 256 * 1024
+    private nonisolated static let boundedHeadTagExtensions: Set<String> = ["ogg", "opus", "speex", "wma"]
+    /// 等同源的那一个读取最多等这么久。等到了就接着读, 等不到就让出这一轮 ——
+    /// 别的源的读取位不该被一个卡住的网关长期占着。取值要盖得住"最长退让 +
+    /// 一次正常读取", 否则等待的读取位只会一轮轮空转。
+    private static let gatewaySerializationWaitLimit: TimeInterval = 20
+
+    /// UserDefaults key for "only run backfill on Wi-Fi". Default true.
+    /// User-facing toggle lives in CloudSyncSettingsView.
+    static let wifiOnlyDefaultsKey = "primuse.cloudScanWifiOnly"
+    private nonisolated static let queueDirtyDefaultsKey =
+        "primuse.metadataBackfill.queueDirty.v1"
+    private nonisolated static let queueMutationGenerationDefaultsKey =
+        "primuse.metadataBackfill.queueMutationGeneration.v1"
+    /// 队列状态每变一次都要写, 不能写进 standard, 见 `LibraryMaintenanceDefaults`。
+    nonisolated(unsafe) private static let queueDefaults = LibraryMaintenanceDefaults.migrating([
+        queueDirtyDefaultsKey,
+        queueMutationGenerationDefaultsKey,
+    ])
+    private static let statePersistenceDebounce: Duration = .seconds(5)
+    private static let detailsStatusCellLimit = 4000
 
     /// 修复一批历史行是一次性的活, 不需要实时性: 库内容没动就不重算, 动过
     /// 也最多这个间隔算一次。扫描期间每 1.5 s 发布一次库, 跟着代次走会让整
@@ -861,8 +867,6 @@ final class MetadataBackfillService {
 
     private static let mergedLyricsRepairDoneKey = "primuse.lyrics.mergedSYLTRepair.v1"
     private static let mergedLyricsRepairAttemptsKey = "primuse.lyrics.mergedSYLTRepair.attempts"
-    @ObservationIgnored private var mergedLyricsRepairTask: Task<Void, Never>?
-    @ObservationIgnored private var didAttemptMergedLyricsRepair = false
 
     /// 分段读: 每段交给调度器的首数有上限。新并进来的歌下一段就能读到, 要借用这个源的
     /// 文件夹重读或「恢复文件标签」最多等一段。
@@ -886,7 +890,6 @@ final class MetadataBackfillService {
     private static let permanentAPIErrorCodes: Set<Int> = [
         400, 404, 405, 410, 414, 415, 416, 451,
     ]
-    @ObservationIgnored private var batchSelectionCursor = BatchSelectionCursor()
 
     private nonisolated static let unknownPriority: Int8 = -2
 

@@ -38,6 +38,9 @@ final class EmbeddedKaraokePlayback {
     private(set) var isStemMix = false
     private(set) var isBacking = false
 
+}
+
+extension EmbeddedKaraokePlayback {
     private func backingTracks(in inventory: EmbeddedMediaTrackInventory) -> [Int]? {
         guard inventory.audioTracks.count > 1 else { return nil }
         if let track = inventory.instrumentalTracks.first(where: { $0.stemName == nil }) {
@@ -205,5 +208,4 @@ final class EmbeddedKaraokePlayback {
         original = input
         return input
     }
-
 }

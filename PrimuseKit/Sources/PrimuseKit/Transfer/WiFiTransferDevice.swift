@@ -197,7 +197,6 @@ public final class WiFiTransferReceiver {
     public private(set) var sender: String?
     public private(set) var error: String?
     public private(set) var receipts: [WiFiTransferReceipt] = []
-    public var hasActiveTransfers: Bool { invitation != nil || receipts.contains { !$0.finished } }
     @ObservationIgnored private var server: WiFiTransferServer?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var stopReason: String?
@@ -206,6 +205,10 @@ public final class WiFiTransferReceiver {
     @ObservationIgnored private var fileStarts: [UUID: (time: Date, remote: String?)] = [:]
 
     public init() {}
+}
+
+extension WiFiTransferReceiver {
+    public var hasActiveTransfers: Bool { invitation != nil || receipts.contains { !$0.finished } }
 
     public func start(root: URL, identity: WiFiTransferIdentity, page: String,
                       willChange: @escaping @Sendable () -> Void = {},

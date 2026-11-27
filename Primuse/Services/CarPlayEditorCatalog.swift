@@ -6,6 +6,39 @@ import PrimuseKit
 /// Source projection has its own lifetime; layout edits never invalidate it.
 @MainActor @Observable
 final class CarPlayEditorCatalog {
+
+    private(set) var snapshot = Snapshot()
+    private(set) var revision = 0
+    private(set) var isLoading = false
+    private(set) var projectionCount = 0
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var observing = false
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var observationGeneration = 0
+    @ObservationIgnored private var owners: Set<UUID> = []
+    @ObservationIgnored private var cachedVersion: String?
+    @ObservationIgnored nonisolated(unsafe) private var memoryPressureObserver: NSObjectProtocol?
+
+    init() {
+        memoryPressureObserver = NotificationCenter.default.addObserver(
+            forName: .primuseMemoryPressure,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reclaimSnapshotIfIdle()
+            }
+        }
+    }
+
+    deinit {
+        if let memoryPressureObserver {
+            NotificationCenter.default.removeObserver(memoryPressureObserver)
+        }
+    }
+}
+
+extension CarPlayEditorCatalog {
     static let shared = CarPlayEditorCatalog()
     struct Snapshot: Sendable {
         var entries: [CarPlayLayoutItem.Kind: [CarPlayHomeItem]] = [:]
@@ -116,36 +149,6 @@ final class CarPlayEditorCatalog {
         var intelligentForYouOrder: [String] = []
         var recentlyPlayedIDs: [String] = []
         var listeningIntents: [CarPlayHomeItem] = []
-    }
-
-    private(set) var snapshot = Snapshot()
-    private(set) var revision = 0
-    private(set) var isLoading = false
-    private(set) var projectionCount = 0
-    @ObservationIgnored private var task: Task<Void, Never>?
-    @ObservationIgnored private var observing = false
-    @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var observationGeneration = 0
-    @ObservationIgnored private var owners: Set<UUID> = []
-    @ObservationIgnored private var cachedVersion: String?
-    @ObservationIgnored nonisolated(unsafe) private var memoryPressureObserver: NSObjectProtocol?
-
-    init() {
-        memoryPressureObserver = NotificationCenter.default.addObserver(
-            forName: .primuseMemoryPressure,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.reclaimSnapshotIfIdle()
-            }
-        }
-    }
-
-    deinit {
-        if let memoryPressureObserver {
-            NotificationCenter.default.removeObserver(memoryPressureObserver)
-        }
     }
 
     func acquire(_ owner: UUID) {

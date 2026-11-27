@@ -249,6 +249,54 @@ final class KaraokePreparationGate {
 @MainActor
 @Observable
 final class KaraokeSeparationService {
+
+    @ObservationIgnored private lazy var initialModelState: ModelState = {
+        guard KaraokeVocalModel.isSystemSupported else { return .unsupportedSystem }
+        return KaraokeVocalModel.isAvailableLocally() ? .ready : .notDownloaded
+    }()
+    private var updatedModelState: ModelState?
+    /// Why the last model download failed, shown under the retry button.
+    private(set) var modelFailureReason: String?
+    /// Songs whose separation is paused, and why.
+    private(set) var holdReasons: [String: HoldReason] = [:]
+    private(set) var songStates: [String: SongState] = [:]
+    /// Why a song's last separation failed, shown next to its retry button.
+    private(set) var songFailureReasons: [String: String] = [:]
+    /// The model runs on the CPU only on this system (see
+    /// `KaraokeModelLoadGuard`): separating takes much longer, and the
+    /// stage says why.
+    private(set) var runsModelOnCPU = KaraokeModelLoadGuard.runsOnCPUOnly()
+    @ObservationIgnored private var separator: KaraokeVocalSeparator?
+    /// The model load under way. Another song (or another visit to the
+    /// stage) waits for it instead of starting a second one: cancelling a
+    /// separation does not stop the detached load, and two loads would
+    /// compile the same model into Core ML's cache at the same time.
+    @ObservationIgnored private var separatorLoad: Task<KaraokeVocalSeparator, Error>?
+    /// The pack on this device is missing part of the model: the next
+    /// download removes it first instead of finding it "already there".
+    @ObservationIgnored private var replacesModelOnDownload = false
+    @ObservationIgnored private var jobs: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var jobIDs: [String: UUID] = [:]
+    @ObservationIgnored private let preparationGate = KaraokePreparationGate()
+    @ObservationIgnored private var downloadTask: Task<Void, Never>?
+    @ObservationIgnored private var onsetCache: [String: [KaraokeOnset]] = [:]
+    @ObservationIgnored private var separatorIdleUnloadTask: Task<Void, Never>?
+
+    private init() {
+        NotificationCenter.default.addObserver(
+            forName: .primuseMemoryPressure,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.releaseIdleResources()
+            }
+        }
+    }
+
+}
+
+extension KaraokeSeparationService {
     static let shared = KaraokeSeparationService()
 
     enum ModelState: Equatable {
@@ -278,46 +326,14 @@ final class KaraokeSeparationService {
         /// the prediction fails outright instead of running on the CPU.
         case background
     }
-
-    @ObservationIgnored private lazy var initialModelState: ModelState = {
-        guard KaraokeVocalModel.isSystemSupported else { return .unsupportedSystem }
-        return KaraokeVocalModel.isAvailableLocally() ? .ready : .notDownloaded
-    }()
-    private var updatedModelState: ModelState?
     private(set) var modelState: ModelState {
         get { updatedModelState ?? initialModelState }
         set { updatedModelState = newValue }
     }
-    /// Why the last model download failed, shown under the retry button.
-    private(set) var modelFailureReason: String?
-    /// Songs whose separation is paused, and why.
-    private(set) var holdReasons: [String: HoldReason] = [:]
     /// Songs whose separation waits for the device to cool down.
     var coolingSongIDs: Set<String> {
         Set(holdReasons.filter { $0.value == .cooling }.keys)
     }
-    private(set) var songStates: [String: SongState] = [:]
-    /// Why a song's last separation failed, shown next to its retry button.
-    private(set) var songFailureReasons: [String: String] = [:]
-    /// The model runs on the CPU only on this system (see
-    /// `KaraokeModelLoadGuard`): separating takes much longer, and the
-    /// stage says why.
-    private(set) var runsModelOnCPU = KaraokeModelLoadGuard.runsOnCPUOnly()
-    @ObservationIgnored private var separator: KaraokeVocalSeparator?
-    /// The model load under way. Another song (or another visit to the
-    /// stage) waits for it instead of starting a second one: cancelling a
-    /// separation does not stop the detached load, and two loads would
-    /// compile the same model into Core ML's cache at the same time.
-    @ObservationIgnored private var separatorLoad: Task<KaraokeVocalSeparator, Error>?
-    /// The pack on this device is missing part of the model: the next
-    /// download removes it first instead of finding it "already there".
-    @ObservationIgnored private var replacesModelOnDownload = false
-    @ObservationIgnored private var jobs: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private var jobIDs: [String: UUID] = [:]
-    @ObservationIgnored private let preparationGate = KaraokePreparationGate()
-    @ObservationIgnored private var downloadTask: Task<Void, Never>?
-    @ObservationIgnored private var onsetCache: [String: [KaraokeOnset]] = [:]
-    @ObservationIgnored private var separatorIdleUnloadTask: Task<Void, Never>?
 
     /// 连着唱时一首分完到下一首开分，中间隔的就是一首歌的长度；比这个短的话每首都要重新
     /// 装一遍模型（一两秒）。闲到十分钟才放，内存告警时照旧立刻放。
@@ -330,18 +346,6 @@ final class KaraokeSeparationService {
     /// Bounds the work and temporary disk space for one separation.
     nonisolated static let maximumDuration: TimeInterval = 15 * 60
     nonisolated static let modelSampleRate = KaraokeDemucsLayout.standard.sampleRate
-
-    private init() {
-        NotificationCenter.default.addObserver(
-            forName: .primuseMemoryPressure,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.releaseIdleResources()
-            }
-        }
-    }
 
     func releaseIdleResources() {
         onsetCache.removeAll()
@@ -981,7 +985,6 @@ final class KaraokeSeparationService {
         }
         return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
-
 }
 
 private final class KaraokeModelAudioReader: @unchecked Sendable {

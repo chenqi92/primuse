@@ -272,7 +272,9 @@ final class NowPlayingCarouselState {
     init() {
         tapGuard.swallowsCurrentTap = { [weak self] in self?.isFinishingPageDrag() ?? false }
     }
+}
 
+extension NowPlayingCarouselState {
     var isAwayFromPlayer: Bool { settledPage != .player }
 
     /// 停着的那一面;转轮暂时不能转时是它停着的那一面。

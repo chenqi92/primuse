@@ -6,7 +6,6 @@ import PrimuseKit
 @MainActor
 @Observable
 final class ScrobbleService {
-    static let shared = ScrobbleService()
 
     private let defaults: UserDefaults
     private let providersOverride: (() -> [any ScrobbleProvider])?
@@ -28,17 +27,8 @@ final class ScrobbleService {
     var serverScrobbleHandler: ((_ song: Song, _ submission: Bool) -> Void)?
     /// 失败队列, 持久化到 UserDefaults。
     private var queue: [QueuedEntry] = []
-    private static let queueKey = "primuse.scrobble.queue.v2"
-    private static let legacyQueueKey = "primuse.scrobble.queue.v1"
     private var importedLegacyTargets: Set<LegacyTarget> = []
-    private static let queueLimit = 5_000
-    private static let queueRetention: TimeInterval = 90 * 24 * 60 * 60
-    private static let recentReportsKey = "primuse.scrobble.recentReports.v1"
-    private static let recentReportsLimit = 12
     private(set) var recentReports: [RecentReport] = []
-    /// 服务端明确拒绝过的凭据, provider → 凭据摘要。被拒的那份凭据不再拿来
-    /// 请求, 听歌记录照常留在补报队列里, 换了 token / 重新登录或复核通过后再补。
-    private static let rejectedCredentialsKey = "primuse.scrobble.rejectedCredentials.v1"
     private(set) var rejectedCredentials: [ScrobbleProviderID: String] = [:]
     /// 后台 retry task — settings 变化或网络恢复时启动。
     private var retryTask: Task<Void, Never>?
@@ -47,6 +37,64 @@ final class ScrobbleService {
 
     /// 一首音乐听够多少算听过 (`ListenCountRule`, 设置页可调)。有声内容照默认规则。
     private let listenCountRule: @MainActor () -> ListenCountRule
+
+    init(
+        defaults: UserDefaults = .standard,
+        providers: (() -> [any ScrobbleProvider])? = nil,
+        legacyQueueIsOfficial: @escaping () -> Bool? = { ListenBrainzCredentialsStore.legacyQueueIsOfficial },
+        savedListenBrainzURL: @escaping () -> URL? = { ListenBrainzCredentialsStore.savedBaseURL() },
+        spokenWordStore: SpokenWordStore = .shared,
+        songLookup: @escaping (String) -> Song? = {
+            PlayHistoryStore.shared.classification.library?.song(id: $0)
+        },
+        listenCountRule: @escaping @MainActor () -> ListenCountRule = {
+            ScrobbleSettingsStore.shared.listenCountRule
+        }
+    ) {
+        self.defaults = defaults
+        self.providersOverride = providers
+        self.legacyQueueIsOfficial = legacyQueueIsOfficial
+        self.savedListenBrainzURL = savedListenBrainzURL
+        self.spokenWordStore = spokenWordStore
+        self.songLookup = songLookup
+        self.listenCountRule = listenCountRule
+        loadQueue()
+        loadRecentReports()
+        loadRejectedCredentials()
+        if !rejectedCredentials.isEmpty {
+            Task { await self.recheckRejectedCredentials() }
+        }
+        // Settings 变化 (启用 provider 切换) 时尝试 flush 队列。
+        NotificationCenter.default.addObserver(
+            forName: .scrobbleSettingsChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.scheduleRetry(reason: "settings changed") }
+        }
+        // 上次会话遗留的待补报条目 —— 启动即调度, 否则要等下一次 settings 变化 /
+        // 新失败 / 用户手动 retry 才会动 (离线听歌后重启 app 的典型场景)。
+        if !queue.isEmpty { scheduleRetry(reason: "launch") }
+    }
+
+    // MARK: - Public API (AudioPlayerService 调用)
+
+    /// 用户开始播放新歌 — 创建 session, 同步发 nowPlaying。
+    /// A medley plays slices of songs; none of them is a listen to report.
+    var isSuspended = false
+}
+
+extension ScrobbleService {
+    static let shared = ScrobbleService()
+    private static let queueKey = "primuse.scrobble.queue.v2"
+    private static let legacyQueueKey = "primuse.scrobble.queue.v1"
+    private static let queueLimit = 5_000
+    private static let queueRetention: TimeInterval = 90 * 24 * 60 * 60
+    private static let recentReportsKey = "primuse.scrobble.recentReports.v1"
+    private static let recentReportsLimit = 12
+    /// 服务端明确拒绝过的凭据, provider → 凭据摘要。被拒的那份凭据不再拿来
+    /// 请求, 听歌记录照常留在补报队列里, 换了 token / 重新登录或复核通过后再补。
+    private static let rejectedCredentialsKey = "primuse.scrobble.rejectedCredentials.v1"
 
     private enum ListenBrainzDestination: Codable, Hashable {
         case server(String)
@@ -128,51 +176,6 @@ final class ScrobbleService {
         /// queue targets even though no provider instance can be built yet.
         var unavailable: Set<ScrobbleProviderID> = []
     }
-
-    init(
-        defaults: UserDefaults = .standard,
-        providers: (() -> [any ScrobbleProvider])? = nil,
-        legacyQueueIsOfficial: @escaping () -> Bool? = { ListenBrainzCredentialsStore.legacyQueueIsOfficial },
-        savedListenBrainzURL: @escaping () -> URL? = { ListenBrainzCredentialsStore.savedBaseURL() },
-        spokenWordStore: SpokenWordStore = .shared,
-        songLookup: @escaping (String) -> Song? = {
-            PlayHistoryStore.shared.classification.library?.song(id: $0)
-        },
-        listenCountRule: @escaping @MainActor () -> ListenCountRule = {
-            ScrobbleSettingsStore.shared.listenCountRule
-        }
-    ) {
-        self.defaults = defaults
-        self.providersOverride = providers
-        self.legacyQueueIsOfficial = legacyQueueIsOfficial
-        self.savedListenBrainzURL = savedListenBrainzURL
-        self.spokenWordStore = spokenWordStore
-        self.songLookup = songLookup
-        self.listenCountRule = listenCountRule
-        loadQueue()
-        loadRecentReports()
-        loadRejectedCredentials()
-        if !rejectedCredentials.isEmpty {
-            Task { await self.recheckRejectedCredentials() }
-        }
-        // Settings 变化 (启用 provider 切换) 时尝试 flush 队列。
-        NotificationCenter.default.addObserver(
-            forName: .scrobbleSettingsChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.scheduleRetry(reason: "settings changed") }
-        }
-        // 上次会话遗留的待补报条目 —— 启动即调度, 否则要等下一次 settings 变化 /
-        // 新失败 / 用户手动 retry 才会动 (离线听歌后重启 app 的典型场景)。
-        if !queue.isEmpty { scheduleRetry(reason: "launch") }
-    }
-
-    // MARK: - Public API (AudioPlayerService 调用)
-
-    /// 用户开始播放新歌 — 创建 session, 同步发 nowPlaying。
-    /// A medley plays slices of songs; none of them is a listen to report.
-    var isSuspended = false
 
     func handlePlaybackStarted(song: Song) {
         guard !isSuspended else {

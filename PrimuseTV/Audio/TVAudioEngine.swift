@@ -268,18 +268,20 @@ final class TVAudioEngine {
             setupRemoteCommands()
         }
     }
-
-    /// 设置里「匹配歌曲采样率」的开关,只存在这台 Apple TV 上。
-    static let matchSongSampleRateKey = "tv.playback.matchSongSampleRate"
     /// 上一次替歌曲请求的输出采样率;nil 表示没请求过,会话保持系统默认。
     @ObservationIgnored private var requestedOutputSampleRate: Double?
-
-    /// 暂停后等一会儿再到后台队列停用:很快又按播放就不用停,遥控器的暂停键也不再等这次调用。
-    private static let pausedSessionDeactivationDelay: Duration = .seconds(2)
 
     // MARK: 载入 / 传输
 
     var downloadProgress: Double?
+}
+
+extension TVAudioEngine {
+    /// 设置里「匹配歌曲采样率」的开关,只存在这台 Apple TV 上。
+    static let matchSongSampleRateKey = "tv.playback.matchSongSampleRate"
+
+    /// 暂停后等一会儿再到后台队列停用:很快又按播放就不用停,遥控器的暂停键也不再等这次调用。
+    private static let pausedSessionDeactivationDelay: Duration = .seconds(2)
 }
 
 extension TVAudioEngine {

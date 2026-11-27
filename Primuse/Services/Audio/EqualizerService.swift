@@ -19,7 +19,6 @@ final class EqualizerService {
         }
     }
     private var outputMode: AudioOutputMode
-    var calibrationAvailable: Bool { isEnabled && outputMode == .effects }
     var promptsOnHeadphoneChange = false {
         didSet {
             guard !suppressPersist else { return }
@@ -31,11 +30,6 @@ final class EqualizerService {
 
     /// 有频段提升时整体压低的量(dB,≤ 0),关着时为 0。
     private(set) var preampDB: Float = 0
-
-    /// 均衡器页要说明「整体调低了多少 dB」时的正数;压得太少不值一提时为 nil。
-    var headroomLoweredDB: Float? {
-        preampDB <= -0.1 ? -preampDB : nil
-    }
 
     /// 用户手动拖出的曲线,持久化;预设里"自定义"项展示并可一键还原它。
     private(set) var customBands: [Float] = Array(repeating: 0, count: PrimuseConstants.eqBandCount)
@@ -51,12 +45,6 @@ final class EqualizerService {
     @ObservationIgnored private weak var appliedNode: AVAudioUnitEffect?
     @ObservationIgnored private var appliedConfiguration: EQRenderConfiguration?
     private(set) var unsupportedSampleRate = false
-
-    struct DeviceSuggestion: Identifiable, Equatable {
-        let id = UUID()
-        let device: EQOutputDevice
-        let presetID: String?
-    }
     private(set) var deviceSuggestion: DeviceSuggestion?
 
     init(audioEngine: AudioEngine, defaults: UserDefaults = .standard, tracksOutputDevices: Bool = true,
@@ -67,6 +55,36 @@ final class EqualizerService {
         load()
         updatePreampDB()
         if tracksOutputDevices { startOutputDeviceTracking() }
+    }
+
+    @ObservationIgnored private var renderConfiguration: EQRenderConfiguration?
+
+    /// 语音增强(REQ-174):有声内容在放、开关打开时,在用户的均衡后面叠上人声那几段。不存盘,
+    /// 播放服务按当前条目设;均衡单元换曲线时自己交叉淡变,不咔哒。界面上的均衡与余量照旧只显示用户的。
+    var voiceBoostActive = false {
+        didSet {
+            guard voiceBoostActive != oldValue else { return }
+            applySettings()
+        }
+    }
+    @ObservationIgnored private var voiceBoostConfiguration: (base: EQRenderConfiguration, sampleRate: Double, result: EQRenderConfiguration)?
+    @ObservationIgnored private var compiledPreset: EQPreset?
+    @ObservationIgnored private var compiledRate: Double = 0
+    @ObservationIgnored private var compiledEnabled = false
+}
+
+extension EqualizerService {
+    var calibrationAvailable: Bool { isEnabled && outputMode == .effects }
+
+    /// 均衡器页要说明「整体调低了多少 dB」时的正数;压得太少不值一提时为 nil。
+    var headroomLoweredDB: Float? {
+        preampDB <= -0.1 ? -preampDB : nil
+    }
+
+    struct DeviceSuggestion: Identifiable, Equatable {
+        let id = UUID()
+        let device: EQOutputDevice
+        let presetID: String?
     }
 
     /// 当前自定义曲线对应的预设,供 UI 卡片展示/应用。
@@ -427,18 +445,6 @@ final class EqualizerService {
 
     private var graphSampleRate: Double { audioEngine.outputFormat?.sampleRate ?? 48_000 }
 
-    @ObservationIgnored private var renderConfiguration: EQRenderConfiguration?
-
-    /// 语音增强(REQ-174):有声内容在放、开关打开时,在用户的均衡后面叠上人声那几段。不存盘,
-    /// 播放服务按当前条目设;均衡单元换曲线时自己交叉淡变,不咔哒。界面上的均衡与余量照旧只显示用户的。
-    var voiceBoostActive = false {
-        didSet {
-            guard voiceBoostActive != oldValue else { return }
-            applySettings()
-        }
-    }
-    @ObservationIgnored private var voiceBoostConfiguration: (base: EQRenderConfiguration, sampleRate: Double, result: EQRenderConfiguration)?
-
     /// 真正送进均衡单元的曲线。
     private var effectiveRenderConfiguration: EQRenderConfiguration {
         let base = renderConfiguration ?? .flat
@@ -451,9 +457,6 @@ final class EqualizerService {
         voiceBoostConfiguration = (base, rate, result)
         return result
     }
-    @ObservationIgnored private var compiledPreset: EQPreset?
-    @ObservationIgnored private var compiledRate: Double = 0
-    @ObservationIgnored private var compiledEnabled = false
 
     private func updatePreampDB() {
         guard compiledPreset != currentPreset || compiledRate != graphSampleRate || compiledEnabled != isEnabled else { return }

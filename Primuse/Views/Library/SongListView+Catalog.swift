@@ -10,27 +10,6 @@ import PrimuseKit
 @MainActor
 @Observable
 final class SongListCatalogList {
-    struct Key: Equatable, Sendable {
-        let order: LibrarySongSortOrder
-        /// 列表的范围(Mac 选了来源筛选时只是那一个源)。
-        let scope: LibrarySongScope
-        /// 整页的范围:页头的歌曲数、可播放数、总时长与来源筛选条上的计数按它算。
-        let baseScope: LibrarySongScope
-    }
-
-    struct Summary: Equatable, Sendable {
-        var base: LibraryRowList.Aggregates
-        var list: LibraryRowList.Aggregates
-        /// 只在 Mac 上取(来源筛选条)。
-        var countsBySource: [String: Int]
-        /// 只在 Mac 上取(页头大封面):整页范围里库内顺序第一首有封面的歌。
-        var coverSong: Song?
-    }
-
-    private struct Entry {
-        let key: Key
-        let model: LibraryListModel<LibrarySongListQuery>
-    }
 
     private var current: Entry?
     private(set) var summary: Summary?
@@ -54,6 +33,30 @@ final class SongListCatalogList {
     @ObservationIgnored var selectionIDsDidLoad: (@MainActor ([String]) -> Void)?
 
     init() {}
+}
+
+extension SongListCatalogList {
+    struct Key: Equatable, Sendable {
+        let order: LibrarySongSortOrder
+        /// 列表的范围(Mac 选了来源筛选时只是那一个源)。
+        let scope: LibrarySongScope
+        /// 整页的范围:页头的歌曲数、可播放数、总时长与来源筛选条上的计数按它算。
+        let baseScope: LibrarySongScope
+    }
+
+    struct Summary: Equatable, Sendable {
+        var base: LibraryRowList.Aggregates
+        var list: LibraryRowList.Aggregates
+        /// 只在 Mac 上取(来源筛选条)。
+        var countsBySource: [String: Int]
+        /// 只在 Mac 上取(页头大封面):整页范围里库内顺序第一首有封面的歌。
+        var coverSong: Song?
+    }
+
+    private struct Entry {
+        let key: Key
+        let model: LibraryListModel<LibrarySongListQuery>
+    }
 
     var hasCurrent: Bool { current != nil }
     var currentKey: Key? { current?.key }

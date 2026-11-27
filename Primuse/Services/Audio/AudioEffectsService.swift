@@ -196,6 +196,12 @@ final class AudioEffectsService {
         self.compressorPresetId = s.compressorPresetId
     }
 
+    @ObservationIgnored private var applied = AppliedNodes()
+    @ObservationIgnored private var transitionTask: Task<Void, Never>?
+    @ObservationIgnored private var transitionID = 0
+}
+
+extension AudioEffectsService {
     /// Apply persisted settings to the audio nodes (call after AudioEngine.setUp())
     /// 新建的图还没出声,整组直接写到位;同一张图上再调就照常走过渡。
     func applySettings() {
@@ -286,10 +292,6 @@ final class AudioEffectsService {
         /// 等余量压下去之后再把湿声升到这里。
         var pendingWetRise: (wetPercent: Float, readyAt: ContinuousClock.Instant)?
     }
-
-    @ObservationIgnored private var applied = AppliedNodes()
-    @ObservationIgnored private var transitionTask: Task<Void, Never>?
-    @ObservationIgnored private var transitionID = 0
 
     private var compressorTarget: CompressorTransitionPolicy.Parameters {
         if voiceBoostActive { return SpokenWordVoiceBoostPolicy.compressorTarget }

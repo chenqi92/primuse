@@ -40,6 +40,25 @@ struct LibraryInsightBatchItem: Sendable {
 @MainActor
 @Observable
 final class LibraryInsightBatchFill {
+
+    private(set) var progress: Progress?
+
+    @ObservationIgnored private var context: Context?
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var pending: ArraySlice<LibraryInsightBatchItem> = []
+    @ObservationIgnored private var albumSongIDs: [String: [String]] = [:]
+    @ObservationIgnored private var skipsBuiltIn = false
+    @ObservationIgnored private var spacing: TimeInterval = 0
+    @ObservationIgnored private var nextStartAt = Date.distantPast
+    @ObservationIgnored private var resumeAt = Date.distantPast
+    @ObservationIgnored private var consecutiveFailures = 0
+    /// 这批存过简介:收尾时把合并着的那次整库写盘提前做掉。
+    @ObservationIgnored private var savedAny = false
+    /// 每批一个号:停下后马上再开一批时,上一批还在收尾的任务认得出自己已经过时。
+    @ObservationIgnored private var runID = 0
+}
+
+extension LibraryInsightBatchFill {
     static let shared = LibraryInsightBatchFill()
 
     enum StopReason: Equatable {
@@ -72,28 +91,12 @@ final class LibraryInsightBatchFill {
         var left: Int { max(0, total - done) }
     }
 
-    private(set) var progress: Progress?
-
     private struct Context {
         let library: MusicLibrary
         let intelligence: MusicIntelligenceService
         let sourceManager: SourceManager
         let sourcesStore: SourcesStore
     }
-
-    @ObservationIgnored private var context: Context?
-    @ObservationIgnored private var task: Task<Void, Never>?
-    @ObservationIgnored private var pending: ArraySlice<LibraryInsightBatchItem> = []
-    @ObservationIgnored private var albumSongIDs: [String: [String]] = [:]
-    @ObservationIgnored private var skipsBuiltIn = false
-    @ObservationIgnored private var spacing: TimeInterval = 0
-    @ObservationIgnored private var nextStartAt = Date.distantPast
-    @ObservationIgnored private var resumeAt = Date.distantPast
-    @ObservationIgnored private var consecutiveFailures = 0
-    /// 这批存过简介:收尾时把合并着的那次整库写盘提前做掉。
-    @ObservationIgnored private var savedAny = false
-    /// 每批一个号:停下后马上再开一批时,上一批还在收尾的任务认得出自己已经过时。
-    @ObservationIgnored private var runID = 0
 
     var isRunning: Bool { progress?.isRunning == true }
 

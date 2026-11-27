@@ -419,10 +419,6 @@ enum TVAlbumBackArtwork {
 @MainActor
 @Observable
 final class TVAlbumBackdropCache {
-    static let shared = TVAlbumBackdropCache()
-    static let disk = AlbumBackdropCache(directory: FileManager.default.urls(
-        for: .cachesDirectory, in: .userDomainMask
-    )[0].appendingPathComponent("Primuse/AlbumBackdropCollections", isDirectory: true))
 
     private(set) var isEnabled = UserDefaults.standard.object(forKey: "tv.backdropCache.enabled") as? Bool ?? true
     var automaticRefresh = UserDefaults.standard.object(forKey: "tv.backdropCache.automatic") as? Bool ?? true {
@@ -439,6 +435,13 @@ final class TVAlbumBackdropCache {
     @ObservationIgnored private var cleared = Set<String>()
     @ObservationIgnored private var selectedDirectory: String?
     @ObservationIgnored private var prefetchDirectory: String?
+}
+
+extension TVAlbumBackdropCache {
+    static let shared = TVAlbumBackdropCache()
+    static let disk = AlbumBackdropCache(directory: FileManager.default.urls(
+        for: .cachesDirectory, in: .userDomainMask
+    )[0].appendingPathComponent("Primuse/AlbumBackdropCollections", isDirectory: true))
 
     func setEnabled(_ enabled: Bool) async {
         isEnabled = enabled

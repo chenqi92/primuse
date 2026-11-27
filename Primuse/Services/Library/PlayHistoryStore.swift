@@ -18,6 +18,101 @@ import PrimuseKit
 @MainActor
 @Observable
 final class PlayHistoryStore {
+
+    private(set) var entries: [Entry] = [] {
+        didSet { entriesMutation &+= 1 }
+    }
+    @ObservationIgnored private var entriesMutation: UInt64 = 0
+    @ObservationIgnored private var playCountsCache: (mutation: UInt64, counts: [String: Int])?
+    /// Songs the library currently counts as spoken word, kept in step by
+    /// `MusicLibrary`. Books are not music: they stay in `entries` (and in
+    /// sync) but are left out of every music ranking, summary and
+    /// recommendation seed, and are totalled on their own instead.
+    /// Classified at read time, so a correction applies to past plays too.
+    var spokenWordSongIDs: Set<String> = []
+    /// 曲库此刻认成环境音的歌,同样由 `MusicLibrary` 交来;环境音也不进音乐的排行与统计。
+    var ambientSongIDs: Set<String> = []
+    private(set) var classificationRevision = 0
+    @ObservationIgnored private weak var library: MusicLibrary?
+    @ObservationIgnored private var classificationInputs: SpokenWordClassificationInputs?
+    @ObservationIgnored private var classificationLegacyIDs: Set<String> = []
+    @ObservationIgnored private var classificationLegacyAmbientIDs: Set<String> = []
+    @ObservationIgnored private var classificationLibraryGeneration: UInt64?
+    @ObservationIgnored private var classificationLibraryID: ObjectIdentifier?
+    @ObservationIgnored private var classificationObserver: NSObjectProtocol?
+    @ObservationIgnored private var archiveClassificationTask: Task<Void, Never>?
+    @ObservationIgnored private var classificationRecoveryTask: Task<Void, Never>?
+    private let spokenWordStore: SpokenWordStore
+    private let updatesArchives: Bool
+    /// 单调递增, `entries` 每变一次就 +1。云同步用它判断预先编码好的
+    /// payload 还配不配得上当前这份历史。
+    @ObservationIgnored private(set) var revision = 0
+    private let storeURL: URL
+    private let defaults: UserDefaults
+    private var saveTask: Task<Void, Never>?
+
+    // 当前会话 — beginSession / tick / endSession 三段式跟 Scrobble 同步,
+    // 由 AudioPlayerService 在同样的 hook 点调用。
+    private var currentSong: Song?
+    private var currentStartedAt: Date?
+    /// 实听累计秒数 — 由播放时钟按真实播放增量累加。不能用播放位置的
+    /// high-water mark: 那样把进度条拖过阈值再切歌也会记成一次完整播放,
+    /// 实听时长还会被记成拖到的位置。
+    private var currentListenedSec: TimeInterval = 0
+    /// 计入规则, 以及本机记录跟不跟它 (`ScrobbleSettingsStore`)。
+    private let localListenRule: @MainActor () -> (rule: ListenCountRule, followsRule: Bool)
+
+    init(
+        storeURL: URL? = nil,
+        defaults: UserDefaults = .standard,
+        spokenWordStore: SpokenWordStore = .shared,
+        localListenRule: @escaping @MainActor () -> (rule: ListenCountRule, followsRule: Bool) = {
+            let settings = ScrobbleSettingsStore.shared
+            return (settings.listenCountRule, settings.countsListeningHistoryByRule)
+        }
+    ) {
+        self.defaults = defaults
+        self.spokenWordStore = spokenWordStore
+        self.localListenRule = localListenRule
+        self.updatesArchives = storeURL == nil
+        #if os(tvOS)
+        let docs = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("Primuse", isDirectory: true)
+        #else
+        let docs = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+            .appendingPathComponent("Primuse", isDirectory: true)
+        #endif
+        try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+        self.storeURL = storeURL ?? docs.appendingPathComponent("play_history.json")
+        clearedAt = defaults.object(forKey: Self.clearedAtDefaultsKey) as? Date
+        load()
+        refreshClassification()
+        if storeURL == nil {
+            classificationObserver = NotificationCenter.default.addObserver(
+                forName: .primuseSpokenWordDidChange, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.refreshClassification() }
+            }
+        }
+    }
+
+    // MARK: - Session lifecycle (AudioPlayerService 调用)
+
+    /// 用户开始播放新歌 — 启动 session, 如果有上一首未结算的先 flush。
+    /// Set while a medley plays: slices of songs are not listens, and counting
+    /// them would crowd the stats and the recommendations with every song
+    /// the medley touched.
+    var isRecordingSuspended = false
+
+    /// 用户最近一次「清空听歌记录」的时刻。清空必须作为事实同步出去: 光把本机
+    /// 表清空, 云端那份、别的设备那份下一轮又会整份并回来。早于这一刻的记录在
+    /// 哪台设备上都不再算数。
+    private(set) var clearedAt: Date? {
+        didSet { defaults.set(clearedAt, forKey: Self.clearedAtDefaultsKey) }
+    }
+}
+
+extension PlayHistoryStore {
     /// 单条播放事件 — 当用户听歌超过阈值时由 AudioPlayerService 触发记入。
     struct Entry: Codable, Identifiable, Hashable, Sendable {
         var id: String { "\(songID)-\(Int64(playedAt.timeIntervalSince1970))" }
@@ -150,12 +245,6 @@ final class PlayHistoryStore {
     /// 大约 250h = 10 天纯听歌, 实际能覆盖 1-2 年的零散听歌。
     static let maxRetainedEntries = 5000
 
-    private(set) var entries: [Entry] = [] {
-        didSet { entriesMutation &+= 1 }
-    }
-    @ObservationIgnored private var entriesMutation: UInt64 = 0
-    @ObservationIgnored private var playCountsCache: (mutation: UInt64, counts: [String: Int])?
-
     /// 每首歌各被播放过几次。歌单页每次重绘都要读, 原来每读一次都把整份历史折叠一遍。
     /// 读它同时登记对 `entries` 的观察, 和直接读历史时一样。
     var playCountsBySongID: [String: Int] {
@@ -174,26 +263,6 @@ final class PlayHistoryStore {
         _ = entries
         return entriesMutation
     }
-    /// Songs the library currently counts as spoken word, kept in step by
-    /// `MusicLibrary`. Books are not music: they stay in `entries` (and in
-    /// sync) but are left out of every music ranking, summary and
-    /// recommendation seed, and are totalled on their own instead.
-    /// Classified at read time, so a correction applies to past plays too.
-    var spokenWordSongIDs: Set<String> = []
-    /// 曲库此刻认成环境音的歌,同样由 `MusicLibrary` 交来;环境音也不进音乐的排行与统计。
-    var ambientSongIDs: Set<String> = []
-    private(set) var classificationRevision = 0
-    @ObservationIgnored private weak var library: MusicLibrary?
-    @ObservationIgnored private var classificationInputs: SpokenWordClassificationInputs?
-    @ObservationIgnored private var classificationLegacyIDs: Set<String> = []
-    @ObservationIgnored private var classificationLegacyAmbientIDs: Set<String> = []
-    @ObservationIgnored private var classificationLibraryGeneration: UInt64?
-    @ObservationIgnored private var classificationLibraryID: ObjectIdentifier?
-    @ObservationIgnored private var classificationObserver: NSObjectProtocol?
-    @ObservationIgnored private var archiveClassificationTask: Task<Void, Never>?
-    @ObservationIgnored private var classificationRecoveryTask: Task<Void, Never>?
-    private let spokenWordStore: SpokenWordStore
-    private let updatesArchives: Bool
 
     var classification: Classification {
         Classification(
@@ -303,65 +372,6 @@ final class PlayHistoryStore {
     nonisolated static func listenedSeconds(_ entries: [Entry]) -> TimeInterval {
         entries.reduce(0) { $0 + ($1.listenedSec.isFinite ? max(0, $1.listenedSec) : 0) }
     }
-    /// 单调递增, `entries` 每变一次就 +1。云同步用它判断预先编码好的
-    /// payload 还配不配得上当前这份历史。
-    @ObservationIgnored private(set) var revision = 0
-    private let storeURL: URL
-    private let defaults: UserDefaults
-    private var saveTask: Task<Void, Never>?
-
-    // 当前会话 — beginSession / tick / endSession 三段式跟 Scrobble 同步,
-    // 由 AudioPlayerService 在同样的 hook 点调用。
-    private var currentSong: Song?
-    private var currentStartedAt: Date?
-    /// 实听累计秒数 — 由播放时钟按真实播放增量累加。不能用播放位置的
-    /// high-water mark: 那样把进度条拖过阈值再切歌也会记成一次完整播放,
-    /// 实听时长还会被记成拖到的位置。
-    private var currentListenedSec: TimeInterval = 0
-    /// 计入规则, 以及本机记录跟不跟它 (`ScrobbleSettingsStore`)。
-    private let localListenRule: @MainActor () -> (rule: ListenCountRule, followsRule: Bool)
-
-    init(
-        storeURL: URL? = nil,
-        defaults: UserDefaults = .standard,
-        spokenWordStore: SpokenWordStore = .shared,
-        localListenRule: @escaping @MainActor () -> (rule: ListenCountRule, followsRule: Bool) = {
-            let settings = ScrobbleSettingsStore.shared
-            return (settings.listenCountRule, settings.countsListeningHistoryByRule)
-        }
-    ) {
-        self.defaults = defaults
-        self.spokenWordStore = spokenWordStore
-        self.localListenRule = localListenRule
-        self.updatesArchives = storeURL == nil
-        #if os(tvOS)
-        let docs = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
-            .appendingPathComponent("Primuse", isDirectory: true)
-        #else
-        let docs = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
-            .appendingPathComponent("Primuse", isDirectory: true)
-        #endif
-        try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
-        self.storeURL = storeURL ?? docs.appendingPathComponent("play_history.json")
-        clearedAt = defaults.object(forKey: Self.clearedAtDefaultsKey) as? Date
-        load()
-        refreshClassification()
-        if storeURL == nil {
-            classificationObserver = NotificationCenter.default.addObserver(
-                forName: .primuseSpokenWordDidChange, object: nil, queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in self?.refreshClassification() }
-            }
-        }
-    }
-
-    // MARK: - Session lifecycle (AudioPlayerService 调用)
-
-    /// 用户开始播放新歌 — 启动 session, 如果有上一首未结算的先 flush。
-    /// Set while a medley plays: slices of songs are not listens, and counting
-    /// them would crowd the stats and the recommendations with every song
-    /// the medley touched.
-    var isRecordingSuspended = false
 
     func beginSession(song: Song) {
         endSession()
@@ -434,13 +444,6 @@ final class PlayHistoryStore {
         }
         scheduleSave()
         notifyChanged()
-    }
-
-    /// 用户最近一次「清空听歌记录」的时刻。清空必须作为事实同步出去: 光把本机
-    /// 表清空, 云端那份、别的设备那份下一轮又会整份并回来。早于这一刻的记录在
-    /// 哪台设备上都不再算数。
-    private(set) var clearedAt: Date? {
-        didSet { defaults.set(clearedAt, forKey: Self.clearedAtDefaultsKey) }
     }
     private static let clearedAtDefaultsKey = "primuse.listeningStats.clearedAt"
 

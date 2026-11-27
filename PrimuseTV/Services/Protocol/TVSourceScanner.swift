@@ -1135,7 +1135,6 @@ typealias TVScanCheckpointHandler = @MainActor @Sendable (
 @MainActor
 @Observable
 final class TVSourceScanner {
-    enum Phase: Equatable { case idle, browsing, scanning, done, failed(String) }
 
     var phase: Phase = .idle
     var indexed: Int = 0
@@ -1177,6 +1176,12 @@ final class TVSourceScanner {
         self.readingMode = readingMode
         self.readMetadata = readMetadata
     }
+
+    private var fnMusicClients: [String: FnMusicClientCacheEntry] = [:]
+}
+
+extension TVSourceScanner {
+    enum Phase: Equatable { case idle, browsing, scanning, done, failed(String) }
 
     /// 一行拆出读标签的耗时:每首从开始读到读完(songMs)、其中花在远端请求上的
     /// (netMsPerSong,并发时各请求分别计时)、请求延迟分位、失败与超时,以及当时的
@@ -1285,8 +1290,6 @@ final class TVSourceScanner {
         let configuration: FnMusicClientConfiguration
         let client: FnMusicServiceClient
     }
-
-    private var fnMusicClients: [String: FnMusicClientCacheEntry] = [:]
 
     /// 构造源对应的目录列举器。飞牛音乐没有目录树，lister 只校验真实音乐服务。
     func makeLister(source: MusicSource, credential: SourceCredential?) -> TVDirectoryLister? {

@@ -7,21 +7,6 @@ import PrimuseKit
 @MainActor
 @Observable
 final class PodcastDownloadStore {
-    static let shared = PodcastDownloadStore()
-
-    enum State: Equatable, Sendable {
-        case queued
-        case downloading(Double)
-        case failed(String)
-    }
-
-    struct Record: Codable, Equatable, Sendable {
-        var episodeID: String
-        var showID: String
-        var fileName: String
-        var bytes: Int64
-        var downloadedAt: Date
-    }
 
     /// 下载中/排队/失败的;下载好的在 `records` 里。
     private(set) var states: [String: State] = [:]
@@ -33,10 +18,6 @@ final class PodcastDownloadStore {
     /// 已经开始(含还在解析地址)的下载。并发上限按它算,`tasks` 要等地址解析完才有。
     @ObservationIgnored private var active: Set<String> = []
     @ObservationIgnored private let session: URLSession
-
-    private static let maximumConcurrent = 2
-    static let wifiOnlyKey = "primuse.podcast.autoDownloadWiFiOnly"
-    static let deletePlayedKey = "primuse.podcast.deletePlayedDownloads"
 
     let directory: URL
     private let indexURL: URL
@@ -67,6 +48,28 @@ final class PodcastDownloadStore {
             records = decoded.filter { FileManager.default.fileExists(atPath: directory.appendingPathComponent($0.value.fileName).path) }
         }
     }
+}
+
+extension PodcastDownloadStore {
+    static let shared = PodcastDownloadStore()
+
+    enum State: Equatable, Sendable {
+        case queued
+        case downloading(Double)
+        case failed(String)
+    }
+
+    struct Record: Codable, Equatable, Sendable {
+        var episodeID: String
+        var showID: String
+        var fileName: String
+        var bytes: Int64
+        var downloadedAt: Date
+    }
+
+    private static let maximumConcurrent = 2
+    static let wifiOnlyKey = "primuse.podcast.autoDownloadWiFiOnly"
+    static let deletePlayedKey = "primuse.podcast.deletePlayedDownloads"
 
     // MARK: - Reading
 

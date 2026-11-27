@@ -5,28 +5,6 @@ import SwiftUI
 @MainActor
 @Observable
 final class AISettingsEditorModel {
-    enum Operation: Equatable {
-        case models
-        case settings
-    }
-
-    enum Status: Equatable {
-        case idle
-        case saving
-        case saved
-        case connectionSucceeded
-        case modelsLoaded(Int)
-        case modelsEmpty
-        case failed(String, Operation)
-    }
-
-    enum PrimuseRelayConnectionPresentation: Equatable {
-        case notTested
-        case testing
-        case success
-        case degraded
-        case failure
-    }
 
     var draftProviderSet: AIRemoteProviderSet
     var selectedProviderID: UUID
@@ -67,6 +45,31 @@ final class AISettingsEditorModel {
         savedProviderSet = providerSet
         selectedProviderID = providerSet.primaryProviderID
         providerPresets[selectedProviderID] = .custom
+    }
+}
+
+extension AISettingsEditorModel {
+    enum Operation: Equatable {
+        case models
+        case settings
+    }
+
+    enum Status: Equatable {
+        case idle
+        case saving
+        case saved
+        case connectionSucceeded
+        case modelsLoaded(Int)
+        case modelsEmpty
+        case failed(String, Operation)
+    }
+
+    enum PrimuseRelayConnectionPresentation: Equatable {
+        case notTested
+        case testing
+        case success
+        case degraded
+        case failure
     }
 
     var draftConfiguration: AIRemoteProviderConfiguration {

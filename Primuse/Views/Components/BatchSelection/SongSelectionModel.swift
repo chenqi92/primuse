@@ -223,7 +223,6 @@ final class SongSelectionGroupMembership {
 @MainActor
 @Observable
 final class SongSelectionModel {
-    typealias GroupState = LibraryFolderSelectionState
 
     private(set) var isActive = false
     private(set) var count = 0
@@ -238,6 +237,11 @@ final class SongSelectionModel {
     /// Shift 范围选的锚点。故意不参与 Observation：它只在点击回调里读写，
     /// 让它触发行重建纯属浪费。
     @ObservationIgnored private var anchorID: String?
+
+}
+
+extension SongSelectionModel {
+    typealias GroupState = LibraryFolderSelectionState
 
     var selectedIDs: Set<String> { selectedIDsStorage }
     var isEmpty: Bool { count == 0 }
@@ -401,5 +405,4 @@ final class SongSelectionModel {
         guard !selectedIDsStorage.isEmpty else { return [] }
         return orderedIDs.compactMap { selectedIDsStorage.contains($0) ? resolve($0) : nil }
     }
-
 }

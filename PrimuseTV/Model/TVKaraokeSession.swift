@@ -10,13 +10,6 @@ import PrimuseKit
 @MainActor
 @Observable
 final class TVKaraokeSession {
-    struct PitchPoint: Equatable {
-        var time: TimeInterval
-        var reference: Double?
-        var sung: Double?
-    }
-
-    static let pitchHistoryDuration: TimeInterval = 5
 
     let store: TVStore
     let micServer = TVKaraokeMicServer()
@@ -45,7 +38,6 @@ final class TVKaraokeSession {
             runningScore = nil
         }
     }
-    var hasDuetParts: Bool { stageLyrics.hasDuetParts }
     /// Key change in semitones for the karaoke track.
     var keyShift = 0 {
         didSet {
@@ -59,8 +51,6 @@ final class TVKaraokeSession {
     }
     private(set) var isActive = false
     private(set) var stageLyrics = KaraokeLyricsSnapshot()
-    var windows: [KaraokeLineWindow] { stageLyrics.windows }
-    var stageLines: [LyricLine] { stageLyrics.lines }
     private(set) var isEffectivelyMono = false
     private(set) var pitchHistory: [PitchPoint] = []
     private(set) var runningScore: Int?
@@ -91,10 +81,7 @@ final class TVKaraokeSession {
     private(set) var instrumentalCompanion: Song?
     private var isInstrumentalFile = false
     let embeddedAudio = EmbeddedKaraokePlayback()
-    var isPlayingInstrumental: Bool { isInstrumentalFile || embeddedAudio.isBacking }
-    var bypassesVocalReduction: Bool { isPlayingInstrumental || embeddedAudio.isStemMix }
     private(set) var lyricsBorrowedFromTitle: String?
-    var usesInferredWordTiming: Bool { stageLyrics.usesInferredWordTiming }
     private(set) var isVocalAssisting = false
     private(set) var isVocalAssistSuppressed = false
     var vocalAssistEnabled: Bool {
@@ -111,13 +98,6 @@ final class TVKaraokeSession {
         }
     }
     private(set) var loop: KaraokePracticePolicy.Loop?
-    var isPracticing: Bool { loop != nil || practiceRate < 1 }
-    var canPractice: Bool { currentSong != nil && store.engine.supportsKaraokePractice }
-    var isSwitchingTrack: Bool { embeddedAudio.isPreparing || (store.engine.status == .loading && store.playbackIssue == nil) }
-    var canToggleBackingTrack: Bool {
-        !isSwitchingTrack && (embeddedAudio.backingOrdinals != nil || instrumentalCompanion != nil
-            || (isInstrumentalFile && pairedOriginal != nil))
-    }
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var pairedOriginal: Song?
@@ -157,6 +137,29 @@ final class TVKaraokeSession {
             guard let self, songID == self.songID, !self.usesPhoneStem else { return }
             self.phoneSeparationProgress = fraction
         }
+    }
+}
+
+extension TVKaraokeSession {
+    struct PitchPoint: Equatable {
+        var time: TimeInterval
+        var reference: Double?
+        var sung: Double?
+    }
+
+    static let pitchHistoryDuration: TimeInterval = 5
+    var hasDuetParts: Bool { stageLyrics.hasDuetParts }
+    var windows: [KaraokeLineWindow] { stageLyrics.windows }
+    var stageLines: [LyricLine] { stageLyrics.lines }
+    var isPlayingInstrumental: Bool { isInstrumentalFile || embeddedAudio.isBacking }
+    var bypassesVocalReduction: Bool { isPlayingInstrumental || embeddedAudio.isStemMix }
+    var usesInferredWordTiming: Bool { stageLyrics.usesInferredWordTiming }
+    var isPracticing: Bool { loop != nil || practiceRate < 1 }
+    var canPractice: Bool { currentSong != nil && store.engine.supportsKaraokePractice }
+    var isSwitchingTrack: Bool { embeddedAudio.isPreparing || (store.engine.status == .loading && store.playbackIssue == nil) }
+    var canToggleBackingTrack: Bool {
+        !isSwitchingTrack && (embeddedAudio.backingOrdinals != nil || instrumentalCompanion != nil
+            || (isInstrumentalFile && pairedOriginal != nil))
     }
 
     var isVocalReductionAvailable: Bool { store.engine.isKaraokeTapInstalled }

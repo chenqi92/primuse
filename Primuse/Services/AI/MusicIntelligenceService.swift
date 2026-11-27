@@ -604,11 +604,6 @@ final class MusicIntelligenceService {
     ] = [:]
     private let recommendationReuseStore: AIRecommendationReuseStore
 
-    private static let semanticPlanCacheLifetime: TimeInterval = 15 * 60
-    private static let semanticPlanCacheLimit = 64
-    private static let recommendationCacheLifetime: TimeInterval = 6 * 60 * 60
-    private static let recommendationCacheLimit = 24
-
     init(
         settingsStore: AISettingsStore = AISettingsStore(),
         lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore? = nil,
@@ -646,6 +641,13 @@ final class MusicIntelligenceService {
         self.settingsStore.externalReloadHandler = refreshTranscriptionSettings
         self.lyricsTranscriptionSettingsStore.externalReloadHandler = refreshTranscriptionSettings
     }
+}
+
+extension MusicIntelligenceService {
+    private static let semanticPlanCacheLifetime: TimeInterval = 15 * 60
+    private static let semanticPlanCacheLimit = 64
+    private static let recommendationCacheLifetime: TimeInterval = 6 * 60 * 60
+    private static let recommendationCacheLimit = 24
 
     private static let builtInRomanizationRetryInterval: TimeInterval = 6 * 3600
 

@@ -89,35 +89,6 @@ struct KaraokePerformance: Identifiable, Sendable {
 @MainActor
 @Observable
 final class KaraokeSession {
-    enum MicrophoneState: Equatable {
-        case off
-        case starting
-        case on
-        case denied
-        case unavailable
-    }
-
-    /// A step the singer has to take before finish or record can work.
-    enum TransportHint: Equatable {
-        case finishNeedsMicrophone
-        case finishNeedsSinging
-        case recordNeedsMicrophone
-        case practicing
-    }
-
-    struct PitchPoint: Equatable {
-        var time: TimeInterval
-        var reference: Double?
-        var sung: Double?
-    }
-
-    static let vocalLevelKey = "karaokeVocalLevel"
-    static let aiSeparationKey = "karaokeAISeparationEnabled"
-    static let vocalAssistKey = "karaokeVocalAssistEnabled"
-    static let tuningExpandedKey = "karaokeTuningExpanded"
-    static let defaultVocalLevel = 0.1
-    /// Seconds of pitch history the stage draws.
-    static let pitchHistoryDuration: TimeInterval = 5
 
     let player: AudioPlayerService
     @ObservationIgnored private let engine: AudioEngine
@@ -149,12 +120,6 @@ final class KaraokeSession {
         }
     }
 
-    /// 实际听到的调: 播放速度旁的整体升降调(#332)加上舞台上的这一份。舞台上写的是它,
-    /// 「原调」就是歌曲本来的调;两份在引擎里各存各的,写进节点的是和。
-    var heardKeyShift: Int {
-        PlaybackPitchPolicy.combinedSemitones(user: player.requestedPitchSemitones, karaoke: keyShift)
-    }
-
     var part: KaraokePart = .all {
         didSet {
             guard part != oldValue else { return }
@@ -167,9 +132,6 @@ final class KaraokeSession {
     private(set) var isEffectivelyMono = false
     private(set) var songID: String?
     private(set) var stageLyrics = KaraokeLyricsSnapshot()
-    var stageLines: [LyricLine] { stageLyrics.lines }
-    var windows: [KaraokeLineWindow] { stageLyrics.windows }
-    var hasDuetParts: Bool { stageLyrics.hasDuetParts }
     private(set) var isLoadingLyrics = false
     /// The library's instrumental version of the playing song, when one exists.
     private(set) var instrumentalCompanion: Song?
@@ -177,12 +139,9 @@ final class KaraokeSession {
     /// track played directly): nothing to reduce, lyrics come from the original.
     private var isInstrumentalFile = false
     let embeddedAudio = EmbeddedKaraokePlayback()
-    var isPlayingInstrumental: Bool { isInstrumentalFile || embeddedAudio.isBacking }
-    var bypassesVocalReduction: Bool { isPlayingInstrumental || embeddedAudio.isStemMix }
     /// Title of the sung original the lyrics were borrowed from.
     private(set) var lyricsBorrowedFromTitle: String?
     private var isSwitchingFile = false
-    var isSwitchingTrack: Bool { isSwitchingFile || embeddedAudio.isPreparing }
 
     /// Use the AI-separated vocal. Off until the user asks for it; turning
     /// it on is what fetches the model, so the 80 MB download is never a surprise.
@@ -208,8 +167,6 @@ final class KaraokeSession {
     }
     /// The lines being played over and over.
     private(set) var loop: KaraokePracticePolicy.Loop?
-    /// Slowed down or looping: nothing is scored or recorded meanwhile.
-    var isPracticing: Bool { loop != nil || practiceRate < 1 }
 
     /// Brings the original vocal back while the singer is silent in their line.
     var vocalAssistEnabled: Bool {
@@ -231,8 +188,6 @@ final class KaraokeSession {
     private(set) var isStemActive = false
     /// The stem is aligned with what is playing and being subtracted.
     private(set) var isStemLocked = false
-    /// Line-level lyrics are being swept word by word on the sung vocal.
-    var usesInferredWordTiming: Bool { stageLyrics.usesInferredWordTiming }
 
     private(set) var microphoneState: MicrophoneState = .off
     private(set) var canMonitor = false
@@ -285,9 +240,6 @@ final class KaraokeSession {
     @ObservationIgnored private var isAligning = false
     @ObservationIgnored private var tickCount = 0
     @ObservationIgnored private var pausedRecordingTicks = 0
-    /// Ticks (50 ms) of continuous pause before a take is closed, so a
-    /// resume that is still settling does not end it.
-    private static let recordingPauseTicks = 40
     @ObservationIgnored private var appliedWordOverlay: WordLyricsTimingOverlay?
     @ObservationIgnored private var vocalAssist = KaraokeVocalAssistPolicy()
     /// A jump back to the loop start is on its way; the playhead still
@@ -296,20 +248,6 @@ final class KaraokeSession {
     /// Headphones: the returning original cannot reach the microphone.
     @ObservationIgnored private var assistRouteAllows = false
     @ObservationIgnored private var observedAlignmentRevision: UInt = 0
-
-    /// The switch only reads as on when it can take effect or is on its way:
-    /// with the model gone (never fetched, or deleted) it starts off. A model
-    /// already on the device from before the switch defaulted to off keeps it on.
-    private static func initialAISeparationEnabled(
-        stored: Bool?,
-        modelState: KaraokeSeparationService.ModelState
-    ) -> Bool {
-        switch modelState {
-        case .ready: stored ?? true
-        case .downloading: stored ?? false
-        case .notDownloaded, .failed, .unsupportedSystem: false
-        }
-    }
 
     init(player: AudioPlayerService, defaults: UserDefaults = .standard) {
         self.player = player
@@ -328,6 +266,71 @@ final class KaraokeSession {
             vocalRing: player.audioEngine.karaokeControl.vocalRing,
             microphoneRing: microphone.ring
         )
+    }
+}
+
+extension KaraokeSession {
+    enum MicrophoneState: Equatable {
+        case off
+        case starting
+        case on
+        case denied
+        case unavailable
+    }
+
+    /// A step the singer has to take before finish or record can work.
+    enum TransportHint: Equatable {
+        case finishNeedsMicrophone
+        case finishNeedsSinging
+        case recordNeedsMicrophone
+        case practicing
+    }
+
+    struct PitchPoint: Equatable {
+        var time: TimeInterval
+        var reference: Double?
+        var sung: Double?
+    }
+
+    static let vocalLevelKey = "karaokeVocalLevel"
+    static let aiSeparationKey = "karaokeAISeparationEnabled"
+    static let vocalAssistKey = "karaokeVocalAssistEnabled"
+    static let tuningExpandedKey = "karaokeTuningExpanded"
+    static let defaultVocalLevel = 0.1
+    /// Seconds of pitch history the stage draws.
+    static let pitchHistoryDuration: TimeInterval = 5
+
+    /// 实际听到的调: 播放速度旁的整体升降调(#332)加上舞台上的这一份。舞台上写的是它,
+    /// 「原调」就是歌曲本来的调;两份在引擎里各存各的,写进节点的是和。
+    var heardKeyShift: Int {
+        PlaybackPitchPolicy.combinedSemitones(user: player.requestedPitchSemitones, karaoke: keyShift)
+    }
+    var stageLines: [LyricLine] { stageLyrics.lines }
+    var windows: [KaraokeLineWindow] { stageLyrics.windows }
+    var hasDuetParts: Bool { stageLyrics.hasDuetParts }
+    var isPlayingInstrumental: Bool { isInstrumentalFile || embeddedAudio.isBacking }
+    var bypassesVocalReduction: Bool { isPlayingInstrumental || embeddedAudio.isStemMix }
+    var isSwitchingTrack: Bool { isSwitchingFile || embeddedAudio.isPreparing }
+    /// Slowed down or looping: nothing is scored or recorded meanwhile.
+    var isPracticing: Bool { loop != nil || practiceRate < 1 }
+    /// Line-level lyrics are being swept word by word on the sung vocal.
+    var usesInferredWordTiming: Bool { stageLyrics.usesInferredWordTiming }
+    /// Ticks (50 ms) of continuous pause before a take is closed, so a
+    /// resume that is still settling does not end it.
+    private static let recordingPauseTicks = 40
+
+    /// The switch only reads as on when it can take effect or is on its way:
+    /// with the model gone (never fetched, or deleted) it starts off. A model
+    /// already on the device from before the switch defaulted to off keeps it on.
+    private static func initialAISeparationEnabled(
+        stored: Bool?,
+        modelState: KaraokeSeparationService.ModelState
+    ) -> Bool {
+        switch modelState {
+        case .ready: stored ?? true
+        case .downloading: stored ?? false
+        case .notDownloaded, .failed, .unsupportedSystem: false
+        }
     }
 
     // MARK: - Lifecycle
@@ -1362,14 +1365,6 @@ extension KaraokeStemGainEstimator {
 @MainActor
 @Observable
 final class KaraokeSingAlong {
-    static let shared = KaraokeSingAlong()
-
-    static let enabledKey = "singAlongEnabled"
-    static let levelKey = "singAlongVocalLevel"
-    /// 原唱淡入淡出的时长(秒)。卡拉OK舞台是一个渲染块里变完,跟手;伴唱是听歌,慢一点不突兀。
-    private static let fadeDuration: Float = 0.3
-    /// 提前分离接下来的歌,隔多久看一次。
-    private static let prefetchCheckInterval: Duration = .seconds(5)
 
     private(set) var isEnabled: Bool
     private(set) var level: KaraokeSingAlongLevel
@@ -1408,6 +1403,23 @@ final class KaraokeSingAlong {
     /// 卡拉OK舞台「只听伴奏」交过来、舞台关上那一拍接上的人声轨。
     @ObservationIgnored private var pendingHandoff: StemHandoff?
 
+    private init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        isEnabled = defaults.bool(forKey: Self.enabledKey)
+        level = KaraokeSingAlongLevel(stored: defaults.string(forKey: Self.levelKey))
+    }
+}
+
+extension KaraokeSingAlong {
+    static let shared = KaraokeSingAlong()
+
+    static let enabledKey = "singAlongEnabled"
+    static let levelKey = "singAlongVocalLevel"
+    /// 原唱淡入淡出的时长(秒)。卡拉OK舞台是一个渲染块里变完,跟手;伴唱是听歌,慢一点不突兀。
+    private static let fadeDuration: Float = 0.3
+    /// 提前分离接下来的歌,隔多久看一次。
+    private static let prefetchCheckInterval: Duration = .seconds(5)
+
     /// 卡拉OK舞台「只听伴奏」交过来的人声轨:还挂在消除单元上,锁定(对齐结果)也还有效。
     struct StemHandoff {
         let track: KaraokeStemTrack
@@ -1419,12 +1431,6 @@ final class KaraokeSingAlong {
 
     /// 只在用到时才碰分离服务(它一建出来就去问托管资源包)。
     private var separation: KaraokeSeparationService { .shared }
-
-    private init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        isEnabled = defaults.bool(forKey: Self.enabledKey)
-        level = KaraokeSingAlongLevel(stored: defaults.string(forKey: Self.levelKey))
-    }
 
     // MARK: 开关
 

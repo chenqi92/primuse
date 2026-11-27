@@ -36,16 +36,6 @@ final class ThemeService {
     private(set) var customBackdropHex: String?
     private var customBackdropResult: ColorResult?
     private var customBackdropPalette: [LiquidBackdropColor] = []
-
-    /// 背景用的几项封面数值;选了自定义背景色时是那个颜色的。
-    var artworkVibrancy: Double { customBackdropHex == nil ? coverVibrancy : (customBackdropResult?.vibrancy ?? coverVibrancy) }
-    var artworkLuminance: Double { customBackdropHex == nil ? coverLuminance : (customBackdropResult?.luminance ?? coverLuminance) }
-    var artworkAccentLuma: Double { customBackdropHex == nil ? coverAccentLuma : (customBackdropResult?.accentLuma ?? coverAccentLuma) }
-    var artworkSecondaryLuma: Double { customBackdropHex == nil ? coverSecondaryLuma : (customBackdropResult?.secondaryLuma ?? coverSecondaryLuma) }
-    var artworkLiquidPalette: [LiquidBackdropColor] {
-        customBackdropHex == nil ? coverLiquidPalette : customBackdropPalette
-    }
-    var usesCustomBackdrop: Bool { customBackdropHex != nil }
     /// 「封面取色」的歌词用的封面代表色。没有封面、封面没有彩色、还在取的时候为空，歌词用默认颜色。
     /// 主题色和播放背景都不跟封面时，歌词选了封面取色也照样取，只是不动主题色。
     private(set) var lyricsArtworkTint: PlayerLyricsArtworkTint?
@@ -78,6 +68,18 @@ final class ThemeService {
     /// 用户选的固定色用在控件和文字上的版本,规则同 `artworkLegibleAccent`。
     private(set) var baseLegibleAccent: Color = ThemeService.defaultAccent
     private(set) var baseDarkAccent: Color = ThemeService.defaultDarkAccent
+}
+
+extension ThemeService {
+    /// 背景用的几项封面数值;选了自定义背景色时是那个颜色的。
+    var artworkVibrancy: Double { customBackdropHex == nil ? coverVibrancy : (customBackdropResult?.vibrancy ?? coverVibrancy) }
+    var artworkLuminance: Double { customBackdropHex == nil ? coverLuminance : (customBackdropResult?.luminance ?? coverLuminance) }
+    var artworkAccentLuma: Double { customBackdropHex == nil ? coverAccentLuma : (customBackdropResult?.accentLuma ?? coverAccentLuma) }
+    var artworkSecondaryLuma: Double { customBackdropHex == nil ? coverSecondaryLuma : (customBackdropResult?.secondaryLuma ?? coverSecondaryLuma) }
+    var artworkLiquidPalette: [LiquidBackdropColor] {
+        customBackdropHex == nil ? coverLiquidPalette : customBackdropPalette
+    }
+    var usesCustomBackdrop: Bool { customBackdropHex != nil }
 
     /// 播放页的氛围色与全局控件主题色分别计算。这样固定主题仍可保留封面背景，
     /// 自动主题也能在关闭背景氛围时只改变按钮与选择态。

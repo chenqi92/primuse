@@ -72,17 +72,6 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     /// 已经处理过的最近一次音量变化 (iPhone 的时间戳), 同一次变化随后续状态重复推来时不再算。
     private var lastVolumeChangedAt: TimeInterval = 0
 
-    var usesSkipIntervals: Bool { skipBackwardSeconds > 0 && skipForwardSeconds > 0 }
-    /// 上一首 / 下一首两颗键在不在: 音乐和有声内容都在, 电台只有能换台时在。
-    var showsSideTransport: Bool { !isLiveStream || canSwitchStation }
-
-    /// 队列被截断时的提示文案 (例如「仅显示前 300 首, 共 412 首」), 未截断返回 nil。
-    /// UI 可直接绑定此属性在列表顶部给出说明, 避免用户误以为队列只有这么多。
-    var queueTruncationNotice: String? {
-        guard queueTruncated else { return nil }
-        return WatchString("ext.watch.queue.truncationNotice", queue.count, queueTotalCount)
-    }
-
     /// 收到 context 时的本地基准时刻, 用来本地外推 currentTime (100ms 一刷)。
     private var sentTimeAnchor: TimeInterval = 0
     private var sentCurrentTime: TimeInterval = 0
@@ -119,8 +108,6 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     let offlinePlayer = WatchOfflinePlayer()
     private(set) var offlineFiles: [WatchOfflineFile] = []
     var offlineError: String?
-    var isOfflinePlayback: Bool { offlinePlayer.current != nil }
-    var showsPhoneDisconnected: Bool { showsDisconnected && !isOfflinePlayback }
     private var latestPhoneState: (snapshot: ContextSnapshot, cover: Data?)?
     private var phoneQueue: [WatchLibrarySong] = []
     private var phoneQueueTotal = 0
@@ -167,6 +154,21 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         session?.activate()
         refreshTicker()
     }
+}
+
+extension WatchPlayerStore {
+    var usesSkipIntervals: Bool { skipBackwardSeconds > 0 && skipForwardSeconds > 0 }
+    /// 上一首 / 下一首两颗键在不在: 音乐和有声内容都在, 电台只有能换台时在。
+    var showsSideTransport: Bool { !isLiveStream || canSwitchStation }
+
+    /// 队列被截断时的提示文案 (例如「仅显示前 300 首, 共 412 首」), 未截断返回 nil。
+    /// UI 可直接绑定此属性在列表顶部给出说明, 避免用户误以为队列只有这么多。
+    var queueTruncationNotice: String? {
+        guard queueTruncated else { return nil }
+        return WatchString("ext.watch.queue.truncationNotice", queue.count, queueTotalCount)
+    }
+    var isOfflinePlayback: Bool { offlinePlayer.current != nil }
+    var showsPhoneDisconnected: Bool { showsDisconnected && !isOfflinePlayback }
 
     /// 抬腕在前台每 100ms 外推一次; 落腕常亮时每秒一次, 进度圈和离线歌词照常走(系统常亮本来
     /// 就按秒刷新); 退到后台、暂停、加载中或没歌时停。

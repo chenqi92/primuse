@@ -127,49 +127,6 @@ final class TingReaderProgressSyncCoordinator {
 @MainActor
 @Observable
 final class SpokenWordStore {
-    struct StoredPosition: Codable, Equatable, Sendable {
-        var position: TimeInterval
-        var duration: TimeInterval
-        var updatedAt: Date
-
-        var fractionComplete: Double {
-            guard duration > 0, position.isFinite else { return 0 }
-            return min(1, max(0, position / duration))
-        }
-    }
-
-    private struct Payload: Codable {
-        var overrides: [String: String]
-        var positions: [String: StoredPosition]
-        // Optional so files written before bookmarks existed still decode.
-        var bookmarks: [String: [SpokenWordBookmark]]?
-        var finishedAt: [String: Date]?
-        var bookRates: [String: Float]?
-        var archivedAt: [String: Date]?
-        /// Songs whose `overrides` entry (written as spoken word) is a podcast.
-        var podcastSongIDs: [String]?
-        /// `overrides` 里写成音乐、其实是环境音的那几条(`SpokenWordOverrideStorage`)。
-        var ambientSongIDs: [String]?
-        var ledger: SpokenWordSyncLedger?
-        var remoteListeningAt: [String: Date]?
-    }
-
-    /// How soon a change should reach the other devices.
-    private enum CloudUrgency: Int, Comparable {
-        /// Only a resume position moved: batched, it changes every 15 s.
-        case relaxed
-        /// Something the listener did on purpose.
-        case prompt
-
-        static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
-    }
-
-    /// Key-value store key for the synced document.
-    static let cloudStorageKey = "primuse_spoken_word_sync_v1"
-    private static let promptCloudPushDelay: Duration = .seconds(3)
-    private static let relaxedCloudPushDelay: Duration = .seconds(90)
-
-    static let shared = SpokenWordStore()
 
     /// Explicit per-song corrections. Absent means "whatever the file says".
     private(set) var overrides: [String: ListeningContentKind] = [:]
@@ -256,6 +213,89 @@ final class SpokenWordStore {
         }
     }
 
+    // MARK: - Folder tags
+
+    /// How each source spells its paths, which folder rules need to match
+    /// songs. Kept current by `AppServices` from the source list.
+    @ObservationIgnored private var folderTagSources: [LibraryFolderSourceDescriptor] = []
+    /// Sources whose type alone makes everything in them spoken word (an
+    /// audiobook server); nothing in them needs tagging.
+    @ObservationIgnored private var declaredSpokenWordSources: [String: MusicSourceType] = [:]
+    @ObservationIgnored private var cachedFolderRules: (revision: Int, rules: SpokenWordFolderRules)?
+    @ObservationIgnored private var folderTagRefreshTask: Task<Void, Never>?
+
+    /// 按文件 ID 寻址的网盘(`usesOpaqueDirectoryIdentifiers`)。
+    @ObservationIgnored private var opaqueFolderSourceIDs: Set<String> = []
+    /// 已经报给分书规则的「路径不是真实目录」的源; nil 表示还没报过(启动时那一次不必重新分类)。
+    @ObservationIgnored private var reportedCatalogPathSourceIDs: Set<String>?
+    /// 这些网盘的目录上下级,由宿主从扫描索引交来(手机 ScanService、电视 TVStore)。
+    @ObservationIgnored private var folderTopologies: [String: SpokenWordFolderTopology] = [:]
+    /// 分书靠扫描记下的目录认书的源(网盘与 UPnP,`groupsBooksByScannedFolders`);nil 表示还没报过。
+    @ObservationIgnored private var bookFolderSourceIDs: Set<String>?
+    /// 报给分书规则的目录(`SpokenWordBookSourcePaths`)。暂时没交来目录的源沿用上次的,
+    /// 不让书在启动中、同步状态刚作废时先塌回不分目录;手机、Mac 上还存进本机文件,
+    /// 启动时扫描索引装好之前就交给分书(`loadBookItemFolders`)。
+    @ObservationIgnored private var reportedBookItemFolders: [String: SpokenWordBookItemFolders] = [:]
+    /// 本机文件里那份对应的 `SpokenWordBookSourcePaths.itemFoldersRevision`,没变就不重写。
+    /// 记修订号而不是留一份目录:索引装好后交来的那份一样时,启动时读回的那份就整个释放。
+    @ObservationIgnored private var savedBookItemFoldersRevision: Int?
+    @ObservationIgnored private var bookItemFolderSaveTask: Task<Void, Never>?
+    @ObservationIgnored private var bookItemFolderWriteTask: Task<Void, Never>?
+    /// 标签目录里的文件。落在本机文件里(不同步):启动时扫描索引往往还没装载,曲库先按
+    /// 上次的结论分,等目录交来算出一样的结果就不必整库重分一次。
+    @ObservationIgnored private var taggedFolderFileCache: [String: TaggedFolderFiles] = [:]
+    /// 本次运行里已按当前目录算过的源;目录一换就要重算。
+    @ObservationIgnored private var freshTaggedFolderSources: Set<String> = []
+    @ObservationIgnored private var taggedFolderFileSaveTask: Task<Void, Never>?
+
+    @ObservationIgnored private var cachedFolderTagTable: (revision: Int, table: [String: [String: ListeningContentKind]])?
+}
+
+extension SpokenWordStore {
+    struct StoredPosition: Codable, Equatable, Sendable {
+        var position: TimeInterval
+        var duration: TimeInterval
+        var updatedAt: Date
+
+        var fractionComplete: Double {
+            guard duration > 0, position.isFinite else { return 0 }
+            return min(1, max(0, position / duration))
+        }
+    }
+
+    private struct Payload: Codable {
+        var overrides: [String: String]
+        var positions: [String: StoredPosition]
+        // Optional so files written before bookmarks existed still decode.
+        var bookmarks: [String: [SpokenWordBookmark]]?
+        var finishedAt: [String: Date]?
+        var bookRates: [String: Float]?
+        var archivedAt: [String: Date]?
+        /// Songs whose `overrides` entry (written as spoken word) is a podcast.
+        var podcastSongIDs: [String]?
+        /// `overrides` 里写成音乐、其实是环境音的那几条(`SpokenWordOverrideStorage`)。
+        var ambientSongIDs: [String]?
+        var ledger: SpokenWordSyncLedger?
+        var remoteListeningAt: [String: Date]?
+    }
+
+    /// How soon a change should reach the other devices.
+    private enum CloudUrgency: Int, Comparable {
+        /// Only a resume position moved: batched, it changes every 15 s.
+        case relaxed
+        /// Something the listener did on purpose.
+        case prompt
+
+        static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    /// Key-value store key for the synced document.
+    static let cloudStorageKey = "primuse_spoken_word_sync_v1"
+    private static let promptCloudPushDelay: Duration = .seconds(3)
+    private static let relaxedCloudPushDelay: Duration = .seconds(90)
+
+    static let shared = SpokenWordStore()
+
     // MARK: - Classification
 
     func kind(for song: Song) -> ListeningContentKind {
@@ -330,17 +370,6 @@ final class SpokenWordStore {
         )
     }
 
-    // MARK: - Folder tags
-
-    /// How each source spells its paths, which folder rules need to match
-    /// songs. Kept current by `AppServices` from the source list.
-    @ObservationIgnored private var folderTagSources: [LibraryFolderSourceDescriptor] = []
-    /// Sources whose type alone makes everything in them spoken word (an
-    /// audiobook server); nothing in them needs tagging.
-    @ObservationIgnored private var declaredSpokenWordSources: [String: MusicSourceType] = [:]
-    @ObservationIgnored private var cachedFolderRules: (revision: Int, rules: SpokenWordFolderRules)?
-    @ObservationIgnored private var folderTagRefreshTask: Task<Void, Never>?
-
     private var folderRules: SpokenWordFolderRules {
         if let cached = cachedFolderRules, cached.revision == nonProgressRevision { return cached.rules }
         let folders = SpokenWordFolderTag.folderTags(in: overrides)
@@ -372,30 +401,6 @@ final class SpokenWordStore {
             fileKinds ?? Dictionary(uniqueKeysWithValues: files.map { ($0, .spokenWord) })
         }
     }
-
-    /// 按文件 ID 寻址的网盘(`usesOpaqueDirectoryIdentifiers`)。
-    @ObservationIgnored private var opaqueFolderSourceIDs: Set<String> = []
-    /// 已经报给分书规则的「路径不是真实目录」的源; nil 表示还没报过(启动时那一次不必重新分类)。
-    @ObservationIgnored private var reportedCatalogPathSourceIDs: Set<String>?
-    /// 这些网盘的目录上下级,由宿主从扫描索引交来(手机 ScanService、电视 TVStore)。
-    @ObservationIgnored private var folderTopologies: [String: SpokenWordFolderTopology] = [:]
-    /// 分书靠扫描记下的目录认书的源(网盘与 UPnP,`groupsBooksByScannedFolders`);nil 表示还没报过。
-    @ObservationIgnored private var bookFolderSourceIDs: Set<String>?
-    /// 报给分书规则的目录(`SpokenWordBookSourcePaths`)。暂时没交来目录的源沿用上次的,
-    /// 不让书在启动中、同步状态刚作废时先塌回不分目录;手机、Mac 上还存进本机文件,
-    /// 启动时扫描索引装好之前就交给分书(`loadBookItemFolders`)。
-    @ObservationIgnored private var reportedBookItemFolders: [String: SpokenWordBookItemFolders] = [:]
-    /// 本机文件里那份对应的 `SpokenWordBookSourcePaths.itemFoldersRevision`,没变就不重写。
-    /// 记修订号而不是留一份目录:索引装好后交来的那份一样时,启动时读回的那份就整个释放。
-    @ObservationIgnored private var savedBookItemFoldersRevision: Int?
-    @ObservationIgnored private var bookItemFolderSaveTask: Task<Void, Never>?
-    @ObservationIgnored private var bookItemFolderWriteTask: Task<Void, Never>?
-    /// 标签目录里的文件。落在本机文件里(不同步):启动时扫描索引往往还没装载,曲库先按
-    /// 上次的结论分,等目录交来算出一样的结果就不必整库重分一次。
-    @ObservationIgnored private var taggedFolderFileCache: [String: TaggedFolderFiles] = [:]
-    /// 本次运行里已按当前目录算过的源;目录一换就要重算。
-    @ObservationIgnored private var freshTaggedFolderSources: Set<String> = []
-    @ObservationIgnored private var taggedFolderFileSaveTask: Task<Void, Never>?
 
     private var taggedFolderFilesURL: URL {
         storeURL.deletingLastPathComponent().appendingPathComponent("spoken_word_folder_files.json")
@@ -605,8 +610,6 @@ final class SpokenWordStore {
             + "parent \(state.inherited.rawValue)\(state.inheritedFrom.map { " from \($0)" } ?? ""))")
         setFolderTag(stored, sourceID: sourceID, path: path)
     }
-
-    @ObservationIgnored private var cachedFolderTagTable: (revision: Int, table: [String: [String: ListeningContentKind]])?
 
     /// 各源的目录标签。传进来的 `overrides` 只为让读它的视图随标签变化刷新;表按版本号缓存,
     /// 选目录页每行都要查一次,不必每行都把整张修正表扫一遍。

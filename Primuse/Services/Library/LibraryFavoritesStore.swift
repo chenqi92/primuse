@@ -15,12 +15,26 @@ extension Notification.Name {
 @MainActor
 @Observable
 final class LibraryFavoritesStore {
-    static let shared = LibraryFavoritesStore()
 
     /// 每次本机或远端改动 +1；界面按它重算「喜欢的专辑 / 艺人」列表。
     private(set) var revision = 0
     private(set) var ledger: LibraryFavoriteLedger
     @ObservationIgnored private let fileURL: URL?
+
+    init(fileURL: URL? = LibraryFavoritesStore.defaultFileURL()) {
+        self.fileURL = fileURL
+        if let fileURL,
+           let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode(LibraryFavoriteLedger.self, from: data) {
+            ledger = decoded
+        } else {
+            ledger = LibraryFavoriteLedger()
+        }
+    }
+}
+
+extension LibraryFavoritesStore {
+    static let shared = LibraryFavoritesStore()
     /// 专辑 / 艺人 id → 喜欢的键。整库筛选时每张专辑都要算一次折叠 + 哈希，记住它；
     /// 两个 id 本来就由同样的名字算出来，同一个 id 的键不会变。
     private nonisolated static let keyCache = LibraryFavoriteKeyCache()
@@ -50,17 +64,6 @@ final class LibraryFavoritesStore {
 
     nonisolated static var hasPreparedKeys: Bool {
         !keyCache.isEmpty
-    }
-
-    init(fileURL: URL? = LibraryFavoritesStore.defaultFileURL()) {
-        self.fileURL = fileURL
-        if let fileURL,
-           let data = try? Data(contentsOf: fileURL),
-           let decoded = try? JSONDecoder().decode(LibraryFavoriteLedger.self, from: data) {
-            ledger = decoded
-        } else {
-            ledger = LibraryFavoriteLedger()
-        }
     }
 
     nonisolated static func defaultFileURL() -> URL {

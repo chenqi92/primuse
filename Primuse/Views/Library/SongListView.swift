@@ -788,19 +788,6 @@ private struct SongListLiveModels<Key: Hashable, Model: AnyObject> {
 @MainActor
 @Observable
 final class SongListCache {
-    private struct ProjectionKey: Equatable {
-        let snapshotIdentity: ObjectIdentifier
-        let sourceID: String?
-        let query: String
-        let restrictsToDownloaded: Bool
-        let filterRevision: Int
-        let replacementToken: UUID
-    }
-
-    private struct ProjectionEntry {
-        let key: ProjectionKey
-        let value: SongListProjection
-    }
 
     /// The worker builds this immutable reference off the main actor. Publishing
     /// it is O(1), instead of rebuilding dictionaries and aggregates while the
@@ -818,6 +805,23 @@ final class SongListCache {
     private(set) var playableCount = 0
     private(set) var totalDuration: TimeInterval = 0
     private(set) var coverSongID: String?
+
+}
+
+extension SongListCache {
+    private struct ProjectionKey: Equatable {
+        let snapshotIdentity: ObjectIdentifier
+        let sourceID: String?
+        let query: String
+        let restrictsToDownloaded: Bool
+        let filterRevision: Int
+        let replacementToken: UUID
+    }
+
+    private struct ProjectionEntry {
+        let key: ProjectionKey
+        let value: SongListProjection
+    }
 
     var rows: [SongListRowIdentity] { snapshot?.rows ?? [] }
     var orderedSongIDs: [String] { snapshot?.orderedSongIDs ?? [] }
@@ -986,7 +990,6 @@ final class SongListCache {
         )
         return value
     }
-
 }
 
 /// 文件夹页的歌曲顺序: 默认曲目顺序, 在排序菜单里选了别的维度才跟随歌曲列表。

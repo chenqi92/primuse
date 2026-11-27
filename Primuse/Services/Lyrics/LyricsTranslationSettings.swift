@@ -18,13 +18,7 @@ enum LyricsTranslationMode: String, Codable, CaseIterable, Sendable {
 @MainActor
 @Observable
 final class LyricsTranslationSettingsStore {
-    static let shared = LyricsTranslationSettingsStore()
     @ObservationIgnored private var suppressPersist = false
-
-    private static let userDefaultsKey = "primuse.lyrics.translation.settings.v1"
-    /// 选了「点了再翻译」后点过翻译的有声内容条目,只存本机。
-    private static let approvedSpokenWordItemsKey = "primuse.lyrics.translation.spokenWordApproved.v1"
-    private static let preparationRequestMaximumAge: TimeInterval = 30
 
     /// Only a direct tap on the in-player translation action issues this
     /// process-local revision. Persisted settings, song changes and view remounts
@@ -70,25 +64,6 @@ final class LyricsTranslationSettingsStore {
     /// 点过「翻译这份文字稿」的条目,最近点的在最后。
     private(set) var approvedSpokenWordItemIDs: [String]
 
-    /// 这一条有声内容的文稿要不要等用户点了再翻。
-    func spokenWordTranslationAwaitsRequest(itemID: String?, isSpokenWord: Bool) -> Bool {
-        SpokenWordTranslationRequestPolicy.awaitsRequest(
-            timing: spokenWordTranslationTiming,
-            isSpokenWord: isSpokenWord,
-            itemID: itemID,
-            approvedItemIDs: approvedSpokenWordItemIDs
-        )
-    }
-
-    /// 文字稿上点了「翻译这份文字稿」:这一条现在就翻,以后也照常翻。
-    func requestSpokenWordTranslation(itemID: String) {
-        approvedSpokenWordItemIDs = SpokenWordTranslationRequestPolicy.approving(
-            itemID,
-            in: approvedSpokenWordItemIDs
-        )
-        UserDefaults.standard.set(approvedSpokenWordItemIDs, forKey: Self.approvedSpokenWordItemsKey)
-    }
-
     /// BCP-47 语言标识 (例如 "zh-Hans" / "zh-Hant" / "en" / "ja")。
     /// 默认跟随系统首选语言, 第一次启动按 Locale.preferredLanguages 推断。
     var targetLanguageCode: String {
@@ -108,6 +83,76 @@ final class LyricsTranslationSettingsStore {
             persist()
             LyricsTranslationSettingsStore.notifyChanged()
         }
+    }
+
+    private init() {
+        var isEnabled = false
+        var targetLanguageCode: String
+        var mode = LyricsTranslationMode.system
+        var skippedSourceLanguageCodes: [String] = []
+        var showsBundledTranslations = true
+        var spokenWordTranslationTiming = SpokenWordTranslationTiming.automatic
+        if let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey),
+           let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
+            isEnabled = decoded.isEnabled
+            targetLanguageCode = decoded.targetLanguageCode
+            mode = decoded.mode.flatMap(LyricsTranslationMode.init(rawValue:)) ?? .system
+            skippedSourceLanguageCodes = Self.normalizedSkippedLanguageCodes(
+                decoded.skippedSourceLanguageCodes ?? []
+            )
+            showsBundledTranslations = decoded.showsBundledTranslations ?? true
+            spokenWordTranslationTiming = decoded.spokenWordTranslationTiming
+                .flatMap(SpokenWordTranslationTiming.init(rawValue:)) ?? .automatic
+        } else {
+            // 取 user 系统首选语言, 跟 region 无关用 base code 简化匹配
+            let preferred = Locale.preferredLanguages.first ?? "zh-Hans"
+            targetLanguageCode = Self.normalizedLanguageCode(preferred)
+        }
+        #if DEBUG
+        // Build-host runs turn translation on with a target language. Applied
+        // before the properties are initialized, so nothing is persisted and
+        // no change notification fires while `shared` is still being created.
+        if let target = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_LYRICS_TRANSLATION_TARGET"] {
+            isEnabled = true
+            targetLanguageCode = Self.normalizedLanguageCode(target)
+        }
+        #endif
+        self.isEnabled = isEnabled
+        self.targetLanguageCode = targetLanguageCode
+        self.mode = mode
+        self.skippedSourceLanguageCodes = skippedSourceLanguageCodes
+        self.showsBundledTranslations = showsBundledTranslations
+        self.spokenWordTranslationTiming = spokenWordTranslationTiming
+        self.approvedSpokenWordItemIDs = UserDefaults.standard
+            .stringArray(forKey: Self.approvedSpokenWordItemsKey) ?? []
+    }
+}
+
+extension LyricsTranslationSettingsStore {
+    static let shared = LyricsTranslationSettingsStore()
+
+    private static let userDefaultsKey = "primuse.lyrics.translation.settings.v1"
+    /// 选了「点了再翻译」后点过翻译的有声内容条目,只存本机。
+    private static let approvedSpokenWordItemsKey = "primuse.lyrics.translation.spokenWordApproved.v1"
+    private static let preparationRequestMaximumAge: TimeInterval = 30
+
+    /// 这一条有声内容的文稿要不要等用户点了再翻。
+    func spokenWordTranslationAwaitsRequest(itemID: String?, isSpokenWord: Bool) -> Bool {
+        SpokenWordTranslationRequestPolicy.awaitsRequest(
+            timing: spokenWordTranslationTiming,
+            isSpokenWord: isSpokenWord,
+            itemID: itemID,
+            approvedItemIDs: approvedSpokenWordItemIDs
+        )
+    }
+
+    /// 文字稿上点了「翻译这份文字稿」:这一条现在就翻,以后也照常翻。
+    func requestSpokenWordTranslation(itemID: String) {
+        approvedSpokenWordItemIDs = SpokenWordTranslationRequestPolicy.approving(
+            itemID,
+            in: approvedSpokenWordItemIDs
+        )
+        UserDefaults.standard.set(approvedSpokenWordItemIDs, forKey: Self.approvedSpokenWordItemsKey)
     }
 
     func isSourceLanguageSkipped(_ code: String) -> Bool {
@@ -185,48 +230,6 @@ final class LyricsTranslationSettingsStore {
             ?? codes.first { $0 == LocalLyricTranslationPolicy.englishIdentity }
             ?? codes.first
             ?? current
-    }
-
-    private init() {
-        var isEnabled = false
-        var targetLanguageCode: String
-        var mode = LyricsTranslationMode.system
-        var skippedSourceLanguageCodes: [String] = []
-        var showsBundledTranslations = true
-        var spokenWordTranslationTiming = SpokenWordTranslationTiming.automatic
-        if let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey),
-           let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
-            isEnabled = decoded.isEnabled
-            targetLanguageCode = decoded.targetLanguageCode
-            mode = decoded.mode.flatMap(LyricsTranslationMode.init(rawValue:)) ?? .system
-            skippedSourceLanguageCodes = Self.normalizedSkippedLanguageCodes(
-                decoded.skippedSourceLanguageCodes ?? []
-            )
-            showsBundledTranslations = decoded.showsBundledTranslations ?? true
-            spokenWordTranslationTiming = decoded.spokenWordTranslationTiming
-                .flatMap(SpokenWordTranslationTiming.init(rawValue:)) ?? .automatic
-        } else {
-            // 取 user 系统首选语言, 跟 region 无关用 base code 简化匹配
-            let preferred = Locale.preferredLanguages.first ?? "zh-Hans"
-            targetLanguageCode = Self.normalizedLanguageCode(preferred)
-        }
-        #if DEBUG
-        // Build-host runs turn translation on with a target language. Applied
-        // before the properties are initialized, so nothing is persisted and
-        // no change notification fires while `shared` is still being created.
-        if let target = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_LYRICS_TRANSLATION_TARGET"] {
-            isEnabled = true
-            targetLanguageCode = Self.normalizedLanguageCode(target)
-        }
-        #endif
-        self.isEnabled = isEnabled
-        self.targetLanguageCode = targetLanguageCode
-        self.mode = mode
-        self.skippedSourceLanguageCodes = skippedSourceLanguageCodes
-        self.showsBundledTranslations = showsBundledTranslations
-        self.spokenWordTranslationTiming = spokenWordTranslationTiming
-        self.approvedSpokenWordItemIDs = UserDefaults.standard
-            .stringArray(forKey: Self.approvedSpokenWordItemsKey) ?? []
     }
 
     /// 把带 region 的 BCP-47 标识简化为 Translation 使用的语言身份，同时

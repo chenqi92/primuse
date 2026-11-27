@@ -823,7 +823,6 @@ final class AudioPlayerService {
     /// Until then the controls show the playing state the request is for.
     private(set) var showsLoadingIndicator = false
     @ObservationIgnored private var loadingIndicatorTask: Task<Void, Never>?
-    static let loadingIndicatorDelay: Duration = .milliseconds(400)
     private(set) var lastPlaybackError: String?
     /// 整个来源暂时放不了(云盘本月下载流量用完)、队列后面还有别的歌能播时,跳过这个来源之前的倒计时。
     /// 界面据此在出错提示上加「取消」「立即跳过」。
@@ -1264,7 +1263,6 @@ final class AudioPlayerService {
     /// track cannot leave a non-empty queue stuck forever.
     var lastEngineProgressSample: TimeInterval?
     var nearEndStallSampleCount = 0
-    static let trackEndStallSampleThreshold = 4
     let nativeDecoder = NativeAudioDecoder()
     let ffmpegDecoder = FFmpegAudioDecoder()
     let radioFLACDecoder = RadioFLACAudioDecoder()
@@ -1406,48 +1404,14 @@ final class AudioPlayerService {
     /// 引起的死循环 (boundary 反复在几秒内连续触发, 队列里 1-2 首坏歌
     /// 互相切来切去)。窗口外的记录会被丢掉。
     var recentBoundaryTimes: [Date] = []
-    static let boundaryStormWindow: TimeInterval = 10
-    static let boundaryStormThreshold = 4
 
     /// A queue whose source is unavailable can otherwise recurse through every
     /// item in a few milliseconds. Keep ordinary corrupt-file skipping useful,
     /// but bound one continuous failure chain so UI/log/CPU remain responsive.
     var isFailureAdvanceChainActive = false
     var consecutiveFailureAdvanceCount = 0
-    static let maxConsecutiveFailureAdvances = 8
     /// 缓存副本解不出来、已经删掉从源头重取过的歌(#48), 每首每次启动只重取一次。
     @ObservationIgnored private var undecodableCacheRefetches = UndecodableCachedAudioRefetchLedger()
-
-    /// Seconds of buffered audio we let drain before forcibly advancing
-    /// after a mid-stream decode error. Without this cap, the ~100 buffers
-    /// already scheduled to the playerNode play out for ~20s before
-    /// `autoAdvanceAfterFailure` fires — looks like the player is frozen
-    /// (most painfully on CarPlay where the user has no other UI to fall
-    /// back to). 3s is enough that the user hears "this song stuttered"
-    /// rather than a sudden cut, but short enough to feel responsive.
-    private static let midStreamErrorGrace: TimeInterval = 3
-    /// Target decoded PCM duration scheduled-but-not-yet-played on the player
-    /// node. Counting buffers alone is unsafe: NativeAudioDecoder usually emits
-    /// ~0.2s chunks, while FFmpeg DTS frames can be only ~10ms. Eight seconds of
-    /// duration-based lookahead keeps realtime playback resilient when a large
-    /// queue scroll, metadata scrape, or remote artwork load briefly delays the
-    /// main-actor scheduling loop. The duration cap still bounds PCM residency.
-    /// nonisolated: 解码泵的缓冲测量已经跑在主 actor 之外, 需要在那里读到它。
-    nonisolated static let decodedAudioLookahead: TimeInterval = 8
-    /// Duration alone is not a memory bound for multichannel/hi-res PCM.
-    /// Keep ordinary stereo tracks at the duration watermark while capping
-    /// unusually wide or high-rate formats to a predictable resident size.
-    static let maxInFlightDecodedBytes = 32 * 1024 * 1024
-    /// Hard cap for pathological tiny/invalid buffers. Duration remains the
-    /// primary bound, so normal PCM residency stays around the lookahead window.
-    static let maxInFlightDecodedBufferCount = 384
-    static let decodedBufferEmptyThreshold: TimeInterval = 0.05
-    static let requiredDecodedBufferUnhealthySamples = 3
-    static let maxDecodedBufferRecoveryAttempts = 2
-    static let decodedBufferRecoveryCooldown: TimeInterval = 8
-    static let firstBufferTimeoutSeconds = 35
-    private static let remoteFallbackFirstBufferTimeoutSeconds = 60
-    static let dlnaSourceID = "dlna"
 
     let playbackSettings: PlaybackSettingsStore
     @ObservationIgnored private let activateAudioSession: @MainActor (Bool) throws -> Void
@@ -1608,8 +1572,6 @@ final class AudioPlayerService {
         observePlaybackRangeChanges()
     }
 
-    private static let authorizedResumeVerificationAttemptLimit = 6
-
     private var seekTimeOffset: TimeInterval = 0
     @ObservationIgnored var seekTask: Task<Void, Never>?
     @ObservationIgnored var pausedLocalPipeline: PausedLocalPipeline?
@@ -1626,9 +1588,6 @@ final class AudioPlayerService {
     /// instead of cancelling the fetch and starting the whole rebuild over.
     @ObservationIgnored var seekAwaitingFirstBufferPlayID: UUID?
     @ObservationIgnored var seekOutputRebuildPendingPlayID: UUID?
-
-    /// 进度 timer 间隔 (秒)。同时作为 scrobble 的真实收听增量 —— 见下方 handleProgressTick。
-    static let timeUpdateInterval: TimeInterval = 0.5
 
     // MARK: - Now Playing Info
 
@@ -2368,6 +2327,50 @@ final class AudioPlayerService {
     /// 这首取官方封面失败了几次。
     @ObservationIgnored var widgetAppleMusicArtworkFailures = 0
     #endif
+}
+
+extension AudioPlayerService {
+    static let loadingIndicatorDelay: Duration = .milliseconds(400)
+    static let trackEndStallSampleThreshold = 4
+    static let boundaryStormWindow: TimeInterval = 10
+    static let boundaryStormThreshold = 4
+    static let maxConsecutiveFailureAdvances = 8
+
+    /// Seconds of buffered audio we let drain before forcibly advancing
+    /// after a mid-stream decode error. Without this cap, the ~100 buffers
+    /// already scheduled to the playerNode play out for ~20s before
+    /// `autoAdvanceAfterFailure` fires — looks like the player is frozen
+    /// (most painfully on CarPlay where the user has no other UI to fall
+    /// back to). 3s is enough that the user hears "this song stuttered"
+    /// rather than a sudden cut, but short enough to feel responsive.
+    private static let midStreamErrorGrace: TimeInterval = 3
+    /// Target decoded PCM duration scheduled-but-not-yet-played on the player
+    /// node. Counting buffers alone is unsafe: NativeAudioDecoder usually emits
+    /// ~0.2s chunks, while FFmpeg DTS frames can be only ~10ms. Eight seconds of
+    /// duration-based lookahead keeps realtime playback resilient when a large
+    /// queue scroll, metadata scrape, or remote artwork load briefly delays the
+    /// main-actor scheduling loop. The duration cap still bounds PCM residency.
+    /// nonisolated: 解码泵的缓冲测量已经跑在主 actor 之外, 需要在那里读到它。
+    nonisolated static let decodedAudioLookahead: TimeInterval = 8
+    /// Duration alone is not a memory bound for multichannel/hi-res PCM.
+    /// Keep ordinary stereo tracks at the duration watermark while capping
+    /// unusually wide or high-rate formats to a predictable resident size.
+    static let maxInFlightDecodedBytes = 32 * 1024 * 1024
+    /// Hard cap for pathological tiny/invalid buffers. Duration remains the
+    /// primary bound, so normal PCM residency stays around the lookahead window.
+    static let maxInFlightDecodedBufferCount = 384
+    static let decodedBufferEmptyThreshold: TimeInterval = 0.05
+    static let requiredDecodedBufferUnhealthySamples = 3
+    static let maxDecodedBufferRecoveryAttempts = 2
+    static let decodedBufferRecoveryCooldown: TimeInterval = 8
+    static let firstBufferTimeoutSeconds = 35
+    private static let remoteFallbackFirstBufferTimeoutSeconds = 60
+    static let dlnaSourceID = "dlna"
+
+    private static let authorizedResumeVerificationAttemptLimit = 6
+
+    /// 进度 timer 间隔 (秒)。同时作为 scrobble 的真实收听增量 —— 见下方 handleProgressTick。
+    static let timeUpdateInterval: TimeInterval = 0.5
 }
 
 extension AudioPlayerService {

@@ -22,45 +22,6 @@ enum HomeRecommendationPause: Hashable {
 @MainActor
 @Observable
 final class ListeningIntentService {
-    static let shared = ListeningIntentService()
-
-    /// 经典首页「开始听」区块的开关(首页界面编辑、Mac 外观设置)。
-    nonisolated static let homeVisibilityKey = "primuse.home.showStartListening"
-    /// 极简导航里「歌曲」页顶上同一行卡片的开关(界面编辑 › 资料库)。
-    nonisolated static let minimalSongsVisibilityKey = "primuse.minimal.showStartListening"
-    /// 首页铺开成网格时是不是展开着。
-    nonisolated static let gridExpandedKey = "primuse.home.startListening.expanded"
-    /// 「查看歌曲」最多列出多少首;整库那么大的意图看全部用歌曲页。
-    nonisolated static let songListLimit = 1_000
-    /// 「用 AI 整理『为你』」开关,默认开(只在允许向 AI 发送内容时才真的发)。
-    nonisolated static let aiCurationKey = "primuse.listeningIntents.aiCuration"
-    nonisolated static let curationCacheKey = "primuse.listeningIntents.aiCuration.cache.v1"
-    nonisolated static let curationAttemptKey = "primuse.listeningIntents.aiCuration.lastAttempt"
-    /// 自动再问 AI 的最短间隔;画像没变时缓存一周内都算新。
-    nonisolated static let curationRetryInterval: TimeInterval = 6 * 3_600
-    nonisolated static let curationFreshness: TimeInterval = 7 * 86_400
-    /// 播放记录多了这么多条才值得按新的收听重新排序。
-    nonisolated static let historyGrowthForRefresh = 15
-
-    /// 「为你」整理到哪一步了,给「全部意图」页底下那行说明用。
-    enum CurationStatus: Equatable {
-        /// 开关关着:只用本机规则。
-        case off
-        /// 本机规则生成;AI 不可用或还没问过。
-        case local
-        case working
-        case curated(provider: String, at: Date)
-        /// 问过了,没有可用的 AI 回答,先用本机规则。
-        case unavailable
-    }
-
-    /// AI 整理的结果,连同它对应的画像一起存在本机。
-    struct CuratedIntents: Codable, Equatable {
-        var fingerprint: String
-        var provider: String
-        var curatedAt: Date
-        var intents: [ListeningIntent]
-    }
 
     private(set) var availability: ListeningIntentAvailability?
     private(set) var configuration: ListeningIntentShelfConfiguration
@@ -131,6 +92,48 @@ final class ListeningIntentService {
         if let memoryPressureObserver {
             NotificationCenter.default.removeObserver(memoryPressureObserver)
         }
+    }
+}
+
+extension ListeningIntentService {
+    static let shared = ListeningIntentService()
+
+    /// 经典首页「开始听」区块的开关(首页界面编辑、Mac 外观设置)。
+    nonisolated static let homeVisibilityKey = "primuse.home.showStartListening"
+    /// 极简导航里「歌曲」页顶上同一行卡片的开关(界面编辑 › 资料库)。
+    nonisolated static let minimalSongsVisibilityKey = "primuse.minimal.showStartListening"
+    /// 首页铺开成网格时是不是展开着。
+    nonisolated static let gridExpandedKey = "primuse.home.startListening.expanded"
+    /// 「查看歌曲」最多列出多少首;整库那么大的意图看全部用歌曲页。
+    nonisolated static let songListLimit = 1_000
+    /// 「用 AI 整理『为你』」开关,默认开(只在允许向 AI 发送内容时才真的发)。
+    nonisolated static let aiCurationKey = "primuse.listeningIntents.aiCuration"
+    nonisolated static let curationCacheKey = "primuse.listeningIntents.aiCuration.cache.v1"
+    nonisolated static let curationAttemptKey = "primuse.listeningIntents.aiCuration.lastAttempt"
+    /// 自动再问 AI 的最短间隔;画像没变时缓存一周内都算新。
+    nonisolated static let curationRetryInterval: TimeInterval = 6 * 3_600
+    nonisolated static let curationFreshness: TimeInterval = 7 * 86_400
+    /// 播放记录多了这么多条才值得按新的收听重新排序。
+    nonisolated static let historyGrowthForRefresh = 15
+
+    /// 「为你」整理到哪一步了,给「全部意图」页底下那行说明用。
+    enum CurationStatus: Equatable {
+        /// 开关关着:只用本机规则。
+        case off
+        /// 本机规则生成;AI 不可用或还没问过。
+        case local
+        case working
+        case curated(provider: String, at: Date)
+        /// 问过了,没有可用的 AI 回答,先用本机规则。
+        case unavailable
+    }
+
+    /// AI 整理的结果,连同它对应的画像一起存在本机。
+    struct CuratedIntents: Codable, Equatable {
+        var fingerprint: String
+        var provider: String
+        var curatedAt: Date
+        var intents: [ListeningIntent]
     }
 
     func releaseRebuildableCaches() {

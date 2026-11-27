@@ -12,6 +12,21 @@ import PrimuseKit
 @MainActor
 @Observable
 final class ScrapeWritebackCenter {
+
+    /// 卡片上的任务，最新的在后面。
+    private(set) var jobs: [Job] = []
+    /// 展开成卡片，还是收成胶囊在后台写。
+    private(set) var isExpanded = false
+    /// 写完时改一次，卡片按它给一下触感。
+    private(set) var completionRevision = 0
+
+    @ObservationIgnored private var tail: Task<Void, Never>?
+    @ObservationIgnored private var cleanupTask: Task<Void, Never>?
+
+    private init() {}
+}
+
+extension ScrapeWritebackCenter {
     static let shared = ScrapeWritebackCenter()
 
     enum StepKind: Hashable {
@@ -79,18 +94,6 @@ final class ScrapeWritebackCenter {
         }
         var needsAcknowledgement: Bool { isFinished && (hasFailure || foundNothing) }
     }
-
-    /// 卡片上的任务，最新的在后面。
-    private(set) var jobs: [Job] = []
-    /// 展开成卡片，还是收成胶囊在后台写。
-    private(set) var isExpanded = false
-    /// 写完时改一次，卡片按它给一下触感。
-    private(set) var completionRevision = 0
-
-    @ObservationIgnored private var tail: Task<Void, Never>?
-    @ObservationIgnored private var cleanupTask: Task<Void, Never>?
-
-    private init() {}
 
     var isRunning: Bool { jobs.contains { !$0.isFinished } }
 

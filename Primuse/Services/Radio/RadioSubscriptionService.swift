@@ -32,7 +32,6 @@ enum RadioSubscriptionRefreshOutcome: Equatable, Sendable {
 @MainActor
 @Observable
 final class RadioSubscriptionService {
-    static let shared = RadioSubscriptionService()
 
     /// 正在刷新的订阅。界面据此显示进度。
     private(set) var refreshingIDs: Set<String> = []
@@ -44,6 +43,10 @@ final class RadioSubscriptionService {
     /// 启动后的等待结束之前，回到前台的触发一律不算数 —— 冷启动时「变为活跃」
     /// 的通知会先于这里到来，那时正是最不该抢网络的时候。
     @ObservationIgnored private var automaticRefreshAllowed = false
+}
+
+extension RadioSubscriptionService {
+    static let shared = RadioSubscriptionService()
 
     private var subscriptions: RadioSubscriptionsStore { .shared }
     private var stationsStore: RadioStationsStore { AppServices.shared.radioStationsStore }

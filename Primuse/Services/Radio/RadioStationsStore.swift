@@ -22,69 +22,7 @@ final class RadioStationsStore {
         didSet { derived = DerivedCache() }
     }
 
-    /// 由电台清单推出来的几样东西，清单一变整份作废。
-    ///
-    /// 音乐源镜像进来的台一多（群晖 SHOUTcast 目录上千个），每一样都是逐台排序、
-    /// 清洗文件夹名、折叠比较，一次几十毫秒；首页、资料库、CarPlay 一次刷新要读好几遍，
-    /// 电台页每张卡片的菜单还各要读一遍文件夹和标签 —— 不缓存就是卡片数乘以电台数。
-    private struct DerivedCache {
-        var stations: [RadioStation]?
-        var artworkRevision: String?
-        var folders: [RadioStationFolderSummary]?
-        var tags: [RadioStationTagSummary]?
-        var ungroupedCount: Int?
-        var folderGroups: [RadioStationFolderGroup]?
-        var priorityByID: [String: Int]?
-    }
-
     @ObservationIgnored private var derived = DerivedCache()
-
-    var stations: [RadioStation] {
-        // 先读 allStations，观察者照旧挂在它上面，清单一变就会重新取值。
-        let all = allStations
-        if let cached = derived.stations { return cached }
-        let sorted = RadioStationOrdering.sorted(all.filter { !$0.isDeleted })
-        derived.stations = sorted
-        return sorted
-    }
-
-    /// 台标预览的变化标记：顺序、id、台标与修改时间任何一项变了它就变。
-    /// 只在本次运行内可比，不能写盘。
-    var artworkRevision: String {
-        let visible = stations
-        if let cached = derived.artworkRevision { return cached }
-        var hasher = Hasher()
-        for station in visible {
-            hasher.combine(station.id)
-            hasher.combine(station.logoFileName)
-            hasher.combine(station.logoData?.count)
-            hasher.combine(station.modifiedAt)
-        }
-        let revision = "\(visible.count)-\(hasher.finalize())"
-        derived.artworkRevision = revision
-        return revision
-    }
-
-    /// 全部电台按文件夹分好的段，未分组的在最后。电台页不筛选时按它分段。
-    var folderGroups: [RadioStationFolderGroup] {
-        let visible = stations
-        if let cached = derived.folderGroups { return cached }
-        let groups = RadioStationOrganization.grouped(visible)
-        derived.folderGroups = groups
-        return groups
-    }
-
-    /// 每个电台在全局优先级里的位次，从 1 起。
-    var priorityByID: [String: Int] {
-        let visible = stations
-        if let cached = derived.priorityByID { return cached }
-        let positions = Dictionary(
-            visible.enumerated().map { ($1.id, $0 + 1) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        derived.priorityByID = positions
-        return positions
-    }
 
     private let storeURL: URL
     /// 空文件夹的本机占位清单。文件夹本身没有独立记录(见
@@ -154,6 +92,70 @@ final class RadioStationsStore {
         loadFolderPlaceholders()
         loadCloudPending()
         materializeLogos(for: allStations)
+    }
+}
+
+extension RadioStationsStore {
+    /// 由电台清单推出来的几样东西，清单一变整份作废。
+    ///
+    /// 音乐源镜像进来的台一多（群晖 SHOUTcast 目录上千个），每一样都是逐台排序、
+    /// 清洗文件夹名、折叠比较，一次几十毫秒；首页、资料库、CarPlay 一次刷新要读好几遍，
+    /// 电台页每张卡片的菜单还各要读一遍文件夹和标签 —— 不缓存就是卡片数乘以电台数。
+    private struct DerivedCache {
+        var stations: [RadioStation]?
+        var artworkRevision: String?
+        var folders: [RadioStationFolderSummary]?
+        var tags: [RadioStationTagSummary]?
+        var ungroupedCount: Int?
+        var folderGroups: [RadioStationFolderGroup]?
+        var priorityByID: [String: Int]?
+    }
+
+    var stations: [RadioStation] {
+        // 先读 allStations，观察者照旧挂在它上面，清单一变就会重新取值。
+        let all = allStations
+        if let cached = derived.stations { return cached }
+        let sorted = RadioStationOrdering.sorted(all.filter { !$0.isDeleted })
+        derived.stations = sorted
+        return sorted
+    }
+
+    /// 台标预览的变化标记：顺序、id、台标与修改时间任何一项变了它就变。
+    /// 只在本次运行内可比，不能写盘。
+    var artworkRevision: String {
+        let visible = stations
+        if let cached = derived.artworkRevision { return cached }
+        var hasher = Hasher()
+        for station in visible {
+            hasher.combine(station.id)
+            hasher.combine(station.logoFileName)
+            hasher.combine(station.logoData?.count)
+            hasher.combine(station.modifiedAt)
+        }
+        let revision = "\(visible.count)-\(hasher.finalize())"
+        derived.artworkRevision = revision
+        return revision
+    }
+
+    /// 全部电台按文件夹分好的段，未分组的在最后。电台页不筛选时按它分段。
+    var folderGroups: [RadioStationFolderGroup] {
+        let visible = stations
+        if let cached = derived.folderGroups { return cached }
+        let groups = RadioStationOrganization.grouped(visible)
+        derived.folderGroups = groups
+        return groups
+    }
+
+    /// 每个电台在全局优先级里的位次，从 1 起。
+    var priorityByID: [String: Int] {
+        let visible = stations
+        if let cached = derived.priorityByID { return cached }
+        let positions = Dictionary(
+            visible.enumerated().map { ($1.id, $0 + 1) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        derived.priorityByID = positions
+        return positions
     }
 
     func station(id: String) -> RadioStation? {

@@ -427,17 +427,7 @@ final class AudioEngine {
     /// and carry their own gain in their samples instead.
     private(set) var primaryProgramVolume: Float = 1
 
-    private static let transportFadeStepCount = 6
-    private static let transportFadeStepDuration: Duration = .milliseconds(8)
-
     private var engineIdleShutdownTask: Task<Void, Never>?
-    /// How long the render graph stays live after a transport pause: long
-    /// enough for the effect chain to drain its tail, and for a quick
-    /// Play/Pause reversal to reuse the live graph. It must stay short —
-    /// iOS derives the Control Center / lock screen play-pause glyph from
-    /// whether the app's audio IO is still running, not from the published
-    /// playback rate, so a running engine keeps showing Pause after a pause.
-    private static let engineIdleShutdownDelay: Duration = .milliseconds(300)
 
     /// DLNA 后台保活用 ── 喂一段 -90 dB 的极小振幅 buffer 让 iOS audio
     /// background mode 不挂起进程, NWListener 才能持续接 SSDP / control 请求。
@@ -518,6 +508,22 @@ final class AudioEngine {
         }
         #endif
     }
+
+    /// 上一次读主节点时钟时,这一首到那里为止被智能速度拿掉的文件时长(秒)。跳转、换歌后从 0 算起。
+    @ObservationIgnored private(set) var primarySmartSpeedSkippedDuration: TimeInterval = 0
+
+}
+
+extension AudioEngine {
+    private static let transportFadeStepCount = 6
+    private static let transportFadeStepDuration: Duration = .milliseconds(8)
+    /// How long the render graph stays live after a transport pause: long
+    /// enough for the effect chain to drain its tail, and for a quick
+    /// Play/Pause reversal to reuse the live graph. It must stay short —
+    /// iOS derives the Control Center / lock screen play-pause glyph from
+    /// whether the app's audio IO is still running, not from the published
+    /// playback rate, so a running engine keeps showing Pause after a pause.
+    private static let engineIdleShutdownDelay: Duration = .milliseconds(300)
 
     // MARK: - Output device routing (macOS only)
 
@@ -969,9 +975,6 @@ final class AudioEngine {
     }
     #endif
 
-    /// 上一次读主节点时钟时,这一首到那里为止被智能速度拿掉的文件时长(秒)。跳转、换歌后从 0 算起。
-    @ObservationIgnored private(set) var primarySmartSpeedSkippedDuration: TimeInterval = 0
-
     private static let volumeKey = "primuse_volume"
 
     #if os(macOS)
@@ -1003,7 +1006,6 @@ final class AudioEngine {
         return status == noErr
     }
     #endif
-
 }
 
 extension AudioEngine {

@@ -63,11 +63,6 @@ final class ImmersiveAlbumFlowBrowser {
     /// 舞台上那行小提示；nil 不显示。
     private(set) var hint: ImmersiveAlbumFlowHint? = nil
 
-    /// 停在哪一张（整数格）。
-    var browseIndex: Int { Int(position.rounded()) }
-    /// 停在别的唱片上（不是正在播的这张）。
-    var isBrowsing: Bool { browseIndex != 0 }
-
     /// 停住时提示怎么选：各端的说法不同（轻点 / 点按 / 按确认键）。
     @ObservationIgnored var browseHint: ImmersiveAlbumFlowHint
     /// 减弱动态效果：直接到位，不带动画。
@@ -89,6 +84,13 @@ final class ImmersiveAlbumFlowBrowser {
     init(browseHint: ImmersiveAlbumFlowHint) {
         self.browseHint = browseHint
     }
+}
+
+extension ImmersiveAlbumFlowBrowser {
+    /// 停在哪一张（整数格）。
+    var browseIndex: Int { Int(position.rounded()) }
+    /// 停在别的唱片上（不是正在播的这张）。
+    var isBrowsing: Bool { browseIndex != 0 }
 
     // MARK: 拖动（手指、触控板）
 

@@ -76,31 +76,6 @@ enum SyncTestScenario: String {
 @MainActor
 @Observable
 final class CloudKitSyncService {
-    nonisolated static let containerID = CloudKitRuntime.containerID
-    nonisolated static let zoneID = CKRecordZone.ID(zoneName: "PrimuseSync")
-    /// 自己设的视频动态封面的视频本体（#428）单独放在这个私有区里。同步引擎拉取时排除它
-    /// （`nextFetchChangesOptions`），任何设备都不会经引擎下载视频；只有开着「iCloud 同步动态封面」
-    /// 的设备按需单条去取、去传（`MotionCoverCloudVideoTransfer`）。区不属于 schema，不用部署。
-    nonisolated static let motionCoverVideoZoneID = CKRecordZone.ID(zoneName: "PrimuseMotionCovers")
-
-    /// 家庭共享 zone ── owner 在这里创建 CKShare, 邀请的 participant 通过
-    /// 系统 sharing 接受后能看到这个 zone 里的 record。
-    /// 哪些 record 类型进 family zone 由 `recordTypeIsShareable(_:)` 决定:
-    /// - shared: Playlist / SmartPlaylist / MusicSource / CloudAccount (家庭共曲库)
-    /// - private (留在 PrimuseSync): PlaybackHistory / ListeningStats / ScraperConfig (个人偏好)
-    nonisolated static let familyZoneID = CKRecordZone.ID(zoneName: "PrimuseFamily")
-
-    /// 共享 CKShare 的固定 recordName, 跟 family zone 1:1 绑定。
-    nonisolated static let familyShareRecordName = "primuse.family.share"
-
-    // Large song covers reuse Playlist's deployed asset field. A distinct ID
-    // and no playlist name keep these records out of playlist decoding.
-    nonisolated static let songCoverAssetPrefix = "__song_cover_asset__:"
-
-    /// Singleton ID used for the playback-history record (one per user).
-    static let playbackHistoryRecordName = "primuse.playbackHistory.singleton"
-    /// Singleton ID used for full listening stats (one per user).
-    static let listeningStatsRecordName = "primuse.listeningStats.singleton"
 
     // MARK: - Collaborators
 
@@ -147,7 +122,6 @@ final class CloudKitSyncService {
     private var systemFieldsBaseBytes = 0
     private var systemFieldsJournalBytes = 0
     private var systemFieldsPersistTask: Task<Void, Never>?
-    private static let systemFieldsPersistDelay: Duration = .seconds(2)
     /// system fields 缓存与两份引擎游标的写盘队列。整份编码不在主线程上做 —— 全量重拉时
     /// 每批都要写一次几千条的缓存, 放在主线程上界面每批都卡一下; 串行队列保证游标
     /// 永远排在它之前那批 system fields 之后落盘。同步读、判断存在、删除这三份文件
@@ -175,7 +149,6 @@ final class CloudKitSyncService {
     /// the handle a restarted service had just armed and push immediately.
     private var historyFlushToken: UUID?
     private var listeningStatsFlushToken: UUID?
-    private static let historyThrottle: Duration = .seconds(300)
 
     /// The debounced radio-station snapshot upload, owned so `stop()` can take
     /// it down and so an import burst collapses into a single write.
@@ -210,17 +183,6 @@ final class CloudKitSyncService {
     /// Listens for `CKAccountChanged` so we can flip into `.accountUnavailable`
     /// when the user signs out of iCloud while the app is running.
     private var accountChangeObserver: NSObjectProtocol?
-
-    /// Once-per-install flag: did we run `scheduleInitialUpload()` to seed
-    /// CloudKit with everything that was already on disk before sync existed?
-    /// CKSyncEngine's persisted state tracks per-record sync status after the
-    /// first run, so re-uploading on every cold launch is wasteful.
-    private static let initialUploadDoneKey = "primuse.cloudSync.initialUploadComplete"
-    private static let sourceTypeFingerprintKey = "primuse.cloudSync.sourceTypeFingerprint"
-    #if DEBUG
-    /// 同一进程里 `start()` 可能被调多次(开关同步、换账号), 测试场景只模拟一次。
-    private static var didApplySyncTestScenario = false
-    #endif
     /// Set by record-level callbacks when a send pass contains a failure that
     /// the app neither resolved nor expects CKSyncEngine to retry automatically.
     private var unresolvedRecordSaveError: String?
@@ -263,6 +225,52 @@ final class CloudKitSyncService {
     /// Participant 端的第二个 sync engine, 监听 .sharedCloudDatabase。
     /// owner 端不需要 (owner 写自己的 privateDB + family zone, 走 privateEngine)。
     private(set) var sharedEngine: CKSyncEngine?
+
+    // The cross-device 3-tier resolver lives on `MusicLibrary` — it
+    // owns the songs collection, can use `sourceIdentityResolver` to map
+    // a song's mount UUID back to a stable cloud account, and persists
+    // unresolved identities as pending so a later scan can fill them in.
+}
+
+extension CloudKitSyncService {
+    nonisolated static let containerID = CloudKitRuntime.containerID
+    nonisolated static let zoneID = CKRecordZone.ID(zoneName: "PrimuseSync")
+    /// 自己设的视频动态封面的视频本体（#428）单独放在这个私有区里。同步引擎拉取时排除它
+    /// （`nextFetchChangesOptions`），任何设备都不会经引擎下载视频；只有开着「iCloud 同步动态封面」
+    /// 的设备按需单条去取、去传（`MotionCoverCloudVideoTransfer`）。区不属于 schema，不用部署。
+    nonisolated static let motionCoverVideoZoneID = CKRecordZone.ID(zoneName: "PrimuseMotionCovers")
+
+    /// 家庭共享 zone ── owner 在这里创建 CKShare, 邀请的 participant 通过
+    /// 系统 sharing 接受后能看到这个 zone 里的 record。
+    /// 哪些 record 类型进 family zone 由 `recordTypeIsShareable(_:)` 决定:
+    /// - shared: Playlist / SmartPlaylist / MusicSource / CloudAccount (家庭共曲库)
+    /// - private (留在 PrimuseSync): PlaybackHistory / ListeningStats / ScraperConfig (个人偏好)
+    nonisolated static let familyZoneID = CKRecordZone.ID(zoneName: "PrimuseFamily")
+
+    /// 共享 CKShare 的固定 recordName, 跟 family zone 1:1 绑定。
+    nonisolated static let familyShareRecordName = "primuse.family.share"
+
+    // Large song covers reuse Playlist's deployed asset field. A distinct ID
+    // and no playlist name keep these records out of playlist decoding.
+    nonisolated static let songCoverAssetPrefix = "__song_cover_asset__:"
+
+    /// Singleton ID used for the playback-history record (one per user).
+    static let playbackHistoryRecordName = "primuse.playbackHistory.singleton"
+    /// Singleton ID used for full listening stats (one per user).
+    static let listeningStatsRecordName = "primuse.listeningStats.singleton"
+    private static let systemFieldsPersistDelay: Duration = .seconds(2)
+    private static let historyThrottle: Duration = .seconds(300)
+
+    /// Once-per-install flag: did we run `scheduleInitialUpload()` to seed
+    /// CloudKit with everything that was already on disk before sync existed?
+    /// CKSyncEngine's persisted state tracks per-record sync status after the
+    /// first run, so re-uploading on every cold launch is wasteful.
+    private static let initialUploadDoneKey = "primuse.cloudSync.initialUploadComplete"
+    private static let sourceTypeFingerprintKey = "primuse.cloudSync.sourceTypeFingerprint"
+    #if DEBUG
+    /// 同一进程里 `start()` 可能被调多次(开关同步、换账号), 测试场景只模拟一次。
+    private static var didApplySyncTestScenario = false
+    #endif
 
     private static let seededRecordTypesKey = "primuse.cloudSync.seededRecordTypes"
     nonisolated static let recordTypesAddedAfterInitialUpload: Set<String> = [
@@ -509,11 +517,6 @@ final class CloudKitSyncService {
     // MARK: - Song identity / cross-device resolution
 
     nonisolated static let songIdentitiesField = "songIdentities"
-
-    // The cross-device 3-tier resolver lives on `MusicLibrary` — it
-    // owns the songs collection, can use `sourceIdentityResolver` to map
-    // a song's mount UUID back to a stable cloud account, and persists
-    // unresolved identities as pending so a later scan can fill them in.
 }
 
 extension CloudKitSyncService {

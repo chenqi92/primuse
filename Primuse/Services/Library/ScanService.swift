@@ -508,13 +508,6 @@ final class ScanService {
     /// adaptive persistence interval: a multi-megabyte checkpoint is rewritten
     /// far less often than a small one (see ScanCheckpointPersistencePolicy).
     private var lastCheckpointEncodedByteCount = 0
-    /// A drift-tolerant walk may move onto a new catalogue revision this many
-    /// times in a row without staging a page before it is reported as failed.
-    private static let maximumCatalogDriftReanchorsWithoutProgress = 5
-    /// How long a catalogue walk waits for the server's own library scan
-    /// (Navidrome `getScanStatus.scanning`) before parking as interrupted.
-    private static let maximumServerScanWait: TimeInterval = 20 * 60
-    private static let serverScanPollInterval: Duration = .seconds(15)
     #if os(iOS)
     private var backgroundTaskIDs: [String: UIBackgroundTaskIdentifier] = [:]
     /// True while the app is backgrounded with audio playing. Playback keeps
@@ -668,13 +661,6 @@ final class ScanService {
         observeSourceConfigurationChanges()
     }
 
-    private nonisolated static let checkpointFileName = "scan-checkpoints.json"
-    private nonisolated static let syncStateFileName = "source-sync-states.json"
-
-    /// Identifier used for BGProcessingTask scheduling.
-    /// Must match `BGTaskSchedulerPermittedIdentifiers` in Info.plist.
-    nonisolated static let backgroundTaskIdentifier = "com.welape.yuanyin.scan-resume"
-
     /// 进度帧的发布闸门。`publishScanProgress` 自己带节流, 而按页/按目录驱动的
     /// 那两路回调原本一次不漏地写进 `scanStates` —— 连接器快起来一秒几十次,
     /// 每一次都让来源页整张列表重算。收尾帧不受限, 否则进度条会停在中途。
@@ -691,9 +677,26 @@ final class ScanService {
 
     @ObservationIgnored private var normalizedDirectoryMemo: [[String]: [String]] = [:]
 
+}
+
+extension ScanService {
+    /// A drift-tolerant walk may move onto a new catalogue revision this many
+    /// times in a row without staging a page before it is reported as failed.
+    private static let maximumCatalogDriftReanchorsWithoutProgress = 5
+    /// How long a catalogue walk waits for the server's own library scan
+    /// (Navidrome `getScanStatus.scanning`) before parking as interrupted.
+    private static let maximumServerScanWait: TimeInterval = 20 * 60
+    private static let serverScanPollInterval: Duration = .seconds(15)
+
+    private nonisolated static let checkpointFileName = "scan-checkpoints.json"
+    private nonisolated static let syncStateFileName = "source-sync-states.json"
+
+    /// Identifier used for BGProcessingTask scheduling.
+    /// Must match `BGTaskSchedulerPermittedIdentifiers` in Info.plist.
+    nonisolated static let backgroundTaskIdentifier = "com.welape.yuanyin.scan-resume"
+
     private nonisolated static let scopeFingerprintMemo =
         OSAllocatedUnfairLock<[String: ScopeFingerprintMemoEntry]>(initialState: [:])
-
 }
 
 extension ScanService {
