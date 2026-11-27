@@ -1136,17 +1136,15 @@ private actor ScheduledFileMaintenance {
         guard !Task.isCancelled else { return }
         // 本地源的内嵌封面不参与容量驱逐 —— 删掉它只能靠重新解析音频文件,
         // 远比它占的空间贵。
-        let protectedCoverRefs = await MainActor.run {
-            AppServices.shared.metadataBackfill.evictionProtectedCoverRefs()
-        }
+        // 曲库还没装好时答不出「哪些不许驱逐」: 这一步整个不做, 这一轮也不记完成。iOS 进后台十几秒后
+        // 就会到这里, 那条路不看曲库装没装好 —— 启动装载期间退到后台、或者进程本来就是在后台被拉起的,
+        // 大曲库这时还没发布。
+        let metadataBackfill = await MainActor.run { AppServices.shared.metadataBackfill }
         guard !Task.isCancelled else { return }
-        guard await MetadataAssetStore.shared.performScheduledContentMaintenance(
-            protectedCoverRefs: protectedCoverRefs
-        ) else {
+        guard await metadataBackfill.performScheduledArtworkMaintenance() else {
             return
         }
         guard !Task.isCancelled else { return }
-        let metadataBackfill = await MainActor.run { AppServices.shared.metadataBackfill }
         await metadataBackfill.reopenSongsWithUnreadableCoverFiles()
         guard !Task.isCancelled else { return }
         UserDefaults.standard.set(Date(), forKey: Self.lastCompletedKey)

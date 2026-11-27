@@ -494,6 +494,57 @@ final class DirectoryScanCooldownTests: XCTestCase {
         XCTAssertFalse(relaunched.isCoverContentEvicted(named: cover), "An accidental loss after recovery must not inherit the old capacity marker")
     }
 
+    /// 定期清理做容量驱逐之前向补读要「不许为了腾空间删掉」的封面(本地源的内嵌封面, 删了只能重新解析音频文件)。
+    /// 曲库还没装好时歌曲表是空的, 以前要到的是空集, 驱逐照做, 这些封面就没了保护 —— iOS 进后台十几秒后
+    /// 就会跑到这里, 不看曲库装没装好, 大曲库的装载比这久。现在答不出来就整步不做, 这一轮也不记完成。
+    @MainActor
+    func testScheduledArtworkEvictionWaitsForALoadedLibrary() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MetadataAssetStore(storageDirectory: root.appendingPathComponent("artwork"))
+        store.storeCoverSync(try artworkData(), for: "embedded-0")
+        let cover = store.expectedCoverFileName(for: "embedded-0")
+        let identifier = try XCTUnwrap(store.coverContentIdentifier(named: cover))
+        let content = store.artworkContentDirectoryURL
+            .appendingPathComponent(identifier.replacingOccurrences(of: "sha256:", with: "") + ".jpg")
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)], ofItemAtPath: content.path)
+
+        var song = Song(id: "embedded-0", title: "Local", duration: 180, fileFormat: .mp3, filePath: "/Music/embedded-0.mp3", sourceID: "local")
+        song.coverArtFileName = cover
+        let libraryDirectory = root.appendingPathComponent("library")
+        do {
+            let seeded = MusicLibrary(storageDirectory: libraryDirectory)
+            seeded.addSongs([song])
+            guard case .success = await seeded.persistNowAndWait() else { return XCTFail("the seed library did not persist") }
+        }
+        let library = MusicLibrary.makePreparing(storageDirectory: libraryDirectory)
+        let state = root.appendingPathComponent("state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let backfill = MetadataBackfillService(library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
+            directFileSourceIDs: { ["local"] }, storageDirectory: state, artworkStore: store)
+        defer { backfill.stop() }
+
+        // 装载还没发布: 答不出来, 不是「没有要保护的」; 清理这一步不做, 封面还在。
+        XCTAssertFalse(library.isReady)
+        XCTAssertNil(backfill.evictionProtectedCoverRefs())
+        let skipped = await backfill.performScheduledArtworkMaintenance(maximumArtworkBytes: 1)
+        XCTAssertFalse(skipped, "the pass is not recorded as done, so it runs again once the library is loaded")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: content.path), "the embedded cover of a local source is still there")
+
+        // 发布之后: 这张封面受保护, 清理照做, 它留着。
+        library.publish(await MusicLibrary.prepareStartup(storageDirectory: libraryDirectory))
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(backfill.evictionProtectedCoverRefs(), [cover])
+        let completed = await backfill.performScheduledArtworkMaintenance(maximumArtworkBytes: 1)
+        XCTAssertTrue(completed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: content.path))
+
+        // 对照: 同一次驱逐拿到空的保护集(以前在装载期间交出去的那一份)就把它删了。
+        let unprotected = await store.performScheduledContentMaintenance(protectedCoverRefs: [], maximumArtworkBytes: 1)
+        XCTAssertTrue(unprotected)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: content.path))
+    }
+
     @MainActor
     func testLegacyArtworkQueueDefersInspectedRowsButKeepsUnreadMetadata() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

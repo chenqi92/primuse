@@ -1059,7 +1059,11 @@ extension MetadataBackfillService {
     /// 本地源的内嵌封面没有任何远端可以回源: content 字节一旦被容量驱逐,
     /// 就只能重新解析音频文件。它占的空间远不如重建它的代价值钱, 所以让
     /// 容量驱逐跳过这些, 先去删刮削来的、随时能重新下载的封面。
-    func evictionProtectedCoverRefs() -> Set<String> {
+    ///
+    /// nil: 曲库此刻答不出来 —— 歌曲模型不在内存里(启动装载还没发布, 或者放掉了), `library.songs` 是空的。
+    /// 「答不出来」不是「没有要保护的」: 拿空集去做容量驱逐, 这些封面就全成了可以删的。
+    func evictionProtectedCoverRefs() -> Set<String>? {
+        guard library.isReady else { return nil }
         let directIDs = directFileSourceIDs()
         var refs: Set<String> = []
         for song in library.songs where directIDs.contains(song.sourceID) || song.isCueTrack || song.isStreamDescriptor {
@@ -1068,6 +1072,21 @@ extension MetadataBackfillService {
             refs.insert(ref)
         }
         return refs
+    }
+
+    /// 定期清理里封面库的那一步(去重迁移、孤儿回收、容量驱逐)。曲库答不出哪些封面不许驱逐时整步不做,
+    /// 返回 false: 调用方不把这一轮记成做完, 下一次到点再来。
+    func performScheduledArtworkMaintenance(maximumArtworkBytes: Int64? = nil) async -> Bool {
+        guard let protectedCoverRefs = evictionProtectedCoverRefs() else {
+            plog("ScheduledFileMaintenance: artwork maintenance skipped, the library is not loaded")
+            return false
+        }
+        guard let maximumArtworkBytes else {
+            return await artworkStore.performScheduledContentMaintenance(protectedCoverRefs: protectedCoverRefs)
+        }
+        return await artworkStore.performScheduledContentMaintenance(
+            protectedCoverRefs: protectedCoverRefs, maximumArtworkBytes: maximumArtworkBytes
+        )
     }
 
     /// Explicit clearing or unexpected file loss reopens inspection. Intentional
