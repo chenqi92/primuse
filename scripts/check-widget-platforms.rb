@@ -10,7 +10,7 @@ require "yaml"
 ROOT = File.expand_path("..", __dir__)
 SPEC_PATH = File.join(ROOT, "project.yml")
 PROJECT_PATH = File.join(ROOT, "Primuse.xcodeproj")
-EXPECTED_XCODEGEN_VERSION = "2.45.3"
+EXPECTED_XCODEGEN_VERSION = "2.46.0"
 WIDGET_TARGET = "PrimuseWidgetExtension"
 WIDGET_BUNDLE_ID = "com.welape.yuanyin.widget"
 APP_GROUP = "group.com.welape.yuanyin"

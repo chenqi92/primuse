@@ -167,17 +167,11 @@ targets:
         attributes: [no_codegen]
       - path: SiriVocabulary
         buildPhase: resources
-    resources:
-      - path: Primuse/Resources
-        excludes:
-          - "WatercolorTheater/**"
       # 水彩小剧场的分件图与清单（scripts/build-mascot-parts.py 生成），按文件夹拷进包里。
+      # 资源都写在 sources 里并标 buildPhase：XcodeGen 的 target 没有 resources 这个键，写了不生效。
       - path: Primuse/Resources/WatercolorTheater
         type: folder
-      - path: Primuse/Resources-iOS
-        excludes:
-          - "YearlyReport.xcassets"
-          - "YearlyReport.xcassets/**"
+        buildPhase: resources
     dependencies:
       - sdk: DeviceCheck.framework
       - package: GRDB
@@ -622,20 +616,15 @@ targets:
           - "**/AppSecrets.example.swift"
           - "**/AppSecrets.local.swift*"
           - "**/*.intentdefinition"
-    resources:
-      - path: Primuse/Resources
-        excludes:
-          - "WatercolorTheater/**"
       # 水彩小剧场的分件图与清单（scripts/build-mascot-parts.py 生成），按文件夹拷进包里。
+      # 资源都写在 sources 里并标 buildPhase：XcodeGen 的 target 没有 resources 这个键，写了不生效。
       - path: Primuse/Resources/WatercolorTheater
         type: folder
-      - path: Primuse/Resources-macOS
-        excludes:
-          - "YearlyReport.xcassets"
-          - "YearlyReport.xcassets/**"
+        buildPhase: resources
       # 和 iPhone 共用同一份 Icon Composer 图标：macOS 26 起按系统图标样式切换深色/透明/着色，
       # 更早的系统用 actool 从它渲染的平面图标。
       - path: Primuse/Resources-iOS/AppIcons/AppIconPrimary.icon
+        buildPhase: resources
     dependencies:
       - sdk: DeviceCheck.framework
       - package: GRDB
@@ -861,6 +850,8 @@ targets:
           - "Info-preview.plist"
       # 复用 iOS app 的「干净」曲库数据核心(与 tvpreview.yml 一致,直接编进 tvOS app)
       - path: Primuse/Services/Library/MusicLibrary.swift
+      # 曲库目录的 App 侧包装层整个目录都给电视用：新增文件不必再逐个登记。
+      - path: Primuse/Services/Library/Catalog
       - path: Primuse/Services/Library/ServerPlaylistMirror.swift
       - path: Primuse/Services/Library/LibraryFavoritesStore.swift
       - path: Primuse/Services/Library/PlayHistoryStore.swift
