@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ICON_SOURCES = ROOT / "Primuse" / "Resources-iOS" / "AppIcons"
 CATALOG = ROOT / "Primuse" / "Resources-macOS" / "AppIconStyles.xcassets"
-TINT_TABLE = ROOT / "PrimuseKit" / "Sources" / "PrimuseKit" / "AppIconTintTable.swift"
+TINT_TABLE = ROOT / "PrimuseKit" / "Sources" / "PrimuseKit" / "Interface" / "AppIconTintTable.swift"
 
 ICONS = ["AppIcon20", "AppIcon19", "AppIcon22", "AppIcon23", "AppIcon15", "AppIcon12", "AppIconGroove"]
 # 资源名后缀 → ictool rendition

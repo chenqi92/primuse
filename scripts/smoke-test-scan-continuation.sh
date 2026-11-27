@@ -15,7 +15,7 @@ start = source.index('@MainActor\nprivate protocol ScanBackgroundContinuation')
 end = source.index('/// Manages music source scanning state and tasks.', start)
 session = '\n'.join(line for line in source[start:end].splitlines()
                     if not line.startswith(('#if', '#endif')))
-policy = (root / 'PrimuseKit/Sources/PrimuseKit/SceneTransitionScanQuiescePolicy.swift').read_text()
+policy = (root / 'PrimuseKit/Sources/PrimuseKit/Sources/Scan/SceneTransitionScanQuiescePolicy.swift').read_text()
 context = (root / 'PrimuseKit/Sources/PrimuseKit/Models/SourceSyncState.swift').read_text()
 start = context.index('public enum BaiduSnapshotExecutionContext:')
 end = context.index('\n}', start) + 2

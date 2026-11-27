@@ -319,7 +319,7 @@ scripts/primuse-dev.sh mac
 }
 ```
 
-`{{query}}` 和 `{{limit}}` 由播放器填入。`rule.path` 选择结果数组，`fields` 把每条记录的字段映射成 Primuse 使用的 `id`、`title` 和 `artist`。导入器使用声明式规则。旧配置中可识别的规则可迁移，其余 JavaScript 解析逻辑需要改写。[规则定义](PrimuseKit/Sources/PrimuseKit/ScraperJSONRule.swift)
+`{{query}}` 和 `{{limit}}` 由播放器填入。`rule.path` 选择结果数组，`fields` 把每条记录的字段映射成 Primuse 使用的 `id`、`title` 和 `artist`。导入器使用声明式规则。旧配置中可识别的规则可迁移，其余 JavaScript 解析逻辑需要改写。[规则定义](PrimuseKit/Sources/PrimuseKit/Metadata/Scraping/ScraperJSONRule.swift)
 
 ## 项目结构
 

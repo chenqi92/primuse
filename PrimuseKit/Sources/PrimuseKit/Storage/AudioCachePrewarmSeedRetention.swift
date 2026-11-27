@@ -62,3 +62,17 @@ extension AudioCachePrewarmSeedPolicy {
         return ranges
     }
 }
+
+/// A prewarm seed rewrites a song's sparse `.partial` cache file. It must never
+/// do so while a streaming session, a playback lease or an active playback
+/// reader still owns that path: ranges the session already recorded would read
+/// back as zeros and could be promoted into a corrupt canonical cache file.
+public enum AudioCachePrewarmSeedPolicy {
+    public static func canReplaceSparseFile(
+        isActiveSessionPath: Bool,
+        activePlaybackUses: Int,
+        hasPlaybackLease: Bool
+    ) -> Bool {
+        !isActiveSessionPath && activePlaybackUses <= 0 && !hasPlaybackLease
+    }
+}

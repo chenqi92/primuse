@@ -80,8 +80,8 @@ PY
 xcrun swiftc -swift-version 6 \
     "$ARTWORK_OUTPUT/CachedArtworkLayoutFixture.swift" \
     "$ARTWORK_OUTPUT/LyricsArtworkFlightFixture.swift" \
-    "$ARTWORK_ROOT/PrimuseKit/Sources/PrimuseKit/ArtworkContentLayout.swift" \
-    "$ARTWORK_ROOT/PrimuseKit/Sources/PrimuseKit/SpokenWordCoverLayout.swift" \
+    "$ARTWORK_ROOT/PrimuseKit/Sources/PrimuseKit/Artwork/ArtworkContentLayout.swift" \
+    "$ARTWORK_ROOT/PrimuseKit/Sources/PrimuseKit/SpokenWord/SpokenWordCoverLayout.swift" \
     "$ARTWORK_ROOT/scripts/ArtworkLayoutSmoke.swift" \
     -o "$ARTWORK_OUTPUT/artwork-layout-smoke"
 "$ARTWORK_OUTPUT/artwork-layout-smoke" "$ARTWORK_OUTPUT" "$@"

@@ -224,3 +224,64 @@ public struct AppleMusicLocalFileMatchIndex: Sendable {
         return String(String.UnicodeScalarView(scalars))
     }
 }
+
+/// Converts the bit pattern exposed by `ITMediaItem.persistentID` or
+/// `MPMediaItem.persistentID` into the representations MusicKit has been
+/// observed to use. IDs above `Int64.max` may appear as negative decimal
+/// strings, while older device-library payloads may use hexadecimal.
+public enum AppleMusicLocalFileIdentity {
+    public static func playbackIdentifiers(forPersistentID persistentID: UInt64) -> Set<String> {
+        [
+            String(persistentID),
+            String(Int64(bitPattern: persistentID)),
+            String(persistentID, radix: 16),
+            String(persistentID, radix: 16, uppercase: true),
+            String(format: "%016llx", persistentID),
+            String(format: "%016llX", persistentID),
+        ]
+    }
+}
+
+/// Requires MusicKit and the platform media library to agree on the same local
+/// row through a stable identifier. Opaque `isLibrary` and `kind` values are
+/// deliberately not authoritative because their shape varies across releases;
+/// an explicit persistent-ID mismatch still fails closed.
+public enum AppleMusicLocalFileProvenancePolicy {
+    public static func confirmsLibrarySong(
+        itemID: String,
+        playParameterIDs: Set<String>,
+        persistentIDs: Set<String>,
+        confirmedLibraryIDs: Set<String>,
+        confirmedLocalFileIDs: Set<String>
+    ) -> Bool {
+        let observedIDs = playParameterIDs
+            .union(persistentIDs)
+            .union(confirmedLibraryIDs)
+            .union([itemID])
+        let persistentIDsContradictLocalAsset = !persistentIDs.isEmpty
+            && persistentIDs.isDisjoint(with: confirmedLocalFileIDs)
+        guard !persistentIDsContradictLocalAsset,
+              !observedIDs.isDisjoint(with: confirmedLocalFileIDs) else {
+            return false
+        }
+        return true
+    }
+}
+
+/// Accepts only device-library audio that the OS independently identifies as
+/// a readable, non-cloud, non-DRM asset. This is provenance for subscription
+/// routing only; Primuse never opens or treats the system asset URL as one of
+/// its own local files.
+public enum AppleMusicLocalMediaEligibility {
+    public static func isSubscriptionIndependent(
+        mediaTypeContainsMusic: Bool,
+        hasAssetURL: Bool,
+        isCloudItem: Bool,
+        hasProtectedAsset: Bool
+    ) -> Bool {
+        mediaTypeContainsMusic
+            && hasAssetURL
+            && !isCloudItem
+            && !hasProtectedAsset
+    }
+}

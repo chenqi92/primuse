@@ -47,9 +47,9 @@ PY
 
 xcrun swiftc -swift-version 6 -parse-as-library \
     -module-cache-path "$SPOTLIGHT_MODULE_CACHE" \
-    "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/SpotlightIndexPlanning.swift" \
-    "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/SpotlightIndexRecovery.swift" \
-    "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/CarPlayListRefreshPolicy.swift" \
+    "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/Integrations/SpotlightIndexPlanning.swift" \
+    "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/Integrations/SpotlightIndexRecovery.swift" \
+    "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/Integrations/CarPlayListRefreshPolicy.swift" \
     "$SPOTLIGHT_OUTPUT/SpotlightIndexSmoke.swift" \
     -o "$SPOTLIGHT_APP/Contents/MacOS/SpotlightIndexSmoke"
 codesign --force --sign - "$SPOTLIGHT_APP"
@@ -58,9 +58,9 @@ if [[ "${SPOTLIGHT_TYPECHECK_IOS:-0}" == "1" ]]; then
     xcrun swiftc -swift-version 6 -parse-as-library -typecheck \
         -target arm64-apple-ios18.0-simulator -sdk "$SPOTLIGHT_IOS_SDK" \
         -module-cache-path "${SPOTLIGHT_IOS_MODULE_CACHE:-$SPOTLIGHT_ROOT/build/DeveloperWorkflow/iOSSimulator/ModuleCache.noindex}" \
-        "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/SpotlightIndexPlanning.swift" \
-        "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/SpotlightIndexRecovery.swift" \
-        "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/CarPlayListRefreshPolicy.swift" \
+        "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/Integrations/SpotlightIndexPlanning.swift" \
+        "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/Integrations/SpotlightIndexRecovery.swift" \
+        "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/Integrations/CarPlayListRefreshPolicy.swift" \
         "$SPOTLIGHT_OUTPUT/SpotlightIndexSmoke.swift"
     echo "PASS: iOS service and background-task APIs typecheck with an iOS 18 deployment target"
 fi

@@ -147,3 +147,13 @@ public enum AppleMusicPlaybackRestrictionPolicy {
         return songIDs.reduce(0) { $0 + (restrictions[$1] == nil ? 0 : 1) }
     }
 }
+
+/// Whether an Apple Music response is a complete cloud snapshot or merely the
+/// local-device fallback. Only a complete snapshot may prune songs/playlists.
+public enum AppleMusicLibrarySyncMode: Sendable, Equatable {
+    case authoritative
+    case partialFallback
+
+    public var shouldPruneMissingSongs: Bool { self == .authoritative }
+    public var shouldReplaceMirrorPlaylist: Bool { self == .authoritative }
+}

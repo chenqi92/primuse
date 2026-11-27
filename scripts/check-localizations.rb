@@ -301,23 +301,23 @@ HAN_LITERAL_ALLOWLIST = {
   ],
   # Genre aliases and decade words in an AI playlist prompt ("摇滚", "八十年代")
   # matched to library tags and year ranges; matching vocabulary, never shown.
-  "PrimuseKit/Sources/PrimuseKit/AIPlaylistCandidatePool.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/AI/AIPlaylistCandidatePool.swift" => [
     /\A\s*\["[^"]+"(?:, "[^"]+")*\],\s*\z/,
     /\A\s*\("[^"]+年代", \d{4}\)/,
     /suffix\.hasPrefix\("年代"\)/
   ],
   # Genre names that contain a slash themselves ("嘻哈/说唱"), matched against tag
   # values so the ID3 slash convention keeps them whole; matching vocabulary, never shown.
-  "PrimuseKit/Sources/PrimuseKit/LibraryGenreIndex.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Library/LibraryGenreIndex.swift" => [
     /\A\s*(?:"[^"]+", )*"[^"]+",\s*\z/
   ],
   # Disc-folder names ("碟1", "光盘 2") matched when locating an album folder; never shown.
-  "PrimuseKit/Sources/PrimuseKit/LibraryInsightFiles.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Library/LibraryInsightFiles.swift" => [
     /\(cd\|disc\|disk\|dvd\|碟\|光盘\|ディスク\)/
   ],
   # Placeholder genre/artist names the new-song taste profile skips: matching
   # vocabulary for tag values, never shown.
-  "PrimuseKit/Sources/PrimuseKit/SongDiscovery.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Listening/SongDiscovery.swift" => [
     /"其他", "其它", "未知", "未知流派", "未知风格", "无"/
   ],
   "Primuse/Views/Library/AISongDiscoveryView.swift" => [
@@ -325,14 +325,14 @@ HAN_LITERAL_ALLOWLIST = {
   ],
   # Compilation and unknown-artist credits ("群星", "未知艺术家") that the
   # listening ranking and recap skip; matched against tag values, never shown.
-  "PrimuseKit/Sources/PrimuseKit/ArtistIdentityPolicy.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Library/ArtistIdentityPolicy.swift" => [
     /hasSuffix\("群星"\) \|\| key\.hasSuffix\("羣星"\)/,
     /"群星", "羣星", "多位艺术家", "多位藝術家", "多位艺人", "多位藝人"/,
     /"未知", "未知艺术家", "未知藝術家", "未知艺人", "未知藝人", "未知歌手", "佚名"/,
     /"ヴァリアス・アーティスト", "オムニバス", "不明なアーティスト"/
   ],
   # Credit and role labels are matching vocabulary, not interface text.
-  "PrimuseKit/Sources/PrimuseKit/LyricTranslationContentPolicy.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Lyrics/LyricTranslationContentPolicy.swift" => [
     /\A\s*(?:private static let (?:titleLabels|artistLabels|creditLabels|productionRoles|productionPrefixes|productionSuffixes)\b|")/
   ],
   # DEBUG-only chapter/bookshelf evidence hosts: fabricated book data for
@@ -350,27 +350,27 @@ HAN_LITERAL_ALLOWLIST = {
   ],
   # Placeholder track titles that CUE sheets and scanners write ("第3轨",
   # "曲目 01"); matched against sheet data and file names, never shown.
-  "PrimuseKit/Sources/PrimuseKit/CueTrackLyricsSidecarPolicy.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Lyrics/CueTrackLyricsSidecarPolicy.swift" => [
     /hasPrefix\("第"\)/,
     /\["轨", "軌", "首", "曲"\]/,
     /"曲目", "音轨", "音軌"/
   ],
   # Genre words matched against genre tags, and holiday words matched against
   # album titles, by the listening intents and album picks; never shown.
-  "PrimuseKit/Sources/PrimuseKit/ListeningIntent.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Listening/ListeningIntent.swift" => [
     /\A\s*static let \w+: \[String\] = \[/
   ],
-  "PrimuseKit/Sources/PrimuseKit/AlbumRecommender.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Listening/AlbumRecommender.swift" => [
     /\A\s*static let \w+: \[String\] = \[/
   ],
   # Storage folder names ("下载", "我的音乐") matched against the listener's
   # folder names so they are not offered as "for you" intents; never shown.
-  "PrimuseKit/Sources/PrimuseKit/ListeningProfile.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Listening/ListeningProfile.swift" => [
     /\A\s*static let \w+: \[String\] = \[/
   ],
   # Version markers matched against song titles and file names to pair a
   # song with its backing track; never shown as UI copy.
-  "PrimuseKit/Sources/PrimuseKit/KaraokeCompanionPolicy.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Audio/Karaoke/KaraokeCompanionPolicy.swift" => [
     /"伴奏", "纯伴奏", "純伴奏", "消音版", "伴唱版"/
   ],
   # Words that mark a search query as looking for a whole album; matched
@@ -389,14 +389,14 @@ HAN_LITERAL_ALLOWLIST = {
   "PrimuseKit/Sources/PrimuseKit/Import/ExternalPlaylistFiles.swift" => [
     /已失效视频|歌名|曲名|名称|专辑|歌手|艺人|表演者|时长|时间|名稱|專輯|藝人|演出者|時長|時間|标题|標題|歌曲|艺术家|藝術家/
   ],
-  "PrimuseKit/Sources/PrimuseKit/LogBacklogPolicy.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Diagnostics/LogBacklogPolicy.swift" => [
     /日志积压超限, 已丢弃/,
     /上一行重复/
   ],
-  "PrimuseKit/Sources/PrimuseKit/LyricsTextTools.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Lyrics/LyricsTextTools.swift" => [
     /作词|作曲|编曲|填词|制作人|混音|母带|和声|吉他|贝斯|鼓|键盘|弦乐|录音|出品|发行|策划|统筹|演唱|原唱|翻唱/
   ],
-  "PrimuseKit/Sources/PrimuseKit/LyricTranslationGroupingPolicy.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Lyrics/LyricTranslationGroupingPolicy.swift" => [
     /"男", "女", "主唱", "副唱", "合唱", "和声", "独唱", "对唱"/
   ],
   # Noise markers that transcription tools write into subtitle files. They are
@@ -407,20 +407,20 @@ HAN_LITERAL_ALLOWLIST = {
   ],
   # Genre spellings matched against file tags to tell spoken word from music.
   # They are data, never shown as UI copy.
-  "PrimuseKit/Sources/PrimuseKit/SpokenWordContentPolicy.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/SpokenWord/SpokenWordContentPolicy.swift" => [
     /有声书|有声小说|有声读物|有声故事|广播剧|播客/,
     /评书|相声|快板|小品|曲艺|说书|单口|对口/,
     /脱口秀|讲座|演讲|朗读|朗诵|故事会|儿童故事/,
     /朗読|落語/
   ],
-  "PrimuseKit/Sources/PrimuseKit/SharedConstants.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Metadata/ServerCatalogMetadataInspectionPolicy.swift" => [
     /未知|未知标题|未知標題|未知歌曲|无标题|無標題/
   ],
   # Collector signatures matched in imported artist tags, not interface text.
   "PrimuseKit/Sources/PrimuseKit/Models/Song.swift" => [
     /value\.range\(of:.*收藏.*\[Qq\]/
   ],
-  "PrimuseKit/Sources/PrimuseKit/SiriRadioStationCatalog.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Integrations/SiriRadioStationCatalog.swift" => [
     /网络电台|網路電台|电台|電台|广播|廣播/
   ],
   "Primuse/Services/Metadata/Scrapers/ScraperTypes.swift" => [
@@ -477,7 +477,7 @@ HAN_LITERAL_ALLOWLIST = {
   ],
   # Genre words the kinetic-lyrics director matches against song tags to pick a
   # lively or calm treatment; matching vocabulary, never shown.
-  "PrimuseKit/Sources/PrimuseKit/ImmersiveKineticDirectionPolicy.swift" => [
+  "PrimuseKit/Sources/PrimuseKit/Interface/Immersive/ImmersiveKineticDirectionPolicy.swift" => [
     /\A\s*"摇滚", "电子", "舞曲", "说唱", "嘻哈", "金属", "朋克", "迪斯科",\s*\z/,
     /\A\s*"古典", "钢琴", "民谣", "爵士", "轻音乐", "纯音乐", "氛围", "抒情", "古风", "摇篮曲",\s*\z/
   ]

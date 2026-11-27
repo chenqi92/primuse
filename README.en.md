@@ -313,7 +313,7 @@ This example maps a metadata service that returns a `results` array. Replace the
 }
 ```
 
-Primuse supplies `{{query}}` and `{{limit}}`. The `rule.path` selects the result array. The `fields` map each record to the `id`, `title`, and `artist` that Primuse displays. The importer uses declarative rules. It can migrate recognized legacy patterns. Other JavaScript parsers must be rewritten as data rules. [Rule definitions](PrimuseKit/Sources/PrimuseKit/ScraperJSONRule.swift)
+Primuse supplies `{{query}}` and `{{limit}}`. The `rule.path` selects the result array. The `fields` map each record to the `id`, `title`, and `artist` that Primuse displays. The importer uses declarative rules. It can migrate recognized legacy patterns. Other JavaScript parsers must be rewritten as data rules. [Rule definitions](PrimuseKit/Sources/PrimuseKit/Metadata/Scraping/ScraperJSONRule.swift)
 
 ## Project Structure
 
