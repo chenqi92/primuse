@@ -393,7 +393,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
                 if pending.0 {
                     setReadable(false)
                     // 整库导入写得多,不留快照拖住检查点。
-                    lock.withLock { state.frozenView = nil }
+                    releaseFrozenView(reason: "import")
                     try await perform { [self] in try self.runImport(catalog: catalog, scanner: scanner) }
                     continue
                 }
@@ -578,13 +578,19 @@ final class LibraryCatalogMirror: @unchecked Sendable {
 
     /// 放掉冻结视图,读者改读实时目录,整个目录按变了通知一次(行缓存、列表都重取)。
     private func thawReads(reason: String) {
+        releaseFrozenView(reason: reason)
+        events(.invalidatedAll(reason: reason))
+    }
+
+    /// 只放掉冻结视图,不另发通知(调用方随后自己通知,或目录这时本来就不可读)。
+    /// 真放掉了就记一行,诊断日志里与「reads frozen」成对。
+    private func releaseFrozenView(reason: String) {
         let wasFrozen = lock.withLock { () -> Bool in
             let wasFrozen = state.frozenView != nil
             state.frozenView = nil
             return wasFrozen
         }
         if wasFrozen { environment.log("📚 catalog reads thawed (\(reason))") }
-        events(.invalidatedAll(reason: reason))
     }
 
     private func setReadable(_ readable: Bool) {
@@ -1011,7 +1017,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             try catalog.setGroupingConfiguration(inputs.grouping, isCancelled: { [self] in
                 (try? pauseWhileInteracting()) == nil
             })
-            if rebuilds { lock.withLock { state.frozenView = nil } }
+            if rebuilds { releaseFrozenView(reason: "configuration") }
             if before || previousFingerprint != inputs.grouping { invalidated = true }
             lock.withLock { state.appliedInputs = inputs }
         }
