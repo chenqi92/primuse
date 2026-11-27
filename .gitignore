@@ -33,7 +33,7 @@ Primuse/Services/Scrobble/AppSecrets.local.swift*
 .codex/
 .codex-tmp/
 
-# 独立 tvOS 预览工程(由 tvpreview.yml 生成)
+# 已删除的独立 tvOS 预览工程生成过的文件, 旧检出里可能还留着
 PrimuseTVPreview.xcodeproj/
 PrimuseTV/Info-preview.plist
 # 官网内容归属独立仓库 primuse-homepage, 误放于此, 不并入 app 仓库

@@ -4,14 +4,6 @@ import Testing
 
 @Suite("Listening spaces")
 struct ListeningSpacePolicyTests {
-    @Test("Music is always there; radio and spoken word appear with content")
-    func visibility() {
-        #expect(ListeningSpaceVisibilityPolicy.visibleSpaces(hasRadioStations: false, hasSpokenWord: false) == [.music])
-        #expect(ListeningSpaceVisibilityPolicy.visibleSpaces(hasRadioStations: true, hasSpokenWord: false) == [.music, .radio])
-        #expect(ListeningSpaceVisibilityPolicy.visibleSpaces(hasRadioStations: true, hasSpokenWord: true) == [.music, .radio, .spokenWord])
-        #expect(ListeningSpaceVisibilityPolicy.visibleSpaces(hasRadioStations: false, hasSpokenWord: true) == [.music, .spokenWord])
-    }
-
     @Test("Play history: podcast episodes and stations are not music, library books need the library")
     func historySpace() {
         let books: Set<String> = ["book-1"]

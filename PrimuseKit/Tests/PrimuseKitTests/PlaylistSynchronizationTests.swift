@@ -1,5 +1,4 @@
 import Foundation
-import GRDB
 import Testing
 @testable import PrimuseKit
 
@@ -149,63 +148,6 @@ struct PlaylistSynchronizationTests {
         )
         #expect(roundTrip == envelope)
         #expect(roundTrip.playlist.deleteOperationID == "delete-5")
-    }
-
-    @Test("SQLite migration preserves old rows and persists tombstones")
-    func sqliteMigration() throws {
-        let queue = try DatabaseQueue()
-        try queue.write { db in
-            try db.create(table: Playlist.databaseTableName) { table in
-                table.primaryKey("id", .text)
-                table.column("name", .text).notNull()
-                table.column("createdAt", .datetime).notNull()
-                table.column("updatedAt", .datetime).notNull()
-                table.column("coverArtPath", .text)
-            }
-            try db.execute(
-                sql: "INSERT INTO playlists (id, name, createdAt, updatedAt) VALUES (?, ?, ?, ?)",
-                arguments: ["legacy", "Legacy", Date(timeIntervalSince1970: 0), Date(timeIntervalSince1970: 1)]
-            )
-            try PlaylistDatabaseMigration.migrate(db)
-
-            let legacy = try Playlist.fetchOne(db, key: "legacy")
-            #expect(legacy?.descriptionText == "")
-            #expect(legacy?.isDeleted == false)
-            #expect(legacy?.syncRevision == 0)
-            #expect(legacy?.hasDedicatedCoverArt == false)
-            #expect(legacy?.folderBinding == nil)
-            #expect(legacy?.sortOrder == PlaylistManualOrderPolicy.unordered)
-            #expect(legacy?.pinnedSongIDs == [])
-
-            let positioned = Playlist(id: "positioned", name: "Positioned", sortOrder: 2, descriptionText: "简介")
-            try positioned.save(db)
-            #expect(try Playlist.fetchOne(db, key: "positioned")?.sortOrder == 2)
-            #expect(try Playlist.fetchOne(db, key: "positioned")?.descriptionText == "简介")
-
-            let pinned = Playlist(id: "pinned", name: "Pinned", pinnedSongIDs: ["song-2", "song-1"])
-            try pinned.save(db)
-            #expect(try Playlist.fetchOne(db, key: "pinned")?.pinnedSongIDs == ["song-2", "song-1"])
-
-            let binding = PlaylistFolderBinding(nodeID: LibraryFolderNodeID(
-                sourceID: "source", kind: .folder, normalizedRelativePath: "/music/live"
-            ))
-            let folderPlaylist = Playlist(id: "folder", name: "Live", folderBinding: binding)
-            try folderPlaylist.save(db)
-            #expect(try Playlist.fetchOne(db, key: "folder")?.folderBinding == binding)
-
-            let tombstone = makePlaylist(
-                id: "deleted",
-                deleted: true,
-                revision: 3,
-                writer: "phone",
-                operation: "delete",
-                deleteOperation: "delete-3"
-            )
-            try tombstone.save(db)
-            let stored = try Playlist.fetchOne(db, key: "deleted")
-            #expect(stored?.isDeleted == true)
-            #expect(stored?.deleteOperationID == "delete-3")
-        }
     }
 
     @Test("Mirror rebuild keeps the same ID hidden, accepts a new ID, and restores without deleting songs")

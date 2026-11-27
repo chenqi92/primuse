@@ -1661,15 +1661,12 @@
 "icon_appearance_gray" = "ग्रे";
 "icon_appearance_hint" = "आइकन होम स्क्रीन स्वरूप का अनुसरण करता है। होम स्क्रीन को स्पर्श करके रखें, फिर संपादित करें → अनुकूलित करें → स्वचालित चुनें।";
 "icon_default" = "Primuse";
-"icon_theme_21" = "क्लासिक";
 "icon_theme_12" = "पिकाकिउ";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "सॉफ्ट नोट";
-"icon_theme_14" = "अक्षर P";
 "icon_theme_15" = "मुड़ा हुआ नोट";
 "icon_theme_22" = "Kai";
 "icon_theme_23" = "रिबन का सुर";
-"icon_theme_17" = "स्प्लैश";
 "image_cache" = "छवि कैश";
 "immersive_current_lyric_accessibility" = "वर्तमान गीत के बोल: %@";
 "immersive_demo_album" = "soundisle";
@@ -1895,11 +1892,6 @@
 "library_browse_flat" = "सपाट";
 "library_browse_folder" = "फ़ोल्डर्स";
 "library_browse_switch_loading" = "दृश्य बदल रहा है...";
-"library_cleanup_dup" = "डुप्लीकेट गाने";
-"library_cleanup_dup_count_format" = "%d समूहों की समीक्षा की जाएगी";
-"library_cleanup_header" = "सफ़ाई";
-"library_cleanup_trash" = "हाल ही में हटाया गया";
-"library_cleanup_trash_count_format" = "%d आइटम";
 "library_default_flat_view" = "गानों को डिफ़ॉल्ट रूप से एक सपाट सूची के रूप में दिखाएं";
 "library_default_flat_view_description" = "बंद होने पर, गाने स्रोत और फ़ोल्डर पदानुक्रम में खुलते हैं। चालू होने पर, गीत लाइब्रेरी एक सपाट सूची के रूप में खुलती है।";
 "library_display_settings_title" = "लाइब्रेरी प्रदर्शन";
@@ -1952,9 +1944,6 @@
 "library_sections_restore_default_order" = "डिफ़ॉल्ट ऑर्डर पुनर्स्थापित करें";
 "library_sections_settings_footer" = "पुन: व्यवस्थित करने के लिए खींचें। किसी श्रेणी को लाइब्रेरी और साइडबार से छिपाने के लिए उसे बंद करें।";
 "library_sections_settings_label" = "लाइब्रेरी श्रेणियाँ";
-"library_stats_header" = "इस सप्ताह";
-"library_stats_plays_suffix" = "प्ले";
-"library_stats_top_artists_label" = "शीर्ष";
 "library_title" = "लाइब्रेरी";
 "licenses" = "ओपन सोर्स लाइसेंस";
 "live_badge" = "लाइव";

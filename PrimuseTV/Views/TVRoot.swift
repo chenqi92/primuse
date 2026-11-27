@@ -182,7 +182,7 @@ enum TVDebugLaunch {
 /// 的那一页。队列 / 选项 / 设置仍以全屏覆盖呈现。
 struct TVRoot: View {
     /// 默认顺序与 iPhone / iPad / Mac 一致:首页、音乐、电台、有声,再是电视端自己的几页。
-    /// 电台没有台、有声没有内容时这两页不出现(`ListeningSpaceVisibilityPolicy`);
+    /// 电台没有台、有声没有内容时这两页不出现(`isTabAvailable(_:)`);
     /// 用户还能在设置里调顺序、关掉某几页(`TVTabBarConfiguration`)。
     typealias Tab = TVTabBarItem
 
@@ -1577,124 +1577,6 @@ private struct TVReturnToTabsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.onExitCommand(perform: enabled ? action : nil)
-    }
-}
-
-// MARK: - 底部「正在播放」条
-
-struct TVBottomBar: View {
-    @Environment(TVStore.self) private var store
-    var openPlayer: () -> Void
-    @FocusState private var focused: Bool
-
-    @ViewBuilder
-    var body: some View {
-        if store.hasNowPlaying { bar }   // 没有正在播放时不显示底部条
-    }
-
-    private var bar: some View {
-        let np = store.nowPlaying
-        return HStack(spacing: 16) {
-            Button(action: openPlayer) {
-                HStack(spacing: 24) {
-                    bottomArtwork(np)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(np.title).tvFont(.rowTitle)
-                            .foregroundStyle(TVColor.text).lineLimit(1)
-                        Text(store.isLiveRadio
-                            ? np.artist
-                            : [np.artist, np.album].filter { !$0.isEmpty }.joined(separator: " · "))
-                            .tvFont(.meta)
-                            .foregroundStyle(TVColor.textMuted).lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                    if store.isLiveRadio {
-                        HStack(spacing: 9) {
-                            Circle().fill(Color.red).frame(width: 10, height: 10)
-                            Text(PMString("ext.tv.radio.live"))
-                                .tvFont(.meta, weight: .bold)
-                            if store.currentTime > 0 {
-                                Text("· \(TVFmt.time(store.currentTime))")
-                                    .tvFont(.meta, design: .monospaced)
-                            }
-                        }
-                        .foregroundStyle(TVColor.textMuted)
-                        .frame(width: 460, alignment: .trailing)
-                    } else {
-                        VStack(spacing: 6) {
-                            GeometryReader { geo in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(TVColor.divider).frame(height: 4)
-                                    Capsule().fill(np.tint)
-                                        .frame(width: geo.size.width * progress, height: 4)
-                                }
-                            }
-                            .frame(height: 4)
-                            HStack {
-                                Text(TVFmt.time(store.currentTime))
-                                Spacer()
-                                Text(TVFmt.time(store.duration))
-                            }
-                            .tvFont(.meta, design: .monospaced)
-                            .foregroundStyle(TVColor.textFaint)
-                        }
-                        .frame(width: 460)
-                    }
-                }
-                .padding(.leading, TVSpace.pageH)
-                .padding(.trailing, 8)
-                .frame(maxWidth: .infinity)
-                .frame(height: 72)
-                .background(focused ? TVColor.surfaceSubtle : .clear)
-            }
-            .buttonStyle(TVBareButtonStyle())
-            .focused($focused)
-            .focusEffectDisabled()
-
-            // 独立的播放/暂停 + 下一首键(在底部条直接控,不必进全屏播放页)。
-            TVRoundBtn(icon: transportIcon, size: 56, primary: true) {
-                store.togglePlayPause()
-            }
-            if !store.isLiveRadio {
-                // 有声内容:右边这颗是前进 30 秒,不跳章。
-                TVRoundBtn(icon: store.currentItemIsSpokenWord ? "goforward.30" : "forward.fill",
-                           size: 48) { store.transportForward() }
-            }
-            Color.clear.frame(width: TVSpace.pageH - 16, height: 1)
-        }
-        .frame(height: 72)
-        .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(colors: [.clear, TVColor.chrome.opacity(0.72), TVColor.chrome],
-                           startPoint: .top, endPoint: .bottom)
-        )
-        .animation(.easeOut(duration: 0.18), value: focused)
-    }
-
-    private var progress: Double {
-        let dur = store.duration
-        return dur > 0 ? max(0, min(1, store.currentTime / dur)) : 0
-    }
-
-    private var transportIcon: String {
-        if store.isLiveRadio {
-            return store.engine.status == .loading || store.engine.status == .playing
-                ? "stop.fill" : "play.fill"
-        }
-        return store.isPlaying ? "pause.fill" : "play.fill"
-    }
-
-    @ViewBuilder
-    private func bottomArtwork(_ np: TVNowPlaying) -> some View {
-        if store.isLiveRadio, let station = store.currentRadioStation {
-            TVRadioArtworkView(station: station, size: 48, radius: 8, store: store)
-        } else if store.currentPodcastEpisodeID != nil {
-            TVPodcastArtwork(url: np.coverRef.flatMap(URL.init(string:)), side: 48, radius: 8)
-        } else {
-            TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
-                          songID: np.songID, coverRef: np.coverRef,
-                          tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 48, radius: 8)
-        }
     }
 }
 

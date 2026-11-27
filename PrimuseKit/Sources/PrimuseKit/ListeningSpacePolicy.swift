@@ -26,22 +26,6 @@ public enum ListeningSpace: String, CaseIterable, Codable, Hashable, Sendable {
     }
 }
 
-/// Which spaces get a top-level entry. Music always does; radio and spoken
-/// word only once there is something in them, so an empty tab never sits in
-/// the bar. The home page offers the way in for an empty one ("add a
-/// station"), and a space appears the moment it has content.
-public enum ListeningSpaceVisibilityPolicy {
-    public static func visibleSpaces(
-        hasRadioStations: Bool,
-        hasSpokenWord: Bool
-    ) -> [ListeningSpace] {
-        var spaces: [ListeningSpace] = [.music]
-        if hasRadioStations { spaces.append(.radio) }
-        if hasSpokenWord { spaces.append(.spokenWord) }
-        return spaces
-    }
-}
-
 /// 一条播放记录属于哪一类收听。订阅的播客单集和电台靠记录自己带的歌曲 ID、来源 ID 就能认出来；
 /// 曲库里的有声书、本地播客文件要靠曲库的分类，由调用方以 `spokenWordSongIDs` 给出。
 /// 听歌统计、排行和推荐种子只认 `.music`(#326)。

@@ -488,35 +488,4 @@ extension View {
         .navigationBarBackButtonHidden(onBack != nil)
     }
 }
-
-/// 弹出层标题行, 照「播放设备」弹出层: 13 号半粗, 右边可以挂一个小按钮。
-struct MacPopoverHeader<Accessory: View>: View {
-    private let title: Text
-    private let accessory: Accessory
-
-    init(_ title: Text, @ViewBuilder accessory: () -> Accessory) {
-        self.title = title
-        self.accessory = accessory()
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            title
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(PMColor.text)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            accessory
-        }
-        .padding(.horizontal, MacSheetMetrics.popoverPadding)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
-    }
-}
-
-extension MacPopoverHeader where Accessory == EmptyView {
-    init(_ title: Text) {
-        self.init(title) { EmptyView() }
-    }
-}
 #endif

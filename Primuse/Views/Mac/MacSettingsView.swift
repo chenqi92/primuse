@@ -9829,46 +9829,6 @@ private struct MacDeletedRealRow: View {
     }
 }
 
-private struct MacDeletedRow: View {
-    let title: String
-    let sub: String
-    let divider: Bool
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if divider {
-                Rectangle().fill(PMColor.divider).frame(height: 0.5)
-            }
-            HStack(spacing: 10) {
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(PMColor.glassBtn)
-                    .frame(width: 32, height: 32)
-                    .overlay {
-                        Image(systemName: "music.note")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(PMColor.textFaint)
-                    }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: title)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(PMColor.text)
-                        .lineLimit(1)
-                    Text(verbatim: sub)
-                        .font(.system(size: 11))
-                        .foregroundStyle(PMColor.textMuted)
-                }
-
-                Spacer()
-                MacSTButton(title: Lz("Restore"))
-                MacSTButton(title: Lz("Delete Permanently"), destructive: true)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-        }
-    }
-}
-
 // MARK: - ST-10 SSL
 
 private struct MacSTSSLView: View {

@@ -59,23 +59,6 @@ extension Image {
     }
 }
 
-extension View {
-    /// `fullScreenCover` doesn't exist on macOS. This shim falls back to
-    /// `.sheet` there, which is the closest native presentation.
-    @ViewBuilder
-    func platformFullScreenCover<Content: View>(
-        isPresented: Binding<Bool>,
-        onDismiss: (() -> Void)? = nil,
-        @ViewBuilder content: @escaping () -> Content
-    ) -> some View {
-        #if os(iOS)
-        self.fullScreenCover(isPresented: isPresented, onDismiss: onDismiss, content: content)
-        #else
-        self.sheet(isPresented: isPresented, onDismiss: onDismiss, content: content)
-        #endif
-    }
-}
-
 // MARK: - macOS polyfills for iOS-only SwiftUI modifiers
 //
 // Goal: keep the call sites (`.navigationBarTitleDisplayMode(.inline)`,
@@ -116,12 +99,9 @@ extension EnvironmentValues {
 /// new keyboard type starts being referenced from shared code.
 enum UIKeyboardType { case `default`, URL, numberPad, decimalPad, emailAddress, phonePad }
 
-enum UITextAutocapitalizationType { case none, words, sentences, allCharacters }
-
 extension View {
     func navigationBarTitleDisplayMode(_ mode: NavigationBarItem.TitleDisplayMode) -> some View { self }
     func keyboardType(_ type: UIKeyboardType) -> some View { self }
-    func autocapitalization(_ type: UITextAutocapitalizationType?) -> some View { self }
 
     /// `listSectionSpacing` is iOS-only — macOS uses default List spacing,
     /// which the shipped design tolerates without visual regression.

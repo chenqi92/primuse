@@ -18,7 +18,7 @@ public enum TVTabBarItem: String, CaseIterable, Codable, Hashable, Sendable {
     case search
 
     /// 电台没有台、有声没有内容时,这一页本来就不出现
-    /// (`ListeningSpaceVisibilityPolicy`)。用户打开了它也不一定看得到。
+    /// (`TVRoot.isTabAvailable(_:)`)。用户打开了它也不一定看得到。
     public var dependsOnContent: Bool {
         switch self {
         case .radio, .spokenWord: true

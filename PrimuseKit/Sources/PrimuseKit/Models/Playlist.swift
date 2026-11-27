@@ -118,22 +118,6 @@ extension Playlist: FetchableRecord, PersistableRecord {
     public static var databaseTableName: String { "playlists" }
 }
 
-public struct PlaylistSong: Codable, Sendable {
-    public var playlistID: String
-    public var songID: String
-    public var sortOrder: Int
-
-    public init(playlistID: String, songID: String, sortOrder: Int) {
-        self.playlistID = playlistID
-        self.songID = songID
-        self.sortOrder = sortOrder
-    }
-}
-
-extension PlaylistSong: FetchableRecord, PersistableRecord {
-    public static var databaseTableName: String { "playlistSongs" }
-}
-
 /// A platform-neutral artwork candidate for a playlist. The policy intentionally
 /// describes *what* should be tried without claiming that a non-empty reference
 /// is displayable. App targets still have to resolve the candidate through their
@@ -451,54 +435,6 @@ public struct PlaylistCloudSyncEnvelope: Codable, Sendable, Equatable {
         self.schemaVersion = Self.currentSchemaVersion
         self.playlist = playlist
         self.songIdentities = songIdentities
-    }
-}
-
-/// Adds deletion/mutation columns to the legacy SQLite playlist table without
-/// rewriting existing rows. Defaults preserve old active playlists.
-public enum PlaylistDatabaseMigration {
-    public static func migrate(_ db: Database) throws {
-        let names = Set(try db.columns(in: Playlist.databaseTableName).map(\.name))
-        try db.alter(table: Playlist.databaseTableName) { table in
-            if !names.contains("isDeleted") {
-                table.add(column: "isDeleted", .boolean).notNull().defaults(to: false)
-            }
-            if !names.contains("deletedAt") { table.add(column: "deletedAt", .datetime) }
-            if !names.contains("syncRevision") {
-                table.add(column: "syncRevision", .integer).notNull().defaults(to: 0)
-            }
-            if !names.contains("syncWriterID") {
-                table.add(column: "syncWriterID", .text).notNull().defaults(to: "")
-            }
-            if !names.contains("syncOperationID") {
-                table.add(column: "syncOperationID", .text).notNull().defaults(to: "")
-            }
-            if !names.contains("deleteOperationID") { table.add(column: "deleteOperationID", .text) }
-            if !names.contains("restoredDeleteOperationID") {
-                table.add(column: "restoredDeleteOperationID", .text)
-            }
-            if !names.contains("isPurged") {
-                table.add(column: "isPurged", .boolean).notNull().defaults(to: false)
-            }
-            if !names.contains("hasDedicatedCoverArt") {
-                table.add(column: "hasDedicatedCoverArt", .boolean)
-                    .notNull()
-                    .defaults(to: false)
-            }
-            if !names.contains("folderBinding") {
-                table.add(column: "folderBinding", .text)
-            }
-            if !names.contains("sortOrder") {
-                table.add(column: "sortOrder", .integer).notNull().defaults(to: 0)
-            }
-            if !names.contains("descriptionText") {
-                table.add(column: "descriptionText", .text).notNull().defaults(to: "")
-            }
-            // 置顶的歌按 JSON 数组存, 和 `folderBinding` 一样走 Codable。
-            if !names.contains("pinnedSongIDs") {
-                table.add(column: "pinnedSongIDs", .text).notNull().defaults(to: "[]")
-            }
-        }
     }
 }
 

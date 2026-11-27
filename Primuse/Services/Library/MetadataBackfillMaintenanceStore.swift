@@ -753,7 +753,7 @@ struct MetadataBackfillFlagSet: Sendable {
     }
 }
 
-/// 待重试的成员关系。与 `DeferredRetryMembership` 一样每次变了都推进 `revision`(歌曲行订阅它)。
+/// 待重试的成员关系, `revision` 供歌曲行订阅: `insert` / `remove` 只在成员真的变了时推进, `formUnion` / `subtract` 只要传入非空就推进, `removeAll` / `replace` 每次都推进(批量改动不比对成员)。
 struct MetadataBackfillDeferredRetries: Sendable {
     let flagSet: MetadataBackfillFlagSet
     private(set) var revision = 0

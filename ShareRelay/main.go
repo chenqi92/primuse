@@ -1612,10 +1612,6 @@ func sanitizeContentType(value string) string {
 	return mediaType
 }
 
-func contentDisposition(fileName string) string {
-	return contentDispositionMode(fileName, false)
-}
-
 func contentDispositionMode(fileName string, attachment bool) string {
 	ascii := strings.Map(func(r rune) rune {
 		if r < 0x20 || r > 0x7e || r == '"' || r == '\\' {

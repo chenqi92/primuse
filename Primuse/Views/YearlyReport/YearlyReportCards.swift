@@ -346,26 +346,6 @@ struct YearlyRankRows: View {
     }
 }
 
-/// 第一名的大封面（艺人是圆的、尽量用艺人自己的图）。
-struct YearlyLeaderArtwork: View {
-    let item: PlayHistoryStore.RankedItem
-    var isArtist = false
-    var size: CGFloat = 132
-
-    @Environment(MusicLibrary.self) private var library: MusicLibrary?
-
-    var body: some View {
-        ListeningRankArtwork(
-            song: item.artworkSong(in: library),
-            size: size,
-            isArtist: isArtist,
-            cornerRadius: 18,
-            candidateSongIDs: item.songIDs
-        )
-        .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
-    }
-}
-
 /// 最常听的几张专辑：横着一排封面。横滑的内容裁在衬底的圆角里：滚动区铺满衬底的
 /// 整个宽度，左右留白放在内容里，静止时第一张和标题对齐，滑动时不会画到边框外面。
 struct YearlyAlbumShelf: View {

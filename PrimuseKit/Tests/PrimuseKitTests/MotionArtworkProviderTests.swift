@@ -23,16 +23,6 @@ struct MotionArtworkProviderTests {
         requireSendable(MotionArtworkLookupInput.self)
     }
 
-    @Test("Apple official capability is identity-only")
-    func appleOfficialCapabilityBoundary() throws {
-        let capabilities = MotionArtworkProviderCapabilities.appleMusicOfficial
-
-        #expect(capabilities.contains(.identityResolution))
-        #expect(!capabilities.contains(.motionArtworkRetrieval))
-        #expect(try roundTrip(capabilities) == capabilities)
-        requireSendable(MotionArtworkProviderCapabilities.self)
-    }
-
     @Test("Only known Apple album ID namespaces become stable lookup IDs")
     func classifiesAppleAlbumIDsConservatively() {
         #expect(MotionArtworkAppleAlbumIdentifiers(rawAlbumID: " 1624945511 ")

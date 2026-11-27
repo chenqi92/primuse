@@ -1661,15 +1661,12 @@
 "icon_appearance_gray" = "สีเทา";
 "icon_appearance_hint" = "ไอคอนจะเป็นไปตามลักษณะที่ปรากฏของหน้าจอหลัก แตะหน้าจอหลักค้างไว้ จากนั้นเลือก แก้ไข → ปรับแต่ง → อัตโนมัติ";
 "icon_default" = "Primuse";
-"icon_theme_21" = "คลาสสิก";
 "icon_theme_12" = "ปิกากิว";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "ซอฟท์โน้ต";
-"icon_theme_14" = "ตัวอักษร P";
 "icon_theme_15" = "โน้ตพับ";
 "icon_theme_22" = "Kai";
 "icon_theme_23" = "โน้ตริบบิ้น";
-"icon_theme_17" = "สแปลช";
 "image_cache" = "แคชรูปภาพ";
 "immersive_current_lyric_accessibility" = "เนื้อเพลงปัจจุบัน: %@";
 "immersive_demo_album" = "soundisle";
@@ -1895,11 +1892,6 @@
 "library_browse_flat" = "แบน";
 "library_browse_folder" = "โฟลเดอร์";
 "library_browse_switch_loading" = "กำลังสลับมุมมอง...";
-"library_cleanup_dup" = "เพลงซ้ำกัน";
-"library_cleanup_dup_count_format" = "%d กลุ่มที่ต้องตรวจสอบ";
-"library_cleanup_header" = "การล้างข้อมูล";
-"library_cleanup_trash" = "ลบล่าสุด";
-"library_cleanup_trash_count_format" = "%d รายการ";
 "library_default_flat_view" = "แสดงเพลงเป็นรายการแบบเรียบตามค่าเริ่มต้น";
 "library_default_flat_view_description" = "เมื่อปิด เพลงจะเปิดในแหล่งที่มาและลำดับชั้นโฟลเดอร์ เมื่อเปิด คลังเพลงจะเปิดเป็นรายการเดี่ยว";
 "library_display_settings_title" = "การแสดงคลังเพลง";
@@ -1952,9 +1944,6 @@
 "library_sections_restore_default_order" = "คืนคำสั่งเริ่มต้น";
 "library_sections_settings_footer" = "ลากเพื่อเรียงลำดับใหม่ ปิดหมวดหมู่เพื่อซ่อนจากคลังและแถบด้านข้าง";
 "library_sections_settings_label" = "หมวดหมู่คลังเพลง";
-"library_stats_header" = "สัปดาห์นี้";
-"library_stats_plays_suffix" = "เล่นแล้ว";
-"library_stats_top_artists_label" = "ด้านบน";
 "library_title" = "คลังเพลง";
 "licenses" = "ใบอนุญาตโอเพ่นซอร์ส";
 "live_badge" = "สด";

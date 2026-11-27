@@ -889,6 +889,44 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
     }
 }
 
+/// 只在测试里用的对照实现：原先 `SearchView.swift` 里的 `SearchCatalogPolicy`(生产已改走
+/// `LibraryCatalogSearchIndex`)，原样搬过来。下面两个索引测试拿它的输出当期望值。
+private enum TestOnlySearchCatalogReference {
+    static func albums(
+        query: String,
+        visibleAlbums: [PrimuseKit.Album],
+        relatedAlbums: [PrimuseKit.Album]
+    ) -> [PrimuseKit.Album] {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        let directMatches = LibrarySearchWorker.compute(
+            query: query,
+            songs: [],
+            albums: visibleAlbums,
+            cache: LibrarySearchCache(),
+            includeLyrics: false,
+            songLimit: 0,
+            albumLimit: visibleAlbums.count
+        ).albumResults
+        let visibleIDs = Set(visibleAlbums.map(\.id))
+        var seen = Set(directMatches.map(\.id))
+        return directMatches + relatedAlbums.filter {
+            visibleIDs.contains($0.id) && seen.insert($0.id).inserted
+        }
+    }
+
+    /// 名字里含搜索词的艺术家,按名字排序。整库逐个做本地化比对,只在后台调用。
+    static func artists(
+        query: String,
+        visibleArtists: [PrimuseKit.Artist]
+    ) -> [PrimuseKit.Artist] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        return visibleArtists.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+}
+
 final class ArtistNameLibraryTests: XCTestCase {
     func testLyricsFallbackFindsCanonicalAndLegacyCacheFiles() throws {
         let store = MetadataAssetStore.shared
@@ -921,7 +959,7 @@ final class ArtistNameLibraryTests: XCTestCase {
         ]
         let index = LibraryCatalogSearchIndex()
         for query in ["七里", "qilixiang", "qlx", "zhoujielun", "zjl", "mnlt", "cafe", "unmatched"] {
-            let expected = SearchCatalogPolicy.albums(query: query, visibleAlbums: albums, relatedAlbums: [])
+            let expected = TestOnlySearchCatalogReference.albums(query: query, visibleAlbums: albums, relatedAlbums: [])
             let actual = await index.search(query: query, albums: albums, artists: [])
             XCTAssertEqual(actual.albums.map(\.id), expected.map(\.id), query)
         }
@@ -966,53 +1004,10 @@ final class ArtistNameLibraryTests: XCTestCase {
         let index = LibraryCatalogSearchIndex()
         for query in ["&", "wind", "周杰伦", "cafe", "  "] {
             let actual = await index.search(query: query, albums: [], artists: artists)
-            XCTAssertEqual(actual.artists.map(\.id), SearchCatalogPolicy.artists(query: query, visibleArtists: artists).map(\.id))
+            XCTAssertEqual(actual.artists.map(\.id), TestOnlySearchCatalogReference.artists(query: query, visibleArtists: artists).map(\.id))
         }
         let semantic = await index.search(query: "fire earth", albums: [], artists: artists, semanticArtists: true)
         XCTAssertEqual(semantic.artists.map(\.id), ["latin"])
-    }
-
-    func testCatalogSearchFindsAlbumWithoutMatchingSongs() {
-        let album = Album(id: "album", title: "独立专辑名称", artistName: "Artist")
-        let result = SearchCatalogPolicy.albums(
-            query: "独立专辑",
-            visibleAlbums: [album],
-            relatedAlbums: []
-        )
-        XCTAssertEqual(result.map(\.id), [album.id])
-    }
-
-    func testCatalogSearchPrioritizesDirectMatchesAndDeduplicatesRelatedAlbums() {
-        let direct = Album(id: "direct", title: "Moonlight", artistName: "Artist")
-        let related = Album(id: "related", title: "Other", artistName: "Artist")
-        let hidden = Album(id: "hidden", title: "Hidden source")
-        let result = SearchCatalogPolicy.albums(
-            query: "moonlight",
-            visibleAlbums: [related, direct],
-            relatedAlbums: [related, direct, related, hidden]
-        )
-        XCTAssertEqual(result.map(\.id), [direct.id, related.id])
-    }
-
-    func testCatalogSearchKeepsAllArtistAlbumMatches() {
-        let albums = (0..<24).map {
-            Album(id: "album-\($0)", title: "Release \($0)", artistName: "Artist")
-        }
-        let result = SearchCatalogPolicy.albums(
-            query: "artist",
-            visibleAlbums: albums,
-            relatedAlbums: []
-        )
-        XCTAssertEqual(Set(result.map(\.id)), Set(albums.map(\.id)))
-    }
-
-    func testCatalogSearchDoesNotReturnRelatedAlbumsForBlankQuery() {
-        let album = Album(id: "album", title: "Album")
-        XCTAssertTrue(SearchCatalogPolicy.albums(
-            query: " \n ",
-            visibleAlbums: [album],
-            relatedAlbums: [album]
-        ).isEmpty)
     }
 
     func testTextArtistsJoinOneAlbumButCreateContributorEntries() throws {

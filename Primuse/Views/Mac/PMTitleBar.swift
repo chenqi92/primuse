@@ -641,8 +641,6 @@ enum MacFavoritesPopoverDebugSnapshot {
 #endif
 
 extension Notification.Name {
-    static let primuseDetailGoBack    = Notification.Name("primuse.detail.goBack")
-    static let primuseDetailGoForward = Notification.Name("primuse.detail.goForward")
     static let primuseFocusSearch     = Notification.Name("primuse.titlebar.focusSearch")
     static let primuseDismissSearchFocus = Notification.Name("primuse.titlebar.dismissSearchFocus")
     static let primuseRevealSearchResults = Notification.Name("primuse.titlebar.revealSearchResults")

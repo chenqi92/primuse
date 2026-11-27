@@ -333,11 +333,6 @@ extension View {
             .overlay { shape.strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
         }
     }
-
-    /// 把整个视图渲染到 NSVisualEffectView 之上 — 用在主窗口背景, 让玻璃模式真有底层模糊可吸。
-    func pmWindowBackground() -> some View {
-        background(NSVisualEffectBackdrop().ignoresSafeArea())
-    }
 }
 
 // MARK: - NSVisualEffectView bridge
@@ -1701,49 +1696,6 @@ struct PMStandardWindowButtonArea: View {
     }
 }
 
-// MARK: - Karaoke line
-
-/// 卡拉 OK 风歌词行: 按 progress (0..1) 横向遮罩, 给当前字符额外光晕。
-/// 适用于"逐字进度未知"的 LRC 简化情形 (按整行时间均分)。需要逐字 syllable
-/// 时序时另外再做一个版本。
-struct KaraokeLine: View {
-    let text: String
-    /// 0..1 进度, 表示当前行已经唱过多少。
-    let progress: Double
-    let font: Font
-    let tint: Color
-    /// false 时显示成"非当前行" — 没有遮罩, 整行用低饱和度文本色。
-    var isCurrent: Bool = true
-    var inactiveColor: Color = PMColor.text.opacity(0.42)
-
-    var body: some View {
-        ZStack(alignment: .leading) {
-            // 底层: 未唱的字 (低饱和)
-            Text(text)
-                .font(font)
-                .foregroundStyle(isCurrent ? PMColor.text.opacity(0.55) : inactiveColor)
-                .multilineTextAlignment(.leading)
-
-            // 顶层: 已唱的字, 用遮罩按比例显示
-            if isCurrent {
-                Text(text)
-                    .font(font)
-                    .foregroundStyle(tint)
-                    .shadow(color: tint.opacity(0.45), radius: 14, x: 0, y: 0)
-                    .multilineTextAlignment(.leading)
-                    .mask {
-                        GeometryReader { geo in
-                            Rectangle()
-                                .fill(.black)
-                                .frame(width: max(0, geo.size.width * progress))
-                        }
-                    }
-            }
-        }
-        .animation(.linear(duration: 0.1), value: progress)
-    }
-}
-
 // MARK: - Vertical mask (lyrics column fade)
 
 struct VerticalEdgeMask: ViewModifier {
@@ -2143,11 +2095,6 @@ enum MacIconStyle {
     }
 }
 
-extension Notification.Name {
-    /// App 图标切换后广播 —— 让菜单栏状态项重画图标 (它默认只设一次)。
-    static let primuseAppIconChanged = Notification.Name("primuse.appIcon.changed")
-}
-
 // MARK: - User preferences key (appearance + lyrics font scale)
 
 /// 把 macOS UI 偏好 (玻璃 / 经典模式, 歌词字号缩放, 侧栏宽度, 品牌色, 明暗模式,
@@ -2396,7 +2343,6 @@ final class MacUIPreferences {
         observeSystemIconStyle()
         appliedIconStyle = MacIconStyle.signature()
         NSApp.applicationIconImage = MacAppIcon.runtimeDockImage(for: MacAppIcon.option(for: appIconID))
-        NotificationCenter.default.post(name: .primuseAppIconChanged, object: nil)
     }
 
     @ObservationIgnored private var appliedIconStyle: String?

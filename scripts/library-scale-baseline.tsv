@@ -106,7 +106,7 @@ legacy-library-api	Primuse/Views/NowPlaying/NowPlayingCarouselExploreFace.swift	
 legacy-library-api	Primuse/Views/NowPlaying/NowPlayingView.swift	1
 legacy-library-api	Primuse/Views/Podcast/PodcastLibraryView.swift	2
 legacy-library-api	Primuse/Views/Search/LibrarySearchCatalog.swift	3
-legacy-library-api	Primuse/Views/Search/SearchView.swift	22
+legacy-library-api	Primuse/Views/Search/SearchView.swift	16
 legacy-library-api	Primuse/Views/Settings/CarPlayEditorCanvas.swift	2
 legacy-library-api	Primuse/Views/Settings/DuplicateSongsView.swift	1
 legacy-library-api	Primuse/Views/Settings/ListeningStatsView.swift	1
@@ -301,7 +301,7 @@ song-id-collection-property	PrimuseKit/Sources/PrimuseKit/Models/SourceSyncState
 song-id-collection-property	PrimuseKit/Sources/PrimuseKit/PlaybackPipelineFailurePolicy.swift	1
 song-id-collection-property	PrimuseKit/Sources/PrimuseKit/PlaybackSessionSnapshot.swift	2
 song-id-collection-property	PrimuseKit/Sources/PrimuseKit/ServerCatalogDeletionPolicy.swift	2
-song-id-collection-property	PrimuseKit/Sources/PrimuseKit/SharedConstants.swift	2
+song-id-collection-property	PrimuseKit/Sources/PrimuseKit/SharedConstants.swift	1
 song-id-collection-property	PrimuseKit/Sources/PrimuseKit/SongListSnapshot.swift	3
 song-id-collection-property	PrimuseKit/Sources/PrimuseKit/SpokenWordFolderRules.swift	1
 song-id-collection-property	PrimuseKit/Sources/PrimuseKit/SpokenWordSleepSelection.swift	1

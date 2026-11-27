@@ -1661,15 +1661,12 @@
 "icon_appearance_gray" = "الرمادي";
 "icon_appearance_hint" = "الأيقونة تتبع مظهر الشاشة الرئيسية. المس الشاشة الرئيسية مع الاستمرار، ثم اختر تحرير → تخصيص → تلقائي.";
 "icon_default" = "Primuse";
-"icon_theme_21" = "كلاسيكي";
 "icon_theme_12" = "بيكاتشيو";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "نوتة ناعمة";
-"icon_theme_14" = "حرف P";
 "icon_theme_15" = "نوتة مطوية";
 "icon_theme_22" = "Kai";
 "icon_theme_23" = "نوتة الشريط";
-"icon_theme_17" = "رذاذ";
 "image_cache" = "ذاكرة التخزين المؤقت للصورة";
 "immersive_current_lyric_accessibility" = "كلمات الأغاني الحالية: %@";
 "immersive_demo_album" = "soundisle";
@@ -1895,11 +1892,6 @@
 "library_browse_flat" = "مسطحة";
 "library_browse_folder" = "المجلدات";
 "library_browse_switch_loading" = "تبديل وجهات النظر...";
-"library_cleanup_dup" = "الأغاني المكررة";
-"library_cleanup_dup_count_format" = "%d مجموعات للمراجعة";
-"library_cleanup_header" = "التنظيف";
-"library_cleanup_trash" = "تم حذفه مؤخرا";
-"library_cleanup_trash_count_format" = "%d سلعة";
 "library_default_flat_view" = "عرض الأغاني كقائمة مسطحة بشكل افتراضي";
 "library_default_flat_view_description" = "عند إيقاف التشغيل، يتم فتح الأغاني في التسلسل الهرمي للمصدر والمجلدات. عند التشغيل، يتم فتح مكتبة الأغاني كقائمة مسطحة.";
 "library_display_settings_title" = "عرض المكتبة";
@@ -1952,9 +1944,6 @@
 "library_sections_restore_default_order" = "استعادة الترتيب الافتراضي";
 "library_sections_settings_footer" = "اسحب لإعادة الترتيب. قم بإيقاف تشغيل فئة لإخفائها من المكتبة والشريط الجانبي.";
 "library_sections_settings_label" = "فئات المكتبة";
-"library_stats_header" = "هذا الاسبوع";
-"library_stats_plays_suffix" = "مرة تشغيل";
-"library_stats_top_artists_label" = "الأعلى";
 "library_title" = "المكتبة";
 "licenses" = "تراخيص مفتوحة المصدر";
 "live_badge" = "مباشر";

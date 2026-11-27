@@ -1661,15 +1661,12 @@
 "icon_appearance_gray" = "Gris";
 "icon_appearance_hint" = "El ícono sigue la apariencia de la pantalla de inicio. Toque y mantenga presionada la pantalla de inicio, luego elija Editar → Personalizar → Automático.";
 "icon_default" = "Primuse";
-"icon_theme_21" = "Clásico";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "Nota Suave";
-"icon_theme_14" = "Letra P";
 "icon_theme_15" = "Nota Doblada";
 "icon_theme_22" = "Kai";
 "icon_theme_23" = "Nota de cinta";
-"icon_theme_17" = "Salpicadura";
 "image_cache" = "Caché de imágenes";
 "immersive_current_lyric_accessibility" = "Letra actual: %@";
 "immersive_demo_album" = "isla sonora";
@@ -1895,11 +1892,6 @@
 "library_browse_flat" = "Plano";
 "library_browse_folder" = "Carpetas";
 "library_browse_switch_loading" = "Cambiando de vista…";
-"library_cleanup_dup" = "Canciones duplicadas";
-"library_cleanup_dup_count_format" = "Grupos %d para revisar";
-"library_cleanup_header" = "Limpieza";
-"library_cleanup_trash" = "Eliminados recientemente";
-"library_cleanup_trash_count_format" = "Elementos %d";
 "library_default_flat_view" = "Mostrar canciones como una lista plana de forma predeterminada";
 "library_default_flat_view_description" = "Cuando está desactivado, las canciones se abren en la jerarquía de fuentes y carpetas. Cuando está activado, la biblioteca de canciones se abre como una lista plana.";
 "library_display_settings_title" = "Visualización de biblioteca";
@@ -1952,9 +1944,6 @@
 "library_sections_restore_default_order" = "Restaurar orden predeterminada";
 "library_sections_settings_footer" = "Arrastre para reordenar. Desactive una categoría para ocultarla de la Biblioteca y de la barra lateral.";
 "library_sections_settings_label" = "Categorías de biblioteca";
-"library_stats_header" = "Esta semana";
-"library_stats_plays_suffix" = "reproducciones";
-"library_stats_top_artists_label" = "Arriba";
 "library_title" = "Biblioteca";
 "licenses" = "Licencias de código abierto";
 "live_badge" = "EN VIVO";

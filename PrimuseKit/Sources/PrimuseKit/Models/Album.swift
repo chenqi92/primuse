@@ -347,17 +347,6 @@ extension RecentlyAddedAlbumPolicy {
     }
 }
 
-public enum AlbumArtworkFallbackPolicy {
-    public static func preferredSongID(
-        orderedSongIDs: [String],
-        songIDsWithArtworkReference: Set<String>
-    ) -> String? {
-        let eligibleSongIDs = orderedSongIDs.filter { !$0.isEmpty }
-        return eligibleSongIDs.first(where: songIDsWithArtworkReference.contains)
-            ?? eligibleSongIDs.first
-    }
-}
-
 public struct LibraryArtworkOwner: Codable, Hashable, Sendable {
     public enum Kind: String, Codable, CaseIterable, Sendable {
         case album

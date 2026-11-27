@@ -22,7 +22,7 @@ struct AppleMusicTrackIdentityTests {
         )
 
         #expect(
-            AppleMusicTrackIdentityResolver.canonicalID(for: playback, in: [library])
+            AppleMusicTrackIdentityIndex([library]).canonicalID(for: playback)
                 == library.itemID
         )
     }
@@ -45,7 +45,7 @@ struct AppleMusicTrackIdentityTests {
         )
 
         #expect(
-            AppleMusicTrackIdentityResolver.canonicalID(for: playback, in: [library])
+            AppleMusicTrackIdentityIndex([library]).canonicalID(for: playback)
                 == library.itemID
         )
     }
@@ -58,7 +58,7 @@ struct AppleMusicTrackIdentityTests {
         ]
         let playback = AppleMusicTrackIdentity(itemID: "catalog", title: "Intro", duration: 30)
 
-        #expect(AppleMusicTrackIdentityResolver.canonicalID(for: playback, in: candidates) == nil)
+        #expect(AppleMusicTrackIdentityIndex(candidates).canonicalID(for: playback) == nil)
     }
 
     @Test("ID overlap takes priority over a stronger metadata candidate")

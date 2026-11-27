@@ -33,18 +33,6 @@ public enum LocalSeekRecoveryPolicy {
     }
 }
 
-/// Synchronizes the observable player state only after the audio engine has
-/// already restarted successfully. It never decides whether an interruption
-/// should resume, so phone calls and Siri retain the system policy.
-public enum AudioConfigurationRecoveryPolicy {
-    public static func shouldRestorePlayingState(
-        playbackWasIntended: Bool,
-        engineRestarted: Bool
-    ) -> Bool {
-        playbackWasIntended && engineRestarted
-    }
-}
-
 /// Tracks whether a hardware change invalidated the formats captured by the
 /// current AVAudioEngine graph. The flag is cleared only after a replacement
 /// graph is built successfully, so a failed attempt remains recoverable.

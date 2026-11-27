@@ -437,7 +437,6 @@
 "playlist_import_mac_subtitle" = "M3U8 / JSON · bir dosyayı seçtikten sonra otomatik olarak yerel arşivinizla eşleşir";
 "cloud_oauth_checking" = "Yetkilendirme durumu kontrol ediliyor…";
 "carplay_playlist_song_count_format" = "%d şarkıları";
-"library_stats_top_artists_label" = "Üst";
 "offline_downloading" = "İndiriliyor";
 "tag_editor_menu" = "Etiketleri Düzenle";
 "smart_field_albumTitle" = "Albüm";
@@ -643,7 +642,6 @@
 "recently_deleted_smart_playlists" = "Akıllı Çalma Listeleri";
 "artwork_no_songs" = "Aralarından seçim yapabileceğiniz şarkı yok.";
 "drime_access_token" = "API erişim belirteci";
-"library_cleanup_dup" = "Yinelenen şarkılar";
 "smart_mac_live_update" = "Canlı güncelleme";
 "local_import_done_message_format" = "%1$d şarkı(lar)ı içe aktarıldı, %2$d öğesi(leri) atlandı. İçe aktarılan dosyalar şimdi taranıyor.";
 "smart_combinator_and" = "Tüm maçlar";
@@ -1150,11 +1148,9 @@
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "Yumuşak nota";
-"icon_theme_14" = "P Harfi";
 "icon_theme_15" = "Katlanmış Nota";
 "icon_theme_22" = "Kai";
 "icon_theme_23" = "Kurdele Nota";
-"icon_theme_17" = "Sıçrama";
 "lyrics_editor_paste_redo" = "Yeniden Başla";
 "META-03 · Custom Source JSON" = "META-03 · Özel Kaynak JSON";
 "Most Played This Month" = "Bu Ay En Çok Çalınanlar";
@@ -1826,7 +1822,6 @@
 "Remaining" = "Kalan";
 "ai_playlist_streaming_results" = "Şarkılar geldikçe ekleniyor…";
 "Small 155" = "Küçük 155";
-"library_cleanup_trash_count_format" = "%d öğeleri";
 "send_to_tv_lan_message" = "Arşivinizi, kaynaklarınızı ve kimlik bilgilerinizi yerel ağ üzerinden doğrudan bu Apple TV'ye gönderin. iCloud kullanılmaz.";
 "Open-Source Licenses…" = "Açık Kaynak Lisansları…";
 "System" = "Sistem";
@@ -2365,7 +2360,6 @@
 "radio_priority_move_up_short" = "Yukarı";
 "radio_priority_move_down_short" = "Aşağı";
 "error_oauth_missing_callback" = "Hiçbir yetkilendirme geri araması alınmadı.";
-"library_cleanup_dup_count_format" = "İncelenecek %d grupları";
 "Resuming playback." = "Oynatmaya devam ediliyor.";
 "recently_deleted_clear_all_failed_format" = "%d öğeleri temizlenemedi ve Son Silinenler'de kaldı.";
 "desktop_lyrics_no_song" = "Hiçbir şey oynatılmıyor";
@@ -2527,7 +2521,6 @@
 "Small / Medium / Large" = "Küçük / Orta / Büyük";
 "sort_a_to_z" = "A–Z";
 "library_info" = "Arşiv";
-"library_cleanup_header" = "Temizleme";
 "source_diag_config_missing_bucket_suggestion" = "Kaynağı düzenleyin ve paket adını yol alanına koyun.";
 "share_sheet_title" = "Paylaş";
 "library_recommendations_local_fallback_detail" = "Öncelikle mevcut öneriler korunur; hiçbiri yeniden kullanılamadığında, oynatmayı etkilemeden yerel öneriler görüntülenir.";
@@ -2934,7 +2927,6 @@
 "lyrics_found" = "Şarkı sözleri bulundu";
 "source_cache_all_message_format" = "%@, %d çalınabilir şarkılara sahiptir. Tahmini indirme boyutu: %@. Primuse bunları indirecek ve çevrimdışı oynatma için sabitleyecektir.";
 "home_sources_title" = "Kaynaklar";
-"library_cleanup_trash" = "Yakın zamanda silindi";
 "Import Scraping Sources" = "Üst veri sağlayıcılarını içe aktar";
 "error_audio_decoding %@" = "Ses kodu çözme başarısız oldu: %@";
 "library_folder_scan_root" = "Tarama Kökü";
@@ -2999,7 +2991,6 @@
 "fullscreen_effect_flowing_lines_subtitle" = "Gelişen konturlar, üç şarkı sözü çizgisiyle sanat eserinin yörüngesinde dönüyor";
 "lyrics_converter_error_title" = "Şarkı Sözü Dönüştürme Başarısız";
 "settings_push_to_tv_footer" = "Bu arşivi ve kaynaklarını şifreleriyle birlikte görmek için Apple TV'de aynı iCloud hesabıyla oturum açın. NAS, medya sunucuları ve bulut sürücülerine Apple TV kendi başına bağlanır; röle yalnızca bu telefonda saklanan müzik ve NFSv4 kaynakları için gerekir.";
-"library_stats_plays_suffix" = "çalma";
 "Fill Missing Fields Only" = "Yalnızca Eksik Alanları Doldurun";
 "playlist_import_match_results" = "Maç Sonuçları";
 "metadata_writeback_plex_missing_artist" = "Bu Plex parçasında yazılabilir sanatçı öğesi yok.";
@@ -3089,7 +3080,6 @@
 "scraper_review_network_domains" = "Ağ Etki Alanları";
 "search_apple_music_catalog_disabled" = "Apple Music · Katalog arama kapalı";
 "server_favorite_update_failed_title" = "Favori Güncellenemedi";
-"library_stats_header" = "Bu hafta";
 "settings_dlna_log_empty" = "Henüz etkinlik yok. Bir kontrol noktası uygulaması açın ve keşfi doğrulamak için Primuse'yi arayın.";
 "add" = "Ekle";
 "Slate" = "Arduvaz";
@@ -4273,7 +4263,6 @@
 "source_remove_confirm_title" = "Bu Müzik Kaynağı Kaldırılsın mı?";
 "dup_keep_newest" = "En Yeniyi Tut";
 "icon_default" = "Primuse";
-"icon_theme_21" = "Klasik";
 "relay_share_action" = "Özel Aktarma ile Bağlantı Oluşturun";
 "dup_mac_cleanup_action" = "Kopyaları Temizle (Son Silinenlere Taşı)";
 "save_then_scan_library_hint" = "Önce kaydedin, ardından bağlanmak ve sunucu kataloğunun tamamını taramak için kaynağa dokunun";

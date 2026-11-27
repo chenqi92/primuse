@@ -1494,7 +1494,6 @@
 		8BE415B91722F03217B013F0 /* PlaybackVolumeControlPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9D38B5C0E897BC8060AE53 /* PlaybackVolumeControlPolicy.swift */; };
 		8BEA6CCE8C0A082112A37999 /* AppleMusicService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029A35BDC1548EE87EBC6549 /* AppleMusicService.swift */; };
 		8C447BA63C07C5F11147109E /* AudioPlayerService+SharedPlaybackState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF19ABAAE069256CA5C35A7 /* AudioPlayerService+SharedPlaybackState.swift */; };
-		8C69F7C755CFCD9F9A7E4E77 /* EQPresets.json in Resources */ = {isa = PBXBuildFile; fileRef = 82BEE71CAE2A1F50A90AB53C /* EQPresets.json */; };
 		8C79DA90AA64CCACA16842D0 /* EmbeddedTagMetadataParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 732672310E1B3E948C873A39 /* EmbeddedTagMetadataParser.swift */; };
 		8C7B1EDD59EBCF0115F48561 /* libswresample.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; };
 		8C90E7D5EB9349DDCB3D0DC6 /* PlayHistoryArchiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDF2C1C93E3F66742DB829CA /* PlayHistoryArchiver.swift */; };
@@ -1989,7 +1988,6 @@
 		BCEDC7604E9B41A53228A773 /* DiagnosticUploadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6646CA24C332F2C6E48B1C7C /* DiagnosticUploadRegressionTests.swift */; };
 		BCF4B55BA0E5976EF2EDA3EB /* DesktopLyricsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A682DE882BF7C18268F9428 /* DesktopLyricsWindowController.swift */; };
 		BD0BDF735869A9109E313E0E /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C8D0CD987CACC83D845497B /* CarPlaySceneDelegate.swift */; };
-		BD0D1C7E9179D8C0B8F13FBF /* EQPresets.json in Resources */ = {isa = PBXBuildFile; fileRef = 82BEE71CAE2A1F50A90AB53C /* EQPresets.json */; };
 		BD171C64A3DC7AABAE3144FB /* SettingsSearchComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9BECB6D861A8EB9E8B4816 /* SettingsSearchComponents.swift */; };
 		BD43C09F5EE8E43023150698 /* RadioFLACAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BDA4BF8B2BC7C8290D21F46 /* RadioFLACAudioDecoder.swift */; };
 		BD93FE850DB510CE12624C27 /* MenuBarPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CC059C2CB9CE5328D923210 /* MenuBarPlayerView.swift */; };
@@ -3938,7 +3936,6 @@
 		8213F2E9F5D9DFA852280AFC /* SpokenWordBookFollowPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordBookFollowPolicy.swift; sourceTree = "<group>"; };
 		824FE4888D9ED69E4D706251 /* OrphanedSourceCachePurgePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrphanedSourceCachePurgePolicy.swift; sourceTree = "<group>"; };
 		82B385C04F12328BCCB9B3CC /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = ru; path = ru.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
-		82BEE71CAE2A1F50A90AB53C /* EQPresets.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = EQPresets.json; sourceTree = "<group>"; };
 		82C951D83E89D86B5BBCCF22 /* BuiltInCloudCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInCloudCredentials.swift; sourceTree = "<group>"; };
 		82DE90F4A0194B1571C2E0A2 /* PMLayoutChangeFade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMLayoutChangeFade.swift; sourceTree = "<group>"; };
 		82F1DA780C1EE2D2FECA07E6 /* MusicVideoLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicVideoLibraryView.swift; sourceTree = "<group>"; };
@@ -7374,7 +7371,6 @@
 				FA6002EF70A5C00D99798236 /* AppShortcuts.xcstrings */,
 				4D5D8BD40FCC0AA7011B551B /* Assets.xcassets */,
 				A7F771F08417B362E09CB48E /* AutoEq-LICENSE.txt */,
-				82BEE71CAE2A1F50A90AB53C /* EQPresets.json */,
 				D48A906E5EF29F5A5D04B2FC /* FFmpeg-LGPL-2.1.txt */,
 				67AF3D188027AB0CB2048668 /* WatercolorTheater */,
 			);
@@ -7814,7 +7810,6 @@
 				FEDD50036FC72BD682E0C6F7 /* AudioCalibration.strings in Resources */,
 				3D1DA00DD7C175B998EB06AB /* AutoEq-LICENSE.txt in Resources */,
 				D2C82F5DDEB0A2AC13DB8759 /* CacheSync.strings in Resources */,
-				BD0D1C7E9179D8C0B8F13FBF /* EQPresets.json in Resources */,
 				8DA3418E3B977AB8C9EE6AE5 /* FFmpeg-LGPL-2.1.txt in Resources */,
 				73B4EFBC7B09D57388B12DBF /* HomeDiscovery.strings in Resources */,
 				3E4FAF1208A5629650F15473 /* InfoPlist.strings in Resources */,
@@ -7839,7 +7834,6 @@
 				B261BB62D19335080DF6E342 /* AudioCalibration.strings in Resources */,
 				9D290ED81CEB3DBE5B4B89F1 /* AutoEq-LICENSE.txt in Resources */,
 				4654C1707DDE9C0213BBF316 /* CacheSync.strings in Resources */,
-				8C69F7C755CFCD9F9A7E4E77 /* EQPresets.json in Resources */,
 				FD93E0019C400B1CBD4C7D4A /* FFmpeg-LGPL-2.1.txt in Resources */,
 				2628153A665F2046909CAC56 /* HomeDiscovery.strings in Resources */,
 				C7EC780823A0FE47FF71BFFE /* InfoPlist.strings in Resources */,

@@ -251,33 +251,6 @@ struct FTPTransferPolicyTests {
         #expect(!race.resolve(.success(42)))
     }
 
-    @Test("Disconnect cancellation affects only active requests")
-    func registryCancelsOnlyActiveRequests() {
-        let registry = CancellableOperationRegistry()
-        let recorder = FTPCancellationRecorder()
-        let completedID = registry.register { recorder.record(0) }
-        registry.unregister(completedID)
-        _ = registry.register { recorder.record(1) }
-        _ = registry.register { recorder.record(2) }
-
-        #expect(registry.cancelAll() == 2)
-        #expect(recorder.ids == [1, 2])
-        #expect(registry.cancelAll() == 0)
-        #expect(recorder.ids == [1, 2])
-    }
-
-    @Test("Progress registered after transport termination is cancelled immediately")
-    func lateProgressRegistrationIsCancelled() {
-        let registry = OneShotCancellationRegistry()
-        let recorder = FTPCancellationRecorder()
-
-        #expect(registry.register { recorder.record(1) })
-        #expect(registry.cancelAll() == 1)
-        #expect(!registry.register { recorder.record(2) })
-        #expect(recorder.ids == [1, 2])
-        #expect(registry.cancelAll() == 0)
-    }
-
     @Test("Disconnect rejects late operations from the closed connection generation")
     func closedConnectionRejectsLateOperation() {
         let registry = ConnectionScopedOperationRegistry()

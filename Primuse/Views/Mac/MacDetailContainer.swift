@@ -77,9 +77,6 @@ struct MacDetailContainer: View {
         }
         .onAppear { consumeSpokenWordBookRequest() }
         .onChange(of: spokenWordBookRequest) { _, _ in consumeSpokenWordBookRequest() }
-        .onReceive(NotificationCenter.default.publisher(for: .primuseDetailGoBack)) { _ in
-            if !path.isEmpty { path.removeLast() }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .primuseRevealSearchResults)) { _ in
             // 标题栏里接着搜: 从结果点进去的专辑 / 艺人 / 歌单还压着时退回结果页。
             guard case .search = route else { return }

@@ -82,19 +82,6 @@ struct AppleMusicPlaybackOwnershipPolicyTests {
     }
 }
 
-@Suite("Apple Music toggle playback policy")
-struct AppleMusicTogglePlaybackPolicyTests {
-    @Test("A live request toggles while a restored item rebuilds playback")
-    func routesToggleByRequestLifetime() {
-        #expect(AppleMusicTogglePlaybackPolicy.action(
-            hasStartedPlaybackRequest: true
-        ) == .toggleActiveRequest)
-        #expect(AppleMusicTogglePlaybackPolicy.action(
-            hasStartedPlaybackRequest: false
-        ) == .rebuildRestoredRequest)
-    }
-}
-
 @Suite("Apple Music playback cache policy")
 struct AppleMusicPlaybackCachePolicyTests {
     @Test("A single contextual item starts without waiting for a full snapshot")

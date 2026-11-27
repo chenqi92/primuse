@@ -85,33 +85,6 @@ public struct MotionArtworkAlbumCandidate: Identifiable, Codable, Hashable, Send
     }
 }
 
-public enum MotionArtworkProviderCapability: String, Codable, CaseIterable, Hashable, Sendable {
-    case identityResolution
-    case motionArtworkRetrieval
-}
-
-public struct MotionArtworkProviderCapabilities: Codable, Hashable, Sendable {
-    public let supported: Set<MotionArtworkProviderCapability>
-
-    public init(supported: Set<MotionArtworkProviderCapability>) {
-        self.supported = supported
-    }
-
-    public func contains(_ capability: MotionArtworkProviderCapability) -> Bool {
-        supported.contains(capability)
-    }
-
-    /// Public Apple Music APIs support album identity resolution, but do not
-    /// expose Apple Music Motion Artwork assets to third-party apps.
-    public static let appleMusicOfficial = MotionArtworkProviderCapabilities(
-        supported: [.identityResolution]
-    )
-
-    public static let identityAndMotionArtwork = MotionArtworkProviderCapabilities(
-        supported: [.identityResolution, .motionArtworkRetrieval]
-    )
-}
-
 public enum MotionArtworkAssetKind: String, Codable, CaseIterable, Hashable, Sendable {
     case video
     case animatedImage
@@ -166,19 +139,6 @@ public enum MotionArtworkLookupResult: Codable, Hashable, Sendable {
     case ambiguous([MotionArtworkAlbumCandidate])
     case unsupported
     case temporarilyUnavailable(retryAfter: Date?)
-}
-
-public protocol MotionArtworkProvider: Sendable {
-    var identifier: String { get }
-    var capabilities: MotionArtworkProviderCapabilities { get }
-
-    func resolveIdentity(
-        for input: MotionArtworkLookupInput
-    ) async -> MotionArtworkIdentityResolution
-
-    func motionArtwork(
-        for candidate: MotionArtworkAlbumCandidate
-    ) async -> MotionArtworkLookupResult
 }
 
 public enum MotionArtworkCandidateMatcher {

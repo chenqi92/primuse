@@ -437,7 +437,6 @@
 "playlist_import_mac_subtitle" = "M3U8 / JSON · автоматически соответствует вашей локальной медиатеке после выбора файла";
 "cloud_oauth_checking" = "Проверка статуса авторизации…";
 "carplay_playlist_song_count_format" = "Песни %d";
-"library_stats_top_artists_label" = "Топ";
 "offline_downloading" = "Загрузка";
 "tag_editor_menu" = "Редактировать теги";
 "smart_field_albumTitle" = "Альбом";
@@ -643,7 +642,6 @@
 "recently_deleted_smart_playlists" = "Умные плейлисты";
 "artwork_no_songs" = "Нет песен на выбор.";
 "drime_access_token" = "Токен доступа API";
-"library_cleanup_dup" = "Дублирующиеся песни";
 "smart_mac_live_update" = "Постоянное обновление";
 "local_import_done_message_format" = "Импортированы песни %1$d, пропущены элементы %2$d. Сканирование импортированных файлов сейчас.";
 "smart_combinator_and" = "Все совпадает";
@@ -1150,11 +1148,9 @@
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "Мягкая нота";
-"icon_theme_14" = "Буква P";
 "icon_theme_15" = "Сложенная нота";
 "icon_theme_22" = "Kai";
 "icon_theme_23" = "Ленточная нота";
-"icon_theme_17" = "Всплеск";
 "lyrics_editor_paste_redo" = "Начать сначала";
 "META-03 · Custom Source JSON" = "МЕТА-03 · Пользовательский источник JSON";
 "Most Played This Month" = "Самые популярные в этом месяце";
@@ -1826,7 +1822,6 @@
 "Remaining" = "Осталось";
 "ai_playlist_streaming_results" = "Добавляем песни по мере их поступления…";
 "Small 155" = "Маленький 155";
-"library_cleanup_trash_count_format" = "Предметы %d";
 "send_to_tv_lan_message" = "Отправьте свою медиатеку, исходники и учетные данные непосредственно на этот Apple TV по локальной сети. iCloud не используется.";
 "Open-Source Licenses…" = "Лицензии с открытым исходным кодом…";
 "System" = "Как в системе";
@@ -2365,7 +2360,6 @@
 "radio_priority_move_up_short" = "Вверх";
 "radio_priority_move_down_short" = "Вниз";
 "error_oauth_missing_callback" = "Обратный вызов для авторизации не получен.";
-"library_cleanup_dup_count_format" = "%d группы для проверки";
 "Resuming playback." = "Возобновление воспроизведения.";
 "recently_deleted_clear_all_failed_format" = "Элементы %d не удалось очистить и остались в списке «Недавно удаленные».";
 "desktop_lyrics_no_song" = "Ничего не воспроизводится";
@@ -2527,7 +2521,6 @@
 "Small / Medium / Large" = "Маленький/Средний/Большой";
 "sort_a_to_z" = "А – Я";
 "library_info" = "Медиатека";
-"library_cleanup_header" = "Очистка";
 "source_diag_config_missing_bucket_suggestion" = "Отредактируйте источник и поместите имя сегмента в поле пути.";
 "share_sheet_title" = "Поделиться";
 "library_recommendations_local_fallback_detail" = "Существующие рекомендации сохраняются в первую очередь; локальные рекомендации появляются, когда ни одна из них не может быть использована повторно, не влияя на воспроизведение.";
@@ -2934,7 +2927,6 @@
 "lyrics_found" = "Текст найден";
 "source_cache_all_message_format" = "%@ содержит воспроизводимые песни %d. Предполагаемый размер загрузки: %@. Primuse загрузит и закрепит их для автономного воспроизведения.";
 "home_sources_title" = "Источники";
-"library_cleanup_trash" = "Недавно удалено";
 "Import Scraping Sources" = "Импорт источников метаданных";
 "error_audio_decoding %@" = "Ошибка декодирования звука: %@.";
 "library_folder_scan_root" = "Корень сканирования";
@@ -2999,7 +2991,6 @@
 "fullscreen_effect_flowing_lines_subtitle" = "Развивающиеся контуры окружают произведение искусства тремя лирическими линиями.";
 "lyrics_converter_error_title" = "Ошибка преобразования текста";
 "settings_push_to_tv_footer" = "Войдите на Apple TV в ту же учетную запись iCloud, чтобы увидеть эту медиатеку и ее источники — вместе с паролями. К NAS, медиасерверам и облачным дискам Apple TV подключается сам; реле нужно только для музыки на этом телефоне и источников NFSv4.";
-"library_stats_plays_suffix" = "прослушиваний";
 "Fill Missing Fields Only" = "Заполните только недостающие поля";
 "playlist_import_match_results" = "Результаты матча";
 "metadata_writeback_plex_missing_artist" = "В этом треке Plex нет записываемого исполнителя.";
@@ -3089,7 +3080,6 @@
 "scraper_review_network_domains" = "Сетевые домены";
 "search_apple_music_catalog_disabled" = "Apple Music · Поиск по каталогу отключен";
 "server_favorite_update_failed_title" = "Не удалось обновить избранное";
-"library_stats_header" = "На этой неделе";
 "settings_dlna_log_empty" = "Пока нет событий. Откройте приложение точки управления и найдите Primuse, чтобы подтвердить обнаружение.";
 "add" = "Добавить";
 "Slate" = "Сланец";
@@ -4273,7 +4263,6 @@
 "source_remove_confirm_title" = "Удалить этот источник музыки?";
 "dup_keep_newest" = "Будьте в курсе последних новостей";
 "icon_default" = "Primuse";
-"icon_theme_21" = "Классический";
 "relay_share_action" = "Создать ссылку с помощью Private Relay";
 "dup_mac_cleanup_action" = "Очистить дубликаты (перейти к недавно удаленным)";
 "save_then_scan_library_hint" = "Сначала сохраните, затем коснитесь источника, чтобы подключиться и отсканировать весь каталог сервера.";

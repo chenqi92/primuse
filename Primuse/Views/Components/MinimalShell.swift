@@ -1183,16 +1183,6 @@ struct MinimalHeaderCount: View {
     }
 }
 
-/// 页头里的细竖线，把操作和数量隔开。
-struct MinimalHeaderDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color(uiColor: .separator))
-            .frame(width: 1, height: 16)
-            .accessibilityHidden(true)
-    }
-}
-
 /// 「有声」那一格里在有声书与播客之间切换。只有一页时不出现。
 struct MinimalSpokenSwitcher: View {
     let current: LibrarySection

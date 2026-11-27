@@ -3,22 +3,6 @@ import Testing
 
 @Suite("Local playback resume policy")
 struct LocalPlaybackResumePolicyTests {
-    @Test("A successful configuration restart restores the visible playing state")
-    func restoresStateAfterConfigurationRestart() {
-        #expect(AudioConfigurationRecoveryPolicy.shouldRestorePlayingState(
-            playbackWasIntended: true,
-            engineRestarted: true
-        ))
-        #expect(!AudioConfigurationRecoveryPolicy.shouldRestorePlayingState(
-            playbackWasIntended: false,
-            engineRestarted: true
-        ))
-        #expect(!AudioConfigurationRecoveryPolicy.shouldRestorePlayingState(
-            playbackWasIntended: true,
-            engineRestarted: false
-        ))
-    }
-
     @Test("A hardware change remains pending until graph replacement succeeds")
     func tracksHardwareGraphReplacement() {
         var state = AudioHardwareConfigurationRecoveryState()

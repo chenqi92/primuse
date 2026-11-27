@@ -1484,78 +1484,6 @@ public enum AsyncOperationTimeout {
     }
 }
 
-/// A one-shot bag for transport resources that may be installed concurrently
-/// with termination. Resources already present are cancelled by `cancelAll`;
-/// resources registered after termination are cancelled immediately.
-public final class OneShotCancellationRegistry: @unchecked Sendable {
-    private let lock = NSLock()
-    private var actions: [@Sendable () -> Void] = []
-    private var terminated = false
-
-    public init() {}
-
-    /// Returns `true` when the action was retained for later cancellation and
-    /// `false` when termination had already happened and it ran immediately.
-    @discardableResult
-    public func register(_ action: @escaping @Sendable () -> Void) -> Bool {
-        lock.lock()
-        guard !terminated else {
-            lock.unlock()
-            action()
-            return false
-        }
-        actions.append(action)
-        lock.unlock()
-        return true
-    }
-
-    @discardableResult
-    public func cancelAll() -> Int {
-        lock.lock()
-        terminated = true
-        let pending = actions
-        actions.removeAll()
-        lock.unlock()
-        pending.forEach { $0() }
-        return pending.count
-    }
-}
-
-/// Thread-safe cancellation registry used when one logical connector owns
-/// several isolated transport sessions. `cancelAll` takes the actions before
-/// invoking them so callbacks may unregister themselves without deadlocking.
-public final class CancellableOperationRegistry: @unchecked Sendable {
-    private let lock = NSLock()
-    private var actions: [UUID: @Sendable () -> Void] = [:]
-
-    public init() {}
-
-    @discardableResult
-    public func register(_ action: @escaping @Sendable () -> Void) -> UUID {
-        let id = UUID()
-        lock.lock()
-        actions[id] = action
-        lock.unlock()
-        return id
-    }
-
-    public func unregister(_ id: UUID) {
-        lock.lock()
-        actions[id] = nil
-        lock.unlock()
-    }
-
-    @discardableResult
-    public func cancelAll() -> Int {
-        lock.lock()
-        let pending = Array(actions.values)
-        actions.removeAll()
-        lock.unlock()
-        pending.forEach { $0() }
-        return pending.count
-    }
-}
-
 /// Owns cancellable operations for exactly one connection generation.
 /// Closing a generation forms a latch: registrations that race or arrive
 /// afterward are cancelled immediately, while a stale close cannot affect a
@@ -2681,17 +2609,6 @@ public struct AppleMusicTrackIdentityIndex: Sendable {
     }
 }
 
-/// Compatibility entry point for one-off callers. Long-lived consumers should
-/// retain an `AppleMusicTrackIdentityIndex` across multiple lookups.
-public enum AppleMusicTrackIdentityResolver {
-    public static func canonicalID(
-        for playback: AppleMusicTrackIdentity,
-        in library: [AppleMusicTrackIdentity]
-    ) -> String? {
-        AppleMusicTrackIdentityIndex(library).canonicalID(for: playback)
-    }
-}
-
 /// Whether an Apple Music response is a complete cloud snapshot or merely the
 /// local-device fallback. Only a complete snapshot may prune songs/playlists.
 public enum AppleMusicLibrarySyncMode: Sendable, Equatable {
@@ -3244,18 +3161,6 @@ public enum AppleMusicItemLookupPolicy {
         confirmedLocalFileIDs: Set<String>
     ) -> Bool {
         itemID.hasPrefix("i.") || confirmedLocalFileIDs.contains(itemID)
-    }
-}
-
-/// Ends the optimistic loading state after MusicKit either starts producing
-/// playback state or rejects the request during its subscription preflight.
-public enum AppleMusicMirrorLoadingPolicy {
-    public static func shouldFinishLoading(
-        isPlaying: Bool,
-        currentPlaybackTime: TimeInterval,
-        playbackError: String?
-    ) -> Bool {
-        isPlaying || currentPlaybackTime > 0 || !(playbackError?.isEmpty ?? true)
     }
 }
 
@@ -5382,80 +5287,6 @@ public enum MetadataBackfillDeferredRetryPolicy {
     }
 }
 
-/// 延迟重试集合及其成员版本号。歌曲行只需要知道"这首歌是不是重试中",
-/// 而背景对账每 5 秒都会跑一遍; 把成员关系和版本号封装在一起, 版本号
-/// 只在集合真的发生变化时前进, 行视图就不会被一次没有变化的对账重绘。
-public struct DeferredRetryMembership: Equatable, Sendable {
-    public private(set) var songIDs: Set<String>
-    /// 单调前进(到达 `Int.max` 后回绕到 1), 仅在成员关系变化时改变。
-    public private(set) var revision: Int
-
-    public init(songIDs: Set<String> = [], revision: Int = 0) {
-        self.songIDs = songIDs
-        self.revision = revision
-    }
-
-    public var isEmpty: Bool { songIDs.isEmpty }
-    public var count: Int { songIDs.count }
-
-    public func contains(_ songID: String) -> Bool {
-        songIDs.contains(songID)
-    }
-
-    @discardableResult
-    public mutating func insert(_ songID: String) -> Bool {
-        guard songIDs.insert(songID).inserted else { return false }
-        advance()
-        return true
-    }
-
-    @discardableResult
-    public mutating func remove(_ songID: String) -> Bool {
-        guard songIDs.remove(songID) != nil else { return false }
-        advance()
-        return true
-    }
-
-    @discardableResult
-    public mutating func formUnion(_ ids: some Sequence<String>) -> Bool {
-        let previousCount = songIDs.count
-        songIDs.formUnion(ids)
-        guard songIDs.count != previousCount else { return false }
-        advance()
-        return true
-    }
-
-    @discardableResult
-    public mutating func subtract(_ ids: some Sequence<String>) -> Bool {
-        let previousCount = songIDs.count
-        songIDs.subtract(ids)
-        guard songIDs.count != previousCount else { return false }
-        advance()
-        return true
-    }
-
-    @discardableResult
-    public mutating func removeAll() -> Bool {
-        guard !songIDs.isEmpty else { return false }
-        songIDs.removeAll()
-        advance()
-        return true
-    }
-
-    /// 从磁盘恢复或整体替换。内容相同的一份集合不算变化。
-    @discardableResult
-    public mutating func replace(with ids: Set<String>) -> Bool {
-        guard ids != songIDs else { return false }
-        songIDs = ids
-        advance()
-        return true
-    }
-
-    private mutating func advance() {
-        revision = revision == .max ? 1 : revision + 1
-    }
-}
-
 /// 状态展示行集合的廉价指纹。对账在后台线程上逐条折叠出一个 64 位摘要,
 /// 主 actor 只比较这一个值, 取代成千上万条带标题/路径字符串的展示行字典
 /// 相等比较。摘要相同即视为界面没有变化, 因此不推进 `statusRevision`,
@@ -5998,77 +5829,6 @@ public enum RemoteRequestDeadline {
     /// Uptime, so time the app spends suspended does not count as a stall.
     fileprivate static func now() -> UInt64 {
         DispatchTime.now().uptimeNanoseconds
-    }
-}
-
-/// One remote client whose library may leave a request queued behind a
-/// dangling callback when it stops waiting (see `RemoteRequestDeadline`).
-///
-/// Every call goes through `request`, which applies the deadline. Once a
-/// failure may have left a request queued (decided by the protocol's
-/// disposal policy), the client is retired: parked in
-/// `RemoteRetiredSessions`, and every later `request` is refused with
-/// `ENOTCONN` without touching it, so it is never used, closed or released
-/// again. The owner then replaces the guard with a fresh client.
-public final class RemoteSessionGuard<Session: AnyObject>: @unchecked Sendable {
-    private let session: Session
-    private let retiredSessions: RemoteRetiredSessions
-    private let mayHaveAbandonedRequest: @Sendable (any Error) -> Bool
-    private let onRetire: (@Sendable (_ heldSessions: Int) -> Void)?
-    private let lock = NSLock()
-    private var retired = false
-
-    public init(
-        _ session: Session,
-        retiredSessions: RemoteRetiredSessions = .shared,
-        mayHaveAbandonedRequest: @escaping @Sendable (any Error) -> Bool,
-        onRetire: (@Sendable (_ heldSessions: Int) -> Void)? = nil
-    ) {
-        self.session = session
-        self.retiredSessions = retiredSessions
-        self.mayHaveAbandonedRequest = mayHaveAbandonedRequest
-        self.onRetire = onRetire
-    }
-
-    public var isRetired: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return retired
-    }
-
-    /// Runs one library call on the session under `RemoteRequestDeadline`.
-    public func request<Value: Sendable>(
-        stallTimeout: TimeInterval = RemoteRequestDeadline.standardStallTimeout,
-        _ operation: @escaping @Sendable (_ session: Session, _ activity: RemoteRequestDeadline.Activity) async throws -> Value
-    ) async throws -> Value {
-        guard !isRetired else { throw POSIXError(.ENOTCONN) }
-        do {
-            return try await RemoteRequestDeadline.run(stallTimeout: stallTimeout) { activity in
-                try await operation(self.session, activity)
-            }
-        } catch {
-            if mayHaveAbandonedRequest(error) {
-                retire()
-            }
-            throw error
-        }
-    }
-
-    /// Hands the session to `body` unless it was retired. For owners that
-    /// adjust the session right before they let go of it.
-    public func ifNotRetired(_ body: (Session) -> Void) {
-        guard !isRetired else { return }
-        body(session)
-    }
-
-    private func retire() {
-        lock.lock()
-        let first = !retired
-        retired = true
-        lock.unlock()
-        guard first else { return }
-        let held = retiredSessions.retire(session)
-        onRetire?(held)
     }
 }
 
@@ -7914,24 +7674,6 @@ public enum LyricsBackgroundTapPolicy {
     }
 }
 
-/// Decides whether Now Playing artwork should fall back to reading the cover
-/// through its source connector. Absolute URLs have already used their own
-/// network path; source-relative paths and opaque cloud identifiers still need
-/// the connector so authenticated providers can return the sidecar bytes.
-public enum NowPlayingArtworkFallbackPolicy {
-    public static func shouldFetchFromConnector(
-        reference: String?,
-        directImageLoaded: Bool
-    ) -> Bool {
-        guard !directImageLoaded,
-              let reference,
-              !reference.isEmpty else {
-            return false
-        }
-        return !reference.contains("://")
-    }
-}
-
 /// Prevents artwork published for one item from being attached to the next
 /// item while its own image is still loading. Some Bluetooth accessories only
 /// sample artwork when the rest of the track metadata changes, so carrying the
@@ -8734,19 +8476,6 @@ public enum AppleMusicPlaybackOwnershipPolicy {
     }
 }
 
-/// Chooses whether a Play/Pause toggle can control the current MusicKit
-/// generation or must rebuild playback restored from a previous app process.
-public enum AppleMusicTogglePlaybackPolicy {
-    public enum Action: Equatable, Sendable {
-        case toggleActiveRequest
-        case rebuildRestoredRequest
-    }
-
-    public static func action(hasStartedPlaybackRequest: Bool) -> Action {
-        hasStartedPlaybackRequest ? .toggleActiveRequest : .rebuildRestoredRequest
-    }
-}
-
 /// Decides whether playback needs the complete Apple Music library cache.
 /// A Primuse-managed queue hands MusicKit only the current DRM item, so a
 /// direct lookup can start immediately while the full library keeps syncing.
@@ -8968,76 +8697,6 @@ public enum DeferredContentPresentationPolicy {
     }
 }
 
-public struct LibraryArtworkPreviewCandidate: Equatable, Hashable, Sendable {
-    public let id: String
-    public let hasArtworkHint: Bool
-
-    public init(id: String, hasArtworkHint: Bool) {
-        self.id = id
-        self.hasArtworkHint = hasArtworkHint
-    }
-}
-
-/// Picks a small visual sample without treating a missing metadata reference as
-/// proof that artwork cannot be resolved from a cache, embedded tag, or MusicKit.
-public enum LibraryArtworkPreviewSelectionPolicy {
-    public static func selectedIDs(
-        from candidates: [LibraryArtworkPreviewCandidate],
-        maximumCount: Int,
-        randomSeed: String
-    ) -> [String] {
-        guard maximumCount > 0 else { return [] }
-
-        var hintsByID: [String: Bool] = [:]
-        for candidate in candidates where !candidate.id.isEmpty {
-            hintsByID[candidate.id, default: false] =
-                hintsByID[candidate.id, default: false] || candidate.hasArtworkHint
-        }
-
-        typealias RankedCandidate = (id: String, hasArtworkHint: Bool, rank: UInt64)
-        func precedes(_ lhs: RankedCandidate, _ rhs: RankedCandidate) -> Bool {
-            if lhs.hasArtworkHint != rhs.hasArtworkHint {
-                return lhs.hasArtworkHint
-            }
-            if lhs.rank != rhs.rank {
-                return lhs.rank < rhs.rank
-            }
-            return lhs.id < rhs.id
-        }
-
-        var selected: [RankedCandidate] = []
-        selected.reserveCapacity(min(maximumCount, hintsByID.count))
-        for (id, hasArtworkHint) in hintsByID {
-            let candidate = (
-                id: id,
-                hasArtworkHint: hasArtworkHint,
-                rank: stableHash("\(randomSeed)\u{0}\(id)")
-            )
-            let insertionIndex = selected.firstIndex { precedes(candidate, $0) }
-                ?? selected.endIndex
-            if insertionIndex < maximumCount {
-                selected.insert(candidate, at: insertionIndex)
-                if selected.count > maximumCount {
-                    selected.removeLast()
-                }
-            } else if selected.count < maximumCount {
-                selected.append(candidate)
-            }
-        }
-
-        return selected.map(\.id)
-    }
-
-    private static func stableHash(_ value: String) -> UInt64 {
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 1_099_511_628_211
-        }
-        return hash
-    }
-}
-
 /// Chooses a tvOS home hero without assuming every playable song belongs to a
 /// visible album. Albumless libraries use a song-backed whole-library hero so
 /// the title, artist, count, and play-all controls remain meaningful.
@@ -9074,22 +8733,6 @@ public enum TVHomeHeroPolicy {
         case .empty:
             return 0
         }
-    }
-}
-
-/// Publishes the durable local snapshot before any remote synchronization can
-/// suspend startup, then applies the downloaded snapshot while retaining the
-/// local state needed by the caller's merge policy.
-public enum LocalFirstSnapshotBootstrap {
-    @MainActor
-    public static func run<LocalState>(
-        publishLocal: () -> LocalState,
-        download: () async -> Void,
-        applyDownloaded: (LocalState) -> Void
-    ) async {
-        let localState = publishLocal()
-        await download()
-        applyDownloaded(localState)
     }
 }
 

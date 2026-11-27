@@ -845,10 +845,10 @@ targets:
       - path: Primuse/Services/AppIconService.swift
       - path: PrimuseTV
         excludes:
-          # 仅供独立预览 target(tvpreview.yml)使用、被 git 忽略的生成文件,
+          # 已删除的独立预览工程生成过、被 git 忽略的文件, 旧检出里可能还留着,
           # 不应进入正式 tvOS app 的资源/源
           - "Info-preview.plist"
-      # 复用 iOS app 的「干净」曲库数据核心(与 tvpreview.yml 一致,直接编进 tvOS app)
+      # 复用 iOS app 的「干净」曲库数据核心(直接编进 tvOS app)
       - path: Primuse/Services/Library/MusicLibrary.swift
       # 曲库目录的 App 侧包装层整个目录都给电视用：新增文件不必再逐个登记。
       - path: Primuse/Services/Library/Catalog

@@ -289,42 +289,6 @@ struct SearchScopeCard: View {
 }
 #endif
 
-enum SearchCatalogPolicy {
-    static func albums(
-        query: String,
-        visibleAlbums: [PrimuseKit.Album],
-        relatedAlbums: [PrimuseKit.Album]
-    ) -> [PrimuseKit.Album] {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-        let directMatches = LibrarySearchWorker.compute(
-            query: query,
-            songs: [],
-            albums: visibleAlbums,
-            cache: LibrarySearchCache(),
-            includeLyrics: false,
-            songLimit: 0,
-            albumLimit: visibleAlbums.count
-        ).albumResults
-        let visibleIDs = Set(visibleAlbums.map(\.id))
-        var seen = Set(directMatches.map(\.id))
-        return directMatches + relatedAlbums.filter {
-            visibleIDs.contains($0.id) && seen.insert($0.id).inserted
-        }
-    }
-
-    /// 名字里含搜索词的艺术家,按名字排序。整库逐个做本地化比对,只在后台调用。
-    static func artists(
-        query: String,
-        visibleArtists: [PrimuseKit.Artist]
-    ) -> [PrimuseKit.Artist] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return [] }
-        return visibleArtists.filter {
-            $0.name.localizedCaseInsensitiveContains(query)
-        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-}
-
 @MainActor
 final class SearchWorkCoordinator {
     var searchTask: Task<Void, Never>?
@@ -668,7 +632,7 @@ struct SearchView: View {
     let onShowInLibrary: (PrimuseKit.Song) -> Void
     @State private var searchResults: [LibrarySearchResult] = []
     @State private var keywordAlbums: [PrimuseKit.Album] = []
-    /// 名字里含搜索词的艺术家,搜索时在后台筛好、排好(见 `SearchCatalogPolicy.artists`)。
+    /// 名字里含搜索词的艺术家,搜索时在后台筛好、排好(见 `LibraryCatalogSearchIndex.search`)。
     @State private var keywordArtists: [PrimuseKit.Artist] = []
     @State private var semanticAlbums: [PrimuseKit.Album] = []
     /// AI 补充的专辑各是因为哪个扩展词搜到的(专辑 id → 词)。

@@ -615,15 +615,6 @@ struct SourceMetadataStatusCard<IdleContent: View>: View {
     }
 }
 
-/// Standalone sources root for callers that don't already own navigation.
-struct SourcesView: View {
-    var body: some View {
-        NavigationStack {
-            SourcesContentView()
-        }
-    }
-}
-
 /// Sources page content. Push this from an existing NavigationStack to avoid
 /// nested stacks resetting the back button or immediately dismissing the page.
 struct SourcesContentView: View {

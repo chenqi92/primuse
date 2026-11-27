@@ -1661,15 +1661,12 @@
 "icon_appearance_gray" = "Szary";
 "icon_appearance_hint" = "Ikona pojawia się na ekranie głównym. Dotknij i przytrzymaj ekran główny, a następnie wybierz Edycja → Dostosuj → Automatycznie.";
 "icon_default" = "Primuse";
-"icon_theme_21" = "Klasyczna";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "Miękka nuta";
-"icon_theme_14" = "Litera P";
 "icon_theme_15" = "Złożona nuta";
 "icon_theme_22" = "Kai";
 "icon_theme_23" = "Nuta ze wstążki";
-"icon_theme_17" = "Plusk";
 "image_cache" = "Pamięć podręczna obrazów";
 "immersive_current_lyric_accessibility" = "Aktualny tekst: %@";
 "immersive_demo_album" = "wyspa dźwiękowa";
@@ -1895,11 +1892,6 @@
 "library_browse_flat" = "Płaskie";
 "library_browse_folder" = "Foldery";
 "library_browse_switch_loading" = "Przełączanie widoków…";
-"library_cleanup_dup" = "Zduplikowane utwory";
-"library_cleanup_dup_count_format" = "Grupy %d do przeglądu";
-"library_cleanup_header" = "Oczyszczanie";
-"library_cleanup_trash" = "Ostatnio usunięte";
-"library_cleanup_trash_count_format" = "Elementy %d";
 "library_default_flat_view" = "Domyślnie pokazuj utwory jako płaską listę";
 "library_default_flat_view_description" = "Gdy opcja jest wyłączona, utwory otwierają się w hierarchii źródeł i folderów. Gdy ta opcja jest włączona, biblioteka utworów otwiera się w postaci płaskiej listy.";
 "library_display_settings_title" = "Wyświetlanie biblioteki";
@@ -1952,9 +1944,6 @@
 "library_sections_restore_default_order" = "Przywróć domyślną kolejność";
 "library_sections_settings_footer" = "Przeciągnij, aby zmienić kolejność. Wyłącz kategorię, aby ukryć ją w Bibliotece i na pasku bocznym.";
 "library_sections_settings_label" = "Kategorie bibliotek";
-"library_stats_header" = "W tym tygodniu";
-"library_stats_plays_suffix" = "odtwarza";
-"library_stats_top_artists_label" = "Góra";
 "library_title" = "Biblioteka";
 "licenses" = "Licencje Open Source";
 "live_badge" = "NA ŻYWO";

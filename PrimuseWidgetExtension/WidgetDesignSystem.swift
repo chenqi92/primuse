@@ -482,22 +482,6 @@ struct WidgetSectionEyebrow: View {
     }
 }
 
-struct WidgetMiniStat: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(WidgetDesign.tertiaryText)
-            Text(value)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(WidgetDesign.strongText)
-        }
-    }
-}
-
 struct WidgetCoverImageView: View {
     let coverImageName: String?
     var cornerRadius: CGFloat = 10

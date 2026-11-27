@@ -817,37 +817,6 @@ struct AppleMusicPlaybackSourceResolverTests {
     }
 }
 
-@Suite("Apple Music mirror loading policy")
-struct AppleMusicMirrorLoadingPolicyTests {
-    @Test("Playback progress or a preflight error ends loading")
-    func finishesOnPlaybackOrError() {
-        #expect(AppleMusicMirrorLoadingPolicy.shouldFinishLoading(
-            isPlaying: true,
-            currentPlaybackTime: 0,
-            playbackError: nil
-        ))
-        #expect(AppleMusicMirrorLoadingPolicy.shouldFinishLoading(
-            isPlaying: false,
-            currentPlaybackTime: 0.5,
-            playbackError: nil
-        ))
-        #expect(AppleMusicMirrorLoadingPolicy.shouldFinishLoading(
-            isPlaying: false,
-            currentPlaybackTime: 0,
-            playbackError: "需确认隐私声明"
-        ))
-    }
-
-    @Test("An unresolved request keeps loading")
-    func keepsLoadingWithoutOutcome() {
-        #expect(!AppleMusicMirrorLoadingPolicy.shouldFinishLoading(
-            isPlaying: false,
-            currentPlaybackTime: 0,
-            playbackError: nil
-        ))
-    }
-}
-
 @Suite("Apple Music playback-end policy")
 struct AppleMusicPlaybackEndPolicyTests {
     @Test("A paused track still ends when MusicKit resets its current time")

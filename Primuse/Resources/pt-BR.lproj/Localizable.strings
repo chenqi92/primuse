@@ -1661,15 +1661,12 @@
 "icon_appearance_gray" = "Cinza";
 "icon_appearance_hint" = "O ícone segue a aparência da tela inicial. Toque e segure a tela inicial e escolha Editar → Personalizar → Automático.";
 "icon_default" = "Primuse";
-"icon_theme_21" = "Clássico";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "Nota Suave";
-"icon_theme_14" = "Letra P";
 "icon_theme_15" = "Nota dobrada";
 "icon_theme_22" = "Kai";
 "icon_theme_23" = "Nota de fita";
-"icon_theme_17" = "Respingo";
 "image_cache" = "Cache de imagens";
 "immersive_current_lyric_accessibility" = "Letra atual: %@";
 "immersive_demo_album" = "ilha sonora";
@@ -1895,11 +1892,6 @@
 "library_browse_flat" = "Plana";
 "library_browse_folder" = "Pastas";
 "library_browse_switch_loading" = "Alternando visualizações…";
-"library_cleanup_dup" = "Músicas duplicadas";
-"library_cleanup_dup_count_format" = "Grupos %d a serem revisados";
-"library_cleanup_header" = "Limpeza";
-"library_cleanup_trash" = "Apagados recentemente";
-"library_cleanup_trash_count_format" = "Itens %d";
 "library_default_flat_view" = "Mostrar músicas como uma lista simples por padrão";
 "library_default_flat_view_description" = "Quando desativado, as músicas são abertas na hierarquia de fontes e pastas. Quando ativado, a biblioteca de músicas é aberta como uma lista simples.";
 "library_display_settings_title" = "Exibição da Biblioteca";
@@ -1952,9 +1944,6 @@
 "library_sections_restore_default_order" = "Restaurar ordem padrão";
 "library_sections_settings_footer" = "Arraste para reordenar. Desative uma categoria para ocultá-la da Biblioteca e da barra lateral.";
 "library_sections_settings_label" = "Categorias de biblioteca";
-"library_stats_header" = "Esta semana";
-"library_stats_plays_suffix" = "reproduções";
-"library_stats_top_artists_label" = "Superior";
 "library_title" = "Biblioteca";
 "licenses" = "Licenças de código aberto";
 "live_badge" = "AO VIVO";

@@ -367,7 +367,7 @@ final class MetadataBackfillService {
     /// terminal inspection removes the marker.
     @ObservationIgnored private var deferredRetryMembership: MetadataBackfillDeferredRetries
 
-    /// 只在延迟重试集合的成员关系真的变化时前进。歌曲行订阅的是这个版本号
+    /// 跟着 `MetadataBackfillDeferredRetries.revision` 走: 单首增删只在成员变化时前进, 批量改动传入非空就前进。歌曲行订阅的是这个版本号
     /// 而不是 `statusRevision`, 因此每 5 秒一次的状态对账不会再让所有可见行
     /// 重新求值 body。
     private(set) var deferredRetryRevision: Int = 0
@@ -917,7 +917,7 @@ extension MetadataBackfillService {
         deferredRetryMembership.songIDs
     }
 
-    /// 所有集合改动都经由这里: 变化才发布, 未变化则连版本号都不动。
+    /// 所有集合改动都经由这里: `body` 推进了版本号才发布(批量改动不比对成员, 见 `MetadataBackfillDeferredRetries`)。
     private func mutateDeferredRetries(
         _ body: (inout MetadataBackfillDeferredRetries) -> Bool
     ) {
