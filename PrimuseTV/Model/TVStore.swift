@@ -6246,7 +6246,12 @@ extension TVStore {
             // A walk that saw the catalogue move keeps what it read (the batches
             // above) but cannot vouch for songs it never listed.
             let isCompleteListing = result.canPrune && mode == .full && folder == nil
-            if isCompleteListing {
+            // 电视上没有 Google 的文件选择器,用户在这里确认不了移除:已选文件源只合并、不剪
+            // (`GoogleDrivePickedFilesRemovalPolicy.tvScanPrunesMissingSongs`)。
+            let currentSource = sourcesStore.source(id: source.id) ?? source
+            if isCompleteListing, !GoogleDrivePickedFilesRemovalPolicy.tvScanPrunesMissingSongs(source: currentSource) {
+                plog("⏸ TV scan \(source.name): picked-files source, merging without removals")
+            } else if isCompleteListing {
                 pruningRecovery = library.beginScanPruning(
                     confirmedScanIncoming(
                         result.songs,

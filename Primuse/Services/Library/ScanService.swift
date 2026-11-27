@@ -716,6 +716,8 @@ extension ScanService {
         /// A safe first-pass snapshot retained unmatched rows. The next
         /// foreground scan is the explicit confirmation required before prune.
         var reconciliationMessage: String?
+        /// Google Drive 已选文件:有这么多首歌不在所选文件里,等用户选「移除」或「保留」。
+        var pickedFilesRemovalCount: Int?
         /// A checkpoint may contain only an unfinished directory queue, before
         /// the scanner has discovered its first song.
         var hasPendingWork: Bool = false
@@ -1971,6 +1973,116 @@ extension ScanService {
             sourceStore: sourceStore,
             scraperService: scraperService
         )
+    }
+
+    /// Google Drive 在选择器里选完文件之后:和改了扫描目录一样,停掉正在跑的扫描、丢掉旧断点、
+    /// 完整扫一遍。再次选择时目录仍是「/」,`scanAfterDirectorySelectionChange` 会因为目录没变
+    /// 什么都不做,所以单独一个入口。
+    ///
+    /// 开扫之前先在同步状态上记下「这一轮暂存移除」,所以不论扫描范围变没变、中途有没有重启,
+    /// 这一轮列表里没有的歌都只暂存待确认,不会被删(`GoogleDrivePickedFilesRemovalPolicy`)。
+    /// 记不下来就不扫。
+    @discardableResult
+    func scanAfterPickedFilesChange(
+        sourceID: String,
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService? = nil
+    ) async -> Bool {
+        guard let source = sourceStore.source(id: sourceID),
+              source.isEnabled,
+              !source.isDeleted,
+              source.usesGoogleDrivePickedFiles else { return false }
+        cancelScan(for: sourceID)
+        removeCheckpoint(for: sourceID)
+        guard await requestPickedFilesRemovalHold(sourceID: sourceID) else { return false }
+        guard let current = sourceStore.source(id: sourceID), current.usesGoogleDrivePickedFiles else { return false }
+        return scanSource(
+            current,
+            mode: .deep,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourceStore,
+            scraperService: scraperService
+        )
+    }
+
+    /// 在已有的同步状态上挂一个空的待确认,让下一次完整扫描走暂存。源上已经挂着这类确认
+    /// (待确认、已保留、已确认移除)时原样留着;没有同步状态时扫描范围本来就对不上,也会暂存。
+    private func requestPickedFilesRemovalHold(sourceID: String) async -> Bool {
+        guard var state = syncStates[sourceID] else { return true }
+        if let kind = state.reconciliation?.kind,
+           GoogleDrivePickedFilesRemovalPolicy.holdKinds.contains(kind) {
+            return true
+        }
+        state.reconciliation = SourceSyncReconciliation(
+            kind: .pickedFilesRemovalConfirmation,
+            unresolvedStableKeys: [],
+            detectedAt: Date()
+        )
+        state.requiresDeepScan = true
+        do {
+            try await persistSyncState(state)
+            return true
+        } catch {
+            plog("⚠️ Picked-files scan not started for \(sourceID.prefix(8))…: hold marker not saved: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// 用户在「这些歌不在所选文件里」上选了移除:记下确认,再完整扫一遍。只移除确认时列出的、
+    /// 而且这一轮仍然不在列表里的歌;期间又被选回来的照旧留着。
+    func confirmPickedFilesRemoval(
+        sourceID: String,
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService? = nil
+    ) async {
+        guard await recordPickedFilesRemovalDecision(sourceID: sourceID, as: .pickedFilesRemovalConfirmed) else { return }
+        await scanAfterPickedFilesChange(
+            sourceID: sourceID,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourceStore,
+            scraperService: scraperService
+        )
+    }
+
+    /// 用户选了保留:歌都留着,不再提示,直到又有新的歌不在列表里。
+    func keepPickedFilesRemoval(sourceID: String) async {
+        _ = await recordPickedFilesRemovalDecision(sourceID: sourceID, as: .pickedFilesRemovalKept)
+    }
+
+    private func recordPickedFilesRemovalDecision(
+        sourceID: String,
+        as kind: SourceSyncReconciliation.Kind
+    ) async -> Bool {
+        // 提示只在没在扫描时显示;正在扫的那一轮提交时会按它开始时的状态重新给出提示。
+        guard scanStates[sourceID]?.isScanning != true,
+              var state = syncStates[sourceID],
+              let pending = state.reconciliation,
+              pending.kind == .pickedFilesRemovalConfirmation,
+              !pending.unresolvedStableKeys.isEmpty else { return false }
+        state.reconciliation = SourceSyncReconciliation(
+            kind: kind,
+            unresolvedStableKeys: pending.unresolvedStableKeys,
+            detectedAt: pending.detectedAt
+        )
+        do {
+            try await persistSyncState(state)
+        } catch {
+            plog("⚠️ Picked-files removal decision not saved for \(sourceID.prefix(8))…: \(error.localizedDescription)")
+            return false
+        }
+        if var scanState = scanStates[sourceID] {
+            scanState.reconciliationMessage = nil
+            scanState.pickedFilesRemovalCount = nil
+            scanStates[sourceID] = scanState
+        }
+        plog("☁️ Picked-files removal for \(sourceID.prefix(8))…: \(kind.rawValue) count=\(pending.unresolvedStableKeys.count)")
+        return true
     }
 
     /// A completed source has no continuation work. Lifecycle code uses this
@@ -3940,7 +4052,29 @@ extension ScanService {
             // 百度网盘的快照有自己的删除确认（`scanReconciliation`）。
             var deletionPlan: ServerCatalogDeletionConfirmationPolicy.Plan?
             var prunableSongIDs: Set<String>?
+            // Google Drive 已选文件:选择文件之后的那一轮(换了令牌、改了源,扫描范围就对不上上一份
+            // 状态)和源上还挂着移除确认时,列表里没有的歌一首都不自己删,留着等用户确认。
+            var pickedFilesHold: GoogleDrivePickedFilesRemovalPolicy.Outcome?
             if allowsAuthoritativeCatalogPrune,
+               source.usesGoogleDrivePickedFiles,
+               GoogleDrivePickedFilesRemovalPolicy.holdsRemovals(
+                   scopeMatchesPreviousState: scopedState != nil,
+                   storedKind: storedState?.reconciliation?.kind
+               ) {
+                let existingIDs = Set(knownExisting.lazy.map(\.id))
+                let snapshotIDs = walkedSongIDs ?? Set(lastSongs.lazy.map(\.id))
+                let stored = storedState?.reconciliation
+                let outcome = GoogleDrivePickedFilesRemovalPolicy.outcome(
+                    missingSongIDs: existingIDs.subtracting(snapshotIDs),
+                    storedKind: stored?.kind,
+                    storedSongIDs: Set(stored?.unresolvedStableKeys ?? [])
+                )
+                pickedFilesHold = outcome
+                prunableSongIDs = snapshotIDs.union(outcome.retainedMissingSongIDs)
+                plog("⏸ \(source.name): picked-files scan keeps \(outcome.retainedMissingSongIDs.count) song(s) missing from the authorized files, removes \(outcome.removedSongIDs.count) confirmed (stored=\(stored?.kind.rawValue ?? "nil"))")
+            }
+            if pickedFilesHold == nil,
+               allowsAuthoritativeCatalogPrune,
                let previousState = workingState,
                !(connector is any ResumableSnapshotMusicSourceConnector) {
                 // 不先拼出整源的 id 数组再建集合。文件走查直接用这一轮遇到的歌的 id:
@@ -3965,14 +4099,25 @@ extension ScanService {
                     plog("⏸ \(source.name): keeping \(plan.pendingSongIDs.count) song(s) missing from the walk until another complete scan confirms (mass=\(plan.isMassDisappearance))")
                 }
             }
-            let heldDisappearance: SourceSyncReconciliation? = deletionPlan.flatMap { plan in
-                plan.holdsMassDisappearance
-                    ? SourceSyncReconciliation(
-                        kind: .serverCatalogMassDisappearance,
-                        unresolvedStableKeys: Array(plan.pendingSongIDs),
+            let heldDisappearance: SourceSyncReconciliation?
+            if let pickedFilesHold {
+                heldDisappearance = pickedFilesHold.reconciliation.map { kind in
+                    SourceSyncReconciliation(
+                        kind: kind,
+                        unresolvedStableKeys: Array(pickedFilesHold.unresolvedSongIDs),
                         detectedAt: Date()
                     )
-                    : nil
+                }
+            } else {
+                heldDisappearance = deletionPlan.flatMap { plan in
+                    plan.holdsMassDisappearance
+                        ? SourceSyncReconciliation(
+                            kind: .serverCatalogMassDisappearance,
+                            unresolvedStableKeys: Array(plan.pendingSongIDs),
+                            detectedAt: Date()
+                        )
+                        : nil
+                }
             }
             let candidateState = SourceSyncState(
                 sourceID: source.id,
@@ -6390,6 +6535,17 @@ extension ScanService {
         case .baiduIdentityAndDeletionConfirmation:
             // 百度快照的两次确认自己会在下一轮刷新里收尾，用户不必做什么，也不影响
             // 播放和浏览，不在源卡片上挂提示。
+            return nil
+        case .pickedFilesRemovalConfirmation:
+            let count = reconciliation.unresolvedStableKeys.count
+            guard count > 0 else { return nil }
+            return ScanState(
+                isScanning: false,
+                reconciliationMessage: String(format: String(localized: "gdrive_removal_pending_format"), count),
+                pickedFilesRemovalCount: count
+            )
+        case .pickedFilesRemovalKept, .pickedFilesRemovalConfirmed:
+            // 用户已经选过:保留的不再提示;确认移除的等下一次完整扫描收尾。
             return nil
         case .serverCatalogMassDisappearance:
             // 说清还要再完整扫描几次、在哪里改成不保留（#155）。只有服务端目录的走查

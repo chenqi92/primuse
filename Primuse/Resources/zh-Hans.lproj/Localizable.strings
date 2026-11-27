@@ -2528,7 +2528,6 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "系统浏览器授权";
-"google_drive_full_access_disclosure" = "Google Drive 会请求完整云端硬盘权限，用于浏览现有音乐库、回写封面与 LRC，并在你主动删除时把所选文件移入回收站。Primuse 不会修改共享权限或永久清空回收站。";
 "cloud_oauth_checking" = "正在检查授权状态…";
 "cloud_setup_needs_creds_title" = "需要配置开发者凭证";
 "cloud_setup_needs_creds_desc" = "请先在「编辑源」中填写 Client ID，然后再回来授权连接。";
@@ -6010,9 +6009,9 @@
 
 /* Google Drive 改用「仅限所选文件」权限的提醒 */
 "gdrive_scope_change_title_upcoming" = "Google Drive 接入方式可能在 %@ 后调整";
-"gdrive_scope_change_title_in_effect" = "Google Drive 接入方式自 %@ 起可能有变化";
+"gdrive_scope_change_title_in_effect" = "Google Drive 自 %@ 起改为选择文件接入";
 "gdrive_scope_change_summary_upcoming" = "在此之前照常使用。之后可能改为在 Google 的文件选择器里挑选歌曲加入曲库，不再整盘扫描文件夹，已添加的源也可能需要重新选择文件。";
-"gdrive_scope_change_summary_in_effect" = "Google Drive 源可能改为在 Google 的文件选择器里挑选歌曲加入曲库，不再整盘扫描文件夹，已添加的源也可能需要重新选择文件。";
+"gdrive_scope_change_summary_in_effect" = "Google Drive 源改为在 Google 的文件选择器里挑选歌曲加入曲库，不再整盘扫描文件夹；此前按文件夹添加的源需要重新选择文件。";
 "gdrive_scope_change_learn_more" = "了解详情";
 "gdrive_scope_change_sheet_title" = "Google Drive 接入调整";
 "gdrive_scope_change_changes_header" = "%@ 后可能出现的变化";
@@ -6024,11 +6023,25 @@
 "gdrive_scope_change_item_tv" = "Apple TV 上打不开 Google 的文件选择器，到时要加歌需在 iPhone、iPad 或 Mac 上选择。";
 "gdrive_scope_change_reason_header" = "为什么可能调整";
 "gdrive_scope_change_reason_policy" = "Google 规定，能读取用户整个 Google Drive 的应用，必须每年通过 Google 认可的第三方实验室安全评估（CASA），费用由开发者承担。Primuse 播放的歌曲只在你的设备和 Google 之间直接传输，不经过 Primuse 的服务器，但 Google 已明确答复：这类应用同样不能豁免，也不再接受开发者自评或减免费用。";
-"gdrive_scope_change_reason_decision" = "对独立开发的 Primuse 来说，这笔每年都要支付的评估费用难以承担，所以计划改用 Google 无需评估的「仅限你选择的文件」权限，具体做法以后续版本为准。这是 Google 平台规则带来的限制，不是 Primuse 能通过适配解决的问题。";
+"gdrive_scope_change_reason_decision" = "对独立免费开发的 Primuse 来说，这笔每年都要支付的评估费用难以承担，因此改用 Google 无需评估的「仅限你选择的文件」权限。这是 Google 平台规则带来的限制，不是 Primuse 能通过适配解决的问题。";
 "gdrive_scope_change_alternatives_header" = "曲库较大、想保留整库扫描";
 "gdrive_scope_change_alt_mac" = "Mac：安装 Google 官方的 Google Drive 桌面版，把音乐文件夹设为「可离线使用」，再在 Primuse 里添加本地文件夹并选中它，就能整库扫描、自动发现新歌。";
 "gdrive_scope_change_alt_webdav" = "所有设备（包括 Apple TV）：如果有 NAS 或常开的电脑，可以用 rclone、OpenList 等工具把 Google Drive 转成 WebDAV，再在 Primuse 里添加 WebDAV 源。授权由你自己的工具持有，不受这次调整影响。";
 "gdrive_scope_change_alt_move" = "也可以把音乐移到 Primuse 支持的其他网盘或 NAS。";
+"gdrive_choose_files" = "选择文件";
+"gdrive_status_no_files" = "尚未选择文件";
+"gdrive_scope_selected_files" = "已选择的 Google Drive 文件";
+"google_drive_file_access_disclosure" = "登录时会打开 Google 的文件选择器，Primuse 仅访问你选中的歌曲、封面和歌词文件。";
+"gdrive_no_files_chosen" = "没有在 Google Drive 中选择任何文件，所以什么都没有改动。";
+"gdrive_migration_confirm_title" = "改为只用所选文件？";
+"gdrive_migration_confirm_message_format" = "这个源的 %2$d 首歌里有 %1$d 首不在你选的文件中，之后将无法播放。它们会先留在资料库里，下次扫描后由你决定是否移除。";
+"gdrive_migration_confirm_message_unknown" = "这个源里不在你所选文件中的歌之后将无法播放。它们会先留在资料库里，下次扫描后由你决定是否移除。";
+"gdrive_migration_continue" = "使用所选文件";
+"gdrive_reselection_required" = "这个 Google Drive 源需要重新选择文件。资料库里的歌一首都没有移除。";
+"gdrive_legacy_access_disabled" = "Google 已不再允许 Primuse 读取整个 Google Drive。请选择文件以继续，资料库里的歌一首都没有移除。";
+"gdrive_removal_pending_format" = "有 %d 首歌不在你在 Google Drive 中选择的文件里，无法播放。要从资料库移除吗？";
+"gdrive_removal_keep" = "保留歌曲";
+"gdrive_tv_file_access_disclosure" = "用 iPhone 或 iPad 为这台 Apple TV 登录时，Google 的文件选择器会在手机或平板上打开；要添加文件，在那里重新登录即可。Primuse 仅访问你选中的歌曲、封面和歌词文件。";
 
 /* Apple TV 添加云盘时由手机代为登录 */
 "tv_cloud_companion_subtitle" = "用 iPhone 或 iPad 的相机扫码，在 Primuse 里登录 %@，登录结果会经局域网直接交给这台 Apple TV。";

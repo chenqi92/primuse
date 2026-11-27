@@ -382,6 +382,15 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// True for cloud sources whose new authorizations grant access to individual
+    /// user-selected files through the provider's native picker (`drive.file`)
+    /// instead of listing arbitrary folders inside Primuse. An existing source of
+    /// this type may still hold a legacy full-drive authorization; see
+    /// `MusicSource.usesGoogleDrivePickedFiles`.
+    public var usesExternalFilePicker: Bool {
+        self == .googleDrive
+    }
+
     /// 新建后要不要接着进连接页。选目录的类型之外,Audio Station 也要:
     /// 两步验证只能在那一页输入验证码,顺带申请受信设备令牌;它不选目录,
     /// 登录确认后直接扫描整库。
@@ -1955,6 +1964,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     /// library）。存「排除」而不是「包含」：服务器上新建的库默认照常进来，和一直以来的
     /// 整库行为一致；改了它算内容范围变了，下次扫描会重新对账。
     public var excludedServerLibraryIDs: [String]
+    /// Google Drive 源的访问方式,授权时写入(见 `GoogleDrivePickerPolicy`)。nil 是这一版之前
+    /// 授权的整盘源。旧版本 App 读得出带这个字段的源,但存回去时会丢掉它,所以合并远端改动时
+    /// nil 不覆盖本机的值(`GoogleDrivePickerPolicy.mergedStoredAccessMode`)。
+    public var googleDriveAccessMode: GoogleDrivePickerPolicy.AccessMode?
 
     public init(
         id: String = UUID().uuidString,
@@ -1989,7 +2002,8 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         restoredAt: Date? = nil,
         cloudAccountID: String? = nil,
         plexServerIdentifier: String? = nil,
-        excludedServerLibraryIDs: [String] = []
+        excludedServerLibraryIDs: [String] = [],
+        googleDriveAccessMode: GoogleDrivePickerPolicy.AccessMode? = nil
     ) {
         self.id = id
         self.name = name
@@ -2025,6 +2039,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.cloudAccountID = cloudAccountID
         self.plexServerIdentifier = plexServerIdentifier
         self.excludedServerLibraryIDs = excludedServerLibraryIDs
+        self.googleDriveAccessMode = googleDriveAccessMode
     }
 
     public var supportsRangeStreaming: Bool {
@@ -2089,6 +2104,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.cloudAccountID = try c.decodeIfPresent(String.self, forKey: .cloudAccountID)
         self.plexServerIdentifier = try c.decodeIfPresent(String.self, forKey: .plexServerIdentifier)
         self.excludedServerLibraryIDs = try c.decodeIfPresent([String].self, forKey: .excludedServerLibraryIDs) ?? []
+        // 以后新加的方式旧版本不认识时当作没写,别让整条音乐源读不出来。
+        self.googleDriveAccessMode = (try? c.decodeIfPresent(
+            GoogleDrivePickerPolicy.AccessMode.self, forKey: .googleDriveAccessMode
+        )) ?? nil
     }
 }
 
@@ -2778,6 +2797,12 @@ public extension MusicSource {
 /// snapshots stay readable. All scan-dir / S3-region access must go through
 /// here so the two layouts never collide again.
 public extension MusicSource {
+    /// Google Drive 源授权时存下的是「已选文件」。没存(这一版之前授权的)按整盘算。
+    var usesGoogleDrivePickedFiles: Bool {
+        type == .googleDrive
+            && GoogleDrivePickerPolicy.effectiveMode(stored: googleDriveAccessMode) == .pickedFiles
+    }
+
     /// User-selected scan directories persisted in `extraConfig`.
     var scannedDirectories: [String] {
         MusicSource.decodeScannedDirectories(extraConfig, type: type)

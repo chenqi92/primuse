@@ -1173,6 +1173,11 @@ extension SourcesStore {
             // with another device's token, otherwise the next scan needlessly
             // falls back to password + TOTP.
             merged.deviceId = existing.deviceId
+            // 旧版本 App 存回来的源不带 Google Drive 的访问方式;没带不等于整盘,留着本机的。
+            merged.googleDriveAccessMode = GoogleDrivePickerPolicy.mergedStoredAccessMode(
+                local: existing.googleDriveAccessMode,
+                remote: remote.googleDriveAccessMode
+            )
             noteSyncedIsEnabled(remote)
             // iCloud 会把本机刚推上去的那份原样拉回来。一个字段都没变的记录
             // 不落盘也不广播: 广播会被当成源被改过 —— 缓存审查、连接器重建、

@@ -121,7 +121,7 @@ enum TVCloudConnectorFactory {
         case .oneDrive: return OneDriveSource(sourceID: source.id)
         case .dropbox: return DropboxSource(sourceID: source.id)
         case .aliyunDrive: return AliyunDriveSource(sourceID: source.id)
-        case .googleDrive: return GoogleDriveSource(sourceID: source.id)
+        case .googleDrive: return GoogleDriveSource(sourceID: source.id, storedAccessMode: source.googleDriveAccessMode)
         case .baiduPan: return BaiduPanSource(sourceID: source.id)
         case .pan115: return U115Source(sourceID: source.id)
         case .pan123: return Pan123Source(sourceID: source.id)

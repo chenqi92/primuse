@@ -236,8 +236,11 @@ struct SourceFolderPage: View {
     }
 
     /// 有选目录这一步的源,扫描目录直接在文件页里勾,不再弹选目录页。
+    /// Google Drive 改用外部文件选择器授权单个文件,不走站内目录勾选。
     static func canEditScope(_ source: MusicSource) -> Bool {
-        source.type.continuesToDirectorySelectionAfterCreation && !source.type.scansEntireLibrary
+        source.type.continuesToDirectorySelectionAfterCreation
+            && !source.type.scansEntireLibrary
+            && !source.type.usesExternalFilePicker
     }
 
     private var isEditingScope: Bool {
@@ -278,6 +281,7 @@ struct SourceFolderPage: View {
                         scope: scope,
                         songCount: countsFolders ? model.index.songCount(inFolder: location.path) : nil,
                         isRoot: location.isRoot,
+                        usesExternalFilePicker: current.type.usesExternalFilePicker,
                         canScanHere: ScanService.supportsFolderRescan(current) && current.isEnabled,
                         onScanHere: { scanHere(location, mode: $0) },
                         onManage: manageDirectories
@@ -405,12 +409,23 @@ struct SourceFolderPage: View {
         case .loaded(let listing):
             if listing.folders.isEmpty && listing.audioFiles.isEmpty {
                 Section {
-                    Text(listing.otherFileCount > 0
-                         ? String(format: String(localized: "source_files_other_files_format"), listing.otherFileCount)
-                         : String(localized: "source_files_empty"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 20)
+                    VStack(spacing: 12) {
+                        Text(listing.otherFileCount > 0
+                             ? String(format: String(localized: "source_files_other_files_format"), listing.otherFileCount)
+                             : String(localized: current.type.usesExternalFilePicker ? "gdrive_status_no_files" : "source_files_empty"))
+                            .foregroundStyle(.secondary)
+                        if current.type.usesExternalFilePicker, location.isRoot {
+                            Button(action: manageDirectories) {
+                                Label("gdrive_choose_files", systemImage: "doc.badge.plus")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .prominentLabelOnAccent()
+                            .controlSize(.small)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 20)
                 }
             } else {
                 if !listing.folders.isEmpty {
@@ -546,7 +561,11 @@ struct SourceFolderPage: View {
                         }
                     }
                     Section {
-                        if !current.type.scansEntireLibrary {
+                        if current.type.usesExternalFilePicker {
+                            Button(action: manageDirectories) {
+                                Label("gdrive_choose_files", systemImage: "doc.badge.plus")
+                            }
+                        } else if !current.type.scansEntireLibrary {
                             Button(action: manageDirectories) {
                                 Label("manage_dirs", systemImage: "folder.badge.gear")
                             }
@@ -1113,6 +1132,7 @@ private struct SourceFolderScopeBanner: View {
     let scope: SourceFolderScope
     let songCount: Int?
     let isRoot: Bool
+    var usesExternalFilePicker = false
     let canScanHere: Bool
     let onScanHere: (SourceSyncMode) -> Void
     let onManage: () -> Void
@@ -1122,7 +1142,8 @@ private struct SourceFolderScopeBanner: View {
     }
 
     private var manageTitle: LocalizedStringKey {
-        scope == .noSelections ? "source_files_choose_directories" : "manage_dirs"
+        if usesExternalFilePicker { return "gdrive_choose_files" }
+        return scope == .noSelections ? "source_files_choose_directories" : "manage_dirs"
     }
 
     var body: some View {
@@ -1144,6 +1165,11 @@ private struct SourceFolderScopeBanner: View {
             }
             Spacer(minLength: 8)
             if scope.isScanned {
+                if usesExternalFilePicker, isRoot {
+                    Button(manageTitle, action: onManage)
+                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.borderless)
+                }
                 if canScanHere {
                     Menu {
                         FolderScanMenuItems(scan: onScanHere)
@@ -1166,6 +1192,9 @@ private struct SourceFolderScopeBanner: View {
     }
 
     private var title: String {
+        if usesExternalFilePicker {
+            return String(localized: scope.isScanned ? "gdrive_scope_selected_files" : "gdrive_status_no_files")
+        }
         switch scope {
         case .wholeSource, .included:
             return String(localized: "source_files_scope_included")

@@ -2423,7 +2423,6 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "システムブラウザで認証";
-"google_drive_full_access_disclosure" = "Google Drive では、既存の音楽ライブラリの参照、カバーと LRC サイドカーの書き込み、明示的に削除したファイルのゴミ箱への移動のため、Drive 全体へのアクセスを求めます。Primuse は共有権限を変更せず、ゴミ箱を完全には空にしません。";
 "cloud_oauth_checking" = "認証状態を確認中…";
 "cloud_setup_needs_creds_title" = "デベロッパー認証情報が必要です";
 "cloud_setup_needs_creds_desc" = "まず「ソースを編集」で Client ID を入力してから、戻って接続を認証してください。";
@@ -5918,9 +5917,9 @@
 
 /* Google Drive が「選択したファイルのみ」の権限に切り替わることのお知らせ */
 "gdrive_scope_change_title_upcoming" = "Google Drive の接続方法は %@ 以降に変わる可能性があります";
-"gdrive_scope_change_title_in_effect" = "Google Drive の接続方法は %@ から変わる可能性があります";
+"gdrive_scope_change_title_in_effect" = "Google Drive は %@ よりファイル選択方式になりました";
 "gdrive_scope_change_summary_upcoming" = "それまではこれまでどおり使えます。その後は、Primuse がフォルダ全体をスキャンする代わりに、Google のファイル選択画面で曲を選んでライブラリに追加する方式になる可能性があります。追加済みのソースも、ファイルを選び直す必要が生じる場合があります。";
-"gdrive_scope_change_summary_in_effect" = "Google Drive ソースは、Primuse がフォルダ全体をスキャンする代わりに、Google のファイル選択画面で曲を選んでライブラリに追加する方式になる可能性があります。追加済みのソースも、ファイルを選び直す必要が生じる場合があります。";
+"gdrive_scope_change_summary_in_effect" = "Google Drive ソースはフォルダ全体のスキャンではなく、Google のファイルピッカーで曲を選ぶ方式になりました。以前フォルダで追加したソースはファイルを再度選択する必要があります。";
 "gdrive_scope_change_learn_more" = "詳しく見る";
 "gdrive_scope_change_sheet_title" = "Google Drive の接続方法の変更";
 "gdrive_scope_change_changes_header" = "%@ 以降に考えられる変更点";
@@ -5932,11 +5931,25 @@
 "gdrive_scope_change_item_tv" = "Apple TV では Google のファイル選択画面を開けないため、その場合は iPhone、iPad、または Mac で曲を選ぶことになります。";
 "gdrive_scope_change_reason_header" = "変更の可能性がある理由";
 "gdrive_scope_change_reason_policy" = "Google は、ユーザーの Google Drive 全体を読み取れるアプリに対し、Google が認定した第三者機関によるセキュリティ評価（CASA）に毎年合格することを義務付けており、その費用は開発者の負担です。Primuse で再生する曲はお使いのデバイスと Google の間で直接やり取りされ、Primuse のサーバーを経由することはありませんが、Google からは、こうしたアプリも免除の対象外であり、開発者による自己評価や費用の減免も今後は受け付けないとの明確な回答がありました。";
-"gdrive_scope_change_reason_decision" = "個人で開発している Primuse にとって、毎年かかるこの評価費用を負担し続けるのは困難です。そのため、評価が不要な Google の「選択したファイルのみ」の権限に切り替える予定です。具体的な方法は今後のアップデートで決まります。これは Google のプラットフォームの規則による制限で、Primuse 側の対応で解決できる問題ではありません。";
+"gdrive_scope_change_reason_decision" = "個人開発の無料アプリである Primuse にとって毎年の評価費用は負担が大きいため、評価不要の「選択したファイルのみ」権限を使用しています。これは Google 側のプラットフォーム規則による制限です。";
 "gdrive_scope_change_alternatives_header" = "ライブラリが大きく、フォルダ全体をスキャンしたい場合";
 "gdrive_scope_change_alt_mac" = "Mac：Google 公式の「パソコン版 Google ドライブ」をインストールし、音楽フォルダを「オフラインで使用可能」に設定してから、Primuse でローカルフォルダとして追加して選択します。ライブラリ全体をスキャンし、新しい曲も自動で見つけます。";
 "gdrive_scope_change_alt_webdav" = "すべてのデバイス（Apple TV を含む）：NAS や常時起動しているコンピュータがあれば、rclone や OpenList などのツールで Google Drive を WebDAV として公開し、Primuse で WebDAV ソースを追加できます。認証はご自身のツールが保持するため、今回の変更の影響を受けません。";
 "gdrive_scope_change_alt_move" = "Primuse が対応している他のクラウドストレージや NAS に音楽を移すこともできます。";
+"gdrive_choose_files" = "ファイルを選択";
+"gdrive_status_no_files" = "ファイルが選択されていません";
+"gdrive_scope_selected_files" = "選択済みの Google Drive ファイル";
+"google_drive_file_access_disclosure" = "サインインすると Google のファイルピッカーが開きます。Primuse は選択した曲、カバー、歌詞ファイルのみにアクセスします。";
+"gdrive_no_files_chosen" = "Google Drive でファイルが選択されなかったため、何も変更していません。";
+"gdrive_migration_confirm_title" = "選択したファイルに切り替えますか？";
+"gdrive_migration_confirm_message_format" = "このソースの %2$d 曲のうち %1$d 曲は選択したファイルに含まれていないため、再生できなくなります。ライブラリにはいったん残り、次回のスキャン後に削除するかどうかを選べます。";
+"gdrive_migration_confirm_message_unknown" = "このソースの曲のうち、選択したファイルに含まれていない曲は再生できなくなります。ライブラリにはいったん残り、次回のスキャン後に削除するかどうかを選べます。";
+"gdrive_migration_continue" = "選択したファイルを使用";
+"gdrive_reselection_required" = "この Google Drive ソースはファイルを選択し直す必要があります。ライブラリからは何も削除されていません。";
+"gdrive_legacy_access_disabled" = "Google は Primuse による Google Drive 全体の読み取りを許可しなくなりました。続けるにはファイルを選択してください。ライブラリからは何も削除されていません。";
+"gdrive_removal_pending_format" = "%d 曲が Google Drive で選択したファイルに含まれておらず、再生できません。ライブラリから削除しますか？";
+"gdrive_removal_keep" = "曲を残す";
+"gdrive_tv_file_access_disclosure" = "この Apple TV 用に iPhone または iPad でサインインすると、Google のファイルピッカーはそちらで開きます。ファイルを追加するには、そこでもう一度サインインしてください。Primuse は選択した曲、カバー、歌詞ファイルのみにアクセスします。";
 
 /* Signing in to a cloud drive for Apple TV from a phone */
 "tv_cloud_companion_subtitle" = "iPhone または iPad のカメラでスキャンし、Primuse で %@ にサインインしてください。サインイン結果はローカルネットワーク経由でこの Apple TV に直接届きます。";

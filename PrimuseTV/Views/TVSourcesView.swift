@@ -81,7 +81,13 @@ struct TVSourcesView: View {
                         Text(PMString("ext.tv.sources.title", sources.count))
                             .tvFont(.pageTitle).foregroundStyle(TVColor.text)
                             .padding(.bottom, 22)
-                        if sources.contains(where: { $0.type == MusicSourceType.googleDrive.rawValue }) {
+                        if sources.contains(where: { item in
+                            guard let src = store.source(id: item.id), src.type == .googleDrive else { return false }
+                            return GoogleDrivePickerPolicy.showsLegacyAccessReminder(
+                                storedMode: src.googleDriveAccessMode,
+                                configuredRoots: src.scannedDirectories
+                            )
+                        }) {
                             TVGoogleDriveAccessChangeCard { showsGoogleDriveAccessChange = true }
                                 .padding(.bottom, 12)
                         }
@@ -104,7 +110,9 @@ struct TVSourcesView: View {
                                                     TVSourceEditPolicy.canEdit
                                                 ) ?? false,
                                                 canIncrementalScan: store.source(id: s.id).map {
+                                                    // 已选文件源在电视上只有固定的「扫描 /」;整盘旧源照旧按文件夹增量扫描。
                                                     !TVSourceScanner.serverCatalogTypes.contains($0.type)
+                                                        && !$0.usesGoogleDrivePickedFiles
                                                 } ?? false,
                                                 hiddenPlaylistCount: store.library.hiddenMirrorPlaylists(forSourceID: s.id).count,
                                                 localRemovalCount: localRemovalCounts[s.id] ?? 0,
@@ -362,7 +370,7 @@ struct TVSourcesView: View {
         }
         #if DEBUG
         .tvFullScreenCover(item: $debugCompanionAuthSource) { source in
-            TVCloudCompanionAuthView(source: source, onAuthorized: { debugCompanionAuthSource = nil })
+            TVCloudCompanionAuthView(source: source, onAuthorized: { _ in debugCompanionAuthSource = nil })
         }
         .task {
             await openDebugScreenIfNeeded()

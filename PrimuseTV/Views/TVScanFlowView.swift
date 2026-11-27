@@ -80,6 +80,9 @@ struct TVScanFlowView: View {
             } else if TVSourceScanner.serverCatalogTypes.contains(source.type) {
                 // 整库型来源没有目录可选,直接给「开始扫描」。
                 fnMusicPickView
+            } else if currentSource.usesGoogleDrivePickedFiles {
+                // 只有授权时存下「已选文件」的源用固定的「扫描 /」页;整盘旧源照旧选文件夹扫描。
+                googleDrivePickView
             } else if rereadMetadata && !source.scannedDirectories.isEmpty {
                 VStack(alignment: .leading, spacing: 24) {
                     Text(PMString("tv_metadata_reread")).tvFont(.pageTitle)
@@ -129,7 +132,7 @@ struct TVScanFlowView: View {
             }
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
                 && source.type != .audiobookshelf && source.type != .tingReader, lister == nil {
-                lister = store.makeLister(for: source)
+                lister = store.makeLister(for: currentSource)
                 selected = mode == .incremental ? [] : source.scannedDirectories
                 #if DEBUG
                 if let preset = TVDebugLaunch.scanPreset { selected = preset }
@@ -140,7 +143,11 @@ struct TVScanFlowView: View {
                     return
                 }
                 #endif
-                if !rereadMetadata || selected.isEmpty { load("/") }
+                if currentSource.usesGoogleDrivePickedFiles {
+                    selected = [GoogleDrivePickerPolicy.authorizedFilesRootPath]
+                } else if !rereadMetadata || selected.isEmpty {
+                    load("/")
+                }
             }
         }
     }
@@ -188,6 +195,78 @@ struct TVScanFlowView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var googleDrivePickView: some View {
+        VStack(spacing: 28) {
+            Image(systemName: source.type.iconName)
+                .font(.system(size: 66, weight: .semibold))
+                .foregroundStyle(TVColor.onBrand)
+                .frame(width: 132, height: 132)
+                .background(TVColor.brand, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+            VStack(spacing: 10) {
+                TVEyebrow(text: source.type.displayName)
+                Text(String(localized: "gdrive_scope_selected_files"))
+                    .tvFont(size: 42, weight: .bold, relativeTo: .title)
+                    .foregroundStyle(TVColor.text)
+                // 电视上没有选择器:文件是在手机上代登录时选的。
+                Text(String(localized: "gdrive_tv_file_access_disclosure"))
+                    .tvFont(.meta)
+                    .foregroundStyle(TVColor.textFaint)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 760)
+            }
+            TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startGoogleDriveScan) { focused in
+                Label(scanActionTitle, systemImage: "arrow.triangle.2.circlepath")
+                    .tvFont(.eyebrow, weight: .bold)
+                    .foregroundStyle(TVColor.onBrand)
+                    .padding(.horizontal, 46)
+                    .padding(.vertical, 20)
+                    .background(TVColor.brand.opacity(focused ? 1 : 0.88), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            if let browseError {
+                Text(browseError)
+                    .tvFont(.caption, weight: .semibold)
+                    .foregroundStyle(TVColor.warn)
+            }
+            TVFocusButton(radius: 16, scale: 1.04, lift: 0, action: { dismiss() }) { focused in
+                Text(PMString("ext.tv.sources.cancel"))
+                    .tvFont(.meta, weight: .medium)
+                    .foregroundStyle(TVColor.text)
+                    .padding(.horizontal, 40)
+                    .padding(.vertical, 14)
+                    .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 存储里的最新一行:代登录会在这一页打开之后改写访问方式。
+    private var currentSource: MusicSource {
+        store.source(id: source.id) ?? source
+    }
+
+    private func startGoogleDriveScan() {
+        guard let lister else {
+            browseError = PMString("ext.tv.scan.connectFailed")
+            return
+        }
+        let currentSource = self.currentSource
+        loadTask?.cancel()
+        started = true
+        Task {
+            let admitted = await store.runScan(
+                source: currentSource,
+                lister: lister,
+                dirs: [GoogleDrivePickerPolicy.authorizedFilesRootPath],
+                rereadMetadata: rereadMetadata,
+                mode: .full,
+                directoryNames: [:]
+            )
+            guard !admitted, !Task.isCancelled else { return }
+            browseError = PMString("ext.tv.scan.busy")
+            started = false
+        }
     }
 
     private var pickView: some View {

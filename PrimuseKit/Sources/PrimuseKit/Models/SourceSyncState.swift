@@ -320,6 +320,12 @@ public struct SourceSyncReconciliation: Codable, Sendable, Equatable {
         /// A server catalogue lost an unusually large share of its rows in one
         /// pass. Removal is held back until extra witnesses agree.
         case serverCatalogMassDisappearance
+        /// Google Drive 已选文件:列表里没有的歌,等用户确认才移除(见 `GoogleDrivePickedFilesRemovalPolicy`)。
+        case pickedFilesRemovalConfirmation
+        /// 用户选了保留:照旧留着、不再提示。
+        case pickedFilesRemovalKept
+        /// 用户确认了移除:下一次完整扫描只移除这些、而且仍然不在列表里的歌。
+        case pickedFilesRemovalConfirmed
     }
 
     public var kind: Kind

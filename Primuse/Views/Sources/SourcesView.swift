@@ -1112,7 +1112,11 @@ struct SourcesContentView: View {
             }
             .accessibilityIdentifier("sources.card.\(source.id)")
 
-            if source.type == .googleDrive {
+            if source.type == .googleDrive,
+               GoogleDrivePickerPolicy.showsLegacyAccessReminder(
+                   storedMode: source.googleDriveAccessMode,
+                   configuredRoots: dirs
+               ) {
                 GoogleDriveAccessChangeNotice()
             }
 
@@ -1182,7 +1186,8 @@ struct SourcesContentView: View {
                     alignment: .center
                 )
             } else {
-                if SourceFileBrowserPolicy.browsesFiles(source.type) {
+                if SourceFileBrowserPolicy.browsesFiles(source.type),
+                   !source.type.usesExternalFilePicker {
                     SourceMetricTile(
                         value: sourceCardDirectoryCount(dirs, wholeSource: source.type.scansEntireLibrary),
                         label: String(localized: "source_card_metric_folders"),
@@ -1311,13 +1316,18 @@ struct SourcesContentView: View {
                 .foregroundStyle(.orange)
                 .lineLimit(2)
         } else if let message = scanning?.reconciliationMessage, !message.isEmpty {
-            Label {
-                Text(message).lineLimit(2)
-            } icon: {
-                Image(systemName: "checkmark.shield.fill")
+            VStack(alignment: .leading, spacing: 6) {
+                Label {
+                    Text(message).lineLimit(scanning?.pickedFilesRemovalCount == nil ? 2 : 3)
+                } icon: {
+                    Image(systemName: "checkmark.shield.fill")
+                }
+                .font(.caption)
+                .foregroundStyle(.orange)
+                if scanning?.pickedFilesRemovalCount != nil {
+                    PickedFilesRemovalActions(sourceID: source.id)
+                }
             }
-            .font(.caption)
-            .foregroundStyle(.orange)
         } else {
             sourceCardIdleStatus(source, dirs: dirs, isSourceCaching: isSourceCaching)
         }
@@ -1387,7 +1397,7 @@ struct SourcesContentView: View {
         if SourceFileBrowserPolicy.browsesFiles(source.type),
            !source.type.scansEntireLibrary,
            dirs.isEmpty {
-            return String(localized: "source_card_status_no_directories")
+            return String(localized: source.type.usesExternalFilePicker ? "gdrive_status_no_files" : "source_card_status_no_directories")
         }
         guard let lastScannedAt = source.lastScannedAt else {
             return String(localized: "source_card_status_never_scanned")
@@ -1446,7 +1456,11 @@ struct SourcesContentView: View {
         } else if SourceFileBrowserPolicy.browsesFiles(source.type),
                   !source.type.scansEntireLibrary,
                   dirs.isEmpty {
-            sourceFooterButton("source_files_choose_directories", systemImage: "folder.badge.plus", prominence: .accent) {
+            sourceFooterButton(
+                source.type.usesExternalFilePicker ? "gdrive_choose_files" : "source_files_choose_directories",
+                systemImage: source.type.usesExternalFilePicker ? "doc.badge.plus" : "folder.badge.plus",
+                prominence: .accent
+            ) {
                 openForDirectorySelection(source)
             }
         } else {
@@ -1533,7 +1547,10 @@ struct SourcesContentView: View {
             }
             if !isSystemSource, !source.type.scansEntireLibrary, SourceFileBrowserPolicy.browsesFiles(source.type) {
                 Button { openForDirectorySelection(source) } label: {
-                    Label("manage_dirs", systemImage: "folder.badge.gear")
+                    Label(
+                        source.type.usesExternalFilePicker ? "gdrive_choose_files" : "manage_dirs",
+                        systemImage: source.type.usesExternalFilePicker ? "doc.badge.plus" : "folder.badge.gear"
+                    )
                 }
             }
             if source.type == .synologyAudioStation {
@@ -2360,7 +2377,20 @@ struct SourcesContentView: View {
              .guangya, .pcloud:
             CloudDriveConnectionView(
                 source: source,
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onFilesPicked: source.type.usesExternalFilePicker ? {
+                    // 选完文件按改了扫描目录的路子扫:停掉正在跑的、丢掉旧断点、完整扫一遍。
+                    cancelDirectorySelectionSession()
+                    Task {
+                        await scanService.scanAfterPickedFilesChange(
+                            sourceID: source.id,
+                            sourceManager: sourceManager,
+                            library: library,
+                            sourceStore: sourceStore,
+                            scraperService: scraperService
+                        )
+                    }
+                } : nil
             )
         default:
             ContentUnavailableView(

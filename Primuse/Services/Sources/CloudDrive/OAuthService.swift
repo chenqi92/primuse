@@ -68,13 +68,37 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
         // 3. Extract authorization code from callback (校验 state 一致后才接受)
         let code = try extractCode(from: callbackURL, expectedState: state, config: config)
+        var pickedFileIDs: [String] = []
+        if config.provider == .googleDrive {
+            // 选择器回来没带文件就停在这里,连授权码都不换:令牌、目录、扫描一样都不动。
+            switch GoogleDrivePickerPolicy.callbackSelection(from: callbackURL) {
+            case .nothingChosen:
+                plog("☁️ Google Drive picker returned without picked files; nothing is changed")
+                throw OAuthError.noFilesChosen
+            case .chosen(let ids):
+                pickedFileIDs = ids
+            }
+        }
 
         // 4. Exchange code for tokens
-        let tokens = try await exchangeCodeForTokens(
+        var tokens = try await exchangeCodeForTokens(
             code: code,
             config: config,
             codeVerifier: pkce?.verifier
         )
+
+        if config.provider == .googleDrive {
+            var callbackExtra: [String: String] = [:]
+            if let encodedIDs = GoogleDrivePickerPolicy.encodePickedFileIDs(pickedFileIDs) {
+                callbackExtra[GoogleDrivePickerPolicy.pickedFileIDsExtraKey] = encodedIDs
+            }
+            let fallbackScope = config.scopes.joined(separator: config.scopeSeparator)
+            tokens.extra = GoogleDrivePickerPolicy.mergedTokenExtra(
+                existing: tokens.extra,
+                incoming: callbackExtra,
+                grantedScope: tokens.extra?[GoogleDrivePickerPolicy.oauthScopeExtraKey] ?? fallbackScope
+            )
+        }
 
         return tokens
     }
@@ -417,10 +441,17 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         let expiresAt = Date().addingTimeInterval(expiresIn)
         plog("☁️ OAuth token OK provider=\(providerName(for: config.tokenURL)) refresh=\(refreshToken != nil) expiresIn=\(Int(expiresIn))s")
 
-        // Extract extra fields (e.g. drive_id for Aliyun)
-        var extra: [String: String]?
+        // Extract extra fields (e.g. drive_id for Aliyun, oauth_scope for Google Drive)
+        var extra: [String: String] = [:]
         if let driveId = json["default_drive_id"] as? String {
-            extra = ["drive_id": driveId]
+            extra["drive_id"] = driveId
+        }
+        // 授权范围只对 Google Drive 有意义(区分整盘与已选文件),别的网盘不存。
+        if config.provider == .googleDrive,
+           let grantedScope = (json["scope"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !grantedScope.isEmpty {
+            extra[GoogleDrivePickerPolicy.oauthScopeExtraKey] = grantedScope
         }
 
         return CloudTokenManager.Tokens(
@@ -428,7 +459,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             refreshToken: refreshToken,
             expiresAt: expiresAt,
             tokenType: json["token_type"] as? String,
-            extra: extra
+            extra: extra.isEmpty ? nil : extra
         )
     }
 
@@ -556,6 +587,8 @@ enum OAuthError: Error, LocalizedError {
     case invalidCallback(String)
     case authorizationDenied(String, String?)
     case tokenExchangeFailed(String)
+    /// Google 文件选择器回来时没有带回任何文件。
+    case noFilesChosen
 
     var errorDescription: String? {
         switch self {
@@ -577,6 +610,8 @@ enum OAuthError: Error, LocalizedError {
             )
         case .tokenExchangeFailed(let message):
             return String(format: String(localized: "error_oauth_token_exchange %@"), message)
+        case .noFilesChosen:
+            return String(localized: "gdrive_no_files_chosen")
         }
     }
 }

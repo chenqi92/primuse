@@ -1419,7 +1419,7 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     let resolved = try await CloudDriveStreamResolver().resolve(
         for: song, source: source, credential: SourceCredential(token: "GT"))
     #expect(resolved.url.absoluteString
-            == "https://www.googleapis.com/drive/v3/files/FILEID123?alt=media&acknowledgeAbuse=true")
+            == "https://www.googleapis.com/drive/v3/files/FILEID123?alt=media&acknowledgeAbuse=true&supportsAllDrives=true")
     #expect(resolved.headers["Authorization"] == "Bearer GT")
 }
 

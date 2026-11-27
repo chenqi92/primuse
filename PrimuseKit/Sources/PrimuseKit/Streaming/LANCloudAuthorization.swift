@@ -64,6 +64,8 @@ public struct LANCloudAuthorizationPayload: Codable, Sendable, Equatable {
     public var refreshToken: String?
     public var expiresAt: Date?
     public var tokenType: String?
+    public var scope: String?
+    public var pickedFileIDs: [String]?
 
     public init(
         provider: MusicSourceType,
@@ -71,7 +73,9 @@ public struct LANCloudAuthorizationPayload: Codable, Sendable, Equatable {
         accessToken: String,
         refreshToken: String?,
         expiresAt: Date?,
-        tokenType: String?
+        tokenType: String?,
+        scope: String? = nil,
+        pickedFileIDs: [String]? = nil
     ) {
         self.provider = provider.rawValue
         self.clientID = clientID
@@ -79,6 +83,8 @@ public struct LANCloudAuthorizationPayload: Codable, Sendable, Equatable {
         self.refreshToken = refreshToken
         self.expiresAt = expiresAt
         self.tokenType = tokenType
+        self.scope = scope
+        self.pickedFileIDs = pickedFileIDs
     }
 
     public func jsonData() throws -> Data { try JSONEncoder().encode(self) }

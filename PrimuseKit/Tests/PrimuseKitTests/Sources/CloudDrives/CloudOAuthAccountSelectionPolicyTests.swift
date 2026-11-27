@@ -59,14 +59,26 @@ struct CloudOAuthAccountSelectionPolicyTests {
         ).isEmpty)
     }
 
-    @Test("Google requests refreshable access for every mount")
+    @Test("Google requests refreshable drive.file Picker access for every mount")
     func googleOfflineAccess() {
         let parameters = CloudOAuthAccountSelectionPolicy.authorizationParameters(
             provider: .googleDrive,
             intent: .standard
         )
         #expect(parameters["access_type"] == "offline")
-        #expect(parameters["include_granted_scopes"] == "true")
+        #expect(parameters["trigger_onepick"] == "true")
+        #expect(parameters["allow_multiple"] == "true")
+        #expect(parameters["prompt"] == "consent")
+        #expect(parameters["include_granted_scopes"] == nil)
+        #expect(parameters["allow_folder_selection"] == nil)
+
+        let switching = CloudOAuthAccountSelectionPolicy.authorizationParameters(
+            provider: .googleDrive,
+            intent: .differentAccount
+        )
+        #expect(switching["prompt"] == "select_account consent")
+        #expect(switching["trigger_onepick"] == "true")
+        #expect(switching["allow_multiple"] == "true")
     }
 
     @Test("Provider parameters replace duplicate URL query keys")

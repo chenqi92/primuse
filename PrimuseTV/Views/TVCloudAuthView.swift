@@ -298,8 +298,9 @@ struct TVCloudCompanionAuthView: View {
     @Environment(\.dismiss) private var dismiss
 
     let source: MusicSource
-    /// 授权成功回调:此时 token 已落钥匙串,调用方继续保存音乐源即可。
-    let onAuthorized: () -> Void
+    /// 授权成功回调:此时 token 已落钥匙串,调用方继续保存音乐源即可。参数是这次授权的
+    /// Google Drive 访问方式,调用方存进源里;别的云盘为 nil。
+    let onAuthorized: (GoogleDrivePickerPolicy.AccessMode?) -> Void
 
     @State private var model = TVCloudCompanionAuthModel()
 
@@ -415,6 +416,14 @@ struct TVCloudCompanionAuthView: View {
 @MainActor
 @Observable
 final class TVCloudCompanionAuthModel {
+
+    private(set) var phase: Phase = .starting
+    @ObservationIgnored private var server: TVConfigServer?
+    @ObservationIgnored private var source: MusicSource?
+    @ObservationIgnored private var onAuthorized: ((GoogleDrivePickerPolicy.AccessMode?) -> Void)?
+}
+
+extension TVCloudCompanionAuthModel {
     enum Phase: Equatable {
         case starting
         case waiting(LANCloudAuthorizationLink)
@@ -423,13 +432,8 @@ final class TVCloudCompanionAuthModel {
         case failed(String)
     }
 
-    private(set) var phase: Phase = .starting
-    @ObservationIgnored private var server: TVConfigServer?
-    @ObservationIgnored private var source: MusicSource?
-    @ObservationIgnored private var onAuthorized: (() -> Void)?
-
     /// 起一个新端点。再调一次就是「换一个码」:旧端点连同它的密钥一起作废。
-    func start(source: MusicSource, onAuthorized: @escaping () -> Void) {
+    func start(source: MusicSource, onAuthorized: @escaping (GoogleDrivePickerPolicy.AccessMode?) -> Void) {
         stop()
         self.source = source
         self.onAuthorized = onAuthorized
@@ -477,6 +481,14 @@ final class TVCloudCompanionAuthModel {
         }
         phase = .saving
         let manager = CloudTokenManager(sourceID: source.id)
+        // 旧版手机传来的授权没有 `scope`:那是整盘令牌,按整盘存,不默认成 drive.file。
+        let googleAuthorization: GoogleDrivePickerPolicy.ProxyLoginAuthorization? = source.type == .googleDrive
+            ? GoogleDrivePickerPolicy.proxyLoginAuthorization(
+                existingExtra: await manager.getTokens()?.extra,
+                payloadScope: payload.scope,
+                payloadPickedFileIDs: payload.pickedFileIDs
+            )
+            : nil
         let credentialsSaved = await manager.saveAppCredentials(
             CloudTokenManager.AppCredentials(clientId: payload.clientID, clientSecret: nil)
         )
@@ -486,7 +498,7 @@ final class TVCloudCompanionAuthModel {
                 refreshToken: payload.refreshToken,
                 expiresAt: payload.expiresAt,
                 tokenType: payload.tokenType,
-                extra: nil
+                extra: googleAuthorization?.tokenExtra
             )
         )
         guard credentialsSaved, tokensSaved else {
@@ -494,12 +506,12 @@ final class TVCloudCompanionAuthModel {
             phase = .failed(String(localized: "tv_cloud_companion_save_failed"))
             return false
         }
-        plog("☁️ TV companion sign-in saved type=\(source.type.rawValue) source=\(source.id.prefix(8))…")
+        plog("☁️ TV companion sign-in saved type=\(source.type.rawValue) source=\(source.id.prefix(8))… mode=\(googleAuthorization?.accessMode.rawValue ?? "-")")
         phase = .done
         // 先让手机收到 200,也让「登录成功」停留片刻,再交回表单去保存音乐源。
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(800))
-            self?.onAuthorized?()
+            self?.onAuthorized?(googleAuthorization?.accessMode)
         }
         return true
     }

@@ -472,7 +472,11 @@ struct MacSourcesView: View {
                 SourceUnreachableNotice(source: source)
             }
 
-            if source.type == .googleDrive {
+            if source.type == .googleDrive,
+               GoogleDrivePickerPolicy.showsLegacyAccessReminder(
+                   storedMode: source.googleDriveAccessMode,
+                   configuredRoots: dirs
+               ) {
                 GoogleDriveAccessChangeNotice()
             }
 
@@ -537,7 +541,10 @@ struct MacSourcesView: View {
             // 卡片上的「浏览」换成了文件页,选目录挪到这里和文件页的「更多」里。
             if source.type.continuesToDirectorySelectionAfterCreation {
                 Button { connectingSource = source } label: {
-                    Label("manage_dirs", systemImage: "folder.badge.gear")
+                    Label(
+                        source.type.usesExternalFilePicker ? "gdrive_choose_files" : "manage_dirs",
+                        systemImage: source.type.usesExternalFilePicker ? "doc.badge.plus" : "folder.badge.gear"
+                    )
                 }
             }
             if source.type == .synologyAudioStation {
@@ -652,12 +659,18 @@ struct MacSourcesView: View {
             .pmAppearFade(.contentAppear)
         } else if let reconciliationMessage = scanning?.reconciliationMessage,
                   !reconciliationMessage.isEmpty {
-            Label {
-                Text(reconciliationMessage)
-                    .font(.system(size: 10.5))
-                    .fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: "checkmark.shield.fill")
+            VStack(alignment: .leading, spacing: 6) {
+                Label {
+                    Text(reconciliationMessage)
+                        .font(.system(size: 10.5))
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "checkmark.shield.fill")
+                }
+                if scanning?.pickedFilesRemovalCount != nil {
+                    PickedFilesRemovalActions(sourceID: source.id)
+                        .controlSize(.small)
+                }
             }
             .foregroundStyle(.orange)
             .padding(10)
@@ -829,10 +842,17 @@ struct MacSourcesView: View {
                 }
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else if dirs.isEmpty {
-                pill("connect_select_dirs", systemImage: "link", tint: theme.uiAccentColor) { connectingSource = source }
+                pill(
+                    source.type.usesExternalFilePicker ? "gdrive_choose_files" : "connect_select_dirs",
+                    systemImage: source.type.usesExternalFilePicker ? "doc.badge.plus" : "link",
+                    tint: theme.uiAccentColor
+                ) { connectingSource = source }
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else {
                 scanPill(source, scanning: scanning)
+                if source.type.usesExternalFilePicker {
+                    pill("gdrive_choose_files", systemImage: "doc.badge.plus") { connectingSource = source }
+                }
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             }
 
@@ -1201,7 +1221,23 @@ struct MacSourcesView: View {
             )
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
              .guangya, .pcloud:
-            CloudDriveConnectionView(source: source, selectedDirectories: selectedDirectories)
+            CloudDriveConnectionView(
+                source: source,
+                selectedDirectories: selectedDirectories,
+                onFilesPicked: source.type.usesExternalFilePicker ? {
+                    // 选完文件按改了扫描目录的路子扫:停掉正在跑的、丢掉旧断点、完整扫一遍。
+                    cancelDirectorySelectionSession()
+                    Task {
+                        await scanService.scanAfterPickedFilesChange(
+                            sourceID: source.id,
+                            sourceManager: sourceManager,
+                            library: library,
+                            sourceStore: sourceStore,
+                            scraperService: scraperService
+                        )
+                    }
+                } : nil
+            )
         default:
             ContentUnavailableView(
                 "connection_failed",

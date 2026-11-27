@@ -454,9 +454,9 @@ struct TVSourceFormView: View {
             if LANCloudAuthorizationLink.supportedProviders.contains(request.source.type) {
                 TVCloudCompanionAuthView(
                     source: request.source,
-                    onAuthorized: {
+                    onAuthorized: { accessMode in
                         cloudAuthRequest = nil
-                        commitCloudDrive(request.source)
+                        commitCloudDrive(request.source, googleDriveAccessMode: accessMode)
                     }
                 )
             } else {
@@ -1455,17 +1455,34 @@ struct TVSourceFormView: View {
         }
     }
 
-    private func commitCloudDrive(_ src: MusicSource) {
+    /// - Parameter googleDriveAccessMode: 手机代登录时这次授权的访问方式,存进源里。已有源的扫描目录
+    ///   不在这里改:整盘旧源照旧按文件夹扫;改成已选文件的旧源在扫描页上改成「扫描 /」,
+    ///   在那之前列目录会提示重新选择,不会只列出一部分。
+    private func commitCloudDrive(
+        _ src: MusicSource,
+        googleDriveAccessMode: GoogleDrivePickerPolicy.AccessMode? = nil
+    ) {
+        var prepared = src
+        if prepared.type == .googleDrive, let googleDriveAccessMode {
+            prepared.googleDriveAccessMode = googleDriveAccessMode
+            if editing == nil, googleDriveAccessMode == .pickedFiles {
+                prepared.extraConfig = MusicSource.encodeScannedDirectories(
+                    [GoogleDrivePickerPolicy.authorizedFilesRootPath],
+                    into: prepared.extraConfig,
+                    type: prepared.type
+                )
+            }
+        }
         applyICloudSyncChoice(afterSave: false)
         let didSave = editing == nil
-            ? store.addSource(src, password: nil, fnConnectAccessCode: nil)
-            : store.updateSource(src, password: nil, fnConnectAccessCode: nil)
+            ? store.addSource(prepared, password: nil, fnConnectAccessCode: nil)
+            : store.updateSource(prepared, password: nil, fnConnectAccessCode: nil)
         guard didSave else {
             saveFailed = true
             return
         }
         applyICloudSyncChoice(afterSave: true)
-        onSaved(store.source(id: src.id) ?? src, editing == nil)
+        onSaved(store.source(id: prepared.id) ?? prepared, editing == nil)
         dismiss()
     }
 }

@@ -389,7 +389,7 @@ public enum CloudDeviceAuthRequests {
         switch provider {
         case .baiduPan: return "basic,netdisk"
         case .oneDrive: return "Files.ReadWrite offline_access"
-        case .googleDrive: return "https://www.googleapis.com/auth/drive"
+        case .googleDrive: return GoogleDrivePickerPolicy.fileScope
         // 光鸭的设备码接口 scope 传空即可:服务端按 client_id 注册的范围下发
         // `user offline`,回显在 verification_uri_complete 里。
         case .guangya: return ""

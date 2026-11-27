@@ -1147,6 +1147,292 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.count, 1)
     }
 
+    func testGoogleDriveOAuthConfigUsesDriveFileScope() {
+        let config = GoogleDriveSource.oauthConfig(clientId: "test-client")
+        XCTAssertEqual(config.scopes, [GoogleDrivePickerPolicy.fileScope])
+    }
+
+    func testGoogleDrivePickedFilesListsAllAuthorizedFilesWithParentIsolatedSidecars() async throws {
+        let payload = """
+        {
+          "files": [
+            {"id":"trackA","name":"01.flac","mimeType":"audio/flac","size":"1024","parents":["folderA"]},
+            {"id":"lrcA","name":"01.lrc","mimeType":"text/plain","size":"128","parents":["folderA"]},
+            {"id":"coverA","name":"cover.jpg","mimeType":"image/jpeg","size":"512","parents":["folderA"]},
+            {"id":"trackB","name":"02.flac","mimeType":"audio/flac","size":"2048","parents":["folderB"]},
+            {"id":"orphan","name":"03.mp3","mimeType":"audio/mpeg","size":"512"}
+          ]
+        }
+        """
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(payload.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+
+        let source = GoogleDriveSource(
+            sourceID: fixture.id,
+            session: session,
+            tokenProvider: { "fixture" },
+            storedAccessMode: .pickedFiles
+        )
+        let items = try await source.listFiles(at: "/")
+        XCTAssertEqual(items.count, 5)
+        XCTAssertTrue(items.allSatisfy { $0.parentPath == "/" })
+
+        let queryItems = URLComponents(url: try XCTUnwrap(fixture.requests.first?.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(queryItems.first(where: { $0.name == "q" })?.value, GoogleDrivePickerPolicy.authorizedFilesQuery)
+        XCTAssertEqual(queryItems.first(where: { $0.name == "supportsAllDrives" })?.value, "true")
+        XCTAssertEqual(queryItems.first(where: { $0.name == "includeItemsFromAllDrives" })?.value, "true")
+
+        let flatIndex = SidecarHintResolver.DirectoryIndex(items)
+        let trackA = try XCTUnwrap(items.first(where: { $0.path == "trackA" }))
+        let trackB = try XCTUnwrap(items.first(where: { $0.path == "trackB" }))
+        let orphan = try XCTUnwrap(items.first(where: { $0.path == "orphan" }))
+
+        let scannedA = try XCTUnwrap(SidecarHintResolver.scannableItem(trackA, index: flatIndex))
+        let scannedB = try XCTUnwrap(SidecarHintResolver.scannableItem(trackB, index: flatIndex))
+        let scannedOrphan = try XCTUnwrap(SidecarHintResolver.scannableItem(orphan, index: flatIndex))
+
+        XCTAssertEqual(scannedA.sidecarHints?.coverPath, "coverA")
+        XCTAssertEqual(scannedA.sidecarHints?.lyricsPath, "lrcA")
+        XCTAssertNil(scannedB.sidecarHints?.coverPath)
+        XCTAssertNil(scannedB.sidecarHints?.lyricsPath)
+        XCTAssertNil(scannedOrphan.sidecarHints?.coverPath)
+    }
+
+    func testGoogleDrivePickedFilesAccountIdentifierUsesDriveAbout() async throws {
+        let body = Data(#"{"user":{"permissionId":"perm-987654"}}"#.utf8)
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: body)])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+
+        let source = GoogleDriveSource(
+            sourceID: fixture.id,
+            session: session,
+            tokenProvider: { "fixture" },
+            storedAccessMode: .pickedFiles
+        )
+        let identifier = try await source.accountIdentifier()
+        XCTAssertEqual(identifier, "perm-987654")
+        XCTAssertEqual(fixture.requests.first?.url?.path, "/drive/v3/about")
+    }
+
+    func testGoogleDriveAppNotAuthorizedToFileMapsToPermissionDenied() {
+        let body = Data(#"{"error":{"errors":[{"reason":"appNotAuthorizedToFile"}]}}"#.utf8)
+        let error = GoogleDriveSource.sidecarUploadError(status: 403, body: body)
+        guard case SourceFileMutationError.permissionDenied = error else {
+            return XCTFail("Expected permissionDenied, got \(error)")
+        }
+    }
+
+    func testGoogleDrivePickedFilesChangesAvoidsParentFolderWalk() async throws {
+        let body = """
+        {
+          "newStartPageToken": "cursor-2",
+          "changes": [
+            {"fileId":"deleted-1","removed":true},
+            {"fileId":"added-1","removed":false,"file":{"id":"added-1","name":"new.flac","mimeType":"audio/flac","parents":["unowned-folder"]}}
+          ]
+        }
+        """
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(body.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+
+        let source = GoogleDriveSource(
+            sourceID: fixture.id,
+            session: session,
+            tokenProvider: { "fixture" },
+            storedAccessMode: .pickedFiles
+        )
+        var index = SourceSyncIndex()
+        index["deleted-1"] = SourceSyncIndexedItem(
+            stableKey: "deleted-1",
+            path: "deleted-1",
+            parentPath: "/",
+            isDirectory: false,
+            songIDs: ["song-1"],
+            size: 100,
+            modifiedDate: nil,
+            revision: nil,
+            seenEpoch: 1
+        )
+        let changes = try await source.changes(since: ["account": "cursor-1"], roots: ["/"], index: index)
+        XCTAssertEqual(changes.cursors["account"], "cursor-2")
+        XCTAssertEqual(changes.deletedStableKeys, ["deleted-1"])
+        XCTAssertTrue(changes.requiresDeepScan)
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    func testGoogleDriveHalfMigratedStatesThrowWithoutListing() async throws {
+        let fileScope = [GoogleDrivePickerPolicy.oauthScopeExtraKey: GoogleDrivePickerPolicy.fileScope]
+        let cases: [(stored: GoogleDrivePickerPolicy.AccessMode?, extra: [String: String]?, path: String)] = [
+            // drive.file 令牌 + 旧的文件夹根目录(重新授权没改目录、电视代登录后、刷新回来是 drive.file)。
+            (nil, fileScope, "folderID"),
+            (.legacyFullDrive, fileScope, "/"),
+            // 已选文件源的配置里还留着文件夹(令牌记没记范围都一样)。
+            (.pickedFiles, fileScope, "folderID"),
+            (.pickedFiles, nil, "folderID"),
+        ]
+        for item in cases {
+            let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(#"{"files":[]}"#.utf8))])
+            let session = fixture.session()
+            defer { session.invalidateAndCancel(); fixture.remove() }
+            let extra = item.extra
+            let source = GoogleDriveSource(
+                sourceID: fixture.id, session: session, tokenProvider: { "fixture" },
+                requests: CloudRequestScheduler(), storedAccessMode: item.stored,
+                tokenExtraProvider: { extra }
+            )
+            let context = "stored=\(item.stored?.rawValue ?? "nil") path=\(item.path)"
+            do {
+                _ = try await source.listFiles(at: item.path)
+                XCTFail("A half-migrated source must not return a listing: \(context)")
+            } catch SourceRootResolutionError.pickedFilesReselectionRequired {
+            } catch {
+                XCTFail("Unexpected \(error): \(context)")
+            }
+            do {
+                _ = try await source.changes(since: ["account": "cursor-1"], roots: [item.path], index: SourceSyncIndex())
+                XCTFail("A half-migrated source must not reconcile changes: \(context)")
+            } catch SourceRootResolutionError.pickedFilesReselectionRequired {
+            } catch {
+                XCTFail("Unexpected \(error): \(context)")
+            }
+            XCTAssertEqual(fixture.requests.count, 0, "Nothing may be listed in a half-migrated state: \(context)")
+        }
+    }
+
+    func testGoogleDriveLegacyTokenWithoutStoredModeKeepsFolderListing() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(#"{"files":[]}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        // 这一版之前授权的源:没存访问方式,令牌没记范围,只带着旧的已选文件 ID 也不改变模式。
+        let source = GoogleDriveSource(
+            sourceID: fixture.id, session: session, tokenProvider: { "fixture" },
+            requests: CloudRequestScheduler(), storedAccessMode: nil,
+            tokenExtraProvider: { [GoogleDrivePickerPolicy.pickedFileIDsExtraKey: "picked-1"] }
+        )
+        _ = try await source.listFiles(at: "folderID")
+        let query = URLComponents(url: try XCTUnwrap(fixture.requests.first?.url), resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "q" }?.value
+        XCTAssertEqual(query, "'folderID' in parents and trashed = false")
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    func testGoogleDrivePickedFilesListOncePerPassForSiblingLookups() async throws {
+        let listing = """
+        {"files":[
+          {"id":"trackA","name":"01.flac","mimeType":"audio/flac","size":"1024","parents":["folderA"]},
+          {"id":"trackB","name":"02.flac","mimeType":"audio/flac","size":"1024","parents":["folderA"]},
+          {"id":"lrcA","name":"01.lrc","mimeType":"text/plain","size":"64","parents":["folderA"]}
+        ]}
+        """
+        let fixture = CloudHTTPFixture(responses: [], responder: { request, _ in
+            let path = request.url?.path ?? ""
+            if path == "/drive/v3/files" { return .init(status: 200, body: Data(listing.utf8)) }
+            let id = String(path.split(separator: "/").last ?? "")
+            let name = id == "trackA" ? "01.flac" : "02.flac"
+            return .init(status: 200, body: Data(#"{"name":"\#(name)","parents":["folderA"],"trashed":false}"#.utf8))
+        })
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let source = GoogleDriveSource(
+            sourceID: fixture.id, session: session, tokenProvider: { "fixture" },
+            requests: CloudRequestScheduler(), storedAccessMode: .pickedFiles
+        )
+        _ = try await source.listFiles(at: "/")
+        for (id, name) in [("trackA", "01.flac"), ("trackB", "02.flac")] {
+            let song = Song(id: id, title: name, fileFormat: .flac, filePath: id, sourceID: fixture.id)
+            _ = try await source.lyricsSidecarTarget(for: song, request: .current(pinned: nil))
+        }
+        let listings = fixture.requests.filter { $0.url?.path == "/drive/v3/files" }
+        XCTAssertEqual(listings.count, 1, "Sibling lookups in the same pass reuse the authorized-files listing")
+    }
+
+    func testGoogleDriveAuthorizedListNotFoundAsksForReselection() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 404, body: Data(#"{"error":{"code":404}}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let source = GoogleDriveSource(
+            sourceID: fixture.id, session: session, tokenProvider: { "fixture" },
+            requests: CloudRequestScheduler(), storedAccessMode: .pickedFiles
+        )
+        do {
+            _ = try await source.listFiles(at: "/")
+            XCTFail("A 404 on the authorized list is not an empty source")
+        } catch SourceRootResolutionError.pickedFilesReselectionRequired {
+            XCTAssertEqual(SourceRootResolutionError.pickedFilesReselectionRequired.localizedDescription,
+                           String(localized: "gdrive_reselection_required"))
+        }
+    }
+
+    func testGoogleDriveLegacyScopeRejectionAsksToChooseFiles() async throws {
+        let scope = #"{"error":{"code":403,"message":"Request had insufficient authentication scopes.","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}}"#
+        let ordinary = #"{"error":{"code":403,"message":"The user does not have sufficient permissions for this file.","errors":[{"reason":"insufficientFilePermissions"}]}}"#
+        for (body, expectsDisabled) in [(scope, true), (ordinary, false)] {
+            let fixture = CloudHTTPFixture(responses: [.init(status: 403, body: Data(body.utf8))])
+            let session = fixture.session()
+            defer { session.invalidateAndCancel(); fixture.remove() }
+            let source = GoogleDriveSource(
+                sourceID: fixture.id, session: session, tokenProvider: { "fixture" },
+                requests: CloudRequestScheduler(), storedAccessMode: .legacyFullDrive
+            )
+            do {
+                _ = try await source.listFiles(at: "folderID")
+                XCTFail("403 must not list")
+            } catch SourceRootResolutionError.googleDriveLegacyAccessDisabled {
+                XCTAssertTrue(expectsDisabled)
+            } catch CloudDriveError.permissionDenied {
+                XCTAssertFalse(expectsDisabled)
+            }
+        }
+    }
+
+    @MainActor
+    func testGoogleDrivePickerScanHoldsRemovalsUntilConfirmedAndRemovesExactlyThose() async throws {
+        let harness = try PickedFilesScanHarness()
+        defer { harness.tearDown() }
+        harness.listing.set(["keep-id", "old-1", "old-2", "old-3"])
+        try await harness.scan()
+        XCTAssertEqual(harness.filePaths, ["keep-id", "old-1", "old-2", "old-3"])
+
+        // 选择文件:令牌换了、源改了(扫描范围对不上上一份状态),这一轮只剩一个文件。
+        harness.listing.set(["keep-id"])
+        harness.simulatePickerCommit()
+        try await harness.scan(afterPicker: true)
+        XCTAssertEqual(harness.filePaths, ["keep-id", "old-1", "old-2", "old-3"], "A picker scan removes nothing by itself")
+        XCTAssertEqual(harness.scanService.scanStates[harness.sourceID]?.pickedFilesRemovalCount, 3)
+
+        // 确认之前 old-3 又被选回来:确认后只移除仍然不在的 old-1、old-2。
+        harness.listing.set(["keep-id", "old-3"])
+        await harness.scanService.confirmPickedFilesRemoval(
+            sourceID: harness.sourceID, sourceManager: harness.sourceManager,
+            library: harness.library, sourceStore: harness.sourceStore
+        )
+        try await harness.waitForScan()
+        XCTAssertEqual(harness.filePaths, ["keep-id", "old-3"])
+        XCTAssertNil(harness.scanService.scanStates[harness.sourceID]?.pickedFilesRemovalCount)
+    }
+
+    @MainActor
+    func testGoogleDrivePickerScanKeepsEverythingWhenDeclined() async throws {
+        let harness = try PickedFilesScanHarness()
+        defer { harness.tearDown() }
+        harness.listing.set(["keep-id", "old-1", "old-2"])
+        try await harness.scan()
+        harness.listing.set(["keep-id"])
+        harness.simulatePickerCommit()
+        try await harness.scan(afterPicker: true)
+        XCTAssertEqual(harness.scanService.scanStates[harness.sourceID]?.pickedFilesRemovalCount, 2)
+
+        await harness.scanService.keepPickedFilesRemoval(sourceID: harness.sourceID)
+        XCTAssertNil(harness.scanService.scanStates[harness.sourceID]?.pickedFilesRemovalCount)
+        // 之后的普通完整扫描照旧不删,也不再提示。
+        try await harness.scan()
+        XCTAssertEqual(harness.filePaths, ["keep-id", "old-1", "old-2"])
+        XCTAssertNil(harness.scanService.scanStates[harness.sourceID]?.pickedFilesRemovalCount)
+    }
+
     func testBaiduRejectedTokensRecoverEvenOnHTTP403() async throws {
         for body in [#"{"errno":111}"#, #"{"errno":-6}"#, ""] {
             let fixture = CloudHTTPFixture(responses: [.init(status: 200)], responder: { request, _ in
@@ -1653,6 +1939,115 @@ private final class CloudHTTPFixture: @unchecked Sendable {
         return URLSession(configuration: configuration)
     }
     func remove() { CloudHTTPProtocol.fixtures.remove(id) }
+}
+
+/// 一个 Google Drive 已选文件源加上真实的扫描服务:列表由测试决定,连接器不碰钥匙串。
+@MainActor
+private final class PickedFilesScanHarness {
+    let root: URL
+    let listing: PickedFilesListing
+    let fixture: CloudHTTPFixture
+    let session: URLSession
+    let sourceID: String
+    let sourceStore: SourcesStore
+    let library: MusicLibrary
+    let scanService: ScanService
+    let sourceManager: SourceManager
+
+    init() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let listing = PickedFilesListing()
+        self.root = root
+        self.listing = listing
+        fixture = CloudHTTPFixture(responses: [], responder: { request, _ in
+            let path = request.url?.path ?? ""
+            if path == "/drive/v3/files" { return .init(status: 200, body: listing.body) }
+            if path.hasSuffix("/changes/startPageToken") {
+                return .init(status: 200, body: Data(#"{"startPageToken":"cursor-1"}"#.utf8))
+            }
+            if path.hasSuffix("/changes") {
+                return .init(status: 200, body: Data(#"{"newStartPageToken":"cursor-1","changes":[]}"#.utf8))
+            }
+            return .init(status: 404, body: Data("{}".utf8))
+        })
+        session = fixture.session()
+        var source = MusicSource(id: fixture.id, name: "Google Drive", type: .googleDrive, authType: .oauth)
+        source.googleDriveAccessMode = .pickedFiles
+        source.extraConfig = MusicSource.encodeScannedDirectories(["/"], into: nil, type: .googleDrive)
+        sourceID = source.id
+        sourceStore = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        sourceStore.add(source)
+        library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let connector = GoogleDriveSource(
+            sourceID: source.id, session: session, tokenProvider: { "fixture" },
+            requests: CloudRequestScheduler(), storedAccessMode: .pickedFiles
+        )
+        scanService = ScanService(
+            fileManager: PickedFilesScanFileManager(root: root),
+            connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) }
+        )
+        sourceManager = SourceManager(sourcesProvider: { [source] in [source] })
+    }
+
+    var filePaths: [String] {
+        library.songs.filter { $0.sourceID == sourceID }.map(\.filePath).sorted()
+    }
+
+    /// 再次选择文件:目录仍是「/」、访问方式不变。这里故意不让扫描范围变(不改源、不换钥匙串的
+    /// 安全修订),证明暂存靠的是选择文件之后那条扫描入口,不靠范围变化碰巧让上一份状态失效。
+    func simulatePickerCommit() {}
+
+    func scan(afterPicker: Bool = false) async throws {
+        if afterPicker {
+            let started = await scanService.scanAfterPickedFilesChange(
+                sourceID: sourceID, sourceManager: sourceManager, library: library, sourceStore: sourceStore
+            )
+            XCTAssertTrue(started)
+        } else {
+            let current = try XCTUnwrap(sourceStore.source(id: sourceID))
+            XCTAssertTrue(scanService.scanSource(
+                current, sourceManager: sourceManager, library: library,
+                sourceStore: sourceStore, requestsContinuedProcessing: false
+            ))
+        }
+        try await waitForScan()
+    }
+
+    func waitForScan() async throws {
+        let deadline = Date().addingTimeInterval(20)
+        while scanService.scanStates[sourceID]?.isScanning == true, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertFalse(scanService.scanStates[sourceID]?.isScanning == true)
+        XCTAssertNil(scanService.scanStates[sourceID]?.failureMessage)
+    }
+
+    func tearDown() {
+        scanService.cancelAllActiveScans()
+        session.invalidateAndCancel()
+        fixture.remove()
+        try? FileManager.default.removeItem(at: root)
+    }
+}
+
+private final class PickedFilesListing: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: [String] = []
+    func set(_ ids: [String]) { lock.withLock { self.ids = ids } }
+    var body: Data {
+        let files = lock.withLock { ids }.map { id -> [String: Any] in
+            ["id": id, "name": "\(id).mp3", "mimeType": "audio/mpeg", "size": "4320000",
+             "modifiedTime": "2026-10-30T10:20:30.123Z", "md5Checksum": "content-\(id)", "parents": ["folderA"]]
+        }
+        return (try? JSONSerialization.data(withJSONObject: ["files": files])) ?? Data()
+    }
+}
+
+private final class PickedFilesScanFileManager: FileManager, @unchecked Sendable {
+    let root: URL
+    init(root: URL) { self.root = root; super.init() }
+    override func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
 }
 
 /// CloudHTTPFixture serializes calls to this in-memory provider.

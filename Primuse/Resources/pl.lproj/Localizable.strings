@@ -1510,7 +1510,6 @@
 "go_to_album" = "Przejdź do albumu";
 "album_play_whole" = "Odtwórz cały album";
 "go_to_artist" = "Przejdź do Artysty";
-"google_drive_full_access_disclosure" = "Google Drive prosi o pełny dostęp do Dysku, aby przeglądać istniejącą bibliotekę muzyki, zapisywać pomocnicze pliki okładek i LRC oraz przenosić do kosza pliki, które wyraźnie usuniesz. Primuse nie zmienia uprawnień udostępniania ani nie opróżnia trwale kosza.";
 "greeting_afternoon" = "Dzień dobry";
 "greeting_evening" = "Dobry wieczór";
 "greeting_morning" = "Dzień dobry";
@@ -5823,9 +5822,9 @@
 
 /* Google Drive przechodzi na uprawnienie „Tylko wybrane przez Ciebie pliki” */
 "gdrive_scope_change_title_upcoming" = "Dostęp do Google Drive może się zmienić po %@";
-"gdrive_scope_change_title_in_effect" = "Dostęp do Google Drive może się zmienić od %@";
+"gdrive_scope_change_title_in_effect" = "Google Drive korzysta z wyboru plików od %@";
 "gdrive_scope_change_summary_upcoming" = "Do tego czasu wszystko działa jak dotąd. Potem utwory być może trzeba będzie wybierać w oknie wyboru plików Google, a Primuse przestanie skanować całe foldery; w już dodanych źródłach być może trzeba będzie jeszcze raz wybrać pliki.";
-"gdrive_scope_change_summary_in_effect" = "W źródłach Google Drive utwory być może trzeba będzie wybierać w oknie wyboru plików Google, a Primuse przestanie skanować całe foldery; w już dodanych źródłach być może trzeba będzie jeszcze raz wybrać pliki.";
+"gdrive_scope_change_summary_in_effect" = "Źródła Google Drive wybierają teraz utwory w selektorze plików Google zamiast skanować całe foldery. Dla źródeł dodanych wcześniej jako foldery trzeba ponownie wybrać pliki.";
 "gdrive_scope_change_learn_more" = "Dowiedz się więcej";
 "gdrive_scope_change_sheet_title" = "Zmiana dostępu do Google Drive";
 "gdrive_scope_change_changes_header" = "Możliwe zmiany po %@";
@@ -5837,11 +5836,25 @@
 "gdrive_scope_change_item_tv" = "Okno wyboru plików Google nie jest dostępne na Apple TV, więc wtedy utwory trzeba będzie wybierać na iPhonie, iPadzie lub Macu.";
 "gdrive_scope_change_reason_header" = "Dlaczego to może się zmienić";
 "gdrive_scope_change_reason_policy" = "Google wymaga, aby każda aplikacja, która może odczytywać cały Google Drive użytkownika, co roku przechodziła ocenę bezpieczeństwa (CASA) przeprowadzaną przez zewnętrzne laboratorium zatwierdzone przez Google, na koszt dewelopera. Utwory odtwarzane przez Primuse są przesyłane bezpośrednio między Twoim urządzeniem a Google i nigdy nie przechodzą przez serwery Primuse, ale Google potwierdził, że takie aplikacje nie są zwolnione z tego wymogu i że nie przyjmuje już samooceny deweloperów ani nie zwalnia z opłaty.";
-"gdrive_scope_change_reason_decision" = "Dla niezależnie tworzonej aplikacji, takiej jak Primuse, opłata powtarzająca się co roku jest nie do udźwignięcia, dlatego Primuse planuje przejść na uprawnienie Google „Tylko wybrane przez Ciebie pliki”, które nie wymaga oceny. Szczegóły zostaną ustalone w jednej z przyszłych aktualizacji. To ograniczenie wynika z zasad platformy Google — Primuse nie może go obejść żadnymi dostosowaniami.";
+"gdrive_scope_change_reason_decision" = "Dla niezależnie tworzonej, darmowej aplikacji takiej jak Primuse coroczna opłata za ocenę jest nie do utrzymania, dlatego Primuse korzysta z uprawnienia Google „tylko wybrane pliki”, które nie wymaga oceny. To ograniczenie wynika z zasad platformy Google.";
 "gdrive_scope_change_alternatives_header" = "Duża biblioteka albo chcesz skanować całe foldery?";
 "gdrive_scope_change_alt_mac" = "Mac: zainstaluj oficjalną aplikację Google Drive na komputer, ustaw folder z muzyką jako „Dostępne offline”, a następnie dodaj go w Primuse jako folder lokalny. Primuse przeskanuje całą bibliotekę i będzie automatycznie wykrywać nowe utwory.";
 "gdrive_scope_change_alt_webdav" = "Każde urządzenie, także Apple TV: jeśli masz NAS lub stale włączony komputer, udostępnij Google Drive przez WebDAV za pomocą narzędzia takiego jak rclone lub OpenList, a następnie dodaj źródło WebDAV w Primuse. Autoryzacja należy do Twojego własnego narzędzia i ta zmiana jej nie dotyczy.";
 "gdrive_scope_change_alt_move" = "Możesz też przenieść muzykę na inny dysk w chmurze lub NAS obsługiwany przez Primuse.";
+"gdrive_choose_files" = "Wybierz pliki";
+"gdrive_status_no_files" = "Nie wybrano plików";
+"gdrive_scope_selected_files" = "Wybrane pliki Google Drive";
+"google_drive_file_access_disclosure" = "Zalogowanie otwiera selektor plików Google. Primuse ma dostęp wyłącznie do wybranych przez Ciebie utworów, okładek i plików z tekstami.";
+"gdrive_no_files_chosen" = "W Google Drive nie wybrano żadnych plików, więc nic nie zostało zmienione.";
+"gdrive_migration_confirm_title" = "Przełączyć na wybrane pliki?";
+"gdrive_migration_confirm_message_format" = "%1$d z %2$d utworów tego źródła nie należy do wybranych plików i nie będzie można ich odtworzyć. Pozostaną w bibliotece, a po następnym skanowaniu zdecydujesz, czy je usunąć.";
+"gdrive_migration_confirm_message_unknown" = "Utworów tego źródła, które nie należą do wybranych plików, nie będzie można odtworzyć. Pozostaną w bibliotece, a po następnym skanowaniu zdecydujesz, czy je usunąć.";
+"gdrive_migration_continue" = "Użyj wybranych plików";
+"gdrive_reselection_required" = "Dla tego źródła Google Drive trzeba ponownie wybrać pliki. Nic nie zostało usunięte z biblioteki.";
+"gdrive_legacy_access_disabled" = "Google nie pozwala już Primuse odczytywać całego Twojego Dysku Google. Wybierz pliki, aby kontynuować; nic nie zostało usunięte z biblioteki.";
+"gdrive_removal_pending_format" = "Utwory spoza plików wybranych w Google Drive, których nie można odtworzyć: %d. Usunąć je z biblioteki?";
+"gdrive_removal_keep" = "Zachowaj utwory";
+"gdrive_tv_file_access_disclosure" = "Selektor plików Google otwiera się na iPhonie lub iPadzie, gdy logujesz się na nim dla tego Apple TV; aby dodać pliki, zaloguj się tam ponownie. Primuse ma dostęp wyłącznie do wybranych przez Ciebie utworów, okładek i plików z tekstami.";
 
 /* Signing in to a cloud drive for Apple TV from a phone */
 "tv_cloud_companion_subtitle" = "Zeskanuj kod aparatem iPhone’a lub iPada, aby w Primuse zalogować się w %@. Dane logowania trafią bezpośrednio do tego Apple TV przez sieć lokalną.";

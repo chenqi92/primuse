@@ -159,7 +159,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
                 // Google:端点即下载地址,播放需带 Bearer 头(走 resource loader)。
                 let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
                 let id = song.filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                guard let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(id)?alt=media&acknowledgeAbuse=true") else {
+                guard let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(id)?alt=media&acknowledgeAbuse=true&supportsAllDrives=true") else {
                     throw StreamResolveError.cannotBuildURL
                 }
                 return ResolvedStream(url: url, headers: ["Authorization": "Bearer \(accessTokens[source.id] ?? token)"])

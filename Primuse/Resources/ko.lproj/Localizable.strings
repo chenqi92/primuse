@@ -2422,7 +2422,6 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "시스템 브라우저 인증";
-"google_drive_full_access_disclosure" = "Google Drive는 기존 음악 보관함 탐색, 커버 및 LRC 사이드카 쓰기, 사용자가 명시적으로 삭제한 파일을 휴지통으로 이동하기 위해 전체 Drive 접근 권한을 요청합니다. Primuse는 공유 권한을 변경하거나 휴지통을 영구적으로 비우지 않습니다.";
 "cloud_oauth_checking" = "인증 상태 확인 중…";
 "cloud_setup_needs_creds_title" = "개발자 자격 증명이 필요합니다";
 "cloud_setup_needs_creds_desc" = "먼저 '소스 편집'에서 Client ID를 입력한 다음 돌아와서 연결을 인증하세요.";
@@ -5917,9 +5916,9 @@
 
 /* Google Drive의 ‘선택한 파일만’ 권한 전환 안내 */
 "gdrive_scope_change_title_upcoming" = "Google Drive 연결 방식이 %@ 이후 변경될 수 있습니다";
-"gdrive_scope_change_title_in_effect" = "Google Drive 연결 방식이 %@부터 달라질 수 있습니다";
+"gdrive_scope_change_title_in_effect" = "Google Drive는 %@부터 파일 선택 방식을 사용합니다";
 "gdrive_scope_change_summary_upcoming" = "그 전까지는 평소처럼 사용할 수 있습니다. 이후에는 Primuse가 폴더 전체를 스캔하는 대신 Google 파일 선택기에서 곡을 골라 라이브러리에 추가하는 방식으로 바뀔 수 있으며, 이미 추가한 소스도 파일을 다시 선택해야 할 수 있습니다.";
-"gdrive_scope_change_summary_in_effect" = "Google Drive 소스는 Primuse가 폴더 전체를 스캔하는 대신 Google 파일 선택기에서 곡을 골라 라이브러리에 추가하는 방식으로 바뀔 수 있으며, 이미 추가한 소스도 파일을 다시 선택해야 할 수 있습니다.";
+"gdrive_scope_change_summary_in_effect" = "이제 Google Drive 소스는 전체 폴더를 스캔하는 대신 Google 파일 선택기에서 곡을 고릅니다. 이전에 폴더로 추가한 소스는 파일을 다시 선택해야 합니다.";
 "gdrive_scope_change_learn_more" = "자세히 보기";
 "gdrive_scope_change_sheet_title" = "Google Drive 연결 방식 변경";
 "gdrive_scope_change_changes_header" = "%@ 이후 달라질 수 있는 점";
@@ -5931,11 +5930,25 @@
 "gdrive_scope_change_item_tv" = "Apple TV에서는 Google 파일 선택기를 열 수 없으므로, 그때는 iPhone, iPad 또는 Mac에서 곡을 선택해야 합니다.";
 "gdrive_scope_change_reason_header" = "변경될 수 있는 이유";
 "gdrive_scope_change_reason_policy" = "Google은 사용자의 Google Drive 전체를 읽을 수 있는 앱이 매년 Google이 인정한 제3자 기관의 보안 평가(CASA)를 통과하도록 요구하며, 비용은 개발자가 부담합니다. Primuse에서 재생하는 곡은 기기와 Google 사이에서 직접 전송되고 Primuse 서버를 거치지 않지만, Google은 이러한 앱도 예외가 아니며 개발자 자체 평가나 비용 감면도 더 이상 받지 않는다고 명확히 답변했습니다.";
-"gdrive_scope_change_reason_decision" = "독립 개발 앱인 Primuse로서는 매년 내야 하는 평가 비용을 감당하기 어려워, 평가가 필요 없는 Google의 ‘선택한 파일만’ 권한으로 전환할 계획입니다. 구체적인 방식은 향후 업데이트에서 정해집니다. 이는 Google 플랫폼 정책에 따른 제한이며, Primuse가 기능을 고쳐서 해결할 수 있는 문제가 아닙니다.";
+"gdrive_scope_change_reason_decision" = "독립 개발 무료 앱인 Primuse가 매년 반복되는 평가 비용을 부담하기는 어렵기 때문에, 평가가 필요 없는 Google의 ‘선택한 파일만’ 권한을 사용합니다. 이는 Google 플랫폼 정책에 따른 제한입니다.";
 "gdrive_scope_change_alternatives_header" = "라이브러리가 크거나 폴더 전체 스캔을 유지하고 싶다면";
 "gdrive_scope_change_alt_mac" = "Mac: Google 공식 ‘데스크톱용 Google Drive’를 설치하고 음악 폴더를 ‘오프라인에서 사용 가능’으로 설정한 다음, Primuse에서 로컬 폴더로 추가해 선택하세요. 라이브러리 전체를 스캔하고 새 곡도 자동으로 찾습니다.";
 "gdrive_scope_change_alt_webdav" = "모든 기기(Apple TV 포함): NAS나 항상 켜 두는 컴퓨터가 있다면 rclone, OpenList 등의 도구로 Google Drive를 WebDAV로 제공한 뒤 Primuse에서 WebDAV 소스를 추가하세요. 인증은 사용자의 도구가 보유하므로 이번 변경의 영향을 받지 않습니다.";
 "gdrive_scope_change_alt_move" = "Primuse가 지원하는 다른 클라우드 드라이브나 NAS로 음악을 옮길 수도 있습니다.";
+"gdrive_choose_files" = "파일 선택";
+"gdrive_status_no_files" = "선택된 파일 없음";
+"gdrive_scope_selected_files" = "선택된 Google Drive 파일";
+"google_drive_file_access_disclosure" = "로그인하면 Google 파일 선택기가 열립니다. Primuse는 사용자가 선택한 곡, 커버, 가사 파일에만 접근합니다.";
+"gdrive_no_files_chosen" = "Google Drive에서 선택한 파일이 없어 아무것도 변경하지 않았습니다.";
+"gdrive_migration_confirm_title" = "선택한 파일로 전환할까요?";
+"gdrive_migration_confirm_message_format" = "이 소스의 %2$d곡 중 %1$d곡은 선택한 파일에 포함되지 않아 더 이상 재생할 수 없습니다. 보관함에는 그대로 남아 있으며, 다음 스캔 후 제거할지 직접 결정할 수 있습니다.";
+"gdrive_migration_confirm_message_unknown" = "이 소스에서 선택한 파일에 포함되지 않은 곡은 더 이상 재생할 수 없습니다. 보관함에는 그대로 남아 있으며, 다음 스캔 후 제거할지 직접 결정할 수 있습니다.";
+"gdrive_migration_continue" = "선택한 파일 사용";
+"gdrive_reselection_required" = "이 Google Drive 소스는 파일을 다시 선택해야 합니다. 보관함에서 제거된 곡은 없습니다.";
+"gdrive_legacy_access_disabled" = "Google에서 더 이상 Primuse가 Google Drive 전체를 읽도록 허용하지 않습니다. 계속하려면 파일을 선택하세요. 보관함에서 제거된 곡은 없습니다.";
+"gdrive_removal_pending_format" = "%d곡이 Google Drive에서 선택한 파일에 포함되지 않아 재생할 수 없습니다. 보관함에서 제거할까요?";
+"gdrive_removal_keep" = "곡 유지";
+"gdrive_tv_file_access_disclosure" = "이 Apple TV를 위해 iPhone 또는 iPad에서 로그인하면 Google 파일 선택기가 그 기기에서 열립니다. 파일을 추가하려면 그곳에서 다시 로그인하세요. Primuse는 사용자가 선택한 곡, 커버, 가사 파일에만 접근합니다.";
 
 /* Signing in to a cloud drive for Apple TV from a phone */
 "tv_cloud_companion_subtitle" = "iPhone 또는 iPad의 카메라로 스캔해 Primuse에서 %@에 로그인하세요. 로그인 정보는 로컬 네트워크를 통해 이 Apple TV로 바로 전달됩니다.";

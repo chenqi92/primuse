@@ -4685,7 +4685,7 @@ extension SourceManager {
         case .aliyunDrive:
             connector = AliyunDriveSource(sourceID: source.id)
         case .googleDrive:
-            connector = GoogleDriveSource(sourceID: source.id)
+            connector = GoogleDriveSource(sourceID: source.id, storedAccessMode: source.googleDriveAccessMode)
         case .oneDrive:
             connector = OneDriveSource(sourceID: source.id)
         case .dropbox:
@@ -5452,6 +5452,19 @@ extension SourceManager {
                 message: fnError.localizedDescription,
                 suggestion: suggestion
             )
+        }
+        if let resolution = error as? SourceRootResolutionError {
+            switch resolution {
+            case .pickedFilesReselectionRequired, .googleDriveLegacyAccessDisabled:
+                // 文案已经说清要做什么(重新选择文件),这里不再叠一句通用建议。
+                return SourceDiagnosticAdvice(
+                    title: String(localized: "source_diag_auth_title"),
+                    message: resolution.localizedDescription,
+                    suggestion: ""
+                )
+            case .requiresReselection:
+                break
+            }
         }
         if let cloudError = error as? CloudDriveError {
             switch cloudError {
@@ -7308,6 +7321,8 @@ extension SourceManager {
             source.deviceId ?? "",
             source.effectiveSynologyConnectionMode.rawValue,
             source.effectiveFnMusicConnectionMode.rawValue,
+            // Google Drive 的访问方式是连接器的构造参数,换了要重建。
+            source.googleDriveAccessMode?.rawValue ?? "",
         ]
         let digest = SHA256.hash(
             data: Data(components.joined(separator: "\u{1E}").utf8)

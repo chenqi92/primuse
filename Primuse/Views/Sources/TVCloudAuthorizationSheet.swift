@@ -165,13 +165,18 @@ struct TVCloudAuthorizationSheet: View {
                     phase = .failed(String(format: String(localized: "tv_cloud_auth_failed_no_refresh"), providerName))
                     return
                 }
+                let pickedIDs = GoogleDrivePickerPolicy.parsePickedFileIDs(
+                    from: tokens.extra?[GoogleDrivePickerPolicy.pickedFileIDsExtraKey]
+                )
                 let payload = LANCloudAuthorizationPayload(
                     provider: link.provider,
                     clientID: credentials.clientId,
                     accessToken: tokens.accessToken,
                     refreshToken: refreshToken,
                     expiresAt: tokens.expiresAt,
-                    tokenType: tokens.tokenType
+                    tokenType: tokens.tokenType,
+                    scope: tokens.extra?[GoogleDrivePickerPolicy.oauthScopeExtraKey],
+                    pickedFileIDs: pickedIDs.isEmpty ? nil : pickedIDs
                 )
                 pendingPayload = payload
                 await send(payload)

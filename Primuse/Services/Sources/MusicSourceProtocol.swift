@@ -115,6 +115,10 @@ struct SidecarHints: Sendable {
     /// (`SidecarCoverRevisionTracker`)。
     let coverSignature: String?
     let coverModifiedDate: Date?
+    /// 按条目原来所在的文件夹算好、随后压平进一个目录的提示(Google Drive 已选文件,见
+    /// `SidecarHintResolver.decorateGroupedByParent`)。压平后的目录里同名文件来自不同文件夹,
+    /// 再按它重新找一遍会张冠李戴,所以只有带这个标记的提示原样保留。
+    let isResolvedPerOriginalFolder: Bool
 
     init(
         coverPath: String? = nil,
@@ -123,7 +127,8 @@ struct SidecarHints: Sendable {
         snapshotFingerprint: String? = nil,
         isAuthoritative: Bool = false,
         coverSignature: String? = nil,
-        coverModifiedDate: Date? = nil
+        coverModifiedDate: Date? = nil,
+        isResolvedPerOriginalFolder: Bool = false
     ) {
         self.coverPath = coverPath
         self.lyricsPath = lyricsPath
@@ -132,6 +137,7 @@ struct SidecarHints: Sendable {
         self.isAuthoritative = isAuthoritative
         self.coverSignature = coverSignature
         self.coverModifiedDate = coverModifiedDate
+        self.isResolvedPerOriginalFolder = isResolvedPerOriginalFolder
     }
 
     var isEmpty: Bool {
@@ -617,12 +623,101 @@ enum SidecarHintResolver {
         return nil
     }
 
+    /// Pre-computes authoritative per-parent sidecar hints before flattening items
+    /// from multiple remote folders (such as Google Drive `drive.file` selections)
+    /// into a single root directory listing.
+    ///
+    /// 分组字典和结果的上界都是传进来的条目数,也就是这个源的已授权文件数,不随曲库增长。
+    static func decorateGroupedByParent(
+        _ items: [RemoteFileItem],
+        normalizedParentPath: String
+    ) -> [RemoteFileItem] {
+        var groups: [String: [RemoteFileItem]] = [:]
+        for item in items {
+            let bucketKey: String
+            if let parent = item.parentPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !parent.isEmpty {
+                bucketKey = "parent:\(parent)"
+            } else {
+                // Files without an exposed Drive parent cannot reliably share folder-level
+                // sidecars with unrelated parentless files.
+                bucketKey = "orphan:\(item.path)"
+            }
+            groups[bucketKey, default: []].append(item)
+        }
+
+        let indexes = groups.mapValues { DirectoryIndex($0) }
+        return items.map { item in
+            let bucketKey: String
+            if let parent = item.parentPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !parent.isEmpty {
+                bucketKey = "parent:\(parent)"
+            } else {
+                bucketKey = "orphan:\(item.path)"
+            }
+            let index = indexes[bucketKey] ?? DirectoryIndex([item])
+            let decorated: RemoteFileItem
+            let ext = (item.name as NSString).pathExtension.lowercased()
+            if !item.isDirectory,
+               PrimuseConstants.supportedAudioExtensions.contains(ext)
+                || EmbeddedMediaTrackInventory.isStemFileName(item.name)
+                || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
+                decorated = decoratedAudioItem(item, index: index)
+            } else if !item.isDirectory,
+                      PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
+                if let standalone = standaloneVideoItem(item, index: index) {
+                    decorated = standalone
+                } else {
+                    decorated = RemoteFileItem(
+                        name: item.name,
+                        path: item.path,
+                        isDirectory: false,
+                        size: item.size,
+                        modifiedDate: item.modifiedDate,
+                        sidecarHints: SidecarHints(isAuthoritative: true),
+                        revision: item.revision,
+                        providerID: item.providerID,
+                        parentPath: item.parentPath
+                    )
+                }
+            } else {
+                decorated = item
+            }
+
+            return RemoteFileItem(
+                name: decorated.name,
+                path: decorated.path,
+                isDirectory: decorated.isDirectory,
+                size: decorated.size,
+                modifiedDate: decorated.modifiedDate,
+                sidecarHints: decorated.sidecarHints.map { hints in
+                    SidecarHints(
+                        coverPath: hints.coverPath,
+                        lyricsPath: hints.lyricsPath,
+                        mvPath: hints.mvPath,
+                        snapshotFingerprint: hints.snapshotFingerprint,
+                        isAuthoritative: hints.isAuthoritative,
+                        coverSignature: hints.coverSignature,
+                        coverModifiedDate: hints.coverModifiedDate,
+                        isResolvedPerOriginalFolder: true
+                    )
+                },
+                revision: decorated.revision,
+                providerID: decorated.providerID,
+                parentPath: normalizedParentPath
+            )
+        }
+    }
+
     /// 无同名音频的视频文件独立成曲; 有同名音频时它是那首歌的 sidecar,
     /// 返回 nil 以免同一文件既挂 mvPath 又重复成曲。
     private static func standaloneVideoItem(
         _ item: RemoteFileItem,
         index: DirectoryIndex
     ) -> RemoteFileItem? {
+        if let hints = item.sidecarHints, hints.isResolvedPerOriginalFolder {
+            return hints.mvPath == item.path ? item : nil
+        }
         let basename = (item.name as NSString).deletingPathExtension
         guard !index.containsAudioOrStream(basename: basename) else { return nil }
 
@@ -703,6 +798,7 @@ enum SidecarHintResolver {
         index: DirectoryIndex
     ) -> RemoteFileItem {
         guard item.isDirectory == false else { return item }
+        if item.sidecarHints?.isResolvedPerOriginalFolder == true { return item }
 
         let basename = (item.name as NSString).deletingPathExtension
         let cover = resolvedCover(for: item, basename: basename, index: index)
@@ -2353,6 +2449,24 @@ struct SourceRootResolution: Sendable {
 
 enum SourceRootResolutionError: Error, Sendable {
     case requiresReselection(String)
+    /// Google Drive:令牌和源的配置对不上(半迁移),或者已授权文件列表答不上来。不返回不完整的
+    /// 列表,扫描就此结束、一首不删,源上提示重新选择文件。
+    case pickedFilesReselectionRequired
+    /// Google Drive:旧的整盘授权被 Google 停用了,要改用选择文件。
+    case googleDriveLegacyAccessDisabled
+}
+
+extension SourceRootResolutionError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .requiresReselection:
+            return nil
+        case .pickedFilesReselectionRequired:
+            return String(localized: "gdrive_reselection_required")
+        case .googleDriveLegacyAccessDisabled:
+            return String(localized: "gdrive_legacy_access_disabled")
+        }
+    }
 }
 
 protocol PersistentRootIdentityConnector: MusicSourceConnector {

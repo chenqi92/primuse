@@ -67,11 +67,16 @@ struct LANCloudAuthorizationTests {
     @Test func sealedPayloadOnlyOpensWithTheQRCodeKey() throws {
         let payload = LANCloudAuthorizationPayload(
             provider: .googleDrive, clientID: "client", accessToken: "access",
-            refreshToken: "refresh", expiresAt: nil, tokenType: nil
+            refreshToken: "refresh", expiresAt: nil, tokenType: nil,
+            scope: GoogleDrivePickerPolicy.fileScope,
+            pickedFileIDs: ["file-1", "file-2"]
         )
         let box = try #require(LANSyncCrypto.seal(payload.jsonData(), key: key))
         #expect(LANSyncCrypto.open(box, key: LANSyncCrypto.randomKey()) == nil)
         let opened = try #require(LANSyncCrypto.open(box, key: key))
-        #expect(LANCloudAuthorizationPayload.decode(opened) == payload)
+        let decoded = try #require(LANCloudAuthorizationPayload.decode(opened))
+        #expect(decoded == payload)
+        #expect(decoded.scope == GoogleDrivePickerPolicy.fileScope)
+        #expect(decoded.pickedFileIDs == ["file-1", "file-2"])
     }
 }

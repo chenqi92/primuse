@@ -135,7 +135,6 @@ PrimuseTV/Services/TVLyricsRomanizationController.swift	TVLyricsRomanizationCont
 PrimuseTV/Services/TVPlayerBackdropResolver.swift	TVPlayerBackdropResolver	13
 PrimuseTV/Services/TVServerSearchCatalog.swift	TVServerSearchCatalog	5
 PrimuseTV/Views/TVAppleMusicCatalog.swift	TVAppleMusicCatalog	13
-PrimuseTV/Views/TVCloudAuthView.swift	TVCloudCompanionAuthModel	5
 PrimuseTV/Views/TVMedleySettingsView.swift	TVMedleyNetworkState	1
 PrimuseTV/Views/TVNowPlayingView.swift	TVInteractionClock	2
 PrimuseTV/Views/TVSettingsView.swift	TVSettingsFocusContext	4

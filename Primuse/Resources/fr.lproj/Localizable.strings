@@ -2422,7 +2422,6 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "Autorisation via le navigateur système";
-"google_drive_full_access_disclosure" = "Google Drive demande un accès complet pour parcourir votre bibliothèque musicale existante, écrire les fichiers sidecar de pochette et LRC, et placer dans la corbeille les fichiers que vous supprimez explicitement. Primuse ne modifie pas les partages et ne vide jamais définitivement la corbeille.";
 "cloud_oauth_checking" = "Vérification du statut d'autorisation…";
 "cloud_setup_needs_creds_title" = "Identifiants développeur requis";
 "cloud_setup_needs_creds_desc" = "Renseignez d'abord le Client ID dans « Modifier la source », puis revenez pour autoriser la connexion.";
@@ -5917,9 +5916,9 @@
 
 /* Google Drive passe à l’autorisation « Uniquement les fichiers que vous choisissez » */
 "gdrive_scope_change_title_upcoming" = "L’accès à Google Drive pourrait changer après le %@";
-"gdrive_scope_change_title_in_effect" = "L’accès à Google Drive pourrait changer à partir du %@";
+"gdrive_scope_change_title_in_effect" = "Google Drive utilise la sélection de fichiers depuis le %@";
 "gdrive_scope_change_summary_upcoming" = "Jusque-là, tout fonctionne comme d’habitude. Ensuite, au lieu que Primuse analyse des dossiers entiers, vous pourriez devoir choisir les morceaux dans le sélecteur de fichiers de Google, et il faudra peut-être choisir à nouveau les fichiers des sources déjà ajoutées.";
-"gdrive_scope_change_summary_in_effect" = "Pour les sources Google Drive, vous pourriez devoir choisir les morceaux dans le sélecteur de fichiers de Google au lieu que Primuse analyse des dossiers entiers, et il faudra peut-être choisir à nouveau les fichiers des sources déjà ajoutées.";
+"gdrive_scope_change_summary_in_effect" = "Les sources Google Drive sélectionnent désormais les morceaux dans le sélecteur de fichiers de Google au lieu d’analyser des dossiers entiers. Les sources ajoutées par dossier doivent sélectionner leurs fichiers à nouveau.";
 "gdrive_scope_change_learn_more" = "En savoir plus";
 "gdrive_scope_change_sheet_title" = "Changement d’accès à Google Drive";
 "gdrive_scope_change_changes_header" = "Changements possibles après le %@";
@@ -5931,11 +5930,25 @@
 "gdrive_scope_change_item_tv" = "Le sélecteur de fichiers de Google n’est pas disponible sur Apple TV : vous choisiriez donc les morceaux sur iPhone, iPad ou Mac.";
 "gdrive_scope_change_reason_header" = "Pourquoi cela pourrait changer";
 "gdrive_scope_change_reason_policy" = "Google exige que toute application capable de lire l’intégralité du Google Drive d’un utilisateur réussisse chaque année une évaluation de sécurité (CASA) menée par un laboratoire tiers agréé par Google, aux frais du développeur. Les morceaux lus par Primuse transitent directement entre votre appareil et Google, sans jamais passer par les serveurs de Primuse, mais Google a confirmé que ce type d’application n’est pas exempté et qu’il n’accepte plus les auto-évaluations des développeurs ni les exonérations de frais.";
-"gdrive_scope_change_reason_decision" = "Pour une application développée de manière indépendante comme Primuse, des frais à payer chaque année ne sont pas tenables. Primuse prévoit donc de passer à l’autorisation « Uniquement les fichiers que vous choisissez » de Google, qui ne nécessite aucune évaluation. Les modalités précises dépendront d’une prochaine mise à jour. Cette limite découle des règles de la plateforme Google — Primuse ne peut pas la contourner en s’adaptant.";
+"gdrive_scope_change_reason_decision" = "Pour une application indépendante et gratuite comme Primuse, ces frais d’évaluation annuels ne sont pas soutenables ; Primuse utilise donc l’autorisation Google « uniquement les fichiers que vous choisissez », sans évaluation requise. Cette limite provient des règles de la plateforme Google.";
 "gdrive_scope_change_alternatives_header" = "Grande bibliothèque, ou envie d’analyser des dossiers entiers ?";
 "gdrive_scope_change_alt_mac" = "Mac : installez Google Drive pour ordinateur, l’application officielle de Google, rendez votre dossier de musique « Disponible hors connexion », puis ajoutez-le dans Primuse comme dossier local. Primuse analyse toute la bibliothèque et trouve automatiquement les nouveaux morceaux.";
 "gdrive_scope_change_alt_webdav" = "Tous les appareils, y compris Apple TV : si vous avez un NAS ou un ordinateur toujours allumé, utilisez un outil comme rclone ou OpenList pour servir Google Drive en WebDAV, puis ajoutez une source WebDAV dans Primuse. L’autorisation appartient à votre propre outil et n’est pas concernée par ce changement.";
 "gdrive_scope_change_alt_move" = "Vous pouvez aussi déplacer votre musique vers un autre service cloud ou un NAS pris en charge par Primuse.";
+"gdrive_choose_files" = "Choisir des fichiers";
+"gdrive_status_no_files" = "Aucun fichier sélectionné";
+"gdrive_scope_selected_files" = "Fichiers Google Drive sélectionnés";
+"google_drive_file_access_disclosure" = "La connexion ouvre le sélecteur de fichiers de Google. Primuse n’accède qu’aux morceaux, pochettes et paroles que vous choisissez.";
+"gdrive_no_files_chosen" = "Aucun fichier n’a été choisi dans Google Drive ; rien n’a été modifié.";
+"gdrive_migration_confirm_title" = "Passer aux fichiers choisis ?";
+"gdrive_migration_confirm_message_format" = "%1$d des %2$d morceaux de cette source ne font pas partie des fichiers choisis et ne pourront plus être lus. Ils restent dans votre bibliothèque ; après la prochaine analyse, vous déciderez de les retirer ou non.";
+"gdrive_migration_confirm_message_unknown" = "Les morceaux de cette source qui ne font pas partie des fichiers choisis ne pourront plus être lus. Ils restent dans votre bibliothèque ; après la prochaine analyse, vous déciderez de les retirer ou non.";
+"gdrive_migration_continue" = "Utiliser les fichiers choisis";
+"gdrive_reselection_required" = "Les fichiers de cette source Google Drive doivent être choisis à nouveau. Rien n’a été retiré de votre bibliothèque.";
+"gdrive_legacy_access_disabled" = "Google ne permet plus à Primuse de lire l’intégralité de votre Google Drive. Choisissez des fichiers pour continuer ; rien n’a été retiré de votre bibliothèque.";
+"gdrive_removal_pending_format" = "%d morceaux ne font pas partie des fichiers choisis dans Google Drive et ne peuvent pas être lus. Les retirer de votre bibliothèque ?";
+"gdrive_removal_keep" = "Conserver les morceaux";
+"gdrive_tv_file_access_disclosure" = "Le sélecteur de fichiers de Google s’ouvre sur votre iPhone ou iPad lorsque vous vous y connectez pour cette Apple TV ; reconnectez-vous depuis cet appareil pour ajouter des fichiers. Primuse n’accède qu’aux morceaux, pochettes et paroles que vous choisissez.";
 
 /* Signing in to a cloud drive for Apple TV from a phone */
 "tv_cloud_companion_subtitle" = "Scannez avec l’appareil photo de votre iPhone ou iPad pour vous connecter à %@ dans Primuse. La connexion est transmise directement à cette Apple TV via votre réseau local.";

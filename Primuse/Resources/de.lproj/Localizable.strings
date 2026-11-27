@@ -2422,7 +2422,6 @@
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "Autorisierung über Systembrowser";
-"google_drive_full_access_disclosure" = "Google Drive benötigt vollständigen Drive-Zugriff, um deine bestehende Musikbibliothek zu durchsuchen, Cover- und LRC-Sidecars zu schreiben und ausdrücklich gelöschte Dateien in den Papierkorb zu verschieben. Primuse ändert keine Freigaben und leert den Papierkorb nicht endgültig.";
 "cloud_oauth_checking" = "Autorisierungsstatus wird geprüft …";
 "cloud_setup_needs_creds_title" = "Entwickler-Zugangsdaten erforderlich";
 "cloud_setup_needs_creds_desc" = "Gib zuerst unter „Quelle bearbeiten“ die Client-ID ein und kehre dann zurück, um die Verbindung zu autorisieren.";
@@ -5917,9 +5916,9 @@
 
 /* Hinweis: Google Drive wechselt zur Berechtigung „Nur die von dir ausgewählten Dateien“ */
 "gdrive_scope_change_title_upcoming" = "Der Zugriff auf Google Drive könnte sich nach dem %@ ändern";
-"gdrive_scope_change_title_in_effect" = "Der Zugriff auf Google Drive könnte sich ab dem %@ ändern";
+"gdrive_scope_change_title_in_effect" = "Google Drive nutzt seit %@ die Dateiauswahl";
 "gdrive_scope_change_summary_upcoming" = "Bis dahin funktioniert alles wie gewohnt. Danach wählst du Titel möglicherweise in der Dateiauswahl von Google aus, statt dass Primuse ganze Ordner durchsucht. Bei bereits hinzugefügten Quellen musst du die Dateien eventuell noch einmal auswählen.";
-"gdrive_scope_change_summary_in_effect" = "Bei Quellen von Google Drive wählst du Titel möglicherweise künftig in der Dateiauswahl von Google aus, statt dass Primuse ganze Ordner durchsucht. Bei bereits hinzugefügten Quellen musst du die Dateien eventuell noch einmal auswählen.";
+"gdrive_scope_change_summary_in_effect" = "Google-Drive-Quellen wählen Songs jetzt über die Google-Dateiauswahl aus, statt ganze Ordner zu scannen. Zuvor per Ordner hinzugefügte Quellen müssen ihre Dateien erneut auswählen.";
 "gdrive_scope_change_learn_more" = "Mehr erfahren";
 "gdrive_scope_change_sheet_title" = "Änderungen beim Zugriff auf Google Drive";
 "gdrive_scope_change_changes_header" = "Mögliche Änderungen nach dem %@";
@@ -5931,11 +5930,25 @@
 "gdrive_scope_change_item_tv" = "Die Dateiauswahl von Google ist auf Apple TV nicht verfügbar. Titel würdest du dann auf iPhone, iPad oder Mac auswählen.";
 "gdrive_scope_change_reason_header" = "Warum sich das ändern könnte";
 "gdrive_scope_change_reason_policy" = "Google verlangt von jeder App, die das gesamte Google Drive eines Nutzers lesen kann, jedes Jahr eine Sicherheitsprüfung (CASA) durch ein von Google anerkanntes externes Labor zu bestehen – auf Kosten des Entwicklers. Die Titel, die Primuse abspielt, werden direkt zwischen deinem Gerät und Google übertragen und laufen nie über Server von Primuse. Trotzdem hat Google bestätigt, dass solche Apps nicht ausgenommen sind und dass weder Selbstbewertungen durch Entwickler noch ein Erlass der Gebühr mehr akzeptiert werden.";
-"gdrive_scope_change_reason_decision" = "Für eine unabhängig entwickelte App wie Primuse ist eine Gebühr, die jedes Jahr wieder anfällt, nicht tragbar. Deshalb plant Primuse, zur Google-Berechtigung „Nur die von dir ausgewählten Dateien“ zu wechseln, für die keine Prüfung nötig ist. Die Einzelheiten hängen von einem künftigen Update ab. Diese Einschränkung ergibt sich aus den Plattformregeln von Google – Primuse kann sie nicht durch eigene Anpassungen umgehen.";
+"gdrive_scope_change_reason_decision" = "Für eine unabhängig entwickelte, kostenlose App wie Primuse ist eine jährlich wiederkehrende Prüfgebühr nicht tragbar. Daher nutzt Primuse die Google-Berechtigung „Nur von dir ausgewählte Dateien“, die keine Prüfung erfordert. Diese Einschränkung ergibt sich aus den Plattformregeln von Google.";
 "gdrive_scope_change_alternatives_header" = "Große Mediathek oder ganze Ordner durchsuchen?";
 "gdrive_scope_change_alt_mac" = "Mac: Installiere das offizielle Google Drive für den Desktop, setze deinen Musikordner auf „Offline verfügbar“ und füge ihn dann in Primuse als lokalen Ordner hinzu. Primuse durchsucht die ganze Mediathek und findet neue Titel automatisch.";
 "gdrive_scope_change_alt_webdav" = "Alle Geräte, auch Apple TV: Wenn du ein NAS oder einen dauerhaft laufenden Computer hast, kannst du Google Drive mit einem Tool wie rclone oder OpenList per WebDAV bereitstellen und dann in Primuse eine WebDAV-Quelle hinzufügen. Die Autorisierung liegt bei deinem eigenen Tool und ist von dieser Änderung nicht betroffen.";
 "gdrive_scope_change_alt_move" = "Du kannst deine Musik auch auf einen anderen von Primuse unterstützten Cloud-Speicher oder ein NAS verschieben.";
+"gdrive_choose_files" = "Dateien auswählen";
+"gdrive_status_no_files" = "Keine Dateien ausgewählt";
+"gdrive_scope_selected_files" = "Ausgewählte Google-Drive-Dateien";
+"google_drive_file_access_disclosure" = "Beim Anmelden öffnet sich die Dateiauswahl von Google. Primuse greift nur auf die Songs, Cover und Liedtexte zu, die du auswählst.";
+"gdrive_no_files_chosen" = "In Google Drive wurden keine Dateien ausgewählt, daher wurde nichts geändert.";
+"gdrive_migration_confirm_title" = "Zu ausgewählten Dateien wechseln?";
+"gdrive_migration_confirm_message_format" = "%1$d der %2$d Titel dieser Quelle gehören nicht zu den ausgewählten Dateien und lassen sich nicht mehr abspielen. Sie bleiben in deiner Mediathek; nach dem nächsten Scan entscheidest du, ob sie entfernt werden.";
+"gdrive_migration_confirm_message_unknown" = "Titel dieser Quelle, die nicht zu den ausgewählten Dateien gehören, lassen sich nicht mehr abspielen. Sie bleiben in deiner Mediathek; nach dem nächsten Scan entscheidest du, ob sie entfernt werden.";
+"gdrive_migration_continue" = "Ausgewählte Dateien verwenden";
+"gdrive_reselection_required" = "Für diese Google-Drive-Quelle müssen die Dateien erneut ausgewählt werden. Aus deiner Mediathek wurde nichts entfernt.";
+"gdrive_legacy_access_disabled" = "Google erlaubt Primuse nicht mehr, dein gesamtes Google Drive zu lesen. Wähle Dateien aus, um fortzufahren; aus deiner Mediathek wurde nichts entfernt.";
+"gdrive_removal_pending_format" = "%d Titel gehören nicht zu den in Google Drive ausgewählten Dateien und können nicht abgespielt werden. Aus der Mediathek entfernen?";
+"gdrive_removal_keep" = "Titel behalten";
+"gdrive_tv_file_access_disclosure" = "Die Dateiauswahl von Google öffnet sich auf deinem iPhone oder iPad, wenn du dich dort für dieses Apple TV anmeldest; melde dich dort erneut an, um Dateien hinzuzufügen. Primuse greift nur auf die Songs, Cover und Liedtexte zu, die du auswählst.";
 
 /* Signing in to a cloud drive for Apple TV from a phone */
 "tv_cloud_companion_subtitle" = "Scanne mit der Kamera deines iPhone oder iPad, um dich in Primuse bei %@ anzumelden. Die Anmeldung wird über dein lokales Netzwerk direkt an dieses Apple TV übertragen.";

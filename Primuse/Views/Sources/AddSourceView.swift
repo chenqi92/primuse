@@ -2691,7 +2691,8 @@ struct AddSourceView: View {
             plexServerIdentifier: sourceType == .plex ? plexServerIdentifier : nil,
             excludedServerLibraryIDs: serverLibrariesLoad == .loaded
                 ? serverLibraryChoices.filter { $0.value == .excluded }.keys.sorted()
-                : (editingSource?.excludedServerLibraryIDs ?? [])
+                : (editingSource?.excludedServerLibraryIDs ?? []),
+            googleDriveAccessMode: editingSource?.googleDriveAccessMode
         )
         if supportsAdaptiveConnections {
             source = source.projectingPreferredConnectionForLegacy()

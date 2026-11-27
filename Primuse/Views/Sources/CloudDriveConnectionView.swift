@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import PrimuseKit
 
 /// Connection flow view for cloud drive sources (Baidu, Aliyun, Google, OneDrive, Dropbox).
@@ -7,9 +8,11 @@ struct CloudDriveConnectionView: View {
     let source: MusicSource
     @Binding var selectedDirectories: [String]
     var requestReauthorization = false
+    var onFilesPicked: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(MusicLibrary.self) private var library
 
     @State private var step: FlowStep = .checking
     @State private var errorMessage = ""
@@ -24,6 +27,8 @@ struct CloudDriveConnectionView: View {
     @State private var pan115AuthTask: Task<Void, Never>?
     @State private var pendingPan115Authorization: Pan115Authorization?
     @State private var pan115ChosenMethod: Pan115LoginMethod?
+    /// Google Drive:选择器已经回来、还没存下的授权,等用户看过「哪些歌会用不了」再决定。
+    @State private var pendingGoogleDriveAuthorization: PendingGoogleDriveAuthorization?
 
     private struct Pan115Authorization {
         let tokens: CloudTokenManager.Tokens
@@ -53,6 +58,20 @@ struct CloudDriveConnectionView: View {
     var body: some View {
         connectionContent
             .onDisappear { pan115AuthTask?.cancel() }
+            .alert(
+                String(localized: "gdrive_migration_confirm_title"),
+                // 两个按钮各自清掉待定授权;系统收起弹窗时不再替用户做决定。
+                isPresented: Binding(
+                    get: { pendingGoogleDriveAuthorization != nil },
+                    set: { _ in }
+                ),
+                presenting: pendingGoogleDriveAuthorization
+            ) { pending in
+                Button("gdrive_migration_continue") { confirmGoogleDriveMigration(pending) }
+                Button("cancel", role: .cancel) { declineGoogleDriveMigration() }
+            } message: { pending in
+                Text(pending.migrationMessage)
+            }
     }
 
     @ViewBuilder
@@ -577,7 +596,10 @@ struct CloudDriveConnectionView: View {
             Button {
                 startOAuth()
             } label: {
-                Label(String(localized: "cloud_auth_button"), systemImage: "link.badge.plus")
+                Label(
+                    String(localized: source.type.usesExternalFilePicker ? "gdrive_choose_files" : "cloud_auth_button"),
+                    systemImage: source.type.usesExternalFilePicker ? "doc.badge.plus" : "link.badge.plus"
+                )
                     .fontWeight(.semibold)
                     .frame(maxWidth: maxWidth)
             }
@@ -597,7 +619,7 @@ struct CloudDriveConnectionView: View {
 
     private var googleDrivePermissionDisclosure: some View {
         Label {
-            Text(String(localized: "google_drive_full_access_disclosure"))
+            Text(String(localized: "google_drive_file_access_disclosure"))
                 .fixedSize(horizontal: false, vertical: true)
         } icon: {
             Image(systemName: "externaldrive.fill.badge.checkmark")
@@ -852,26 +874,30 @@ struct CloudDriveConnectionView: View {
                 return
             }
 
-            // Check if we already have valid tokens
-            switch await tokenManager.lookupTokens() {
-            case .found(let tokens) where !tokens.isExpired || (source.type == .pan115 && tokens.refreshToken?.isEmpty == false):
-                do {
-                    try await prepareDirectoryBrowser()
-                } catch {
-                    errorMessage = error.localizedDescription
+            // Google Drive (`drive.file`) selects files through Google's external
+            // Picker during OAuth instead of browsing Drive folders inside Primuse.
+            if !source.type.usesExternalFilePicker {
+                // Check if we already have valid tokens
+                switch await tokenManager.lookupTokens() {
+                case .found(let tokens) where !tokens.isExpired || (source.type == .pan115 && tokens.refreshToken?.isEmpty == false):
+                    do {
+                        try await prepareDirectoryBrowser()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                        pmWithAnimation(.pageSwitch) { step = .failed }
+                    }
+                    return
+                case .temporarilyUnavailable:
+                    errorMessage = String(localized: "credential_temporarily_unavailable")
                     pmWithAnimation(.pageSwitch) { step = .failed }
+                    return
+                case .failed:
+                    errorMessage = String(localized: "credential_read_failed")
+                    pmWithAnimation(.pageSwitch) { step = .failed }
+                    return
+                case .found, .notFound:
+                    break
                 }
-                return
-            case .temporarilyUnavailable:
-                errorMessage = String(localized: "credential_temporarily_unavailable")
-                pmWithAnimation(.pageSwitch) { step = .failed }
-                return
-            case .failed:
-                errorMessage = String(localized: "credential_read_failed")
-                pmWithAnimation(.pageSwitch) { step = .failed }
-                return
-            case .found, .notFound:
-                break
             }
 
             // Resolve credentials with a preference for built-in credentials unless
@@ -1084,6 +1110,10 @@ struct CloudDriveConnectionView: View {
     }
 
     private func startOAuth(loginIntent: CloudOAuthLoginIntent = .standard) {
+        if source.type == .googleDrive {
+            startGoogleDrivePicker(loginIntent: loginIntent)
+            return
+        }
         guard !isAuthorizing else { return }
         isAuthorizing = true
         pmWithAnimation(.pageSwitch) { step = .authorizing }
@@ -1170,6 +1200,239 @@ struct CloudDriveConnectionView: View {
                 pmWithAnimation(.pageSwitch) { step = .failed }
             }
         }
+    }
+
+    // MARK: - Google Drive file picker
+
+    /// 选择器回来、还没存下的一次 Google Drive 授权。
+    private struct PendingGoogleDriveAuthorization {
+        let tokens: CloudTokenManager.Tokens
+        let credentials: CloudTokenManager.AppCredentials
+        let identity: GoogleDriveSource.AccountIdentity
+        let loginIntent: CloudOAuthLoginIntent
+        /// 这个整盘源里不在所选文件中的歌数与总数;nil 表示此刻数不出来。
+        var outsideSongCount: Int?
+        var totalSongCount: Int?
+
+        var migrationMessage: String {
+            guard let outsideSongCount, let totalSongCount else {
+                return String(localized: "gdrive_migration_confirm_message_unknown")
+            }
+            return String(
+                format: String(localized: "gdrive_migration_confirm_message_format"),
+                outsideSongCount,
+                totalSongCount
+            )
+        }
+    }
+
+    /// Google Drive 的授权就是选择文件。浏览器回来之前不写任何东西;回来没带文件时什么都不改。
+    /// 还在用整盘授权、而且有歌会因此用不了的源,先说清有几首、再问要不要继续。
+    private func startGoogleDrivePicker(loginIntent: CloudOAuthLoginIntent) {
+        guard !isAuthorizing else { return }
+        isAuthorizing = true
+        pmWithAnimation(.pageSwitch) { step = .authorizing }
+        errorMessage = ""
+
+        Task {
+            defer { isAuthorizing = false }
+            let tokenManager = CloudTokenManager(sourceID: source.id)
+            do {
+                guard let creds = try await resolvedCredentials(using: tokenManager) else {
+                    errorMessage = String(localized: "cloud_err_no_client_id")
+                    pmWithAnimation(.pageSwitch) { step = .needsSetup }
+                    return
+                }
+                let config = oauthConfig(for: source.type, clientId: creds.clientId, clientSecret: creds.clientSecret)
+                plog("☁️ OAuth starting type=\(source.type.rawValue) sourceID=\(source.id) clientId=\(creds.clientId) redirect=\(config.redirectURI) scopes=\(config.scopes) intent=\(String(describing: loginIntent))")
+                let tokens = try await OAuthService.shared.authorize(config: config, loginIntent: loginIntent)
+                try Task.checkCancellation()
+
+                // 用还没存下的新令牌读账号和这次能看到的文件。
+                let preview = GoogleDriveSource(
+                    sourceID: source.id,
+                    tokenProvider: { tokens.accessToken },
+                    storedAccessMode: .pickedFiles,
+                    tokenExtraProvider: { tokens.extra }
+                )
+                let identity = try await preview.accountIdentity()
+                var pending = PendingGoogleDriveAuthorization(
+                    tokens: tokens,
+                    credentials: creds,
+                    identity: identity,
+                    loginIntent: loginIntent
+                )
+                let current = sourcesStore.source(id: source.id) ?? source
+                if GoogleDrivePickerPolicy.effectiveMode(stored: current.googleDriveAccessMode) == .legacyFullDrive,
+                   let impact = await Self.legacySongImpact(
+                       sourceID: current.id,
+                       reader: library.readableCatalogReader,
+                       preview: preview
+                   ) {
+                    pending.outsideSongCount = impact.outside
+                    pending.totalSongCount = impact.total
+                    if impact.outside != 0 {
+                        pendingGoogleDriveAuthorization = pending
+                        return
+                    }
+                }
+                try await commitGoogleDriveAuthorization(pending)
+            } catch {
+                showGoogleDriveAuthorizationError(error)
+            }
+        }
+    }
+
+    private func confirmGoogleDriveMigration(_ pending: PendingGoogleDriveAuthorization) {
+        pendingGoogleDriveAuthorization = nil
+        guard !isAuthorizing else { return }
+        isAuthorizing = true
+        Task {
+            defer { isAuthorizing = false }
+            do {
+                try await commitGoogleDriveAuthorization(pending)
+            } catch {
+                showGoogleDriveAuthorizationError(error)
+            }
+        }
+    }
+
+    /// 不迁移:令牌、目录和访问方式都没动,源照旧用整盘授权。
+    private func declineGoogleDriveMigration() {
+        guard pendingGoogleDriveAuthorization != nil else { return }
+        pendingGoogleDriveAuthorization = nil
+        plog("☁️ Google Drive migration declined for mount=\(source.id); nothing changed")
+        pmWithAnimation(.pageSwitch) { step = .readyToAuth }
+    }
+
+    private func showGoogleDriveAuthorizationError(_ error: Error) {
+        if case OAuthError.userCancelled = error {
+            pmWithAnimation(.pageSwitch) { step = .readyToAuth }
+        } else if case OAuthError.noFilesChosen = error {
+            errorMessage = error.localizedDescription
+            pmWithAnimation(.pageSwitch) { step = .readyToAuth }
+        } else if let error = error as? CloudDriveError {
+            errorMessage = credentialMessage(for: error)
+            pmWithAnimation(.pageSwitch) { step = .failed }
+        } else if !OperationCancellationPolicy.isCancellation(error) {
+            errorMessage = error.localizedDescription
+            pmWithAnimation(.pageSwitch) { step = .failed }
+        }
+    }
+
+    /// 存下令牌,再把访问方式、扫描范围和账号标识一次写进源。分开写的中间状态就是「半迁移」;
+    /// 即便在两步之间被打断,列目录也会判成「需要重新选择文件」,不会列出一部分。
+    private func commitGoogleDriveAuthorization(_ pending: PendingGoogleDriveAuthorization) async throws {
+        let tokenManager = CloudTokenManager(sourceID: source.id)
+        // 浏览器回来以后、合并之前才读现有的附加字段:期间别处(令牌刷新、电视代登录)写进去的不会被盖掉。
+        let existingExtra: [String: String]?
+        switch await tokenManager.lookupTokens() {
+        case .found(let stored): existingExtra = stored.extra
+        case .notFound: existingExtra = nil
+        case .temporarilyUnavailable(let status): throw CloudDriveError.credentialTemporarilyUnavailable(status)
+        case .failed(let status): throw CloudDriveError.credentialReadFailed(status)
+        }
+        let current = sourcesStore.source(id: source.id) ?? source
+        let isExplicitSwitch = pending.loginIntent == .differentAccount
+        let storedEmail = existingExtra?[GoogleDrivePickerPolicy.accountEmailExtraKey]
+        let accountChanged = isExplicitSwitch
+            || GoogleDrivePickerPolicy.accountDiffers(storedEmail: storedEmail, incomingEmail: pending.identity.email)
+        var incoming = pending.tokens.extra ?? [:]
+        if let email = pending.identity.email?.trimmingCharacters(in: .whitespacesAndNewlines), !email.isEmpty {
+            incoming[GoogleDrivePickerPolicy.accountEmailExtraKey] = email
+        }
+        var tokens = pending.tokens
+        tokens.extra = GoogleDrivePickerPolicy.mergedTokenExtra(
+            existing: existingExtra,
+            incoming: incoming,
+            replacingAccount: accountChanged
+        )
+
+        try sourceManager.credentialsWillChange(for: source.id)
+        guard await tokenManager.saveAppCredentials(pending.credentials) else {
+            sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+            throw OAuthError.tokenExchangeFailed(String(localized: "credential_save_failed_message"))
+        }
+        guard await tokenManager.saveTokens(tokens) else {
+            plog("⚠️ OAuth token save verification failed type=\(source.type.rawValue) sourceID=\(source.id)")
+            do {
+                try sourceManager.credentialsDidChange(for: source.id)
+            } catch {
+                sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+            }
+            throw OAuthError.tokenExchangeFailed(String(localized: "cloud_err_token_save_failed"))
+        }
+        do {
+            try sourceManager.credentialsDidChange(for: source.id)
+        } catch {
+            sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+            throw error
+        }
+
+        let link = GoogleDrivePickerPolicy.accountLink(
+            existingAccountID: current.cloudAccountID,
+            storedEmail: storedEmail,
+            incomingEmail: pending.identity.email,
+            isExplicitAccountSwitch: isExplicitSwitch
+        )
+        let accountID: String
+        switch link {
+        case .keepExisting(let existingID):
+            accountID = existingID
+        case .adoptIncoming:
+            let existingAccount = sourcesStore.account(provider: .googleDrive, accountUID: pending.identity.uid)
+            let account = existingAccount ?? CloudAccount(
+                id: CloudAccount.deriveID(provider: .googleDrive, accountUID: pending.identity.uid),
+                provider: .googleDrive,
+                accountUID: pending.identity.uid,
+                createdAt: Date()
+            )
+            sourcesStore.upsertAccount(account)
+            accountID = account.id
+        }
+        let root = GoogleDrivePickerPolicy.authorizedFilesRootPath
+        sourcesStore.update(source.id) { updated in
+            updated.googleDriveAccessMode = .pickedFiles
+            updated.extraConfig = MusicSource.encodeScannedDirectories([root], into: updated.extraConfig, type: updated.type)
+            updated.cloudAccountID = accountID
+        }
+        let pickedCount = GoogleDrivePickerPolicy.parsePickedFileIDs(
+            from: tokens.extra?[GoogleDrivePickerPolicy.pickedFileIDsExtraKey]
+        ).count
+        plog("☁️ Google Drive files chosen: mount=\(source.id) account=\(accountID) kept=\(link != .adoptIncoming) accountChanged=\(accountChanged) uid=\(pending.identity.uid) picked=\(pickedCount) wasLegacy=\(current.googleDriveAccessMode != .pickedFiles)")
+
+        await sourceManager.refreshConnector(for: source.id, force: true)
+        onFilesPicked?()
+        dismiss()
+    }
+
+    /// 整盘源里有多少首歌不在这次能看到的已授权文件里。nil 表示这个源没有歌、不用问;
+    /// 数不出来(曲库还没装好、列不出已授权文件)时两项都是 nil,照样要问。
+    /// 只按源流式遍历曲库目录,内存里只有已授权文件的 ID(上界是用户选的文件数)。
+    private static func legacySongImpact(
+        sourceID: String,
+        reader: LibraryCatalogReader?,
+        preview: GoogleDriveSource
+    ) async -> (outside: Int?, total: Int?)? {
+        guard let reader else { return (nil, nil) }
+        guard (try? await reader.containsSongs(sourceID: sourceID)) != false else { return nil }
+        guard let authorized = try? await preview.authorizedFileIDs() else { return (nil, nil) }
+        let counts = OSAllocatedUnfairLock(initialState: (outside: 0, total: 0))
+        do {
+            try await reader.visitSongIdentities(.source(sourceID)) { identity in
+                let fileID = identity.filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let isOutside = !authorized.contains(fileID)
+                counts.withLock { state in
+                    state.total += 1
+                    if isOutside { state.outside += 1 }
+                }
+                return true
+            }
+        } catch {
+            return (nil, nil)
+        }
+        let result = counts.withLock { $0 }
+        return (outside: result.outside as Int?, total: result.total as Int?)
     }
 
     private func credentialMessage(for error: CloudDriveError) -> String {
