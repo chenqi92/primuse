@@ -1,0 +1,111 @@
+name: 架构关卡
+
+# 每个拉取请求和每次推送到 main 都跑一遍 scripts/gate/gate.py（规则见 AGENTS.md 与 Docs/ARCHITECTURE.md）。
+#
+# 安全：仓库是公开的，拉取请求可能来自任何人。这里只给只读权限、不用任何 secret；
+# 拉取请求时关卡的代码（scripts/）取自基准分支上的那个提交，不取拉取请求里的，
+# 拉取请求的内容只被当作数据读取（文件内容、git 对象），从不执行。关卡本身也只读文件、
+# 只跑 git 的只读命令，外部检查脚本同样取自基准分支。改关卡时要保持这一点。
+#
+# 合并前必须通过：仓库规则集 scripts/gate/github-ruleset.json 把这里的 architecture-gate 检查设为必需，
+# 仓库管理员（所有者直接推 main）和 GitHub Actions（发布、二维码工作流推 main）可以绕过。导入办法：
+#   网页：Settings → Rules → Rulesets → New ruleset → Import a ruleset，选这个 JSON 文件。
+#   接口：gh api --method POST repos/chenqi92/primuse/rulesets --input scripts/gate/github-ruleset.json
+#         （即 POST /repos/{owner}/{repo}/rulesets，需要仓库的 Administration 写权限）
+# 先让本工作流在 main 上跑过一次、确认检查名是 architecture-gate 再导入；导入后不通过的拉取请求不能合并。
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: architecture-gate-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    # 规则集按这个名字认必需检查，改名要同时改 scripts/gate/github-ruleset.json。
+    name: architecture-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出要检查的提交
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 准备关卡代码与检查范围
+        id: prepare
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -eu
+          gate_dir="$RUNNER_TEMP/gate-base"
+          mkdir -p "$gate_dir"
+          if [ "$EVENT" = "pull_request" ]; then
+            base="$PR_BASE"
+            # 关卡代码取自基准分支，拉取请求改不了它。
+            if git cat-file -e "$base:scripts/gate/gate.py" 2>/dev/null; then
+              git archive "$base" scripts | tar -x -C "$gate_dir"
+            else
+              echo "::warning::基准分支上还没有 scripts/gate，这次不检查"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            strict="--strict-baselines"
+          else
+            base="$PUSH_BEFORE"
+            # 推到 main 的只有仓库管理员（规则集），用推上来的那份关卡。
+            git archive "$HEAD_SHA" scripts | tar -x -C "$gate_dir"
+            strict=""
+          fi
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            # 新分支或强推：没有可比的基点，查整棵树，提交信息只查最新的一个（根提交不查）。
+            range=""
+            commits=""
+            if git cat-file -e "$HEAD_SHA~1^{commit}" 2>/dev/null; then
+              commits="$HEAD_SHA~1..$HEAD_SHA"
+            fi
+          else
+            range="$base..$HEAD_SHA"
+            commits="$base..$HEAD_SHA"
+          fi
+          {
+            echo "skip=false"
+            echo "gate=$gate_dir/scripts/gate/gate.py"
+            echo "range=$range"
+            echo "commits=$commits"
+            echo "strict=$strict"
+          } >> "$GITHUB_OUTPUT"
+          python3 --version
+          ruby --version || echo "没有 ruby：toolbar-environment 会跳过（它是可选检查）"
+
+      - name: 静态规则
+        if: steps.prepare.outcome == 'success' && steps.prepare.outputs.skip != 'true'
+        env:
+          GATE: ${{ steps.prepare.outputs.gate }}
+          RANGE: ${{ steps.prepare.outputs.range }}
+          STRICT: ${{ steps.prepare.outputs.strict }}
+        run: |
+          if [ -n "$RANGE" ]; then
+            python3 -I "$GATE" --root . --format github --require-all $STRICT --range "$RANGE"
+          else
+            python3 -I "$GATE" --root . --format github --require-all $STRICT --all
+          fi
+
+      - name: 提交信息与测试随代码
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.skip != 'true' && steps.prepare.outputs.commits != ''
+        env:
+          GATE: ${{ steps.prepare.outputs.gate }}
+          COMMITS: ${{ steps.prepare.outputs.commits }}
+        run: python3 -I "$GATE" --root . --format github --commits "$COMMITS"

@@ -1,0 +1,14 @@
+#!/bin/sh
+# 架构关卡：检查提交信息（一行、不超长、不带 AI 署名）。安装：sh scripts/install-git-hooks.sh
+root=$(git rev-parse --show-toplevel) || exit 1
+gate="$root/scripts/gate/gate.py"
+[ -f "$gate" ] || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+python3 -I "$gate" --commit-msg "$1" --root "$root" --quiet && exit 0
+cat >&2 <<MSG
+
+提交信息没通过架构关卡，这次没有提交。写的信息还在 $1，
+改好后：git commit -e -F "$1"
+看详情：python3 -I scripts/gate/gate.py --commit-msg "$1"
+MSG
+exit 1

@@ -1,0 +1,140 @@
+{
+  "project": "Primuse",
+  "tool_root": "../..",
+  "default_branch": "main",
+  "swift": {
+    "extensions": [".swift"],
+    "exclude": ["Vendor/**", "scripts/**", "build/**", "build_device/**", "DerivedData/**", "**/.build/**",
+                "Marketing/**", "logs/**", "Primuse/ThirdParty/**", "**/*.generated.swift"],
+    "generated_markers": ["DO NOT EDIT", "@generated", "This file was automatically generated"]
+  },
+  "test_prefixes": ["PrimuseTests/", "PrimuseTVTests/", "PrimuseMacTests/", "CarPlayEditorUITests/",
+                    "PrimuseKit/Tests/", "PrimuseKit/ScaleGate/Tests/"],
+  "rules": {
+    "file-size": {
+      "severity": "warn",
+      "max_lines": 1000,
+      "baseline": "scripts/gate/baselines/file-size.tsv"
+    },
+    "observable-class-body": {
+      "severity": "error",
+      "baseline": "scripts/gate/baselines/observable-class-body.tsv"
+    },
+    "library-scale": {
+      "severity": "error",
+      "script": "scripts/check-crash-patterns.py",
+      "baseline": "scripts/library-scale-baseline.tsv"
+    },
+    "kit-layout": {
+      "severity": "error",
+      "source_root": "PrimuseKit/Sources/PrimuseKit",
+      "test_root": "PrimuseKit/Tests/PrimuseKitTests",
+      "allowed_root_files": ["PrimuseKit/Sources/PrimuseKit/SharedConstants.swift"],
+      "test_dirs_without_source": ["Support"]
+    },
+    "layering": {
+      "severity": "error",
+      "roots": ["PrimuseKit/Sources/"],
+      "forbidden_imports": ["SwiftUI", "UIKit", "AppKit", "Cocoa", "WatchKit", "TVUIKit", "CarPlay"],
+      "baseline": "scripts/gate/baselines/layering.tsv"
+    },
+    "project-file": {
+      "severity": "error",
+      "script": "scripts/check-pbxproj.py",
+      "spec": "project.yml",
+      "project": "Primuse.xcodeproj/project.pbxproj",
+      "xcodegen_version": "2.46.0",
+      "source_extensions": [".swift"]
+    },
+    "localization": {
+      "severity": "error",
+      "locales": ["en", "de", "fr", "ja", "ko", "zh-Hans", "zh-Hant", "ru", "uk", "ar", "es-MX", "pt-BR", "hi", "th",
+                  "tr", "pl"],
+      "development_locale": "en",
+      "han_locales": ["ja", "zh-Hans", "zh-Hant"],
+      "groups": [
+        {"name": "Primuse Localizable.strings", "dir": "Primuse/Resources", "file": "Localizable.strings",
+         "exact_development_parity": false},
+        {"name": "Primuse SettingsSearch.strings", "dir": "Primuse/Resources", "file": "SettingsSearch.strings"},
+        {"name": "Primuse HomeDiscovery.strings", "dir": "Primuse/Resources", "file": "HomeDiscovery.strings"},
+        {"name": "Primuse MetadataReading.strings", "dir": "Primuse/Resources", "file": "MetadataReading.strings"},
+        {"name": "Primuse CacheSync.strings", "dir": "Primuse/Resources", "file": "CacheSync.strings"},
+        {"name": "Primuse WiFiTransfer.strings", "dir": "Primuse/Resources", "file": "WiFiTransfer.strings"},
+        {"name": "Primuse AudioCalibration.strings", "dir": "Primuse/Resources", "file": "AudioCalibration.strings"},
+        {"name": "PrimuseKit Localizable.strings", "dir": "PrimuseKit/Sources/PrimuseKit/Resources",
+         "file": "Localizable.strings"},
+        {"name": "Primuse InfoPlist.strings", "dir": "Primuse/Resources", "file": "InfoPlist.strings"},
+        {"name": "PlayMedia intent strings", "dir": "Primuse/Resources", "file": "PlayMedia.strings"},
+        {"name": "Widget InfoPlist.strings", "dir": "PrimuseWidgetExtension/Resources", "file": "InfoPlist.strings"},
+        {"name": "Widget WidgetConfiguration.strings", "dir": "PrimuseWidgetExtension/Resources",
+         "file": "WidgetConfiguration.strings"},
+        {"name": "Watch InfoPlist.strings", "dir": "PrimuseWatch/Resources", "file": "InfoPlist.strings"},
+        {"name": "Watch widget InfoPlist.strings", "dir": "PrimuseWatchWidgets/Resources", "file": "InfoPlist.strings"}
+      ]
+    },
+    "baseline-integrity": {
+      "severity": "error"
+    },
+    "commit-message": {
+      "severity": "error",
+      "subject_max_bytes": 180,
+      "body_max_lines": 1,
+      "body_line_max_bytes": 200,
+      "ai_names": ["Claude", "Anthropic", "Codex", "Copilot", "Gemini", "ChatGPT", "OpenAI", "GPT-?\\d[\\w.]*",
+                   "Cursor", "Windsurf", "Codeium", "Tabnine", "CodeWhisperer", "Aider", "DeepSeek", "Qwen",
+                   "Opus", "Sonnet", "Haiku", "Fable"]
+    },
+    "tests-with-code": {
+      "severity": "error",
+      "override_env": "GATE_ALLOW_TEST_ONLY",
+      "neutral_globs": ["**/*.md", "Docs/**", "project.yml", "*.xcodeproj/**", "scripts/gate/baselines/**",
+                        "scripts/library-scale-baseline.tsv"]
+    },
+    "toolbar-environment": {
+      "severity": "warn",
+      "note": "2026-11-27 在 main 上报 2 处（ArtistDetailView 与 PodcastLibraryView 的工具栏读必需的环境对象），修好后改成 error",
+      "optional": true,
+      "script": "scripts/check-toolbar-environment.rb",
+      "command": ["ruby", "{script}"],
+      "requires": ["ruby"],
+      "probe": ["ruby", "-e", "exit(Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('2.7') ? 0 : 1)"],
+      "probe_reason": "ruby 版本低于 2.7（脚本用到 filter_map；macOS 自带的是 2.6）",
+      "inputs": ["Primuse"],
+      "triggers": ["Primuse/**/*.swift", "scripts/check-toolbar-environment.rb"],
+      "timeout": 300
+    },
+    "widget-platforms": {
+      "severity": "error",
+      "optional": true,
+      "script": "scripts/check-widget-platforms.rb",
+      "command": ["ruby", "{script}"],
+      "requires": ["ruby", "xcodegen", "/usr/bin/plutil"],
+      "inputs": ["project.yml", "Primuse.xcodeproj/project.pbxproj"],
+      "triggers": ["project.yml", "Primuse.xcodeproj/**", "PrimuseWidgetExtension/**", "Primuse/Services/Intents/**",
+                   "**/Info*.plist", "**/*.entitlements", "scripts/check-widget-platforms.rb"],
+      "timeout": 600
+    },
+    "branding": {
+      "severity": "error",
+      "optional": true,
+      "script": "scripts/check-branding.sh",
+      "command": ["bash", "{script}"],
+      "requires": ["bash", "git", "/usr/libexec/PlistBuddy"],
+      "inputs": ["README.md", "Primuse/Info.plist"],
+      "triggers": ["**/*.md", "**/*.plist", "**/*.strings", "**/*.xcstrings", "project.yml", "scripts/check-branding.sh"],
+      "timeout": 120
+    },
+    "localization-full": {
+      "severity": "warn",
+      "note": "2026-11-27 在 main 上报 78 行（Kit 归目录后放行名单的路径过时、新的未本地化字面量），修好后改成 error",
+      "optional": true,
+      "script": "scripts/check-localizations.rb",
+      "command": ["ruby", "{script}"],
+      "requires": ["ruby", "/usr/bin/plutil"],
+      "inputs": ["Primuse/Resources"],
+      "triggers": ["**/*.strings", "**/*.xcstrings", "**/*.intentdefinition", "SiriVocabulary/**",
+                   "Primuse/**/*.swift", "PrimuseKit/Sources/**/*.swift", "scripts/check-localizations.rb"],
+      "timeout": 300
+    }
+  }
+}

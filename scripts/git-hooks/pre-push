@@ -1,0 +1,18 @@
+#!/bin/sh
+# 架构关卡：推送前查要推送的提交（改到的文件、全局基线、每个提交的信息）。安装：sh scripts/install-git-hooks.sh
+# git 在标准输入给出每个要推送的分支：<本地 ref> <本地提交> <远端 ref> <远端提交>。新分支、删除分支都由 gate.py 处理。
+remote="$1"
+root=$(git rev-parse --show-toplevel) || exit 1
+gate="$root/scripts/gate/gate.py"
+[ -f "$gate" ] || exit 0
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "架构关卡：找不到 python3，这次推送没有检查。" >&2
+  exit 0
+fi
+python3 -I "$gate" --pre-push "$remote" --root "$root" --quiet && exit 0
+cat >&2 <<MSG
+
+架构关卡拦下了这次推送：按上面每条的「改法」修好（提交信息的问题用 git commit --amend 或 git rebase -i 改）。
+看详情：python3 -I scripts/gate/gate.py --range $remote/main..HEAD --commits $remote/main..HEAD
+MSG
+exit 1

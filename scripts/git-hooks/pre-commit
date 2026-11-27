@@ -1,0 +1,17 @@
+#!/bin/sh
+# 架构关卡：提交前只查暂存的改动。安装：sh scripts/install-git-hooks.sh
+# 钩子只读文件、不改任何东西；被拦下时改代码，不要用 --no-verify 跳过。
+root=$(git rev-parse --show-toplevel) || exit 1
+gate="$root/scripts/gate/gate.py"
+[ -f "$gate" ] || exit 0
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "架构关卡：找不到 python3，这次提交没有检查。" >&2
+  exit 0
+fi
+python3 -I "$gate" --staged --root "$root" --quiet && exit 0
+cat >&2 <<'MSG'
+
+架构关卡拦下了这次提交：按上面每条的「改法」修好再提交。
+看详情：python3 -I scripts/gate/gate.py --staged
+MSG
+exit 1
