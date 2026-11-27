@@ -6,7 +6,7 @@ import Testing
 /// 文件夹索引常驻内存:按目录建(每首 4 字节行号)与按整库 `[Song]` 建(id 数组 + id → 节点字典)对比。
 /// 默认 2 万首;`PRIMUSE_FOLDER_SCALE_SONGS` 可改。只量留下的那份索引,不量建的过程。
 @Suite("Library folder index memory at scale", .serialized)
-struct LibraryFolderCatalogScaleTests {
+struct LibraryFolderCatalogScaleTests: LibraryScaleProbes {
     static var songCount: Int {
         ProcessInfo.processInfo.environment["PRIMUSE_FOLDER_SCALE_SONGS"].flatMap(Int.init) ?? 20_000
     }
@@ -14,10 +14,10 @@ struct LibraryFolderCatalogScaleTests {
     /// 建好后留下的字节数。量之前放掉目录各连接的页缓存,只量索引本身。
     static func retainedBytes<T>(catalog: LibraryCatalog, _ build: () throws -> T) rethrows -> (value: T, bytes: Int64) {
         catalog.releaseMemory()
-        let before = LibraryCatalogScaleTests.mallocBytes().inUse
+        let before = Self.mallocBytes().inUse
         let value = try build()
         catalog.releaseMemory()
-        let after = LibraryCatalogScaleTests.mallocBytes().inUse
+        let after = Self.mallocBytes().inUse
         return (value, Int64(after) - Int64(before))
     }
 
@@ -39,19 +39,19 @@ struct LibraryFolderCatalogScaleTests {
             )
         }
 
-        let memoryStart = LibraryCatalogScaleTests.now()
+        let memoryStart = Self.now()
         let memory = Self.retainedBytes(catalog: temporary.catalog) {
             LibraryFolderIndexBuilder.build(sources: sources, songs: songs)
         }
-        let memorySeconds = LibraryCatalogScaleTests.now() - memoryStart
-        let catalogStart = LibraryCatalogScaleTests.now()
+        let memorySeconds = Self.now() - memoryStart
+        let catalogStart = Self.now()
         let catalog = try Self.retainedBytes(catalog: temporary.catalog) {
             try LibraryFolderIndexBuilder.build(
                 sources: sources,
                 catalog: LibraryFolderCatalogInput(catalog: temporary.catalog, kinds: nil, ordersSpokenWordLikeShelf: false)
             )
         }
-        let catalogSeconds = LibraryCatalogScaleTests.now() - catalogStart
+        let catalogSeconds = Self.now() - catalogStart
 
         #expect(memory.value.songCount == catalog.value.songCount)
         #expect(memory.value.nodeCount == catalog.value.nodeCount)

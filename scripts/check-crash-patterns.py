@@ -264,8 +264,9 @@ def viewthatfits_foreach(lines):
 # 某个文件的命中数超过基线才算失败;降下来时提示收紧基线(--update-baseline)。
 # 只查产品代码,测试目录不查。
 
+# PrimuseKit/ScaleGate/Tests/ 是单独成包的曲库目录规模门(Release 单跑),同样是测试代码。
 TEST_PREFIXES = ("PrimuseTests/", "PrimuseTVTests/", "PrimuseMacTests/", "CarPlayEditorUITests/",
-                 "PrimuseKit/Tests/")
+                 "PrimuseKit/Tests/", "PrimuseKit/ScaleGate/Tests/")
 CATALOG_PREFIX = "PrimuseKit/Sources/PrimuseKit/Catalog/"
 BASELINE_PATH = os.path.join(ROOT, "scripts", "library-scale-baseline.tsv")
 
@@ -726,6 +727,8 @@ def self_test():
     scoped = [
         ("catalog-sql-outside-catalog", "PrimuseKit/Sources/PrimuseKit/Catalog/Queries.swift", "let s = \"SELECT id FROM song\""),
         ("legacy-library-api", "PrimuseTests/LibraryTests.swift", "let all = library.songs"),
+        ("catalog-sql-outside-catalog", "PrimuseKit/ScaleGate/Tests/ScaleGateTests/LibraryCatalogScaleTests.swift",
+         "let s = \"SELECT id FROM song\""),
     ]
     for rule_id, scoped_path, snippet in scoped:
         if [f for f in scan_text(scoped_path, snippet) if f.rule == rule_id]:

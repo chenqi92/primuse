@@ -14,8 +14,8 @@ enum LibraryCatalogScaleBudgets {
     /// 艺人、专辑、文件名三条本地化排序索引不算在内:它们在迁移后由 `buildPendingSortIndexes`
     /// 在后台补建(规模测试另记 `build.backgroundSortIndexes`)。
     static let migrationSeconds = 30.0
-    /// 迁移时长只在优化编译里判失败(`swift test -c release -Xswiftc -enable-testing`);Debug 照样量、
-    /// 照样打印。理由(2026-11-23,用户决定):未优化编译里 Swift 泛型与字符串的开销把迁移放大约 1.5 倍
+    /// 迁移时长只在优化编译里判失败(在 `PrimuseKit/ScaleGate` 里 `swift test -c release -Xswiftc -enable-testing`);
+    /// Debug 照样量、照样打印。理由(2026-11-23,用户决定):未优化编译里 Swift 泛型与字符串的开销把迁移放大约 1.5 倍
     /// (同一份代码 10 万首 Debug 9.9–10.3 s、Release 6.6 s),而用户设备上跑的是优化编译。
     static var enforcesMigrationTime: Bool {
         #if DEBUG

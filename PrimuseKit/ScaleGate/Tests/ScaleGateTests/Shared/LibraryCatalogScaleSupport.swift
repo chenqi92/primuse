@@ -1,0 +1,1 @@
+../../../../Tests/PrimuseKitTests/Support/LibraryCatalogScaleSupport.swift
