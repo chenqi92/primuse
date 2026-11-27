@@ -158,6 +158,34 @@ struct LibraryCatalogSongLookup: Sendable {
         return result
     }
 
+    /// 这些 id 各在哪个音乐源里,与输入一一对应;不在曲库里的是 nil。只读源那一列,不取出行;
+    /// 还在路上的改动照待写登记算(路上写过的用路上那一版的源,路上删掉的算不在)。
+    func sourceIDs(ids: [String]) throws -> [String?] {
+        guard pendingWrites.answersLikeMemory else { throw LibraryCatalogReaderError.unavailable }
+        guard !ids.isEmpty else { return [] }
+        let pending = pendingWrites.lookups(ids)
+        // 由改名而来、目录还没改名的那几首按旧 id 查。
+        var asked = ids
+        if let pending {
+            for case .renamed(let oldID) in pending { asked.append(oldID) }
+        }
+        var stored: [String: String] = [:]
+        var start = 0
+        while start < asked.count {
+            let end = min(asked.count, start + LibraryScale.maxMaterializedRows)
+            stored.merge(try catalog.sourceIDs(forIDs: Array(asked[start..<end]))) { first, _ in first }
+            start = end
+        }
+        return ids.enumerated().map { offset, id in
+            switch pending?[offset] ?? .unknown {
+            case .unknown: return stored[id]
+            case .present(let song): return song.sourceID
+            case .deleted: return nil
+            case .renamed(let oldID): return stored[oldID] ?? stored[id]
+            }
+        }
+    }
+
     /// 按音乐源数存着的歌(含停用源),还在路上的改动算在内;`removedIDs` 里的当作已经删掉。
     /// 目录的数是它最近一次提交的:路上写入的新行加上,路上删掉而目录里还在的行扣掉,换了源的行挪过去。
     /// 要补算的 id 以在路上的批为界(加上 `removedIDs`),只为它们读目录里的行。

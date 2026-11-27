@@ -163,12 +163,10 @@ private enum LibraryArrayReclaimer {
         }
     }
 
-    #if DEBUG
-    /// 排在已经交来的释放之后执行(规模夹具量放掉的内存之前等它们做完)。
+    /// 排在已经交来的释放之后执行(放掉歌曲模型之后量占用、规模夹具量放掉的内存之前等它们做完)。
     static func afterPendingReleases(_ body: @escaping @Sendable () -> Void) {
         queue.async(execute: body)
     }
-    #endif
 }
 
 /// Ownership handle for the lookup dictionaries one derived-index apply
@@ -4335,6 +4333,42 @@ final class MusicLibrary {
     /// (`reloadFromDiskInBackground`:同样回到 `.preparing`,旧数组还在,或者本来就是空库)区分开 ——
     /// 不等模型、按 id 直接写行的那条路只在前一种状态下走(`rowWritesWithoutTheModel`)。
     @ObservationIgnored private var songModelReleased = false
+    /// 放掉之后要用到歌曲模型时自己装回来。真正的放掉(`releaseSongModelIfIdle`)置它;测量钩子不置 ——
+    /// 钩子放掉的库停在那个状态,不自己装载。发布时清掉。
+    @ObservationIgnored private var songModelLoadsOnDemand = false
+    /// 放掉之后正在装回来的那一次。在途期间按 id 的行写、小状态突变照旧排队,发布后重放。
+    @ObservationIgnored private var songModelLoadTask: Task<Void, Never>?
+    /// 装回来的请求已经排到下一个主线程轮次(读的途中发现目录答不了时不当场改状态)。
+    @ObservationIgnored private var songModelLoadRequestScheduled = false
+    /// 上一次放掉之后把换下来的对象释放完、把空页还给系统的那一步(进后台的收尾等它做完再让进程挂起)。
+    @ObservationIgnored private var songModelReclaimTask: Task<Void, Never>?
+    /// 歌曲模型的占用:令牌号 → 理由与起始时刻。有占用就不放。
+    @ObservationIgnored private var songModelHolds: [UInt64: (reason: SongModelHoldReason, since: ContinuousClock.Instant)] = [:]
+    @ObservationIgnored private var nextSongModelHoldID: UInt64 = 0
+    /// 「可用」的输入里不被观察的那几样(放掉、开始装回、目录答不了)每变一次加一,`isUsable` 的读者据此重算。
+    private var songModelResidencyRevision = 0
+    /// 歌曲模型不常驻的总开关(启动参数 / 内部设置,由 App 装上)。关着时不放、不记占用的日志。
+    @ObservationIgnored var songModelResidencyEnabled = false
+    /// 放掉那一刻各音乐源的 id:装回来时给「从本机移除」的身份前缀用(放掉期间不会多出新的源)。
+    @ObservationIgnored private var releasedSongSourceIDs: Set<String> = []
+    /// 放掉那一刻被停用的源藏起来的歌单(那张表要查成员在哪个源,放掉之后查不了),放掉期间照这一份答。
+    @ObservationIgnored private var releasedHiddenPlaylistIDs: (sources: Set<String>, ids: Set<String>)?
+    /// 模型不在内存里时读了整库数组的次数,按属性名(每轮放掉每个属性只记前十行日志)。
+    @ObservationIgnored private var arrayReadsWhileUnloaded: [String: Int] = [:]
+    /// 模型不在内存里时读整库数组怎么处置。
+    @ObservationIgnored var songModelArrayReadPolicy: SongModelArrayReadPolicy = .log
+    /// 放掉、装回的次数与上一次的结果(诊断与测试)。
+    @ObservationIgnored private(set) var songModelResidencyStatistics = SongModelResidencyStatistics()
+    /// 放掉了、装回来了、占用都结束了:App 那一层据此安排下一次空闲时的放掉。
+    @ObservationIgnored var songModelResidencyObserver: (@MainActor (SongModelResidencyEvent) -> Void)?
+    #if DEBUG
+    /// 测试:装回来读完旧库、发布之前停一下(这时改旧库,发布要按变更流水补上)。
+    @ObservationIgnored var songModelLoadDidReadForTesting: (@MainActor () async -> Void)?
+    /// 测试:当作只装歌曲模型装不成,改走整份装载。
+    @ObservationIgnored var songModelLoadFailsForTesting = false
+    /// 测试:放掉之前各项都落定之后、最后一次核对之前停一下。
+    @ObservationIgnored var songModelReleaseDidSettleForTesting: (@MainActor () async -> Void)?
+    #endif
     /// 这一轮进程里扫描索引已经给过专辑艺人目录(之前目录里留着上一轮的,不先清掉)。
     @ObservationIgnored private var catalogAlbumArtistFoldersReceived = false
     @ObservationIgnored private var catalogSourceNames: [String: String]?
@@ -4899,7 +4933,10 @@ extension MusicLibrary {
 extension MusicLibrary {
     var songMutationGenerationForMaintenance: UInt64 { songMutationGeneration }
     private(set) var songs: [Song] {
-        get { songsReference.value }
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("songs") }
+            return songsReference.value
+        }
         set {
             let previous = songsReference
             songsReference = LibraryArrayReference(newValue)
@@ -4944,7 +4981,10 @@ extension MusicLibrary {
         return index
     }
     private(set) var albums: [Album] {
-        get { albumsReference.value }
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("albums") }
+            return albumsReference.value
+        }
         set {
             let previous = albumsReference
             albumsReference = LibraryArrayReference(newValue)
@@ -4952,7 +4992,10 @@ extension MusicLibrary {
         }
     }
     private(set) var artists: [Artist] {
-        get { artistsReference.value }
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("artists") }
+            return artistsReference.value
+        }
         set {
             let previous = artistsReference
             artistsReference = LibraryArrayReference(newValue)
@@ -4990,6 +5033,10 @@ extension MusicLibrary {
         // 缓存命中时也订阅成员与歌曲变化，避免仅切换源后才刷新可见性。
         _ = songsReference
         _ = playlistSongIDs
+        // 歌曲模型放掉之后查不了成员在哪个源:照放掉那一刻算好的答。
+        if songModelReleased, let released = releasedHiddenPlaylistIDs, released.sources == disabledSourceIDs {
+            return released.ids
+        }
         if let cached = disabledSourcePlaylistCache,
            cached.songs == songMutationGeneration,
            cached.membership == playlistMembershipRevision,
@@ -5139,7 +5186,10 @@ extension MusicLibrary {
         )
     }
     private(set) var visibleSongs: [Song] {
-        get { visibleSongsReference.value }
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("visibleSongs") }
+            return visibleSongsReference.value
+        }
         set {
             let previous = visibleSongsReference
             visibleSongsReference = LibraryArrayReference(newValue)
@@ -5165,6 +5215,7 @@ extension MusicLibrary {
             // visible array, so an in-place patch of it never leaves the
             // pre-patch library alive here as one more full copy.
             let reference = musicSongsReference
+            if songModelReleased { noteArrayReadWhileUnloaded("musicSongs") }
             return musicSongsSharesVisibleSongs ? visibleSongsLookupReference.value : reference.value
         }
         set {
@@ -5176,7 +5227,10 @@ extension MusicLibrary {
     }
     /// The spoken-word items, in the same order they hold in `visibleSongs`.
     private(set) var spokenWordSongs: [Song] {
-        get { spokenWordSongsReference.value }
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("spokenWordSongs") }
+            return spokenWordSongsReference.value
+        }
         set {
             let previous = spokenWordSongsReference
             spokenWordSongsReference = LibraryArrayReference(newValue)
@@ -5251,7 +5305,10 @@ extension MusicLibrary {
         }
     }
     private(set) var visibleAlbums: [Album] {
-        get { visibleAlbumsReference.value }
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("visibleAlbums") }
+            return visibleAlbumsReference.value
+        }
         set {
             let previous = visibleAlbumsReference
             visibleAlbumsReference = LibraryArrayReference(newValue)
@@ -5318,7 +5375,10 @@ extension MusicLibrary {
         return result
     }
     private(set) var visibleArtists: [Artist] {
-        get { visibleArtistsReference.value }
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("visibleArtists") }
+            return visibleArtistsReference.value
+        }
         set {
             let previous = visibleArtistsReference
             visibleArtistsReference = LibraryArrayReference(newValue)
@@ -5328,7 +5388,10 @@ extension MusicLibrary {
         }
     }
     private(set) var visibleAlbumArtists: [Artist] {
-        get { visibleAlbumArtistsReference.value }
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("visibleAlbumArtists") }
+            return visibleAlbumArtistsReference.value
+        }
         set {
             let previous = visibleAlbumArtistsReference
             visibleAlbumArtistsReference = LibraryArrayReference(newValue)
@@ -5336,7 +5399,10 @@ extension MusicLibrary {
         }
     }
     private(set) var visibleGenres: [LibraryGenre] {
-        get { visibleGenresReference.value }
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("visibleGenres") }
+            return visibleGenresReference.value
+        }
         set {
             let previous = visibleGenresReference
             visibleGenresReference = LibraryArrayReference(newValue)
@@ -5485,14 +5551,14 @@ extension MusicLibrary {
     /// A remembered queue keeps disabled sources in their saved positions. Playback chooses
     /// an enabled starting song, so re-enabling a source can recover the rest of the queue.
     func prepareStartupSavedQueue(ids: [String]) async -> [String: Song]? {
-        guard !isReady else { return nil }
+        guard !isUsable else { return nil }
         let directory = snapshotURL.deletingLastPathComponent()
         let worker = Task.detached(priority: .userInitiated) { () throws -> [Song] in
             try IncrementalSongPageReader.savedQueueSongs(at: directory.appendingPathComponent("library-songs.sqlite").path,
                 ids: ids, minimumMigration: Self.loadedSongMigrationVersion)
         }
         let rows = await withTaskCancellationHandler { try? await worker.value } onCancel: { worker.cancel() }
-        guard let rows, !Task.isCancelled, !isReady else { return nil }
+        guard let rows, !Task.isCancelled, !isUsable else { return nil }
         let prefixes = Dictionary(uniqueKeysWithValues: Set(rows.map(\.sourceID)).map { ($0, sourceIdentityResolver?($0) ?? $0) })
         let snapshot = snapshotURL
         let filtered = Task.detached(priority: .userInitiated) { () throws -> [String: Song] in
@@ -5507,7 +5573,7 @@ extension MusicLibrary {
             return result
         }
         let result = await withTaskCancellationHandler { try? await filtered.value } onCancel: { filtered.cancel() }
-        return isReady || Task.isCancelled ? nil : result
+        return isUsable || Task.isCancelled ? nil : result
     }
 
     func prepareStartupContinuation(_ request: QueueContinuation, repeatsAll: Bool) async -> PreparedQueueRequest<Song>? {
@@ -5800,8 +5866,9 @@ extension MusicLibrary {
     }
 
     /// 已就绪时立即返回; 否则挂起到发布完成。
-    func whenReady() async {
+    func whenReady(caller: StaticString = #function, file: StaticString = #fileID) async {
         startPendingCatalogueRead()
+        if songModelLoadsOnDemand { requestSongModelLoad(reason: "whenReady \(file) \(caller)") }
         await waitForSourceRemoval()
         guard readiness != .ready else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -5819,14 +5886,26 @@ extension MusicLibrary {
     ///
     /// SiriKit 只给约 10 秒预算, 所以调用方用它代替无界的 `whenReady()`:
     /// 超时后按今天的代码路径继续, 空库自然落到既有的"没找到"应答。
-    func whenReady(timeout: Duration) async -> Bool {
+    func whenReady(timeout: Duration, caller: StaticString = #function, file: StaticString = #fileID) async -> Bool {
         guard readiness != .ready else { return true }
         if !Task.isCancelled { startPendingCatalogueRead() }
+        if songModelLoadsOnDemand, !Task.isCancelled { requestSongModelLoad(reason: "whenReady(timeout) \(file) \(caller)") }
+        await waitForPublish(timeout: timeout)
+        return isReady
+    }
+
+    /// `whenReady(timeout:)` 的等待那一半:只等下一次发布、超时或调用方的任务被取消,不启动推迟的读取、
+    /// 不请求装载(`whenUsable(timeout:)` 在歌曲模型放掉之后、`holdSongModel` 等装载时直接用它)。
+    /// `timeout` 为 nil 时不限时,只有发布与取消能让它返回。
+    private func waitForPublish(timeout: Duration?) async {
+        guard readiness != .ready else { return }
         let id = UUID()
-        let timer = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: timeout)
-            guard !Task.isCancelled else { return }
-            self?.resumeBoundedReadinessWaiter(id: id)
+        let timer = timeout.map { timeout in
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: timeout)
+                guard !Task.isCancelled else { return }
+                self?.resumeBoundedReadinessWaiter(id: id)
+            }
         }
         // 取消是第三个"先到者": 调用方的任务(Siri 的 Task、视图的 .task)被
         // 拆掉时必须当场摘掉自己这条续体并停掉计时任务, 否则被取消的调用方
@@ -5847,8 +5926,7 @@ extension MusicLibrary {
                 self?.resumeBoundedReadinessWaiter(id: id)
             }
         }
-        timer.cancel()
-        return isReady
+        timer?.cancel()
     }
 
     /// 超时侧的唤醒。已经被发布唤醒过就什么都不做(续体只能 resume 一次)。
@@ -5871,9 +5949,13 @@ extension MusicLibrary {
 
     /// 顶层突变入口的排队助手。返回 `true` 表示调用方应立刻返回,
     /// 该次调用已被记录, 发布后按顺序重放。
-    private func deferringUntilReady(_ work: @escaping @MainActor () -> Void) -> Bool {
+    private func deferringUntilReady(
+        _ work: @escaping @MainActor () -> Void, caller: StaticString = #function
+    ) -> Bool {
         guard isPreparing || sourceRemovalInProgress else { return false }
         deferredMutations.append(work)
+        // 歌曲模型放掉了:排了队的突变要模型,现在就开始装回来。
+        if songModelLoadsOnDemand { requestSongModelLoad(reason: "queued \(caller)") }
         return true
     }
 
@@ -6009,6 +6091,8 @@ extension MusicLibrary {
             // 内存里没有可见缓存可重建;模型下次发布时照这份设置对账(`reconcilePreparingConfiguration`)。
             if songModelReleased, catalogAttached {
                 catalogHost?.mirror.updateDisabledSourceIDs(ids)
+                // 歌单的可见曲数这时是从目录数的,按停用的源重数。
+                playlistVisibleSummaries.removeAll()
             }
             return
         }
@@ -7091,6 +7175,7 @@ extension MusicLibrary {
 
     /// 这批资源引用补丁排到等模型的队列里;重放时并回攒批(这期间新到的补丁比它新),再照常落地。
     private func queueAssetReferencePatchesForTheModel(_ pending: [String: PendingAssetReferencePatch]) {
+        if songModelLoadsOnDemand { requestSongModelLoad(reason: "queued asset reference patches") }
         deferredMutations.append { [weak self] in
             guard let self else { return }
             for (songID, patch) in pending {
@@ -9640,6 +9725,11 @@ extension MusicLibrary {
     /// 回到前台后调用。只补放之前就建着的那几份, 都在主线程外算, 算好时可见集已经换过的就不装。
     func rewarmReleasedCaches() {
         guard let released = releasedWarmCaches else { return }
+        // 歌曲模型放掉了:要补的几份都从整库数组算,等装回来再补。
+        if songModelLoadsOnDemand {
+            onReady { [weak self] in self?.rewarmReleasedCaches() }
+            return
+        }
         releasedWarmCaches = nil
         rebuildableCacheRewarmTask?.cancel()
         rebuildableCacheRewarmTask = Task(priority: .utility) { @MainActor [weak self] in
@@ -10907,7 +10997,7 @@ extension MusicLibrary {
         _ = visibleSongsReference
         _ = playlistSongIDs
         let summary = playlistVisibleSummary(playlistID)
-        return (summary.firstSongID.flatMap { lookupVisibleSong($0) }, summary.count)
+        return (summary.firstSongID.flatMap { lookupVisibleSong($0) ?? visibleSongWhileUnloaded($0) }, summary.count)
     }
 
     /// 一个歌单里可见的有几首、第一首是哪首。歌单列表、侧栏、快捷收藏每行每次
@@ -10931,10 +11021,19 @@ extension MusicLibrary {
         }
         var count = 0
         var firstSongID: String?
-        for songID in playlistMemberIDs(playlistID)
-        where visibleSongIndexByID[songID] != nil {
-            if firstSongID == nil { firstSongID = songID }
-            count += 1
+        // 模型不在内存里而目录答得出:从目录数(只读每个成员在哪个源,不取出行)。此刻答不了的不记下来,下次再问。
+        var answered = true
+        if songModelAnswersFromMemory {
+            for songID in playlistMemberIDs(playlistID)
+            where visibleSongIndexByID[songID] != nil {
+                if firstSongID == nil { firstSongID = songID }
+                count += 1
+            }
+        } else if let visible = visibleMemberIDsOutsideTheModel(playlistMemberIDs(playlistID)) {
+            count = visible.count
+            firstSongID = visible.first
+        } else {
+            answered = false
         }
         let summary = PlaylistVisibleSummary(
             membershipRevision: playlistMembershipRevision,
@@ -10943,7 +11042,7 @@ extension MusicLibrary {
             count: count,
             firstSongID: firstSongID
         )
-        playlistVisibleSummaries[playlistID] = summary
+        if answered { playlistVisibleSummaries[playlistID] = summary }
         return summary
     }
 
@@ -12327,9 +12426,20 @@ extension MusicLibrary {
 
     private func unobservedShuffleLinkNeighbor(of songID: String, direction: ShuffleLinkDirection) -> Song? {
         let nonMusic = nonMusicSongIDs
-        guard !nonMusic.contains(songID),
-              let albumID = lookupVisibleSong(songID)?.albumID else { return nil }
-        let album = unobservedSongs(forAlbum: albumID).filter { !nonMusic.contains($0.id) }
+        guard !nonMusic.contains(songID) else { return nil }
+        let albumSongs: [Song]
+        if let albumID = lookupVisibleSong(songID)?.albumID {
+            albumSongs = unobservedSongs(forAlbum: albumID)
+        } else if !songModelAnswersFromMemory, let lookup = lookupOutsideTheModel,
+                  case .some(.some(let song)) = visibleSongOutsideTheModel(songID, lookup: lookup, observed: false),
+                  let albumID = song.albumID,
+                  let fromCatalog = try? albumSongsOutsideTheModel(albumID, lookup: lookup) {
+            // 歌曲模型不在内存里:这一首与它那张专辑从目录读(同 `songs(forAlbum:)` 的那条路,不登记观察)。
+            albumSongs = fromCatalog
+        } else {
+            return nil
+        }
+        let album = albumSongs.filter { !nonMusic.contains($0.id) }
         guard let position = album.firstIndex(where: { $0.id == songID }) else { return nil }
         let neighbor = direction == .next ? position + 1 : position - 1
         return album.indices.contains(neighbor) ? album[neighbor] : nil
@@ -12349,6 +12459,8 @@ extension MusicLibrary {
             shuffleLinkGraphCache = .empty
             return .empty
         }
+        // 歌曲模型不在内存里、目录这一刻也答不了:算不出相邻的歌。先当没有,不记下来,下次再算。
+        if !songModelAnswersFromMemory, lookupOutsideTheModel == nil { return .empty }
         var nextLinks: [String: String] = [:]
         for songID in members.next {
             if let next = unobservedShuffleLinkNeighbor(of: songID, direction: .next) {
@@ -13278,7 +13390,17 @@ extension MusicLibrary {
         guard !targets.isEmpty else { return [:] }
         let coarseKeys = Set(targets.map { Self.coarseTitleKey($0.title) }.filter { !$0.isEmpty })
         guard !coarseKeys.isEmpty else { return [:] }
-        let candidates = visibleSongs.filter { coarseKeys.contains(Self.coarseTitleKey($0.title)) }
+        let candidates: [Song]
+        if songModelAnswersFromMemory {
+            candidates = visibleSongs.filter { coarseKeys.contains(Self.coarseTitleKey($0.title)) }
+        } else {
+            // 歌曲模型不在内存里:候选从目录按标题一列筛出来(同删歌时找另一份),只留可见的。
+            // 目录答不了、候选多到取不全时当作没有别的版本。
+            guard let lookup = lookupOutsideTheModel,
+                  let matching = try? lookup.songs(titleMatching: { coarseKeys.contains(Self.coarseTitleKey($0)) })
+            else { return [:] }
+            candidates = matching.filter { isVisibleOutsideTheModel($0) && admittedOutsideTheModel($0) != nil }
+        }
         guard candidates.count > 1 else { return [:] }
         let matcher = PlaylistEntryMatcher(songs: candidates)
         var result: [String: [Song]] = [:]
@@ -13317,6 +13439,16 @@ extension MusicLibrary {
         return rawSongIDs(forPlaylist: playlistID).compactMap { id in
             excluded?.contains(id) == true ? nil : storedSong(id: id)
         }
+    }
+
+    /// 同 `storedSongs(forPlaylist:)`,只是答不了时给 nil 而不是空:歌曲模型不在内存里,而目录这条路不通或者读失败。
+    /// 拿结果去替换一份清单(「始终保持离线」)的调用方用它 —— 空与答不了不是一回事。
+    func storedSongsIfAnswerable(forPlaylist playlistID: String) -> [Song]? {
+        if songModelAnswersFromMemory { return storedSongs(forPlaylist: playlistID) }
+        guard let lookup = lookupOutsideTheModel else { return nil }
+        let excluded = mirrorSongExclusions[playlistID]
+        let ids = rawSongIDs(forPlaylist: playlistID).filter { excluded?.contains($0) != true }
+        return storedSongsOutsideTheModel(ids, lookup: lookup, observed: false)?.compactMap { $0 }
     }
 
     /// Projects the already-persisted Apple Music mirrors into the folder
@@ -15864,6 +15996,17 @@ extension MusicLibrary {
         var pendingStoreWrite: PendingStoreWrite = .none
         var migrationVersionToMark: Int?
         var pendingStoreExternalSnapshotImportID: String?
+        // MARK: 只装歌曲模型时用(`loadSongsOnly`)
+        /// 装的那一刻旧库的修订号;发布时与旧库此刻的比,不同就按变更流水补(`applyStoreChanges`)。
+        var loadedStoreRevision: Int64?
+        /// 只装歌曲模型装不成的原因;非 nil 时调用方改走整份装载。
+        var songModelLoadFailure: String?
+        /// 装的时候本机移除的账本动过(库里又出现了账本排除的行)。
+        var deviceLocalExclusionsChanged = false
+        /// 专辑、艺人是从派生缓存拿的(否则是重算的)。
+        var songModelLoadUsedDerivedCache = false
+        /// 发布时按流水补的行数上限;超过就重新装。
+        static let journalPatchRowLimit = 20_000
 
         var snapshotURL: URL { directory.appendingPathComponent("library-cache.json") }
         var backupSnapshotURL: URL { directory.appendingPathComponent("library-cache.backup.json") }
@@ -16505,6 +16648,156 @@ extension MusicLibrary {
             )
             deviceLocalExcludedSongsByID = resolved.songs
             deviceLocalRemovalMetadataByID = resolved.metadata
+        }
+
+        // MARK: 只装歌曲模型(放掉之后装回来, P3 步骤 6d)
+
+        /// 只把歌曲和由歌曲派生的那一层装回来;小状态一样不读 —— 内存里的那一份比磁盘上的新。
+        /// 装不成时记下原因(`songModelLoadFailure`),调用方改走整份装载。
+        mutating func loadSongsOnly(expectedFolderSignature: String?) {
+            guard let songStore else {
+                songModelLoadFailure = "no song store"
+                return
+            }
+            var loaded: [Song]?
+            var revision: Int64 = 0
+            do {
+                // `loadSongs()` 在一个读事务里读完;前后各看一次修订号,读的这段时间旧库写过就再读。
+                for _ in 0..<3 where loaded == nil {
+                    let state = try songStore.startupState()
+                    guard state.isAuthoritative,
+                          state.completedMigrationVersion >= MusicLibrary.loadedSongMigrationVersion else {
+                        songModelLoadFailure = "the store is not what a launch would load as it is"
+                        return
+                    }
+                    let rows = try songStore.loadSongs()
+                    if try songStore.startupState().contentRevision == state.contentRevision {
+                        loaded = rows
+                        revision = state.contentRevision
+                    }
+                }
+            } catch {
+                songModelLoadFailure = "the store could not be read: \(error.localizedDescription)"
+                return
+            }
+            guard var loadedSongs = loaded else {
+                songModelLoadFailure = "the store kept changing while it was read"
+                return
+            }
+            // 「从本机移除」的账本:同整份装载那一遍(别处带回来的行、没删完的行)。平时一行都对不上。
+            if !deviceLocalExcludedSongIdentities.isEmpty {
+                let tombstones = deletedSongIdentities
+                var retainedIDBySegmentKey: [String: String] = [:]
+                for retained in deviceLocalExcludedSongsByID.values {
+                    if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: retained) {
+                        retainedIDBySegmentKey[key] = retained.id
+                    }
+                }
+                let beforeCount = loadedSongs.count
+                for var song in loadedSongs where isExcludedOnThisDevice(song)
+                    && !tombstones.contains(identityKey(for: song)) {
+                    if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) {
+                        song.id = retainedIDBySegmentKey[key] ?? song.id
+                        retainedIDBySegmentKey[key] = song.id
+                    }
+                    deviceLocalExcludedSongsByID[song.id] = song
+                }
+                loadedSongs.removeAll { isExcludedOnThisDevice($0) }
+                if loadedSongs.count != beforeCount {
+                    let discarded = deviceLocalExcludedSongsByID.values.filter { tombstones.contains(identityKey(for: $0)) }
+                    for song in discarded {
+                        if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) {
+                            deviceLocalExcludedSongIdentities.remove(key)
+                        }
+                        deviceLocalExcludedSongsByID[song.id] = nil
+                        deviceLocalRemovalMetadataByID[song.id] = nil
+                    }
+                    deviceLocalExclusionsChanged = true
+                    plog("ℹ️ Song model load skipped \(beforeCount - loadedSongs.count) song(s) excluded on this device")
+                }
+            }
+            songs = loadedSongs
+            songIndexByID = MusicLibrary.makeSongIndex(loadedSongs)
+            loadedStoreRevision = revision
+            deriveCollections(expectedFolderSignature: expectedFolderSignature)
+        }
+
+        /// 专辑、艺人与可见集:派生缓存对得上(歌曲签名、目录指纹)就用,否则整库重算。
+        mutating func deriveCollections(expectedFolderSignature: String?) {
+            let signature = MusicLibrary.derivedIndexSignature(for: songs, configuration: artistNameConfiguration)
+            let cached = loadDerivedIndexCache(matching: signature).flatMap { cache in
+                cache.folderSignature == expectedFolderSignature ? cache : nil
+            }
+            if let cached {
+                albums = cached.albums
+                artists = cached.artists
+                derivedIndexSignature = signature
+                derivedIndexFolderSignature = cached.folderSignature
+                rebuildVisibleCache()
+                songModelLoadUsedDerivedCache = true
+            } else {
+                rebuildIndexSync(precomputedSignature: signature)
+                shouldWriteDerivedCache = true
+                songModelLoadUsedDerivedCache = false
+            }
+        }
+
+        /// 装的那一刻之后旧库又写过:按变更流水把那几个修订号的改动补到装好的数组上,派生的那一层重算一遍。
+        /// 返回补了几行;nil:流水接不上(调用方重新装)。
+        mutating func applyStoreChanges(expectedFolderSignature: String?) -> Int? {
+            guard let from = loadedStoreRevision else { return nil }
+            var working = songs
+            var index = songIndexByID
+            // 只留一份引用,下面按下标改才不整份复制。
+            songs = []
+            songIndexByID = [:]
+            var touched = 0
+            let outcome: IncrementalSongStoreChangeReplay
+            do {
+                let scanner = try IncrementalSongStoreScanner(
+                    path: directory.appendingPathComponent("library-songs.sqlite").path
+                )
+                outcome = try scanner.replayChanges(
+                    after: from, maximumRows: Self.journalPatchRowLimit, maximumRowsPerRevision: Self.journalPatchRowLimit
+                ) { batch in
+                    for (oldID, newID) in batch.renaming {
+                        guard let position = index.removeValue(forKey: oldID) else { continue }
+                        working[position].id = newID
+                        index[newID] = position
+                    }
+                    if !batch.deletingIDs.isEmpty {
+                        let removed = Set(batch.deletingIDs)
+                        working.removeAll { removed.contains($0.id) }
+                        index = MusicLibrary.makeSongIndex(working)
+                    }
+                    for song in batch.upserts {
+                        if let position = index[song.id] {
+                            working[position] = song
+                        } else {
+                            index[song.id] = working.count
+                            working.append(song)
+                        }
+                    }
+                    touched += batch.rowCount
+                }
+            } catch {
+                return nil
+            }
+            guard case .replayed(let storeRevision, _, _, let songCount) = outcome else { return nil }
+            if !deviceLocalExcludedSongIdentities.isEmpty {
+                let beforeCount = working.count
+                working.removeAll { isExcludedOnThisDevice($0) }
+                if working.count != beforeCount { index = MusicLibrary.makeSongIndex(working) }
+            } else if working.count != songCount {
+                // 补完与旧库的行数对不上:流水与装的那一份不是一回事。
+                return nil
+            }
+            songs = working
+            songIndexByID = index
+            loadedStoreRevision = storeRevision
+            visibleCache = nil
+            deriveCollections(expectedFolderSignature: expectedFolderSignature)
+            return touched
         }
 
         // G5: 这里刻意不提供任何写盘方法。准备阶段只登记意图,
@@ -18850,67 +19143,7 @@ extension MusicLibrary {
     /// 艺人那几份一起放。放掉的对象交给回收队列。调用之后这个库只能丢掉,不能接着用。
     /// 环境音、MV、本机播客那三份数组不在这里清(规模夹具里是空的);真正放模型时也要放。
     func dropSongModelForMeasurement(includingCollections: Bool) {
-        readiness = .preparing
-        songModelReleased = true
-        var displaced: [any Sendable] = [
-            songsReference, visibleSongsReference, visibleSongsLookupReference, musicSongsReference,
-            spokenWordSongsReference, localPodcastPreviewSongs,
-            songIndexByID, visibleSongIndexByID, visibleSongPositionsBySourceID, visibleSongIDsByArtistID,
-            visibleSongIDsByGenreID, visibleAlbumIDsByGenreID, spokenWordSongIDs, ambientSongIDs,
-            spokenWordBookIDs, spokenWordDisplayTitles, localPodcastBookIDs, localPodcastShowTitles,
-        ]
-        songsReference = LibraryArrayReference()
-        visibleSongsReference = LibraryArrayReference()
-        visibleSongsLookupReference = visibleSongsReference
-        indexedVisibleSongsReference = nil
-        musicSongsReference = LibraryArrayReference()
-        musicSongsSharesVisibleSongs = false
-        musicSongsPublishedVisibleReference = nil
-        spokenWordSongsReference = LibraryArrayReference()
-        localPodcastPreviewSongs = []
-        songIndexByID = [:]
-        visibleSongIndexByID = [:]
-        visibleSongPositionsBySourceID = [:]
-        visibleSongIDsByArtistID = [:]
-        visibleSongIDsByGenreID = [:]
-        visibleAlbumIDsByGenreID = [:]
-        spokenWordSongIDs = []
-        ambientSongIDs = []
-        nonMusicSongIDsCache = nil
-        spokenWordBookIDs = [:]
-        spokenWordDisplayTitles = [:]
-        localPodcastBookIDs = [:]
-        localPodcastShowTitles = [:]
-        spokenWordBookIDSet = []
-        localPodcastBookIDSet = []
-        lastReplacedSong = nil
-        lastReplacedSongIDs = []
-        materializedPlaylistSongs.removeAll()
-        if includingCollections {
-            displaced += [
-                albumsReference, artistsReference, visibleAlbumsReference, visibleArtistsReference,
-                visibleAlbumArtistsReference, visibleGenresReference, visibleAlbumByID, visibleArtistByID,
-                visibleAlbumArtistByID, albumIDsByAlbumOnlyArtistID, albumIDsByAlbumArtistID,
-                preferredArtworkSongIDByAlbumID, preferredArtworkSongIDByArtistID,
-            ]
-            albumsReference = LibraryArrayReference()
-            artistsReference = LibraryArrayReference()
-            visibleAlbumsReference = LibraryArrayReference()
-            visibleArtistsReference = LibraryArrayReference()
-            visibleAlbumArtistsReference = LibraryArrayReference()
-            visibleGenresReference = LibraryArrayReference()
-            visibleAlbumByID = [:]
-            visibleArtistByID = [:]
-            visibleAlbumArtistByID = [:]
-            albumIDsByAlbumOnlyArtistID = [:]
-            albumIDsByAlbumArtistID = [:]
-            releaseMetadataIndex = AlbumReleaseMetadataIndex()
-            preferredArtworkSongIDByAlbumID = [:]
-            preferredArtworkSongIDByArtistID = [:]
-            albumOnlyArtistSongIDsCache = [:]
-        }
-        releaseRebuildableCaches()
-        LibraryArrayReclaimer.release(holder: DisplacedLibraryLookups(displaced), approximateElementCount: .max)
+        swapSongModelForEmpty(includingCollections: includingCollections, forResidency: false)
     }
 
     /// 等回收队列把交给它的对象都释放完(测量放掉的内存之前)。
@@ -20091,8 +20324,8 @@ extension MusicLibrary {
     /// 重放时对着装载之后的行);删源期间不算;前面已经排着等模型的突变时也不算 —— 这次写跟在它们后面排队,
     /// 先后与模型在内存里时一样,不会越到排在前面的那一次前头。今天的发版里没有放掉模型的入口,这条路走不到。
     fileprivate var rowWritesWithoutTheModel: LibraryCatalogSongLookup? {
-        guard songModelReleased, catalogAttached, songStore != nil, !persistenceBlockedByCorruption,
-              !sourceRemovalInProgress, deferredMutations.isEmpty else { return nil }
+        guard songModelReleased, songModelLoadTask == nil, catalogAttached, songStore != nil,
+              !persistenceBlockedByCorruption, !sourceRemovalInProgress, deferredMutations.isEmpty else { return nil }
         return lookupOutsideTheModel
     }
 
@@ -20122,9 +20355,11 @@ extension MusicLibrary {
     }
 
     /// 小状态突变入口的排队判定:同 `deferringUntilReady`,只是歌曲模型放掉之后当场做。
-    fileprivate func deferringSmallStateMutation(_ work: @escaping @MainActor () -> Void) -> Bool {
+    fileprivate func deferringSmallStateMutation(
+        _ work: @escaping @MainActor () -> Void, caller: StaticString = #function
+    ) -> Bool {
         if smallStateWritesWithoutTheModel != nil { return false }
-        return deferringUntilReady(work)
+        return deferringUntilReady(work, caller: caller)
     }
 
     /// 小状态突变对歌曲的两问 ——「在不在曲库里」「存着的那一行」—— 从哪里答。
@@ -20138,12 +20373,12 @@ extension MusicLibrary {
     /// 取这次突变要问的那些歌的读法。返回 nil 表示这次调用已经排队(模型没装好;或者放掉之后此刻读不出行、
     /// 前面排着别的突变),调用方立刻返回。
     fileprivate func songAccessForSmallState(
-        _ ids: [String], orDeferring work: @escaping @MainActor () -> Void
+        _ ids: [String], orDeferring work: @escaping @MainActor () -> Void, caller: StaticString = #function
     ) -> SmallStateSongAccess? {
         if let lookup = smallStateWritesWithoutTheModel, let rows = rowsForWritingWithoutTheModel(ids, lookup: lookup) {
             return .stored(rows)
         }
-        if deferringUntilReady(work) { return nil }
+        if deferringUntilReady(work, caller: caller) { return nil }
         return .memory
     }
 
@@ -20580,6 +20815,7 @@ extension MusicLibrary {
             if !edits.isEmpty { queuedSongFieldEdits[row.id, default: [:]].merge(edits) { _, new in new } }
         }
         let entries = queued
+        if songModelLoadsOnDemand { requestSongModelLoad(reason: "queued row replacement") }
         deferredMutations.append { [weak self] in
             guard let self else { return }
             let merged = entries.compactMap { entry -> Song? in
@@ -20631,8 +20867,13 @@ extension MusicLibrary {
     /// 否则 nil,调用方照今天的答法。先看索引(不登记观察,模型在的时候一步答完),再看许不许、目录答不答得了,
     /// 最后才读发布状态:冷启动期间开关关着,走不到最后一步,不多登记一份观察。
     fileprivate var lookupOutsideTheModel: LibraryCatalogSongLookup? {
-        guard songIndexByID.isEmpty, visibleSongIndexByID.isEmpty, mayAnswerOutsideTheModel,
-              let lookup = catalogHost?.songLookup(), readiness == .preparing else { return nil }
+        guard songIndexByID.isEmpty, visibleSongIndexByID.isEmpty, mayAnswerOutsideTheModel else { return nil }
+        guard let lookup = catalogHost?.songLookup() else {
+            // 放掉了而目录答不了(不再跟写、正在整库对账):「答不了」不能一直当答案用,把模型装回来。
+            if songModelLoadsOnDemand { scheduleSongModelLoad(reason: "the catalog cannot answer") }
+            return nil
+        }
+        guard readiness == .preparing else { return nil }
         return lookup
     }
 
@@ -20671,6 +20912,8 @@ extension MusicLibrary {
 
     private func noteCatalogByIDReadFailure(_ error: Error) {
         catalogByIDReadFailureCount &+= 1
+        // 放掉之后读失败:这一次照「答不了」答,同时把模型装回来。
+        if songModelLoadsOnDemand { scheduleSongModelLoad(reason: "a by-id catalog read failed") }
         guard catalogByIDReadFailureCount <= 5 else { return }
         plog("📚 by-id catalog read failed (\(error)); answering as before the library is loaded")
     }
@@ -21228,35 +21471,69 @@ extension MusicLibrary: LibraryCatalogOwner {
     }
 }
 
-// MARK: - 歌曲模型不常驻:对外接口的外壳(P3 步骤 6c)
+// MARK: - 歌曲模型不常驻:可用、占用、装回来、放掉(P3 步骤 6c 定接口,6d 给实现)
 //
-// 这一块只定接口。今天歌曲模型启动时总会装载、之后一直留在内存里,所以「可用」与「已就绪」是同一件事,
-// 「占用」也只是等就绪。步骤 6d 把这几个函数体换成真正的实现(按需装载、计数的占用、空闲时释放),签名不变。
+// 歌曲模型(整库的歌曲数组、由它派生的专辑/艺人那一层)发布之后可以从内存里放掉,要用时再装回来。
+// 小状态(歌单、喜欢、播放历史……)一直在内存里;按 id 取歌、曲库目录的列表与计数由「待写登记 + 目录」答。
 //
-// 调用方依赖的约定,换实现时要守住:
+// 调用方依赖的约定:
 // - `isUsable` 为真时,要么歌曲模型在内存里(`isReady`),要么小状态已经发布、按 id 读和曲库目录此刻答得出;
 //   两样都不成立时为假。
 // - 占用期间(`holdSongModel` 返回之后到 `end()`、`withSongModel` 的闭包在跑)`isReady` 为真,整库数组读得到。
 //   「目录答不了就读整库数组」的旧路先拿占用再读,读到的不会是放掉之后的空数组。
-// - `whenUsable()`、`onUsable` 只等,不引起装载;`holdSongModel`、`withSongModel` 引起装载。
+// - `whenUsable()`、`onUsable` 只等,不引起装载;`holdSongModel`、`withSongModel`、`whenReady()` 引起装载。
+//   放掉之后目录答不了(不再跟写、读失败)时曲库自己把模型装回来,不靠等的人。
+// - 模型在内存里时 `holdSongModel`、`withSongModel` 当场拿到占用,不让出主线程(删源进行中也不等它):
+//   队列放到头、「下一首」这些调用方靠它保持与以前相同的先后。等装载的途中调用方的任务被取消,
+//   占用撤掉、当场返回,令牌的 `end()` 什么都不做;已经取消的任务来要,不替它请求装载。
+//
+// 状态(`readiness`、`songModelReleased`、`songModelLoadTask`):
+//   已装载  .ready     false  nil    数组在内存里
+//   放掉了  .preparing true   nil    数组是空的;按 id 的行写、小状态突变当场做(步骤 5、6a、6b),要数组的突变排队并触发装载
+//   装回中  .preparing true   非 nil  同上,只是所有突变都排队,发布后重放
+// 第一次发布之前、整份重载(电视装快照)期间 `songModelReleased` 为假,与以前一样。
 extension MusicLibrary {
     /// 曲库现在能用:小状态(歌单、喜欢、播放历史)在内存里,按 id 取歌、曲库目录的列表与计数答得出。
     /// 歌曲模型不必在内存里 —— 要读整库数组的地方看 `isReady`,或者先拿占用。
-    var isUsable: Bool { isReady }
+    var isUsable: Bool {
+        if readiness == .ready { return true }
+        guard songModelReleased else { return false }
+        _ = songModelResidencyRevision
+        return lookupOutsideTheModel != nil
+    }
 
     /// 已经可用时立即返回,否则挂起到可用。
     func whenUsable() async {
-        await whenReady()
+        // 模型在内存里、第一次装载或整份重载期间:与等就绪是同一件事。
+        guard songModelReleased, isPreparing else { return await whenReady() }
+        if isUsable { return }
+        // 放掉了而目录答不了:装回来的请求由曲库自己发(见 `lookupOutsideTheModel`),这里只等发布。
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if readiness == .ready {
+                continuation.resume()
+            } else {
+                readinessContinuations.append(continuation)
+            }
+        }
     }
 
-    /// 有界等待,同 `whenReady(timeout:)`:可用与超时哪个先到都立刻返回,返回值是返回时刻的 `isUsable`。
+    /// 有界等待:可用与超时哪个先到都立刻返回,返回值是返回时刻的 `isUsable`。
     func whenUsable(timeout: Duration) async -> Bool {
-        await whenReady(timeout: timeout)
+        guard songModelReleased, isPreparing else { return await whenReady(timeout: timeout) }
+        if isUsable { return true }
+        // 同 `whenUsable()`:只等发布,不替调用方请求装载(装载由曲库自己发,见 `lookupOutsideTheModel`)。
+        await waitForPublish(timeout: timeout)
+        return isUsable
     }
 
     /// 已经可用时立即执行,否则在变成可用时按注册顺序执行一次。
     func onUsable(_ handler: @escaping @MainActor () -> Void) {
-        onReady(handler)
+        guard songModelReleased, isPreparing else { return onReady(handler) }
+        if isUsable {
+            handler()
+        } else {
+            readinessHandlers.append(handler)
+        }
     }
 
     /// 谁占着歌曲模型。诊断日志里按它点名。
@@ -21285,23 +21562,43 @@ extension MusicLibrary {
         case playbackContinuation
         /// 局域网缓存互传:目录答不了清单时读整库的那一下。
         case cacheSync
+        /// 界面在前台。页面还没全部改成读目录之前的过渡办法:前台一直占着,退到后台才放手。
+        case foreground
     }
 
     /// 对歌曲模型的一次占用。用完调 `end()`;多调一次无害。
     struct SongModelHold: Sendable {
         let reason: SongModelHoldReason
+        fileprivate let onEnd: @MainActor @Sendable () -> Void
 
         @MainActor
-        func end() {}
+        func end() { onEnd() }
     }
 
     /// 占用歌曲模型:返回时模型在内存里,到 `end()` 之前不会被放掉。
+    /// 模型在内存里时当场返回,中间不让出主线程(队列放到头、「下一首」接着就读数组,先后与以前相同)。
+    /// 等的途中调用方的任务被取消:占用当场撤掉,立刻返回一个 `end()` 什么都不做的令牌,模型可能不在内存里 ——
+    /// 调用方等完之后先看 `Task.isCancelled`。已经取消的任务来要,不替它请求装载。
     func holdSongModel(_ reason: SongModelHoldReason) async -> SongModelHold {
         #if DEBUG
         Self.songModelHoldRequestsForTesting?.append((ObjectIdentifier(self), reason))
         #endif
-        await whenReady()
-        return SongModelHold(reason: reason)
+        // 先登记再等:登记之后放不掉,等的这段时间里别处的放掉轮不到它。
+        nextSongModelHoldID &+= 1
+        let id = nextSongModelHoldID
+        songModelHolds[id] = (reason, .now)
+        if songModelResidencyEnabled { plog("🧠 residency hold+ \(reason.rawValue) n=\(songModelHolds.count)") }
+        let token = SongModelHold(reason: reason) { [weak self] in self?.endSongModelHold(id) }
+        guard readiness != .ready else { return token }
+        if !Task.isCancelled {
+            // 同 `whenReady()`:启动窗口里推迟着的那次读取现在就开始。
+            startPendingCatalogueRead()
+            if songModelLoadsOnDemand { requestSongModelLoad(reason: "hold \(reason.rawValue)") }
+            await waitForPublish(timeout: nil)
+        }
+        guard Task.isCancelled else { return token }
+        endSongModelHold(id)
+        return SongModelHold(reason: reason) {}
     }
 
     /// 占用歌曲模型跑完 `body` 再放手。
@@ -21314,8 +21611,583 @@ extension MusicLibrary {
         return try await body()
     }
 
+    private func endSongModelHold(_ id: UInt64) {
+        guard let hold = songModelHolds.removeValue(forKey: id) else { return }
+        if songModelResidencyEnabled {
+            let heldMs = Int((ContinuousClock.now - hold.since) / .milliseconds(1))
+            plog("🧠 residency hold- \(hold.reason.rawValue) n=\(songModelHolds.count) heldMs=\(heldMs)")
+        }
+        if songModelHolds.isEmpty { songModelResidencyObserver?(.holdsEnded) }
+    }
+
+    /// 此刻占着歌曲模型的理由(按理由名排好,同一理由占了几次列几次)。
+    var songModelHoldReasons: [SongModelHoldReason] {
+        songModelHolds.values.map(\.reason).sorted { $0.rawValue < $1.rawValue }
+    }
+
     #if DEBUG
     /// 测试:设成空数组之后,按先后记下每一次要占用(哪个库、什么理由);nil 时不记。
     static var songModelHoldRequestsForTesting: [(library: ObjectIdentifier, reason: SongModelHoldReason)]?
+    #endif
+
+    // MARK: 诊断
+
+    /// 模型不在内存里时读整库数组怎么处置。
+    enum SongModelArrayReadPolicy: Sendable {
+        /// 不记。
+        case ignore
+        /// 记日志(每轮放掉每个属性前十次,带几层调用栈)和计数。
+        case log
+        /// 同 `log`,DEBUG 里再停下来。页面都改完、不该再有人读空数组之后才打开。
+        case trap
+    }
+
+    struct SongModelResidencyStatistics: Equatable, Sendable {
+        var releases = 0
+        var loads = 0
+        /// 装回来途中旧库动了、流水又接不上,重新读过的次数。
+        var loadRestarts = 0
+        /// 只装歌曲模型装不成、改走整份装载的次数。
+        var wholeLibraryLoads = 0
+        var lastLoadReason: String?
+        var lastLoadJournalRows = 0
+        var lastLoadMilliseconds = 0
+        var lastLoadUsedDerivedCache = false
+        var lastReleaseSkip: String?
+        var arrayReadsWhileUnloaded = 0
+    }
+
+    enum SongModelResidencyEvent: Equatable, Sendable {
+        case released
+        case loaded
+        /// 最后一个占用结束了。
+        case holdsEnded
+    }
+
+    enum SongModelReleaseOutcome: Equatable, Sendable {
+        case released(songs: Int, albums: Int)
+        /// 没放,附第一条不满足的条件。
+        case skipped(String)
+    }
+
+    /// 模型不在内存里时有人读了整库数组:既没有改成按 id / 按目录读,也没有先拿占用,读到的是空的。
+    fileprivate func noteArrayReadWhileUnloaded(_ property: String) {
+        guard songModelArrayReadPolicy != .ignore else { return }
+        songModelResidencyStatistics.arrayReadsWhileUnloaded &+= 1
+        let count = (arrayReadsWhileUnloaded[property] ?? 0) + 1
+        arrayReadsWhileUnloaded[property] = count
+        guard count <= 10 else { return }
+        let frames = Thread.callStackSymbols.dropFirst(2).prefix(4).map { frame -> String in
+            let parts = frame.split(separator: " ", omittingEmptySubsequences: true)
+            return String((parts.count > 3 ? parts[3] : Substring(frame)).prefix(96))
+        }
+        plog("🧠 residency array read while unloaded: \(property) from \(frames.joined(separator: " < "))")
+        #if DEBUG
+        if songModelArrayReadPolicy == .trap {
+            assertionFailure("array read while the song model is unloaded: \(property)")
+        }
+        #endif
+    }
+
+    private nonisolated static func residencyFootprint() -> String {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
+        )
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return "?" }
+        return String(format: "%.1fMiB", Double(info.phys_footprint) / 1_048_576)
+    }
+
+    // MARK: 放掉
+
+    /// 等目录确认最后一批写入的上限。
+    private static let songModelReleaseCatalogWait: Duration = .seconds(5)
+
+    /// 空闲时把歌曲模型从内存里放掉(歌曲与专辑/艺人那一层一起)。每一条都满足才放,否则记下第一条不满足的。
+    /// App 那一层的条件(在后台够久、没在播放、没有扫描……)由调用方先看;这里看曲库自己的。
+    ///
+    /// `returningFreedMemory`:放掉之后把空页还给系统。正在放歌时传 false —— 整理大堆要长时间拿着 malloc 的锁,
+    /// 解码线程等它就会断音;那时放掉的页靠系统自己回收。
+    @discardableResult
+    func releaseSongModelIfIdle(trigger: String, returningFreedMemory: Bool = true) async -> SongModelReleaseOutcome {
+        func skip(_ why: String) -> SongModelReleaseOutcome {
+            songModelResidencyStatistics.lastReleaseSkip = why
+            if songModelResidencyEnabled { plog("🧠 residency release skipped=\(why) trigger=\(trigger)") }
+            return .skipped(why)
+        }
+        if let refusal = songModelReleaseRefusal(settled: false) { return skip(refusal) }
+        // 写入链:防抖窗口里的歌词与资源补丁、还开着的一批、旧库的写,连同小状态,都落盘。
+        // 两种补丁当场并进数组(它们自己会推进突变代数),之后的等待期间库再动才算「动过」。
+        pendingLyricsFlushTask?.cancel()
+        flushPendingLyricsText()
+        flushPendingAssetReferencePatches()
+        let generation = songMutationGeneration
+        if case .failure = await persistNowAndWait(materializePortableSnapshot: false) {
+            return skip("persistence failed")
+        }
+        // 目录确认到最后一批:放掉之后按 id 读的答案全靠它。
+        guard let host = catalogHost else { return skip("no catalog") }
+        let sequence = host.pendingWrites.lastSequence
+        guard await host.pendingWrites.waitUntilAcknowledged(
+            through: sequence, timeout: Self.songModelReleaseCatalogWait
+        ) else { return skip("the catalog is behind the store") }
+        #if DEBUG
+        if let pause = songModelReleaseDidSettleForTesting { await pause() }
+        #endif
+        // 上面等的这段时间里库动过就作罢,下次空闲再来。
+        guard generation == songMutationGeneration else { return skip("songs changed during the release") }
+        if let refusal = songModelReleaseRefusal(settled: true) { return skip(refusal) }
+        return performSongModelRelease(trigger: trigger, returningFreedMemory: returningFreedMemory)
+    }
+
+    /// 上一次放掉换下来的对象都释放完、空页已经还给系统(没放过就立刻返回)。
+    func songModelReleaseDidReclaimMemory() async {
+        await songModelReclaimTask?.value
+    }
+
+    /// 现在为什么不能放;nil = 可以。`settled`:写入链与小状态已经等过一遍,这时还没落定的也算不能放。
+    private func songModelReleaseRefusal(settled: Bool) -> String? {
+        #if os(tvOS)
+        // 电视的快照带歌、整份重载换快照,歌曲模型一直在内存里(P3 15b 启动条件 1)。
+        return "not on tvOS"
+        #else
+        guard songModelResidencyEnabled else { return "residency is off" }
+        guard readiness == .ready, !songModelReleased else { return "the song model is not loaded" }
+        if !songModelHolds.isEmpty {
+            return "hold(" + songModelHoldReasons.map(\.rawValue).joined(separator: ",") + ")"
+        }
+        guard !songIndexByID.isEmpty else { return "the library is empty" }
+        guard deferredMutations.isEmpty else { return "queued mutations" }
+        guard !sourceRemovalInProgress else { return "source removal in progress" }
+        // 对着数组在做的活。
+        guard rebuildIndexTask == nil else { return "index rebuild in flight" }
+        guard !deferredLibraryMaintenancePending, !deferredDerivedIndexMaintenancePending,
+              !deferredIncrementalScanMaintenancePending else { return "deferred maintenance pending" }
+        guard startupFolderValidationTask == nil else { return "folder validation in flight" }
+        guard contentClassificationRefreshTask == nil else { return "classification refresh in flight" }
+        // 旧库与快照。
+        guard songStore != nil else { return "no song store" }
+        // 旧库要整份重写时快照也带歌,先点它的名。
+        guard !songStoreRequiresReplacement else { return "store replacement pending" }
+        guard portableSnapshotIsSongless else { return "the snapshot carries the songs" }
+        guard externalSnapshotWriteOwners == 0 else { return "external snapshot owner" }
+        guard !persistenceBlockedByCorruption else { return "persistence blocked" }
+        // 目录。
+        guard let host = catalogHost, catalogAttached else { return "no catalog" }
+        guard host.revisions.isReadable, host.pendingWrites.answersLikeMemory, host.songLookup() != nil else {
+            return "the catalog cannot answer"
+        }
+        guard !host.mirror.readsAreFrozen else { return "catalog reads frozen" }
+        guard settled else { return nil }
+        guard pendingAssetPatches.isEmpty, pendingLyricsText.isEmpty else { return "row patches pending" }
+        guard pendingSongPersistenceBatch == nil else { return "store write pending" }
+        guard host.pendingWrites.pendingCount == 0 else { return "the catalog is behind the store" }
+        guard !hasPendingPortableSnapshotChanges else { return "small state not durable" }
+        return nil
+        #endif
+    }
+
+    private func performSongModelRelease(trigger: String, returningFreedMemory: Bool) -> SongModelReleaseOutcome {
+        let songCount = songIndexByID.count
+        let albumCount = albumsReference.value.count
+        let footprintBefore = Self.residencyFootprint()
+        // 放掉之后答不了的两样,趁数组还在先留下:各音乐源的 id、被停用的源藏起来的歌单。
+        releasedSongSourceIDs = Set(songCountBySourceID.keys)
+        if disabledSourceIDs.isEmpty {
+            releasedHiddenPlaylistIDs = nil
+        } else {
+            releasedHiddenPlaylistIDs = (disabledSourceIDs, playlistIDsHiddenByDisabledSources())
+        }
+        // 等空闲才做的对账(云端身份、置灰占位、换了 id 的标记)都要整库:这一轮作废,装回来之后重新排。
+        pendingIdentityFlushTask?.cancel()
+        pendingIdentityFlushTask = nil
+        playlistPendingResolutionTask?.cancel()
+        playlistPendingResolutionTask = nil
+        playlistPendingResolutionGeneration &+= 1
+        carriedSongMarksResolutionTask?.cancel()
+        carriedSongMarksResolutionTask = nil
+        carriedSongMarksResolutionGeneration &+= 1
+        // 「随机时连播」的相邻关系按专辑曲序算,趁数组还在算好留着(放掉之后要重算时从目录读专辑)。
+        let shuffleLinks = shuffleLinkGraph
+        swapSongModelForEmpty(includingCollections: true, forResidency: true)
+        shuffleLinkGraphCache = shuffleLinks
+        songModelLoadsOnDemand = true
+        // 还握着放掉之前那份数组算东西的后台活,落地时按这两个代数认出自己过期了。
+        songMutationGeneration &+= 1
+        visibleCacheGeneration &+= 1
+        songModelResidencyRevision &+= 1
+        arrayReadsWhileUnloaded.removeAll()
+        songModelResidencyStatistics.releases += 1
+        songModelResidencyStatistics.lastReleaseSkip = nil
+        plog("🧠 residency release songs=\(songCount) albums=\(albumCount) footprintBefore=\(footprintBefore) trigger=\(trigger)")
+        // 放掉的对象在回收队列上释放;释放完把空闲页还给系统,再量一次。
+        songModelReclaimTask = Task.detached(priority: .utility) {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                LibraryArrayReclaimer.afterPendingReleases { continuation.resume() }
+            }
+            if returningFreedMemory { await MusicLibrary.returnFreedMemoryToSystem() }
+            plog("🧠 residency release done songs=\(songCount) footprintBefore=\(footprintBefore) footprintAfter=\(MusicLibrary.residencyFootprint())")
+        }
+        songModelResidencyObserver?(.released)
+        return .released(songs: songCount, albums: albumCount)
+    }
+
+    /// 回到 `.preparing`,把歌曲数组和随歌曲数增长的各张表换成空的,换下来的交给回收队列。
+    /// `includingCollections`:连专辑、艺人那一层。`forResidency`:真正的放掉 —— 另外放环境音、MV、本机播客那三份
+    /// 数组(入口要不要出现的那几个标记照旧),有声与环境音的 id 集合留着(播放历史按它们分音乐与有声;
+    /// 它们随有声内容的条数增长,不随整库)。测量钩子不带这一项,与以前逐字相同。
+    private func swapSongModelForEmpty(includingCollections: Bool, forResidency: Bool) {
+        readiness = .preparing
+        songModelReleased = true
+        var displaced: [any Sendable] = [
+            songsReference, visibleSongsReference, visibleSongsLookupReference, musicSongsReference,
+            spokenWordSongsReference, localPodcastPreviewSongs,
+            songIndexByID, visibleSongIndexByID, visibleSongPositionsBySourceID, visibleSongIDsByArtistID,
+            visibleSongIDsByGenreID, visibleAlbumIDsByGenreID,
+            spokenWordBookIDs, spokenWordDisplayTitles, localPodcastBookIDs, localPodcastShowTitles,
+        ]
+        songsReference = LibraryArrayReference()
+        visibleSongsReference = LibraryArrayReference()
+        visibleSongsLookupReference = visibleSongsReference
+        indexedVisibleSongsReference = nil
+        musicSongsReference = LibraryArrayReference()
+        musicSongsSharesVisibleSongs = false
+        musicSongsPublishedVisibleReference = nil
+        spokenWordSongsReference = LibraryArrayReference()
+        localPodcastPreviewSongs = []
+        songIndexByID = [:]
+        visibleSongIndexByID = [:]
+        visibleSongPositionsBySourceID = [:]
+        visibleSongIDsByArtistID = [:]
+        visibleSongIDsByGenreID = [:]
+        visibleAlbumIDsByGenreID = [:]
+        if forResidency {
+            let hadAmbientContent = hasAmbientContent
+            let hadMusicVideoContent = hasMusicVideoContent
+            // crash-pattern: allow legacy-library-api 放掉歌曲模型:这三份数组本身就是要放掉的东西,不是读它们
+            displaced += [ambientSongs, musicVideoSongs, localPodcastSongs]
+            // crash-pattern: allow legacy-library-api 同上,换成空的
+            (ambientSongs, musicVideoSongs, localPodcastSongs) = ([], [], [])
+            if hasAmbientContent != hadAmbientContent { hasAmbientContent = hadAmbientContent }
+            if hasMusicVideoContent != hadMusicVideoContent { hasMusicVideoContent = hadMusicVideoContent }
+            materializedPlaylistEntries.removeAll()
+            playlistVisibleSummaries.removeAll()
+            fullReleaseAlbumArtistsCache = nil
+        } else {
+            displaced += [spokenWordSongIDs, ambientSongIDs]
+            spokenWordSongIDs = []
+            ambientSongIDs = []
+        }
+        nonMusicSongIDsCache = nil
+        spokenWordBookIDs = [:]
+        spokenWordDisplayTitles = [:]
+        localPodcastBookIDs = [:]
+        localPodcastShowTitles = [:]
+        spokenWordBookIDSet = []
+        localPodcastBookIDSet = []
+        lastReplacedSong = nil
+        lastReplacedSongIDs = []
+        materializedPlaylistSongs.removeAll()
+        if includingCollections {
+            displaced += [
+                albumsReference, artistsReference, visibleAlbumsReference, visibleArtistsReference,
+                visibleAlbumArtistsReference, visibleGenresReference, visibleAlbumByID, visibleArtistByID,
+                visibleAlbumArtistByID, albumIDsByAlbumOnlyArtistID, albumIDsByAlbumArtistID,
+                preferredArtworkSongIDByAlbumID, preferredArtworkSongIDByArtistID,
+            ]
+            albumsReference = LibraryArrayReference()
+            artistsReference = LibraryArrayReference()
+            visibleAlbumsReference = LibraryArrayReference()
+            visibleArtistsReference = LibraryArrayReference()
+            visibleAlbumArtistsReference = LibraryArrayReference()
+            visibleGenresReference = LibraryArrayReference()
+            visibleAlbumByID = [:]
+            visibleArtistByID = [:]
+            visibleAlbumArtistByID = [:]
+            albumIDsByAlbumOnlyArtistID = [:]
+            albumIDsByAlbumArtistID = [:]
+            releaseMetadataIndex = AlbumReleaseMetadataIndex()
+            preferredArtworkSongIDByAlbumID = [:]
+            preferredArtworkSongIDByArtistID = [:]
+            albumOnlyArtistSongIDsCache = [:]
+        }
+        releaseRebuildableCaches()
+        LibraryArrayReclaimer.release(holder: DisplacedLibraryLookups(displaced), approximateElementCount: .max)
+    }
+
+    // MARK: 装回来
+
+    /// 读的途中发现要装回来(目录答不了、按 id 读失败):排到下一个主线程轮次再开始,不在读的那一下改状态。
+    fileprivate func scheduleSongModelLoad(reason: String) {
+        guard songModelLoadsOnDemand, songModelLoadTask == nil, !songModelLoadRequestScheduled else { return }
+        songModelLoadRequestScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.songModelLoadRequestScheduled = false
+            self.requestSongModelLoad(reason: reason)
+        }
+    }
+
+    /// 放掉之后有人要歌曲模型:开始装回来。已经在装、没放掉、或者是测量钩子放掉的,都不做事。
+    fileprivate func requestSongModelLoad(reason: @autoclosure () -> String) {
+        guard songModelLoadsOnDemand, songModelReleased, isPreparing, songModelLoadTask == nil else { return }
+        let reason = reason()
+        let waiters = readinessContinuations.count + boundedReadinessContinuations.count
+        plog("🧠 residency load begin reason=\(reason) waiters=\(waiters) holds=\(songModelHolds.count)")
+        songModelResidencyStatistics.lastLoadReason = reason
+        songModelLoadTask = Task { @MainActor [weak self] in
+            await self?.loadReleasedSongModel(reason: reason)
+        }
+        songModelResidencyRevision &+= 1
+    }
+
+    /// 装回来用的输入:歌曲从旧库读,这里只带读的时候要对的那几样(本机移除的账本、墓碑、分组与分类的设置)。
+    private func storageForSongModelLoad() -> StartupStorage {
+        var storage = StartupStorage(
+            directory: snapshotURL.deletingLastPathComponent(),
+            artistNameConfiguration: artistNameConfiguration,
+            disabledSourceIDs: disabledSourceIDs,
+            playlistSyncWriterID: playlistSyncWriterID,
+            songStore: songStore,
+            songStoreSnapshotWriter: songStoreSnapshotWriter
+        )
+        storage.deletedSongIdentities = deletedSongIdentities
+        storage.deviceLocalExcludedSongIdentities = deviceLocalExcludedSongIdentities
+        storage.deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID
+        storage.deviceLocalRemovalMetadataByID = deviceLocalRemovalMetadataByID
+        storage.albumArtistFolders = albumArtistFolders
+        storage.spokenWordClassification = SpokenWordStore.shared.classificationSnapshot
+        let sourceIDs = releasedSongSourceIDs.union(deviceLocalExcludedSongsByID.values.map(\.sourceID))
+        for sourceID in sourceIDs {
+            storage.sourceIdentityPrefixes[sourceID] = sourceIdentityResolver?(sourceID)
+        }
+        return storage
+    }
+
+    /// 把准备好的那一份交进主线程外的任务、再拿回来,途中只有一个持有者(数组按下标改时不整份复制)。
+    private final class SongModelLoadHandoff: @unchecked Sendable {
+        var storage: StartupStorage?
+        init(_ storage: StartupStorage) { self.storage = storage }
+    }
+
+    private func loadReleasedSongModel(reason: String) async {
+        let startedAt = ContinuousClock.now
+        // 开始之前已经在写入链上的行先落到旧库(从这一刻起新的写都排队);没赶上的由发布时的流水补。
+        pendingSongPersistenceBatch?.seal()
+        _ = await songStoreWriteTask?.value
+        var prepared: StartupStorage?
+        var journalRows = 0
+        var attempts = 0
+        while prepared == nil, attempts < 3, songModelReleased, isPreparing {
+            attempts += 1
+            if attempts > 1 { songModelResidencyStatistics.loadRestarts += 1 }
+            let baseline = storageForSongModelLoad()
+            let expectedFolderSignature = derivedIndexFolderSignature
+            var storage = await Task.detached(priority: .userInitiated) { () -> StartupStorage in
+                var storage = baseline
+                storage.loadSongsOnly(expectedFolderSignature: expectedFolderSignature)
+                return storage
+            }.value
+            #if DEBUG
+            if songModelLoadFailsForTesting { storage.songModelLoadFailure = "forced by a test" }
+            if let pause = songModelLoadDidReadForTesting { await pause() }
+            #endif
+            if storage.songModelLoadFailure != nil {
+                prepared = storage
+                break
+            }
+            // 读的那一刻之后旧库又写过(开始之前就在路上的写):按流水补到同一个修订号再发布。
+            journalRows = 0
+            var consistent = false
+            for _ in 0..<4 {
+                guard let current = try? songStore?.startupState().contentRevision else { break }
+                if current == storage.loadedStoreRevision {
+                    consistent = true
+                    break
+                }
+                let handoff = SongModelLoadHandoff(storage)
+                storage = baseline
+                let rows = await Task.detached(priority: .userInitiated) { () -> Int? in
+                    guard var working = handoff.storage else { return nil }
+                    handoff.storage = nil
+                    let rows = working.applyStoreChanges(expectedFolderSignature: expectedFolderSignature)
+                    handoff.storage = working
+                    return rows
+                }.value
+                guard let rows, let patched = handoff.storage else { break }
+                handoff.storage = nil
+                storage = patched
+                journalRows += rows
+            }
+            if consistent {
+                prepared = storage
+            } else {
+                plog("🧠 residency load restarted: the store moved and its journal could not cover it")
+            }
+        }
+        // 这期间别的装载(整份重载)先发布了:这一份不要了。
+        guard songModelReleased, isPreparing else {
+            songModelLoadTask = nil
+            return
+        }
+        guard let prepared, prepared.songModelLoadFailure == nil else {
+            let why = prepared?.songModelLoadFailure ?? "the store kept moving"
+            plog("⚠️ 🧠 residency load could not read the song model alone (\(why)); loading the whole library from disk")
+            await loadWholeLibraryInsteadOfTheSongModel(reason: reason, startedAt: startedAt)
+            return
+        }
+        publishLoadedSongModel(prepared, reason: reason, startedAt: startedAt, journalRows: journalRows)
+    }
+
+    /// 只装歌曲模型装不成(旧库读不出来、不再是装载认的那一份):小状态先落盘,再照启动那样整份装
+    /// (那条路认得兜底副本、认得坏了的快照)。
+    private func loadWholeLibraryInsteadOfTheSongModel(reason: String, startedAt: ContinuousClock.Instant) async {
+        // 小状态此刻落不了盘(快照又要带歌了)时不等:`persistNowAndWait` 那时要等就绪,而就绪正等着这次装载。
+        // 那以后的小状态突变排在队里,发布之后重放。
+        if smallStateIsWritable, case .failure = await persistNowAndWait(materializePortableSnapshot: false) {
+            plog("⚠️ 🧠 residency: small state could not be saved before the whole-library load")
+        }
+        guard songModelReleased, isPreparing else {
+            songModelLoadTask = nil
+            return
+        }
+        // 这里读整库数组是有意的(空的,当整份装载的起点)。
+        let policy = songModelArrayReadPolicy
+        songModelArrayReadPolicy = .ignore
+        let baseline = storageForReload()
+        songModelArrayReadPolicy = policy
+        let whole = await Task.detached(priority: .userInitiated) {
+            var storage = baseline
+            storage.loadSnapshot(preferExternalSnapshot: false)
+            return PreparedStartup(storage: storage)
+        }.value
+        songModelLoadTask = nil
+        guard songModelReleased, isPreparing else { return }
+        // 从这里起照启动的发布走(数组要重新填上),不再算「放掉」。
+        songModelReleased = false
+        songModelLoadsOnDemand = false
+        releasedHiddenPlaylistIDs = nil
+        let queued = deferredMutations.count
+        publish(whole)
+        reconcileContentFlagsAfterLoad()
+        songModelResidencyStatistics.loads += 1
+        songModelResidencyStatistics.wholeLibraryLoads += 1
+        songModelResidencyStatistics.lastLoadJournalRows = 0
+        songModelResidencyStatistics.lastLoadUsedDerivedCache = false
+        let elapsed = Int((ContinuousClock.now - startedAt) / .milliseconds(1))
+        songModelResidencyStatistics.lastLoadMilliseconds = elapsed
+        songModelResidencyRevision &+= 1
+        plog("🧠 residency load done ms=\(elapsed) songs=\(songIndexByID.count) journalRows=0 queued=\(queued) derived=whole-library reason=\(reason)")
+        songModelResidencyObserver?(.loaded)
+    }
+
+    /// 发布装回来的歌曲模型:同启动的发布步骤,只是不把小状态拷回来(内存里的那一份比磁盘上的新)。
+    private func publishLoadedSongModel(
+        _ storage: StartupStorage, reason: String, startedAt: ContinuousClock.Instant, journalRows: Int
+    ) {
+        let queued = deferredMutations.count
+        // 从这里起数组又是满的:与启动发布途中一样,`.preparing`、没有「放掉」。
+        songModelReleased = false
+        songModelLoadsOnDemand = false
+        songModelLoadTask = nil
+        releasedHiddenPlaylistIDs = nil
+        songs = storage.songs
+        songIndexByID = storage.songIndexByID
+        albums = storage.albums
+        artists = storage.artists
+        derivedIndexSignature = storage.derivedIndexSignature
+        derivedIndexFolderSignature = storage.derivedIndexFolderSignature
+        if storage.deviceLocalExclusionsChanged {
+            deviceLocalExcludedSongIdentities = storage.deviceLocalExcludedSongIdentities
+            deviceLocalExcludedSongsByID = storage.deviceLocalExcludedSongsByID
+            deviceLocalRemovalMetadataByID = storage.deviceLocalRemovalMetadataByID
+        }
+        if let visibleCache = storage.visibleCache {
+            applyPreparedVisibleCache(visibleCache)
+        }
+        reconcileContentFlagsAfterLoad()
+        markReadyBeforeDurableWrites()
+        songModelResidencyRevision &+= 1
+        // 耐久的那几样,发布之后做(同启动的 G5)。
+        if storage.deviceLocalExclusionsChanged { try? persistDeviceLocalExclusions() }
+        if case .upserts(let corrected) = storage.pendingStoreWrite, !corrected.isEmpty {
+            // 整库重新分组纠正过专辑归属的行(放掉期间删过歌之后剩下的那些),补写回旧库。
+            persistSongChanges(upserts: corrected)
+        }
+        if storage.shouldWriteDerivedCache { persistDerivedIndexCache() }
+        syncCatalogInputs()
+        schedulePendingIdentityFlush()
+        reconcilePreparingConfiguration()
+        replayDeferredMutations()
+        flushDeferredPersistenceAfterReadiness()
+        notifyReadinessObservers()
+        let elapsed = Int((ContinuousClock.now - startedAt) / .milliseconds(1))
+        songModelResidencyStatistics.loads += 1
+        songModelResidencyStatistics.lastLoadJournalRows = journalRows
+        songModelResidencyStatistics.lastLoadMilliseconds = elapsed
+        songModelResidencyStatistics.lastLoadUsedDerivedCache = storage.songModelLoadUsedDerivedCache
+        plog("🧠 residency load done ms=\(elapsed) songs=\(storage.songs.count) journalRows=\(journalRows) queued=\(queued)"
+             + " derived=\(storage.songModelLoadUsedDerivedCache ? "cache" : "rebuilt") reason=\(reason)")
+        songModelResidencyObserver?(.loaded)
+    }
+
+    /// 放掉时入口的那几个标记(有没有有声、环境音、MV)照旧留着,数组换成了空的。装回来的那一份要是也空,
+    /// 可见缓存那一步不重新赋值(没变不写),标记就停在放掉之前的样子:这里按装回来的数组对一次。
+    private func reconcileContentFlagsAfterLoad() {
+        let spokenWord = spokenWordSongsReference.value
+        if hasSpokenWordContent == spokenWord.isEmpty { hasSpokenWordContent = !spokenWord.isEmpty }
+        if spokenWordSongCount != spokenWord.count { spokenWordSongCount = spokenWord.count }
+        // crash-pattern: allow legacy-library-api 只看装回来的这份空不空,不遍历
+        let hasAmbient = !ambientSongs.isEmpty
+        if hasAmbientContent != hasAmbient { hasAmbientContent = hasAmbient }
+        // crash-pattern: allow legacy-library-api 同上
+        let hasMusicVideos = !musicVideoSongs.isEmpty
+        if hasMusicVideoContent != hasMusicVideos { hasMusicVideoContent = hasMusicVideos }
+    }
+
+    // MARK: 歌单的可见曲数,模型不在内存里时
+
+    /// 这些成员里此刻可见的(在曲库里、不在停用的源里、没有从本机移除),按给的先后。只读每个成员在哪个源,
+    /// 不取出行;本机移除的账本不空时要整行才判得了,那时照取。nil:模型在内存里(调用方查内存),或者此刻答不了。
+    fileprivate func visibleMemberIDsOutsideTheModel(_ ids: [String]) -> [String]? {
+        guard !songModelAnswersFromMemory, let lookup = lookupOutsideTheModel else { return nil }
+        guard !ids.isEmpty else { return [] }
+        guard deviceLocalExcludedSongIdentities.isEmpty else {
+            return visibleSongsOutsideTheModel(ids: ids, lookup: lookup)?.map(\.id)
+        }
+        let disabled = preparingDisabledSourceIDs ?? disabledSourceIDs
+        do {
+            let sources = try lookup.sourceIDs(ids: ids)
+            var visible: [String] = []
+            for (id, source) in zip(ids, sources) {
+                guard let source, !disabled.contains(source) else { continue }
+                visible.append(id)
+            }
+            return visible
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 模型不在内存里时按 id 取可见的那一行;模型在内存里时不答(调用方已经查过内存)。
+    fileprivate func visibleSongWhileUnloaded(_ id: String) -> Song? {
+        guard !songModelAnswersFromMemory, let lookup = lookupOutsideTheModel else { return nil }
+        return visibleSongOutsideTheModel(id, lookup: lookup, observed: true) ?? nil
+    }
+
+    #if DEBUG
+    /// 测试:自动艺人图的各源目录(放掉歌曲模型前后要原样在)。
+    var automaticArtistArtworkCatalogsForTesting: [String: SourceArtistArtworkCatalog] {
+        automaticArtistArtworkCatalogsBySource
+    }
+
+    /// 测试:放掉之后正在装回来。
+    var isLoadingSongModelForTesting: Bool { songModelLoadTask != nil }
     #endif
 }

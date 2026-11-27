@@ -123,6 +123,9 @@ final class AudioCacheSyncPolicyTests: XCTestCase {
         XCTAssertEqual(holds(of: withoutCatalog), [.cacheSync, .cacheSync], "the whole-library path holds the model for each read")
 
         withCatalog.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertTrue(withCatalog.isUsable, "released, and the catalog answers")
+        // 目录也答不了时库才不可用:下面是这种情况下的等。
+        await withCatalog.stopCatalogMirror()
         XCTAssertFalse(withCatalog.isUsable)
         parked = Task { @MainActor in
             _ = await catalogService.localManifestRoundTripForTesting()

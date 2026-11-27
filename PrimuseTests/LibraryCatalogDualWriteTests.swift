@@ -3147,9 +3147,10 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
             .map(\.reason)
     }
 
-    /// 接口外壳今天的语义:「可用」与「已就绪」同真同假,观察也跟得上;等可用(`whenUsable`、`onUsable`)
-    /// 不要歌曲模型,占用(`holdSongModel`、`withSongModel`)才要。模型放掉之后「可用」跟着为假,等可用的只是等。
-    func testUsableFollowsReadinessAndOnlyAHoldAsksForTheSongModel() async throws {
+    /// 模型在内存里时「可用」与「已就绪」同真;等可用(`whenUsable`、`onUsable`)不要歌曲模型,占用
+    /// (`holdSongModel`、`withSongModel`)才要。模型放掉之后目录答得出就还是可用(「已就绪」为假,观察着的界面
+    /// 收到变化);目录也答不了才不可用,等可用的只是等。
+    func testUsableDoesNotNeedTheSongModelAndOnlyAHoldAsksForIt() async throws {
         let library = makeLibrary()
         library.addSongs(Self.fixture(), affectedSourceIDs: [Self.sourceA, Self.sourceB])
         await assertShadowMatches(library, "fixture")
@@ -3176,23 +3177,30 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertEqual(counted, expectedCount)
         XCTAssertEqual(songModelHolds(of: library), [.scan, .export])
 
-        // 放掉歌曲模型:今天「可用」跟着为假,观察着它的界面收到变化。
+        // 放掉歌曲模型:「已就绪」为假,观察着的界面收到变化;目录答得出,所以还是可用。
         let changed = expectation(description: "observers of isUsable are told")
         withObservationTracking { _ = library.isUsable } onChange: { changed.fulfill() }
         library.dropSongModelForMeasurement(includingCollections: true)
         await fulfillment(of: [changed], timeout: 2)
         XCTAssertFalse(library.isReady)
-        XCTAssertFalse(library.isUsable)
+        XCTAssertTrue(library.isUsable, "released, and the catalog answers")
         let usableAfterRelease = await library.whenUsable(timeout: .milliseconds(50))
-        XCTAssertFalse(usableAfterRelease)
+        XCTAssertTrue(usableAfterRelease)
         library.onUsable { handled.count += 1 }
-        XCTAssertEqual(handled.count, 1, "not usable: the handler waits")
+        XCTAssertEqual(handled.count, 2, "usable without the model: the handler runs at once")
+        // 目录也答不了:不可用,等可用的只是等。
+        await library.stopCatalogMirror()
+        XCTAssertFalse(library.isUsable, "released, and nothing can answer")
+        let usableWithoutTheCatalog = await library.whenUsable(timeout: .milliseconds(50))
+        XCTAssertFalse(usableWithoutTheCatalog)
+        library.onUsable { handled.count += 1 }
+        XCTAssertEqual(handled.count, 2, "not usable: the handler waits")
         XCTAssertEqual(songModelHolds(of: library), [.scan, .export], "waiting for usable still asks for no song model")
     }
 
     /// 歌词全文补索引挑候选:目录这条路与整库数组上的写法挑出同样的歌(有歌词文件引用、还没有全文;停用源的
-    /// 歌也算,本机移除的不算)。歌曲模型放掉之后启动它:只登记等可用,不起 worker、不要歌曲模型、不写「已完成」
-    /// 标记;目录这时挑出的候选与放掉之前相同。
+    /// 歌也算,本机移除的不算)。歌曲模型放掉之后目录这时挑出的候选与放掉之前相同;库不可用(模型放掉了、目录也
+    /// 答不了)时启动它:只登记等可用,不起 worker、不要歌曲模型、不写「已完成」标记。
     func testLyricsTextBackfillPicksItsCandidatesFromTheCatalogAndWaitsWhileTheSongModelIsReleased() async throws {
         // 与 `LyricsTextBackfillService.migrationKey` 保持一致(私有常量);服务直接读写 `UserDefaults.standard`。
         let migrationKey = "primuse.lyricsTextBackfill.v1_initial"
@@ -3229,13 +3237,839 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         MusicLibrary.songModelHoldRequestsForTesting = []
         defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
         library.dropSongModelForMeasurement(includingCollections: true)
+        let whileReleased = await service.catalogCandidateIDsForTesting()
+        XCTAssertEqual(try XCTUnwrap(whileReleased).sorted(), fromMemory.sorted(), "the catalog answers the same without the model")
+        await library.stopCatalogMirror()
+        XCTAssertFalse(library.isUsable, "released, and nothing can answer")
         service.startIfNeeded()
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertFalse(service.isRunning, "no worker on a library that is not usable")
         XCTAssertFalse(defaults.bool(forKey: migrationKey), "the migration is not marked as done")
         XCTAssertEqual(songModelHolds(of: library), [], "it does not ask for the song model")
-        let whileReleased = await service.catalogCandidateIDsForTesting()
-        XCTAssertEqual(try XCTUnwrap(whileReleased).sorted(), fromMemory.sorted(), "the catalog answers the same without the model")
+    }
+
+    // MARK: - Song model residency (P3 step 6d)
+
+    private func artworkCatalog(sourceID: String) throws -> SourceArtistArtworkCatalog {
+        let json = """
+            {"sourceID":"\(sourceID)","directoryParents":{},"songParentDirectories":{},
+             "candidatesByDirectory":{"/Music":[{"normalizedArtistName":"ada","reference":"/Music/ada.jpg","cacheDiscriminator":"1"}]}}
+            """
+        return try JSONDecoder().decode(SourceArtistArtworkCatalog.self, from: Data(json.utf8))
+    }
+
+    /// 歌曲模型此刻的样子(各份数组里 id 的先后):装回来之后要与放掉之前、与一直没放的库逐项相同。
+    private func modelPicture(_ library: MusicLibrary) -> [String: [String]] {
+        var picture: [String: [String]] = [:]
+        picture["songs"] = library.songs.map(\.id)
+        picture["visibleSongs"] = library.visibleSongs.map(\.id)
+        picture["musicSongs"] = library.musicSongs.map(\.id)
+        picture["spokenWordSongs"] = library.spokenWordSongs.map(\.id)
+        picture["ambientSongs"] = library.ambientSongs.map(\.id)
+        picture["musicVideoSongs"] = library.musicVideoSongs.map(\.id)
+        picture["localPodcastSongs"] = library.localPodcastSongs.map(\.id)
+        picture["albums"] = library.albums.map(\.id).sorted()
+        picture["artists"] = library.artists.map(\.id).sorted()
+        picture["visibleAlbums"] = library.visibleAlbums.map(\.id)
+        picture["visibleArtists"] = library.visibleArtists.map(\.id)
+        picture["visibleAlbumArtists"] = library.visibleAlbumArtists.map(\.id)
+        picture["visibleGenres"] = library.visibleGenres.map { genre in
+            "\(genre.id) songs=\(genre.songCount) albums=\(genre.albumCount)"
+        }
+        picture["flags"] = [
+            "spokenWord=\(library.hasSpokenWordContent) \(library.spokenWordSongCount)",
+            "ambient=\(library.hasAmbientContent)",
+            "musicVideo=\(library.hasMusicVideoContent)",
+        ]
+        return picture
+    }
+
+    private final class ResidencyEventLog {
+        var events: [MusicLibrary.SongModelResidencyEvent] = []
+    }
+
+    private func released(_ library: MusicLibrary, _ step: String, file: StaticString = #filePath, line: UInt = #line) async -> Bool {
+        let outcome = await library.releaseSongModelIfIdle(trigger: step)
+        guard case .released = outcome else {
+            XCTFail("\(step): not released: \(outcome)", file: file, line: line)
+            return false
+        }
+        return true
+    }
+
+    private func waitUntilReady(_ library: MusicLibrary) async throws {
+        let deadline = ContinuousClock.now + .seconds(15)
+        while !library.isReady, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// 同 `makeTwin`,旧库再像经过了一次启动那样标上迁移版本:只装歌曲模型要旧库是启动认的那一份,
+    /// 这一轮进程里才建起来的旧库要到下一次启动(或一次整份装载)才标上。
+    private func makeLaunchedTwin(
+        _ name: String, songs: [Song], extra: [Song] = []
+    ) throws -> (library: MusicLibrary, storage: URL) {
+        let twin = try makeTwin(name, songs: songs, extra: extra)
+        let store = try IncrementalSongStore(path: twin.storage.appendingPathComponent("library-songs.sqlite").path)
+        try store.markMigrationCompleted(version: 10)
+        return twin
+    }
+
+    /// 小状态整份落一次盘,返回那份便携快照的字节(放掉前后、装回来之后逐字节比)。
+    private func portableSnapshotBytes(_ library: MusicLibrary, storage: URL, _ step: String) async throws -> Data {
+        library.markPortableSnapshotDirtyForTesting()
+        guard case .success = await library.persistNowAndWait(materializePortableSnapshot: true) else {
+            XCTFail("\(step): the snapshot was not written")
+            return Data()
+        }
+        return try Data(contentsOf: storage.appendingPathComponent("library-cache.json"))
+    }
+
+    /// 放掉歌曲模型:数组空了,库照样可用(按 id 读、歌单的可见曲数、小状态都答得出),小状态与自动艺人图的目录原样在;
+    /// 等可用、登记就绪回调都不引起装载。拿占用装回来:歌曲、可见集、专辑、艺人与放掉之前逐项相同,目录与内存
+    /// 对得上;占着就不放。排了队的突变自己把模型装回来,就绪回调排在重放之后。
+    func testReleasingTheSongModelAndLoadingItAgainGivesTheSameLibrary() async throws {
+        let songs = Self.fixture(prefix: "residency")
+        let (library, storage) = try makeLaunchedTwin("residency", songs: songs)
+        let playlist = library.createPlaylist(name: "Kept", songIDs: [songs[0].id, songs[4].id, songs[7].id])
+        library.setLiked(songID: songs[1].id, isLiked: true, propagatesServerMutation: false)
+        library.setDisliked(songID: songs[3].id, isDisliked: true)
+        library.recordPlayback(of: songs[2].id)
+        library.updateLibraryReview(for: .song(songs[5].id), rating: 4, comment: "kept")
+        library.updateAutomaticArtistArtworkCatalog(try artworkCatalog(sourceID: Self.sourceA))
+        await assertShadowMatches(library, "fixture")
+        // 小状态整份(歌单、喜欢/不喜欢、最近播放、评价、墓碑、自动艺人图……)落盘的字节:放掉之后、装回来之后都相同。
+        let smallStateBefore = try await portableSnapshotBytes(library, storage: storage, "loaded")
+
+        let before = modelPicture(library)
+        let rowsBefore = library.songs
+        let catalogs = library.automaticArtistArtworkCatalogsForTesting
+        XCTAssertEqual(catalogs.count, 1)
+        let playlistsBefore = library.playlists.map(\.id)
+        let hadSpokenWord = library.hasSpokenWordContent
+        XCTAssertEqual(library.songCount(forPlaylist: playlist.id), 2, "the member in the disabled source is not counted")
+
+        // 总开关关着:不放。
+        let refused = await library.releaseSongModelIfIdle(trigger: "test")
+        XCTAssertEqual(refused, .skipped("residency is off"))
+        library.songModelResidencyEnabled = true
+        let log = ResidencyEventLog()
+        library.songModelResidencyObserver = { log.events.append($0) }
+
+        let outcome = await library.releaseSongModelIfIdle(trigger: "test")
+        guard case .released(let releasedSongs, _) = outcome else { return XCTFail("not released: \(outcome)") }
+        XCTAssertEqual(releasedSongs, songs.count)
+        XCTAssertFalse(library.isReady)
+        XCTAssertTrue(library.isUsable)
+        XCTAssertTrue(library.canAnswerSongLookups)
+        library.songModelArrayReadPolicy = .ignore
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertTrue(library.visibleSongs.isEmpty)
+        XCTAssertTrue(library.albums.isEmpty)
+        XCTAssertTrue(library.visibleAlbums.isEmpty)
+        XCTAssertTrue(library.visibleArtists.isEmpty)
+        library.songModelArrayReadPolicy = .log
+        // 按 id 读、歌单、小状态:与放掉之前相同。
+        XCTAssertEqual(library.storedSong(id: songs[0].id)?.title, songs[0].title)
+        XCTAssertNil(library.visibleSong(id: songs[7].id), "a song in a disabled source is not visible")
+        XCTAssertNotNil(library.storedSong(id: songs[7].id))
+        XCTAssertEqual(library.songCount(forPlaylist: playlist.id), 2, "counted from the catalog")
+        XCTAssertEqual(library.songSummary(forPlaylist: playlist.id).first?.id, songs[0].id)
+        XCTAssertEqual(
+            library.storedSongsIfAnswerable(forPlaylist: playlist.id)?.map(\.id), [songs[0].id, songs[4].id, songs[7].id]
+        )
+        XCTAssertEqual(library.playlists.map(\.id), playlistsBefore)
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), [songs[0].id, songs[4].id, songs[7].id])
+        XCTAssertTrue(library.isLiked(songID: songs[1].id))
+        XCTAssertEqual(library.recentPlaybackSongIDsForSync, [songs[2].id])
+        XCTAssertEqual(library.automaticArtistArtworkCatalogsForTesting, catalogs)
+        XCTAssertEqual(library.hasSpokenWordContent, hadSpokenWord, "the entry flags stay as they were")
+        let smallStateReleased = try await portableSnapshotBytes(library, storage: storage, "released")
+        XCTAssertEqual(smallStateReleased, smallStateBefore, "small state is the same, byte for byte, with the model released")
+
+        // 等可用、登记就绪回调:都不引起装载。
+        await library.whenUsable()
+        let usableInTime = await library.whenUsable(timeout: .milliseconds(50))
+        XCTAssertTrue(usableInTime)
+        let handled = Tally()
+        library.onReady { handled.count += 1 }
+        library.onUsable { handled.count += 10 }
+        XCTAssertEqual(handled.count, 10, "usable: that handler runs at once; the ready handler waits for a load")
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertFalse(library.isLoadingSongModelForTesting, "nothing asked for the model: \(library.songModelResidencyStatistics)")
+        XCTAssertFalse(library.isReady)
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, 0)
+
+        // 拿占用:装回来,与放掉之前逐项相同。
+        let waiter = Task { @MainActor in await library.whenReady() }
+        let hold = await library.holdSongModel(.legacyPage)
+        await waiter.value
+        XCTAssertTrue(library.isReady)
+        XCTAssertTrue(library.isUsable)
+        XCTAssertEqual(handled.count, 11, "the ready handler ran at the load")
+        XCTAssertEqual(modelPicture(library), before)
+        assertSameSongs(library.songs, rowsBefore, "rows after the load")
+        XCTAssertEqual(library.songCount(forPlaylist: playlist.id), 2)
+        XCTAssertEqual(library.playlists.map(\.id), playlistsBefore)
+        XCTAssertEqual(library.automaticArtistArtworkCatalogsForTesting, catalogs)
+        let smallStateLoaded = try await portableSnapshotBytes(library, storage: storage, "loaded again")
+        XCTAssertEqual(smallStateLoaded, smallStateBefore, "the load does not copy small state back from the disk")
+        let statistics = library.songModelResidencyStatistics
+        XCTAssertEqual(statistics.releases, 1)
+        XCTAssertEqual(statistics.loads, 1)
+        XCTAssertEqual(statistics.lastLoadJournalRows, 0)
+        XCTAssertEqual(statistics.wholeLibraryLoads, 0)
+        XCTAssertEqual(statistics.loadRestarts, 0)
+        print("REPORT_RESIDENCY_LOAD reason=\(statistics.lastLoadReason ?? "-") ms=\(statistics.lastLoadMilliseconds) derivedCache=\(statistics.lastLoadUsedDerivedCache) arrayReads=\(statistics.arrayReadsWhileUnloaded)")
+        XCTAssertEqual(log.events, [.released, .loaded])
+        await assertShadowMatches(library, "after the load")
+
+        // 占着就不放;放手之后才放。
+        let whileHeld = await library.releaseSongModelIfIdle(trigger: "test")
+        XCTAssertEqual(whileHeld, .skipped("hold(legacyPage)"))
+        hold.end()
+        hold.end()
+        XCTAssertEqual(log.events.last, .holdsEnded)
+        guard await released(library, "second release") else { return }
+
+        // 排了队的突变自己把模型装回来;就绪回调排在重放之后,看得到重放的结果。
+        let seenAtReady = Tally()
+        library.onReady { seenAtReady.count = library.songs.count }
+        let added = Song(
+            id: "residency-added", title: "Blue 5", albumTitle: "Blue Room", artistName: "Ada", albumArtistName: "Ada",
+            trackNumber: 5, discNumber: 1, duration: 200, fileFormat: .flac,
+            filePath: "/Music/Ada/Blue Room/5.flac", sourceID: Self.sourceA, genre: "Pop", year: 2001
+        )
+        library.addSongs([added], affectedSourceIDs: [Self.sourceA], notifyRemovals: false, pruneMissingSongs: false)
+        XCTAssertEqual(library.deferredMutationCountForTesting, 1, "it waits for the model")
+        XCTAssertTrue(library.isLoadingSongModelForTesting, "and asks for it")
+        try await waitUntilReady(library)
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(library.songs.count, songs.count + 1)
+        XCTAssertEqual(seenAtReady.count, songs.count + 1, "handlers run after the queue was replayed")
+        XCTAssertNotNil(library.storedSong(id: added.id))
+        XCTAssertTrue(library.songModelResidencyStatistics.lastLoadReason?.hasPrefix("queued") == true)
+        await assertShadowMatches(library, "after the queued add")
+    }
+
+    /// 每一种占用理由(连同 `withSongModel`):放掉之后拿它,模型装回来;占着的时候不放;放手之后又能放。
+    func testEveryHolderKindLoadsTheSongModelAndBlocksTheRelease() async throws {
+        let songs = Self.fixture(prefix: "holders")
+        let library = try makeLaunchedTwin("holders", songs: songs).library
+        library.songModelResidencyEnabled = true
+        await assertShadowMatches(library, "fixture")
+        for reason in MusicLibrary.SongModelHoldReason.allCases {
+            guard await released(library, "before \(reason.rawValue)") else { return }
+            XCTAssertFalse(library.isReady, reason.rawValue)
+            let hold = await library.holdSongModel(reason)
+            XCTAssertTrue(library.isReady, reason.rawValue)
+            XCTAssertEqual(library.songs.count, songs.count, reason.rawValue)
+            XCTAssertEqual(library.songModelHoldReasons, [reason])
+            XCTAssertEqual(library.songModelResidencyStatistics.lastLoadReason, "hold \(reason.rawValue)")
+            let whileHeld = await library.releaseSongModelIfIdle(trigger: "test")
+            XCTAssertEqual(whileHeld, .skipped("hold(\(reason.rawValue))"))
+            hold.end()
+            XCTAssertEqual(library.songModelHoldReasons, [])
+        }
+        guard await released(library, "before withSongModel") else { return }
+        let counted = await library.withSongModel(.export) { () -> Int in
+            XCTAssertEqual(library.songModelHoldReasons, [.export])
+            let whileHeld = await library.releaseSongModelIfIdle(trigger: "test")
+            XCTAssertEqual(whileHeld, .skipped("hold(export)"))
+            return library.songs.count
+        }
+        XCTAssertEqual(counted, songs.count)
+        XCTAssertEqual(library.songModelHoldReasons, [])
+        let statistics = library.songModelResidencyStatistics
+        XCTAssertEqual(statistics.loads, MusicLibrary.SongModelHoldReason.allCases.count + 1)
+        XCTAssertEqual(statistics.wholeLibraryLoads, 0, "every load read the song model alone")
+        await assertShadowMatches(library, "after every holder kind")
+        guard await released(library, "after withSongModel") else { return }
+    }
+
+    private final class ReleaseRequests {
+        var tasks: [Task<MusicLibrary.SongModelReleaseOutcome, Never>] = []
+    }
+
+    /// 在后台放歌时放掉的模型(放掉时不整理大堆),队列放到头要接着放而拿的占用把它装回来;占用一结束,
+    /// 曲库发出「占用都结束了」,App 那一层照它再放一次(这里由测试代为接上),又放得掉。
+    func testAHoldTakenDuringBackgroundPlaybackLoadsAndTheReleaseRunsAgainAfterIt() async throws {
+        let songs = Self.fixture(prefix: "playing")
+        let library = try makeLaunchedTwin("playing", songs: songs).library
+        library.songModelResidencyEnabled = true
+        await assertShadowMatches(library, "fixture")
+        let musicBefore = library.musicSongs.map(\.id)
+        let log = ResidencyEventLog()
+        let requests = ReleaseRequests()
+        library.songModelResidencyObserver = { [weak library] event in
+            log.events.append(event)
+            guard event == .holdsEnded, let library else { return }
+            requests.tasks.append(Task { @MainActor in
+                await library.releaseSongModelIfIdle(trigger: "holds ended", returningFreedMemory: false)
+            })
+        }
+        let first = await library.releaseSongModelIfIdle(trigger: "background playback", returningFreedMemory: false)
+        guard case .released = first else { return XCTFail("not released: \(first)") }
+        await library.songModelReleaseDidReclaimMemory()
+
+        let hold = await library.holdSongModel(.playbackContinuation)
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(library.musicSongs.map(\.id), musicBefore)
+        XCTAssertEqual(library.songModelResidencyStatistics.lastLoadReason, "hold playbackContinuation")
+        XCTAssertTrue(requests.tasks.isEmpty, "nothing asks for a release while the hold lasts")
+        hold.end()
+        XCTAssertEqual(requests.tasks.count, 1)
+        let again = await requests.tasks.first?.value
+        guard case .released(let releasedSongs, _)? = again else { return XCTFail("not released again: \(String(describing: again))") }
+        XCTAssertEqual(releasedSongs, songs.count)
+        XCTAssertFalse(library.isReady)
+        XCTAssertTrue(library.isUsable)
+        XCTAssertEqual(log.events, [.released, .loaded, .holdsEnded, .released])
+        XCTAssertEqual(library.songModelResidencyStatistics.releases, 2)
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, 1)
+        library.songModelResidencyObserver = nil
+    }
+
+    /// 模型在内存里时拿占用(`holdSongModel`、`withSongModel`)当场返回,中间不让出主线程:先排进主线程的活
+    /// 在拿到占用之后才轮得到。
+    func testHoldingTheSongModelWhileItIsLoadedDoesNotSuspend() async throws {
+        let library = makeLibrary()
+        library.addSongs(Self.fixture(), affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        XCTAssertTrue(library.isReady)
+        let probe = Tally()
+        Task { @MainActor in probe.count += 1 }
+        let hold = await library.holdSongModel(.playbackContinuation)
+        XCTAssertEqual(probe.count, 0, "no other main-actor work ran while the hold was taken")
+        let seenInside = await library.withSongModel(.playbackContinuation) { probe.count }
+        XCTAssertEqual(seenInside, 0, "nor before the body of withSongModel")
+        XCTAssertEqual(probe.count, 0)
+        XCTAssertEqual(library.songModelHoldReasons, [.playbackContinuation])
+        hold.end()
+        XCTAssertEqual(library.songModelHoldReasons, [])
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(probe.count, 1, "the probe itself runs once the test yields")
+    }
+
+    /// 等模型装回来的占用,调用方的任务被取消就当场返回:占用撤掉,令牌的 `end()` 什么都不做。
+    /// 已经取消的任务来要占用,不替它请求装载。
+    func testACancelledHolderReturnsAtOnceAndAsksForNoLoad() async throws {
+        let songs = Self.fixture(prefix: "cancelled")
+        let library = try makeLaunchedTwin("cancelled", songs: songs).library
+        library.songModelResidencyEnabled = true
+        await assertShadowMatches(library, "fixture")
+        guard await released(library, "release") else { return }
+
+        // 已经取消的任务来要:当场返回,不请求装载。
+        let alreadyCancelled = Task { @MainActor () -> MusicLibrary.SongModelHold in
+            try? await Task.sleep(for: .seconds(30))
+            return await library.holdSongModel(.playbackContinuation)
+        }
+        alreadyCancelled.cancel()
+        let first = await alreadyCancelled.value
+        XCTAssertEqual(library.songModelHoldReasons, [], "the hold is not kept")
+        first.end()
+        first.end()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(library.isLoadingSongModelForTesting, "no load for a task that was already cancelled")
+        XCTAssertFalse(library.isReady)
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, 0)
+
+        // 取消落在等的途中(测量钩子放掉的库不自己装回来,不取消就一直等下去)。
+        let parked = try makeTwin("cancelled-parked", songs: songs).library
+        await assertShadowMatches(parked, "parked fixture")
+        parked.dropSongModelForMeasurement(includingCollections: true)
+        let waiting = Task { @MainActor in await parked.holdSongModel(.playbackContinuation) }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(parked.songModelHoldReasons, [.playbackContinuation], "registered while it waits")
+        waiting.cancel()
+        let second = await waiting.value
+        XCTAssertEqual(parked.songModelHoldReasons, [], "withdrawn when the waiter is cancelled")
+        XCTAssertFalse(parked.isReady)
+        second.end()
+        XCTAssertEqual(parked.songModelHoldReasons, [])
+    }
+
+    /// 主线程外的一步停在这里,直到测试放行。
+    private actor ResidencyPauseGate {
+        private var started = false
+        private var released = false
+        private var startWaiter: CheckedContinuation<Void, Never>?
+        private var releaseWaiter: CheckedContinuation<Void, Never>?
+
+        func pause() async {
+            started = true
+            startWaiter?.resume()
+            startWaiter = nil
+            if !released { await withCheckedContinuation { releaseWaiter = $0 } }
+        }
+
+        func waitUntilStarted() async {
+            if !started { await withCheckedContinuation { startWaiter = $0 } }
+        }
+
+        func release() {
+            released = true
+            releaseWaiter?.resume()
+            releaseWaiter = nil
+        }
+    }
+
+    /// 放掉之前要满足的条件,逐条破坏:每一条都拦得住,理由记的是第一条不满足的。
+    /// 没有在这里破坏的几条(整份替换旧库、快照损坏、目录冻结读、目录落后于旧库、启动时的目录校验、
+    /// 写快照失败)见 P3-design.md 19a。
+    func testEachIdleCheckRefusesTheRelease() async throws {
+        let songs = Self.fixture(prefix: "idle")
+        let library = try makeTwin("idle", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        func expectSkip(_ expected: String, of target: MusicLibrary? = nil, line: UInt = #line) async {
+            let outcome = await (target ?? library).releaseSongModelIfIdle(trigger: "test")
+            XCTAssertEqual(outcome, .skipped(expected), line: line)
+        }
+        await expectSkip("residency is off")
+        library.songModelResidencyEnabled = true
+
+        // 占用(两个理由都点名)。
+        let scan = await library.holdSongModel(.scan)
+        let export = await library.holdSongModel(.export)
+        await expectSkip("hold(export,scan)")
+        scan.end()
+        await expectSkip("hold(export)")
+        export.end()
+
+        // 快照带着歌(小状态离了数组落不了盘)。
+        library.separateSongStoreMinimumSongsOverride = 1_000
+        await expectSkip("the snapshot carries the songs")
+        library.separateSongStoreMinimumSongsOverride = nil
+
+        // 别处正在整份替换快照文件。
+        await library.beginExternalSnapshotWrite()
+        await expectSkip("external snapshot owner")
+        library.endExternalSnapshotWrite()
+
+        // 整库重新分组在后台跑着。
+        var regrouped = try XCTUnwrap(library.storedSong(id: songs[4].id))
+        regrouped.albumTitle = "Another Mixtape"
+        library.replaceSong(regrouped)
+        await expectSkip("index rebuild in flight")
+        await library.waitForPendingIndex()
+
+        // 扫描的中间一批:整库维护排到了合并窗口里,还没做。
+        var deferred = songs[0]
+        deferred.id = "idle-deferred"
+        deferred.title = "Blue 9"
+        deferred.trackNumber = 9
+        deferred.filePath = "/Music/Ada/Blue Room/9.flac"
+        library.addSongs(
+            [deferred], affectedSourceIDs: [Self.sourceA], notifyRemovals: false, pruneMissingSongs: false,
+            indexMaintenance: .deferredIncremental
+        )
+        await expectSkip("deferred maintenance pending")
+        await library.waitForPendingIndex()
+
+        // 内容分类(有声 / 音乐)在后台重分。
+        let classificationGate = ResidencyPauseGate()
+        library.contentClassificationPreparationForTesting = { await classificationGate.pause() }
+        SpokenWordStore.shared.setKind(.spokenWord, forSongIDs: [songs[1].id])
+        defer { SpokenWordStore.shared.setKind(nil, forSongIDs: [songs[1].id]) }
+        let refresh = Task { @MainActor in await library.refreshContentClassificationInBackground() }
+        await classificationGate.waitUntilStarted()
+        await expectSkip("classification refresh in flight")
+        await classificationGate.release()
+        await refresh.value
+        library.contentClassificationPreparationForTesting = nil
+        SpokenWordStore.shared.setKind(nil, forSongIDs: [songs[1].id])
+        await library.refreshContentClassificationInBackground()
+        await library.waitForPendingIndex()
+
+        // 等写入链落定的那段时间里库又变了。
+        library.songModelReleaseDidSettleForTesting = { [weak library] in
+            library?.updateLyricsText([songs[0].id: "changed while the release waited"])
+        }
+        await expectSkip("songs changed during the release")
+        // 等的那段时间里来了一条资源补丁(防抖窗口里,还没并进数组)。
+        library.songModelReleaseDidSettleForTesting = { [weak library] in
+            library?.updateAssetReferences(songID: songs[2].id, coverRef: "cover-while-waiting.jpg")
+        }
+        await expectSkip("row patches pending")
+        // 等的那段时间里小状态又变了,还没落盘。
+        library.songModelReleaseDidSettleForTesting = { [weak library] in
+            library?.recordPlayback(of: songs[2].id)
+        }
+        await expectSkip("small state not durable")
+        library.songModelReleaseDidSettleForTesting = nil
+
+        // 都满足:放掉。已经放掉的不再放。
+        guard await released(library, "all checks pass") else { return }
+        await expectSkip("the song model is not loaded")
+        XCTAssertEqual(library.storedSong(id: songs[0].id)?.lyricsText, "changed while the release waited")
+
+        // 目录答不了。
+        let stopped = try makeTwin("idle-stopped", songs: songs).library
+        stopped.songModelResidencyEnabled = true
+        await assertShadowMatches(stopped, "fixture")
+        await stopped.stopCatalogMirror()
+        await expectSkip("the catalog cannot answer", of: stopped)
+
+        // 没有目录;空库。
+        let withoutCatalog = makeLibrary(catalog: .disabled)
+        withoutCatalog.songModelResidencyEnabled = true
+        await expectSkip("the library is empty", of: withoutCatalog)
+        withoutCatalog.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await withoutCatalog.waitForPendingIndex()
+        await expectSkip("no catalog", of: withoutCatalog)
+        XCTAssertTrue(withoutCatalog.isReady)
+
+        // 删一个源的歌正在后台准备;这期间来的突变排在它后面。
+        let removing = try makeTwin("idle-removal", songs: songs).library
+        await assertShadowMatches(removing, "removal fixture")
+        removing.songModelResidencyEnabled = true
+        removing.sourceSongRemovalPreparationDelayForTesting = .milliseconds(800)
+        let removal = Task { @MainActor in await removing.removeSongsForSource(Self.sourceB) }
+        try await Task.sleep(for: .milliseconds(150))
+        await expectSkip("source removal in progress", of: removing)
+        removing.updateLyricsText([songs[0].id: "queued behind the removal"])
+        XCTAssertEqual(removing.deferredMutationCountForTesting, 1)
+        await expectSkip("queued mutations", of: removing)
+        await removal.value
+        XCTAssertEqual(removing.storedSong(id: songs[0].id)?.lyricsText, "queued behind the removal")
+
+        // 旧库打不开(歌只在 JSON 里)。
+        let storeless = directory.appendingPathComponent("idle-storeless", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: storeless.appendingPathComponent("library-songs.sqlite", isDirectory: true), withIntermediateDirectories: true
+        )
+        let withoutStore = MusicLibrary(
+            disabledSourceIDs: [Self.sourceB], storageDirectory: storeless, artistNameConfiguration: .defaultValue,
+            deferredMaintenanceAllowed: { true }, catalogMirroring: .enabled(startDelay: .zero)
+        )
+        libraries.append(withoutStore)
+        withoutStore.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await withoutStore.waitForPendingIndex()
+        withoutStore.songModelResidencyEnabled = true
+        await expectSkip("no song store", of: withoutStore)
+        XCTAssertTrue(withoutStore.isReady)
+    }
+
+    /// 装回来读完旧库、还没发布的那一刻,旧库又被写了(改一行、删一行):发布之前按变更流水补上,发布出来的模型里
+    /// 就是新的那一行、没有删掉的那一行。装载期间来的按 id 写排队,发布之后重放。
+    func testRowsWrittenWhileTheSongModelLoadsAreInThePublishedModel() async throws {
+        let songs = Self.fixture(prefix: "journal")
+        let twin = try makeLaunchedTwin("journal", songs: songs)
+        let library = twin.library
+        let storage = twin.storage
+        library.songModelResidencyEnabled = true
+        await assertShadowMatches(library, "fixture")
+        guard await released(library, "release") else { return }
+
+        var edited = songs[1]
+        edited.duration = 4_242
+        edited.lyricsText = "written behind the load"
+        let behind = edited
+        library.songModelLoadDidReadForTesting = { [weak library, weak self] in
+            guard let library, let self else { return }
+            library.songModelLoadDidReadForTesting = nil
+            try? await self.writeBehindTheLibrary(library, storage: storage, upserts: [behind], deletingIDs: [songs[3].id])
+            library.updateLyricsText([songs[0].id: "queued during the load"])
+            XCTAssertEqual(library.deferredMutationCountForTesting, 1, "a row write during a load waits for the publish")
+        }
+        let hold = await library.holdSongModel(.backfill)
+        let statistics = library.songModelResidencyStatistics
+        XCTAssertEqual(statistics.lastLoadJournalRows, 2, "\(statistics)")
+        XCTAssertEqual(statistics.loadRestarts, 0)
+        XCTAssertEqual(statistics.wholeLibraryLoads, 0)
+        XCTAssertEqual(library.songs.count, songs.count - 1)
+        XCTAssertEqual(library.storedSong(id: songs[1].id)?.duration, 4_242)
+        XCTAssertEqual(library.storedSong(id: songs[1].id)?.lyricsText, "written behind the load")
+        XCTAssertNil(library.storedSong(id: songs[3].id))
+        XCTAssertEqual(library.storedSong(id: songs[0].id)?.lyricsText, "queued during the load")
+        XCTAssertEqual(library.deferredMutationCountForTesting, 0)
+        hold.end()
+        await assertShadowMatches(library, "after a load patched from the journal")
+        let stored = try IncrementalSongStoreScanner(path: storage.appendingPathComponent("library-songs.sqlite").path)
+        XCTAssertEqual(try stored.songCount(), songs.count - 1)
+    }
+
+    /// 每一类突变,在一直装着模型的库上做一遍,在「放掉 → 突变 → 装回来」的库上做一遍:歌曲行、各份数组、歌单与
+    /// 喜欢、目录都相同。只动行或小状态的突变放掉期间当场做、不装模型;要数组的排队并自己把模型装回来。
+    func testMutationsThroughReleaseAndLoadCyclesMatchALibraryThatStayedLoaded() async throws {
+        let songs = Self.fixture(prefix: "cycle")
+        var added = Song(
+            id: "cycle-added", title: "Blue 5", albumTitle: "Blue Room", artistName: "Ada", albumArtistName: "Ada",
+            trackNumber: 5, discNumber: 1, duration: 200, fileFormat: .flac,
+            filePath: "/Music/Ada/Blue Room/5.flac", sourceID: Self.sourceA, genre: "Pop", year: 2001
+        )
+        added.dateAdded = Date(timeIntervalSince1970: 1_700_000_900)
+        func make(_ name: String) async throws -> MusicLibrary {
+            let library = try makeLaunchedTwin(name, songs: songs).library
+            _ = library.createPlaylist(name: "Mix", songIDs: [songs[0].id, songs[4].id, songs[10].id, songs[2].id])
+            await assertShadowMatches(library, "\(name) fixture")
+            return library
+        }
+        let loaded = try await make("stays-loaded")
+        let cycled = try await make("cycled")
+        cycled.songModelResidencyEnabled = true
+        func mix(_ library: MusicLibrary) throws -> String {
+            try XCTUnwrap(library.allPlaylists.first { $0.name == "Mix" }).id
+        }
+        func smallState(_ library: MusicLibrary) throws -> [String] {
+            let mixID = try mix(library)
+            // 找不回来的成员(歌单、喜欢/不喜欢的记录)各自带一个随机的占位 id,两个库里不同,只比它在哪个位置。
+            func placeholders(_ ids: [String]) -> [String] { ids.map { $0.hasPrefix("pending:") ? "pending" : $0 } }
+            let members = placeholders(library.rawSongIDs(forPlaylist: mixID))
+            return [
+                "members \(members)", "visible \(library.songCount(forPlaylist: mixID))",
+                "liked \(placeholders(library.likedSongIDSnapshot().sorted()))",
+                "disliked \(placeholders(library.dislikedSongIDs.sorted()))",
+                "recents \(library.recentPlaybackSongIDsForSync)",
+                "review \(String(describing: library.libraryReview(for: .song(songs[3].id))?.comment))",
+                "tombstones \(library.deletedSongIdentities.sorted())",
+                "excluded \(library.deviceLocalExcludedSongIdentities.sorted())",
+            ]
+        }
+        let addedSong = added
+        typealias Step = (name: String, needsTheModel: Bool, mutate: @MainActor (MusicLibrary) throws -> Void)
+        var steps: [Step] = []
+        steps.append(("lyrics text", false, { library in library.updateLyricsText([songs[0].id: "la la"]) }))
+        steps.append(("asset references", false, { library in
+            library.updateAssetReferences(songID: songs[1].id, coverRef: "cover-new.jpg", lyricsRef: "lyrics-new.lrc")
+            library.flushPendingAssetReferencePatches()
+        }))
+        steps.append(("row replacement", false, { library in
+            var timed = try XCTUnwrap(library.storedSong(id: songs[2].id))
+            timed.duration = 321
+            library.replaceSong(timed)
+        }))
+        steps.append(("like, dislike, playlist, history, review", false, { library in
+            library.setLiked(songID: songs[1].id, isLiked: true, propagatesServerMutation: false)
+            library.setDisliked(songID: songs[3].id, isDisliked: true)
+            library.add(songIDs: [songs[11].id], toPlaylist: try mix(library))
+            library.recordPlayback(of: songs[0].id)
+            library.updateLibraryReview(for: .song(songs[3].id), rating: 3, comment: "while cycling")
+        }))
+        steps.append(("playlist remove and reorder", false, { library in
+            let mixID = try mix(library)
+            library.remove(songID: songs[10].id, fromPlaylist: mixID)
+            library.reorderPlaylistSongs(playlistID: mixID, listedOrder: [songs[11].id, songs[2].id, songs[0].id, songs[4].id])
+        }))
+        steps.append(("delete by id", false, { library in _ = library.deleteSongs([songs[4]]) }))
+        steps.append(("remove from this device", false, { library in
+            _ = try library.removeSongsFromThisDevice([songs[15]])
+        }))
+        steps.append(("enable the other source", false, { library in library.updateDisabledSourceIDs([]) }))
+        steps.append(("add songs", true, { library in
+            library.addSongs([addedSong], affectedSourceIDs: [Self.sourceA], notifyRemovals: false, pruneMissingSongs: false)
+        }))
+        steps.append(("regrouping edit", true, { library in
+            var edited = try XCTUnwrap(library.storedSong(id: songs[5].id))
+            edited.albumTitle = "Mixtape Deluxe"
+            library.replaceSong(edited)
+        }))
+        steps.append(("id remap", true, { library in library.remapSongIDs([songs[6].id: "cycle-renamed"]) }))
+        steps.append(("restore to this device", true, { library in
+            _ = try library.restoreSongsRemovedFromThisDevice([songs[15].id])
+        }))
+        steps.append(("disable a source", false, { library in library.updateDisabledSourceIDs([Self.sourceA]) }))
+        // 一个源扫完(没扫到的歌从库里去掉,歌单里留占位)。
+        steps.append(("scan of a source", true, { library in
+            library.addSongs([addedSong], affectedSourceIDs: [Self.sourceA])
+        }))
+        for step in steps {
+            try step.mutate(loaded)
+            guard await released(cycled, step.name) else { return }
+            let loadsBefore = cycled.songModelResidencyStatistics.loads
+            try step.mutate(cycled)
+            if step.needsTheModel {
+                XCTAssertTrue(cycled.isLoadingSongModelForTesting || cycled.isReady, "\(step.name): it asks for the model")
+                try await waitUntilReady(cycled)
+                XCTAssertTrue(cycled.isReady, "\(step.name): the queued mutation brought the model back")
+                XCTAssertTrue(cycled.songModelResidencyStatistics.lastLoadReason?.hasPrefix("queued") == true, step.name)
+            } else {
+                XCTAssertEqual(cycled.deferredMutationCountForTesting, 0, "\(step.name): done without the model")
+                try await Task.sleep(for: .milliseconds(50))
+                XCTAssertFalse(cycled.isLoadingSongModelForTesting, "\(step.name): no load was asked for")
+                XCTAssertEqual(cycled.songModelResidencyStatistics.loads, loadsBefore, step.name)
+                XCTAssertEqual(try smallState(cycled), try smallState(loaded), "\(step.name), still released")
+                let hold = await cycled.holdSongModel(.legacyPage)
+                hold.end()
+            }
+            await assertShadowMatches(loaded, "\(step.name), loaded")
+            await assertShadowMatches(cycled, "\(step.name), cycled")
+            XCTAssertEqual(modelPicture(cycled), modelPicture(loaded), step.name)
+            assertSameSongs(cycled.songs, loaded.songs, "\(step.name): rows")
+            XCTAssertEqual(try smallState(cycled), try smallState(loaded), step.name)
+        }
+        XCTAssertEqual(cycled.songModelResidencyStatistics.releases, steps.count)
+        XCTAssertEqual(cycled.songModelResidencyStatistics.wholeLibraryLoads, 0)
+        print("REPORT_RESIDENCY_CYCLES \(cycled.songModelResidencyStatistics)")
+    }
+
+    /// 放掉之后目录不再答得了:库这一刻不可用,同时自己把模型装回来(理由记的是目录答不了,不是等可用的那一方),
+    /// 等可用的被放行。
+    func testACatalogThatStopsAnsweringBringsTheSongModelBack() async throws {
+        let songs = Self.fixture(prefix: "unanswered")
+        let library = try makeTwin("unanswered", songs: songs).library
+        library.songModelResidencyEnabled = true
+        await assertShadowMatches(library, "fixture")
+        guard await released(library, "release") else { return }
+        XCTAssertTrue(library.isUsable)
+        await library.stopCatalogMirror()
+        XCTAssertFalse(library.isUsable, "nothing can answer at this moment")
+        XCTAssertNil(library.storedSongsIfAnswerable(forPlaylist: "any"), "cannot answer")
+        let usable = await library.whenUsable(timeout: .seconds(20))
+        XCTAssertTrue(usable)
+        XCTAssertTrue(library.isReady)
+        XCTAssertTrue(library.isUsable)
+        XCTAssertEqual(library.songs.count, songs.count)
+        XCTAssertEqual(library.songModelResidencyStatistics.lastLoadReason, "the catalog cannot answer")
+    }
+
+    /// 只装歌曲模型装不成时改走整份装载:放掉期间改过的小状态先落盘,装完还在。旧库是这一轮进程里才建起来的
+    /// (还没被哪次启动认过)时第一次装载就是这样,那次整份装载把旧库标好,之后只装歌曲模型;旧库读不出来时也走整份。
+    func testALoadThatCannotReadTheSongModelAloneLoadsTheWholeLibrary() async throws {
+        let songs = Self.fixture(prefix: "whole")
+        let library = try makeTwin("whole", songs: songs).library
+        let playlist = library.createPlaylist(name: "Kept", songIDs: [songs[0].id, songs[1].id])
+        library.songModelResidencyEnabled = true
+        await assertShadowMatches(library, "fixture")
+        let rowsBefore = library.songs
+
+        guard await released(library, "release of a library whose store no launch has seen") else { return }
+        let first = await library.holdSongModel(.scan)
+        XCTAssertEqual(library.songModelResidencyStatistics.wholeLibraryLoads, 1, "the first load reads the whole library")
+        assertSameSongs(library.songs, rowsBefore, "rows after the first whole-library load")
+        first.end()
+        guard await released(library, "release after the first load") else { return }
+        let second = await library.holdSongModel(.scan)
+        XCTAssertEqual(library.songModelResidencyStatistics.wholeLibraryLoads, 1, "from then on the song model alone")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, 2)
+        assertSameSongs(library.songs, rowsBefore, "rows after the songs-only load")
+        second.end()
+
+        guard await released(library, "release") else { return }
+        library.setLiked(songID: songs[3].id, isLiked: true, propagatesServerMutation: false)
+        library.add(songIDs: [songs[2].id], toPlaylist: playlist.id)
+        library.songModelLoadFailsForTesting = true
+        let hold = await library.holdSongModel(.migration)
+        library.songModelLoadFailsForTesting = false
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(library.songModelResidencyStatistics.wholeLibraryLoads, 2)
+        assertSameSongs(library.songs, rowsBefore, "rows after the whole-library load")
+        XCTAssertTrue(library.isLiked(songID: songs[3].id), "small state changed while released is still there")
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), [songs[0].id, songs[1].id, songs[2].id])
+        hold.end()
+        await assertShadowMatches(library, "after the whole-library load")
+        guard await released(library, "release after the whole-library load") else { return }
+    }
+
+    /// 模型不在内存里时读整库数组:记数(与日志),装回来之后不记。
+    func testArrayReadsWhileTheSongModelIsReleasedAreCounted() async throws {
+        let songs = Self.fixture(prefix: "reads")
+        let library = try makeTwin("reads", songs: songs).library
+        library.songModelResidencyEnabled = true
+        await assertShadowMatches(library, "fixture")
+        guard await released(library, "release") else { return }
+        let afterRelease = library.songModelResidencyStatistics.arrayReadsWhileUnloaded
+        print("REPORT_ARRAY_READS_BY_THE_RELEASE_ITSELF count=\(afterRelease)")
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertTrue(library.visibleAlbums.isEmpty)
+        XCTAssertEqual(library.songModelResidencyStatistics.arrayReadsWhileUnloaded, afterRelease + 2)
+        library.songModelArrayReadPolicy = .ignore
+        XCTAssertTrue(library.musicSongs.isEmpty)
+        XCTAssertEqual(library.songModelResidencyStatistics.arrayReadsWhileUnloaded, afterRelease + 2)
+        library.songModelArrayReadPolicy = .log
+        let hold = await library.holdSongModel(.legacyPage)
+        let afterLoad = library.songModelResidencyStatistics.arrayReadsWhileUnloaded
+        print("REPORT_ARRAY_READS_BY_THE_LOAD count=\(afterLoad - afterRelease - 2)")
+        XCTAssertEqual(library.songs.count, songs.count)
+        XCTAssertEqual(library.songModelResidencyStatistics.arrayReadsWhileUnloaded, afterLoad)
+        hold.end()
+    }
+
+    /// 放掉歌曲模型之后:「随机时连播」的相邻关系还在(放掉缓存之后从目录重算也一样);别的源里的另一份照样找得到;
+    /// 有声与环境音的 id 集合原样留着,不会把空集合推给播放历史(那样旧记录会被当成音乐)。
+    func testShuffleLinksOtherCopiesAndTheClassificationSetsSurviveARelease() async throws {
+        let songs = Self.fixture(prefix: "kept")
+        var copy = songs[0]
+        copy.id = "kept-blue-1-copy"
+        copy.sourceID = "dual-write-c"
+        copy.filePath = "/Other/Blue Room/1.flac"
+        let library = try makeTwin("kept", songs: songs, extra: [copy]).library
+        library.songModelResidencyEnabled = true
+        library.setShuffleLinked(songID: songs[1].id, direction: .next, isLinked: true)
+        library.setShuffleLinked(songID: songs[2].id, direction: .previous, isLinked: true)
+        await assertShadowMatches(library, "fixture")
+
+        func links(_ step: String) -> [Bool] {
+            let graph = library.shuffleLinkGraph
+            return [graph.isLinked(songs[1].id, to: songs[2].id), graph.isLinked(songs[0].id, to: songs[1].id)]
+        }
+        func copies() -> [String: [String]] {
+            library.otherCopies(of: [songs[0], songs[4]]).mapValues { $0.map(\.id) }
+        }
+        let linksBefore = links("loaded")
+        XCTAssertEqual(linksBefore, [true, false])
+        let copiesBefore = copies()
+        XCTAssertEqual(copiesBefore, [songs[0].id: [copy.id]])
+        let spokenWord = library.spokenWordSongIDs
+        let ambient = library.ambientSongIDs
+        let historySpokenWord = PlayHistoryStore.shared.spokenWordSongIDs
+        let historyAmbient = PlayHistoryStore.shared.ambientSongIDs
+        print("REPORT_CLASSIFICATION_SETS spokenWord=\(spokenWord.count) ambient=\(ambient.count) history=\(historySpokenWord.count)+\(historyAmbient.count)")
+        XCTAssertFalse(spokenWord.isEmpty, "the fixture has an audiobook")
+
+        guard await released(library, "release") else { return }
+        XCTAssertEqual(library.spokenWordSongIDs, spokenWord)
+        XCTAssertEqual(library.ambientSongIDs, ambient)
+        XCTAssertEqual(
+            PlayHistoryStore.shared.spokenWordSongIDs, historySpokenWord,
+            "the release does not push an empty set to the play history"
+        )
+        XCTAssertEqual(PlayHistoryStore.shared.ambientSongIDs, historyAmbient)
+        XCTAssertEqual(links("released"), linksBefore)
+        XCTAssertEqual(copies(), copiesBefore)
+        // 内存警告把能重建的缓存都放了:相邻关系从目录重算,答案相同。
+        library.releaseRebuildableCaches()
+        XCTAssertEqual(links("released, caches dropped"), linksBefore)
+        XCTAssertFalse(library.isLoadingSongModelForTesting, "none of this asked for the model")
+
+        let hold = await library.holdSongModel(.legacyPage)
+        XCTAssertEqual(links("loaded again"), linksBefore)
+        XCTAssertEqual(copies(), copiesBefore)
+        XCTAssertEqual(library.spokenWordSongIDs, spokenWord)
+        XCTAssertEqual(library.ambientSongIDs, ambient)
+        hold.end()
+    }
+
+    /// 歌单的可见曲数与第一首在模型不在内存里时从目录答(停用、启用音乐源当场跟上);整张歌单的读法答不了时
+    /// 给 nil,不是空。
+    func testPlaylistCountsAndAnswerableReadsWithoutTheSongModel() async throws {
+        let songs = Self.fixture(prefix: "counts")
+        let library = try makeTwin("counts", songs: songs).library
+        let playlist = library.createPlaylist(name: "Both", songIDs: [songs[0].id, songs[7].id, songs[1].id])
+        await assertShadowMatches(library, "fixture")
+        XCTAssertEqual(library.songCount(forPlaylist: playlist.id), 2)
+        XCTAssertEqual(library.storedSongsIfAnswerable(forPlaylist: playlist.id)?.map(\.id), [songs[0].id, songs[7].id, songs[1].id])
+
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertTrue(library.isUsable)
+        XCTAssertEqual(library.songCount(forPlaylist: playlist.id), 2)
+        XCTAssertEqual(library.songSummary(forPlaylist: playlist.id).first?.id, songs[0].id)
+        XCTAssertEqual(library.storedSongsIfAnswerable(forPlaylist: playlist.id)?.map(\.id), [songs[0].id, songs[7].id, songs[1].id])
+        library.updateDisabledSourceIDs([])
+        XCTAssertEqual(library.songCount(forPlaylist: playlist.id), 3)
+        library.updateDisabledSourceIDs([Self.sourceA])
+        XCTAssertEqual(library.songCount(forPlaylist: playlist.id), 1)
+        XCTAssertEqual(library.songSummary(forPlaylist: playlist.id).first?.id, songs[7].id)
+        // 路上删掉的行不算在内。
+        _ = library.deleteSongs([songs[7]])
+        XCTAssertEqual(library.songCount(forPlaylist: playlist.id), 0)
+
+        await library.stopCatalogMirror()
+        XCTAssertFalse(library.isUsable)
+        XCTAssertNil(library.storedSongsIfAnswerable(forPlaylist: playlist.id), "cannot answer is not the same as empty")
+        XCTAssertEqual(library.storedSongs(forPlaylist: playlist.id).count, 0, "the older read gives an empty array here")
+        XCTAssertEqual(library.songCount(forPlaylist: playlist.id), 0)
     }
 
     // MARK: - Per-track consumers without the song model (P3 step 6c, unit 2a)

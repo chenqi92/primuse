@@ -10,6 +10,22 @@ struct LibraryCatalogQueryTests {
         Song(id: id, title: title, duration: duration, fileFormat: .flac, filePath: path, sourceID: source)
     }
 
+    @Test("The source of each id can be read without materializing rows")
+    func sourceProjection() throws {
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        try catalog.apply(upserts: [
+            Self.song("a1", source: "A", path: "Music/1.flac", title: "One"),
+            Self.song("b1", source: "B", path: "Music/1.flac", title: "Two"),
+            Self.song("a2", source: "A", path: "Music/2.flac", title: "Three"),
+        ])
+        #expect(try catalog.sourceIDs(forIDs: ["b1", "missing", "a1", "a1"]) == ["a1": "A", "b1": "B"])
+        #expect(try catalog.sourceIDs(forIDs: []) == [:])
+        // 停用的源里的行照样答得出在哪个源(可见不可见由调用方按源判)。
+        try catalog.setSourceEnabled(false, sourceID: "B")
+        #expect(try catalog.sourceIDs(forIDs: ["b1", "a2"]) == ["a2": "A", "b1": "B"])
+    }
+
     @Test("Titles can be streamed without materializing rows, in library order, within a scope")
     func titleProjection() throws {
         let temporary = try TemporaryCatalog()

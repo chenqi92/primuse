@@ -203,6 +203,31 @@ extension LibraryCatalog {
         return requested.map { byID[$0] }
     }
 
+    /// id → 它所在的音乐源;不在目录里的 id 不在结果里。只读两列,不物化行。
+    public func sourceIDs(forIDs ids: [String]) throws -> [String: String] {
+        let admitted = LibraryScaleGuard.admitMaterialization(count: ids.count)
+        let requested = Array(Set(ids.prefix(admitted)))
+        var result: [String: String] = [:]
+        try reader.read { db in
+            for chunk in Self.chunks(of: requested) {
+                let rows = try Row.fetchCursor(
+                    db,
+                    sql: """
+                        SELECT s.id, source.id FROM song s JOIN source ON source.key = s.sourceKey
+                        WHERE s.id IN (\(Self.placeholders(chunk.count)))
+                        """,
+                    arguments: StatementArguments(chunk)
+                )
+                while let row = try rows.next() {
+                    let id: String = row[0]
+                    let source: String = row[1]
+                    result[id] = source
+                }
+            }
+        }
+        return result
+    }
+
     public func song(id: String) throws -> Song? {
         try songs(ids: [id]).first
     }
