@@ -23,12 +23,28 @@ enum LibraryCatalogMirrorEvent: Sendable {
     case stoppedFollowing
 }
 
+/// 持有方(`MusicLibrary`)还在装内存模型时就启动目录(冷启动):只打开、按旧库的变更流水追上、跟写增量。
+/// 列表读者与整库的活照旧等持有方发布(`ownerBecameReady()`)。
+struct LibraryCatalogMirrorEarlyStart: Sendable {
+    /// 发布时会交的输入,按构造时已经知道的先算一份(源的名字还不知道,留空)。目录里存着的分组指纹、
+    /// 停用的源与它相同才采用;不同就不动目录,等发布时的正式输入(与提前启动之前一样)。
+    var inputs: LibraryCatalogMirrorInputs
+    /// 内存模型这一次是不是原样装旧库里的行(旧库作数、装载时不用再迁移)。在工作线程上问。
+    /// 不是的话发布那一步还要改旧库,目录这时跟上的不是模型将来的样子:不采用,等发布。
+    var storeIsWhatTheModelLoads: @Sendable () -> Bool
+}
+
 struct LibraryCatalogMirrorStatistics: Sendable, Equatable {
     var importRuns = 0
     var importsCompleted = 0
     /// 最近一次导入开始时目录里已经导入的行数(续导的证据)。
     var lastImportStartedAt: Int?
     var resyncs = 0
+    /// 打开时目录落后旧库,按旧库的变更流水只补改过的行追上的次数,与补的行数。
+    var journalCatchUps = 0
+    var journalCatchUpRows = 0
+    /// 流水接不上(旧库还没有流水、整份替换过、流水超限清空过、缺修订号、要补的太多),改为整库对账的次数。
+    var journalCatchUpFallbacks = 0
     var resyncFallbacksToImport = 0
     var groupingRebuilds = 0
     /// 整库重建分组、对账期间读者改读冻结视图的次数。
@@ -39,6 +55,8 @@ struct LibraryCatalogMirrorStatistics: Sendable, Equatable {
     var skippedOperations = 0
     var overflows = 0
     var failures = 0
+    /// 进后台、内存警告时放掉目录各连接缓存的次数(做完才计)。
+    var memoryReleases = 0
 }
 
 struct LibraryCatalogMirrorEnvironment: Sendable {
@@ -54,11 +72,16 @@ struct LibraryCatalogMirrorEnvironment: Sendable {
     var maximumQueuedSongs = 50_000
     /// 校验请求最多等这么久(目录追上内存模型那一刻)。
     var verificationTimeout: Duration = .seconds(120)
+    /// 启动时目录落后旧库:流水里要补的记录不超过 `journalCatchUpMaximumRows`、每个修订号不超过
+    /// `journalCatchUpMaximumRowsPerRevision`(一个修订号在目录的一个事务里写完)才按流水追,否则整库对账。
+    /// 按流水追算增量写入,不等整库那道门,所以总量要有界。
+    var journalCatchUpMaximumRows = 20_000
+    var journalCatchUpMaximumRowsPerRevision = 4_096
     /// 主线程上问一次:此刻能不能做后台目录工作(没在滑、没有转场、App 在前台、温度正常、没在扫描)。
-    /// 只管整库的活:打开、迁移、对账、整库分组重建、补建排序索引。
+    /// 只管整库的活:首次迁移、整库对账、整库分组重建、补建排序索引。打开目录不等它。
     var interactionGate: @Sendable () async -> Bool = { true }
-    /// 增量写入(一次突变、一批扫描结果)只在用户正在滑的时候让一让,后台、扫描中、温度高时照样写,
-    /// 目录才跟得上内存模型(读目录的地方不读到旧值)。
+    /// 增量写入(一次突变、一批扫描结果、启动时按流水追上旧库)只在用户正在滑的时候让一让,后台、扫描中、
+    /// 温度高时照样写,目录才跟得上内存模型(读目录的地方不读到旧值)。
     var incrementalApplyGate: @Sendable () async -> Bool = { true }
     /// 增量写入为滑动让路最多让这么久,之后照写(一批的耗时以 `applyChunkSize` 为界)。
     var incrementalApplyMaximumPause: Duration = .seconds(1)
@@ -69,8 +92,9 @@ struct LibraryCatalogMirrorEnvironment: Sendable {
 
 /// 曲库目录(`library-catalog.sqlite`)在 App 里的持有者。P1 阶段旧的内存模型仍是真相,
 /// 目录只跟着写:
-/// - 打开、首次迁移(从 `library-songs.sqlite` 可续导入 + 整库分组)、按需对账,都在后台串行队列上做,
-///   滑动、转场时原地停下;
+/// - 打开不等任何门;首次迁移(从 `library-songs.sqlite` 可续导入 + 整库分组)、整库对账在后台串行队列上做,
+///   等整库那道门,滑动、转场时原地停下;
+/// - 打开时落后旧库:旧库的变更流水接得上就只补改过的行(`runJournalCatchUp`),接不上才整库对账;
 /// - 每次写进 `library-songs.sqlite` 的增量按同样的顺序排进来,合并成有界的批写进目录,
 ///   写完记下镜像到的旧库修订号(`mirror.storeRevision`),下次启动据此发现漂移。
 ///   增量写入不等整库那道门(后台、扫描中照写),只为正在进行的滑动短暂让路;
@@ -97,6 +121,9 @@ final class LibraryCatalogMirror: @unchecked Sendable {
 
     private struct State {
         var started = false
+        /// 持有方已经发布(或者一开始就不是提前启动的):列表读者可以读、整库的活可以做。
+        var ownerReady = true
+        var earlyStart: LibraryCatalogMirrorEarlyStart?
         var stopped = false
         var poisoned = false
         var catalog: LibraryCatalog?
@@ -131,6 +158,9 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     private let applyInteraction = InteractionFlag()
     /// 只在工作线程上(经 `perform` 串行)读写。
     private var progress = Progress()
+    /// `announceReadability()` 用:上一次发出去的可读状态,与发事件一起串行。
+    private let readabilityAnnouncements = NSLock()
+    private var announcedReadable = false
 
     init(
         environment: LibraryCatalogMirrorEnvironment,
@@ -143,10 +173,15 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     // MARK: - Public surface (thread-safe)
 
     /// 开始后台工作(打开、迁移、跟写)。重复调用无效。
-    func start() {
+    ///
+    /// - Parameter early: 持有方还没发布就启动时给。这时只打开、按流水追上、跟写增量;`readableCatalog`
+    ///   一直是 nil(列表读者照旧等发布),整库的活也等;持有方发布后调 `ownerBecameReady()`。
+    func start(beforeOwnerIsReady early: LibraryCatalogMirrorEarlyStart? = nil) {
         let shouldStart = lock.withLock { () -> Bool in
             guard !state.started, !state.stopped else { return false }
             state.started = true
+            state.ownerReady = early == nil
+            state.earlyStart = early
             return true
         }
         guard shouldStart else { return }
@@ -154,6 +189,20 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             await self.run()
         }
         lock.withLock { state.worker = task }
+    }
+
+    /// 提前启动的目录:持有方发布了(正式输入已经用 `updateInputs` 交上)。这之后列表读者能读、整库的活能做。
+    func ownerBecameReady() {
+        let (changed, wakeup) = lock.withLock { () -> (Bool, CheckedContinuation<Void, Never>?) in
+            guard !state.ownerReady else { return (false, nil) }
+            state.ownerReady = true
+            state.earlyStart = nil
+            // 等着的整库的活(欠着的排序索引)现在可以做了。
+            return (true, takeWakeup())
+        }
+        guard changed else { return }
+        announceReadability()
+        wakeup?.resume()
     }
 
     /// 停下(测试、库释放)。在途的一批写完就退出;等待中的调用方都会被唤醒。
@@ -184,9 +233,33 @@ final class LibraryCatalogMirror: @unchecked Sendable {
 
     var isStopped: Bool { lock.withLock { state.stopped } }
 
-    /// 目录可读时给出句柄(导入与分组都做完、没有待对账、没出过错)。
+    /// 目录可读时给出句柄(导入与分组都做完、没有待对账、没出过错),并且持有方已经发布:列表、搜索、
+    /// 扫描这些读者在内存模型装好之前不读目录(与目录改成提前启动之前一样)。
     var readableCatalog: LibraryCatalog? {
+        lock.withLock {
+            state.readable && state.ownerReady && !state.poisoned ? state.frozenView ?? state.catalog : nil
+        }
+    }
+
+    /// 目录此刻就是旧库的样子时给出句柄,不管持有方发布了没有。只给按 id 的读法用
+    /// (`LibraryCatalogHost.songLookup()`),它们另外先看待写登记。
+    ///
+    /// 不变量:这里给出的目录从不落后于旧库。`state.readable` 只在工作线程的循环走到「导入做完、分组不欠
+    /// 重建、打开时落后的修订号已经按流水追上或者整库对过账」之后才置真(见 `run()` 里的 `setReadable(true)`);
+    /// 那之后本进程对旧库的每一次写都先进待写登记、再排进来,所以「待写登记 + 目录 = 旧库」。在那之前这里
+    /// 是 nil,按 id 读照内存模型还没装好的答法(答不出)。
+    var caughtUpCatalog: LibraryCatalog? {
         lock.withLock { state.readable && !state.poisoned ? state.frozenView ?? state.catalog : nil }
+    }
+
+    /// 进后台、收到内存警告:放掉目录各连接的页缓存与列表缓存(都能重读,PLAN §4.1)。
+    /// 要等手上的读写做完才放得掉,所以在后台队列上做,不占调用线程。
+    func releaseMemory() {
+        guard let catalog = lock.withLock({ state.stopped ? nil : state.catalog }) else { return }
+        DispatchQueue.global(qos: .utility).async { [self] in
+            catalog.releaseMemory()
+            lock.withLock { state.statistics.memoryReleases += 1 }
+        }
     }
 
     /// 读者此刻读的是冻结视图(整库重建分组或对账还没做完,列表停在开始那一刻)。按 id 读照样对:
@@ -288,8 +361,11 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         await withCheckedContinuation { continuation in
             let ready = lock.withLock { () -> Bool in
                 if !state.started || state.stopped || state.poisoned { return true }
+                // 提前启动、还在等持有方的输入:手上没有能做的活。
+                if state.idle, state.inputs == nil { return true }
+                let hasSourceIndexes = state.ownerReady && (state.folderIndex != nil || !state.fileNameIndexes.isEmpty)
                 if state.idle, state.operations.isEmpty, !state.overflowed, state.verifications.isEmpty,
-                   state.inputs == state.appliedInputs, state.folderIndex == nil, state.fileNameIndexes.isEmpty {
+                   state.inputs == state.appliedInputs, !hasSourceIndexes {
                     return true
                 }
                 state.idleWaiters.append(continuation)
@@ -319,6 +395,8 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     /// 只在工作线程上读写。
     private struct Progress {
         var needsImport = false
+        /// 打开时目录落后旧库、知道落在哪个修订号:先试着按旧库的变更流水追(接不上再置 `needsResync`)。
+        var needsCatchUp = false
         var needsResync = false
         var mirroredRevision: Int64?
         /// 导入或对账开始时旧库的修订号:修订号不超过它的排队增量已经包含在内。
@@ -326,26 +404,41 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     }
 
     private func run() async {
-        // 迁移过的目录打开只要几十毫秒:直接开,读目录的地方从启动那一刻起就能用。
-        // 还没有目录(第一次迁移)才先等 `startDelay`,不跟冷启动抢资源;续导等 `resumeDelay`(见下)。
+        // 迁移过的目录打开只要几十毫秒:直接开,不等整库那道门(App 在后台、温度高时也开):开了才能跟写增量、
+        // 按流水追上旧库,读目录的地方从启动那一刻起就能用。
+        // 还没有目录(第一次迁移,整库的活)才先等持有方发布、再等 `startDelay`(从发布算起,与提前启动之前
+        // 一样)、再等那道门,不跟冷启动抢资源;续导等 `resumeDelay`(见下)。
         let catalogExisted = FileManager.default.fileExists(atPath: environment.catalogURL.path)
-        if !catalogExisted, environment.startDelay > .zero { try? await Task.sleep(for: environment.startDelay) }
-        guard !isStopped else { return finishWorker() }
-        await waitForGate()
+        if !catalogExisted {
+            await waitForOwner()
+            if environment.startDelay > .zero, !isStopped { try? await Task.sleep(for: environment.startDelay) }
+            guard !isStopped else { return finishWorker() }
+            await waitForGate()
+        }
         guard !isStopped else { return finishWorker() }
 
-        let startedAt = ProcessInfo.processInfo.systemUptime
-        let opened: (LibraryCatalog, IncrementalSongStoreScanner)
-        do {
-            opened = try await perform { [self] in try self.open() }
-        } catch {
-            environment.log("📚 catalog open failed: \(error.localizedDescription)")
-            poison()
-            return finishWorker()
+        var startedAt = ProcessInfo.processInfo.systemUptime
+        var opened: (LibraryCatalog, IncrementalSongStoreScanner)?
+        while opened == nil {
+            do {
+                opened = try await perform { [self] in try self.open() }
+            } catch {
+                // 提前启动时旧库可能正被装载那一边打开(恢复 WAL、头一回建流水表):这一次不算数,等持有方发布
+                // (那时旧库已经开好,也就是目录改成提前启动之前打开它的时刻)再开一次,再失败才算目录用不了。
+                guard lock.withLock({ !state.ownerReady }) else {
+                    environment.log("📚 catalog open failed: \(error.localizedDescription)")
+                    poison()
+                    return finishWorker()
+                }
+                environment.log("📚 catalog early open failed, retrying when the library is ready: \(error.localizedDescription)")
+                await waitForOwner()
+                guard !isStopped else { return finishWorker() }
+                startedAt = ProcessInfo.processInfo.systemUptime
+            }
         }
-        let (catalog, scanner) = opened
+        guard let (catalog, scanner) = opened else { return finishWorker() }
         let summary = await performNonThrowing { [self] in
-            (self.progress.needsImport, self.progress.needsResync, self.progress.mirroredRevision)
+            (self.progress.needsImport, self.progress.needsResync, self.progress.mirroredRevision, self.progress.needsCatchUp)
         }
         lock.withLock {
             state.catalog = catalog
@@ -357,12 +450,21 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             guard !isStopped else { return finishWorker() }
         }
         environment.log(String(
-            format: "📚 catalog open ms=%.0f import=%@ resync=%@ mirrored=%@",
+            format: "📚 catalog open ms=%.0f import=%@ resync=%@ catchUp=%@ mirrored=%@",
             (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000,
             summary.0 ? "needed" : "done",
             summary.1 ? "needed" : "no",
+            summary.3 ? "needed" : "no",
             summary.2.map(String.init) ?? "none"
         ))
+        if let early = lock.withLock({ state.earlyStart }) {
+            // 提前启动:预估的输入与目录里存着的一致才采用(不写目录);不一致、问不出来都等发布时的正式输入。
+            do {
+                try await perform { [self] in try self.adoptEarlyInputs(early, catalog: catalog) }
+            } catch {
+                environment.log("📚 catalog early start: inputs not adopted (\(error.localizedDescription))")
+            }
+        }
 
         let watcher = Task.detached(priority: .utility) { [environment, interaction, applyInteraction] in
             while !Task.isCancelled {
@@ -377,6 +479,12 @@ final class LibraryCatalogMirror: @unchecked Sendable {
 
         while !isStopped {
             do {
+                // 还没有输入(提前启动、预估的输入没被采用,等持有方发布)时不动目录:配置、导入、按流水追
+                // 都照目录当前的分组配置逐行派生,配置不对写下去的派生就是错的。
+                guard lock.withLock({ state.inputs != nil }) else {
+                    await waitForWork()
+                    continue
+                }
                 // 配置先于导入:导入按目录当前的分组配置逐行派生,配置不对就要再整库重建一遍。
                 if case .configure(let inputs, let parents, let fileNames) = nextConfigurationStep() {
                     try await perform { [self] in
@@ -389,28 +497,39 @@ final class LibraryCatalogMirror: @unchecked Sendable {
                     await waitForWork()
                     continue
                 }
-                let pending = await performNonThrowing { [self] in (self.progress.needsImport, self.progress.needsResync) }
+                let pending = await performNonThrowing { [self] in
+                    (self.progress.needsImport, self.progress.needsCatchUp, self.progress.needsResync)
+                }
+                // 整库的活(导入、整库重建分组、整库对账)先让读者让开,再等整库那道门(持有方已发布、App 在前台、
+                // 温度正常、没在滑),然后才动手;动手之后滑动、转场时原地停。
                 if pending.0 {
                     setReadable(false)
                     // 整库导入写得多,不留快照拖住检查点。
                     releaseFrozenView(reason: "import")
+                    try await waitForBulkGate()
                     try await perform { [self] in try self.runImport(catalog: catalog, scanner: scanner) }
                     continue
                 }
                 if try await perform({ try catalog.groupingNeedsRebuild }) {
-                    try await perform { [self] in
-                        try self.freezeReadsOrMakeUnreadable(catalog)
-                        try self.runGroupingRebuild(catalog: catalog)
-                    }
+                    try await perform { [self] in try self.freezeReadsOrMakeUnreadable(catalog) }
+                    try await waitForBulkGate()
+                    try await perform { [self] in try self.runGroupingRebuild(catalog: catalog) }
                     continue
                 }
                 if pending.1 {
-                    try await perform { [self] in
-                        try self.freezeReadsOrMakeUnreadable(catalog)
-                        try self.runResync(catalog: catalog, scanner: scanner)
-                    }
+                    // 按旧库的变更流水追上:只补改过的行,算增量写入,不等整库那道门。接不上就改成整库对账。
+                    try await perform { [self] in try self.runJournalCatchUp(catalog: catalog, scanner: scanner) }
                     continue
                 }
+                if pending.2 {
+                    try await perform { [self] in try self.freezeReadsOrMakeUnreadable(catalog) }
+                    try await waitForBulkGate()
+                    try await perform { [self] in try self.runResync(catalog: catalog, scanner: scanner) }
+                    continue
+                }
+                // 不变量(按 id 读目录的前提,见 `caughtUpCatalog`):走到这里,目录已经是旧库此刻的样子 ——
+                // 导入做完,分组不欠重建,打开时落后的修订号按流水追上了或者整库对过账。在这之前目录对
+                // 谁都不可读,按 id 读照内存模型没装好的答法;这之后旧库的每一次写都先进待写登记再排进来。
                 setReadable(true)
                 switch nextStep() {
                 case .configure:
@@ -425,7 +544,9 @@ final class LibraryCatalogMirror: @unchecked Sendable {
                     }
                 case .idle:
                     // 迁移后留到后台的排序索引(艺人、专辑、文件名)在空闲时补:排序照样对,只是没建好前要整表排。
-                    if try await perform({ try catalog.hasPendingSortIndexes() }),
+                    // 整库的活:持有方发布之后才做。
+                    if lock.withLock({ state.ownerReady }),
+                       try await perform({ try catalog.hasPendingSortIndexes() }),
                        try await perform({ [self] in try self.runPendingSortIndexes(catalog: catalog) }) {
                         continue
                     }
@@ -456,7 +577,8 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             progress.needsImport = true
         } else if progress.mirroredRevision != storeRevision {
             environment.log("📚 catalog drift store=\(storeRevision) mirrored=\(progress.mirroredRevision.map(String.init) ?? "none")")
-            progress.needsResync = true
+            // 知道落在哪个修订号:先按旧库的变更流水追;不知道(很旧的目录)只能整库对账。
+            if progress.mirroredRevision != nil { progress.needsCatchUp = true } else { progress.needsResync = true }
         } else {
             let storeCount = try scanner.songCount()
             let catalogCount = try catalog.songCount(.everything)
@@ -470,15 +592,18 @@ final class LibraryCatalogMirror: @unchecked Sendable {
 
     private func nextConfigurationStep() -> Step? {
         lock.withLock {
-            guard state.inputs != state.appliedInputs || state.folderIndex != nil || !state.fileNameIndexes.isEmpty
-            else { return nil }
+            // 父文件夹、文件名索引是按源整批改写:持有方发布之前先攒着(与目录改成提前启动之前同一个时刻生效)。
+            let hasSourceIndexes = state.ownerReady && (state.folderIndex != nil || !state.fileNameIndexes.isEmpty)
+            guard state.inputs != state.appliedInputs || hasSourceIndexes else { return nil }
             let step = Step.configure(
                 state.inputs != state.appliedInputs ? state.inputs : nil,
-                state.folderIndex,
-                state.fileNameIndexes
+                hasSourceIndexes ? state.folderIndex : nil,
+                hasSourceIndexes ? state.fileNameIndexes : [:]
             )
-            state.folderIndex = nil
-            state.fileNameIndexes = [:]
+            if hasSourceIndexes {
+                state.folderIndex = nil
+                state.fileNameIndexes = [:]
+            }
             return step
         }
     }
@@ -505,9 +630,12 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     private func waitForWork() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let (resumeNow, waiters) = lock.withLock { () -> (Bool, [CheckedContinuation<Void, Never>]) in
-                let hasWork = state.stopped || state.inputs != state.appliedInputs || state.folderIndex != nil
-                    || !state.fileNameIndexes.isEmpty || !state.operations.isEmpty || state.overflowed
-                    || !state.verifications.isEmpty
+                // 还没有输入时别的都做不了(见 `run()`),只等输入来。
+                let hasSourceIndexes = state.ownerReady && (state.folderIndex != nil || !state.fileNameIndexes.isEmpty)
+                let hasWork = state.stopped || (state.inputs != nil && (
+                    state.inputs != state.appliedInputs || hasSourceIndexes
+                        || !state.operations.isEmpty || state.overflowed || !state.verifications.isEmpty
+                ))
                 if hasWork { return (true, []) }
                 state.idle = true
                 state.wakeup = continuation
@@ -534,17 +662,16 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     }
 
     private func poison() {
-        let (changed, wasFollowing) = lock.withLock { () -> (Bool, Bool) in
+        let wasFollowing = lock.withLock { () -> Bool in
             let wasFollowing = !state.stopped && !state.poisoned
             state.poisoned = true
             state.frozenView = nil
             state.operations = []
             state.queuedSongs = 0
-            let changed = state.readable
             state.readable = false
-            return (changed, wasFollowing)
+            return wasFollowing
         }
-        if changed { events(.readability(false)) }
+        announceReadability()
         if wasFollowing { events(.stoppedFollowing) }
     }
 
@@ -600,17 +727,42 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             if !readable { state.statistics.unreadableSpells += 1 }
             return true
         }
-        if changed { events(.readability(readable)) }
+        if changed { announceReadability() }
     }
 
+    /// 读者那边看到的可读状态(目录可读、持有方已发布、没出过错)变了就发一次事件。工作线程与持有方的线程都会
+    /// 走到这里,串行着算、串行着发,发出去的最后一个值才一定是此刻的状态。
+    private func announceReadability() {
+        readabilityAnnouncements.withLock {
+            let readable = lock.withLock { state.readable && state.ownerReady && !state.poisoned }
+            guard readable != announcedReadable else { return }
+            announcedReadable = readable
+            events(.readability(readable))
+        }
+    }
+
+    /// 提前启动的目录:等持有方发布(或者停止)。不是提前启动的立即返回。
+    private func waitForOwner() async {
+        while !isStopped, lock.withLock({ !state.ownerReady }) {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    /// 等整库那道门:持有方已经发布(提前启动的目录在那之前不做整库的活),App 侧说此刻可以。
     private func waitForGate() async {
         while !isStopped {
-            if await environment.interactionGate() {
+            if lock.withLock({ state.ownerReady }), await environment.interactionGate() {
                 interaction.set(false)
                 return
             }
             try? await Task.sleep(for: .milliseconds(250))
         }
+    }
+
+    /// 整库的活动手之前调用。停止时抛 `cancelled`。
+    private func waitForBulkGate() async throws {
+        await waitForGate()
+        if isStopped { throw LibraryCatalogError.cancelled }
     }
 
     /// 在工作队列上调用:用户在滑动、转场时原地等(不放弃已经做到一半的批次)。
@@ -739,6 +891,106 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
         ))
         return done
+    }
+
+    // MARK: - Early start (before the owner publishes)
+
+    /// 提前启动时预估的输入:目录里存着的停用源、分组指纹都与它相同(分组也没有做到一半的整库重建),
+    /// 并且内存模型这一次原样装旧库里的行,才当作已经生效的输入 —— 一个字节都不写。之后发布时交来的正式输入
+    /// 与它不同的话走普通的配置步骤(该重建就重建)。
+    private func adoptEarlyInputs(_ early: LibraryCatalogMirrorEarlyStart, catalog: LibraryCatalog) throws {
+        guard lock.withLock({ state.inputs == nil && !state.ownerReady }) else { return }
+        guard try catalog.hasCompletedImport else { return }
+        guard early.storeIsWhatTheModelLoads() else {
+            environment.log("📚 catalog early start: waiting for the library (the model does not load the store as it is)")
+            return
+        }
+        guard try appliedDisabledSources(in: catalog) == early.inputs.disabledSourceIDs,
+              try catalog.adoptGroupingConfigurationIfCurrent(early.inputs.grouping) else {
+            environment.log("📚 catalog early start: waiting for the library (inputs differ from the catalog's)")
+            return
+        }
+        let adopted = lock.withLock { () -> Bool in
+            // 正式输入抢先到了:走普通的配置步骤。
+            guard state.inputs == nil else { return false }
+            state.inputs = early.inputs
+            state.appliedInputs = early.inputs
+            return true
+        }
+        if adopted { environment.log("📚 catalog early start: inputs match the catalog") }
+    }
+
+    private func appliedDisabledSources(in catalog: LibraryCatalog) throws -> Set<String> {
+        Set(try catalog.mirrorMetadata(MetaKey.disabledSources)
+            .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? [])
+    }
+
+    // MARK: - Journal catch-up (replays only what the store changed)
+
+    /// 目录停在旧库的修订号 `progress.mirroredRevision`,旧库这之后又写过(上次两边之间被杀、目录晚打开、
+    /// 目录写失败过):旧库的变更流水接得上就只补改过的行。每个修订号一批,连同「镜像到这个修订号」在目录的
+    /// 一个事务里写下去,中途被杀下次从停下的那个修订号接着追。
+    ///
+    /// 流水接不上(旧库还没有流水、整份替换过、超限清空过、缺修订号、要补的太多)、重放中途出错、追完行数
+    /// 对不上:都改成整库对账(`needsResync`),与没有流水时一样。追的过程中目录一直不可读。
+    private func runJournalCatchUp(catalog: LibraryCatalog, scanner: IncrementalSongStoreScanner) throws {
+        guard let mirrored = progress.mirroredRevision else {
+            progress.needsCatchUp = false
+            progress.needsResync = true
+            return
+        }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        func fallBack(_ reason: String) {
+            progress.needsCatchUp = false
+            progress.needsResync = true
+            lock.withLock { state.statistics.journalCatchUpFallbacks += 1 }
+            environment.log("📚 catalog catch-up stage=unavailable → resync (\(reason))")
+        }
+        let outcome: IncrementalSongStoreChangeReplay
+        do {
+            outcome = try scanner.replayChanges(
+                after: mirrored,
+                maximumRows: environment.journalCatchUpMaximumRows,
+                maximumRowsPerRevision: environment.journalCatchUpMaximumRowsPerRevision
+            ) { batch in
+                try pauseForIncrementalApply()
+                let summary = try catalog.apply(
+                    upserts: batch.upserts, deletingIDs: batch.deletingIDs, renaming: batch.renaming,
+                    mirrorMetadata: [MetaKey.storeRevision: String(batch.storeRevision)]
+                )
+                progress.mirroredRevision = batch.storeRevision
+                lock.withLock { state.mirroredRevision = batch.storeRevision }
+                if !summary.isEmpty {
+                    events(.applied(summary, touchedSourceIDs: Set(batch.upserts.map(\.sourceID))))
+                }
+                events(.mirrored(storeRevision: batch.storeRevision))
+            }
+        } catch LibraryCatalogError.cancelled {
+            throw LibraryCatalogError.cancelled
+        } catch {
+            return fallBack(error.localizedDescription)
+        }
+        guard case .replayed(let storeRevision, let revisions, let rows, let storeSongCount) = outcome else {
+            if case .unavailable(let reason) = outcome { fallBack(reason) }
+            return
+        }
+        // 追完再核一遍行数(读流水那一刻旧库的行数;目录只有这条线程在写)。
+        let catalogSongCount = try catalog.songCount(.everything)
+        guard catalogSongCount == storeSongCount else {
+            return fallBack("\(catalogSongCount) catalog rows, \(storeSongCount) store rows after the replay")
+        }
+        progress.needsCatchUp = false
+        // 修订号不超过 `storeRevision` 的排队增量已经包含在内(发布那一步写的可能已经排进来了)。
+        progress.baselineRevision = storeRevision
+        if progress.mirroredRevision != storeRevision { try recordMirroredRevision(storeRevision, catalog: catalog) }
+        lock.withLock {
+            state.statistics.journalCatchUps += 1
+            state.statistics.journalCatchUpRows += rows
+        }
+        environment.log(String(
+            format: "📚 catalog catch-up stage=done storeRevision=%lld revisions=%d rows=%d ms=%.0f",
+            storeRevision, revisions, rows, (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+        ))
     }
 
     // MARK: - Drift re-sync (streams ids, no re-import)
@@ -987,8 +1239,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     ) throws {
         var invalidated = false
         if let inputs {
-            let applied = Set(try catalog.mirrorMetadata(MetaKey.disabledSources)
-                .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? [])
+            let applied = try appliedDisabledSources(in: catalog)
             for sourceID in inputs.disabledSourceIDs.subtracting(applied).sorted() {
                 try catalog.setSourceEnabled(false, sourceID: sourceID)
                 invalidated = true

@@ -1598,6 +1598,8 @@ final class RebuildableMemoryReliefCoordinator {
             // 曲库派生数据只在后台没活儿时放: 放歌、扫描、车机列表马上又要用, 放掉就得在后台重建。
             guard BackgroundMemoryTrimPolicy.shouldTrim(phase: .background, activity: current),
                   let library = self.library else {
+                // 曲库目录各连接的页缓存后台有活儿时也放(SQLite 用到哪页重读哪页);车机开着时列表正读着,不放。
+                if !current.isCarPlayActive { self.library?.releaseCatalogMemory() }
                 // 放歌时不把空页还给系统:整理大堆时会长时间拿着 malloc 的锁,解码、渲染线程
                 // 等它就会断音。放掉的图片页靠系统自己回收。
                 if !current.isPlaybackActive {

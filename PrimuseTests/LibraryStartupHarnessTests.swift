@@ -218,6 +218,11 @@ final class LibraryStartupHarnessTests: XCTestCase {
         await library.waitForPendingIndex()
         XCTAssertGreaterThan(library.indexRebuildGenerationForTesting, generation)
         XCTAssertEqual(library.albums, expected)
+        // 重开之前等改过专辑的那几行真的进了旧库(写入在后台任务里): 不等的话重开读到的可能还是旧行,
+        // 那就不是在验「新的分组存下来了」, 而是在赌写入比重开快。
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The regrouped rows did not persist")
+        }
         await Self.drainLaunchCacheWrites(library)
 
         let reopened = MusicLibrary.makePreparing(storageDirectory: directory, artistNameConfiguration: .defaultValue)
@@ -1243,68 +1248,142 @@ final class LibraryStartupHarnessTests: XCTestCase {
         await library.stopCatalogMirror()
     }
 
-    /// 步骤 0c: 目录落在旧库后面一个修订号时(旧库写完、目录还没跟上就被杀), 启动后对账要多久。
-    /// 对账期间目录不可读。
+    /// 步骤 0c / 第 2 步: 目录落在旧库后面一个修订号时(旧库写完、目录还没跟上就被杀), 启动后多久可读。
+    ///
+    /// 第 2 步之后按旧库的变更流水只补那一行, 量两种启动: 发布时才启动目录(第 2 步之前的时刻), 与构造之后
+    /// 立刻启动(App 现在的做法: 装载那几秒里目录已经追上, 发布那一刻就可读)。
+    /// `TEST_RUNNER_PRIMUSE_SCALE_DRIFT_RESYNC=1`: 关掉流水、走整库对账, 在同一份数据上量第 2 步之前的开销。
     func testScaleFixtureLaunchDrift() async throws {
         let fixture = try Self.existingScaleCatalogFixture()
         let directory = try Self.copyDirectory(fixture)
         defer { try? FileManager.default.removeItem(at: directory) }
         let storePath = directory.appendingPathComponent("library-songs.sqlite").path
-        let songCount: Int
-        let changedID: String
-        do {
-            // 旧库往前走一个修订号: 改一首歌的标题, 目录没跟。
+        let resyncOnly = ProcessInfo.processInfo.environment["PRIMUSE_SCALE_DRIFT_RESYNC"] == "1"
+        LibraryCatalogHost.journalCatchUpMaximumRowsForTesting = resyncOnly ? 0 : nil
+        defer { LibraryCatalogHost.journalCatchUpMaximumRowsForTesting = nil }
+        let songCount = try IncrementalSongStoreScanner(path: storePath).songCount()
+
+        /// 旧库往前走一个修订号: 改一首歌的标题, 目录没跟。
+        func drift(_ suffix: String) throws -> String {
             let scanner = try IncrementalSongStoreScanner(path: storePath)
             let revisionBefore = try scanner.contentRevision()
-            songCount = try scanner.songCount()
             var song = try XCTUnwrap(scanner.rows(after: nil, limit: 1).first?.song)
-            song.title += " (drift)"
-            changedID = song.id
+            song.title += suffix
             let store = try IncrementalSongStore(path: storePath)
             XCTAssertEqual(try store.apply(upserts: [song]), revisionBefore + 1)
+            return song.id
         }
-        let logMarker = "drift-run-\(UUID().uuidString)"
-        plog("📏 \(logMarker)")
-        let library: MusicLibrary
+        /// 镜像自己记的那几行(设备日志里看到的也是它们)。
+        func mirrorLog(after marker: String) -> [String] {
+            let log = FileLogger.shared.recentContent(maxBytes: 400_000)
+            return (log.components(separatedBy: marker).last ?? "")
+                .split(separator: "\n")
+                .filter {
+                    $0.contains("📚 catalog open") || $0.contains("📚 catalog drift") || $0.contains("📚 catalog resync")
+                        || $0.contains("📚 catalog catch-up") || $0.contains("📚 catalog early start")
+                }
+                .map { String($0.suffix(170)) }
+        }
+        func assertRepaired(_ statistics: LibraryCatalogMirrorStatistics, _ step: String) {
+            XCTAssertEqual(statistics.resyncs, resyncOnly ? 1 : 0, step)
+            XCTAssertEqual(statistics.journalCatchUps, resyncOnly ? 0 : 1, step)
+            XCTAssertEqual(statistics.journalCatchUpFallbacks, resyncOnly ? 1 : 0, step)
+            XCTAssertEqual(statistics.resyncFallbacksToImport, 0, step)
+            XCTAssertEqual(statistics.importRuns, 0, step)
+        }
+
+        // (1) 发布时才启动目录。
         do {
+            let changedID = try drift(" (drift)")
+            let logMarker = "drift-run-\(UUID().uuidString)"
+            plog("📏 \(logMarker)")
             let prepared = await MusicLibrary.prepareStartup(storageDirectory: directory)
-            library = MusicLibrary.makePreparing(storageDirectory: directory, catalogMirroring: .enabled(startDelay: .zero))
+            let library = MusicLibrary.makePreparing(storageDirectory: directory, catalogMirroring: .enabled(startDelay: .zero))
             // 先让装载落定再开目录的计时: 发布那一刻镜像才启动。
             let startedAt = ProcessInfo.processInfo.systemUptime
             library.publish(prepared)
             let host = try XCTUnwrap(library.catalogHost)
             var unreadableUntil = startedAt
-            var sawResync = false
             for _ in 0..<600_000 {
-                sawResync = sawResync || host.mirror.statistics.resyncs > 0
                 if host.mirror.readableCatalog != nil { break }
                 unreadableUntil = ProcessInfo.processInfo.systemUptime
-                try await Task.sleep(for: .milliseconds(5))
+                try await Task.sleep(for: .milliseconds(1))
             }
             let readableAfter = ProcessInfo.processInfo.systemUptime - startedAt
-            XCTAssertTrue(sawResync || host.mirror.statistics.resyncs > 0, "the catalog opened behind the store and re-synced")
             let statistics = host.mirror.statistics
-            XCTAssertEqual(statistics.resyncs, 1)
-            XCTAssertEqual(statistics.resyncFallbacksToImport, 0)
-            XCTAssertEqual(statistics.importRuns, 0)
+            assertRepaired(statistics, "started at publish")
             let catalog = try XCTUnwrap(host.mirror.readableCatalog)
             XCTAssertEqual(try catalog.song(id: changedID)?.title.hasSuffix(" (drift)"), true)
             await library.waitForPendingIndex()
             await library.waitForCatalogMirror()
             try await Task.sleep(for: .milliseconds(500))
-            // 镜像自己记的那两行(设备日志里看到的也是它们)。
-            let log = FileLogger.shared.recentContent(maxBytes: 400_000)
-            let lines = (log.components(separatedBy: logMarker).last ?? "")
-                .split(separator: "\n")
-                .filter { $0.contains("📚 catalog open") || $0.contains("📚 catalog drift") || $0.contains("📚 catalog resync") }
-                .map { String($0.suffix(160)) }
             Self.report(String(
-                format: "📏 launch drift songs=%d readableAfter=%.0fms (unreadable for at least %.0fms after publish) resyncs=%d",
-                songCount, readableAfter * 1_000, (unreadableUntil - startedAt) * 1_000, statistics.resyncs
+                format: "📏 launch drift (catalog started at publish, %@) songs=%d readableAfter=%.0fms"
+                    + " (unreadable for at least %.0fms after publish) resyncs=%d journalCatchUps=%d rows=%d",
+                resyncOnly ? "journal off" : "journal", songCount, readableAfter * 1_000,
+                (unreadableUntil - startedAt) * 1_000, statistics.resyncs, statistics.journalCatchUps,
+                statistics.journalCatchUpRows
             ))
-            for line in lines { Self.report("📏 launch drift mirror log: \(line)") }
+            for line in mirrorLog(after: logMarker) { Self.report("📏 launch drift mirror log: \(line)") }
+            await library.stopCatalogMirror()
         }
-        await library.stopCatalogMirror()
+        guard !resyncOnly else { return }
+
+        // (2) 构造之后立刻启动目录, 装载在主线程外同时进行(App 冷启动的顺序)。
+        do {
+            let changedID = try drift(" (again)")
+            let logMarker = "drift-run-\(UUID().uuidString)"
+            plog("📏 \(logMarker)")
+            let library = MusicLibrary.makePreparing(storageDirectory: directory, catalogMirroring: .enabled(startDelay: .zero))
+            let host = try XCTUnwrap(library.catalogHost)
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            library.startCatalogBeforePublish(spokenWordClassification: .empty)
+            let box = PreparedStartupBox()
+            let preparation = Task { box.value = await MusicLibrary.prepareStartup(storageDirectory: directory) }
+            var caughtUpAfter: TimeInterval?
+            var preparedAfter: TimeInterval?
+            while caughtUpAfter == nil || preparedAfter == nil {
+                let now = ProcessInfo.processInfo.systemUptime - startedAt
+                if caughtUpAfter == nil, host.mirror.caughtUpCatalog != nil { caughtUpAfter = now }
+                if preparedAfter == nil, box.value != nil { preparedAfter = now }
+                // 预估的输入没被采用时目录等发布: 模型装好了它还没追上就不再等。
+                if preparedAfter != nil, caughtUpAfter == nil { break }
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            await preparation.value
+            let prepared = try XCTUnwrap(box.value)
+            XCTAssertNotNil(caughtUpAfter, "the catalog caught up while the model was loading")
+            XCTAssertNil(host.mirror.readableCatalog, "list readers wait for the publish")
+            XCTAssertFalse(host.revisions.isReadable)
+            let publishStartedAt = ProcessInfo.processInfo.systemUptime
+            library.publish(prepared)
+            let publishMilliseconds = (ProcessInfo.processInfo.systemUptime - publishStartedAt) * 1_000
+            XCTAssertNotNil(host.mirror.readableCatalog, "readable the moment the library is published")
+            var observersToldAfter: TimeInterval?
+            for _ in 0..<5_000 {
+                if host.revisions.isReadable {
+                    observersToldAfter = ProcessInfo.processInfo.systemUptime - publishStartedAt
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            let statistics = host.mirror.statistics
+            assertRepaired(statistics, "started before publish")
+            let catalog = try XCTUnwrap(host.mirror.readableCatalog)
+            XCTAssertEqual(try catalog.song(id: changedID)?.title.hasSuffix(" (again)"), true)
+            await library.waitForPendingIndex()
+            await library.waitForCatalogMirror()
+            try await Task.sleep(for: .milliseconds(500))
+            Self.report(String(
+                format: "📏 launch drift (catalog started at construction) songs=%d caughtUpAfter=%.0fms modelPreparedAfter=%.0fms"
+                    + " publish=%.0fms readableAtPublish=%@ observersToldAfterPublish=%.0fms journalCatchUps=%d rows=%d",
+                songCount, (caughtUpAfter ?? -1) * 1_000, (preparedAfter ?? -1) * 1_000, publishMilliseconds,
+                host.mirror.readableCatalog != nil ? "yes" : "no", (observersToldAfter ?? -1) * 1_000,
+                statistics.journalCatchUps, statistics.journalCatchUpRows
+            ))
+            for line in mirrorLog(after: logMarker) { Self.report("📏 launch drift mirror log: \(line)") }
+            await library.stopCatalogMirror()
+        }
     }
 
     func testScaleFixtureFootprint() async throws {
@@ -1866,4 +1945,10 @@ final class ImportLoadMatrixTests: XCTestCase {
         }
         XCTAssertEqual(services.sourcesStore.sources.map(\.id), sources.map(\.id))
     }
+}
+
+/// 主线程外装好的模型,交回主线程上的测试。
+@MainActor
+private final class PreparedStartupBox {
+    var value: MusicLibrary.PreparedStartup?
 }

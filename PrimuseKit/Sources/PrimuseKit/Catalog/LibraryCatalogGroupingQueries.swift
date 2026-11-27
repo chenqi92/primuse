@@ -12,18 +12,12 @@ extension LibraryCatalog {
     static let enabledSourcesSQL = "SELECT key FROM source WHERE enabled = 1"
 
     /// 可见集是否要与整库不同:停用了源,或可见歌曲里有非音乐内容(参照实现的分支条件)。
+    ///
+    /// 「不是音乐」写成 `kind > 0`(类别从 0 起,见 `LibraryCatalogContentKind`),走以 `kind` 打头的排序索引:
+    /// 可见歌曲里一首非音乐都没有时一步就答完。写成 `kind != 0` 用不上索引,那种库里每问一次都把歌曲表
+    /// 扫到底(10 万首约 20 ms,50 万首约 100 ms,专辑、艺人的每一页都要问)。`+sourceKey` 不让规划器改走
+    /// 按源的索引(那样要把启用源的歌逐首回表看类别)。排序索引还没建好时照样对,只是又成了整表扫。
     static func visibleSplitsLibrary(in db: Database) throws -> Bool {
-        try Bool.fetchOne(db, sql: """
-            SELECT EXISTS (SELECT 1 FROM source WHERE enabled = 0)
-                OR EXISTS (SELECT 1 FROM song WHERE kind != 0 AND sourceKey IN (\(enabledSourcesSQL)))
-            """) ?? false
-    }
-
-    /// 同 `visibleSplitsLibrary`,给按 id 取一张专辑、一位艺人用(每次只为一项问一遍)。
-    /// 那一条在可见歌曲里一首非音乐都没有时要把歌曲表扫到底(10 万首约 20 ms);这里把「不是音乐」写成
-    /// `kind > 0`(类别从 0 起),走以 `kind` 打头的排序索引,没有非音乐时一步就答完。`+sourceKey` 不让
-    /// 规划器改走按源的索引(那样要把启用源的歌逐首回表看类别)。索引还没建好时照样对,只是又成了整表扫。
-    static func visibleSplitsLibraryForPointRead(in db: Database) throws -> Bool {
         try Bool.fetchOne(db.cachedStatement(sql: """
             SELECT EXISTS (SELECT 1 FROM source WHERE enabled = 0)
                 OR EXISTS (SELECT 1 FROM song WHERE kind > 0 AND +sourceKey IN (\(enabledSourcesSQL)))
@@ -67,7 +61,7 @@ extension LibraryCatalog {
     /// 相同的那一项(歌曲数与时长只算可见的歌),不在(没有这张专辑,或它没有可见的音乐)时为 nil。
     public func visibleAlbum(id: String) throws -> Album? {
         try pointReadOfGrouping { db in
-            let splits = try Self.visibleSplitsLibraryForPointRead(in: db)
+            let splits = try Self.visibleSplitsLibrary(in: db)
             let filter = splits
                 ? " AND key IN (SELECT albumKey FROM albumSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
                 : ""
@@ -166,7 +160,7 @@ extension LibraryCatalog {
     /// 相同的那一项,不在(没有这位艺人,或他没有可见的音乐)时为 nil。艺人键就是 `artistRef` 的引用号。
     public func visibleArtist(id: String) throws -> Artist? {
         try pointReadOfGrouping { db in
-            let splits = try Self.visibleSplitsLibraryForPointRead(in: db)
+            let splits = try Self.visibleSplitsLibrary(in: db)
             let filter = splits
                 ? " AND key IN (SELECT artistRef FROM artistSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
                 : ""

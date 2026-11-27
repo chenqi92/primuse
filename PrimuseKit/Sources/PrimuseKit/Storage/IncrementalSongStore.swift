@@ -13,8 +13,31 @@ public final class IncrementalSongStore: @unchecked Sendable {
     private static let contentRevisionKey = "songs-content-revision"
     private static let completedMigrationVersionKey = "songs-migration-version"
 
+    /// 变更流水(`librarySongChangeJournal`):`apply` 每改一行就在同一个事务里记一条(修订号、做了什么、哪个 id)。
+    /// 曲库目录落在这个库后面时(两边不是同一个事务,进程在两次提交之间被杀)据此只补改过的行,不必
+    /// 把整个库对一遍。目录记下自己镜像到的修订号之后,不超过它的记录在下一次 `apply` 时删掉。
+    public enum ChangeJournal {
+        static let table = "librarySongChangeJournal"
+        /// 流水从哪个修订号之后是完整的:修订号比它大的每一次改动都有记录。整份替换、流水超限清空、
+        /// 剪掉已镜像的记录都会把它往后推;目录镜像到的修订号比它还早时流水接不上,只能整库对账。
+        static let floorKey = "songs-change-journal-floor"
+        /// 记录条数的上限。超了就整张清空、把起点推到眼下(之后只能整库对账):流水不该长成整库规模。
+        public static let capacity = 50_000
+
+        enum Kind: Int {
+            case rename = 0
+            case delete = 1
+            case upsert = 2
+            /// 修订号进了、一行都没动(头一回把旧库标成作数):只占一条,流水才不缺这个修订号。
+            case marker = 3
+        }
+    }
+
     private let database: DatabaseQueue
     private let encoder: JSONEncoder
+    private let journalLock = NSLock()
+    /// 目录已经镜像到的修订号里最新的那个,等下一次 `apply` 顺手把不超过它的流水删掉。
+    private var mirroredRevisionAwaitingPrune: Int64?
 
     public init(path: String) throws {
         var configuration = Configuration()
@@ -58,7 +81,38 @@ public final class IncrementalSongStore: @unchecked Sendable {
                 table.column("value", .text).notNull()
             }
         }
+        migrator.registerMigration("v2_change_journal") { db in
+            try db.execute(sql: """
+                CREATE TABLE \(ChangeJournal.table) (
+                    sequence INTEGER PRIMARY KEY,
+                    revision INTEGER NOT NULL,
+                    kind INTEGER NOT NULL,
+                    id TEXT NOT NULL,
+                    newID TEXT
+                )
+                """)
+            // 这之前的改动没有记录:流水从眼下的修订号起算。
+            let revision = try Self.metadataValue(forKey: Self.contentRevisionKey, in: db).flatMap(Int64.init) ?? 0
+            try Self.setMetadataValue(String(revision), forKey: ChangeJournal.floorKey, in: db)
+        }
         try migrator.migrate(database)
+    }
+
+    /// 曲库目录已经是修订号 `revision` 的样子:不超过它的流水用不着了,下一次 `apply` 时删掉。各线程都可以调用。
+    public func noteCatalogMirrored(revision: Int64) {
+        journalLock.withLock {
+            mirroredRevisionAwaitingPrune = max(mirroredRevisionAwaitingPrune ?? revision, revision)
+        }
+    }
+
+    /// 流水里现在有多少条、从哪个修订号之后是完整的(测试与诊断)。
+    public func changeJournalState() throws -> (entryCount: Int, floor: Int64) {
+        try database.read { db in
+            (
+                try Int.fetchOne(db, sql: "SELECT count(*) FROM \(ChangeJournal.table)") ?? 0,
+                try Self.metadataValue(forKey: ChangeJournal.floorKey, in: db).flatMap(Int64.init) ?? 0
+            )
+        }
     }
 
     /// A fresh database is intentionally different from an authoritative empty
@@ -216,7 +270,10 @@ public final class IncrementalSongStore: @unchecked Sendable {
             if let snapshotImportID {
                 try Self.setMetadataValue(snapshotImportID, forKey: "last-snapshot-import", in: db)
             }
-            return try Self.bumpContentRevision(in: db)
+            let revision = try Self.bumpContentRevision(in: db)
+            // 整份换过:之前的流水作废,行序也换了,目录只能重新导入。流水从这个修订号重新起算。
+            try Self.resetChangeJournal(floor: revision, in: db)
+            return revision
         }
     }
 
@@ -235,8 +292,15 @@ public final class IncrementalSongStore: @unchecked Sendable {
         guard !upserts.isEmpty || !deletingIDs.isEmpty || !renaming.isEmpty else {
             return try startupState().contentRevision
         }
+        let mirrored = journalLock.withLock { () -> Int64? in
+            defer { mirroredRevisionAwaitingPrune = nil }
+            return mirroredRevisionAwaitingPrune
+        }
         return try database.write { db in
             var changed = false
+            // 这一次真做了的改名与真写了的行(流水只记这些);要删的 id 照请求记,不在库里的那几个重放时也是空删。
+            var journaledRenames: [(from: String, to: String)] = []
+            var journaledUpsertIDs: [String] = []
             if !renaming.isEmpty {
                 let renameDecoder = JSONDecoder()
                 renameDecoder.dateDecodingStrategy = .iso8601
@@ -256,6 +320,7 @@ public final class IncrementalSongStore: @unchecked Sendable {
                         arguments: [newID, try encoder.encode(song), oldID]
                     )
                     changed = true
+                    journaledRenames.append((oldID, newID))
                 }
             }
             if !deletingIDs.isEmpty {
@@ -313,17 +378,69 @@ public final class IncrementalSongStore: @unchecked Sendable {
                     arguments: [song.id, song.sourceID, orderKey, encoded]
                 )
                 changed = true
+                journaledUpsertIDs.append(song.id)
             }
             if try Self.metadataValue(forKey: Self.authoritativeKey, in: db) != "1" {
                 try Self.markAuthoritative(in: db)
                 changed = true
             }
             guard changed else {
+                // 什么都没变就不推修订号,也不记流水;等着剪的那个修订号留给下一次。
+                if let mirrored { noteCatalogMirrored(revision: mirrored) }
                 return try Self.metadataValue(forKey: Self.contentRevisionKey, in: db)
                     .flatMap(Int64.init) ?? 0
             }
-            return try Self.bumpContentRevision(in: db)
+            let revision = try Self.bumpContentRevision(in: db)
+            try Self.appendToChangeJournal(
+                revision: revision, renames: journaledRenames, deletingIDs: deletingIDs,
+                upsertIDs: journaledUpsertIDs, prunableThrough: mirrored, in: db
+            )
+            return revision
         }
+    }
+
+    /// 同一个事务里:先删掉目录已经镜像过的记录,再按「改名、删除、写入」的先后(与这一次做的顺序相同)
+    /// 记下这个修订号里做的事;超过上限就整张清空,流水从这个修订号重新起算。
+    private static func appendToChangeJournal(
+        revision: Int64,
+        renames: [(from: String, to: String)],
+        deletingIDs: Set<String>,
+        upsertIDs: [String],
+        prunableThrough mirrored: Int64?,
+        in db: Database
+    ) throws {
+        if let mirrored {
+            try db.execute(sql: "DELETE FROM \(ChangeJournal.table) WHERE revision <= ?", arguments: [mirrored])
+            let floor = try metadataValue(forKey: ChangeJournal.floorKey, in: db).flatMap(Int64.init) ?? 0
+            if mirrored > floor { try setMetadataValue(String(mirrored), forKey: ChangeJournal.floorKey, in: db) }
+        }
+        let insert = try db.cachedStatement(sql: """
+            INSERT INTO \(ChangeJournal.table) (revision, kind, id, newID) VALUES (?, ?, ?, ?)
+            """)
+        for rename in renames {
+            try insert.execute(arguments: [revision, ChangeJournal.Kind.rename.rawValue, rename.from, rename.to])
+        }
+        for id in deletingIDs.sorted() {
+            try insert.execute(arguments: [revision, ChangeJournal.Kind.delete.rawValue, id, nil])
+        }
+        for id in upsertIDs {
+            try insert.execute(arguments: [revision, ChangeJournal.Kind.upsert.rawValue, id, nil])
+        }
+        if renames.isEmpty, deletingIDs.isEmpty, upsertIDs.isEmpty {
+            try insert.execute(arguments: [revision, ChangeJournal.Kind.marker.rawValue, "", nil])
+        }
+        // 记录只从旧的那一头删,序号一直连着:最新的减最旧的就是条数。
+        guard let oldest = try Int64.fetchOne(
+            db.cachedStatement(sql: "SELECT min(sequence) FROM \(ChangeJournal.table)")
+        ) else { return }
+        if db.lastInsertedRowID - oldest + 1 > Int64(ChangeJournal.capacity) {
+            try resetChangeJournal(floor: revision, in: db)
+        }
+    }
+
+    private static func resetChangeJournal(floor: Int64, in db: Database) throws {
+        try db.execute(sql: "DELETE FROM \(ChangeJournal.table)")
+        try setMetadataValue(String(floor), forKey: ChangeJournal.floorKey, in: db)
     }
 
     /// Records that all rows currently in the canonical store have passed a

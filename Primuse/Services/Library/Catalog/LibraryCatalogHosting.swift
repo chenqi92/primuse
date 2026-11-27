@@ -51,6 +51,10 @@ final class LibraryCatalogHost {
     /// 内存模型写进旧库、目录还没跟上的改动(按 id 读目录时先看这里)。
     let pendingWrites: LibraryPendingSongWrites
     private let relay: LibraryCatalogEventRelay
+    #if DEBUG
+    /// 测试、量时间:启动时按旧库的变更流水追的行数上限(0:一律整库对账,量没有流水时的开销)。
+    static var journalCatchUpMaximumRowsForTesting: Int?
+    #endif
 
     init(directory: URL, startDelay: Duration, log: @escaping @Sendable (String) -> Void) {
         let link = LibraryCatalogOwnerLink()
@@ -69,6 +73,9 @@ final class LibraryCatalogHost {
         environment.log = log
         environment.interactionGate = { await link.workAllowed() }
         environment.incrementalApplyGate = { await link.incrementalApplyAllowed() }
+        #if DEBUG
+        if let rows = Self.journalCatchUpMaximumRowsForTesting { environment.journalCatchUpMaximumRows = rows }
+        #endif
         let mirror = LibraryCatalogMirror(environment: environment) { relay.handle($0) }
         self.mirror = mirror
         self.reader = LibraryCatalogReader(catalog: { [weak mirror] in mirror?.readableCatalog }, rowCache: rowCache)
@@ -78,10 +85,32 @@ final class LibraryCatalogHost {
         self.relay = relay
     }
 
-    /// 能按 id 从目录读出与内存模型此刻相同的歌时给出读法:目录可读、在跟写、没有等着跟上的整份替换。
+    /// 能按 id 从目录读出与内存模型此刻相同的歌时给出读法:目录已经跟上旧库、在跟写、没有等着跟上的整份替换。
+    ///
+    /// 不变量在这里把关:答案只从 `mirror.caughtUpCatalog` 出 —— 目录落后旧库(刚打开还没按流水追上、
+    /// 正在整库对账或导入)时它是 nil,这里就是 nil,调用方照内存模型没装好的答法,不会读到旧值。
+    /// 持有方发布之前(`readableCatalog` 还不给列表读者)也能有:目录提前启动、追上了就行。
     func songLookup() -> LibraryCatalogSongLookup? {
-        guard pendingWrites.answersLikeMemory, let catalog = mirror.readableCatalog else { return nil }
+        guard pendingWrites.answersLikeMemory, let catalog = mirror.caughtUpCatalog else { return nil }
         return LibraryCatalogSongLookup(catalog: catalog, pendingWrites: pendingWrites, rowCache: reader.rowCache)
+    }
+
+    /// 持有方还在装内存模型时启动目录(`LibraryCatalogMirror.start(beforeOwnerIsReady:)`):发布之前
+    /// `readableCatalog`、`revisions` 都与目录没启动时一样,只有 `songLookup()` 在目录追上旧库之后答得出。
+    func start(beforeOwnerIsReady early: LibraryCatalogMirrorEarlyStart) {
+        relay.holdChangesUntilOwnerIsReady()
+        mirror.start(beforeOwnerIsReady: early)
+    }
+
+    /// 提前启动的目录:持有方发布了(正式输入已经交给 `mirror.updateInputs`)。
+    func ownerBecameReady() {
+        relay.ownerBecameReady()
+        mirror.ownerBecameReady()
+    }
+
+    /// 持有方发布、旧库的句柄有了:目录确认镜像到的修订号从此告诉旧库(剪变更流水)。
+    func attachStore(_ store: IncrementalSongStore) {
+        relay.attachStore(store)
     }
 
     /// 一个绑在这个目录上的歌曲列表模型。

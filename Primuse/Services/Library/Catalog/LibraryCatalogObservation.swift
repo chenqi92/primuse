@@ -136,6 +136,13 @@ final class LibraryCatalogEventRelay: @unchecked Sendable {
     private var drainScheduled = false
     private let rowCache: LibraryRowCache
     private let pendingWrites: LibraryPendingSongWrites?
+    /// 旧库:目录确认镜像到某个修订号后告诉它,它下一次写时把这之前的变更流水剪掉。持有方发布之后才有;
+    /// 在那之前确认过的修订号记在 `lastMirroredRevision` 里,接上时补一次。
+    private var store: IncrementalSongStore?
+    private var lastMirroredRevision: Int64?
+    /// 目录在持有方发布之前就启动了、还没发布:这期间目录的变化不往可观察的修订号上报(读者那边与目录
+    /// 没启动时一样安静),行缓存照常失效。发布时目录变得可读,那一下本来就按「什么都可能变了」通知一次。
+    private var holdsChanges = false
     private weak var revisions: LibraryCatalogRevisions?
     private let onReadable: @MainActor @Sendable (Bool) -> Void
 
@@ -152,6 +159,22 @@ final class LibraryCatalogEventRelay: @unchecked Sendable {
         self.onReadable = onReadable
     }
 
+    func holdChangesUntilOwnerIsReady() {
+        lock.withLock { holdsChanges = true }
+    }
+
+    func ownerBecameReady() {
+        lock.withLock { holdsChanges = false }
+    }
+
+    func attachStore(_ store: IncrementalSongStore) {
+        let mirrored = lock.withLock { () -> Int64? in
+            self.store = store
+            return lastMirroredRevision
+        }
+        if let mirrored { store.noteCatalogMirrored(revision: mirrored) }
+    }
+
     func handle(_ event: LibraryCatalogMirrorEvent) {
         let change: LibraryCatalogChange?
         var readable: Bool?
@@ -159,6 +182,11 @@ final class LibraryCatalogEventRelay: @unchecked Sendable {
         case .mirrored(let storeRevision):
             // 在工作线程上同步确认:目录下一次写之前,已经提交的那些批从覆盖层里拿掉。
             pendingWrites?.catalogMirrored(storeRevision: storeRevision)
+            let store = lock.withLock { () -> IncrementalSongStore? in
+                lastMirroredRevision = max(lastMirroredRevision ?? storeRevision, storeRevision)
+                return self.store
+            }
+            store?.noteCatalogMirrored(revision: storeRevision)
             return
         case .stoppedFollowing:
             pendingWrites?.suspend()
@@ -182,9 +210,16 @@ final class LibraryCatalogEventRelay: @unchecked Sendable {
             readable = value
         }
         let shouldSchedule = lock.withLock { () -> Bool in
-            if let change { pending.append(change) }
-            if let readable { pendingReadable = readable }
-            guard !drainScheduled else { return false }
+            var delivers = false
+            if let change, !holdsChanges {
+                pending.append(change)
+                delivers = true
+            }
+            if let readable {
+                pendingReadable = readable
+                delivers = true
+            }
+            guard delivers, !drainScheduled else { return false }
             drainScheduled = true
             return true
         }

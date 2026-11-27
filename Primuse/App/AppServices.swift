@@ -1294,6 +1294,8 @@ final class AppServices {
             )
         } else {
             library = MusicLibrary.makePreparing(disabledSourceIDs: initiallyDisabledSourceIDs)
+            // 曲库目录不等发布:现在就打开、按旧库的变更流水追上。列表读者与整库的活照旧等发布。
+            library.startCatalogBeforePublish(spokenWordClassification: initialClassification)
             let presentation = presentationFirst ? library.deferStartupReadUntilPresentation() : nil
             preparation = Task.detached(priority: .userInitiated) {
                 if let presentation {

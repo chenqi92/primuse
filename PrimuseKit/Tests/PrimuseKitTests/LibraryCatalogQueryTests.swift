@@ -209,7 +209,7 @@ struct LibraryCatalogQueryTests {
         #expect(found.withLock { $0 } == "s3")
     }
 
-    @Test("A visible album or artist read by ID is the item the visible lists give")
+    @Test("A visible album or artist read by ID is the item the visible lists give; the split flag answers like a full scan")
     func visibleAlbumAndArtistByID() throws {
         let temporary = try TemporaryCatalog()
         let catalog = temporary.catalog
@@ -225,9 +225,14 @@ struct LibraryCatalogQueryTests {
                 sourceID: source, genre: index % 6 == 0 ? "Audiobook" : "Pop"
             ))
         }
-        func splitFlags() throws -> (lists: Bool, pointRead: Bool) {
+        /// 目录用的那条判断(走 `kind` 打头的索引),与原来的写法(`kind != 0`,整表扫)各问一遍。
+        func splitFlags() throws -> (indexed: Bool, scanned: Bool) {
             try catalog.reader.read { db in
-                (try LibraryCatalog.visibleSplitsLibrary(in: db), try LibraryCatalog.visibleSplitsLibraryForPointRead(in: db))
+                let scanned = try Bool.fetchOne(db, sql: """
+                    SELECT EXISTS (SELECT 1 FROM source WHERE enabled = 0)
+                        OR EXISTS (SELECT 1 FROM song WHERE kind != 0 AND sourceKey IN (SELECT key FROM source WHERE enabled = 1))
+                    """) ?? false
+                return (try LibraryCatalog.visibleSplitsLibrary(in: db), scanned)
             }
         }
         /// 目录里此刻有没有不算音乐的歌(逐首问类别,不经那两条判断)。
@@ -238,9 +243,26 @@ struct LibraryCatalogQueryTests {
             }
         }
         func assertMatchesLists() throws {
-            // 按 id 取一项用的那条判断与列表用的同一个答案。
+            // 走索引的写法与整表扫的写法同一个答案;列表与按 id 取一项用的都是它。
             let flags = try splitFlags()
-            #expect(flags.lists == flags.pointRead)
+            #expect(flags.indexed == flags.scanned)
+            // 列表查询本身:可见的专辑键、艺人键,与按整表扫的那条判断直接算出来的同一批。
+            let expected = try catalog.reader.read { db -> (albums: Set<Int64>, artists: Set<Int64>) in
+                let enabled = "SELECT key FROM source WHERE enabled = 1"
+                let albumFilter = flags.scanned
+                    ? " WHERE key IN (SELECT albumKey FROM albumSourceStat WHERE kind = 0 AND sourceKey IN (\(enabled)))" : ""
+                let artistFilter = flags.scanned
+                    ? " WHERE key IN (SELECT artistRef FROM artistSourceStat WHERE kind = 0 AND sourceKey IN (\(enabled)))" : ""
+                return (
+                    Set(try Int64.fetchAll(db, sql: "SELECT key FROM album\(albumFilter)")),
+                    Set(try Int64.fetchAll(db, sql: "SELECT key FROM artist\(artistFilter)"))
+                )
+            }
+            #expect(Set(try catalog.albumKeys(visibleOnly: true).keys.map(Int64.init)) == expected.albums)
+            #expect(Set(try catalog.artistKeys(visibleOnly: true).keys.map(Int64.init)) == expected.artists)
+            let browse = try #require(try catalog.albumBrowseKeys(order: .title, unknownArtistName: nil, currentYear: 2026))
+            #expect(Set(browse.keys.map(Int64.init)) == expected.albums)
+            #expect(Set(try catalog.artistBrowseKeys(unknownArtistName: nil).keys.map(Int64.init)) == expected.artists)
             let albums = try catalog.albums(keys: catalog.albumKeys(visibleOnly: true).keys)
             let artists = try catalog.artists(keys: catalog.artistKeys(visibleOnly: true).keys)
             #expect(!albums.isEmpty && !artists.isEmpty)
@@ -263,25 +285,25 @@ struct LibraryCatalogQueryTests {
         // 只有音乐、没有停用的源:可见的就是整库。
         try catalog.apply(upserts: songs.filter { $0.genre == "Pop" })
         #expect(try !hasNonMusic())
-        #expect(try !splitFlags().pointRead)
+        #expect(try !splitFlags().indexed)
         try assertMatchesLists()
         // 加上有声书那几首:有不算音乐的歌时两条判断都为真。
         try catalog.apply(upserts: songs)
         let classifiedNonMusic = try hasNonMusic()
-        #expect(try splitFlags().pointRead == classifiedNonMusic)
+        #expect(try splitFlags().indexed == classifiedNonMusic)
         try assertMatchesLists()
         // 停用一个源:只在那个源里有歌的专辑、艺人不再可见,其余的计数只算可见的歌。
         try catalog.setSourceEnabled(false, sourceID: "B")
-        #expect(try splitFlags().pointRead)
+        #expect(try splitFlags().indexed)
         try assertMatchesLists()
         // 启用的源里只剩音乐(不算音乐的都在停用的源里)。
         try catalog.apply(upserts: [], deletingIDs: songs.filter { $0.genre != "Pop" && $0.sourceID == "A" }.map(\.id))
-        #expect(try splitFlags().pointRead)
+        #expect(try splitFlags().indexed)
         try assertMatchesLists()
         // 重新启用、去掉其余不算音乐的:回到整库都可见。
         try catalog.setSourceEnabled(true, sourceID: "B")
         try catalog.apply(upserts: [], deletingIDs: songs.filter { $0.genre != "Pop" }.map(\.id))
-        #expect(try !splitFlags().pointRead)
+        #expect(try !splitFlags().indexed)
         try assertMatchesLists()
         try catalog.setSourceEnabled(false, sourceID: "B")
         try assertMatchesLists()

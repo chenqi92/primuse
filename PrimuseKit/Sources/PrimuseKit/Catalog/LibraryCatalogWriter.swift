@@ -29,10 +29,14 @@ extension LibraryCatalog {
     /// `renaming`(旧 id → 新 id):歌只是换了 id,行号与库内位置不变(与旧库 `IncrementalSongStore.apply`
     /// 的改名一致);新 id 已在目录里时不改名。改了名的行随后按新值整行重算派生(类别可能跟 id 有关),
     /// 没在 `upserts` 里的就用库里存的值。
+    ///
+    /// `mirrorMetadata`:同一个事务里一并写下的镜像状态(`setMirrorMetadata` 的键)。按旧库的变更流水追平时,
+    /// 一个修订号的改动与「镜像到这个修订号」要么都在、要么都不在,中途被杀后才能从上一个修订号接着放。
     public func apply(
         upserts: [Song],
         deletingIDs: some Collection<String> = [String](),
-        renaming: [String: String] = [:]
+        renaming: [String: String] = [:],
+        mirrorMetadata: [String: String] = [:]
     ) throws -> LibraryCatalogChangeSummary {
         let configuration = groupingConfiguration
         let measures = measuresWriteWork
@@ -96,6 +100,9 @@ extension LibraryCatalog {
                 try grouping.flush()
             }
 
+            for (key, value) in mirrorMetadata {
+                try Self.setMeta(Self.mirrorMetaPrefix + key, value, in: db)
+            }
             let revision = inserted.isEmpty && updated.isEmpty && deleted.isEmpty
                 ? try Self.revision(in: db)
                 : try Self.bumpRevision(in: db)

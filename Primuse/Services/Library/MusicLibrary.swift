@@ -4872,7 +4872,10 @@ final class MusicLibrary {
     /// 影子校验,内存模型仍是真相;P2 的页面经 `catalogHost.reader` / `LibraryListModel` 读它。
     /// nil:这个库不带目录(测试注入的临时目录默认不带)。
     @ObservationIgnored let catalogHost: LibraryCatalogHost?
+    /// 目录的后台镜像已经启动(冷启动时在构造之后立刻启动,见 `startCatalogBeforePublish`;否则在第一次发布时)。
     @ObservationIgnored private var catalogStarted = false
+    /// 第一次发布已经把正式的输入、旧库的句柄交给目录,列表读者从此能读它。
+    @ObservationIgnored private var catalogAttached = false
     /// 这一轮进程里扫描索引已经给过专辑艺人目录(之前目录里留着上一轮的,不先清掉)。
     @ObservationIgnored private var catalogAlbumArtistFoldersReceived = false
     @ObservationIgnored private var catalogSourceNames: [String: String]?
@@ -4890,6 +4893,8 @@ final class MusicLibrary {
     /// 测试:按 id 读与那几种有界的范围查询一律走「待写登记 → 行缓存 → 目录」(模型在内存里也是),
     /// 用来与内存的答案逐项比。目录这条路此刻答不了时照旧用内存。
     @ObservationIgnored var byIDReadsUseCatalogForTesting = false
+    /// 测试:第一次发布之前按 id 读也从已经跟上旧库的目录答(发版里关着,见 `answersByIDBeforeFirstPublish`)。
+    @ObservationIgnored var byIDReadsBeforeFirstPublishForTesting = false
     /// 真实使用中按 id 读的抽样比对(只在 DEBUG 里),见 `sampleByIDParity`。
     @ObservationIgnored var byIDParitySampling = LibraryByIDParitySampling()
     @ObservationIgnored private var byIDParityTask: Task<Void, Never>?
@@ -9326,6 +9331,8 @@ final class MusicLibrary {
         // 同样由整库算出、随时能重建的两份: 喜欢的专辑 / 艺人键表, 「此刻的专辑」候选索引。
         LibraryFavoritesStore.releaseKeyCache()
         AlbumRecommendationService.shared.releaseCandidateIndex()
+        // 曲库目录各连接的页缓存(SQLite 自己重读)。
+        releaseCatalogMemory()
         Task {
             await SongListSnapshotStore.shared.releaseCachedSnapshots()
             await LibrarySearchIndex.shared.releaseReadCaches()
@@ -17096,7 +17103,8 @@ final class MusicLibrary {
         guard let catalogHost, songStore != nil, !persistenceBlockedByCorruption else { return nil }
         let mirror = catalogHost.mirror
         return catalogHost.pendingWrites.record(upserts: upserts, deletingIDs: deletingIDs, renaming: renaming) { id in
-            (try? mirror.readableCatalog?.song(id: id)) != nil
+            // 问的是目录里此刻有没有这一行,与列表读者看不看得到它无关。
+            (try? mirror.caughtUpCatalog?.song(id: id)) != nil
         }
     }
 
@@ -19813,16 +19821,35 @@ struct LibraryByIDParitySampling: Equatable {
 #endif
 
 extension MusicLibrary {
-    /// 歌曲模型此刻不在内存里:还没发布,按 id 的索引是空的。重载期间(电视装快照)旧数组还在,不算。
-    private var songModelIsUnloaded: Bool {
-        songIndexByID.isEmpty && visibleSongIndexByID.isEmpty && readiness == .preparing
+    /// 第一次发布之前(冷启动,内存模型还在主线程外装)按 id 读要不要从已经跟上旧库的目录答。
+    ///
+    /// 现在关着,发布之前照旧答不出。机制都在:目录在构造之后就启动、按流水追上
+    /// (`startCatalogBeforePublish`),答案从不出自落后的目录(`LibraryCatalogHost.songLookup()`)。
+    /// 关着的原因在调用方:发布之前它们的写是排着队等重放的闭包,目录这条路看不到;喜欢、歌单、停用的源
+    /// 这些也还是空的。已经查到会因此丢掉改动、把「喜欢」取反的调用方(清单在
+    /// Docs/library-scale/P3-design.md 第 12 节),逐个处理完之前不打开。
+    static let answersByIDBeforeFirstPublish = false
+
+    /// 目录这条路此刻许不许答按 id 的读:发布过之后模型又不在内存里(现在只有测试的钩子会这样)一直可以;
+    /// 第一次发布之前看上面的开关。
+    private var mayAnswerOutsideTheModel: Bool {
+        if catalogAttached { return true }
+        #if DEBUG
+        if byIDReadsBeforeFirstPublishForTesting { return true }
+        #endif
+        return Self.answersByIDBeforeFirstPublish
     }
 
-    /// 模型不在内存里而目录答得出它的样子(可读、在跟写、没有等着跟上的整份替换)时,按 id 读的那条路;
-    /// 否则 nil,调用方照今天的答法。先看索引(不登记观察,模型在的时候一步答完),再看目录,最后才读
-    /// 发布状态:今天目录要到发布之后才启动,启动期间走不到最后一步,不多登记一份观察。
+    /// 歌曲模型此刻不在内存里:还没发布,按 id 的索引是空的。重载期间(电视装快照)旧数组还在,不算。
+    private var songModelIsUnloaded: Bool {
+        songIndexByID.isEmpty && visibleSongIndexByID.isEmpty && mayAnswerOutsideTheModel && readiness == .preparing
+    }
+
+    /// 模型不在内存里而目录答得出它的样子(已经跟上旧库、在跟写、没有等着跟上的整份替换)时,按 id 读的那条路;
+    /// 否则 nil,调用方照今天的答法。先看索引(不登记观察,模型在的时候一步答完),再看许不许、目录答不答得了,
+    /// 最后才读发布状态:冷启动期间开关关着,走不到最后一步,不多登记一份观察。
     fileprivate var lookupOutsideTheModel: LibraryCatalogSongLookup? {
-        guard songIndexByID.isEmpty, visibleSongIndexByID.isEmpty,
+        guard songIndexByID.isEmpty, visibleSongIndexByID.isEmpty, mayAnswerOutsideTheModel,
               let lookup = catalogHost?.songLookup(), readiness == .preparing else { return nil }
         return lookup
     }
@@ -20000,7 +20027,7 @@ extension MusicLibrary {
     /// 外层 nil:目录这条路此刻答不了(`onlyWhileUnloaded` 时还包括模型其实在内存里)。
     fileprivate func visibleAlbumOutsideTheModel(_ id: String, onlyWhileUnloaded: Bool) -> Album?? {
         guard let host = catalogHost, host.pendingWrites.answersLikeMemory,
-              let catalog = host.mirror.readableCatalog, !onlyWhileUnloaded || songModelIsUnloaded else { return nil }
+              let catalog = host.mirror.caughtUpCatalog, !onlyWhileUnloaded || songModelIsUnloaded else { return nil }
         _ = host.revisions.isReadable
         if let cached = catalogCollectionLookups.album(id, revision: host.revisions.albums) { return .some(cached) }
         do {
@@ -20016,7 +20043,7 @@ extension MusicLibrary {
     /// 可见艺人里的这一位,同上。
     fileprivate func visibleArtistOutsideTheModel(_ id: String, onlyWhileUnloaded: Bool) -> Artist?? {
         guard let host = catalogHost, host.pendingWrites.answersLikeMemory,
-              let catalog = host.mirror.readableCatalog, !onlyWhileUnloaded || songModelIsUnloaded else { return nil }
+              let catalog = host.mirror.caughtUpCatalog, !onlyWhileUnloaded || songModelIsUnloaded else { return nil }
         _ = host.revisions.isReadable
         if let cached = catalogCollectionLookups.artist(id, revision: host.revisions.artists) { return .some(cached) }
         do {
@@ -20164,27 +20191,76 @@ extension MusicLibrary: LibraryCatalogOwner {
         }
     }
 
-    /// 曲库就绪后启动目录(打开、迁移都在后台)。重载(电视装快照)时不重复启动。
-    fileprivate func startCatalogIfNeeded() {
-        guard let catalogHost, !catalogStarted, songStore != nil, !persistenceBlockedByCorruption else { return }
+    /// 冷启动(`.preparing` 构造,内存模型在主线程外装)时由 App 在构造之后立刻调用:曲库目录不等发布,现在就
+    /// 打开、按旧库的变更流水追上(P3 第 2 步)。发布之前它不给列表读者读、不做整库的活
+    /// (`LibraryCatalogHost.start(beforeOwnerIsReady:)`);发布时 `startCatalogIfNeeded()` 交上正式的输入。
+    ///
+    /// - Parameter spokenWordClassification: 这一次装载用的有声内容分类(与交给 `prepareStartup` 的是同一份),
+    ///   用来预估分组输入;与目录里存着的不一致时目录不动,等发布。
+    func startCatalogBeforePublish(spokenWordClassification: SpokenWordClassificationInputs) {
+        #if os(tvOS)
+        // 电视的启动可能先装别处来的整份快照(旧库整份替换),目录照旧等发布。
+        #else
+        guard let catalogHost, !catalogStarted, isPreparing else { return }
+        let storePath = catalogHost.mirror.environment.storeURL.path
+        // 还没有旧库(全新安装,或者只有 JSON 快照):没有可追的,照旧等发布。
+        guard FileManager.default.fileExists(atPath: storePath) else { return }
         catalogStarted = true
+        let minimumMigration = Self.loadedSongMigrationVersion
+        catalogHost.start(beforeOwnerIsReady: LibraryCatalogMirrorEarlyStart(
+            inputs: LibraryCatalogMirrorInputs(
+                grouping: catalogGroupingInputs(classification: spokenWordClassification),
+                disabledSourceIDs: disabledSourceIDs,
+                sourceNames: nil
+            ),
+            storeIsWhatTheModelLoads: {
+                guard let state = try? IncrementalSongPageReader.startupState(at: storePath) else { return false }
+                return state.isAuthoritative && state.completedMigrationVersion >= minimumMigration
+            }
+        ))
+        #endif
+    }
+
+    /// 曲库就绪后:目录还没启动的启动(打开、迁移都在后台);冷启动时已经提前启动了的,交上正式的输入、
+    /// 旧库的句柄,放给列表读者。重载(电视装快照)时不重复。
+    fileprivate func startCatalogIfNeeded() {
+        // 旧库这一次用不了(打不开,或者快照坏了、不落盘)时不接:提前启动了的目录留在「持有方还没发布」的状态,
+        // 列表读者读不到它(与没启动一样),之后哪一次发布旧库能用了再接上。
+        guard let catalogHost, !catalogAttached, let songStore, !persistenceBlockedByCorruption else { return }
+        catalogAttached = true
+        catalogHost.attachStore(songStore)
         syncCatalogInputs()
         if catalogAlbumArtistFoldersReceived { catalogHost.mirror.updateFolderParents(albumArtistFolders) }
-        catalogHost.mirror.start()
+        if catalogStarted {
+            catalogHost.ownerBecameReady()
+        } else {
+            catalogStarted = true
+            catalogHost.mirror.start()
+        }
         // 搜索库被杀后待做的整库对账,改按目录变更流水只补改过的歌(目录读不了时它自己退回整库对账)。
         LibrarySearchIndex.attachCatalog(catalogHost.reader)
     }
 
+    /// 曲库目录各连接的页缓存、列表缓存都能重读:进后台、收到内存警告时放掉(PLAN §4.1)。
+    /// 行缓存不动(有上限,在屏的列表正用着)。
+    func releaseCatalogMemory() {
+        catalogHost?.mirror.releaseMemory()
+    }
+
     fileprivate func catalogInputs() -> LibraryCatalogMirrorInputs {
         LibraryCatalogMirrorInputs(
-            grouping: LibraryGroupingConfiguration(
-                artistNames: artistNameConfiguration,
-                unknownArtist: String(localized: "unknown_artist"),
-                classification: visibleContentClassification,
-                genreSeparators: GenreSplitPreference.current
-            ),
+            grouping: catalogGroupingInputs(classification: visibleContentClassification),
             disabledSourceIDs: disabledSourceIDs,
             sourceNames: catalogSourceNames
+        )
+    }
+
+    private func catalogGroupingInputs(classification: SpokenWordClassificationInputs) -> LibraryGroupingConfiguration {
+        LibraryGroupingConfiguration(
+            artistNames: artistNameConfiguration,
+            unknownArtist: String(localized: "unknown_artist"),
+            classification: classification,
+            genreSeparators: GenreSplitPreference.current
         )
     }
 

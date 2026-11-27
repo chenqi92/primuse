@@ -359,3 +359,230 @@ struct ImportBatchProducer: @unchecked Sendable {
         return ImportBatch(rows: records.map { ($0.orderKey, $0.id) }, songs: songs, traits: traits, prepared: prepared)
     }
 }
+
+// MARK: - Catching up from the store's change journal
+
+/// 旧库(`library-songs.sqlite`)一个修订号里做过的事,换成曲库目录的一次写入:
+/// 先改名,再删,最后写入(`upserts` 按库内顺序,新行就按这个先后追加)。
+public struct IncrementalSongStoreChangeBatch: Sendable {
+    public let storeRevision: Int64
+    public let renaming: [String: String]
+    public let deletingIDs: [String]
+    // crash-pattern: allow library-array-property 一个修订号改的行,不超过调用方给的 maximumRowsPerRevision(镜像给 4,096);用完即弃
+    public let upserts: [Song]
+
+    public var rowCount: Int { renaming.count + deletingIDs.count + upserts.count }
+}
+
+public enum IncrementalSongStoreChangeReplay: Equatable, Sendable {
+    /// 流水接得上:`storeRevision` 是读的那一刻旧库的修订号,这之前每个有改动的修订号都交给过调用方。
+    /// `songCount` 是同一刻旧库里的行数(调用方拿它核对重放完的目录)。
+    case replayed(storeRevision: Int64, revisions: Int, rows: Int, songCount: Int)
+    /// 流水接不上,调用方整库对账。附原因(记日志用)。
+    case unavailable(String)
+}
+
+extension IncrementalSongStoreScanner {
+    /// 曲库目录停在旧库的修订号 `mirroredRevision`:把这之后旧库做过的改动按修订号的先后重放给 `body`,
+    /// 每个修订号一批(调用方要把一批连同「镜像到这个修订号」一起原子地写进目录,重放才不怕中途被杀)。
+    ///
+    /// 流水只记 id。写入的内容取旧库里这一行此刻的样子:同一行后来又改过时拿到的是更新的那一份,
+    /// 后面的批次还会再写一遍,结果相同;这一行后来改了名就按新名字取、换回当时的 id(下一批里的改名
+    /// 再把它改过去,行号不变);后来删掉了的不写(轮到那一批时目录里本来也没有它)。
+    ///
+    /// 整个重放在旧库的一个读事务里:期间旧库照常能写,读到的始终是开始那一刻的样子。
+    ///
+    /// - Parameters:
+    ///   - maximumRows: 流水里的记录超过这么多就不重放(整库对账更快)。
+    ///   - maximumRowsPerRevision: 一个修订号改的行超过这么多也不重放(一批要在目录的一个事务里写完)。
+    public func replayChanges(
+        after mirroredRevision: Int64,
+        maximumRows: Int,
+        maximumRowsPerRevision: Int,
+        _ body: (IncrementalSongStoreChangeBatch) throws -> Void
+    ) throws -> IncrementalSongStoreChangeReplay {
+        try database.read { db in
+            let journal = IncrementalSongStore.ChangeJournal.self
+            guard try Bool.fetchOne(
+                db, sql: "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
+                arguments: [journal.table]
+            ) == true else { return .unavailable("the store has no change journal yet") }
+            func metadata(_ key: String) throws -> Int64? {
+                try Int64.fetchOne(
+                    db, sql: "SELECT CAST(value AS INTEGER) FROM libraryStoreMetadata WHERE key = ?", arguments: [key]
+                )
+            }
+            guard let floor = try metadata(journal.floorKey) else { return .unavailable("the journal has no starting point") }
+            let storeRevision = try metadata("songs-content-revision") ?? 0
+            guard mirroredRevision >= floor else {
+                return .unavailable("the journal starts at revision \(floor), after the mirrored revision \(mirroredRevision)")
+            }
+            guard mirroredRevision <= storeRevision else {
+                return .unavailable("the mirrored revision \(mirroredRevision) is ahead of the store's \(storeRevision)")
+            }
+
+            let entryCount = try Int.fetchOne(
+                db, sql: "SELECT count(*) FROM \(journal.table) WHERE revision > ?", arguments: [mirroredRevision]
+            ) ?? 0
+            guard entryCount <= maximumRows else {
+                return .unavailable("\(entryCount) journal rows, more than \(maximumRows)")
+            }
+            var entries: [StoreChangeJournalEntry] = []
+            entries.reserveCapacity(entryCount)
+            let rows = try Row.fetchCursor(
+                db, sql: "SELECT revision, kind, id, newID FROM \(journal.table) WHERE revision > ? ORDER BY sequence",
+                arguments: [mirroredRevision]
+            )
+            while let row = try rows.next() {
+                guard let kind = IncrementalSongStore.ChangeJournal.Kind(rawValue: row[1]) else {
+                    return .unavailable("an unknown journal entry kind")
+                }
+                entries.append(StoreChangeJournalEntry(revision: row[0], kind: kind, id: row[2], newID: row[3]))
+            }
+            guard let plan = StoreChangeReplayPlan(entries: entries, storeRevision: storeRevision) else {
+                return .unavailable("journal entries out of order or past the store's revision")
+            }
+            // 流水要一个修订号都不缺。旧库每改一次修订号进一、同一个事务里记流水;不认识流水的旧版本
+            // (降级装回去)写过的话,修订号往前走了,流水里却没有那一次。
+            guard Int64(plan.revisions.count) == storeRevision - mirroredRevision,
+                  plan.revisions.enumerated().allSatisfy({ $0.element.revision == mirroredRevision + Int64($0.offset) + 1 })
+            else {
+                return .unavailable("the journal does not cover every revision after \(mirroredRevision)")
+            }
+            if let large = plan.revisions.first(where: { $0.rowCount > maximumRowsPerRevision }) {
+                return .unavailable("revision \(large.revision) changed \(large.rowCount) rows, more than \(maximumRowsPerRevision)")
+            }
+
+            var replayedRows = 0
+            for revision in plan.revisions {
+                // 这一批要写的行:按它们此刻在旧库里的名字取,库内顺序(orderKey, id)。
+                var stored: [String: (orderKey: Int64, song: Song)] = [:]
+                let currentIDs = Array(Set(revision.upserts.map(\.currentID)))
+                for start in stride(from: 0, to: currentIDs.count, by: 500) {
+                    let chunk = Array(currentIDs[start..<min(start + 500, currentIDs.count)])
+                    let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+                    let fetched = try Row.fetchAll(
+                        db, sql: "SELECT orderKey, id, payload FROM librarySongRecords WHERE id IN (\(placeholders))",
+                        arguments: StatementArguments(chunk)
+                    )
+                    let songs = try IncrementalSongStore.decodeSongs(fetched.map { $0[2] as Data })
+                    guard songs.count == fetched.count else { throw LibraryCatalogError.corruptRow }
+                    for (row, song) in zip(fetched, songs) { stored[row[1]] = (row[0], song) }
+                }
+                var upserts: [(orderKey: Int64, song: Song)] = []
+                upserts.reserveCapacity(revision.upserts.count)
+                for upsert in revision.upserts {
+                    guard let row = stored[upsert.currentID] else {
+                        return .unavailable("the store has no row \(upsert.currentID) that the journal says it wrote")
+                    }
+                    var song = row.song
+                    if song.id != upsert.id { song.id = upsert.id }
+                    upserts.append((row.orderKey, song))
+                }
+                upserts.sort { $0.orderKey != $1.orderKey ? $0.orderKey < $1.orderKey : $0.song.id < $1.song.id }
+                let batch = IncrementalSongStoreChangeBatch(
+                    storeRevision: revision.revision,
+                    renaming: revision.renaming,
+                    deletingIDs: revision.deletingIDs,
+                    upserts: upserts.map(\.song)
+                )
+                try body(batch)
+                replayedRows += batch.rowCount
+            }
+            let songCount = try Int.fetchOne(db, sql: "SELECT count(*) FROM librarySongRecords") ?? 0
+            return .replayed(
+                storeRevision: storeRevision, revisions: plan.revisions.count, rows: replayedRows, songCount: songCount
+            )
+        }
+    }
+}
+
+struct StoreChangeJournalEntry: Equatable {
+    var revision: Int64
+    var kind: IncrementalSongStore.ChangeJournal.Kind
+    var id: String
+    var newID: String?
+}
+
+/// 流水里一段记录按修订号分好的重放计划(不碰数据库,单独测)。
+struct StoreChangeReplayPlan: Equatable {
+    struct Upsert: Equatable {
+        /// 这一批里写的是哪个 id。
+        var id: String
+        /// 这一行此刻在旧库里叫什么(之后改过名就是新名字)。
+        var currentID: String
+    }
+
+    struct Revision: Equatable {
+        var revision: Int64
+        var renaming: [String: String] = [:]
+        var deletingIDs: [String] = []
+        var upserts: [Upsert] = []
+
+        var rowCount: Int { renaming.count + deletingIDs.count + upserts.count }
+    }
+
+    var revisions: [Revision]
+
+    /// `entries` 按流水的先后(修订号不降,同一个修订号里先改名、再删、最后写入)。顺序不对、
+    /// 或者有修订号超过 `storeRevision` 时为 nil。
+    init?(entries: [StoreChangeJournalEntry], storeRevision: Int64) {
+        var previous: (revision: Int64, kind: Int) = (.min, 0)
+        for entry in entries {
+            guard entry.revision <= storeRevision,
+                  entry.revision > previous.revision
+                    || (entry.revision == previous.revision && entry.kind.rawValue >= previous.kind) else { return nil }
+            if entry.kind == .rename, entry.newID == nil { return nil }
+            previous = (entry.revision, entry.kind.rawValue)
+        }
+
+        // 从后往前走一遍:`fate[x]` 是「此刻叫 x 的那一行」最后的下落(改成了哪个名字;nil 是后来删掉了)。
+        // 表里没有的 id 就是一直叫这个名字、一直在。
+        var fate: [String: String?] = [:]
+        var currentIDByEntry = [String?](repeating: nil, count: entries.count)
+        for index in entries.indices.reversed() {
+            let entry = entries[index]
+            switch entry.kind {
+            case .upsert:
+                // 这一刻写下的这一行:后来叫什么。写入之前叫这个名字的行(如果有)是同一行,下落相同。
+                if let known = fate[entry.id] {
+                    currentIDByEntry[index] = known
+                } else {
+                    currentIDByEntry[index] = entry.id
+                }
+            case .delete:
+                // 删之前叫这个名字的行到此为止。
+                fate[entry.id] = .some(nil)
+            case .rename:
+                guard let newID = entry.newID else { return nil }
+                // 改名之前叫旧名字的行,下落就是新名字那一行后来的下落;新名字在改名之前没有行。
+                let after: String? = fate[newID] ?? newID
+                fate[newID] = nil
+                fate[entry.id] = .some(after)
+            case .marker:
+                break
+            }
+        }
+
+        var revisions: [Revision] = []
+        for (index, entry) in entries.enumerated() {
+            if revisions.last?.revision != entry.revision { revisions.append(Revision(revision: entry.revision)) }
+            let last = revisions.count - 1
+            switch entry.kind {
+            case .rename:
+                if let newID = entry.newID { revisions[last].renaming[entry.id] = newID }
+            case .delete:
+                revisions[last].deletingIDs.append(entry.id)
+            case .upsert:
+                // 后来删掉了的不写;同一批里同一个 id 记了两次的只写一次。
+                guard let currentID = currentIDByEntry[index],
+                      !revisions[last].upserts.contains(where: { $0.id == entry.id }) else { continue }
+                revisions[last].upserts.append(Upsert(id: entry.id, currentID: currentID))
+            case .marker:
+                // 一行都没动的修订号:占一批空的(调用方照样记下镜像到了这个修订号)。
+                break
+            }
+        }
+        self.revisions = revisions
+    }
+}

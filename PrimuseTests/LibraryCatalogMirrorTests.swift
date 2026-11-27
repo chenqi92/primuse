@@ -55,6 +55,8 @@ final class LibraryCatalogMirrorTests: XCTestCase {
         scrolling: InteractionFlag? = nil,
         maximumApplyPause: Duration = .seconds(1),
         startDelay: Duration = .zero,
+        journalCatchUpMaximumRows: Int? = nil,
+        inputs: LibraryCatalogMirrorInputs? = LibraryCatalogMirrorTests.defaultInputs,
         events: @escaping @Sendable (LibraryCatalogMirrorEvent) -> Void = { _ in }
     ) -> LibraryCatalogMirror {
         var environment = LibraryCatalogMirrorEnvironment(catalogURL: catalogURL, storeURL: storeURL)
@@ -66,12 +68,20 @@ final class LibraryCatalogMirrorTests: XCTestCase {
         environment.importBatchSize = batchSize
         environment.applyChunkSize = max(2, batchSize)
         environment.maximumQueuedSongs = maximumQueuedSongs
+        if let journalCatchUpMaximumRows { environment.journalCatchUpMaximumRows = journalCatchUpMaximumRows }
         environment.importBatchHook = hook
         environment.verificationTimeout = .seconds(10)
         environment.log = { print("[mirror] \($0)") }
         let mirror = LibraryCatalogMirror(environment: environment, events: events)
-        mirror.updateInputs(Self.defaultInputs)
+        if let inputs { mirror.updateInputs(inputs) }
         return mirror
+    }
+
+    /// 持有方发布之前就启动时预估的输入:与 `defaultInputs` 相同,只是源的名字还不知道。
+    static var earlyInputs: LibraryCatalogMirrorInputs {
+        var inputs = defaultInputs
+        inputs.sourceNames = nil
+        return inputs
     }
 
     static let defaultInputs = LibraryCatalogMirrorInputs(
@@ -155,6 +165,8 @@ final class LibraryCatalogMirrorTests: XCTestCase {
 
     // MARK: - Drift
 
+    /// 旧库的变更流水接不上时(这里把上限压到 0;没有流水的旧版本写过旧库的情形在 PrimuseKit 的流水测试里)
+    /// 照旧整库对账。
     func testDriftFromAnOlderBuildResyncsByStreamingWithoutReimport() async throws {
         let store = try IncrementalSongStore(path: storeURL.path)
         var songs = Self.makeSongs(24)
@@ -170,9 +182,11 @@ final class LibraryCatalogMirrorTests: XCTestCase {
         let added = Self.makeSongs(3, prefix: "late")
         try store.apply(upserts: [songs[3], songs[10]] + added, deletingIDs: [songs[7].id])
 
-        let second = makeMirror(batchSize: 5)
+        let second = makeMirror(batchSize: 5, journalCatchUpMaximumRows: 0)
         second.start()
         await second.waitUntilIdle()
+        XCTAssertEqual(second.statistics.journalCatchUps, 0)
+        XCTAssertEqual(second.statistics.journalCatchUpFallbacks, 1)
         XCTAssertEqual(second.statistics.resyncs, 1)
         XCTAssertEqual(second.statistics.importRuns, 0, "drift is repaired without a re-import")
         let catalog = try XCTUnwrap(second.readableCatalog)
@@ -182,6 +196,279 @@ final class LibraryCatalogMirrorTests: XCTestCase {
         XCTAssertEqual(second.mirroredStoreRevision, try store.startupState().contentRevision)
         try assertCatalogMatchesStore(catalog)
         await second.stop()
+    }
+
+    // MARK: - Journal catch-up
+
+    /// 目录没开着的时候旧库写过:按旧库的变更流水只补改过的行,不整库对账;结果与旧库逐行相同。
+    func testACatalogBehindTheStoreCatchesUpFromTheJournalWithoutAResync() async throws {
+        let store = try IncrementalSongStore(path: storeURL.path)
+        var songs = Self.makeSongs(24)
+        try store.replaceAll(with: songs)
+        let first = makeMirror(batchSize: 5)
+        first.start()
+        await first.waitUntilIdle()
+        await first.stop()
+
+        // 三个修订号:改两首加三首;删一首;一首改名又改标题。
+        songs[3].title = "Retitled 3"
+        songs[10].albumTitle = "Moved Album"
+        let added = Self.makeSongs(3, prefix: "late")
+        try store.apply(upserts: [songs[3], songs[10]] + added, deletingIDs: [])
+        try store.apply(upserts: [], deletingIDs: [songs[7].id])
+        var renamed = songs[5]
+        renamed.id = "renamed-5"
+        renamed.title = "Renamed 5"
+        let last = try store.apply(upserts: [renamed], deletingIDs: [], renaming: [songs[5].id: renamed.id])
+
+        let second = makeMirror(batchSize: 5)
+        second.start()
+        await second.waitUntilIdle()
+        let statistics = second.statistics
+        XCTAssertEqual(statistics.journalCatchUps, 1)
+        XCTAssertEqual(statistics.journalCatchUpRows, 5 + 1 + 2)
+        XCTAssertEqual(statistics.journalCatchUpFallbacks, 0)
+        XCTAssertEqual(statistics.resyncs, 0, "the journal covers the gap: no full re-sync")
+        XCTAssertEqual(statistics.importRuns, 0)
+        let catalog = try XCTUnwrap(second.readableCatalog)
+        XCTAssertEqual(try catalog.songCount(.everything), 26)
+        XCTAssertEqual(try catalog.song(id: songs[3].id)?.title, "Retitled 3")
+        XCTAssertNil(try catalog.song(id: songs[7].id))
+        XCTAssertNil(try catalog.song(id: songs[5].id))
+        XCTAssertEqual(try catalog.song(id: renamed.id)?.title, "Renamed 5")
+        XCTAssertEqual(second.mirroredStoreRevision, last)
+        try assertCatalogMatchesStore(catalog)
+
+        // 追上之后照常跟写:修订号接着往下走。
+        var later = songs[1]
+        later.title = "Written after the catch-up"
+        let revision = try store.apply(upserts: [later], deletingIDs: [])
+        second.enqueueApply(upserts: [later], deletingIDs: [], storeRevision: revision)
+        await second.waitUntilIdle()
+        XCTAssertEqual(second.mirroredStoreRevision, revision)
+        XCTAssertEqual(second.statistics.resyncs, 0)
+        try assertCatalogMatchesStore(try XCTUnwrap(second.readableCatalog))
+        await second.stop()
+    }
+
+    /// 打开、按流水追上都不等整库那道门(App 在后台、温度高):门关着启动,目录照样追上、可读。
+    /// 流水接不上、要整库对账时才等门开,这期间目录对谁都不可读。
+    func testOpeningAndCatchingUpDoNotWaitForTheBulkWorkGate() async throws {
+        let store = try IncrementalSongStore(path: storeURL.path)
+        let songs = Self.makeSongs(12)
+        try store.replaceAll(with: songs)
+        let first = makeMirror(batchSize: 4)
+        first.start()
+        await first.waitUntilIdle()
+        await first.stop()
+        var edited = songs[2]
+        edited.title = "Edited in the background"
+        let revision = try store.apply(upserts: [edited], deletingIDs: [])
+
+        let blocked = InteractionFlag()
+        blocked.set()
+        let second = makeMirror(batchSize: 4, bulkWorkBlocked: blocked)
+        second.start()
+        let caughtUp = try await Self.waitForCatalog(second, timeout: .seconds(5)) {
+            try $0.song(id: edited.id)?.title == edited.title
+        }
+        XCTAssertTrue(caughtUp, "opening and the journal catch-up must not wait for the bulk-work gate")
+        XCTAssertEqual(second.mirroredStoreRevision, revision)
+        XCTAssertEqual(second.statistics.journalCatchUps, 1)
+        await second.stop()
+
+        var again = songs[4]
+        again.title = "Needs a full re-sync"
+        try store.apply(upserts: [again], deletingIDs: [])
+        let third = makeMirror(batchSize: 4, bulkWorkBlocked: blocked, journalCatchUpMaximumRows: 0)
+        third.start()
+        try await Task.sleep(for: .milliseconds(800))
+        XCTAssertNil(third.readableCatalog, "a catalog that still needs the full re-sync is not readable")
+        XCTAssertNil(third.caughtUpCatalog)
+        XCTAssertEqual(third.statistics.resyncs, 0, "the full re-sync keeps its gate")
+        blocked.set(false)
+        await third.waitUntilIdle()
+        XCTAssertEqual(third.statistics.resyncs, 1)
+        XCTAssertEqual(try XCTUnwrap(third.readableCatalog).song(id: again.id)?.title, again.title)
+        await third.stop()
+    }
+
+    // MARK: - Started before the owner is ready (cold launch)
+
+    /// 一个迁移好的目录,之后旧库又往前走了一个修订号(目录没跟)。返回目录停在的修订号与改过的那首。
+    private func makeCatalogOneRevisionBehind(songCount: Int = 12) async throws -> (mirrored: Int64, store: Int64, edited: Song) {
+        let store = try IncrementalSongStore(path: storeURL.path)
+        let songs = Self.makeSongs(songCount)
+        try store.replaceAll(with: songs)
+        let first = makeMirror(batchSize: 4)
+        first.start()
+        await first.waitUntilIdle()
+        let mirrored = try XCTUnwrap(first.mirroredStoreRevision)
+        await first.stop()
+        var edited = songs[2]
+        edited.title = "Edited while the catalog was closed"
+        let revision = try store.apply(upserts: [edited], deletingIDs: [])
+        return (mirrored, revision, edited)
+    }
+
+    /// 持有方还没发布就启动(冷启动):目录打开、按流水追上,按 id 的读法拿得到;列表读者、可读事件等发布。
+    func testAnEarlyStartedCatalogCatchesUpButStaysHiddenFromListReadersUntilTheOwnerIsReady() async throws {
+        let behind = try await makeCatalogOneRevisionBehind()
+        let readability = OSAllocatedReadabilityLog()
+        let mirror = makeMirror(batchSize: 4, inputs: nil) { event in
+            if case .readability(let readable) = event { readability.append(readable) }
+        }
+        mirror.start(beforeOwnerIsReady: LibraryCatalogMirrorEarlyStart(
+            inputs: Self.earlyInputs, storeIsWhatTheModelLoads: { true }
+        ))
+        await mirror.waitUntilIdle()
+        XCTAssertNil(mirror.readableCatalog, "list readers wait for the owner")
+        let caughtUp = try XCTUnwrap(mirror.caughtUpCatalog, "by-id readers get the catalog once it has caught up")
+        XCTAssertEqual(try caughtUp.song(id: behind.edited.id)?.title, behind.edited.title)
+        XCTAssertEqual(mirror.mirroredStoreRevision, behind.store)
+        XCTAssertEqual(mirror.statistics.journalCatchUps, 1)
+        XCTAssertEqual(readability.values, [], "no readability event before the owner is ready")
+
+        // 发布:交上正式的输入(只多了源的名字),放给读者。
+        mirror.updateInputs(Self.defaultInputs)
+        mirror.ownerBecameReady()
+        await mirror.waitUntilIdle()
+        XCTAssertNotNil(mirror.readableCatalog)
+        XCTAssertEqual(readability.values, [true])
+        XCTAssertEqual(mirror.statistics.groupingRebuilds, 0)
+        XCTAssertEqual(mirror.statistics.resyncs, 0)
+        try assertCatalogMatchesStore(try XCTUnwrap(mirror.readableCatalog))
+        await mirror.stop()
+    }
+
+    /// 预估的输入与目录里存着的不一样,或者内存模型这一次不是原样装旧库:提前启动的目录一个字节都不写、
+    /// 对谁都不可读,等发布时的正式输入。
+    func testAnEarlyStartWhoseInputsDoNotMatchLeavesTheCatalogAloneUntilTheOwnerIsReady() async throws {
+        let behind = try await makeCatalogOneRevisionBehind()
+        var otherGrouping = Self.earlyInputs
+        otherGrouping.grouping = LibraryGroupingConfiguration(unknownArtist: "Someone Else")
+        var otherSources = Self.earlyInputs
+        otherSources.disabledSourceIDs = ["src-b"]
+        let cases: [(String, LibraryCatalogMirrorEarlyStart)] = [
+            ("grouping", LibraryCatalogMirrorEarlyStart(inputs: otherGrouping, storeIsWhatTheModelLoads: { true })),
+            ("disabled sources", LibraryCatalogMirrorEarlyStart(inputs: otherSources, storeIsWhatTheModelLoads: { true })),
+            ("store", LibraryCatalogMirrorEarlyStart(inputs: Self.earlyInputs, storeIsWhatTheModelLoads: { false })),
+        ]
+        for (name, early) in cases {
+            let mirror = makeMirror(batchSize: 4, inputs: nil)
+            mirror.start(beforeOwnerIsReady: early)
+            await mirror.waitUntilIdle()
+            XCTAssertNil(mirror.caughtUpCatalog, name)
+            XCTAssertNil(mirror.readableCatalog, name)
+            XCTAssertEqual(mirror.mirroredStoreRevision, behind.mirrored, "\(name): the catalog was not written")
+            XCTAssertEqual(mirror.statistics.journalCatchUps, 0, name)
+            guard name == "store" else {
+                await mirror.stop()
+                continue
+            }
+            // 发布:正式的输入到了才追。
+            mirror.updateInputs(Self.defaultInputs)
+            mirror.ownerBecameReady()
+            await mirror.waitUntilIdle()
+            XCTAssertEqual(mirror.statistics.journalCatchUps, 1)
+            XCTAssertEqual(mirror.statistics.resyncs, 0)
+            XCTAssertEqual(mirror.mirroredStoreRevision, behind.store)
+            try assertCatalogMatchesStore(try XCTUnwrap(mirror.readableCatalog))
+            await mirror.stop()
+        }
+    }
+
+    /// 第一次迁移是整库的活:提前启动时连目录文件都不建,等发布。
+    func testAnEarlyStartDoesNoBulkWorkBeforeTheOwnerIsReady() async throws {
+        let store = try IncrementalSongStore(path: storeURL.path)
+        try store.replaceAll(with: Self.makeSongs(8))
+        let mirror = makeMirror(batchSize: 4, inputs: nil)
+        mirror.start(beforeOwnerIsReady: LibraryCatalogMirrorEarlyStart(
+            inputs: Self.earlyInputs, storeIsWhatTheModelLoads: { true }
+        ))
+        try await Task.sleep(for: .milliseconds(700))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: catalogURL.path))
+        XCTAssertEqual(mirror.statistics.importRuns, 0)
+        XCTAssertNil(mirror.caughtUpCatalog)
+
+        mirror.updateInputs(Self.defaultInputs)
+        mirror.ownerBecameReady()
+        await mirror.waitUntilIdle()
+        XCTAssertEqual(mirror.statistics.importsCompleted, 1)
+        try assertCatalogMatchesStore(try XCTUnwrap(mirror.readableCatalog))
+        await mirror.stop()
+    }
+
+    /// 不变量:目录落后旧库期间(正在按流水追)按 id 的读法拿不到它,读不到旧值;给出来的那一刻已经是
+    /// 旧库的样子。
+    func testByIDReadersNeverGetACatalogThatIsBehindTheStore() async throws {
+        let store = try IncrementalSongStore(path: storeURL.path)
+        let songs = Self.makeSongs(40)
+        try store.replaceAll(with: songs)
+        let first = makeMirror(batchSize: 4)
+        first.start()
+        await first.waitUntilIdle()
+        await first.stop()
+        // 落后三十个修订号,每个改一首。
+        var lastRevision: Int64 = 0
+        for index in 0..<30 {
+            var edited = songs[index]
+            edited.title = "New title \(index)"
+            lastRevision = try store.apply(upserts: [edited], deletingIDs: [])
+        }
+
+        // 增量写入为滑动让路:追的过程拉长到看得见。
+        let scrolling = InteractionFlag()
+        scrolling.set()
+        let mirror = makeMirror(batchSize: 4, scrolling: scrolling, maximumApplyPause: .milliseconds(30), inputs: nil)
+        mirror.start(beforeOwnerIsReady: LibraryCatalogMirrorEarlyStart(
+            inputs: Self.earlyInputs, storeIsWhatTheModelLoads: { true }
+        ))
+        var sawBehind = false
+        let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+        while ContinuousClock.now < deadline {
+            if let catalog = mirror.caughtUpCatalog {
+                XCTAssertEqual(mirror.mirroredStoreRevision, lastRevision, "handed out only at the store's revision")
+                for index in 0..<30 {
+                    XCTAssertEqual(try catalog.song(id: songs[index].id)?.title, "New title \(index)")
+                }
+                break
+            }
+            sawBehind = true
+            XCTAssertNil(mirror.readableCatalog)
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertTrue(sawBehind, "the catalog was not handed out while it was behind")
+        try assertCatalogMatchesStore(try XCTUnwrap(mirror.caughtUpCatalog))
+        XCTAssertEqual(mirror.statistics.journalCatchUps, 1)
+        await mirror.stop()
+    }
+
+    /// 进后台、内存警告时放掉目录各连接的缓存:放完照常读写。
+    func testReleasingMemoryKeepsTheCatalogWorking() async throws {
+        let store = try IncrementalSongStore(path: storeURL.path)
+        let songs = Self.makeSongs(12)
+        try store.replaceAll(with: songs)
+        let mirror = makeMirror(batchSize: 4)
+        mirror.start()
+        await mirror.waitUntilIdle()
+        let catalog = try XCTUnwrap(mirror.readableCatalog)
+        XCTAssertEqual(try catalog.song(id: songs[3].id)?.title, songs[3].title)
+
+        mirror.releaseMemory()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while mirror.statistics.memoryReleases == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(mirror.statistics.memoryReleases, 1)
+        XCTAssertEqual(try catalog.song(id: songs[3].id)?.title, songs[3].title)
+        var edited = songs[4]
+        edited.title = "Written after the release"
+        let revision = try store.apply(upserts: [edited], deletingIDs: [])
+        mirror.enqueueApply(upserts: [edited], deletingIDs: [], storeRevision: revision)
+        await mirror.waitUntilIdle()
+        try assertCatalogMatchesStore(try XCTUnwrap(mirror.readableCatalog))
+        await mirror.stop()
     }
 
     func testResyncFallsBackToImportWhenTheStoreWasReordered() async throws {
@@ -426,6 +713,18 @@ final class LibraryCatalogMirrorTests: XCTestCase {
         XCTAssertEqual(try catalog.songCount(.visible), 12)
         XCTAssertEqual(catalog.groupingConfiguration, inputs.grouping)
         await mirror.stop()
+    }
+}
+
+/// 测试里跨线程收可读事件。
+final class OSAllocatedReadabilityLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var log: [Bool] = []
+
+    var values: [Bool] { lock.withLock { log } }
+
+    func append(_ readable: Bool) {
+        lock.withLock { log.append(readable) }
     }
 }
 

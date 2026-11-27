@@ -52,12 +52,15 @@ public struct IncrementalSongStoreRow: Sendable {
 /// 只读、按批读 `library-songs.sqlite`。独立的只读连接(WAL 下与写连接并行),
 /// 内存只占一批。
 public final class IncrementalSongStoreScanner: @unchecked Sendable {
-    private let database: DatabaseQueue
+    /// 变更流水的重放(`Catalog/LibraryCatalogImporter.swift` 里的 `replayChanges`)也经这个连接读。
+    let database: DatabaseQueue
 
     public init(path: String) throws {
         var configuration = Configuration()
         configuration.readonly = true
         configuration.label = "Primuse song store scanner"
+        // 曲库目录在冷启动时就打开旧库来读,可能正赶上装载那一边打开它(恢复 WAL、建表):等一下,不当场报忙。
+        configuration.busyMode = .timeout(1)
         configuration.prepareDatabase { db in
             try db.execute(sql: "PRAGMA cache_size = -2048")
         }

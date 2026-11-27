@@ -345,6 +345,7 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertEqual(library.catalogHost?.mirror.statistics.importsCompleted, 1)
     }
 
+    /// 一次不带目录的启动只写了旧库:下次启动目录按旧库的变更流水只补改过的行,不整库对账。
     func testDriftFromACatalogLessLaunchIsRepairedWithoutReimport() async throws {
         let songs = Self.fixture()
         do {
@@ -366,8 +367,177 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         let library = makeLibrary()
         await assertShadowMatches(library, "after drift")
         let statistics = try XCTUnwrap(library.catalogHost?.mirror.statistics)
-        XCTAssertEqual(statistics.resyncs, 1)
+        XCTAssertEqual(statistics.journalCatchUps, 1)
+        XCTAssertEqual(statistics.resyncs, 0)
         XCTAssertEqual(statistics.importRuns, 0)
+    }
+
+    // MARK: - Catalog started before the first publish (cold launch)
+
+    /// 冷启动:库以 `.preparing` 构造,目录不等发布就启动。旧库在目录没开着的时候写过(目录落后两个修订号)。
+    /// - 目录追上之前按 id 读答不出,从不给出目录里的旧值;
+    /// - 追上之后、发布之前,按 id 的答案与装好的库逐项相同(发版里这条路关着,这里用测试开关打开);
+    /// - 列表读者(`readableCatalog`、`revisions.isReadable`)到发布才看得到目录;
+    /// - 发布之后目录确认过的修订号告诉旧库,那之前的变更流水在下一次写时剪掉。
+    func testCatalogStartedBeforePublishNeverAnswersByIDFromBehindTheStore() async throws {
+        let disabled: Set<String> = [Self.sourceB]
+        let songs = Self.fixture()
+        do {
+            let first = makeLibrary(disabledSourceIDs: disabled)
+            first.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+            await assertShadowMatches(first, "first launch")
+            guard case .success = await first.persistNowAndWait() else { return XCTFail("fixture did not persist") }
+            await first.stopCatalogMirror()
+        }
+        // 一次不带目录的启动:改一首、删一首,只进旧库。
+        var edited = songs[2]
+        edited.title = "Edited while the catalog was closed"
+        let deleted = songs[10]
+        let albumIDs: [String], artistIDs: [String], genreIDs: [String]
+        do {
+            let older = makeLibrary(catalog: .disabled, disabledSourceIDs: disabled)
+            older.replaceSong(edited)
+            _ = older.deleteSongs([deleted])
+            await older.waitForPendingIndex()
+            _ = await older.persistIncrementalNowAndWait()
+            guard case .success = await older.persistNowAndWait() else { return XCTFail("drift did not persist") }
+            albumIDs = older.albums.map(\.id)
+            artistIDs = older.artists.map(\.id)
+            genreIDs = older.visibleGenres.map(\.id)
+        }
+        XCTAssertFalse(albumIDs.isEmpty)
+        var ids = Set(songs.map(\.id))
+        ids.insert("never-in-the-library")
+
+        let classification = SpokenWordStore.shared.classificationSnapshot
+        let library = MusicLibrary.makePreparing(
+            storageDirectory: directory, disabledSourceIDs: disabled, artistNameConfiguration: .defaultValue,
+            catalogMirroring: .enabled(startDelay: .zero)
+        )
+        libraries.append(library)
+        let host = try XCTUnwrap(library.catalogHost)
+        library.byIDReadsBeforeFirstPublishForTesting = true
+        XCTAssertNil(library.storedSong(id: edited.id), "the catalog has not started")
+        library.startCatalogBeforePublish(spokenWordClassification: classification)
+
+        // 追上之前:答不出。第一次答得出时已经是旧库里的那一行,删掉的那首从头到尾都没有。
+        var answered = false
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+        while ContinuousClock.now < deadline {
+            let answer = library.storedSong(id: edited.id)
+            XCTAssertNil(library.storedSong(id: deleted.id), "a row the store deleted must never be answered")
+            if let answer {
+                XCTAssertEqual(answer.title, edited.title, "the first answer is the store's row, not the catalog's older one")
+                answered = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertTrue(answered, "the catalog caught up before the publish")
+        XCTAssertFalse(library.isReady)
+        XCTAssertNil(host.mirror.readableCatalog, "list readers wait for the publish")
+        XCTAssertFalse(host.revisions.isReadable)
+        XCTAssertNotNil(host.mirror.caughtUpCatalog)
+        let caughtUpRevision = try XCTUnwrap(host.mirror.mirroredStoreRevision)
+        var statistics = host.mirror.statistics
+        XCTAssertEqual(statistics.journalCatchUps, 1)
+        XCTAssertEqual(statistics.resyncs, 0)
+        XCTAssertEqual(statistics.importRuns, 0)
+
+        // 发版里发布之前这条路关着:照没装好的答法。
+        library.byIDReadsBeforeFirstPublishForTesting = false
+        XCTAssertNil(library.storedSong(id: edited.id))
+        XCTAssertNil(library.song(id: edited.id))
+        XCTAssertNil(library.visibleSong(id: edited.id))
+        XCTAssertFalse(library.containsVisibleSong(id: edited.id))
+        XCTAssertNil(library.visibleAlbum(id: albumIDs[0]))
+        XCTAssertTrue(library.songs(forAlbum: albumIDs[0]).isEmpty)
+        library.byIDReadsBeforeFirstPublishForTesting = true
+
+        // 追上之后、发布之前的答案。
+        let before = Dictionary(uniqueKeysWithValues: ids.map { ($0, byIDAnswers(library, $0, fromCatalog: false)) })
+        let albumsBefore = albumIDs.map { library.visibleAlbum(id: $0) }
+        let albumSongsBefore = albumIDs.map { library.songs(forAlbum: $0) }
+        let artistsBefore = artistIDs.map { library.visibleArtist(id: $0) }
+        let artistSongsBefore = artistIDs.map { library.songs(forArtist: $0) }
+        let genreSongsBefore = genreIDs.map { library.songs(forGenre: $0) }
+        XCTAssertEqual(before[edited.id]?.stored?.title, edited.title)
+        XCTAssertNil(before[deleted.id]?.stored)
+        XCTAssertTrue(albumSongsBefore.contains { !$0.isEmpty })
+
+        // 发布:与装好的库逐项相同。
+        library.publish(await MusicLibrary.prepareStartup(
+            disabledSourceIDs: disabled, storageDirectory: directory, artistNameConfiguration: .defaultValue,
+            spokenWordClassification: classification
+        ))
+        XCTAssertTrue(library.isReady)
+        XCTAssertFalse(library.songs.isEmpty)
+        XCTAssertNotNil(host.mirror.readableCatalog, "readable the moment the library is published")
+        for id in ids.sorted() {
+            let expected = byIDAnswers(library, id, fromCatalog: false)
+            let earlier = try XCTUnwrap(before[id])
+            assertSameSong(earlier.stored, expected.stored, "storedSong \(id)")
+            assertSameSong(earlier.song, expected.song, "song(id:) \(id)")
+            assertSameSong(earlier.visible, expected.visible, "visibleSong \(id)")
+            assertSameSong(earlier.unobserved, expected.unobserved, "unobservedVisibleSong \(id)")
+            XCTAssertEqual(earlier.contains, expected.contains, "containsVisibleSong \(id)")
+            assertSameSong(earlier.synchronization, expected.synchronization, "songForSynchronization \(id)")
+        }
+        for (offset, id) in albumIDs.enumerated() {
+            XCTAssertEqual(
+                albumsBefore[offset].map(LibraryCatalogShadowVerifier.normalized),
+                library.visibleAlbum(id: id).map(LibraryCatalogShadowVerifier.normalized), "visibleAlbum \(id)"
+            )
+            assertSameSongs(albumSongsBefore[offset], library.songs(forAlbum: id), "songs(forAlbum: \(id))")
+        }
+        for (offset, id) in artistIDs.enumerated() {
+            XCTAssertEqual(artistsBefore[offset], library.visibleArtist(id: id), "visibleArtist \(id)")
+            assertSameSongs(artistSongsBefore[offset], library.songs(forArtist: id), "songs(forArtist: \(id))")
+        }
+        for (offset, id) in genreIDs.enumerated() {
+            assertSameSongs(genreSongsBefore[offset], library.songs(forGenre: id), "songs(forGenre: \(id))")
+        }
+        await assertShadowMatches(library, "after the publish")
+        XCTAssertTrue(host.revisions.isReadable)
+        statistics = host.mirror.statistics
+        XCTAssertEqual(statistics.journalCatchUps, 1)
+        XCTAssertEqual(statistics.resyncs, 0)
+        XCTAssertEqual(statistics.importRuns, 0)
+        XCTAssertEqual(statistics.groupingRebuilds, 0)
+
+        // 目录确认过的修订号到了旧库:下一次写的时候,那之前的变更流水剪掉。
+        var again = edited
+        again.title = "Edited after the publish"
+        library.replaceSong(again)
+        await library.waitForPendingIndex()
+        _ = await library.persistIncrementalNowAndWait()
+        await assertShadowMatches(library, "after a write")
+        let journal = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+            .changeJournalState()
+        XCTAssertGreaterThanOrEqual(journal.floor, caughtUpRevision)
+        XCTAssertLessThanOrEqual(journal.entryCount, 2, "only what the catalog has not confirmed yet stays in the journal")
+    }
+
+    /// 进后台、内存警告走的那条路把目录各连接的缓存也放掉;放完目录照常答、照常跟写。
+    func testReleasingRebuildableCachesAlsoReleasesTheCatalogMemory() async throws {
+        let library = makeLibrary()
+        let songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        XCTAssertEqual(host.mirror.statistics.memoryReleases, 0)
+
+        library.releaseRebuildableCaches()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while host.mirror.statistics.memoryReleases == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThanOrEqual(host.mirror.statistics.memoryReleases, 1)
+        XCTAssertEqual(try XCTUnwrap(host.mirror.readableCatalog).song(id: songs[0].id)?.title, songs[0].title)
+        var edited = songs[1]
+        edited.title = "Edited after the release"
+        library.replaceSong(edited)
+        await assertShadowMatches(library, "after the release")
     }
 
     // MARK: - Reader façade vs in-memory answers

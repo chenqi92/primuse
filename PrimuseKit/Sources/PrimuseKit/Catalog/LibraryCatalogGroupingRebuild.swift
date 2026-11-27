@@ -15,6 +15,18 @@ extension LibraryCatalog {
         try rebuildGrouping(isCancelled: isCancelled)
     }
 
+    /// 目录里的分组正是按这份输入建的(指纹相同、没有做到一半的整库重建)时,把它记成当前输入并返回 true,
+    /// 不写目录;不是时什么都不动、返回 false(之后要用 `setGroupingConfiguration` 整库重建)。
+    /// 曲库还没发布、手上只有预估的输入时用:预估与目录里的一致才敢照着它写派生。
+    public func adoptGroupingConfigurationIfCurrent(_ configuration: LibraryGroupingConfiguration) throws -> Bool {
+        let (stored, phase) = try pool.read { db in
+            (try Self.metaValue(MetaKey.groupingFingerprint, in: db), try Self.metaValue(MetaKey.groupingRebuildPhase, in: db))
+        }
+        guard stored == configuration.fingerprint, phase == nil else { return false }
+        replaceGroupingConfiguration(configuration)
+        return true
+    }
+
     /// 按需续上没做完的整库重建;没有就直接返回。
     public var groupingNeedsRebuild: Bool {
         get throws {
