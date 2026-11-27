@@ -303,23 +303,53 @@ extension AppServices {
     /// 全部有声书(书架的分书),章节从曲库目录流式取(可见的有声书,库内顺序,与 `spokenWordSongs` 同一份)。
     /// 目录答不了时为 nil。
     static func siriSpokenWordBooksOutsideTheModel(library: MusicLibrary) async -> [SpokenWordBook]? {
-        guard let reader = library.readableCatalogReader else { return nil }
-        let chapters: [Song]
-        do {
-            chapters = try await reader.read { catalog in
-                var chapters: [Song] = []
-                try catalog.forEachSong(LibrarySongScope(kinds: [.spokenWord])) { _, song in
-                    chapters.append(song)
-                    return true
-                }
-                return chapters
-            }
-        } catch {
-            plog("🎙️ Siri books: catalog chapters failed (\(error))")
-            return nil
-        }
+        guard let chapters = await songsOutsideTheModel(kind: .spokenWord, library: library) else { return nil }
         let store = SpokenWordStore.shared
         return SpokenWordBookGrouping.books(from: chapters.map { SpokenWordBookSupport.item(for: $0, store: store) })
+    }
+
+    /// 一类可见的有声内容(有声书章节 = `spokenWordSongs`,本机播客单集 = `localPodcastSongs`),从曲库目录流式取,
+    /// 库内顺序。目录答不了时为 nil。
+    static func songsOutsideTheModel(kind: LibraryCatalogContentKind, library: MusicLibrary) async -> [Song]? {
+        guard let reader = library.readableCatalogReader else { return nil }
+        do {
+            return try await reader.read { catalog in
+                var songs: [Song] = []
+                try catalog.forEachSong(LibrarySongScope(kinds: [kind])) { _, song in
+                    songs.append(song)
+                    return true
+                }
+                return songs
+            }
+        } catch {
+            plog("🎙️ Siri catalog: \(kind) items from the catalog failed (\(error))")
+            return nil
+        }
+    }
+
+    /// 同 `siriPodcastCatalog(subscriptions:limit:)`,歌曲模型不在内存里时用:本机播客单集与各单集在哪档节目、节目名
+    /// 从曲库目录取(`podcastShowPlacements`)。也回本机播客有几档节目。目录答不了时为 nil。
+    static func siriPodcastCatalogOutsideTheModel(
+        subscriptions: [PodcastShow], limit: Int = .max, library: MusicLibrary
+    ) async -> (shows: [SiriPodcastShow], libraryShowCount: Int)? {
+        guard let episodes = await songsOutsideTheModel(kind: .podcast, library: library),
+              let reader = library.readableCatalogReader else { return nil }
+        let ids = episodes.map(\.id)
+        let placements: [String: LibraryCatalogShowPlacement]
+        do {
+            placements = try await reader.read { try $0.podcastShowPlacements(songIDs: ids) }
+        } catch {
+            plog("🎙️ Siri catalog: podcast shows from the catalog failed (\(error))")
+            return nil
+        }
+        let showCount = Set(placements.values.map(\.showID)).count
+        let shows = SiriPodcastShow.catalog(
+            subscriptions: subscriptions, libraryEpisodes: episodes, libraryShowCount: showCount, limit: limit
+        ) { id in
+            guard let placement = placements[id], let title = placement.title else { return nil }
+            return (placement.showID, title)
+        }
+        return (shows, showCount)
     }
 
     var siriShortcutBooks: [SpokenWordBook] {

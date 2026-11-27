@@ -3076,9 +3076,7 @@ struct PrimuseApp: App {
                         // Stage 2: 续扫会往库里合并行。就绪前进去只会看到空
                         // 模型, 所以推迟到发布之后 (已就绪时 onReady 立即执行,
                         // 行为与历史版本一致)。扫描的启动状态还没读完时答不了有没有要续的, 按有算。
-                        musicLibrary.onReady(holding: .scan, ifThereIsWork: {
-                            !scanService.isStartupStateReady || scanService.hasResumableScanWork
-                        }) {
+                        let resumeForegroundScans: @MainActor () -> Void = {
                             scanService.resumePendingScans(
                                 context: .foregroundResume,
                                 sourceManager: sourceManager,
@@ -3086,6 +3084,20 @@ struct PrimuseApp: App {
                                 sourceStore: sourcesStore,
                                 scraperService: scraperService
                             )
+                        }
+                        if musicLibrary.isUsable, !musicLibrary.isReady, !scanService.isStartupStateReady {
+                            // 6c: 歌曲模型放掉了(或启动没装)而扫描的启动状态还没读完:先读完再判有没有要续的,
+                            // 不按有算 —— 那会为一个还没答的判断把模型装回来。
+                            Task { @MainActor in
+                                await scanService.whenStartupStateReady()
+                                musicLibrary.onReady(holding: .scan, ifThereIsWork: {
+                                    scanService.hasResumableScanWork
+                                }) { resumeForegroundScans() }
+                            }
+                        } else {
+                            musicLibrary.onReady(holding: .scan, ifThereIsWork: {
+                                !scanService.isStartupStateReady || scanService.hasResumableScanWork
+                            }) { resumeForegroundScans() }
                         }
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
@@ -3106,15 +3118,22 @@ struct PrimuseApp: App {
                         #endif
                         // 同上: 目录拓扑重建同样以库为输入。只有可能要重建的音乐源在时才请歌曲模型装回来,
                         // 要不要重建在发布后照旧细查。
-                        musicLibrary.onReady(holding: .scan, ifThereIsWork: {
-                            scanService.mayNeedFolderTopologyRebuild(sourceStore: sourcesStore)
-                        }) {
+                        let startTopologyRebuilds: @MainActor () -> Void = {
                             scanService.startFolderTopologyRebuildsIfNeeded(
                                 sourceManager: sourceManager,
                                 library: musicLibrary,
                                 sourceStore: sourcesStore,
                                 scraperService: scraperService
                             )
+                        }
+                        if musicLibrary.isUsable, !musicLibrary.isReady {
+                            // 6c: 模型放掉了(或启动没装):不先占用。细查(同步状态、目录的按源计数)不要模型;真要重建的
+                            // 那一轮扫描到提交前自己等模型。有服务器源就每次回前台装一次模型的那一步就此没了。
+                            startTopologyRebuilds()
+                        } else {
+                            musicLibrary.onReady(holding: .scan, ifThereIsWork: {
+                                scanService.mayNeedFolderTopologyRebuild(sourceStore: sourcesStore)
+                            }) { startTopologyRebuilds() }
                         }
                         playerService.handleAppDidBecomeActive()
                         playerService.autoplayRestoredSessionIfEnabled()

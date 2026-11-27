@@ -221,4 +221,76 @@ class LibraryReleasedTwinTestCase: XCTestCase {
                        "\(step): a whole-library array was read", file: file, line: line)
         XCTAssertFalse(library.isLoadingSongModelForTesting, "\(step): a load is running", file: file, line: line)
     }
+
+    // MARK: - Launch without the song model (P3 step 6e)
+
+    /// 一个装好、落了盘的库(旧库像启动过那样标好):小状态有歌单、喜欢、最近播放;目录停下之后整个目录拷一份,
+    /// 后面的「启动」都从拷贝开。
+    func launchFixture(_ name: String, songs: [Song]) async throws -> (source: MusicLibrary, directory: URL) {
+        let (library, storage) = try makeLaunchedTwin(name, songs: songs)
+        _ = library.createPlaylist(name: "Kept", songIDs: [songs[0].id, songs[4].id, songs[7].id])
+        library.setLiked(songID: songs[1].id, isLiked: true, propagatesServerMutation: false)
+        library.recordPlayback(of: songs[2].id)
+        await assertShadowMatches(library, "\(name) fixture")
+        library.markPortableSnapshotDirtyForTesting()
+        guard case .success = await library.persistNowAndWait(materializePortableSnapshot: true) else {
+            throw XCTSkip("the fixture did not persist")
+        }
+        await library.waitForCatalogMirror()
+        await library.stopCatalogMirror()
+        return (library, storage)
+    }
+
+    /// 拷整个目录。原来那个库可能还在后台写缓存文件(先写临时文件再改名),拷到一半那个临时文件没了就再拷一次。
+    func copyOfDirectory(_ directory: URL, _ name: String) throws -> URL {
+        let copy = self.directory.appendingPathComponent(name, isDirectory: true)
+        var lastError: Error?
+        for _ in 0..<5 {
+            try? FileManager.default.removeItem(at: copy)
+            do {
+                try FileManager.default.copyItem(at: directory, to: copy)
+                return copy
+            } catch {
+                lastError = error
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
+        throw lastError ?? CocoaError(.fileWriteUnknown)
+    }
+
+    /// 像 App 那样启动一个库:准备中构造、装开关、目录提前启动、主线程外准备、`publishStartup` 发布。
+    func launch(
+        _ directory: URL, unloaded: Bool, residency: Bool = true, catalog: LibraryCatalogMirroring = .enabled(startDelay: .zero)
+    ) async -> MusicLibrary {
+        let library = MusicLibrary.makePreparing(
+            storageDirectory: directory, disabledSourceIDs: [Self.sourceB], artistNameConfiguration: .defaultValue,
+            catalogMirroring: catalog
+        )
+        library.catalogShadowModeOverride = .deep
+        libraries.append(library)
+        library.applySongModelResidencySettings(.init(
+            isEnabled: residency, foregroundHold: false, playbackBlocksRelease: true, launchUnloaded: unloaded
+        ))
+        let classification = SpokenWordStore.shared.classificationSnapshot
+        library.startCatalogBeforePublish(spokenWordClassification: classification)
+        let disabled: Set<String> = [Self.sourceB]
+        let prepared = await MusicLibrary.prepareStartup(
+            disabledSourceIDs: disabled, storageDirectory: directory, artistNameConfiguration: .defaultValue,
+            spokenWordClassification: classification, withoutTheSongModel: library.songModelResidencySettings.launchesUnloaded
+        )
+        await library.publishStartup(prepared) {
+            await MusicLibrary.prepareStartup(
+                disabledSourceIDs: disabled, storageDirectory: directory, artistNameConfiguration: .defaultValue,
+                spokenWordClassification: classification
+            )
+        }
+        return library
+    }
+
+    func waitUntilUsable(_ library: MusicLibrary) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !library.isUsable, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
 }

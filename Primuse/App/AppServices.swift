@@ -2828,7 +2828,7 @@ final class AppServices {
                   !Task.isCancelled else { return }
             let stations = self.siriShortcutRadioStations
             // 歌曲模型不在内存里、之前又一次都没算过节目清单:这一轮答不了,不登记(不把「没有本机播客」交给系统)。
-            guard let shows = self.siriCatalogPodcastShows() else { return }
+            guard let shows = await self.siriCatalogPodcastShows() else { return }
             var signature = stations.map { "r\($0.id)\u{1F}\($0.name)" }
                 + books.map { "b\($0.id)\u{1F}\($0.title)" }
                 + shows.map { "p\($0.id)\u{1F}\($0.title)" }
@@ -2950,8 +2950,12 @@ final class AppServices {
         if let cached = siriCatalogBooks, cached.inputs == inputs { return cached.books }
         // 分书要整份有声条目。歌曲模型不在内存里时那份数组是空的:沿用上一次分好的书单(只是不跟着新的进度重排);
         // 一次都没分过就答不了(nil,调用方这一轮不登记),不为 Siri 的词表去装模型。
-        guard musicLibrary.isReady else { return siriCatalogBooks?.books }
-        let songs = musicLibrary.spokenWordSongs
+        // 6c: 一次都没分过(比如启动不装模型)时从曲库目录取章节来分,不为它装模型。
+        guard musicLibrary.isReady || siriCatalogBooks == nil else { return siriCatalogBooks?.books }
+        let chapters = musicLibrary.isReady
+            ? musicLibrary.spokenWordSongs
+            : await Self.songsOutsideTheModel(kind: .spokenWord, library: musicLibrary)
+        guard let songs = chapters, !Task.isCancelled else { return nil }
         let positions = store.positions
         let finishedAt = store.finishedAt
         let worker = Task.detached(priority: .utility) { () throws -> [SpokenWordBook] in
@@ -3026,9 +3030,10 @@ final class AppServices {
         )
         refresh()
         // Books come with the library and podcasts from disk, both after launch.
+        // 6c: 等「可用」就够(书单、节目单在模型不在内存里时从曲库目录取),不为 Siri 的词表把模型装回来。
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.musicLibrary.whenReady()
+            await self.musicLibrary.whenUsable()
             _ = await self.siriPodcastShowsWhenLoaded(timeout: .seconds(30))
             self.refreshSiriCatalog()
         }
@@ -4059,8 +4064,17 @@ final class AppServices {
 extension AppServices {
     /// 交给 Siri 的播客清单。本机播客那一部分读整库数组和分节目的表:歌曲模型在内存里时现算并记下,
     /// 不在时给上一次记下的那份(订阅的增减要等模型装回来才跟上);一次都没算过时 nil。
-    fileprivate func siriCatalogPodcastShows() -> [SiriPodcastShow]? {
-        guard musicLibrary.isReady else { return siriCatalogPodcastShowsWhileLoaded }
+    fileprivate func siriCatalogPodcastShows() async -> [SiriPodcastShow]? {
+        guard musicLibrary.isReady else {
+            if let cached = siriCatalogPodcastShowsWhileLoaded { return cached }
+            // 6c: 一次都没算过(比如启动不装模型):本机播客从曲库目录取,不为它装模型。
+            guard let answer = await Self.siriPodcastCatalogOutsideTheModel(
+                subscriptions: PodcastStore.shared.shows, limit: 50, library: musicLibrary
+            ) else { return nil }
+            siriCatalogPodcastShowsWhileLoaded = answer.shows
+            siriLibraryPodcastShowCountWhileLoaded = answer.libraryShowCount
+            return answer.shows
+        }
         let shows = siriPodcastCatalog(subscriptions: PodcastStore.shared.shows, limit: 50)
         siriCatalogPodcastShowsWhileLoaded = shows
         return shows

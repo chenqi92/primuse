@@ -2244,6 +2244,7 @@
 		C87A6A4DE1FD7B3D1C4CA8CB /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E8868307C8B45B391847C2B /* SettingsView.swift */; };
 		C87F62E232DD238F3AF9707C /* SpokenWordContentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2269CA3127527556AF251687 /* SpokenWordContentPolicy.swift */; };
 		C885E78943983DD9E36A9A1B /* SpotlightIndexService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A140A9563DF6E39E6BF9CEF6 /* SpotlightIndexService.swift */; };
+		C88A55507C19B75DE36DEE30 /* SiriCatalogUnloadedLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A667B175F361FEC28C14B8 /* SiriCatalogUnloadedLaunchTests.swift */; };
 		C89ECC204B27AD5824239FA7 /* PodcastDownloadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BDB4CF23CF925515FBC484D /* PodcastDownloadStore.swift */; };
 		C908DF63B56DEFF2123FC0A4 /* ServerListeningStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C838745C0E7363819E91534 /* ServerListeningStatsService.swift */; };
 		C90F4FDAB194BE5618CF7CA9 /* LibraryDetailEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1D4C8C80BE96CC395B40B4A /* LibraryDetailEvidence.swift */; };
@@ -3105,6 +3106,7 @@
 		0219F4AD4BD373BFC27719ED /* PodcastHomeSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastHomeSections.swift; sourceTree = "<group>"; };
 		029908B382BC4361C2BE514C /* DSDOutputProbePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DSDOutputProbePolicy.swift; sourceTree = "<group>"; };
 		029A35BDC1548EE87EBC6549 /* AppleMusicService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicService.swift; sourceTree = "<group>"; };
+		02A667B175F361FEC28C14B8 /* SiriCatalogUnloadedLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriCatalogUnloadedLaunchTests.swift; sourceTree = "<group>"; };
 		02AFBD7EE6249A0651640831 /* TabletopQueueStripPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletopQueueStripPolicy.swift; sourceTree = "<group>"; };
 		02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimeInterval+Format.swift"; sourceTree = "<group>"; };
 		02D4DD0E30B07ACFFCFB5570 /* CloudSchemaDeploymentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSchemaDeploymentPolicy.swift; sourceTree = "<group>"; };
@@ -7681,6 +7683,7 @@
 				850988CA1DEE589176352319 /* ServerSongSearchTests.swift */,
 				366DFF0895E102E8E4A21111 /* SettingsDiscoveryTests.swift */,
 				88188FF36F7B3D324A940B06 /* SharedScraperRequestTests.swift */,
+				02A667B175F361FEC28C14B8 /* SiriCatalogUnloadedLaunchTests.swift */,
 				42F091EBFBCAC0A3BC3CC1B0 /* SiriRadioIntentRoutingTests.swift */,
 				A9751EF0B4FE354A816B80BE /* SongCommentServiceTests.swift */,
 				C2F8A4F1C6E7B6C5EB3AF805 /* SongFileRenameTests.swift */,
@@ -8749,6 +8752,7 @@
 				6321B9106B21280AA3281B70 /* ServerSongSearchTests.swift in Sources */,
 				4FABD6C4480CDBD874EC8F79 /* SettingsDiscoveryTests.swift in Sources */,
 				E1A2F8AF8A2614ECD18C48C6 /* SharedScraperRequestTests.swift in Sources */,
+				C88A55507C19B75DE36DEE30 /* SiriCatalogUnloadedLaunchTests.swift in Sources */,
 				5565613BF615F70D0DE0FD54 /* SiriRadioIntentRoutingTests.swift in Sources */,
 				14D53AFD6B39E7E0DEC768B9 /* SongCommentServiceTests.swift in Sources */,
 				29173A7990E3E5BFA140861F /* SongFileRenameTests.swift in Sources */,
