@@ -125,7 +125,8 @@ final class HomeScreenQuickActionCenter {
 
     private static func shuffleLikedSongs() async {
         let services = AppServices.shared
-        _ = await services.musicLibrary.whenReady(timeout: .seconds(8))
+        // 6c: 等「可用」(不装模型):「我喜欢」的歌按 id 取,歌曲模型不在内存里时由曲库目录答。
+        _ = await services.musicLibrary.whenUsable(timeout: .seconds(8))
         let queue = services.playerService.shufflePlayOrder(
             services.musicLibrary
                 .songs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
@@ -204,11 +205,12 @@ final class SystemActivityRouter {
     func openSong(id: String, route: String) async -> Bool {
         let services = AppServices.shared
         let library = services.musicLibrary
-        guard await library.whenReady(timeout: .seconds(8)),
+        // 6c: 等「可用」(不装模型):按 id 取歌,是有声条目时按曲库目录的分书进书。
+        guard await library.whenUsable(timeout: .seconds(8)),
               let song = library.visibleSong(id: id), song.isPlayable else { return false }
         guard admit("item:song:\(id)", route: route) else { return true }
-        if let book = services.siriSpokenWordStart(forFound: [song], namesItem: true) {
-            return services.startSpokenWordBookForIntent(book.book, from: book.itemID)
+        if let book = await services.siriSpokenWordStartAnswering(forFound: [song], namesItem: true) {
+            return await services.startSpokenWordBookForIntentAnswering(book.book, from: book.itemID)
         }
         await services.playerService.play(queueIDs: [id], startingAt: 0, caller: route)
         return true

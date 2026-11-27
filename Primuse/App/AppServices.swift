@@ -2085,8 +2085,9 @@ final class AppServices {
 
     private func observeLocalPodcastFiles() {
         guard !UserDefaults.standard.bool(forKey: LibraryDisplayConfiguration.podcastsRevealedForLocalFilesKey) else { return }
+        // 6c: 歌曲模型放掉时这份数组是空的(读它也算一次整库读):只在模型在内存里时看,装回来时再看一次。
         let hasLocalPodcasts = withObservationTracking {
-            !musicLibrary.localPodcastSongs.isEmpty
+            musicLibrary.isReady && !musicLibrary.localPodcastSongs.isEmpty
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.observeLocalPodcastFiles() }
         }
@@ -2457,7 +2458,8 @@ final class AppServices {
         // Stage 2b: 库还在准备时 `library.song(id:)` 对每一行检查点都返回 nil,
         // 续扫会把整份检查点重新播种一遍, 并把源的 songCount 写成 0。守卫放在
         // 入口, 后台 settle、非 iOS 的 .active 与 drain 三个调用方一起覆盖。
-        guard musicLibrary.isReady else {
+        // 6c: 歌曲模型放掉了(可用)时照样判有没有活(时长问曲库目录),有活才在起扫描前占用模型。
+        guard musicLibrary.isUsable else {
             musicLibrary.onReady { [weak self] in
                 self?.resumePendingLocalImportScanIfNeeded()
             }
@@ -2475,7 +2477,12 @@ final class AppServices {
         if let existing = sourcesStore.source(id: sourceID) {
             guard existing.isEnabled, !existing.isDeleted, LocalImportService.isManagedSource(existing) else { return }
             if !hasPendingScan && !hasPendingCheckpoint {
-                guard await musicLibrary.sourceHasIncompleteDurations(sourceID) else { return }
+                guard let incomplete = await Self.sourceHasIncompleteDurations(sourceID, library: musicLibrary) else {
+                    // 模型不在、目录也答不了:等装好再来(与以前相同)。
+                    musicLibrary.onReady { [weak self] in self?.resumePendingLocalImportScanIfNeeded() }
+                    return
+                }
+                guard incomplete else { return }
             }
             guard !Task.isCancelled,
                   let current = sourcesStore.source(id: sourceID), current.isEnabled, !current.isDeleted,
@@ -2501,6 +2508,11 @@ final class AppServices {
         } else {
             return
         }
+        // 6c: 模型放掉了而有活:先占用把模型装回来(扫描自己的占用要模型在内存里才拿),到扫描排上为止。
+        let modelHold: MusicLibrary.SongModelHold? = musicLibrary.isReady ? nil : await musicLibrary.holdSongModel(.scan)
+        defer { modelHold?.end() }
+        guard musicLibrary.isReady, !Task.isCancelled,
+              scanService.scanStates[source.id]?.isScanning != true else { return }
         plog("📥 LocalImport: scheduling pending/interrupted local import scan")
         scanService.scanSource(
             source,
@@ -3485,7 +3497,7 @@ final class AppServices {
         }
         bridge.resumeSpokenWordBook = { [self] bookID in
             await awaitLibraryForIntent()
-            guard let start = spokenWordBookStart(bookID: bookID) else { return false }
+            guard let start = await spokenWordBookStartAnswering(bookID: bookID) else { return false }
             await player.play(queue: start.songs, startingAt: start.index)
             return true
         }
@@ -3536,8 +3548,7 @@ final class AppServices {
             guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return .missingTitle
             }
-            let libraryIsReady = await awaitLibraryForIntent()
-            let songs = library.visibleSongs
+            let libraryIsUsable = await awaitLibraryForIntent()
             let query = SiriMediaSearchQuery(
                 kind: .song,
                 mediaName: title,
@@ -3546,24 +3557,29 @@ final class AppServices {
             // 歌曲先挑;只有书里的章节叫这个名字时,才去书里从那一章接着听。点名要一段环境音
             // (「用 Primuse 放雨声」)时最后在环境音里找,找到了照样循环着放。
             // 目录可读时只取可能命中的歌(主线程外流式挑出),同交整库的结果。
+            // 6c: 歌曲模型不在内存里时有声条目、环境音也从曲库目录取候选,不装模型。
             let musicCandidates = await SiriLibrarySongs.candidates(for: query, in: .music, library: library)
-            guard let match = SiriMediaSearchResolver.resolvePreferringMusic(
+            let spokenWordCandidates = await Self.spokenWordSongsForIntent(query, library: library)
+            var found = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: query,
                 musicSongs: musicCandidates,
-                spokenWordSongs: library.spokenWordSongs
-            ) ?? SiriMediaSearchResolver.resolvePreferringMusic(
-                query: query,
-                musicSongs: library.ambientSongs,
-                spokenWordSongs: []
-            ), let song = match.queue.first else {
-                guard !songs.isEmpty else {
-                    // 冷启动时被 Siri 唤起、资料库还没装完,报"库里没有"是假话。
-                    return libraryIsReady ? .libraryEmpty : .libraryNotReady
-                }
+                spokenWordSongs: spokenWordCandidates
+            )
+            if found == nil {
+                found = SiriMediaSearchResolver.resolvePreferringMusic(
+                    query: query,
+                    musicSongs: await Self.ambientSongsForIntent(query, library: library),
+                    spokenWordSongs: []
+                )
+            }
+            guard let match = found, let song = match.queue.first else {
+                // 冷启动时被 Siri 唤起、资料库还没装完(或模型放掉而目录答不了),报"库里没有"是假话。
+                guard libraryIsUsable else { return .libraryNotReady }
+                guard await Self.libraryHasVisibleSongsForIntent(library) else { return .libraryEmpty }
                 return .notFound
             }
-            if let book = siriSpokenWordStart(forFound: [song], namesItem: true) {
-                guard startSpokenWordBookForIntent(book.book, from: book.itemID) else { return .notFound }
+            if let book = await siriSpokenWordStartAnswering(forFound: [song], namesItem: true) {
+                guard await startSpokenWordBookForIntentAnswering(book.book, from: book.itemID) else { return .notFound }
                 return .playing(description: AppServices.intentBookPlayingMessage(book.book))
             }
             // A named selection is an exact request. Keeping a one-item queue
@@ -3589,12 +3605,12 @@ final class AppServices {
             guard let result = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: query,
                 musicSongs: await SiriLibrarySongs.candidates(for: query, in: .music, library: library),
-                spokenWordSongs: library.spokenWordSongs
+                spokenWordSongs: await Self.spokenWordSongsForIntent(query, library: library)
             ) else {
                 return nil
             }
-            if let book = siriSpokenWordStart(forFound: result.queue, namesItem: false) {
-                return startSpokenWordBookForIntent(book.book) ? AppServices.intentBookPlayingMessage(book.book) : nil
+            if let book = await siriSpokenWordStartAnswering(forFound: result.queue, namesItem: false) {
+                return await startSpokenWordBookForIntentAnswering(book.book) ? AppServices.intentBookPlayingMessage(book.book) : nil
             }
             guard let first = startIntentQueue(result.queue) else {
                 return nil
@@ -3614,8 +3630,8 @@ final class AppServices {
             await awaitLibraryForIntent()
             let songs = recentAlbumSongs(for: entry)
             guard !songs.isEmpty else { return false }
-            if let book = siriSpokenWordStart(forFound: songs, namesItem: false) {
-                return startSpokenWordBookForIntent(book.book)
+            if let book = await siriSpokenWordStartAnswering(forFound: songs, namesItem: false) {
+                return await startSpokenWordBookForIntentAnswering(book.book)
             }
             return startIntentQueue(songs) != nil
         }
@@ -3626,12 +3642,12 @@ final class AppServices {
             guard let result = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: query,
                 musicSongs: await SiriLibrarySongs.candidates(for: query, in: .music, library: library),
-                spokenWordSongs: library.spokenWordSongs
+                spokenWordSongs: await Self.spokenWordSongsForIntent(query, library: library)
             ) else {
                 return nil
             }
-            if let book = siriSpokenWordStart(forFound: result.queue, namesItem: false) {
-                return startSpokenWordBookForIntent(book.book) ? AppServices.intentBookPlayingMessage(book.book) : nil
+            if let book = await siriSpokenWordStartAnswering(forFound: result.queue, namesItem: false) {
+                return await startSpokenWordBookForIntentAnswering(book.book) ? AppServices.intentBookPlayingMessage(book.book) : nil
             }
             guard let first = startIntentQueue(result.queue) else {
                 return nil
@@ -3648,12 +3664,12 @@ final class AppServices {
             guard let result = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: query,
                 musicSongs: await SiriLibrarySongs.candidates(for: query, in: .music, library: library),
-                spokenWordSongs: library.spokenWordSongs
+                spokenWordSongs: await Self.spokenWordSongsForIntent(query, library: library)
             ) else {
                 return nil
             }
-            if let book = siriSpokenWordStart(forFound: result.queue, namesItem: false) {
-                return startSpokenWordBookForIntent(book.book) ? AppServices.intentBookPlayingMessage(book.book) : nil
+            if let book = await siriSpokenWordStartAnswering(forFound: result.queue, namesItem: false) {
+                return await startSpokenWordBookForIntentAnswering(book.book) ? AppServices.intentBookPlayingMessage(book.book) : nil
             }
             guard startIntentQueue(result.queue) != nil else {
                 return nil
@@ -3768,7 +3784,11 @@ final class AppServices {
                 }
             }
             _ = await awaitLibraryForIntent()
-            guard let song = library.localPodcastSongs.first(where: { $0.id == id }) else { return false }
+            // 6c: 歌曲模型不在内存里时按 id 取(本机的播客单集也在可见集里),不读整份播客数组。
+            let episode = library.isReady
+                ? library.localPodcastSongs.first(where: { $0.id == id })
+                : library.visibleSong(id: id)
+            guard let song = episode else { return false }
             return startIntentQueue([song]) != nil
         }
 
@@ -3778,6 +3798,11 @@ final class AppServices {
             // 音乐前的那首为种子,不拿章节或电台去找「相似歌曲」。
             guard let seed = siriMusicSeedSong else { return nil }
             await awaitLibraryForIntent()
+            // 相似歌曲要比对整库:歌曲模型不在内存里时此刻答不了(45 万首时 8 秒内装不完,不装)。
+            guard library.isReady else {
+                plog("🎙️ Siri song radio: the song model is released; cannot answer now")
+                return nil
+            }
             let queue = MusicDiscoveryEngine.songRadio(
                 from: seed,
                 in: library,
@@ -3792,6 +3817,11 @@ final class AppServices {
 
         bridge.shuffleLibrary = { [self] in
             await awaitLibraryForIntent()
+            // 整库的歌曲 id 来自整份音乐数组:歌曲模型不在内存里时此刻答不了(不装)。
+            guard library.isReady else {
+                plog("🎙️ Siri shuffle library: the song model is released; cannot answer now")
+                return
+            }
             // 整库随机是替人挑歌, 不挑不喜欢的歌(#193)。
             let ids = library.musicSongIDsExcludingDisliked
             guard !ids.isEmpty else { return }
@@ -3843,11 +3873,13 @@ final class AppServices {
     /// Stage 2: 冷启动时资料库可能还在主线程之外装载, 而 Widget / Shortcuts /
     /// 控制中心的 intent 随时会到。与 SiriKit 同样的有界等待(Intents 的预算
     /// 约 10 秒), 超时后按今天的路径继续 —— 空库自然返回"没找到"。
-    /// 返回"等到就绪了吗" —— 超时后按今天的路径继续,但调用方要能把
+    /// 返回"等到可用了吗" —— 超时后按今天的路径继续,但调用方要能把
     /// "库还在装载"和"库里真的没有"分开回话。
+    /// 6c: 等「可用」(有界,不引起装载)。45 万首时装一次歌曲模型赶不上 Siri 的 8 秒,
+    /// 所以模型不在内存里时各请求从曲库目录答,答不了的如实说此刻答不了。
     @discardableResult
     private func awaitLibraryForIntent() async -> Bool {
-        await musicLibrary.whenReady(timeout: .seconds(8))
+        await musicLibrary.whenUsable(timeout: .seconds(8))
     }
 
     /// 上次的队列只在手机主界面出现后由 `completeDeferredStartup` 恢复。只连了
@@ -4028,6 +4060,19 @@ extension AppServices {
 // MARK: - 启动对账按源数歌(P3 步骤 6c 单元 3)
 
 extension AppServices {
+    /// 本机导入那个源里有没有时长还没读出来的歌。模型在内存里时逐首看整库(与以前相同,在后台执行器上);
+    /// 不在时问跟上了的曲库目录(按源的索引,找到一首就停),不装回模型。nil:答不了。
+    static func sourceHasIncompleteDurations(_ sourceID: String, library: MusicLibrary) async -> Bool? {
+        if library.isReady { return await library.sourceHasIncompleteDurations(sourceID) }
+        guard let reader = await library.catalogReaderCaughtUp() else { return nil }
+        do {
+            return try await reader.read { try $0.hasSongsWithoutDuration(sourceID: sourceID) }
+        } catch {
+            plog("📥 LocalImport: catalog duration check failed (\(error))")
+            return nil
+        }
+    }
+
     /// 启动时按源数歌(停用的源也数),找出库里还有歌、源却已删除或不在了的那些。歌曲模型在内存里时照旧按整库的
     /// 按源计数(与以前相同);不在时从曲库目录数(`catalogStartupReconciliation`)。nil:两边都答不了 —— 调用方这一次不删歌、
     /// 不把 0 写回源的歌数。

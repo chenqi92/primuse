@@ -4903,6 +4903,85 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         }
         XCTAssertTrue(pins(migratedDefaults).contains(albumPin), "the waiting like is placed once the model is back")
     }
+
+    /// 本机导入续扫前的时长检查(6c 单元 3b-2):模型在内存里时逐首看整库,真放掉之后问目录(按源,含停用源),答案相同,
+    /// 不装模型、不读整库数组。
+    func testLocalImportDurationCheckComesFromTheCatalogWhileReleased() async throws {
+        var songs = Self.fixture(prefix: "import-durations")
+        songs[3].duration = 0
+        let (library, _) = try makeLaunchedTwin("import-durations", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        let loadedA = await AppServices.sourceHasIncompleteDurations(Self.sourceA, library: library)
+        let loadedB = await AppServices.sourceHasIncompleteDurations(Self.sourceB, library: library)
+        XCTAssertEqual(loadedA, true)
+        XCTAssertEqual(loadedB, false)
+
+        let before = try await releaseForReal(library)
+        let releasedA = await AppServices.sourceHasIncompleteDurations(Self.sourceA, library: library)
+        let releasedB = await AppServices.sourceHasIncompleteDurations(Self.sourceB, library: library)
+        XCTAssertEqual(releasedA, loadedA)
+        XCTAssertEqual(releasedB, loadedB)
+        assertNoLoadAndNoArrayRead(library, since: before, "local-import duration check")
+    }
+
+    /// Siri 与快捷指令按名字找歌、进书(6c 单元 3b-2):真放掉之后从目录的候选与分书答出与模型在内存里时相同的歌、
+    /// 同一本书与起点,有声条目、环境音也一样;不装模型(45 万首时 8 秒内装不完)、不读整库数组。
+    func testSiriLookupsAnswerFromTheCatalogWithTheSameResultsWhileReleased() async throws {
+        let songs = Self.fixture(prefix: "siri-lookups")
+        let (library, _) = try makeLaunchedTwin("siri-lookups", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        let chapters = Array(songs[10...12])
+        struct Answers: Equatable {
+            var named: [String]
+            var spokenNamed: [String]
+            var ambient: [String]
+            var hasSongs: Bool
+            var chapterStart: String?
+            var chapterItem: String?
+            var bookStart: String?
+            var bookSongs: [String]
+            var bookIndex: Int?
+        }
+        func answers() async -> Answers {
+            let named = await PrimuseLibrarySongQuery.songs(matching: "Blue 2", in: library).map(\.id)
+            let spokenNamed = await PrimuseLibrarySongQuery.songs(matching: "Chapter 2", in: library).map(\.id)
+            let rainQuery = SiriMediaSearchQuery(kind: .song, mediaName: "Rain")
+            let ambientPool = await AppServices.ambientSongsForIntent(rainQuery, library: library)
+            let ambient = SiriMediaSearchResolver.resolvePreferringMusic(
+                query: rainQuery, musicSongs: ambientPool, spokenWordSongs: []
+            )?.queue.map(\.id) ?? []
+            let hasSongs = await AppServices.libraryHasVisibleSongsForIntent(library)
+            let named2 = await AppServices.siriSpokenWordStartAnswering(forFound: [chapters[1]], namesItem: true, library: library)
+            let whole = await AppServices.siriSpokenWordStartAnswering(forFound: chapters, namesItem: false, library: library)
+            let start = await AppServices.spokenWordBookStartAnswering(
+                bookID: whole?.book.id ?? "", from: chapters[1].id, library: library
+            )
+            return Answers(named: named, spokenNamed: spokenNamed, ambient: ambient, hasSongs: hasSongs,
+                           chapterStart: named2?.book.id, chapterItem: named2?.itemID, bookStart: whole?.book.id,
+                           bookSongs: start?.songs.map(\.id) ?? [], bookIndex: start?.index)
+        }
+        let loaded = await answers()
+        XCTAssertEqual(loaded.named.first, songs[1].id)
+        XCTAssertEqual(loaded.spokenNamed.first, chapters[1].id)
+        // 「Rain」是环境音时由环境音那一路找到;不是时两边都找不到,照样比两边相同。
+        XCTAssertEqual(loaded.ambient.isEmpty, library.ambientSongs.isEmpty)
+        XCTAssertTrue(loaded.hasSongs)
+        XCTAssertNotNil(loaded.chapterStart)
+        XCTAssertEqual(loaded.chapterItem, chapters[1].id)
+        XCTAssertEqual(loaded.bookStart, loaded.chapterStart)
+        XCTAssertEqual(loaded.bookSongs, chapters.map(\.id))
+        XCTAssertEqual(loaded.bookIndex, 1)
+
+        let loadedBooks = AppServices.siriSpokenWordBooks(in: library).map { "\($0.id) \($0.items.map(\.id))" }
+        XCTAssertFalse(loadedBooks.isEmpty)
+
+        let before = try await releaseForReal(library)
+        let released = await answers()
+        XCTAssertEqual(released, loaded, "the catalog answers as the arrays did")
+        let releasedBooks = await AppServices.siriSpokenWordBooksOutsideTheModel(library: library)
+        XCTAssertEqual(releasedBooks?.map { "\($0.id) \($0.items.map(\.id))" }, loadedBooks, "the book listing Siri reads")
+        assertNoLoadAndNoArrayRead(library, since: before, "Siri lookups while released")
+    }
 }
 
 /// 列目录时停在闸门上,直到测试放行(看扫描跑着时的占用)。

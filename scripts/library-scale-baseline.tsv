@@ -1,7 +1,7 @@
 # 大曲库内存纪律的棘轮基线:规则	文件	现有命中数。只许变少;由 scripts/check-crash-patterns.py --update-baseline 生成。
 catalog-sql-outside-catalog	PrimuseKit/Sources/PrimuseKit/Library/LibraryCatalogMirrorSupport.swift	4
 catalog-sql-outside-catalog	PrimuseKit/Sources/PrimuseKit/Storage/IncrementalSongStore.swift	21
-legacy-library-api	Primuse/App/AppServices.swift	20
+legacy-library-api	Primuse/App/AppServices.swift	19
 legacy-library-api	Primuse/App/CarPlaySceneDelegate.swift	17
 legacy-library-api	Primuse/App/DebugAccessibilityScript.swift	5
 legacy-library-api	Primuse/App/HomeScreenQuickActions.swift	2

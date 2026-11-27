@@ -31,6 +31,27 @@ struct LibraryCatalogStoredLevelQueriesTests {
         #expect(try catalog.userEditedSongIDs().isEmpty)
     }
 
+    @Test("Tells whether a source has songs without a duration")
+    func tellsWhetherASourceHasSongsWithoutADuration() throws {
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        func timed(_ id: String, _ duration: TimeInterval, source: String) -> Song {
+            var song = song(id, album: nil, source: source)
+            song.duration = duration
+            return song
+        }
+        try catalog.apply(upserts: [
+            timed("one", 180, source: "source-a"),
+            timed("two", 0, source: "source-b"),
+            timed("three", 200, source: "source-b"),
+        ])
+        #expect(try catalog.hasSongsWithoutDuration(sourceID: "source-a") == false)
+        #expect(try catalog.hasSongsWithoutDuration(sourceID: "source-b"))
+        #expect(try catalog.hasSongsWithoutDuration(sourceID: "source-c") == false)
+        try catalog.apply(upserts: [timed("two", 95, source: "source-b")])
+        #expect(try catalog.hasSongsWithoutDuration(sourceID: "source-b") == false)
+    }
+
     @Test("Tells which albums still have a song")
     func tellsWhichAlbumsStillHaveASong() throws {
         let temporary = try TemporaryCatalog()

@@ -246,19 +246,38 @@ struct PrimuseLibrarySongQuery: EntityStringQuery {
 
     @MainActor
     func entities(matching string: String) async throws -> [PrimuseLibrarySongEntity] {
-        let library = AppServices.shared.musicLibrary
-        guard await library.whenReady(timeout: .seconds(8)) else { return [] }
+        let songs = await Self.songs(matching: string, in: AppServices.shared.musicLibrary)
+        return await PrimuseLibrarySongEntity.entities(for: songs)
+    }
+
+    /// 用户说出的歌名对上的歌(Siri、快捷指令按名字找)。等的是「可用」(有界,不装模型):歌曲模型在内存里时
+    /// 比对整份音乐与有声条目(与以前相同);不在时从曲库目录只取可能命中的候选(主线程外流式挑出,
+    /// `SiriLibrarySongs`,与交整库的结果相同)。45 万首时装一次模型赶不上 Siri 的 8 秒。
+    @MainActor
+    static func songs(matching string: String, in library: MusicLibrary) async -> [Song] {
+        guard await library.whenUsable(timeout: .seconds(8)) else { return [] }
         let query = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }
+        let searchQuery = SiriMediaSearchQuery(kind: .song, mediaName: query)
+        let musicPool: [Song]
+        let spokenWordPool: [Song]
+        if library.isReady {
+            // crash-pattern: allow legacy-library-api 模型在内存里时与以前相同,交整份
+            musicPool = library.musicSongs
+            // crash-pattern: allow legacy-library-api 同上
+            spokenWordPool = library.spokenWordSongs
+        } else {
+            musicPool = await SiriLibrarySongs.candidates(for: searchQuery, in: .music, library: library)
+            spokenWordPool = await SiriLibrarySongs.candidates(for: searchQuery, in: .spokenWord, library: library)
+        }
         let match = SiriMediaSearchResolver.resolvePreferringMusic(
-            query: SiriMediaSearchQuery(kind: .song, mediaName: query),
-            musicSongs: library.musicSongs,
-            spokenWordSongs: library.spokenWordSongs
+            query: searchQuery,
+            musicSongs: musicPool,
+            spokenWordSongs: spokenWordPool
         )
-        let songs = (match?.candidates ?? []).filter {
+        return (match?.candidates ?? []).filter {
             SiriRadioStationCatalog.safeDisplayName($0.title) != nil
         }
-        return await PrimuseLibrarySongEntity.entities(for: songs)
     }
 
     @MainActor

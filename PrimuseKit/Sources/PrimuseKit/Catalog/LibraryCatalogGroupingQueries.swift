@@ -426,6 +426,19 @@ extension LibraryCatalog {
         }
     }
 
+    /// 这个源里有没有时长还没读出来(不大于 0)的歌(含停用源、所有类别),
+    /// 同 `songs.contains { $0.sourceID == sourceID && $0.duration <= 0 }`。按源的索引查,找到一首就停。
+    public func hasSongsWithoutDuration(sourceID: String) throws -> Bool {
+        try reader.read { db in
+            let (sql, arguments) = try LibrarySongScope(sourceID: sourceID, includesDisabledSources: true).whereClause(in: db)
+            return try Bool.fetchOne(
+                db,
+                sql: "SELECT EXISTS(SELECT 1 FROM song s WHERE \(sql) AND s.duration <= 0)",
+                arguments: arguments
+            ) ?? false
+        }
+    }
+
     /// 这些专辑 id 里还有歌的那些(任一源、任一类别,含停用源),同 `songs.contains { $0.albumID == id }`。
     public func albumIDsWithSongs(among albumIDs: some Collection<String>) throws -> Set<String> {
         let requested = Array(Set(albumIDs))

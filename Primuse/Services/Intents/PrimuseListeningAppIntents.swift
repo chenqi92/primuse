@@ -84,7 +84,7 @@ struct PrimuseContinueListeningIntent: AudioPlaybackIntent {
             }
             throw $book.needsValueError(IntentDialog("intent_book_which"))
         }
-        guard services.startSpokenWordBookForIntent(chosen) else {
+        guard await services.startSpokenWordBookForIntentAnswering(chosen) else {
             return .result(dialog: IntentDialog("intent_book_not_found"))
         }
         let message = String(format: String(localized: "intent_book_playing_format"), chosen.title)
@@ -280,17 +280,46 @@ enum PrimuseIntentPlaybackStart: Sendable {
 extension AppServices {
     /// Books as the "continue listening" shelf orders them.
     var siriSpokenWordBooks: [SpokenWordBook] {
+        Self.siriSpokenWordBooks(in: musicLibrary)
+    }
+
+    static func siriSpokenWordBooks(in library: MusicLibrary) -> [SpokenWordBook] {
         let store = SpokenWordStore.shared
         return SpokenWordBookGrouping.books(
-            from: musicLibrary.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
+            from: library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
         )
     }
 
     /// Siri can launch the app just to ask; books live in the library, which
     /// may still be loading.
+    ///
+    /// 6c: 等「可用」(有界,不装模型)。歌曲模型不在内存里时从曲库目录流式取出全部有声书章节,照书架的分书组成书。
     func siriSpokenWordBooksWhenReady() async -> [SpokenWordBook] {
-        _ = await musicLibrary.whenReady(timeout: .seconds(8))
-        return siriSpokenWordBooks
+        _ = await musicLibrary.whenUsable(timeout: .seconds(8))
+        if musicLibrary.isReady { return siriSpokenWordBooks }
+        return await Self.siriSpokenWordBooksOutsideTheModel(library: musicLibrary) ?? []
+    }
+
+    /// 全部有声书(书架的分书),章节从曲库目录流式取(可见的有声书,库内顺序,与 `spokenWordSongs` 同一份)。
+    /// 目录答不了时为 nil。
+    static func siriSpokenWordBooksOutsideTheModel(library: MusicLibrary) async -> [SpokenWordBook]? {
+        guard let reader = library.readableCatalogReader else { return nil }
+        let chapters: [Song]
+        do {
+            chapters = try await reader.read { catalog in
+                var chapters: [Song] = []
+                try catalog.forEachSong(LibrarySongScope(kinds: [.spokenWord])) { _, song in
+                    chapters.append(song)
+                    return true
+                }
+                return chapters
+            }
+        } catch {
+            plog("🎙️ Siri books: catalog chapters failed (\(error))")
+            return nil
+        }
+        let store = SpokenWordStore.shared
+        return SpokenWordBookGrouping.books(from: chapters.map { SpokenWordBookSupport.item(for: $0, store: store) })
     }
 
     var siriShortcutBooks: [SpokenWordBook] {
@@ -310,13 +339,41 @@ extension AppServices {
         return true
     }
 
+    /// 同 `startSpokenWordBookForIntent`;歌曲模型不在内存里时从曲库目录取这本书的章节(不装回模型)。
+    func startSpokenWordBookForIntentAnswering(_ book: SpokenWordBook, from itemID: String? = nil) async -> Bool {
+        guard let start = await spokenWordBookStartAnswering(bookID: book.id, from: itemID) else { return false }
+        Task { @MainActor [playerService] in
+            await playerService.play(queue: start.songs, startingAt: start.index)
+        }
+        return true
+    }
+
     /// What a music lookup found, as Siri plays it: spoken-word items as part
     /// of their book (`SiriSpokenWordRouting`); nil for songs, which queue as
     /// they are.
     func siriSpokenWordStart(forFound songs: [Song], namesItem: Bool) -> (book: SpokenWordBook, itemID: String?)? {
-        let bookIDs = musicLibrary.spokenWordBookIDs
+        Self.siriSpokenWordStart(forFound: songs, namesItem: namesItem, library: musicLibrary)
+    }
+
+    /// 同 `siriSpokenWordStart`。6c: 歌曲模型不在内存里时按曲库目录的分书(`bookPlacement`、`bookRowList`),
+    /// 只组找到的那几首所在的书,不装回模型(45 万首时 8 秒内装不完)。
+    func siriSpokenWordStartAnswering(forFound songs: [Song], namesItem: Bool) async -> (book: SpokenWordBook, itemID: String?)? {
+        await Self.siriSpokenWordStartAnswering(forFound: songs, namesItem: namesItem, library: musicLibrary)
+    }
+
+    static func siriSpokenWordStartAnswering(
+        forFound songs: [Song], namesItem: Bool, library: MusicLibrary
+    ) async -> (book: SpokenWordBook, itemID: String?)? {
+        if library.isReady { return siriSpokenWordStart(forFound: songs, namesItem: namesItem, library: library) }
+        return await siriSpokenWordStartOutsideTheModel(forFound: songs, namesItem: namesItem, library: library)
+    }
+
+    static func siriSpokenWordStart(
+        forFound songs: [Song], namesItem: Bool, library: MusicLibrary
+    ) -> (book: SpokenWordBook, itemID: String?)? {
+        let bookIDs = library.spokenWordBookIDs
         guard let first = songs.first, bookIDs[first.id] != nil else { return nil }
-        let books = siriSpokenWordBooks
+        let books = siriSpokenWordBooks(in: library)
         guard let start = SiriSpokenWordRouting.start(
             forFoundSongIDs: songs.map(\.id),
             bookID: { bookIDs[$0] },
@@ -352,7 +409,8 @@ extension AppServices {
         }
         let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let artist = entry.artistName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return [] }
+        // 6c: 只有标题可比的旧记录要逐首比整库:歌曲模型不在内存里时此刻答不了(不装)。
+        guard !title.isEmpty, library.isReady else { return [] }
         let matches = library.visibleSongs.filter { song in
             same(song.albumTitle, title)
                 && (artist.isEmpty || same(song.albumArtistName, artist) || same(song.artistName, artist))
@@ -361,6 +419,38 @@ extension AppServices {
         return AlbumTrackOrder.sorted(matches.filter {
             $0.albumID == first.albumID && $0.sourceID == first.sourceID
         })
+    }
+
+    /// Siri 按名字找歌时比对的有声条目:歌曲模型在内存里时是整份(与以前相同);不在时从曲库目录只取可能命中的候选。
+    static func spokenWordSongsForIntent(_ query: SiriMediaSearchQuery, library: MusicLibrary) async -> [Song] {
+        // crash-pattern: allow legacy-library-api 模型在内存里时与以前相同,交整份
+        if library.isReady { return library.spokenWordSongs }
+        return await SiriLibrarySongs.candidates(for: query, in: .spokenWord, library: library)
+    }
+
+    /// 点名要的环境音(「放雨声」):模型在内存里时是整份环境音;不在时从曲库目录的环境音里只取可能命中的候选。
+    static func ambientSongsForIntent(_ query: SiriMediaSearchQuery, library: MusicLibrary) async -> [Song] {
+        // crash-pattern: allow legacy-library-api 模型在内存里时与以前相同,交整份
+        if library.isReady { return library.ambientSongs }
+        guard let reader = library.readableCatalogReader else { return [] }
+        do {
+            return try await reader.siriCandidateSongs(
+                query: query, resolvedItemIDs: [], scope: LibrarySongScope(kinds: [.ambient])
+            )
+        } catch {
+            plog("🎙️ Siri ambient candidates: catalog read failed (\(error))")
+            return []
+        }
+    }
+
+    /// 资料库里有没有可见的歌(「库是空的」与「没找到」分开说)。模型不在内存里时数曲库目录;答不了时当作有,
+    /// 免得把答不了说成库是空的。
+    static func libraryHasVisibleSongsForIntent(_ library: MusicLibrary) async -> Bool {
+        // crash-pattern: allow legacy-library-api 模型在内存里时与以前相同
+        if library.isReady { return !library.visibleSongs.isEmpty }
+        guard let reader = library.readableCatalogReader,
+              let count = try? await reader.read({ try $0.songCount(.visible) }) else { return true }
+        return count > 0
     }
 
     /// "继续播放《三体》。" — what Siri says when a lookup landed in a book.
@@ -386,7 +476,31 @@ extension AppServices {
     /// The book's songs in reading order and the one to start from (`itemID`,
     /// or where the book was left), with the resume position prepared.
     func spokenWordBookStart(bookID requestedBookID: String, from itemID: String? = nil) -> (songs: [Song], index: Int)? {
-        let library = musicLibrary
+        Self.spokenWordBookStart(bookID: requestedBookID, from: itemID, library: musicLibrary)
+    }
+
+    /// 同 `spokenWordBookStart`;歌曲模型不在内存里时从曲库目录取这本书的章节(不装回模型)。
+    func spokenWordBookStartAnswering(bookID: String, from itemID: String? = nil) async -> (songs: [Song], index: Int)? {
+        await Self.spokenWordBookStartAnswering(bookID: bookID, from: itemID, library: musicLibrary)
+    }
+
+    static func spokenWordBookStartAnswering(
+        bookID: String, from itemID: String? = nil, library: MusicLibrary
+    ) async -> (songs: [Song], index: Int)? {
+        if library.isReady { return spokenWordBookStart(bookID: bookID, from: itemID, library: library) }
+        let current = library.currentSpokenWordBookID(for: bookID)
+        guard let found = await spokenWordBookOutsideTheModel(bookID: current, library: library) else { return nil }
+        let songsByID = Dictionary(found.songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let ordered = found.book.items.compactMap { songsByID[$0.id] }
+        guard let index = SpokenWordBookSupport.prepareStart(of: found.book, songs: ordered, from: itemID) else {
+            return nil
+        }
+        return (ordered, index)
+    }
+
+    static func spokenWordBookStart(
+        bookID requestedBookID: String, from itemID: String? = nil, library: MusicLibrary
+    ) -> (songs: [Song], index: Int)? {
         // 小组件、快捷指令可能还拿着这本书读出标签之前的 id。
         let bookID = library.currentSpokenWordBookID(for: requestedBookID)
         let songs = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
@@ -402,6 +516,78 @@ extension AppServices {
             return nil
         }
         return (ordered, index)
+    }
+
+    /// 歌曲模型不在内存里时 `siriSpokenWordStart` 的目录形态:找到的歌各在哪本书里(`bookPlacement`,
+    /// 只认有声书),再把这几本书各自的章节从目录取出来、照书架的分书组成书。目录答不了时为 nil。
+    private static func siriSpokenWordStartOutsideTheModel(
+        forFound songs: [Song], namesItem: Bool, library: MusicLibrary
+    ) async -> (book: SpokenWordBook, itemID: String?)? {
+        guard let first = songs.first, let reader = library.readableCatalogReader else { return nil }
+        let ids = namesItem ? [first.id] : songs.map(\.id)
+        let placements: [String: String]
+        do {
+            placements = try await reader.read { catalog in
+                var found: [String: String] = [:]
+                for id in ids {
+                    if let placement = try catalog.bookPlacement(songID: id), placement.kind == .spokenWord {
+                        found[id] = placement.bookID
+                    }
+                }
+                return found
+            }
+        } catch {
+            plog("🎙️ Siri spoken-word lookup: catalog placement failed (\(error))")
+            return nil
+        }
+        guard placements[first.id] != nil else { return nil }
+        var books: [SpokenWordBook] = []
+        for bookID in Set(placements.values).sorted() {
+            if let found = await spokenWordBookOutsideTheModel(bookID: bookID, library: library) {
+                books.append(found.book)
+            }
+        }
+        guard let start = SiriSpokenWordRouting.start(
+            forFoundSongIDs: songs.map(\.id),
+            bookID: { placements[$0] },
+            books: books,
+            namesItem: namesItem
+        ), let book = books.first(where: { $0.id == start.bookID }) else {
+            return nil
+        }
+        plog("🎙️ Siri spoken-word lookup routed to its book from the catalog namesItem=\(namesItem)")
+        return (book, start.itemID)
+    }
+
+    /// 一本书在曲库目录里的章节(库内顺序),照书架的分书组成那本书。
+    static func spokenWordBookOutsideTheModel(
+        bookID: String, library: MusicLibrary
+    ) async -> (book: SpokenWordBook, songs: [Song])? {
+        guard let reader = library.readableCatalogReader else { return nil }
+        let songs: [Song]
+        do {
+            // 一次物化有上限:章节很多的书分批取,按库内顺序接起来。
+            songs = try await reader.read { catalog in
+                let rowids = try catalog.bookRowList(bookID: bookID).rowids
+                var chapters: [Song] = []
+                chapters.reserveCapacity(rowids.count)
+                var start = rowids.startIndex
+                while start < rowids.endIndex {
+                    let end = rowids.index(start, offsetBy: LibraryScale.maxMaterializedRows, limitedBy: rowids.endIndex) ?? rowids.endIndex
+                    chapters.append(contentsOf: try catalog.songs(rowids: rowids[start..<end]))
+                    start = end
+                }
+                return chapters
+            }
+        } catch {
+            plog("🎙️ Siri spoken-word book: catalog chapters failed (\(error))")
+            return nil
+        }
+        guard !songs.isEmpty else { return nil }
+        let store = SpokenWordStore.shared
+        let books = SpokenWordBookGrouping.books(from: songs.map { SpokenWordBookSupport.item(for: $0, store: store) })
+        guard let book = books.first(where: { $0.id == bookID }) ?? books.first else { return nil }
+        return (book, songs)
     }
 
     /// Subscriptions are read from disk after launch; Siri may ask before.
