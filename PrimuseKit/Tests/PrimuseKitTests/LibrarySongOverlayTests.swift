@@ -245,6 +245,12 @@ struct LibraryPendingSongWritesTests {
         #expect(try read("old") == nil)
         #expect(try read("x") == nil)
         #expect(try read("fresh") == "fresh/new")
+        // 一批一起看:与逐个看相同;一条待写的都没有时为 nil(整批直接读目录)。
+        let batch = try #require(writes.lookups(["moved", "old", "x", "fresh", "untouched"]))
+        #expect(batch[0] == .renamed(from: "old"))
+        #expect(batch[1] == .deleted && batch[2] == .deleted)
+        #expect(LibrarySongOverlayTests.present(batch[3]) == "fresh/new")
+        #expect(batch[4] == .unknown)
 
         // 目录已经提交、还没确认:改名之后的那一行按新 id 读。
         try catalog.catalog.apply(
@@ -254,6 +260,7 @@ struct LibraryPendingSongWritesTests {
         writes.bind(throughSequence: sequence, storeRevision: 1)
         writes.catalogMirrored(storeRevision: 1)
         #expect(writes.pendingCount == 0)
+        #expect(writes.lookups(["moved", "fresh"]) == nil)
         #expect(try read("moved") == "moved/kept")
         #expect(try read("x") == nil)
     }

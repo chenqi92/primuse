@@ -81,7 +81,7 @@ final class LibraryCatalogHost {
     /// 能按 id 从目录读出与内存模型此刻相同的歌时给出读法:目录可读、在跟写、没有等着跟上的整份替换。
     func songLookup() -> LibraryCatalogSongLookup? {
         guard pendingWrites.answersLikeMemory, let catalog = mirror.readableCatalog else { return nil }
-        return LibraryCatalogSongLookup(catalog: catalog, pendingWrites: pendingWrites)
+        return LibraryCatalogSongLookup(catalog: catalog, pendingWrites: pendingWrites, rowCache: reader.rowCache)
     }
 
     /// 一个绑在这个目录上的歌曲列表模型。
@@ -98,14 +98,71 @@ final class LibraryCatalogHost {
     }
 }
 
-/// 按 id 读目录(还在路上的改动先看覆盖层),与内存模型 `storedSong(id:)` 的答案相同(含停用源)。
-/// 可以带到主线程外用;途中目录不能再这样答时抛 `unavailable`,调用方改读内存模型。
+/// 按 id 读目录(还在路上的改动先看待写登记,再看行缓存,最后才查目录),与内存模型 `storedSong(id:)` 的答案
+/// 相同(含停用源)。可以带到主线程外用;途中目录不能再这样答时抛 `unavailable`,调用方改读内存模型。
 struct LibraryCatalogSongLookup: Sendable {
     let catalog: LibraryCatalog
     let pendingWrites: LibraryPendingSongWrites
+    /// 目录这一边读过的行:与列表页共用的那份有界缓存,目录每次提交后按行号失效。
+    let rowCache: LibraryRowCache
 
     func song(id: String) throws -> Song? {
         guard pendingWrites.answersLikeMemory else { throw LibraryCatalogReaderError.unavailable }
-        return try pendingWrites.resolve(id) { try catalog.song(id: $0) }
+        return try pendingWrites.resolve(id) { try rowCache.song(id: $0, in: catalog) }
+    }
+
+    /// 按 id 取一批,与输入一一对应(没有的位置为 nil)。目录那一边一次查回来,不是一首一查。
+    /// 结果的大小由调用方给的 id 决定(一张歌单的全部成员);这里分批读,每批不超过物化上限。
+    func songs(ids: [String]) throws -> [Song?] {
+        guard pendingWrites.answersLikeMemory else { throw LibraryCatalogReaderError.unavailable }
+        // 由改名而来的 id 要连旧 id 那一行一起查,一批按一半算。
+        let batchSize = LibraryScale.maxMaterializedRows / 2
+        guard ids.count > batchSize else { return try resolve(ids) }
+        var result: [Song?] = []
+        result.reserveCapacity(ids.count)
+        var start = 0
+        while start < ids.count {
+            let end = min(ids.count, start + batchSize)
+            result.append(contentsOf: try resolve(Array(ids[start..<end])))
+            start = end
+        }
+        return result
+    }
+
+    /// 同 `LibraryPendingSongWrites.resolve`,一批一起做。
+    private func resolve(_ ids: [String]) throws -> [Song?] {
+        guard let pending = pendingWrites.lookups(ids) else { return try rowCache.songs(ids: ids, in: catalog) }
+        var catalogIDs: [String] = []
+        for (offset, state) in pending.enumerated() {
+            switch state {
+            case .unknown:
+                catalogIDs.append(ids[offset])
+            case .renamed(let oldID):
+                catalogIDs.append(oldID)
+                catalogIDs.append(ids[offset])
+            case .present, .deleted:
+                break
+            }
+        }
+        let fetched = try rowCache.songs(ids: catalogIDs, in: catalog)
+        var catalogSongs: [String: Song] = [:]
+        for (id, song) in zip(catalogIDs, fetched) {
+            if let song { catalogSongs[id] = song }
+        }
+        return pending.enumerated().map { offset, state in
+            switch state {
+            case .unknown:
+                return catalogSongs[ids[offset]]
+            case .present(let song):
+                return song
+            case .deleted:
+                return nil
+            case .renamed(let oldID):
+                // 目录还没改名时读旧 id 那一行换上新 id,已经改了就读新 id。
+                guard var moved = catalogSongs[oldID] else { return catalogSongs[ids[offset]] }
+                moved.id = ids[offset]
+                return moved
+            }
+        }
     }
 }

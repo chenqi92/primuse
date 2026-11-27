@@ -627,7 +627,7 @@ public final class ScanExistingSongsCatalogShadow: @unchecked Sendable {
 
     /// 旧库(`library-songs.sqlite`)按 ISO 8601 存日期,只到秒:从旧库导入、对账来的行,比内存里这次会话
     /// 新建、还没重新载入的行少了零点几秒。按旧库的精度比。
-    static func sameAtStorePrecision(_ lhs: Song?, _ rhs: Song?) -> Bool {
+    public static func sameAtStorePrecision(_ lhs: Song?, _ rhs: Song?) -> Bool {
         if lhs == rhs { return true }
         guard let lhs, let rhs else { return false }
         return storeEncoding(lhs) == storeEncoding(rhs)
@@ -641,7 +641,7 @@ public final class ScanExistingSongsCatalogShadow: @unchecked Sendable {
     }
 
     /// 两份不同的地方:有一边没有时说哪边没有,否则列出(按旧库的精度)编码后不同的字段名。
-    static func difference(catalog: Song?, array: Song?) -> String {
+    public static func difference(catalog: Song?, array: Song?) -> String {
         guard let catalog, let array else {
             return "catalog=\(catalog?.filePath ?? "nil") array=\(array?.filePath ?? "nil")"
         }

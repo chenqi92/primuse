@@ -15,6 +15,8 @@ public enum LibraryScale {
     public static let maximumReaderCount = 2
     /// 每个连接的页缓存上限(KiB, 写成负数给 `PRAGMA cache_size`)。
     public static let connectionCacheKiB = 4_096
+    /// 按 id 读一行专用的那个连接的页缓存上限(KiB):只走主键与 id 索引,用不着多少页。
+    public static let pointReaderCacheKiB = 1_024
     /// 映射读的上限:干净的映射页不计入 footprint。
     public static let mmapSize = 256 * 1_024 * 1_024
 }

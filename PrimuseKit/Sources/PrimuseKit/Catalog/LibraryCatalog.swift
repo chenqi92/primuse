@@ -34,6 +34,9 @@ public final class LibraryCatalog: @unchecked Sendable {
     /// `bulkInsert` 跨批复用的整数引用与艺人解析结果(写事务串行,不会并发用)。
     let bulkLoadRefs = CatalogRefCache()
     let bulkLoadMemo = GroupingMaintenance.RowValueMemo()
+    /// 按 id 读一行专用的只读连接,第一次用到时才打开(见 `pointRead`)。
+    private let pointReaderLock = NSLock()
+    private var pointReader: DatabaseQueue?
 
     /// 分组派生当前用的 App 输入。`setGroupingConfiguration` 换掉并按需整库重建。
     public var groupingConfiguration: LibraryGroupingConfiguration {
@@ -141,6 +144,38 @@ public final class LibraryCatalog: @unchecked Sendable {
     public func releaseMemory() {
         songListCache.removeAll()
         pool.releaseMemory()
+        live.pointReaderLock.withLock { live.pointReader }?.releaseMemory()
+    }
+
+    /// 在按 id 读专用的那个连接上读实时目录。主线程上按 id 读一首不排在连接池后面:池里的读连接
+    /// (`maximumReaderCount` 个)都被整库排序、遍历占着时,排队要等上一整趟查询。
+    /// 只给读歌曲行本身(`song` 与 `source` 两张表)的查询用:冻结视图存在期间这里读到的仍是实时目录,
+    /// 歌曲行照样对(那之后的改动都在待写登记里),分组派生的各表可能正重建到一半,不能经这里读。
+    func pointRead<T>(_ body: (Database) throws -> T) throws -> T {
+        let base = live
+        let queue = try base.pointReaderLock.withLock { () throws -> DatabaseQueue in
+            if let existing = base.pointReader { return existing }
+            var configuration = Configuration()
+            configuration.readonly = true
+            configuration.label = "Primuse library catalog by-id reads"
+            configuration.prepareDatabase { db in
+                try db.execute(sql: """
+                    PRAGMA cache_size = -\(LibraryScale.pointReaderCacheKiB);
+                    PRAGMA mmap_size = \(LibraryScale.mmapSize);
+                    """)
+            }
+            let opened = try DatabaseQueue(path: base.path, configuration: configuration)
+            base.pointReader = opened
+            return opened
+        }
+        return try queue.read(body)
+    }
+
+    /// 按 id 取一张专辑、一位艺人这类只碰几行的读:平时也走那个专用的连接;这是冻结视图时读冻结那一刻的
+    /// 各表(实时目录的分组表可能正重建到一半),经它自己的读连接。
+    func pointReadOfGrouping<T>(_ body: (Database) throws -> T) throws -> T {
+        if isFrozenView { return try reader.read(body) }
+        return try pointRead(body)
     }
 
     /// 歌曲内容修订号:每次 `apply` 有改动就递增。

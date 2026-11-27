@@ -928,6 +928,385 @@ final class LibraryStartupHarnessTests: XCTestCase {
         await library.stopCatalogMirror()
     }
 
+    // MARK: - 歌曲模型不常驻之前的三项测量(P3-design「Route to S1/S2」步骤 0)
+
+    /// 带目录的规模夹具: `PRIMUSE_SCALE_DIR` 旁边的 `<名字>-catalog`, 是规模夹具的副本加上迁移好的
+    /// 曲库目录(正好在旧库的修订号上)。各项测量在它的副本上跑, 夹具本身不动。
+    private static var scaleCatalogDirectory: URL? {
+        scaleDirectory.map {
+            $0.deletingLastPathComponent().appendingPathComponent($0.lastPathComponent + "-catalog", isDirectory: true)
+        }
+    }
+
+    private static func existingScaleCatalogFixture() throws -> URL {
+        guard let fixture = scaleCatalogDirectory,
+              FileManager.default.fileExists(atPath: fixture.appendingPathComponent("library-catalog.sqlite").path) else {
+            throw XCTSkip("Build the scale catalog fixture first (testBuildScaleCatalogFixture)")
+        }
+        return fixture
+    }
+
+    /// 走真机的启动路径装载曲库并带上目录, 等派生索引与目录都落定、目录可读。
+    private static func loadLibraryWithCatalog(_ directory: URL) async throws -> (MusicLibrary, LibraryCatalogHost) {
+        let library: MusicLibrary
+        do {
+            let prepared = await MusicLibrary.prepareStartup(storageDirectory: directory)
+            library = MusicLibrary.makePreparing(storageDirectory: directory, catalogMirroring: .enabled(startDelay: .zero))
+            library.publish(prepared)
+        }
+        await library.waitForPendingIndex()
+        await library.waitForCatalogMirror()
+        let host = try XCTUnwrap(library.catalogHost)
+        for _ in 0..<1_000 where !host.revisions.isReadable { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(host.revisions.isReadable, "the catalog is readable once the mirror is idle")
+        return (library, host)
+    }
+
+    /// malloc 各区里还在用的字节数: 放掉模型之后它降了多少是「释放了多少」, footprint 降了多少是
+    /// 「还给系统多少」, 两者之差就是留在空闲表里的碎片。
+    private static func mallocBytesInUse() -> UInt64 {
+        var statistics = malloc_statistics_t()
+        malloc_zone_statistics(nil, &statistics)
+        return UInt64(statistics.size_in_use)
+    }
+
+    private static func microseconds(_ body: () throws -> Void) rethrows -> Double {
+        let started = DispatchTime.now().uptimeNanoseconds
+        try body()
+        return Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000
+    }
+
+    /// 中位数、p95、最大、平均(微秒)。
+    private static func distribution(_ samples: [Double]) -> String {
+        guard !samples.isEmpty else { return "n=0" }
+        let sorted = samples.sorted()
+        func at(_ fraction: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count) * fraction))] }
+        return String(
+            format: "n=%d median=%.1fµs p95=%.1fµs max=%.1fµs mean=%.1fµs",
+            sorted.count, at(0.5), at(0.95), sorted[sorted.count - 1], sorted.reduce(0, +) / Double(sorted.count)
+        )
+    }
+
+    private static func report(_ line: String) {
+        plog(line)
+        print(line)
+    }
+
+    func testBuildScaleCatalogFixture() async throws {
+        guard let fixture = Self.scaleDirectory, let directory = Self.scaleCatalogDirectory,
+              FileManager.default.fileExists(atPath: fixture.appendingPathComponent("library-songs.sqlite").path) else {
+            throw XCTSkip("Build the scale fixture first (PRIMUSE_SCALE_DIR)")
+        }
+        try? FileManager.default.removeItem(at: directory)
+        try FileManager.default.copyItem(at: fixture, to: directory)
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let (library, host) = try await Self.loadLibraryWithCatalog(directory)
+        let migrationSeconds = ProcessInfo.processInfo.systemUptime - startedAt
+        // 副本的文件号变了: 启动缓存与派生缓存按新的指纹重写一次, 之后在它上面量到的才是日常的二次启动。
+        _ = await library.persistNowAndWait()
+        await Self.drainLaunchCacheWrites(library)
+        await library.waitForCatalogMirror()
+        let catalog = try XCTUnwrap(host.mirror.readableCatalog)
+        XCTAssertEqual(try catalog.songCount(.everything), library.songs.count)
+        let storeRevision = try IncrementalSongStoreScanner(
+            path: directory.appendingPathComponent("library-songs.sqlite").path
+        ).contentRevision()
+        XCTAssertEqual(host.mirror.mirroredStoreRevision, storeRevision, "the fixture's catalog is at the store's revision")
+        Self.report(String(
+            format: "📏 scale catalog fixture songs=%d loadAndMigrate=%.1fs storeRevision=%lld dir=%@",
+            library.songs.count, migrationSeconds, storeRevision, directory.path
+        ))
+        await library.stopCatalogMirror()
+    }
+
+    /// 步骤 0a: 装好的歌曲模型放掉之后, 有多少内存回到系统。先只放歌曲那一层(以后「不常驻」留在
+    /// 内存里的是专辑、艺人那一层), 再连专辑、艺人一起放, 最后放目录自己的页缓存。
+    func testScaleFixtureReleaseYield() async throws {
+        let fixture = try Self.existingScaleCatalogFixture()
+        let directory = try Self.copyDirectory(fixture)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let before = Self.residentFootprint().current
+        let inUseBefore = Self.mallocBytesInUse()
+        let (library, host) = try await Self.loadLibraryWithCatalog(directory)
+        try await Task.sleep(for: .seconds(2))
+        await MusicLibrary.drainDisplacedArraysForMeasurement()
+        let songCount = library.songs.count
+        let albumCount = library.albums.count
+        let loaded = Self.residentFootprint().current
+        let inUseLoaded = Self.mallocBytesInUse()
+        // 放之前先确认目录这一边答得出来: 之后按 id 读靠它。
+        let sampleID = try XCTUnwrap(library.songs.last?.id)
+        XCTAssertEqual(try host.songLookup()?.song(id: sampleID)?.id, sampleID)
+
+        func settle() async throws -> (footprint: UInt64, inUse: UInt64) {
+            await MusicLibrary.drainDisplacedArraysForMeasurement()
+            try await Task.sleep(for: .milliseconds(500))
+            await MusicLibrary.returnFreedMemoryToSystem()
+            try await Task.sleep(for: .seconds(1))
+            return (Self.residentFootprint().current, Self.mallocBytesInUse())
+        }
+
+        library.dropSongModelForMeasurement(includingCollections: false)
+        await MusicLibrary.drainDisplacedArraysForMeasurement()
+        try await Task.sleep(for: .milliseconds(500))
+        let droppedBeforeRelief = Self.residentFootprint().current
+        let songsDropped = try await settle()
+        library.dropSongModelForMeasurement(includingCollections: true)
+        let collectionsDropped = try await settle()
+        host.mirror.readableCatalog?.live.releaseMemory()
+        host.reader.rowCache.removeAll()
+        let catalogReleased = try await settle()
+        // 放掉之后模型已经不在了, 按 id 读照样有答案: 由目录来答(步骤 1)。
+        XCTAssertEqual(try host.songLookup()?.song(id: sampleID)?.id, sampleID)
+        XCTAssertEqual(library.storedSong(id: sampleID)?.id, sampleID)
+        XCTAssertTrue(library.songs.isEmpty)
+
+        func megabytes(_ bytes: UInt64) -> Double { Self.megabytes(bytes) }
+        func delta(_ later: UInt64, _ earlier: UInt64) -> Double { megabytes(later) - megabytes(earlier) }
+        let model = delta(loaded, before)
+        func returned(_ footprint: UInt64) -> Double { model > 0 ? (megabytes(loaded) - megabytes(footprint)) / model : 0 }
+        Self.report(String(
+            format: "📏 release yield songs=%d albums=%d before=%lld loaded=%lld modelBytes=%lld perSong=%.0fB | "
+                + "songsDropped=%lld (beforeRelief=%lld) returned=%.1fMB fraction=%.3f | "
+                + "collectionsDropped=%lld returned=%.1fMB fraction=%.3f | catalogReleased=%lld returned=%.1fMB fraction=%.3f",
+            songCount, albumCount, before, loaded, loaded - min(loaded, before), model * 1_048_576 / Double(max(1, songCount)),
+            songsDropped.footprint, droppedBeforeRelief, delta(loaded, songsDropped.footprint), returned(songsDropped.footprint),
+            collectionsDropped.footprint, delta(loaded, collectionsDropped.footprint), returned(collectionsDropped.footprint),
+            catalogReleased.footprint, delta(loaded, catalogReleased.footprint), returned(catalogReleased.footprint)
+        ))
+        Self.report(String(
+            format: "📏 release yield malloc inUse: before=%.1fMB loaded=%.1fMB songsDropped=%.1fMB collectionsDropped=%.1fMB "
+                + "catalogReleased=%.1fMB | freed by dropping songs=%.1fMB, of which back to the system=%.1fMB",
+            megabytes(inUseBefore), megabytes(inUseLoaded), megabytes(songsDropped.inUse), megabytes(collectionsDropped.inUse),
+            megabytes(catalogReleased.inUse), delta(inUseLoaded, songsDropped.inUse), delta(loaded, songsDropped.footprint)
+        ))
+        XCTAssertGreaterThan(songCount, 0)
+        await library.stopCatalogMirror()
+    }
+
+    /// 步骤 0b: 主线程上按 id 读一首(待写登记 → 目录)要多久。冷(这一行还没读过)、重复读、经行缓存、
+    /// 一屏列表那么多(50 个不同的 id)连着读、读连接都被整库查询占着的时候。
+    func testScaleFixtureByIDReadCost() async throws {
+        let fixture = try Self.existingScaleCatalogFixture()
+        let directory = try Self.copyDirectory(fixture)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (library, host) = try await Self.loadLibraryWithCatalog(directory)
+        let lookup = try XCTUnwrap(host.songLookup())
+        let catalog = try XCTUnwrap(host.mirror.readableCatalog)
+        let rowCache = host.reader.rowCache
+        let allIDs = library.songs.map(\.id)
+        let count = allIDs.count
+        guard count >= 20_000 else { return XCTFail("scale fixture is too small") }
+        // 五组互不相交的 id, 都散在整库各处(步长与库的大小互质, 起点错开)。
+        func sample(_ size: Int, offset: Int) -> [String] {
+            (0..<size).map { allIDs[(offset + $0 * 7_919) % count] }
+        }
+        let cold = sample(2_000, offset: 0)
+        let cached = sample(2_000, offset: 1)
+        let burstSingles = sample(1_000, offset: 2)
+        let burstBatched = sample(1_000, offset: 3)
+        // 读连接被占着时每读一首可能要等一整趟遍历, 这一组少取一些。
+        let contended = sample(200, offset: 4)
+        XCTAssertEqual(Set(cold + cached + burstSingles + burstBatched + contended).count, 6_200)
+
+        /// 逐个读并计时(断言不算在里面), 返回各次的微秒数与读到的首数。
+        func timeEach(_ ids: [String], _ read: (String) throws -> Song?) rethrows -> (samples: [Double], found: Int) {
+            var samples: [Double] = []
+            samples.reserveCapacity(ids.count)
+            var found = 0
+            for id in ids {
+                var song: Song?
+                samples.append(try Self.microseconds { song = try read(id) })
+                if song != nil { found += 1 }
+            }
+            return (samples, found)
+        }
+
+        let memory = timeEach(cold) { library.storedSong(id: $0) }
+        XCTAssertEqual(memory.found, cold.count)
+        Self.report("📏 by-id memory storedSong \(Self.distribution(memory.samples))")
+
+        // 1. 现成的 `LibraryCatalogSongLookup.song(id:)`: 待写登记 → 目录按 id 查一行(不经行缓存)。
+        var timed = try timeEach(cold) { try lookup.song(id: $0) }
+        XCTAssertEqual(timed.found, cold.count)
+        Self.report("📏 by-id lookup cold first10=\(timed.samples.prefix(10).map { String(format: "%.0f", $0) }.joined(separator: ",")) \(Self.distribution(timed.samples))")
+        timed = try timeEach(cold) { try lookup.song(id: $0) }
+        XCTAssertEqual(timed.found, cold.count)
+        Self.report("📏 by-id lookup repeated \(Self.distribution(timed.samples))")
+        timed = try timeEach((0..<2_000).map { "missing-\($0)" }) { try lookup.song(id: $0) }
+        XCTAssertEqual(timed.found, 0)
+        Self.report("📏 by-id lookup missing \(Self.distribution(timed.samples))")
+
+        // 2. id → 行号, 再经行缓存(现成的接口拼起来): 没缓存、已缓存。
+        func throughRowCache(_ id: String) throws -> Song? {
+            guard let rowid = try catalog.songRowid(id: id) else { return nil }
+            return try rowCache.songs(forRowids: [rowid], in: catalog).first ?? nil
+        }
+        timed = try timeEach(cached) { try throughRowCache($0) }
+        XCTAssertEqual(timed.found, cached.count)
+        Self.report("📏 by-id rowid+rowCache miss \(Self.distribution(timed.samples))")
+        timed = try timeEach(cached) { try throughRowCache($0) }
+        XCTAssertEqual(timed.found, cached.count)
+        Self.report("📏 by-id rowid+rowCache hit \(Self.distribution(timed.samples))")
+        var rowidSamples: [Double] = []
+        for id in cached { rowidSamples.append(try Self.microseconds { _ = try catalog.songRowid(id: id) }) }
+        Self.report("📏 by-id rowid only \(Self.distribution(rowidSamples))")
+
+        // 3. 一屏列表: 50 个没读过的 id, 一首一首读 / 一次查完。
+        var burstTotals: [Double] = []
+        for start in stride(from: 0, to: burstSingles.count, by: 50) {
+            let ids = burstSingles[start..<(start + 50)]
+            burstTotals.append(try Self.microseconds { for id in ids { _ = try lookup.song(id: id) } })
+        }
+        Self.report("📏 by-id burst50 one-by-one (per burst) \(Self.distribution(burstTotals))")
+        burstTotals = []
+        for start in stride(from: 0, to: burstBatched.count, by: 50) {
+            let ids = Array(burstBatched[start..<(start + 50)])
+            var fetched = 0
+            burstTotals.append(try Self.microseconds { fetched = try catalog.songs(ids: ids).count })
+            XCTAssertEqual(fetched, 50)
+        }
+        Self.report("📏 by-id burst50 batched (per burst) \(Self.distribution(burstTotals))")
+
+        // 4. 两个读连接都被整库遍历占着时(排序、计数、流式遍历这类查询在主线程外跑): 主线程上的按 id 读。
+        let stop = InteractionFlag()
+        let holders = (0..<LibraryScale.maximumReaderCount).map { _ in
+            Task.detached(priority: .userInitiated) {
+                var passes = 0
+                while !stop.isSet {
+                    try? catalog.forEachSongIdentity(.everything) { _, _, _ in !stop.isSet }
+                    passes += 1
+                }
+                return passes
+            }
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        timed = try timeEach(contended) { try lookup.song(id: $0) }
+        stop.set(true)
+        var passes = 0
+        for holder in holders { passes += await holder.value }
+        XCTAssertEqual(timed.found, contended.count)
+        Self.report("📏 by-id lookup with both readers busy (whole-table passes=\(passes)) \(Self.distribution(timed.samples))")
+
+        // 5. 模型不在内存里时的各个入口本身(步骤 1): 放掉模型, 按 id 读由「待写登记 → 行缓存 → 目录」来答。
+        let albumIDs = Array(library.albums.prefix(400).map(\.id))
+        let artistIDs = Array(library.artists.prefix(400).map(\.id))
+        let albumSongSampleIDs = Array(albumIDs.prefix(100))
+        library.dropSongModelForMeasurement(includingCollections: true)
+        host.reader.rowCache.removeAll()
+        let facadeCold = sample(1_000, offset: 5)
+        let facadeScreens = sample(1_000, offset: 6)
+        timed = timeEach(facadeCold) { library.unobservedVisibleSong(id: $0) }
+        XCTAssertEqual(timed.found, facadeCold.count)
+        Self.report("📏 by-id facade unobservedVisibleSong first read \(Self.distribution(timed.samples))")
+        timed = timeEach(facadeCold) { library.unobservedVisibleSong(id: $0) }
+        XCTAssertEqual(timed.found, facadeCold.count)
+        Self.report("📏 by-id facade unobservedVisibleSong cached \(Self.distribution(timed.samples))")
+        timed = timeEach(facadeCold) { library.song(id: $0) }
+        Self.report("📏 by-id facade song(id:) cached \(Self.distribution(timed.samples))")
+        timed = timeEach(facadeCold) { library.songForSynchronization(id: $0) }
+        Self.report("📏 by-id facade songForSynchronization cached \(Self.distribution(timed.samples))")
+        timed = timeEach((0..<1_000).map { "absent-\($0)" }) { library.storedSong(id: $0) }
+        XCTAssertEqual(timed.found, 0)
+        Self.report("📏 by-id facade storedSong absent \(Self.distribution(timed.samples))")
+        // 一屏 50 行: 列表先按行号取这一页(行缓存里就有了), 行视图再逐个按 id 读。
+        var pageTotals: [Double] = []
+        var rowTotals: [Double] = []
+        for start in stride(from: 0, to: facadeScreens.count, by: 50) {
+            let ids = Array(facadeScreens[start..<(start + 50)])
+            let rowids = try catalog.rowids(forIDs: ids).compactMap { $0 }
+            pageTotals.append(try Self.microseconds { _ = try rowCache.songs(forRowids: rowids, in: catalog) })
+            var found = 0
+            rowTotals.append(Self.microseconds { for id in ids where library.unobservedVisibleSong(id: id) != nil { found += 1 } })
+            XCTAssertEqual(found, 50)
+        }
+        Self.report("📏 by-id facade screen of 50: page fetch by rowid (per screen) \(Self.distribution(pageTotals))")
+        Self.report("📏 by-id facade screen of 50: 50 row reads after the page fetch (per screen) \(Self.distribution(rowTotals))")
+        var albumSamples: [Double] = []
+        var albumsFound = 0
+        for id in albumIDs {
+            albumSamples.append(Self.microseconds { if library.visibleAlbum(id: id) != nil { albumsFound += 1 } })
+        }
+        Self.report("📏 by-id facade visibleAlbum first read found=\(albumsFound) \(Self.distribution(albumSamples))")
+        albumSamples = albumIDs.map { id in Self.microseconds { _ = library.visibleAlbum(id: id) } }
+        Self.report("📏 by-id facade visibleAlbum cached \(Self.distribution(albumSamples))")
+        var artistsFound = 0
+        let artistSamples = artistIDs.map { id in
+            Self.microseconds { if library.visibleArtist(id: id) != nil { artistsFound += 1 } }
+        }
+        Self.report("📏 by-id facade visibleArtist first read found=\(artistsFound) \(Self.distribution(artistSamples))")
+        var albumSongCount = 0
+        let albumSongSamples = albumSongSampleIDs.map { id in
+            Self.microseconds { albumSongCount += library.songs(forAlbum: id).count }
+        }
+        Self.report("📏 by-id facade songs(forAlbum:) songs=\(albumSongCount) \(Self.distribution(albumSongSamples))")
+        await library.stopCatalogMirror()
+    }
+
+    /// 步骤 0c: 目录落在旧库后面一个修订号时(旧库写完、目录还没跟上就被杀), 启动后对账要多久。
+    /// 对账期间目录不可读。
+    func testScaleFixtureLaunchDrift() async throws {
+        let fixture = try Self.existingScaleCatalogFixture()
+        let directory = try Self.copyDirectory(fixture)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storePath = directory.appendingPathComponent("library-songs.sqlite").path
+        let songCount: Int
+        let changedID: String
+        do {
+            // 旧库往前走一个修订号: 改一首歌的标题, 目录没跟。
+            let scanner = try IncrementalSongStoreScanner(path: storePath)
+            let revisionBefore = try scanner.contentRevision()
+            songCount = try scanner.songCount()
+            var song = try XCTUnwrap(scanner.rows(after: nil, limit: 1).first?.song)
+            song.title += " (drift)"
+            changedID = song.id
+            let store = try IncrementalSongStore(path: storePath)
+            XCTAssertEqual(try store.apply(upserts: [song]), revisionBefore + 1)
+        }
+        let logMarker = "drift-run-\(UUID().uuidString)"
+        plog("📏 \(logMarker)")
+        let library: MusicLibrary
+        do {
+            let prepared = await MusicLibrary.prepareStartup(storageDirectory: directory)
+            library = MusicLibrary.makePreparing(storageDirectory: directory, catalogMirroring: .enabled(startDelay: .zero))
+            // 先让装载落定再开目录的计时: 发布那一刻镜像才启动。
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            library.publish(prepared)
+            let host = try XCTUnwrap(library.catalogHost)
+            var unreadableUntil = startedAt
+            var sawResync = false
+            for _ in 0..<600_000 {
+                sawResync = sawResync || host.mirror.statistics.resyncs > 0
+                if host.mirror.readableCatalog != nil { break }
+                unreadableUntil = ProcessInfo.processInfo.systemUptime
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            let readableAfter = ProcessInfo.processInfo.systemUptime - startedAt
+            XCTAssertTrue(sawResync || host.mirror.statistics.resyncs > 0, "the catalog opened behind the store and re-synced")
+            let statistics = host.mirror.statistics
+            XCTAssertEqual(statistics.resyncs, 1)
+            XCTAssertEqual(statistics.resyncFallbacksToImport, 0)
+            XCTAssertEqual(statistics.importRuns, 0)
+            let catalog = try XCTUnwrap(host.mirror.readableCatalog)
+            XCTAssertEqual(try catalog.song(id: changedID)?.title.hasSuffix(" (drift)"), true)
+            await library.waitForPendingIndex()
+            await library.waitForCatalogMirror()
+            try await Task.sleep(for: .milliseconds(500))
+            // 镜像自己记的那两行(设备日志里看到的也是它们)。
+            let log = FileLogger.shared.recentContent(maxBytes: 400_000)
+            let lines = (log.components(separatedBy: logMarker).last ?? "")
+                .split(separator: "\n")
+                .filter { $0.contains("📚 catalog open") || $0.contains("📚 catalog drift") || $0.contains("📚 catalog resync") }
+                .map { String($0.suffix(160)) }
+            Self.report(String(
+                format: "📏 launch drift songs=%d readableAfter=%.0fms (unreadable for at least %.0fms after publish) resyncs=%d",
+                songCount, readableAfter * 1_000, (unreadableUntil - startedAt) * 1_000, statistics.resyncs
+            ))
+            for line in lines { Self.report("📏 launch drift mirror log: \(line)") }
+        }
+        await library.stopCatalogMirror()
+    }
+
     func testScaleFixtureFootprint() async throws {
         guard let directory = Self.scaleDirectory,
               FileManager.default.fileExists(atPath: directory.appendingPathComponent("library-songs.sqlite").path) else {

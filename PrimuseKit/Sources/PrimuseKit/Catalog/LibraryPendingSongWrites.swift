@@ -182,6 +182,14 @@ public final class LibraryPendingSongWrites: @unchecked Sendable {
         lock.withLock { state.overlay.lookup(id) }
     }
 
+    /// 一批 id 各自在这里的样子,同一时刻看的(按 id 读一批时用);这里一条都没有时为 nil,整批直接读目录。
+    public func lookups(_ ids: [String]) -> [LibrarySongOverlay.Lookup]? {
+        lock.withLock {
+            guard !state.overlay.isEmpty else { return nil }
+            return ids.map { state.overlay.lookup($0) }
+        }
+    }
+
     /// 这一首此刻的样子:这里有就用这里的,没有就读目录。由改名而来的那一首,目录还没改名时读旧 id
     /// 那一行换上新 id,已经改了就读新 id。
     public func resolve(_ id: String, catalogSong: (String) throws -> Song?) rethrows -> Song? {

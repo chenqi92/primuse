@@ -19,6 +19,17 @@ extension LibraryCatalog {
             """) ?? false
     }
 
+    /// 同 `visibleSplitsLibrary`,给按 id 取一张专辑、一位艺人用(每次只为一项问一遍)。
+    /// 那一条在可见歌曲里一首非音乐都没有时要把歌曲表扫到底(10 万首约 20 ms);这里把「不是音乐」写成
+    /// `kind > 0`(类别从 0 起),走以 `kind` 打头的排序索引,没有非音乐时一步就答完。`+sourceKey` 不让
+    /// 规划器改走按源的索引(那样要把启用源的歌逐首回表看类别)。索引还没建好时照样对,只是又成了整表扫。
+    static func visibleSplitsLibraryForPointRead(in db: Database) throws -> Bool {
+        try Bool.fetchOne(db.cachedStatement(sql: """
+            SELECT EXISTS (SELECT 1 FROM source WHERE enabled = 0)
+                OR EXISTS (SELECT 1 FROM song WHERE kind > 0 AND +sourceKey IN (\(enabledSourcesSQL)))
+            """)) ?? false
+    }
+
     // MARK: - Albums
 
     /// 专辑按标题本地化排序、同名按首次出现的先后(与参照实现的稳定排序一致)。
@@ -48,34 +59,52 @@ extension LibraryCatalog {
         let admitted = Array(keys.prefix(LibraryScaleGuard.admitMaterialization(count: keys.count)))
         return try reader.read { db in
             let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
-            let splits = visibleCounts && splitsLibrary
-            var byKey: [Int32: Album] = [:]
-            for chunk in Self.chunks(of: admitted) {
-                let rows = try Row.fetchAll(db, sql: """
-                    SELECT a.key, a.id, a.title, a.artistID, a.artistName, a.year, a.genre, a.songCount, a.duration,
-                           a.sourceID, a.sourceArtistNames,
-                           (SELECT total(songCount) FROM albumSourceStat st
-                               WHERE st.albumKey = a.key AND st.sourceKey IN (\(Self.enabledSourcesSQL))),
-                           (SELECT total(duration) FROM albumSourceStat st
-                               WHERE st.albumKey = a.key AND st.sourceKey IN (\(Self.enabledSourcesSQL)))
-                    FROM album a WHERE a.key IN (\(Self.placeholders(chunk.count)))
-                    """, arguments: StatementArguments(chunk.map(Int64.init)))
-                for row in rows {
-                    let key = try Self.rowid32(row[0])
-                    let visibleCount: Double = row[11]
-                    let visibleDuration: Double = row[12]
-                    byKey[key] = Album(
-                        id: row[1], title: row[2], artistID: row[3], artistName: row[4],
-                        sourceArtistNames: GroupingMaintenance.decodeSourceArtistNames(row[10]),
-                        year: row[5], genre: row[6],
-                        songCount: splits ? Int(visibleCount) : row[7],
-                        totalDuration: splits ? visibleDuration : row[8],
-                        sourceID: row[9]
-                    )
-                }
-            }
-            return admitted.compactMap { byKey[$0] }
+            return try Self.fetchAlbums(keys: admitted, splits: visibleCounts && splitsLibrary, in: db)
         }
+    }
+
+    /// 可见专辑里按 id 取一张:它在 `albumKeys(visibleOnly: true)` 里时给出与 `albums(keys:visibleCounts: true)`
+    /// 相同的那一项(歌曲数与时长只算可见的歌),不在(没有这张专辑,或它没有可见的音乐)时为 nil。
+    public func visibleAlbum(id: String) throws -> Album? {
+        try pointReadOfGrouping { db in
+            let splits = try Self.visibleSplitsLibraryForPointRead(in: db)
+            let filter = splits
+                ? " AND key IN (SELECT albumKey FROM albumSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
+                : ""
+            guard let key = try Int64.fetchOne(db, sql: "SELECT key FROM album WHERE id = ?\(filter)", arguments: [id]) else {
+                return nil
+            }
+            return try Self.fetchAlbums(keys: [try Self.rowid32(key)], splits: splits, in: db).first
+        }
+    }
+
+    private static func fetchAlbums(keys admitted: [Int32], splits: Bool, in db: Database) throws -> [Album] {
+        var byKey: [Int32: Album] = [:]
+        for chunk in Self.chunks(of: admitted) {
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT a.key, a.id, a.title, a.artistID, a.artistName, a.year, a.genre, a.songCount, a.duration,
+                       a.sourceID, a.sourceArtistNames,
+                       (SELECT total(songCount) FROM albumSourceStat st
+                           WHERE st.albumKey = a.key AND st.sourceKey IN (\(Self.enabledSourcesSQL))),
+                       (SELECT total(duration) FROM albumSourceStat st
+                           WHERE st.albumKey = a.key AND st.sourceKey IN (\(Self.enabledSourcesSQL)))
+                FROM album a WHERE a.key IN (\(Self.placeholders(chunk.count)))
+                """, arguments: StatementArguments(chunk.map(Int64.init)))
+            for row in rows {
+                let key = try Self.rowid32(row[0])
+                let visibleCount: Double = row[11]
+                let visibleDuration: Double = row[12]
+                byKey[key] = Album(
+                    id: row[1], title: row[2], artistID: row[3], artistName: row[4],
+                    sourceArtistNames: GroupingMaintenance.decodeSourceArtistNames(row[10]),
+                    year: row[5], genre: row[6],
+                    songCount: splits ? Int(visibleCount) : row[7],
+                    totalDuration: splits ? visibleDuration : row[8],
+                    sourceID: row[9]
+                )
+            }
+        }
+        return admitted.compactMap { byKey[$0] }
     }
 
     /// 专辑的可见歌曲,按碟号、曲号、标题(`AlbumTrackOrder`)。
@@ -129,25 +158,43 @@ extension LibraryCatalog {
         let admitted = Array(keys.prefix(LibraryScaleGuard.admitMaterialization(count: keys.count)))
         return try reader.read { db in
             let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
-            let splits = visibleCounts && splitsLibrary
-            var byKey: [Int32: Artist] = [:]
-            for chunk in Self.chunks(of: admitted) {
-                let rows = try Row.fetchAll(db, sql: """
-                    SELECT a.key, a.id, a.name, a.albumCount, a.songCount, a.thumbnailPath,
-                           (SELECT total(songCount) FROM artistSourceStat st
-                               WHERE st.artistRef = a.key AND st.sourceKey IN (\(Self.enabledSourcesSQL)))
-                    FROM artist a WHERE a.key IN (\(Self.placeholders(chunk.count)))
-                    """, arguments: StatementArguments(chunk.map(Int64.init)))
-                for row in rows {
-                    let visibleCount: Double = row[6]
-                    byKey[try Self.rowid32(row[0])] = Artist(
-                        id: row[1], name: row[2], albumCount: row[3],
-                        songCount: splits ? Int(visibleCount) : row[4], thumbnailPath: row[5]
-                    )
-                }
-            }
-            return admitted.compactMap { byKey[$0] }
+            return try Self.fetchArtists(keys: admitted, splits: visibleCounts && splitsLibrary, in: db)
         }
+    }
+
+    /// 可见艺人里按 id 取一位:他在 `artistKeys(visibleOnly: true)` 里时给出与 `artists(keys:visibleCounts: true)`
+    /// 相同的那一项,不在(没有这位艺人,或他没有可见的音乐)时为 nil。艺人键就是 `artistRef` 的引用号。
+    public func visibleArtist(id: String) throws -> Artist? {
+        try pointReadOfGrouping { db in
+            let splits = try Self.visibleSplitsLibraryForPointRead(in: db)
+            let filter = splits
+                ? " AND key IN (SELECT artistRef FROM artistSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
+                : ""
+            guard let key = try Int64.fetchOne(db, sql: """
+                SELECT key FROM artist WHERE key = (SELECT ref FROM artistRef WHERE id = ?)\(filter)
+                """, arguments: [id]) else { return nil }
+            return try Self.fetchArtists(keys: [try Self.rowid32(key)], splits: splits, in: db).first
+        }
+    }
+
+    private static func fetchArtists(keys admitted: [Int32], splits: Bool, in db: Database) throws -> [Artist] {
+        var byKey: [Int32: Artist] = [:]
+        for chunk in Self.chunks(of: admitted) {
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT a.key, a.id, a.name, a.albumCount, a.songCount, a.thumbnailPath,
+                       (SELECT total(songCount) FROM artistSourceStat st
+                           WHERE st.artistRef = a.key AND st.sourceKey IN (\(Self.enabledSourcesSQL)))
+                FROM artist a WHERE a.key IN (\(Self.placeholders(chunk.count)))
+                """, arguments: StatementArguments(chunk.map(Int64.init)))
+            for row in rows {
+                let visibleCount: Double = row[6]
+                byKey[try Self.rowid32(row[0])] = Artist(
+                    id: row[1], name: row[2], albumCount: row[3],
+                    songCount: splits ? Int(visibleCount) : row[4], thumbnailPath: row[5]
+                )
+            }
+        }
+        return admitted.compactMap { byKey[$0] }
     }
 
     /// 艺人的可见歌曲(按查找 id,与艺人页一致),库内顺序。

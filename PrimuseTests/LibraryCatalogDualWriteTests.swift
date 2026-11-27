@@ -1011,6 +1011,416 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertEqual(library.storedSong(id: songs[1].id)?.lyricsText, "after stop")
     }
 
+    // MARK: - By-id facade without the song model (pending writes → row cache → catalog)
+
+    /// 一个按 id 的入口在一个 id 上的全部答案。
+    private struct ByIDAnswers {
+        var stored: Song?
+        var song: Song?
+        var visible: Song?
+        var unobserved: Song?
+        var contains: Bool
+        var synchronization: Song?
+    }
+
+    private func byIDAnswers(_ library: MusicLibrary, _ id: String, fromCatalog: Bool) -> ByIDAnswers {
+        library.byIDReadsUseCatalogForTesting = fromCatalog
+        defer { library.byIDReadsUseCatalogForTesting = false }
+        return ByIDAnswers(
+            stored: library.storedSong(id: id),
+            song: library.song(id: id),
+            visible: library.visibleSong(id: id),
+            unobserved: library.unobservedVisibleSong(id: id),
+            contains: library.containsVisibleSong(id: id),
+            synchronization: library.songForSynchronization(id: id)
+        )
+    }
+
+    /// 按旧库的精度比(日期只到秒):这次会话里新写的行内存里带着小数秒,从旧库重新装载之后没有。
+    private func assertSameSong(
+        _ actual: Song?, _ expected: Song?, _ message: @autoclosure () -> String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        guard !ScanExistingSongsCatalogShadow.sameAtStorePrecision(actual, expected) else { return }
+        XCTFail("\(message()): \(ScanExistingSongsCatalogShadow.difference(catalog: actual, array: expected))", file: file, line: line)
+    }
+
+    private func assertSameSongs(
+        _ actual: [Song], _ expected: [Song], _ message: @autoclosure () -> String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        guard actual.map(\.id) == expected.map(\.id) else {
+            return XCTFail("\(message()): catalog=\(actual.map(\.id)) memory=\(expected.map(\.id))", file: file, line: line)
+        }
+        for (left, right) in zip(actual, expected) { assertSameSong(left, right, "\(message()) \(left.id)", file: file, line: line) }
+    }
+
+    /// 每个按 id 的入口,目录这条路(测试开关强制)与内存各答一遍。`settled`:目录跟上了、内存的派生维护也
+    /// 落定了,这时两边必须逐项相同。没落定时(改动刚进内存),「存着的那一行」每一刻都相同;内存的可见集
+    /// 要等派生维护才跟上(`addSongs` 之后),这期间目录这条路给的是存着的那一行里不在停用源的 —— 也就是
+    /// 可见集落定之后的样子。返回这一刻内存的可见集有没有落在后面。
+    @discardableResult
+    private func assertByIDFacadeMatches(
+        _ library: MusicLibrary, ids: Set<String>, disabledSourceIDs: Set<String>, _ step: String, settled: Bool,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws -> Bool {
+        let host = try XCTUnwrap(library.catalogHost, file: file, line: line)
+        XCTAssertNotNil(host.songLookup(), "\(step): the catalog cannot answer", file: file, line: line)
+        var visibleSetBehind = false
+        for id in ids.sorted() {
+            let memory = byIDAnswers(library, id, fromCatalog: false)
+            let catalog = byIDAnswers(library, id, fromCatalog: true)
+            assertSameSong(catalog.stored, memory.stored, "\(step): storedSong \(id)", file: file, line: line)
+            assertSameSong(catalog.song, memory.stored, "\(step): song(id:) is the stored row \(id)", file: file, line: line)
+            let expectedVisible = memory.stored.flatMap { disabledSourceIDs.contains($0.sourceID) ? nil : $0 }
+            assertSameSong(catalog.visible, expectedVisible, "\(step): visibleSong \(id)", file: file, line: line)
+            assertSameSong(catalog.unobserved, expectedVisible, "\(step): unobservedVisibleSong \(id)", file: file, line: line)
+            XCTAssertEqual(catalog.contains, expectedVisible != nil, "\(step): containsVisibleSong \(id)", file: file, line: line)
+            let memoryIsCurrent = ScanExistingSongsCatalogShadow.sameAtStorePrecision(memory.visible, expectedVisible)
+                && ScanExistingSongsCatalogShadow.sameAtStorePrecision(memory.song, memory.stored)
+            if memoryIsCurrent {
+                assertSameSong(catalog.song, memory.song, "\(step): song(id:) \(id)", file: file, line: line)
+                assertSameSong(catalog.visible, memory.visible, "\(step): visibleSong vs memory \(id)", file: file, line: line)
+                assertSameSong(catalog.unobserved, memory.unobserved, "\(step): unobservedVisibleSong vs memory \(id)", file: file, line: line)
+                XCTAssertEqual(catalog.contains, memory.contains, "\(step): containsVisibleSong vs memory \(id)", file: file, line: line)
+                assertSameSong(catalog.synchronization, memory.synchronization, "\(step): songForSynchronization \(id)", file: file, line: line)
+            } else {
+                visibleSetBehind = true
+                XCTAssertFalse(settled, "\(step): the in-memory visible set still disagrees with the stored row of \(id)", file: file, line: line)
+            }
+        }
+        return visibleSetBehind
+    }
+
+    /// 那几种有界的范围查询与按 id 取专辑、艺人:目录这条路与内存各答一遍(目录跟上、内存落定之后)。
+    private func assertRangeQueriesMatch(
+        _ library: MusicLibrary, playlistIDs: [String], _ step: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        func both<T>(_ read: () -> T) -> (memory: T, catalog: T) {
+            let memory = read()
+            library.byIDReadsUseCatalogForTesting = true
+            defer { library.byIDReadsUseCatalogForTesting = false }
+            return (memory, read())
+        }
+        var comparedSongs = 0
+        for album in library.albums {
+            let found = both { library.visibleAlbum(id: album.id) }
+            XCTAssertEqual(
+                found.catalog.map(LibraryCatalogShadowVerifier.normalized), found.memory.map(LibraryCatalogShadowVerifier.normalized),
+                "\(step): visibleAlbum \(album.title)", file: file, line: line
+            )
+            let songs = both { library.songs(forAlbum: album.id) }
+            assertSameSongs(songs.catalog, songs.memory, "\(step): songs(forAlbum: \(album.title))", file: file, line: line)
+            comparedSongs += songs.memory.count
+        }
+        var artists = library.artists + library.visibleAlbumArtists
+        artists.append(Artist(id: "no-such-artist", name: "Nobody", albumCount: 0, songCount: 0, thumbnailPath: nil))
+        for artist in artists {
+            let found = both { library.visibleArtist(id: artist.id) }
+            XCTAssertEqual(found.catalog, found.memory, "\(step): visibleArtist \(artist.name)", file: file, line: line)
+            let songs = both { library.songs(forArtist: artist.id) }
+            assertSameSongs(songs.catalog, songs.memory, "\(step): songs(forArtist: \(artist.name))", file: file, line: line)
+            comparedSongs += songs.memory.count
+        }
+        for genre in library.visibleGenres {
+            let songs = both { library.songs(forGenre: genre.id) }
+            assertSameSongs(songs.catalog, songs.memory, "\(step): songs(forGenre: \(genre.name))", file: file, line: line)
+            comparedSongs += songs.memory.count
+        }
+        for playlistID in playlistIDs {
+            let visible = both { library.songs(forPlaylist: playlistID) }
+            assertSameSongs(visible.catalog, visible.memory, "\(step): songs(forPlaylist: \(playlistID))", file: file, line: line)
+            let stored = both { library.storedSongs(forPlaylist: playlistID) }
+            assertSameSongs(stored.catalog, stored.memory, "\(step): storedSongs(forPlaylist: \(playlistID))", file: file, line: line)
+            comparedSongs += visible.memory.count + stored.memory.count
+        }
+        XCTAssertNil(both { library.visibleAlbum(id: "no-such-album") }.catalog, file: file, line: line)
+        XCTAssertGreaterThan(comparedSongs, 0, "\(step): nothing was compared", file: file, line: line)
+    }
+
+    /// 步骤 1:模型不在内存里时按 id 读改由「待写登记 → 行缓存 → 目录」来答。这里模型还在,用测试开关让
+    /// 每个入口两条路各答一遍:每一种突变做完之后,目录跟上之前隔一会儿比一次,跟上之后再比一次(连同
+    /// 范围查询与按 id 取专辑、艺人)。有一个停用的源,有本机移除又恢复的歌。
+    func testByIDFacadeOnTheCatalogMatchesTheInMemoryLibraryThroughEveryMutation() async throws {
+        var disabled: Set<String> = [Self.sourceB]
+        let library = makeLibrary(disabledSourceIDs: disabled)
+        var songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        var ids = Set(songs.map(\.id))
+        ids.insert("never-in-the-library")
+        let everything = library.createPlaylist(name: "Everything", songIDs: songs.map(\.id) + ["never-in-the-library"])
+        library.setLiked(songID: songs[1].id, isLiked: true, propagatesServerMutation: false)
+        library.setLiked(songID: songs[13].id, isLiked: true, propagatesServerMutation: false)
+        let playlistIDs = [everything.id, MusicLibrary.likedSongsPlaylistID]
+        var stepsWithPendingWrites = 0
+        var stepsWhereTheVisibleSetWasBehind: [String] = []
+
+        func assertMatchesUntilCaughtUp(
+            _ step: String, file: StaticString = #filePath, line: UInt = #line, changed: () -> Bool = { true }
+        ) async throws {
+            for _ in 0..<1_000 where !changed() { try await Task.sleep(for: .milliseconds(5)) }
+            XCTAssertTrue(changed(), "\(step): the change never reached the in-memory library", file: file, line: line)
+            var sawPending = false
+            var behind = false
+            for _ in 0..<200 {
+                sawPending = sawPending || host.pendingWrites.pendingCount > 0
+                behind = try assertByIDFacadeMatches(
+                    library, ids: ids, disabledSourceIDs: disabled, step, settled: false, file: file, line: line
+                ) || behind
+                if host.pendingWrites.pendingCount == 0 { break }
+                try await Task.sleep(for: .milliseconds(2))
+            }
+            if sawPending { stepsWithPendingWrites += 1 }
+            if behind { stepsWhereTheVisibleSetWasBehind.append(step) }
+            await library.waitForCatalogMirror()
+            XCTAssertEqual(host.pendingWrites.pendingCount, 0, "\(step): left in the overlay", file: file, line: line)
+            try assertByIDFacadeMatches(
+                library, ids: ids, disabledSourceIDs: disabled, "\(step) (caught up)", settled: true, file: file, line: line
+            )
+            assertRangeQueriesMatch(library, playlistIDs: playlistIDs, "\(step) (caught up)", file: file, line: line)
+        }
+
+        try await assertMatchesUntilCaughtUp("fixture")
+
+        songs[0].title = "Blue One (Remaster)"
+        library.replaceSong(songs[0])
+        try await assertMatchesUntilCaughtUp("replaceSong")
+
+        songs[5].albumTitle = "Mixtape Deluxe"
+        songs[6].albumTitle = "Mixtape Deluxe"
+        songs[7].title = "Blue B1 (edited in a disabled source)"
+        library.replaceSongs([songs[5], songs[6], songs[7]])
+        try await assertMatchesUntilCaughtUp("replaceSongs")
+
+        library.updateLyricsText([songs[1].id: "la la la", songs[8].id: "hidden la"])
+        try await assertMatchesUntilCaughtUp("updateLyricsText")
+
+        library.updateAssetReferences(songID: songs[2].id, coverRef: "blue-alt.jpg")
+        library.updateMusicVideoReference(songID: songs[3].id, mvPath: "/Videos/blue.mp4")
+        library.flushPendingAssetReferencePatches()
+        try await assertMatchesUntilCaughtUp("asset references")
+
+        _ = library.deleteSongs([songs[4]])
+        try await assertMatchesUntilCaughtUp("deleteSongs")
+
+        // 本机移除:一首在启用的源里,两首在停用的源里。同步用的入口照样给留着的那一份。
+        XCTAssertFalse(try library.removeSongsFromThisDevice([songs[2], songs[7], songs[8]]).isEmpty)
+        try await assertMatchesUntilCaughtUp("removeSongsFromThisDevice")
+        XCTAssertNil(library.song(id: songs[2].id))
+        library.byIDReadsUseCatalogForTesting = true
+        XCTAssertNil(library.song(id: songs[2].id))
+        XCTAssertEqual(library.songForSynchronization(id: songs[2].id)?.id, songs[2].id)
+        XCTAssertEqual(library.songForSynchronization(id: songs[7].id)?.id, songs[7].id)
+        library.byIDReadsUseCatalogForTesting = false
+
+        _ = try library.restoreSongsRemovedFromThisDevice([songs[2].id, songs[7].id])
+        try await assertMatchesUntilCaughtUp("restoreSongsRemovedFromThisDevice") { library.storedSong(id: songs[2].id) != nil }
+
+        // 只撤销删除记录(歌等下次扫描回来),按 id 读两边都还是没有。
+        library.restoreDeletedSong(songs[4])
+        try await assertMatchesUntilCaughtUp("restoreDeletedSong")
+
+        let renamed = [songs[0].id: songs[0].id + "-v2", songs[9].id: songs[9].id + "-v2"]
+        ids.formUnion(renamed.values)
+        library.remapSongIDs(renamed)
+        try await assertMatchesUntilCaughtUp("remapSongIDs")
+
+        let fresh = Song(id: "facade-fresh", title: "Fresh", albumTitle: "New", artistName: "Ada", duration: 200,
+                         fileFormat: .flac, filePath: "/Music/New/fresh.flac", sourceID: Self.sourceA)
+        let hidden = Song(id: "facade-hidden", title: "Hidden", albumTitle: "New", artistName: "Ada", duration: 201,
+                          fileFormat: .flac, filePath: "/Share/New/hidden.flac", sourceID: Self.sourceB)
+        ids.formUnion([fresh.id, hidden.id])
+        // 扫描的中间提交(不剪枝):新歌追加在后面,启用的源与停用的源各一首。
+        library.addSongs([fresh], affectedSourceIDs: [Self.sourceA], pruneMissingSongs: false)
+        library.addSongs([hidden], affectedSourceIDs: [Self.sourceB], pruneMissingSongs: false)
+        try await assertMatchesUntilCaughtUp("addSongs") { library.storedSong(id: hidden.id) != nil }
+
+        // 扫描的最终提交(剪枝):这个源里这一轮没交上来的歌从库里去掉。
+        let sourceARows = library.songs.filter { $0.sourceID == Self.sourceA }
+        XCTAssertGreaterThan(sourceARows.count, 8)
+        let pruned = sourceARows.suffix(3).map(\.id)
+        library.addSongs(Array(sourceARows.dropLast(3)), affectedSourceIDs: [Self.sourceA])
+        try await assertMatchesUntilCaughtUp("addSongs (pruning)") { library.storedSong(id: pruned[0]) == nil }
+        XCTAssertNotNil(library.storedSong(id: sourceARows[0].id))
+
+        // 换一换停用的源:可见的口径跟着设置走。
+        disabled = [Self.sourceA]
+        library.updateDisabledSourceIDs(disabled)
+        try await assertMatchesUntilCaughtUp("updateDisabledSourceIDs (A hidden)")
+        disabled = []
+        library.updateDisabledSourceIDs(disabled)
+        try await assertMatchesUntilCaughtUp("updateDisabledSourceIDs (none hidden)")
+
+        await library.removeSongsForSource(Self.sourceB)
+        try await assertMatchesUntilCaughtUp("removeSongsForSource")
+        XCTAssertNil(library.storedSong(id: songs[8].id))
+
+        // 跟写的那一段要真的走过待写登记(目录在主线程改完之后才写)。
+        XCTAssertGreaterThan(stepsWithPendingWrites, 5)
+        print("ℹ️ by-id facade: steps where the in-memory visible set was behind its stored rows: \(stepsWhereTheVisibleSetWasBehind)")
+        await assertShadowMatches(library, "after every step")
+
+        // 不再跟写之后目录这条路不答,强制开关下也照旧读内存。
+        await library.stopCatalogMirror()
+        let survivor = try XCTUnwrap(library.songs.first?.id)
+        library.byIDReadsUseCatalogForTesting = true
+        XCTAssertNil(host.songLookup())
+        XCTAssertEqual(library.storedSong(id: survivor)?.id, survivor)
+        XCTAssertEqual(library.visibleSong(id: survivor)?.id, survivor)
+        library.byIDReadsUseCatalogForTesting = false
+    }
+
+    /// 步骤 1 要的那个状态本身:歌曲模型不在内存里(回到 `.preparing`、数组与索引清空)、目录可读。
+    /// 不用测试开关,按 id 读、范围查询、按 id 取专辑与艺人都由目录来答,与放掉之前内存的答案相同;
+    /// 目录不再跟写之后,回到今天 `.preparing` 的答法(查不到)。
+    func testByIDFacadeAnswersFromTheCatalogOnceTheSongModelIsNotLoaded() async throws {
+        let disabled: Set<String> = [Self.sourceB]
+        let library = makeLibrary(disabledSourceIDs: disabled)
+        let songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        let everything = library.createPlaylist(name: "Everything", songIDs: songs.map(\.id))
+        XCTAssertFalse(try library.removeSongsFromThisDevice([songs[3], songs[8]]).isEmpty)
+        await assertShadowMatches(library, "fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        var ids = Set(songs.map(\.id))
+        ids.insert("never-in-the-library")
+
+        // 放掉之前内存的答案。
+        let before = Dictionary(uniqueKeysWithValues: ids.map { ($0, byIDAnswers(library, $0, fromCatalog: false)) })
+        let albums = library.albums
+        let artists = library.artists
+        let genres = library.visibleGenres
+        let albumsBefore = albums.map { library.visibleAlbum(id: $0.id) }
+        let albumSongsBefore = albums.map { library.songs(forAlbum: $0.id) }
+        let artistsBefore = artists.map { library.visibleArtist(id: $0.id) }
+        let trackArtists = library.artists
+        let artistSongsBefore = trackArtists.map { library.songs(forArtist: $0.id) }
+        let genreSongsBefore = genres.map { library.songs(forGenre: $0.id) }
+        let playlistBefore = library.songs(forPlaylist: everything.id)
+        let storedPlaylistBefore = library.storedSongs(forPlaylist: everything.id)
+        XCTAssertFalse(playlistBefore.isEmpty)
+        XCTAssertGreaterThan(storedPlaylistBefore.count, playlistBefore.count, "the disabled source's members are stored but not visible")
+
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(library.isReady)
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertNotNil(host.songLookup())
+
+        for id in ids.sorted() {
+            let expected = try XCTUnwrap(before[id])
+            let now = byIDAnswers(library, id, fromCatalog: false)
+            assertSameSong(now.stored, expected.stored, "storedSong \(id)")
+            assertSameSong(now.song, expected.song, "song(id:) \(id)")
+            assertSameSong(now.visible, expected.visible, "visibleSong \(id)")
+            assertSameSong(now.unobserved, expected.unobserved, "unobservedVisibleSong \(id)")
+            XCTAssertEqual(now.contains, expected.contains, "containsVisibleSong \(id)")
+            assertSameSong(now.synchronization, expected.synchronization, "songForSynchronization \(id)")
+        }
+        XCTAssertNotNil(library.storedSong(id: songs[7].id), "a row of the disabled source is stored")
+        XCTAssertNil(library.visibleSong(id: songs[7].id), "and not visible")
+        XCTAssertNil(library.song(id: songs[3].id), "a row removed from this device is not in the library")
+        XCTAssertEqual(library.songForSynchronization(id: songs[3].id)?.id, songs[3].id, "but synchronization still sees it")
+        for (offset, album) in albums.enumerated() {
+            XCTAssertEqual(
+                library.visibleAlbum(id: album.id).map(LibraryCatalogShadowVerifier.normalized),
+                albumsBefore[offset].map(LibraryCatalogShadowVerifier.normalized), "visibleAlbum \(album.title)"
+            )
+            assertSameSongs(library.songs(forAlbum: album.id), albumSongsBefore[offset], "songs(forAlbum: \(album.title))")
+        }
+        for (offset, artist) in artists.enumerated() {
+            XCTAssertEqual(library.visibleArtist(id: artist.id), artistsBefore[offset], "visibleArtist \(artist.name)")
+        }
+        for (offset, artist) in trackArtists.enumerated() {
+            assertSameSongs(library.songs(forArtist: artist.id), artistSongsBefore[offset], "songs(forArtist: \(artist.name))")
+        }
+        for (offset, genre) in genres.enumerated() {
+            assertSameSongs(library.songs(forGenre: genre.id), genreSongsBefore[offset], "songs(forGenre: \(genre.name))")
+        }
+        assertSameSongs(library.songs(forPlaylist: everything.id), playlistBefore, "songs(forPlaylist:)")
+        assertSameSongs(library.storedSongs(forPlaylist: everything.id), storedPlaylistBefore, "storedSongs(forPlaylist:)")
+
+        // 本机移除的那一行又出现在目录里(别的设备的快照带回来、这台设备还没重新装载时就是这样):
+        // 模型装载时会按本机的移除账本把它筛掉,目录这条路也一样不给;同步用的入口照旧给留着的那一份。
+        try XCTUnwrap(host.mirror.readableCatalog).live.apply(upserts: [songs[3]])
+        host.reader.rowCache.removeAll()
+        XCTAssertNotNil(try XCTUnwrap(host.mirror.readableCatalog).song(id: songs[3].id), "the row is in the catalog")
+        XCTAssertNil(library.storedSong(id: songs[3].id))
+        XCTAssertNil(library.song(id: songs[3].id))
+        XCTAssertFalse(library.containsVisibleSong(id: songs[3].id))
+        XCTAssertFalse(library.storedSongs(forPlaylist: everything.id).contains { $0.id == songs[3].id })
+        XCTAssertEqual(library.songForSynchronization(id: songs[3].id)?.id, songs[3].id)
+
+        // 这个状态下突变照旧排队,不写:待写登记里什么都没有,目录不动。
+        var edited = songs[0]
+        edited.title = "queued while not loaded"
+        library.replaceSong(edited)
+        XCTAssertEqual(host.pendingWrites.pendingCount, 0)
+        XCTAssertEqual(library.storedSong(id: songs[0].id)?.title, songs[0].title)
+
+        // 目录不再跟写:回到今天 `.preparing` 的答法。
+        await library.stopCatalogMirror()
+        XCTAssertNil(library.storedSong(id: songs[0].id))
+        XCTAssertNil(library.song(id: songs[0].id))
+        XCTAssertNil(library.visibleSong(id: songs[0].id))
+        XCTAssertFalse(library.containsVisibleSong(id: songs[0].id))
+        XCTAssertNil(library.visibleAlbum(id: albums[0].id))
+        XCTAssertTrue(library.songs(forAlbum: albums[0].id).isEmpty)
+        XCTAssertTrue(library.storedSongs(forPlaylist: everything.id).isEmpty)
+    }
+
+    /// DEBUG 里真实使用时的抽样比对:内存答的按 id 读抽出来的 id,目录这条路再答一遍,各种突变之后都相同;
+    /// 目录里的行被改得与内存不一样时(这里绕过内存直接写目录)它要报出来。
+    func testByIDParitySamplingComparesTheCatalogPathOnRealUse() async throws {
+        let library = makeLibrary(disabledSourceIDs: [Self.sourceB])
+        var songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        library.byIDParitySampling.interval = 1
+
+        func readEverything() {
+            for song in songs {
+                _ = library.song(id: song.id)
+                _ = library.storedSong(id: song.id)
+            }
+            _ = library.song(id: "never-in-the-library")
+        }
+        readEverything()
+        songs[0].title = "Sampled edit"
+        library.replaceSong(songs[0])
+        readEverything()
+        _ = library.deleteSongs([songs[4]])
+        readEverything()
+        let fresh = Song(id: "sampled-fresh", title: "Fresh", albumTitle: "New", artistName: "Ada", duration: 200,
+                         fileFormat: .flac, filePath: "/Music/New/fresh.flac", sourceID: Self.sourceA)
+        library.addSongs([fresh], affectedSourceIDs: [Self.sourceA], pruneMissingSongs: false)
+        songs.append(fresh)
+        readEverything()
+        await library.drainByIDParityChecksForTesting()
+        await library.waitForCatalogMirror()
+        readEverything()
+        await library.drainByIDParityChecksForTesting()
+        let clean = library.byIDParitySampling
+        XCTAssertGreaterThan(clean.matched, 20)
+        XCTAssertEqual(clean.mismatches, 0, clean.lastMismatch ?? "")
+
+        // 目录里这一行与内存不同:抽到它时要报(只抽下面那一次读)。
+        library.byIDParitySampling.interval = .max
+        var corrupted = try XCTUnwrap(library.storedSong(id: songs[1].id))
+        corrupted.title = "only in the catalog"
+        try XCTUnwrap(host.mirror.readableCatalog).live.apply(upserts: [corrupted])
+        host.reader.rowCache.removeAll()
+        library.byIDParitySampling.interval = 1
+        _ = library.song(id: songs[1].id)
+        library.byIDParitySampling.interval = .max
+        await library.drainByIDParityChecksForTesting()
+        XCTAssertEqual(library.byIDParitySampling.mismatches, 1)
+        XCTAssertEqual(library.byIDParitySampling.lastMismatch?.contains("title"), true, library.byIDParitySampling.lastMismatch ?? "")
+    }
+
     /// 智能歌单在目录上流式匹配:随机曲库(多个源、停用的源、Apple Music 资料库的歌、播放记录、歌单)
     /// 上的随机规则组、排序与上限,结果与内存匹配逐首相同(随机排序比成员);命中的是目录那条路。
     func testSmartPlaylistsMatchedOnTheCatalogMatchTheInMemoryEngine() async throws {

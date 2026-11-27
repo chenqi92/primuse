@@ -162,6 +162,13 @@ private enum LibraryArrayReclaimer {
             withExtendedLifetime(holder) {}
         }
     }
+
+    #if DEBUG
+    /// 排在已经交来的释放之后执行(规模夹具量放掉的内存之前等它们做完)。
+    static func afterPendingReleases(_ body: @escaping @Sendable () -> Void) {
+        queue.async(execute: body)
+    }
+    #endif
 }
 
 /// Ownership handle for the lookup dictionaries one derived-index apply
@@ -4875,6 +4882,18 @@ final class MusicLibrary {
     @ObservationIgnored var catalogBusyCheck: (@MainActor () -> Bool)?
     /// 测试与诊断:固定影子校验的模式并取消频率限制。
     @ObservationIgnored var catalogShadowModeOverride: LibraryCatalogShadowRequest.Mode?
+    /// 模型不在内存里时按 id 取过的专辑、艺人(见 `visibleAlbumOutsideTheModel`),目录一变就整份作废。
+    @ObservationIgnored private var catalogCollectionLookups = CatalogCollectionLookups()
+    /// 目录这条路按 id 读失败的次数(日志只记前几次)。
+    @ObservationIgnored private var catalogByIDReadFailureCount = 0
+    #if DEBUG
+    /// 测试:按 id 读与那几种有界的范围查询一律走「待写登记 → 行缓存 → 目录」(模型在内存里也是),
+    /// 用来与内存的答案逐项比。目录这条路此刻答不了时照旧用内存。
+    @ObservationIgnored var byIDReadsUseCatalogForTesting = false
+    /// 真实使用中按 id 读的抽样比对(只在 DEBUG 里),见 `sampleByIDParity`。
+    @ObservationIgnored var byIDParitySampling = LibraryByIDParitySampling()
+    @ObservationIgnored private var byIDParityTask: Task<Void, Never>?
+    #endif
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     @ObservationIgnored private var persistenceBlockedByCorruption = false
@@ -8441,14 +8460,29 @@ final class MusicLibrary {
         // visible cache; disabled songs retain an all-library index. Both paths
         // stay O(1) instead of falling back to a 10K-item scan.
         _ = visibleSongsReference
+        #if DEBUG
+        if let lookup = forcedCatalogLookupForTesting,
+           let answer = storedSongOutsideTheModel(id, lookup: lookup, observed: true) { return answer }
+        sampleByIDParity(id)
+        #endif
         if let visibleSong = lookupVisibleSong(id) { return visibleSong }
-        return indexedLibrarySong(id)
+        if let stored = indexedLibrarySong(id) { return stored }
+        // 模型不在内存里(还没发布)而曲库目录答得出它的样子时,由「待写登记 → 行缓存 → 目录」来答。
+        guard let lookup = lookupOutsideTheModel else { return nil }
+        return storedSongOutsideTheModel(id, lookup: lookup, observed: true) ?? nil
     }
 
     /// 资料库里存着的那一行,不经可见集缓存。可见集延后发布,判断「扫描交来的
     /// 这一行是否和库里一样」必须比对这一份,否则会把刚提交的改动当成没变。
     func storedSong(id: String) -> Song? {
-        indexedLibrarySong(id)
+        #if DEBUG
+        if let lookup = forcedCatalogLookupForTesting,
+           let answer = storedSongOutsideTheModel(id, lookup: lookup, observed: false) { return answer }
+        sampleByIDParity(id)
+        #endif
+        if let stored = indexedLibrarySong(id) { return stored }
+        guard let lookup = lookupOutsideTheModel else { return nil }
+        return storedSongOutsideTheModel(id, lookup: lookup, observed: false) ?? nil
     }
 
     /// 按 `songIndexByID` 取整库那一行。`takeLibrarySongsForPatching` 交出数组到
@@ -8484,14 +8518,28 @@ final class MusicLibrary {
     /// Unlike `song(id:)`, this deliberately excludes disabled sources.
     func visibleSong(id: String) -> Song? {
         _ = visibleSongsReference
-        return lookupVisibleSong(id)
+        #if DEBUG
+        if let lookup = forcedCatalogLookupForTesting,
+           let answer = visibleSongOutsideTheModel(id, lookup: lookup, observed: true) { return answer }
+        #endif
+        if let song = lookupVisibleSong(id) { return song }
+        guard let lookup = lookupOutsideTheModel else { return nil }
+        return visibleSongOutsideTheModel(id, lookup: lookup, observed: true) ?? nil
     }
 
     /// O(1) artist lookup for artwork cells. Reading the reference preserves
     /// Observation invalidation when a scan rebuilds automatic artwork.
     func visibleArtist(id: String) -> Artist? {
         _ = visibleArtistsReference
-        return visibleArtistByID[id]
+        #if DEBUG
+        if byIDReadsUseCatalogForTesting, let answer = visibleArtistOutsideTheModel(id, onlyWhileUnloaded: false) {
+            return answer
+        }
+        #endif
+        if let artist = visibleArtistByID[id] { return artist }
+        // 艺人那一层也不在内存里时才问目录(它在的时候「没有」就是没有)。
+        guard visibleArtistByID.isEmpty else { return nil }
+        return visibleArtistOutsideTheModel(id, onlyWhileUnloaded: true) ?? nil
     }
 
     /// 「专辑艺术家」列表里的那一项；只当过专辑艺人的人（「群星」）只在这里有。
@@ -8504,7 +8552,14 @@ final class MusicLibrary {
     /// 专辑数组做线性扫描 —— 一万张专辑时每渲染一次就是几万次比较。
     func visibleAlbum(id: String) -> Album? {
         _ = visibleAlbumsReference
-        return visibleAlbumByID[id]
+        #if DEBUG
+        if byIDReadsUseCatalogForTesting, let answer = visibleAlbumOutsideTheModel(id, onlyWhileUnloaded: false) {
+            return answer
+        }
+        #endif
+        if let album = visibleAlbumByID[id] { return album }
+        guard visibleAlbumByID.isEmpty else { return nil }
+        return visibleAlbumOutsideTheModel(id, onlyWhileUnloaded: true) ?? nil
     }
 
     /// 按名字找专辑：标题相同(忽略大小写与首尾空白)，艺人相同或有一边没写艺人。
@@ -8568,7 +8623,13 @@ final class MusicLibrary {
     /// through the replacement token, while newly-created rows resolve the
     /// latest value here.
     func unobservedVisibleSong(id: String) -> Song? {
-        lookupVisibleSong(id)
+        #if DEBUG
+        if let lookup = forcedCatalogLookupForTesting,
+           let answer = visibleSongOutsideTheModel(id, lookup: lookup, observed: false) { return answer }
+        #endif
+        if let song = lookupVisibleSong(id) { return song }
+        guard let lookup = lookupOutsideTheModel else { return nil }
+        return visibleSongOutsideTheModel(id, lookup: lookup, observed: false) ?? nil
     }
 
     /// O(1) through the index into the current visible array. The ID check
@@ -8636,7 +8697,14 @@ final class MusicLibrary {
     /// enabled/visible library from songs retained under a disabled source.
     func containsVisibleSong(id: String) -> Bool {
         _ = visibleSongsReference
-        return lookupVisibleSong(id) != nil
+        #if DEBUG
+        if let lookup = forcedCatalogLookupForTesting,
+           let answer = visibleSongOutsideTheModel(id, lookup: lookup, observed: true) { return answer != nil }
+        #endif
+        if lookupVisibleSong(id) != nil { return true }
+        guard let lookup = lookupOutsideTheModel,
+              let answer = visibleSongOutsideTheModel(id, lookup: lookup, observed: true) else { return false }
+        return answer != nil
     }
 
     /// The source's playable songs, in library order.
@@ -9196,6 +9264,8 @@ final class MusicLibrary {
 
     func songs(forAlbum albumID: String) -> [Song] {
         _ = visibleSongsReference
+        if let lookup = rangeLookupOutsideTheModel,
+           let songs = songsOutsideTheModel(forAlbum: albumID, lookup: lookup) { return songs }
         return unobservedSongs(forAlbum: albumID)
     }
 
@@ -10110,6 +10180,8 @@ final class MusicLibrary {
 
     func songs(forArtist artistID: String) -> [Song] {
         _ = visibleSongsReference
+        if let lookup = rangeLookupOutsideTheModel,
+           let songs = songsOutsideTheModel(forArtist: artistID, lookup: lookup) { return songs }
         if let songIDs = visibleTrackSongIDs(forArtist: artistID) {
             return songIDs.compactMap { lookupVisibleSong($0) }
         }
@@ -10196,6 +10268,8 @@ final class MusicLibrary {
 
     func songs(forGenre genreID: String) -> [Song] {
         _ = visibleSongsReference
+        if let lookup = rangeLookupOutsideTheModel,
+           let songs = songsOutsideTheModel(forGenre: genreID, lookup: lookup) { return songs }
         return genreSongIDs(genreID).compactMap { lookupVisibleSong($0) }
     }
 
@@ -10415,6 +10489,9 @@ final class MusicLibrary {
     func songs(forPlaylist playlistID: String) -> [Song] {
         _ = visibleSongsReference
         let ids = playlistMemberIDs(playlistID)
+        // 目录这条路不经下面那份按可见集代数记的缓存:模型不在内存里时那些代数不动。
+        if let lookup = rangeLookupOutsideTheModel,
+           let songs = visibleSongsOutsideTheModel(ids: ids, lookup: lookup) { return songs }
         let key = playlistMaterializationKey
         if let cached = materializedPlaylistSongs[playlistID], cached.key == key { return cached.songs }
         let songs = ids.compactMap { lookupVisibleSong($0) }
@@ -12991,6 +13068,11 @@ final class MusicLibrary {
     /// 重建会被反复作废；要按文件内容做决定的调用方（「始终保持离线」）读这一份。
     func storedSongs(forPlaylist playlistID: String) -> [Song] {
         let excluded = mirrorSongExclusions[playlistID]
+        if let lookup = rangeLookupOutsideTheModel {
+            // 一张歌单一次查完,不是一首一查。
+            let ids = rawSongIDs(forPlaylist: playlistID).filter { excluded?.contains($0) != true }
+            if let songs = storedSongsOutsideTheModel(ids, lookup: lookup, observed: false) { return songs.compactMap { $0 } }
+        }
         return rawSongIDs(forPlaylist: playlistID).compactMap { id in
             excluded?.contains(id) == true ? nil : storedSong(id: id)
         }
@@ -18550,6 +18632,80 @@ final class MusicLibrary {
         return before == after
     }
 
+    /// 规模夹具的测量(歌曲模型不常驻之前的步骤 0a):像以后放掉歌曲模型那样先回到 `.preparing`
+    /// (不落盘、突变排队),再清空歌曲数组和随歌曲数增长的各张表;`includingCollections` 时连专辑、
+    /// 艺人那几份一起放。放掉的对象交给回收队列。调用之后这个库只能丢掉,不能接着用。
+    /// 环境音、MV、本机播客那三份数组不在这里清(规模夹具里是空的);真正放模型时也要放。
+    func dropSongModelForMeasurement(includingCollections: Bool) {
+        readiness = .preparing
+        var displaced: [any Sendable] = [
+            songsReference, visibleSongsReference, visibleSongsLookupReference, musicSongsReference,
+            spokenWordSongsReference, localPodcastPreviewSongs,
+            songIndexByID, visibleSongIndexByID, visibleSongPositionsBySourceID, visibleSongIDsByArtistID,
+            visibleSongIDsByGenreID, visibleAlbumIDsByGenreID, spokenWordSongIDs, ambientSongIDs,
+            spokenWordBookIDs, spokenWordDisplayTitles, localPodcastBookIDs, localPodcastShowTitles,
+        ]
+        songsReference = LibraryArrayReference()
+        visibleSongsReference = LibraryArrayReference()
+        visibleSongsLookupReference = visibleSongsReference
+        indexedVisibleSongsReference = nil
+        musicSongsReference = LibraryArrayReference()
+        musicSongsSharesVisibleSongs = false
+        musicSongsPublishedVisibleReference = nil
+        spokenWordSongsReference = LibraryArrayReference()
+        localPodcastPreviewSongs = []
+        songIndexByID = [:]
+        visibleSongIndexByID = [:]
+        visibleSongPositionsBySourceID = [:]
+        visibleSongIDsByArtistID = [:]
+        visibleSongIDsByGenreID = [:]
+        visibleAlbumIDsByGenreID = [:]
+        spokenWordSongIDs = []
+        ambientSongIDs = []
+        nonMusicSongIDsCache = nil
+        spokenWordBookIDs = [:]
+        spokenWordDisplayTitles = [:]
+        localPodcastBookIDs = [:]
+        localPodcastShowTitles = [:]
+        spokenWordBookIDSet = []
+        localPodcastBookIDSet = []
+        lastReplacedSong = nil
+        lastReplacedSongIDs = []
+        materializedPlaylistSongs.removeAll()
+        if includingCollections {
+            displaced += [
+                albumsReference, artistsReference, visibleAlbumsReference, visibleArtistsReference,
+                visibleAlbumArtistsReference, visibleGenresReference, visibleAlbumByID, visibleArtistByID,
+                visibleAlbumArtistByID, albumIDsByAlbumOnlyArtistID, albumIDsByAlbumArtistID,
+                preferredArtworkSongIDByAlbumID, preferredArtworkSongIDByArtistID,
+            ]
+            albumsReference = LibraryArrayReference()
+            artistsReference = LibraryArrayReference()
+            visibleAlbumsReference = LibraryArrayReference()
+            visibleArtistsReference = LibraryArrayReference()
+            visibleAlbumArtistsReference = LibraryArrayReference()
+            visibleGenresReference = LibraryArrayReference()
+            visibleAlbumByID = [:]
+            visibleArtistByID = [:]
+            visibleAlbumArtistByID = [:]
+            albumIDsByAlbumOnlyArtistID = [:]
+            albumIDsByAlbumArtistID = [:]
+            releaseMetadataIndex = AlbumReleaseMetadataIndex()
+            preferredArtworkSongIDByAlbumID = [:]
+            preferredArtworkSongIDByArtistID = [:]
+            albumOnlyArtistSongIDsCache = [:]
+        }
+        releaseRebuildableCaches()
+        LibraryArrayReclaimer.release(holder: DisplacedLibraryLookups(displaced), approximateElementCount: .max)
+    }
+
+    /// 等回收队列把交给它的对象都释放完(测量放掉的内存之前)。
+    nonisolated static func drainDisplacedArraysForMeasurement() async {
+        await withCheckedContinuation { continuation in
+            LibraryArrayReclaimer.afterPendingReleases { continuation.resume() }
+        }
+    }
+
     /// Which library arrays share one buffer (scale harness).
     var storageSharingSummaryForTesting: String {
         let visible = visibleSongsLookupReference.value
@@ -19595,6 +19751,363 @@ extension LibraryGroupingReference.DerivedIDMemo {
     convenience init() {
         self.init(unknownArtist: String(localized: "unknown_artist"))
     }
+}
+
+// MARK: - By-id reads while the song model is not loaded
+
+/// 模型不在内存里时按 id 取过的专辑、艺人(含「没有」)。目录每变一次(主线程上的修订号)整份作废;
+/// 各至多 `limit` 项,满了就清空重来。
+private struct CatalogCollectionLookups {
+    static let limit = 512
+    private var albumRevision: UInt64?
+    private var artistRevision: UInt64?
+    private var albums: [String: Album?] = [:]
+    private var artists: [String: Artist?] = [:]
+
+    /// 外层 nil:没记过。
+    mutating func album(_ id: String, revision: UInt64) -> Album?? {
+        if albumRevision != revision {
+            albumRevision = revision
+            albums.removeAll(keepingCapacity: true)
+        }
+        return albums[id]
+    }
+
+    mutating func remember(album: Album?, id: String) {
+        if albums.count >= Self.limit { albums.removeAll(keepingCapacity: true) }
+        albums[id] = .some(album)
+    }
+
+    mutating func artist(_ id: String, revision: UInt64) -> Artist?? {
+        if artistRevision != revision {
+            artistRevision = revision
+            artists.removeAll(keepingCapacity: true)
+        }
+        return artists[id]
+    }
+
+    mutating func remember(artist: Artist?, id: String) {
+        if artists.count >= Self.limit { artists.removeAll(keepingCapacity: true) }
+        artists[id] = .some(artist)
+    }
+}
+
+#if DEBUG
+/// 按 id 读的抽样比对(只在 DEBUG 里编进来)的设置与计数。
+struct LibraryByIDParitySampling: Equatable {
+    /// 内存答的按 id 读每这么多次抽一个 id。
+    var interval = 509
+    var reads = 0
+    var queued: [String] = []
+    /// 目录这条路的答案与内存里存着的那一行相同(按旧库的精度)。
+    var matched = 0
+    /// 第一次比不同、主线程上同一刻再读一次就相同:两边不是同一刻读的,中间内存改过。
+    var raced = 0
+    /// 内存的可见集还没跟上刚提交的行(等派生维护),这时只有「存着的那一行」可比。
+    var visibleCacheBehind = 0
+    /// 目录这条路当时答不了(不可读、跟不上内存模型)或库没就绪,没比。
+    var skipped = 0
+    var mismatches = 0
+    var lastMismatch: String?
+}
+#endif
+
+extension MusicLibrary {
+    /// 歌曲模型此刻不在内存里:还没发布,按 id 的索引是空的。重载期间(电视装快照)旧数组还在,不算。
+    private var songModelIsUnloaded: Bool {
+        songIndexByID.isEmpty && visibleSongIndexByID.isEmpty && readiness == .preparing
+    }
+
+    /// 模型不在内存里而目录答得出它的样子(可读、在跟写、没有等着跟上的整份替换)时,按 id 读的那条路;
+    /// 否则 nil,调用方照今天的答法。先看索引(不登记观察,模型在的时候一步答完),再看目录,最后才读
+    /// 发布状态:今天目录要到发布之后才启动,启动期间走不到最后一步,不多登记一份观察。
+    fileprivate var lookupOutsideTheModel: LibraryCatalogSongLookup? {
+        guard songIndexByID.isEmpty, visibleSongIndexByID.isEmpty,
+              let lookup = catalogHost?.songLookup(), readiness == .preparing else { return nil }
+        return lookup
+    }
+
+    /// 那几种有界的范围查询(一张专辑、一位艺人、一个流派、一张歌单的歌)此刻先问目录时用的读法。
+    fileprivate var rangeLookupOutsideTheModel: LibraryCatalogSongLookup? {
+        #if DEBUG
+        if byIDReadsUseCatalogForTesting { return catalogHost?.songLookup() }
+        #endif
+        return lookupOutsideTheModel
+    }
+
+    #if DEBUG
+    /// 测试开关开着、目录这条路答得了时的读法。
+    fileprivate var forcedCatalogLookupForTesting: LibraryCatalogSongLookup? {
+        byIDReadsUseCatalogForTesting ? catalogHost?.songLookup() : nil
+    }
+    #endif
+
+    /// 目录这条路上的「可见」:同内存的可见集,不在停用的源里。发布之前用准备期间记下的最新设置。
+    private func isVisibleOutsideTheModel(_ song: Song) -> Bool {
+        !(preparingDisabledSourceIDs ?? disabledSourceIDs).contains(song.sourceID)
+    }
+
+    /// 本机移除的歌不在内存模型里;目录里万一还有(另一台设备的快照带回来、还没重新装载),这条路也不给。
+    private func admittedOutsideTheModel(_ song: Song?) -> Song? {
+        guard let song, !deviceLocalExcludedSongIdentities.isEmpty, isExcludedOnThisDevice(song) else { return song }
+        return nil
+    }
+
+    /// 读它的界面在目录提交之后重画(待写登记里先到的改动,等目录提交时一起到)。
+    private func observeCatalogSongs() {
+        guard let revisions = catalogHost?.revisions else { return }
+        _ = revisions.songs
+        _ = revisions.isReadable
+    }
+
+    private func noteCatalogByIDReadFailure(_ error: Error) {
+        catalogByIDReadFailureCount &+= 1
+        guard catalogByIDReadFailureCount <= 5 else { return }
+        plog("📚 by-id catalog read failed (\(error)); answering as before the library is loaded")
+    }
+
+    /// 资料库里存着的那一行,从「待写登记 → 行缓存 → 目录」读,与内存模型的 `storedSong(id:)` 相同。
+    /// 外层 nil:读失败,或途中目录不能再这样答了,调用方照旧答。
+    fileprivate func storedSongOutsideTheModel(_ id: String, lookup: LibraryCatalogSongLookup, observed: Bool) -> Song?? {
+        if observed { observeCatalogSongs() }
+        do {
+            return .some(admittedOutsideTheModel(try lookup.song(id: id)))
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 可见的那一行(不含停用的源),同 `visibleSong(id:)`。
+    fileprivate func visibleSongOutsideTheModel(_ id: String, lookup: LibraryCatalogSongLookup, observed: Bool) -> Song?? {
+        guard let stored = storedSongOutsideTheModel(id, lookup: lookup, observed: observed) else { return nil }
+        guard let song = stored, isVisibleOutsideTheModel(song) else { return .some(nil) }
+        return .some(song)
+    }
+
+    /// 一批 id 各自存着的那一行,与输入一一对应;目录那一边一次查回来。条数由调用方给的 id 决定
+    /// (一张歌单的全部成员,与内存里逐首取出的那一份同样大)。
+    fileprivate func storedSongsOutsideTheModel(
+        _ ids: [String], lookup: LibraryCatalogSongLookup, observed: Bool
+    ) -> [Song?]? {
+        if observed { observeCatalogSongs() }
+        do {
+            let songs = try lookup.songs(ids: ids)
+            return deviceLocalExcludedSongIdentities.isEmpty ? songs : songs.map { admittedOutsideTheModel($0) }
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 这些 id 里可见的歌,按给的顺序(歌单成员)。
+    fileprivate func visibleSongsOutsideTheModel(ids: [String], lookup: LibraryCatalogSongLookup) -> [Song]? {
+        guard let stored = storedSongsOutsideTheModel(ids, lookup: lookup, observed: true) else { return nil }
+        return stored.compactMap { song in song.flatMap { isVisibleOutsideTheModel($0) ? $0 : nil } }
+    }
+
+    /// 目录给的一组行号(目录已经按它的可见口径筛过、排好序),至多 `LibraryScale.maxMaterializedRows` 行:
+    /// 逐行换成此刻的样子(待写登记里有更新的就用那一份),去掉已经删掉的、改动后不再属于这一组的、
+    /// 停用源里的与本机移除的。组里新增的成员要等目录提交那一批才出现(同目录上的各个列表)。
+    private func currentSongs(
+        atRowids rowids: ContiguousArray<Int32>,
+        lookup: LibraryCatalogSongLookup,
+        stillBelongs: (Song) -> Bool
+    ) throws -> (songs: [Song], replacedAny: Bool) {
+        let page = rowids.prefix(LibraryScale.maxMaterializedRows)
+        // 几千行的一组不经行缓存:它会把列表正在用的行都挤出去。
+        let rows: [Song]
+        if page.count <= lookup.rowCache.capacity / 4 {
+            rows = try lookup.rowCache.songs(forRowids: page, in: lookup.catalog).compactMap { $0 }
+        } else {
+            rows = try lookup.catalog.songs(rowids: page)
+        }
+        let pending = lookup.pendingWrites.lookups(rows.map(\.id))
+        var songs: [Song] = []
+        songs.reserveCapacity(rows.count)
+        var replacedAny = false
+        for (offset, row) in rows.enumerated() {
+            var song = row
+            if let pending {
+                switch pending[offset] {
+                case .unknown, .renamed:
+                    break
+                case .deleted:
+                    continue
+                case .present(let newer):
+                    guard stillBelongs(newer) else { continue }
+                    song = newer
+                    replacedAny = true
+                }
+            }
+            guard isVisibleOutsideTheModel(song), admittedOutsideTheModel(song) != nil else { continue }
+            songs.append(song)
+        }
+        return (songs, replacedAny)
+    }
+
+    /// 一张专辑的可见歌曲,按碟号、曲号、标题;同 `songs(forAlbum:)`。nil:目录这条路此刻答不了。
+    fileprivate func songsOutsideTheModel(forAlbum albumID: String, lookup: LibraryCatalogSongLookup) -> [Song]? {
+        observeCatalogSongs()
+        do {
+            return try albumSongsOutsideTheModel(albumID, lookup: lookup)
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    private func albumSongsOutsideTheModel(_ albumID: String, lookup: LibraryCatalogSongLookup) throws -> [Song] {
+        let rowids = try lookup.catalog.albumSongRowList(albumID: albumID).rowids
+        let current = try currentSongs(atRowids: rowids, lookup: lookup) { $0.albumID == albumID }
+        // 目录按它提交的那一份排的序;有行换成了更新的内容(曲号、标题可能变了)就按同一规则再排一次。
+        return current.replacedAny ? AlbumTrackOrder.sorted(current.songs) : current.songs
+    }
+
+    /// 一位艺人署名的可见歌曲,库内顺序;只当过专辑艺人的人取名下各张专辑的歌。同 `songs(forArtist:)`。
+    fileprivate func songsOutsideTheModel(forArtist artistID: String, lookup: LibraryCatalogSongLookup) -> [Song]? {
+        observeCatalogSongs()
+        do {
+            let rowids = try lookup.catalog.artistSongRowList(artistID: artistID).rowids
+            if !rowids.isEmpty {
+                return try currentSongs(atRowids: rowids, lookup: lookup) { self.song($0, includesArtistID: artistID) }.songs
+            }
+            // 名下专辑表属于专辑、艺人那一层:它在内存里时按它逐张取,不在时(整个模型都没装)答不出这些人的歌。
+            var songs: [Song] = []
+            for albumID in albumIDsByAlbumOnlyArtistID[artistID] ?? [] where songs.count < LibraryScale.maxMaterializedRows {
+                songs.append(contentsOf: try albumSongsOutsideTheModel(albumID, lookup: lookup))
+            }
+            return Array(songs.prefix(LibraryScale.maxMaterializedRows))
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 一个流派的可见音乐,库内顺序。同 `songs(forGenre:)`,只是至多 `LibraryScale.maxMaterializedRows` 首。
+    fileprivate func songsOutsideTheModel(forGenre genreID: String, lookup: LibraryCatalogSongLookup) -> [Song]? {
+        observeCatalogSongs()
+        do {
+            let rowids = try lookup.catalog.genreSongRowList(genreID: genreID).rowids
+            return try currentSongs(atRowids: rowids, lookup: lookup) { _ in true }.songs
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 可见专辑里的这一张,从目录读(专辑是目录跟着歌曲派生的,没有待写登记:答案是目录上一次提交时的样子)。
+    /// 外层 nil:目录这条路此刻答不了(`onlyWhileUnloaded` 时还包括模型其实在内存里)。
+    fileprivate func visibleAlbumOutsideTheModel(_ id: String, onlyWhileUnloaded: Bool) -> Album?? {
+        guard let host = catalogHost, host.pendingWrites.answersLikeMemory,
+              let catalog = host.mirror.readableCatalog, !onlyWhileUnloaded || songModelIsUnloaded else { return nil }
+        _ = host.revisions.isReadable
+        if let cached = catalogCollectionLookups.album(id, revision: host.revisions.albums) { return .some(cached) }
+        do {
+            let album = try catalog.visibleAlbum(id: id)
+            catalogCollectionLookups.remember(album: album, id: id)
+            return .some(album)
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 可见艺人里的这一位,同上。
+    fileprivate func visibleArtistOutsideTheModel(_ id: String, onlyWhileUnloaded: Bool) -> Artist?? {
+        guard let host = catalogHost, host.pendingWrites.answersLikeMemory,
+              let catalog = host.mirror.readableCatalog, !onlyWhileUnloaded || songModelIsUnloaded else { return nil }
+        _ = host.revisions.isReadable
+        if let cached = catalogCollectionLookups.artist(id, revision: host.revisions.artists) { return .some(cached) }
+        do {
+            let artist = try catalog.visibleArtist(id: id)
+            catalogCollectionLookups.remember(artist: artist, id: id)
+            return .some(artist)
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    #if DEBUG
+    /// 真实使用中的抽样比对:内存答的按 id 读每隔 `interval` 次记下一个 id,稍后把这些 id 按目录这条路
+    /// 再读一遍(主线程外读,不让主线程等读连接),与内存里存着的那一行按旧库的精度比;不同就记一行
+    /// `📚 by-id parity mismatch`。发布版里没有这段代码。
+    fileprivate func sampleByIDParity(_ id: String) {
+        byIDParitySampling.reads &+= 1
+        guard byIDParitySampling.reads % max(1, byIDParitySampling.interval) == 0,
+              byIDParitySampling.queued.count < 64, catalogHost != nil else { return }
+        byIDParitySampling.queued.append(id)
+        guard byIDParityTask == nil else { return }
+        byIDParityTask = Task { @MainActor [weak self] in
+            await self?.runByIDParityChecks()
+            self?.byIDParityTask = nil
+        }
+    }
+
+    /// 测试:等排着的抽样比对做完。
+    func drainByIDParityChecksForTesting() async {
+        while let task = byIDParityTask { await task.value }
+    }
+
+    private func runByIDParityChecks() async {
+        while !byIDParitySampling.queued.isEmpty {
+            let ids = byIDParitySampling.queued
+            byIDParitySampling.queued.removeAll()
+            guard readiness == .ready, let lookup = catalogHost?.songLookup() else {
+                byIDParitySampling.skipped += ids.count
+                continue
+            }
+            let fromCatalog = await Task.detached(priority: .utility) { try? lookup.songs(ids: ids) }.value
+            guard let fromCatalog, readiness == .ready else {
+                byIDParitySampling.skipped += ids.count
+                continue
+            }
+            for (id, offMainAnswer) in zip(ids, fromCatalog) {
+                var catalogSong = admittedOutsideTheModel(offMainAnswer)
+                if !ScanExistingSongsCatalogShadow.sameAtStorePrecision(catalogSong, indexedLibrarySong(id)) {
+                    // 两边不是同一刻读的,这中间内存可能改过:在主线程上同一刻各读一次再定。
+                    guard let now = catalogHost?.songLookup(),
+                          case .some(let again) = storedSongOutsideTheModel(id, lookup: now, observed: false) else {
+                        byIDParitySampling.skipped += 1
+                        continue
+                    }
+                    catalogSong = again
+                    guard ScanExistingSongsCatalogShadow.sameAtStorePrecision(again, indexedLibrarySong(id)) else {
+                        noteByIDParityMismatch(
+                            "id=\(id) stored: "
+                                + ScanExistingSongsCatalogShadow.difference(catalog: again, array: indexedLibrarySong(id))
+                        )
+                        continue
+                    }
+                    byIDParitySampling.raced += 1
+                }
+                byIDParitySampling.matched += 1
+                // 可见那一层:目录这条路 = 存着的那一行里不在停用源的;内存的可见集落定之后应当与它相同。
+                let expectedVisible = catalogSong.flatMap { isVisibleOutsideTheModel($0) ? $0 : nil }
+                let visibleInMemory = lookupVisibleSong(id)
+                guard !ScanExistingSongsCatalogShadow.sameAtStorePrecision(expectedVisible, visibleInMemory) else { continue }
+                let settled = rebuildIndexTask == nil && !deferredLibraryMaintenancePending
+                    && startupFolderValidationTask == nil && !sourceRemovalInProgress
+                if settled {
+                    noteByIDParityMismatch(
+                        "id=\(id) visible: "
+                            + ScanExistingSongsCatalogShadow.difference(catalog: expectedVisible, array: visibleInMemory)
+                    )
+                } else {
+                    byIDParitySampling.visibleCacheBehind += 1
+                }
+            }
+        }
+    }
+
+    private func noteByIDParityMismatch(_ detail: String) {
+        byIDParitySampling.mismatches += 1
+        byIDParitySampling.lastMismatch = detail
+        guard byIDParitySampling.mismatches <= 20 else { return }
+        plog("📚 by-id parity mismatch \(detail)")
+    }
+    #endif
 }
 
 // MARK: - Library catalog (P1: dual-write, background migration, shadow verification)

@@ -144,6 +144,45 @@ extension LibraryCatalog {
         return result
     }
 
+    /// 行缓存按 id 取一首用:这一行连同它的行号;目录里没有时为 nil。走按 id 读专用的连接
+    /// (不排在连接池后面),语句只编译一次。
+    func songWithRowid(id: String) throws -> (rowid: Int32, song: Song)? {
+        try pointRead { db in
+            let statement = try db.cachedStatement(sql: """
+                SELECT \(LibraryCatalogSongCodec.selectColumns) \(LibraryCatalogSongCodec.selectFrom) WHERE song.id = ?
+                """)
+            guard let row = try Row.fetchOne(statement, arguments: [id]) else { return nil }
+            let rowid: Int64 = row[LibraryCatalogSongCodec.Column.rowid]
+            return (try Self.rowid32(rowid), try LibraryCatalogSongCodec.decode(row))
+        }
+    }
+
+    /// 行缓存按 id 取一批用:id → (行号, 歌),不存在的不在结果里。调用方已经过了上限检查。
+    /// 与单首的同一个连接。
+    func songsWithRowids(ids: [String]) throws -> [String: (rowid: Int32, song: Song)] {
+        guard !ids.isEmpty else { return [:] }
+        var result: [String: (rowid: Int32, song: Song)] = [:]
+        result.reserveCapacity(ids.count)
+        try pointRead { db in
+            for chunk in Self.chunks(of: Array(Set(ids))) {
+                let rows = try Row.fetchCursor(
+                    db,
+                    sql: """
+                        SELECT \(LibraryCatalogSongCodec.selectColumns) \(LibraryCatalogSongCodec.selectFrom)
+                        WHERE song.id IN (\(Self.placeholders(chunk.count)))
+                        """,
+                    arguments: StatementArguments(chunk)
+                )
+                while let row = try rows.next() {
+                    let rowid: Int64 = row[LibraryCatalogSongCodec.Column.rowid]
+                    let song = try LibraryCatalogSongCodec.decode(row)
+                    result[song.id] = (try Self.rowid32(rowid), song)
+                }
+            }
+        }
+        return result
+    }
+
     /// id → 行号,保持顺序;不存在的是 nil。
     public func rowids(forIDs ids: [String]) throws -> [Int32?] {
         let admitted = LibraryScaleGuard.admitMaterialization(count: ids.count)
