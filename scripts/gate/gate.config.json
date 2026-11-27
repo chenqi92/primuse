@@ -12,7 +12,9 @@
                     "PrimuseKit/Tests/", "PrimuseKit/ScaleGate/Tests/"],
   "rules": {
     "file-size": {
-      "severity": "warn",
+      "severity_new_file": "error",
+      "severity_growth": "warn",
+      "note": "severity_growth 在大曲库迁移（歌曲模型放掉那条线）结束后改成 error",
       "max_lines": 1000,
       "baseline": "scripts/gate/baselines/file-size.tsv"
     },

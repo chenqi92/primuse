@@ -176,7 +176,7 @@
 
 | 规则 | 守的是 | 级别 | 基线 |
 | --- | --- | --- | --- |
-| `file-size` | 第 7 节：新文件不超过 1,000 行，大文件只许变短 | 警告（大曲库迁移结束后改为错误） | `scripts/gate/baselines/file-size.tsv` |
+| `file-size` | 第 7 节：新文件不超过 1,000 行，大文件只许变短 | 新文件超过上限是错误（`severity_new_file`）；基线里的大文件变长是警告（`severity_growth`，大曲库迁移结束后改为错误） | `scripts/gate/baselines/file-size.tsv` |
 | `observable-class-body` | 第 3 节规则 1 | 错误 | `scripts/gate/baselines/observable-class-body.tsv` |
 | `library-scale` | 第 2 节与线上闪退写法（原样调用 `scripts/check-crash-patterns.py`） | 错误 | `scripts/library-scale-baseline.tsv` |
 | `kit-layout` | 第 7 节规则 1：Kit 按领域分目录，测试与源目录镜像 | 错误 | 配置里的例外名单 |

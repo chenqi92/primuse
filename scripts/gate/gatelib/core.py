@@ -27,8 +27,22 @@ class Config:
     def rule(self, rule_id):
         return self.data.get("rules", {}).get(rule_id, {})
 
-    def severity(self, rule_id):
-        return self.rule(rule_id).get("severity", "error")
+    def severity(self, rule_id, case=None):
+        """规则的级别。有的规则按情形分级（file-size 的 new_file 与 growth），没写分情形的级别时用 severity。"""
+        spec = self.rule(rule_id)
+        if case and ("severity_" + case) in spec:
+            return spec["severity_" + case]
+        if "severity" in spec:
+            return spec["severity"]
+        cases = [value for key, value in spec.items() if key.startswith("severity_")]
+        return "error" if "error" in cases or not cases else cases[0]
+
+    def severity_label(self, rule_id):
+        """给人看的级别：分情形的规则写成「new_file=error growth=warn」。"""
+        spec = self.rule(rule_id)
+        cases = ["%s=%s" % (key[len("severity_"):], value) for key, value in sorted(spec.items())
+                 if key.startswith("severity_")]
+        return " ".join(cases) if cases else spec.get("severity", "error")
 
     def enabled(self, rule_id):
         spec = self.rule(rule_id)

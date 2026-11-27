@@ -97,8 +97,7 @@ def build_context(config, root, mode, range_spec=None, strict=False):
 
 def run_rules(ctx, infos, report):
     for info in infos:
-        severity = ctx.config.severity(info.id)
-        report.ran.append((info.id, severity))
+        report.ran.append((info.id, ctx.config.severity_label(info.id)))
         try:
             report.add(info.function(ctx))
         except rules.NotApplicable:
@@ -216,6 +215,8 @@ DEFAULT_HEADERS = {
     "file-size": "# file-size 的棘轮基线：文件\t行数。超过上限的文件只许变短；由 python3 -I scripts/gate/gate.py --update-baseline 生成。",
     "observable-class-body": "# observable-class-body 的棘轮基线：文件\t类\t类体里该放进扩展的成员数。只许变少；由 python3 -I scripts/gate/gate.py --update-baseline 生成。",
     "layering": "# layering 的棘轮基线：文件\t导入界面框架的次数。只许变少；由 python3 -I scripts/gate/gate.py --update-baseline 生成。",
+    "localization": "# localization 的棘轮基线：文件\t问题（种类:键）\t1。修好一项删一项；由 python3 -I scripts/gate/gate.py --update-baseline 生成。",
+    "library-scale": "# library-scale 的棘轮基线：规则\t文件\t命中数。只许变少；由 python3 -I scripts/gate/gate.py --update-baseline 生成。",
 }
 
 
@@ -241,15 +242,22 @@ def update_baseline(config, root, reason, out):
         growth_total.extend((rule_id, key, before, after) for key, before, after in grew)
         plans.append((rule_id, old, new, grew))
     ctx.tree.close()
-    if growth_total and not reason:
-        out.write("基线不能变大，没有写入。变大的项：\n")
+    refused = bool(growth_total) and not reason
+    if refused:
+        # 变大的项不写：原有的项保持原值，新出现的项不加；能收紧的照样收紧。
+        out.write("这些项变大了，基线保持原值、没有放宽：\n")
         for rule_id, key, before, after in growth_total:
             out.write("  %s %s %d → %d\n" % (rule_id, "/".join(key), before, after))
         out.write("先修代码让它回到基线以内；确需放宽由仓库所有者加 --allow-growth \"理由\" 重跑。\n")
-        return 1
+        for rule_id, old, new, grew in plans:
+            for key, before, after in grew:
+                if before:
+                    new.entries[key] = before
+                else:
+                    new.entries.pop(key, None)
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     for rule_id, old, new, grew in plans:
-        if grew:
+        if grew and not refused:
             detail = "；".join("%s %d → %d" % ("/".join(key), before, after) for key, before, after in grew)
             new.notes.append("%s%s %s（%s）" % (core.GROWTH_NOTE_PREFIX, today, reason.strip(), detail))
         if new.render() == (old.render() if old.entries or old.header else ""):
@@ -264,8 +272,8 @@ def update_baseline(config, root, reason, out):
             handle.write(new.render())
         out.write("%s：写入 %s，%d 项，共 %d（收紧 %d 项，删掉 %d 项%s）\n" % (
             rule_id, new.path, len(new.entries), new.total(), len(shrunk), len(removed),
-            "，放宽 %d 项" % len(grew) if grew else ""))
-    return 0
+            "，放宽 %d 项" % len(grew) if grew and not refused else ""))
+    return 1 if refused else 0
 
 
 # ---------------------------------------------------------------------------
@@ -279,9 +287,11 @@ def main(argv, stdin=None, stdout=None):
         for info in rules.REGISTRY + [rules.RuleInfo("commit-message", "提交信息一行、不超长、不带 AI 署名", "message", None, ()),
                                       rules.RuleInfo("tests-with-code", "不提交只改测试的提交", "message", None, ())]:
             spec = config.rule(info.id)
-            state = "关" if not config.enabled(info.id) else spec.get("severity", "error")
+            state = "关" if not config.enabled(info.id) else config.severity_label(info.id)
             optional = "，可选" if spec.get("optional") else ""
-            stdout.write("%-24s %-6s %-9s %s%s\n" % (info.id, state, info.kind, info.title, optional))
+            reason = "（%s）" % spec["disabled_reason"] if not config.enabled(info.id) and spec.get("disabled_reason") else ""
+            title = spec.get("title", info.title)
+            stdout.write("%-24s %-6s %-9s %s%s%s\n" % (info.id, state, info.kind, title, optional, reason))
         return 0
     if args.self_test:
         from . import selftest

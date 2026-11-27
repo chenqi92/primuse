@@ -21,7 +21,7 @@ Project paths, thresholds and severities live in `scripts/gate/gate.config.json`
 
 ## The rules in brief
 
-1. **File size.** A new Swift file stays at or below the limit (1,000 lines). A file already above it is in the baseline and may only get shorter.
+1. **File size.** A new Swift file stays at or below the limit (1,000 lines); a new file above it is an error. A file already above it is in the baseline and may only get shorter; growth is reported with the severity the config gives it (`severity_growth`, a warning while a planned migration still grows those files). Treat a growth warning as something to fix, not as permission.
 2. **`@Observable` class bodies** hold only instance stored properties, designated initializers and `deinit` (plus what Swift forbids in extensions: `override`, `required init`). Methods, computed properties, nested types, type aliases, static properties and convenience initializers go into an `extension` right after the class in the same file. Each body member costs macro-expansion time in every compile job that uses the class.
 3. **No library-sized collections in memory.** No new whole-library arrays, dictionaries or id sets as stored properties; read through the catalog interfaces (by id, by page, counts, streaming). SQL for the catalog tables lives only in the catalog directory. Bounded exceptions carry a same-line comment with the bound and the reason, in the format the finding shows.
 4. **Layering.** The core Swift package imports no UI framework (SwiftUI, UIKit, AppKit). Dependencies point down: UI → services → core package.
@@ -31,7 +31,7 @@ Project paths, thresholds and severities live in `scripts/gate/gate.config.json`
 8. **Tests travel with code.** A commit that touches only tests is refused; put the test in the commit of the code it covers.
 9. **Commit message.** One line saying what changed for the user or the app, in the repository's language and style (see `git log --format=%s -30`); optionally one short sentence after a blank line; `refs #NNN` when there is an issue. Verification evidence goes into handoff notes, not the commit.
 10. **No AI attribution** in commits, pull requests, code comments or release notes: no `Co-Authored-By` naming an AI, no "Generated with …", no session links or trailers, no robot emoji. Naming a product as part of a feature ("call the Claude API") is fine.
-11. **Baselines only shrink.** Existing violations are counted per file (per class for `@Observable`); new code may not add to them.
+11. **Baselines only shrink.** Existing violations are counted per file (per class for `@Observable`, per issue for localization where the config gives it a baseline); new code may not add to them. Rules switched off in the config show their reason in `--list-rules`; do not switch them on or off yourself.
 
 ## Fixing findings
 

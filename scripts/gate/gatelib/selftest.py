@@ -17,14 +17,16 @@ def sample_config(real):
     data["swift"]["exclude"] = ["Vendor/**"]
     data["test_prefixes"] = ["AppTests/", "Kit/Tests/"]
     r = data["rules"]
-    r["file-size"].update({"severity": "error", "max_lines": 5, "baseline": "gate/file-size.tsv"})
+    r["file-size"].update({"severity_new_file": "error", "severity_growth": "warn", "max_lines": 5,
+                           "baseline": "gate/file-size.tsv"})
+    r["file-size"].pop("severity", None)
     r["observable-class-body"]["baseline"] = "gate/observable.tsv"
     r["library-scale"]["baseline"] = "gate/library-scale.tsv"
     r["layering"].update({"roots": [KIT_SRC + "/"], "baseline": "gate/layering.tsv"})
     r["kit-layout"].update({"source_root": KIT_SRC, "test_root": KIT_TEST,
                             "allowed_root_files": [KIT_SRC + "/Constants.swift"], "test_dirs_without_source": ["Support"]})
     r["project-file"].update({"spec": "project.yml", "project": "App.xcodeproj/project.pbxproj"})
-    r["localization"].update({"locales": ["en", "de", "ja"], "han_locales": ["ja"],
+    r["localization"].update({"locales": ["en", "de", "ja"], "han_locales": ["ja"], "baseline": "gate/localization.tsv",
                               "groups": [{"name": "Sample", "dir": "Res", "file": "Localizable.strings"}]})
     config.data = data
     return config
@@ -72,9 +74,11 @@ def lines(n):
 
 def test_file_size(t):
     base = {"gate/file-size.tsv": "# h\nApp/Big.swift\t8\n"}
-    t.expect("file-size", "新文件超过上限", dict(base, **{"App/New.swift": lines(6)}), 1, contains="不在基线里")
+    t.expect("file-size", "新文件超过上限（按 severity_new_file 报错误）", dict(base, **{"App/New.swift": lines(6)}), 1,
+             contains="不在基线里", severity="error")
     t.expect("file-size", "新文件刚好在上限", dict(base, **{"App/New.swift": lines(5)}), 0)
-    t.expect("file-size", "基线里的文件变长", dict(base, **{"App/Big.swift": lines(9)}), 1, contains="基线 8 行")
+    t.expect("file-size", "基线里的文件变长（按 severity_growth 报警告）", dict(base, **{"App/Big.swift": lines(9)}), 1,
+             contains="基线 8 行", severity="warn")
     ctx = t.expect("file-size", "基线里的文件变短", dict(base, **{"App/Big.swift": lines(7)}), 0)
     t.check("file-size", "变短后提示收紧", any(item[0] == "file-size" and item[3] == 7 for item in ctx.tighten))
     t.expect("file-size", "排除的目录不查", dict(base, **{"Vendor/Lib.swift": lines(50)}), 0)
@@ -180,14 +184,64 @@ func make() {
 
 
 def test_library_scale(t):
-    product = "import Foundation\nfinal class Store {\n    var songs: [Song] = []\n}\n"
-    t.expect("library-scale", "整库歌曲数组属性（基线外）", {"App/Store.swift": product}, 1, contains="library-array-property")
-    base = {"gate/library-scale.tsv": "# h\nlibrary-array-property\tApp/Store.swift\t1\n"}
-    t.expect("library-scale", "基线内", dict(base, **{"App/Store.swift": product}), 0)
-    allowed = product.replace("[Song] = []", "[Song] = []  // crash-pattern: allow library-array-property 最多 50 首")
-    t.expect("library-scale", "写明上界的豁免", {"App/Store.swift": allowed}, 0)
-    t.expect("library-scale", "测试目录不查棘轮规则（按 check-crash-patterns.py 自己的测试目录）",
-             {"PrimuseTests/StoreTests.swift": product}, 0)
+    """仓库自己的闪退扫描脚本能接上；脚本里有大曲库规则（Primuse）时再用样例查棘轮、豁免和测试目录。"""
+    module = rules.crash_module(rules.Context(t.config, core.DictTree({}), "all"))
+    t.expect("library-scale", "仓库的扫描脚本能接上，干净的文件没有命中",
+             {"App/Clean.swift": "import Foundation\nlet value = 1\n"}, 0)
+    if "library-array-property" not in module.RULES:
+        return
+    spec = t.config.data["rules"]["library-scale"]
+    saved = spec.pop("ratchet", None)
+    try:
+        product = "import Foundation\nfinal class Store {\n    var songs: [Song] = []\n}\n"
+        t.expect("library-scale", "整库歌曲数组属性（基线外）", {"App/Store.swift": product}, 1,
+                 contains="library-array-property")
+        base = {"gate/library-scale.tsv": "# h\nlibrary-array-property\tApp/Store.swift\t1\n"}
+        t.expect("library-scale", "基线内", dict(base, **{"App/Store.swift": product}), 0)
+        allowed = product.replace("[Song] = []", "[Song] = []  // crash-pattern: allow library-array-property 最多 50 首")
+        t.expect("library-scale", "写明上界的豁免", {"App/Store.swift": allowed}, 0)
+        t.expect("library-scale", "测试目录不查棘轮规则（按 check-crash-patterns.py 自己的测试目录）",
+                 {"PrimuseTests/StoreTests.swift": product}, 0)
+    finally:
+        if saved is not None:
+            spec["ratchet"] = saved
+
+
+FAKE_CRASH_CHECKER = """RULES = {"no-force-try": ("不要用 try!", "样例", None)}
+
+
+class Hit:
+    def __init__(self, rule, path, line, text):
+        self.rule, self.path, self.line, self.text = rule, path, line, text
+
+
+def scan_text(path, text):
+    return [Hit("no-force-try", path, number, line) for number, line in enumerate(text.split("\\n"), 1) if "try!" in line]
+"""
+
+
+def test_library_scale_generic(t):
+    """别的仓库的闪退扫描脚本：没有 RATCHET_RULES 时照样能接；"ratchet": "all" 时现有命中按基线执行。"""
+    import shutil
+    import tempfile
+    directory = tempfile.mkdtemp(prefix="gate-selftest-crash-")
+    saved_root, saved_spec = t.config.tool_root, dict(t.config.data["rules"]["library-scale"])
+    try:
+        os.makedirs(os.path.join(directory, "scripts"))
+        with open(os.path.join(directory, "scripts", "fake-crash.py"), "w", encoding="utf-8") as handle:
+            handle.write(FAKE_CRASH_CHECKER)
+        t.config.tool_root = directory
+        t.config.data["rules"]["library-scale"].update({"script": "scripts/fake-crash.py", "ratchet": "all"})
+        code = {"App/A.swift": "let a = try! load()\n"}
+        t.expect("library-scale", "通用脚本：基线外的命中", code, 1, contains="no-force-try")
+        t.expect("library-scale", "通用脚本：基线内", dict(code, **{"gate/library-scale.tsv": "# h\nno-force-try\tApp/A.swift\t1\n"}), 0)
+        t.config.data["rules"]["library-scale"].pop("ratchet")
+        t.expect("library-scale", "通用脚本：不按基线执行时命中一律报",
+                 dict(code, **{"gate/library-scale.tsv": "# h\nno-force-try\tApp/A.swift\t1\n"}), 1)
+    finally:
+        t.config.tool_root = saved_root
+        t.config.data["rules"]["library-scale"] = saved_spec
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 def test_kit_layout(t):
@@ -322,6 +376,11 @@ def test_localization(t):
     t.expect("localization", "缺语言文件", {k: v for k, v in good.items() if "/ja." not in k}, 1, contains="缺少这些语言")
     t.expect("localization", "读不懂的文件",
              dict(good, **{"Res/de.lproj/Localizable.strings": '"a" = "Hallo %@"\n"b" = "x";\n'}), 1, contains="读不懂")
+    known = {"gate/localization.tsv": "# h\nRes/de.lproj/Localizable.strings\tmissing-key:b\t1\n"}
+    t.expect("localization", "基线里记着的缺键不报", dict(good, **known, **{"Res/de.lproj/Localizable.strings": strings([("a", "Hallo %@")])}), 0)
+    t.expect("localization", "基线外的新问题照报",
+             dict(good, **known, **{"Res/de.lproj/Localizable.strings": strings([("a", "Hallo")])}), 1,
+             contains="占位符")
     t.check("localization", "占位符签名与 Ruby 版相同",
             formats.format_signature("%1$@ hat %2$lld %% und %.1f") == ["@", "f", "lld"])
 
@@ -496,7 +555,7 @@ def test_git_trees(t):
 def run(real_config, out):
     config = sample_config(real_config)
     runner = Runner(config, out)
-    for test in (test_file_size, test_observable, test_library_scale, test_kit_layout, test_layering, test_project_file,
+    for test in (test_file_size, test_observable, test_library_scale, test_library_scale_generic, test_kit_layout, test_layering, test_project_file,
                  test_localization, test_baseline_integrity, test_commit_message, test_tests_with_code, test_external,
                  test_plumbing, test_git_trees):
         try:

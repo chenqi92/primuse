@@ -15,7 +15,11 @@ DerivedData/
 .swiftpm/
 
 # Local tooling
-/scripts/
+# scripts/ 下的本地工具默认不入库；架构关卡、钩子和安装器入库（新加的文件不用 -f）
+/scripts/*
+!/scripts/gate/
+!/scripts/git-hooks/
+!/scripts/install-git-hooks.sh
 .claude/
 .idea/
 .zed/
@@ -48,6 +52,7 @@ Marketing
 !/Docs/community/
 /Docs/community/*
 !/Docs/community/wechat-group.jpg
+!/Docs/ARCHITECTURE.md
 /BAIDU_PAN_FIX/
 
 # App 运行时诊断报告 (MetricKit / 崩溃 JSON)

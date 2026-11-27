@@ -17,6 +17,7 @@ BASELINE_COLUMNS = {
     "observable-class-body": ["path", "class", "count"],
     "layering": ["path", "count"],
     "library-scale": ["rule", "path", "count"],
+    "localization": ["path", "issue", "count"],
 }
 
 
@@ -145,8 +146,8 @@ class Context:
             elif self.mode == "all" and path is not None and not self.tree.exists(path):
                 self.tighten.append((rule_id, key, allowed, 0))
 
-    def finding(self, rule_id, path, line, message, fix, subject=None):
-        return Finding(rule_id, self.config.severity(rule_id), path, line, message, fix, subject)
+    def finding(self, rule_id, path, line, message, fix, subject=None, case=None):
+        return Finding(rule_id, self.config.severity(rule_id, case), path, line, message, fix, subject)
 
 
 def line_count(text):
@@ -162,7 +163,7 @@ def thousands(number):
 # ---------------------------------------------------------------------------
 # 1. 文件行数
 
-@rule("file-size", "Swift 文件不超过上限行数；已经超过的记在基线里，只许变少", "file")
+@rule("file-size", "新的 Swift 文件不超过上限行数（new_file）；已经超过的记在基线里，只许变短（growth）", "file")
 def check_file_size(ctx):
     spec = ctx.config.rule("file-size")
     limit = int(spec.get("max_lines", 1000))
@@ -180,12 +181,14 @@ def check_file_size(ctx):
                     "file-size", path, limit + 1,
                     "文件 %s 行，不在基线里，超过 %s 行的上限%s" % (thousands(lines), thousands(limit),
                                                           ctx.rename_hint(baseline, (path,))),
-                    "按职责拆成几个文件：每个类型家族各自成文件，大类型的扩展按职责分到 `类型+职责.swift`"))
+                    "按职责拆成几个文件：每个类型家族各自成文件，大类型的扩展按职责分到 `类型+职责.swift`",
+                    case="new_file"))
         elif lines > allowed:
             findings.append(ctx.finding(
                 "file-size", path, allowed + 1,
                 "文件 %s 行，基线 %s 行，大文件只许变短" % (thousands(lines), thousands(allowed)),
-                "新增的代码放进新的文件（同类型的扩展按职责另起 `类型+职责.swift`），或者先从这个文件拆出一部分"))
+                "新增的代码放进新的文件（同类型的扩展按职责另起 `类型+职责.swift`），或者先从这个文件拆出一部分",
+                case="growth"))
     ctx.counts["file-size"] = current
     ctx.note_tighten("file-size", baseline, current)
     return findings
@@ -281,10 +284,18 @@ def crash_module(ctx):
     if not os.path.isfile(path):
         raise Skip("找不到 %s" % os.path.relpath(path, ctx.config.tool_root))
     module = load_module(path, "gate_crash_patterns")
-    for attribute in ("scan_text", "RULES", "RATCHET_RULES"):
+    for attribute in ("scan_text", "RULES"):
         if not hasattr(module, attribute):
             raise Skip("%s 没有 %s，接口变了，关卡要跟着改" % (os.path.basename(path), attribute))
     return module
+
+
+def ratchet_rules(ctx, module):
+    """按基线执行的子规则：默认是脚本自己的 RATCHET_RULES；配置写 "ratchet": "all" 时脚本的每条规则都按基线执行
+    （用于脚本本身没有基线、现有命中还没修完的仓库）。"""
+    if ctx.config.rule("library-scale").get("ratchet") == "all":
+        return set(module.RULES)
+    return set(getattr(module, "RATCHET_RULES", ()))
 
 
 def library_scale_files(ctx, module):
@@ -339,16 +350,17 @@ def check_library_scale(ctx):
     paths = library_scale_files(ctx, module)
     raw = scan_library_scale(ctx, module, paths)
     baseline = ctx.baseline("library-scale")
+    ratchet = ratchet_rules(ctx, module)
     counts = {}
     for item in raw:
-        if item.rule in module.RATCHET_RULES:
+        if item.rule in ratchet:
             key = (item.rule, item.path)
             counts[key] = counts.get(key, 0) + 1
     over = {key for key, count in counts.items() if count > (ctx.allowed(baseline, key) or 0)}
     findings = []
     for item in raw:
-        summary, incident, _ = module.RULES[item.rule]
-        if item.rule in module.RATCHET_RULES:
+        summary, incident = module.RULES[item.rule][:2]
+        if item.rule in ratchet:
             key = (item.rule, item.path)
             if key not in over:
                 continue
@@ -597,16 +609,30 @@ def check_localization(ctx):
     locales = spec["locales"]
     development = spec.get("development_locale", "en")
     han_locales = set(spec.get("han_locales", []))
+    baseline = ctx.baseline("localization")  # 配置里没写 baseline 时是空的：每个问题都报
+    current = {}
     findings = []
+
+    def known(path, issue):
+        """记下这个问题；已经在基线里的返回 True（不报）。"""
+        key = (path, issue.replace("\t", " ").replace("\n", " "))
+        current[key] = 1
+        return key in baseline.entries
+
+    def report(path, line, message, fix):
+        findings.append(ctx.finding("localization", path, line, message, fix))
+
     for group in groups:
         name, directory, file_name = group["name"], group["dir"].rstrip("/"), group["file"]
         exact = group.get("exact_development_parity", True)
         paths = {locale: "%s/%s.lproj/%s" % (directory, locale, file_name) for locale in locales}
         missing = [locale for locale, path in paths.items() if not ctx.tree.exists(path)]
         if missing:
-            findings.append(ctx.finding("localization", "%s/*.lproj/%s" % (directory, file_name), None,
-                                        "%s 缺少这些语言的文件：%s" % (name, "、".join(missing)),
-                                        "每种语言都要有同名的 .strings 文件（%d 种语言）" % len(locales)))
+            new_missing = [locale for locale in missing if not known(paths[locale], "missing-file")]
+            if new_missing:
+                report("%s/*.lproj/%s" % (directory, file_name), None,
+                       "%s 缺少这些语言的文件：%s" % (name, "、".join(new_missing)),
+                       "每种语言都要有同名的 .strings 文件（%d 种语言）" % len(locales))
             continue
         values = {}
         broken = False
@@ -615,14 +641,13 @@ def check_localization(ctx):
             try:
                 values[locale] = formats.parse_strings(text)
             except formats.FormatError as error:
-                findings.append(ctx.finding("localization", path, None, "%s %s 读不懂：%s" % (name, locale, error),
-                                            "修好引号、= 和 ;（每行 \"键\" = \"值\";）"))
+                report(path, None, "%s %s 读不懂：%s" % (name, locale, error), "修好引号、= 和 ;（每行 \"键\" = \"值\";）")
                 broken = True
                 continue
             for key, lines in sorted(formats.duplicate_string_keys(text).items()):
-                findings.append(ctx.finding("localization", path, lines[1],
-                                            "%s %s 重复的键 \"%s\"（第 %s 行）" % (name, locale, key, "、".join(map(str, lines))),
-                                            "删掉多余的一行，只留一个译文"))
+                if not known(path, "duplicate:" + key):
+                    report(path, lines[1], "%s %s 重复的键 \"%s\"（第 %s 行）" % (name, locale, key, "、".join(map(str, lines))),
+                           "删掉多余的一行，只留一个译文")
         if broken:
             continue
         union = set()
@@ -631,21 +656,18 @@ def check_localization(ctx):
         for locale, dictionary in values.items():
             path = paths[locale]
             for key, value in dictionary.items():
-                if not formats.ruby_strip(value):
-                    findings.append(ctx.finding("localization", path, None, "%s %s \"%s\" 的译文是空的" % (name, locale, key),
-                                                "补上这种语言的译文"))
-                if locale not in han_locales and formats.HAN_RE.search(value):
-                    findings.append(ctx.finding("localization", path, None,
-                                                "%s %s \"%s\" 里有汉字" % (name, locale, key),
-                                                "这种语言的译文不应出现中文，换成该语言的说法"))
+                if not formats.ruby_strip(value) and not known(path, "empty:" + key):
+                    report(path, None, "%s %s \"%s\" 的译文是空的" % (name, locale, key), "补上这种语言的译文")
+                if locale not in han_locales and formats.HAN_RE.search(value) and not known(path, "han:" + key):
+                    report(path, None, "%s %s \"%s\" 里有汉字" % (name, locale, key),
+                           "这种语言的译文不应出现中文，换成该语言的说法")
             if locale == development and not exact:
                 continue
-            absent = sorted(union - set(dictionary))
+            absent = [key for key in sorted(union - set(dictionary)) if not known(path, "missing-key:" + key)]
             if absent:
-                findings.append(ctx.finding("localization", path, None,
-                                            "%s %s 缺少 %d 个键：%s" % (name, locale, len(absent), ", ".join(absent[:12])
-                                                                     + ("……" if len(absent) > 12 else "")),
-                                            "每个键在 %d 种语言里都要有译文" % len(locales)))
+                report(path, None, "%s %s 缺少 %d 个键：%s" % (name, locale, len(absent), ", ".join(absent[:12])
+                                                          + ("……" if len(absent) > 12 else "")),
+                       "每个键在 %d 种语言里都要有译文" % len(locales))
         english = values[development]
         for locale, dictionary in values.items():
             if locale == development:
@@ -654,11 +676,14 @@ def check_localization(ctx):
                 if key not in english:
                     continue
                 expected, actual = formats.format_signature(english[key]), formats.format_signature(value)
-                if expected != actual:
-                    findings.append(ctx.finding("localization", paths[locale], None,
-                                                "%s %s \"%s\" 的占位符和 %s 不同：应为 %s，实际 %s"
-                                                % (name, locale, key, development, expected, actual),
-                                                "占位符的个数和类型要与 %s 一致（顺序可以用 %%1$@ 这种写法调换）" % development))
+                if expected != actual and not known(paths[locale], "placeholder:" + key):
+                    report(paths[locale], None, "%s %s \"%s\" 的占位符和 %s 不同：应为 %s，实际 %s"
+                           % (name, locale, key, development, expected, actual),
+                           "占位符的个数和类型要与 %s 一致（顺序可以用 %%1$@ 这种写法调换）" % development)
+    ctx.counts["localization"] = current
+    for key, allowed in sorted(baseline.entries.items()):
+        if key not in current:
+            ctx.tighten.append(("localization", key, allowed, 0))
     return findings
 
 
