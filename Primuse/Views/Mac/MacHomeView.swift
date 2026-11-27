@@ -123,11 +123,15 @@ private struct MacHomeLibraryRevisionObserver: View {
     @Environment(ScanService.self) private var scanService
     let onRevisionChange: () -> Void
     let onScanFinished: () -> Void
+    let onSongModelChange: () -> Void
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .onChange(of: library.searchRevision) { _, _ in onRevisionChange() }
+            // 歌曲模型放掉、装回来,目录重新可读:换一种来源重算(放掉时从目录读,装回来后按整库数组)。
+            .onChange(of: library.isReady) { _, _ in onSongModelChange() }
+            .onChange(of: library.catalogHost?.revisions.isReadable) { _, _ in onSongModelChange() }
             // 歌单版本也在首页快照的签名里(推荐要用), 只听歌曲版本的话歌单一变签名就对不上, 却没人补算。
             .onChange(of: library.playlistCollectionRevision) { _, _ in onRevisionChange() }
             .onChange(of: scanService.scanningSourceIDs.isEmpty) { _, idle in
@@ -195,8 +199,11 @@ struct MacHomeView: View {
     @MainActor
     @Observable
     final class Model {
-        fileprivate var snapshot = DerivedSnapshot()
+        var snapshot = MacHomeDashboardSnapshot()
         var isPrepared = false
+        /// 歌曲模型不在内存里而曲库目录读失败了:首页替自己占用模型(`.songModelPage`),装回来后按整库数组重算。
+        var needsSongModel = false
+        @ObservationIgnored var followsSongModelResidency = false
         @ObservationIgnored let spokenWordBooks = SpokenWordBooksModel()
         @ObservationIgnored let diagnostics = MacHomePerformanceDiagnostics()
         @ObservationIgnored var signature: DerivedSignature?
@@ -215,6 +222,8 @@ struct MacHomeView: View {
         let day: Date
         let localeIdentifier: String
         var showsExternalAlbums = false
+        /// 歌曲模型在不在内存里:放掉之后从曲库目录读,装回来后按整库数组重算(推荐也是那时才重算)。
+        var songModelLoaded = true
 
         /// 只是曲库或歌单内容变了 —— 这类补算在扫描期间可以放宽间隔。
         func differsOnlyInLibraryContent(from other: DerivedSignature) -> Bool {
@@ -223,23 +232,8 @@ struct MacHomeView: View {
                 && day == other.day
                 && localeIdentifier == other.localeIdentifier
                 && showsExternalAlbums == other.showsExternalAlbums
+                && songModelLoaded == other.songModelLoaded
         }
-    }
-
-    fileprivate struct DerivedSnapshot: Sendable {
-        var mosaicSongs: [Song] = []
-        var recentSongs: [Song] = []
-        var recommendationResults: [MusicDiscoveryResult] = []
-        var recentlyAddedAlbums: [Album] = []
-        var artists: [Artist] = []
-        var albumArtworkSongs: [String: Song] = [:]
-        var totalDurationSec: Double = 0
-        var coverCount: Int = 0
-        var lyricsCount: Int = 0
-        var playableCount: Int = 0
-        var songCount: Int = 0
-        var albumCount: Int = 0
-        var artistCount: Int = 0
     }
 
     private var hasContent: Bool { model.snapshot.songCount > 0 }
@@ -267,11 +261,14 @@ struct MacHomeView: View {
             MacHomeLibraryRevisionObserver(
                 onRevisionChange: { scheduleDerivedRefresh(reason: "library", libraryDriven: true) },
                 // 扫描期间排着的那次按扫描档在等; 扫完按正常档重排。
-                onScanFinished: { scheduleDerivedRefresh(reason: "scan_finished") }
+                onScanFinished: { scheduleDerivedRefresh(reason: "scan_finished") },
+                onSongModelChange: { scheduleDerivedRefresh(reason: "song_model") }
             )
         }
         .spokenWordBooksRefresh(model: spokenWordBooks)
+        .songModelPage(needsArrays: model.needsSongModel)
         .task {
+            model.followSongModelResidency(of: library)
             isHomeVisible = true
             await Task.yield()
             if model.isPrepared {
@@ -297,7 +294,7 @@ struct MacHomeView: View {
             model.diagnostics.setActive(isSceneActive)
         }
         .onChange(of: showsExternalAlbums) { _, _ in
-            model.snapshot.recentlyAddedAlbums = []
+            model.snapshot.clearRecentlyAddedAlbums()
             scheduleDerivedRefresh(reason: "external_albums")
         }
         .onChange(of: scenePhase) { _, phase in
@@ -777,7 +774,8 @@ struct MacHomeView: View {
             recentSongIDs: library.recentPlaybackSongIDsForSync,
             day: Calendar.current.startOfDay(for: Date()),
             localeIdentifier: Locale.current.identifier,
-            showsExternalAlbums: showsExternalAlbums
+            showsExternalAlbums: showsExternalAlbums,
+            songModelLoaded: library.isReady
         )
     }
 
@@ -809,6 +807,10 @@ struct MacHomeView: View {
         diagnostics.mark("refresh_begin", "refresh=\(refresh) reason=\(diagnostics.refreshReason) scheduled=\(diagnostics.scheduledRefreshes) delay_ms=\(MacHomePerformanceDiagnostics.ms(diagnostics.refreshDelay)) signature_ms=\(signatureMS)")
         diagnostics.scheduledRefreshes = 0
         if showAlbumPick { AlbumRecommendationService.shared.refresh(library: library) }
+        guard library.isReady else {
+            refreshDerivedFromCatalog(signature: signature, refresh: refresh, startedAt: startedAt)
+            return
+        }
         // 首页的计数、最近播放和封面马赛克都只算音乐: 有声内容按书在自己那一栏,
         // 一部几百集的评书不该把「最近播放」和歌曲总数撑满。
         let songs = library.musicSongs
@@ -829,7 +831,7 @@ struct MacHomeView: View {
             }
             let worker = Task.detached(priority: .utility) {
                 let computeStartedAt = ProcessInfo.processInfo.systemUptime
-                let snapshot = Self.makeDerivedSnapshot(
+                let snapshot = MacHomeDashboardSnapshot.fromArrays(
                     songs: songs,
                     albums: albums,
                     artists: artists,
@@ -855,10 +857,11 @@ struct MacHomeView: View {
                 }
             }
             if signature.showsExternalAlbums != showsExternalAlbums {
-                snapshot.recentlyAddedAlbums = []
+                snapshot.clearRecentlyAddedAlbums()
             }
             model.snapshot = snapshot
             model.isPrepared = true
+            model.needsSongModel = false
             model.signature = signature
             diagnostics.mark("snapshot_ready", "refresh=\(refresh) compute_ms=\(MacHomePerformanceDiagnostics.ms(deriveSeconds)) worker_roundtrip_ms=\(MacHomePerformanceDiagnostics.ms(publishStartedAt - deriveRequestedAt)) publish_ms=\(MacHomePerformanceDiagnostics.ms(ProcessInfo.processInfo.systemUptime - publishStartedAt))")
             diagnostics.markAfterCommit("snapshot_commit", since: publishStartedAt, fields: "refresh=\(refresh)")
@@ -892,52 +895,54 @@ struct MacHomeView: View {
         }
     }
 
-    private nonisolated static func makeDerivedSnapshot(
-        songs: [Song],
-        albums: [Album],
-        artists: [Artist],
-        recentlyPlayed: [Song],
-        includingExternalSongs: Bool
-    ) -> DerivedSnapshot {
-        var snapshot = DerivedSnapshot()
-        snapshot.songCount = songs.count
-        snapshot.albumCount = albums.count
-        snapshot.artistCount = artists.count
-        snapshot.artists = artists
-        var totalSec = 0.0
-        var coverCount = 0
-        var lyricsCount = 0
-        var playableCount = 0
-        var songsByAlbum: [String: [Song]] = [:]
-        var recentIndex = RecentlyAddedAlbumPolicy.Index(includingExternalSongs: includingExternalSongs)
-        for song in songs {
-            recentIndex.add(song, addedDate: song.dateAdded)
-            totalSec += max(0, song.duration)
-            if song.coverArtFileName?.isEmpty == false { coverCount += 1 }
-            if song.lyricsFileName?.isEmpty == false { lyricsCount += 1 }
-            if song.isPlayable { playableCount += 1 }
-            if let albumID = song.albumID { songsByAlbum[albumID, default: []].append(song) }
+    /// 歌曲模型不在内存里(放掉了):从曲库目录读首页这几块(`MacHomeDashboardSnapshot.fromCatalog`),不装模型、
+    /// 不读整库数组;推荐沿用上一份(按 id 换成目录里的歌),模型装回来后再重算。目录这会儿不可读时留着上一份;
+    /// 读失败时首页替自己占用模型(`needsSongModel`),装回来后按整库数组重算。
+    private func refreshDerivedFromCatalog(signature: DerivedSignature, refresh: Int, startedAt: TimeInterval) {
+        let diagnostics = model.diagnostics
+        guard let reader = library.readableCatalogReader else {
+            diagnostics.mark("refresh_skip", "refresh=\(refresh) reason=catalog_unreadable")
+            diagnostics.refreshStage = "idle"
+            return
         }
-        snapshot.totalDurationSec = totalSec
-        snapshot.coverCount = coverCount
-        snapshot.lyricsCount = lyricsCount
-        snapshot.playableCount = playableCount
-        snapshot.albumArtworkSongs = songsByAlbum.mapValues { albumSongs in
-            albumSongs.first { $0.coverArtFileName?.isEmpty == false } ?? albumSongs[0]
+        let nonMusicSongIDs = library.nonMusicSongIDs
+        let recentIDs = signature.recentSongIDs.filter { !nonMusicSongIDs.contains($0) }
+        diagnostics.refreshStage = "catalog"
+        refreshCoordinator.computeTask = Task { @MainActor in
+            var result: MacHomeDashboardSnapshot?
+            do {
+                result = try await MacHomeDashboardSnapshot.fromCatalog(
+                    reader: reader, recentlyPlayedIDs: recentIDs, includingExternalSongs: signature.showsExternalAlbums
+                )
+            } catch {
+                plog("🏠 Mac home catalog snapshot failed: \(error)")
+            }
+            guard !Task.isCancelled else { return }
+            refreshCoordinator.computeTask = nil
+            if diagnostics.refreshSequence == refresh { diagnostics.refreshStage = "idle" }
+            guard var snapshot = result else {
+                model.needsSongModel = true
+                return
+            }
+            snapshot.recommendationResults = model.snapshot.recommendationResults.compactMap { result in
+                library.unobservedVisibleSong(id: result.song.id).map {
+                    MusicDiscoveryResult(song: $0, score: result.score, reasons: result.reasons)
+                }
+            }
+            if signature.showsExternalAlbums != showsExternalAlbums {
+                snapshot.clearRecentlyAddedAlbums()
+            }
+            model.snapshot = snapshot
+            model.isPrepared = true
+            model.needsSongModel = false
+            model.signature = signature
+            model.recommendationSignature = signature
+            diagnostics.mark("snapshot_ready", "refresh=\(refresh) source=catalog total_ms=\(MacHomePerformanceDiagnostics.ms(ProcessInfo.processInfo.systemUptime - startedAt))")
+            let current = derivedSignature
+            if current != signature {
+                scheduleDerivedRefresh(libraryDriven: current.differsOnlyInLibraryContent(from: signature))
+            }
         }
-
-        let sortedByAdded = songs.sorted { $0.dateAdded > $1.dateAdded }
-        snapshot.recentSongs = recentlyPlayed.isEmpty ? sortedByAdded : recentlyPlayed
-        snapshot.recentlyAddedAlbums = recentIndex.sorted(albums: albums)
-
-        var mosaicPool = recentlyPlayed
-        var seenIDs = Set(mosaicPool.map(\.id))
-        for song in sortedByAdded.prefix(40) where seenIDs.insert(song.id).inserted {
-            mosaicPool.append(song)
-        }
-        let covered = mosaicPool.filter { $0.coverArtFileName?.isEmpty == false }
-        snapshot.mosaicSongs = Array((covered.isEmpty ? mosaicPool : covered).prefix(6))
-        return snapshot
     }
 
     // MARK: - Update banner
@@ -1619,14 +1624,29 @@ struct MacHomeView: View {
     }
 
     /// 从最新的专辑起,把最近加进来的歌连着放(#390);队列取法同手机首页。
+    /// 快照里只有首页那一段专辑(歌曲模型放掉之后)时,往后的专辑从曲库目录取。
     private func playRecentlyAdded(shuffled: Bool) {
-        HomeDiscoveryPlayback.playRecentlyAdded(
-            albumIDs: model.snapshot.recentlyAddedAlbums.map(\.id),
-            includingExternalSongs: showsExternalAlbums,
-            shuffled: shuffled,
-            library: library,
-            player: player
-        )
+        let snapshot = model.snapshot
+        let includingExternalSongs = showsExternalAlbums
+        guard !snapshot.hasAllRecentlyAddedAlbums else {
+            HomeDiscoveryPlayback.playRecentlyAdded(
+                albumIDs: snapshot.recentlyAddedAlbums.map(\.id),
+                includingExternalSongs: includingExternalSongs,
+                shuffled: shuffled,
+                library: library,
+                player: player
+            )
+            return
+        }
+        Task {
+            let albumIDs = await MacHomeDashboardSnapshot.recentlyAddedAlbumIDsForPlayback(
+                snapshot, library: library, includingExternalSongs: includingExternalSongs
+            )
+            HomeDiscoveryPlayback.playRecentlyAdded(
+                albumIDs: albumIDs, includingExternalSongs: includingExternalSongs, shuffled: shuffled,
+                library: library, player: player
+            )
+        }
     }
 
     private func albumCard(_ album: Album) -> some View {
@@ -1649,63 +1669,6 @@ struct MacHomeView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(PMColor.textFaint)
         }
-    }
-
-    // MARK: - Recently played (4-col compact grid)
-
-    private var recentlyPlayedSection: some View {
-        VStack(alignment: .leading, spacing: PMSpace.m) {
-            sectionHeader(title: "recently_played",
-                          subtitle: "home_recently_played_subtitle",
-                          destination: .recentlyPlayed)
-
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.adaptive(minimum: 260, maximum: 320),
-                                                    spacing: PMSpace.m, alignment: .top),
-                               count: 1),
-                alignment: .leading,
-                spacing: PMSpace.m
-            ) {
-                ForEach(Array(recentSongs.prefix(8).enumerated()), id: \.element.id) { index, song in
-                    PMScrollingButton { playSong(song) } label: {
-                        recentSongRow(song, ordinal: index + 1)
-                    }
-                }
-            }
-        }
-    }
-
-    private func recentSongRow(_ song: Song, ordinal: Int) -> some View {
-        HStack(spacing: 10) {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: 42, cornerRadius: PMRadius.s,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat
-            )
-            VStack(alignment: .leading, spacing: 2) {
-                SongRowNumberedTitle(number: ordinal, title: song.title)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(PMColor.text)
-                    .lineLimit(1)
-                Text(library.artistDisplayName(for: song) ?? "")
-                    .font(.system(size: 11))
-                    .foregroundStyle(PMColor.textFaint)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            Image(systemName: "play.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(PMColor.textFaint)
-        }
-        .padding(8)
-        .background(PMColor.rowHover, in: .rect(cornerRadius: PMRadius.m))
-    }
-
-    private var recentSongs: [Song] {
-        model.snapshot.recentSongs
     }
 
     // MARK: - Artists (horizontal scroll)
@@ -1758,7 +1721,6 @@ struct MacHomeView: View {
 
     private enum HomeSectionDestination {
         case recentlyAdded
-        case recentlyPlayed
         case artists
         /// 「开始听」的「全部意图」整页。
         case allIntents
@@ -1841,8 +1803,6 @@ struct MacHomeView: View {
         switch destination {
         case .recentlyAdded:
             recentlyAddedAllView(onBack: closeSection)
-        case .recentlyPlayed:
-            recentlyPlayedAllView(onBack: closeSection)
         case .artists:
             artistsAllView(onBack: closeSection)
         case .allIntents:
@@ -1862,71 +1822,44 @@ struct MacHomeView: View {
         }
     }
 
+    /// 快照里只有首页那一段(歌曲模型放掉之后)时,这一页要全部:显示加载、替这一页占用模型,装回来后首页重算出全部。
     private func recentlyAddedAllView(onBack: @escaping () -> Void) -> some View {
         let albums = model.snapshot.recentlyAddedAlbums
+        let hasAll = model.snapshot.hasAllRecentlyAddedAlbums
 
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 homeCollectionHeader(
                     eyebrow: "library_title",
                     title: LocalizedStringKey(HomeDiscoveryText.string("recent_albums")),
-                    detail: LibraryCountText.albums(albums.count),
+                    detail: LibraryCountText.albums(model.snapshot.recentlyAddedAlbumTotal),
                     onBack: onBack
                 )
 
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 24, alignment: .top), count: 5),
-                    alignment: .leading,
-                    spacing: 24
-                ) {
-                    ForEach(albums) { album in
-                        MacHomeDetailLink(album: album) {
-                            albumCard(album)
+                if hasAll {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 24, alignment: .top), count: 5),
+                        alignment: .leading,
+                        spacing: 24
+                    ) {
+                        ForEach(albums) { album in
+                            MacHomeDetailLink(album: album) {
+                                albumCard(album)
+                            }
+                            .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
                         }
-                        .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
                     }
+                    .padding(.horizontal, PMSpace.xxxl)
+                } else {
+                    MacHomeCollectionLoading()
                 }
-                .padding(.horizontal, PMSpace.xxxl)
             }
             .padding(.top, 24)
             .padding(.bottom, 112)
         }
         .background(PMColor.bg.ignoresSafeArea())
         .navigationBarBackButtonHidden(true)
-    }
-
-    private func recentlyPlayedAllView(onBack: @escaping () -> Void) -> some View {
-        let songs = model.snapshot.recentSongs
-
-        return ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                homeCollectionHeader(
-                    eyebrow: "library_title",
-                    title: "recently_played",
-                    detail: LibraryCountText.songs(songs.count),
-                    onBack: onBack
-                )
-
-                LazyVGrid(
-                    columns: [
-                        GridItem(.adaptive(minimum: 260, maximum: 360), spacing: PMSpace.m, alignment: .top)
-                    ],
-                    alignment: .leading,
-                    spacing: PMSpace.m
-                ) {
-                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                        PMScrollingButton { playSong(song) } label: {
-                            recentSongRow(song, ordinal: index + 1)
-                        }
-                    }
-                }
-                .padding(.horizontal, PMSpace.xxxl)
-            }
-            .padding(.top, 24)
-            .padding(.bottom, 112)
-        }
-        .background(PMColor.bg.ignoresSafeArea())
-        .navigationBarBackButtonHidden(true)
+        .songModelPage(needsArrays: !hasAll)
     }
 
     private func artistsAllView(onBack: @escaping () -> Void) -> some View {
@@ -1934,7 +1867,7 @@ struct MacHomeView: View {
             homeCollectionHeader(
                 eyebrow: "library_title",
                 title: "tab_artists",
-                detail: LibraryCountText.artists(model.snapshot.artists.count),
+                detail: LibraryCountText.artists(model.snapshot.artistCount),
                 onBack: onBack
             )
             .padding(.vertical, 24)
@@ -1943,10 +1876,17 @@ struct MacHomeView: View {
                 .fill(PMColor.divider)
                 .frame(height: 0.5)
 
-            ArtistListView(artists: model.snapshot.artists)
+            // 只有首页那几位(歌曲模型放掉之后)时同「最近添加」那一页:加载、占用模型,装回来后显示全部。
+            if model.snapshot.hasAllArtists {
+                ArtistListView(artists: model.snapshot.artists)
+            } else {
+                MacHomeCollectionLoading()
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }
         }
         .background(PMColor.bg.ignoresSafeArea())
         .navigationBarBackButtonHidden(true)
+        .songModelPage(needsArrays: !model.snapshot.hasAllArtists)
     }
 
     private func homeCollectionHeader(
@@ -2044,41 +1984,6 @@ struct MacHomeView: View {
 
     // MARK: - Actions
 
-    private func playSong(_ song: Song) {
-        let nonMusicSongIDs = library.nonMusicSongIDs
-        var queue = library.recentlyPlayedSongs(limit: 50)
-            .filter { !nonMusicSongIDs.contains($0.id) }
-        if !queue.contains(where: { $0.id == song.id }) { queue.insert(song, at: 0) }
-        if queue.count < 20 {
-            // The rest of the library goes in as IDs and is resolved off the
-            // main actor a window at a time.
-            let existingIDs = Set(queue.map(\.id))
-            let leading = queue.filteredPlayable().map(\.id)
-            guard let startIndex = leading.firstIndex(of: song.id) else { return }
-            player.shuffleEnabled = false
-            SiriMediaInteractionDonor.donate(song: song)
-            // 目录可读时整库那一段在目录里拼(同一张列表),否则照旧从内存模型拼。
-            let request = CatalogLibraryQueueRequest(
-                leadingIDs: leading, startIndex: startIndex, kinds: [.music], excludedIDs: existingIDs
-            )
-            Task {
-                if await player.playLibraryFromCatalog(request) { return }
-                var ids = leading
-                ids.reserveCapacity(leading.count + library.musicSongs.count)
-                for candidate in library.musicSongs where !existingIDs.contains(candidate.id) {
-                    ids.append(candidate.id)
-                }
-                await player.play(queueIDs: ids, startingAt: startIndex)
-            }
-            return
-        }
-        queue = queue.filteredPlayable()
-        guard let startIndex = queue.firstIndex(where: { $0.id == song.id }) else { return }
-        player.shuffleEnabled = false
-        SiriMediaInteractionDonor.donate(song: queue[startIndex])
-        Task { await player.play(queue: queue, startingAt: startIndex) }
-    }
-
     private func playLibrary(shuffled: Bool) {
         // 整库播放不含不喜欢的歌(#193)。目录可读时 id 列表在目录里拼,否则照旧从内存模型拼。
         let order: LargeQueueRequestOrder = shuffled ? .shuffled : .asGiven
@@ -2086,7 +1991,8 @@ struct MacHomeView: View {
         Task {
             let handled = await player.playLibraryFromCatalog(request) { player.shuffleEnabled = false }
             guard !handled else { return }
-            let ids = library.musicSongIDsExcludingDisliked
+            // 目录答不了时才读整库数组;歌曲模型放掉了就先装回来再读,不读放掉之后的空数组。
+            let ids = await MacLibraryArrayFallback.read(library) { library.musicSongIDsExcludingDisliked }
             guard !ids.isEmpty else { return }
             player.shuffleEnabled = false
             await player.play(queueIDs: ids, order: order)

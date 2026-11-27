@@ -24,18 +24,18 @@ struct MacSidebar: View {
     @AppStorage(AlbumArtistReleaseFilter.storageKey)
     private var hidesSingleOnlyAlbumArtists = false
 
-    private var browsableArtistCount: Int {
-        // 「全部艺术家」列法目录可读时从目录数;「专辑艺术家」照旧数内存模型。
-        if ArtistBrowseMode.resolved(artistBrowseModeRaw) == .allArtists, let counts = catalogHubCounts {
-            return counts.artists
-        }
-        _ = hidesSingleOnlyAlbumArtists
-        return library.browsableArtists(.resolved(artistBrowseModeRaw)).count
-    }
+    /// 上一次显示的数:歌曲模型放掉、目录这会儿又答不出时沿用,不显示成 0。
+    @State private var shownCounts = MacSidebarCounts()
 
-    /// 目录可读时侧栏的计数从目录读(与资料库入口同一份,见 `LibraryHubCatalogCountsModel`)。
-    private var catalogHubCounts: LibraryHubCatalogCounts? {
-        LibraryHubCatalogCountsModel.shared(for: library)?.readableCounts
+    /// 侧栏的数:目录可读时从目录读(与资料库入口同一份,见 `LibraryHubCatalogCountsModel`),否则歌曲模型
+    /// 在内存里时数内存模型;都答不出的那几项沿用上一次显示的(`MacSidebarCounts`)。
+    private var counts: MacSidebarCounts {
+        MacSidebarCounts.current(
+            library: library,
+            artistMode: .resolved(artistBrowseModeRaw),
+            hidesSingleOnlyAlbumArtists: hidesSingleOnlyAlbumArtists,
+            sourceIDs: sourcesStore.sources.prefix(6).map(\.id)
+        ).filling(from: shownCounts)
     }
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
     private var librarySectionOrderRawValue = ""
@@ -101,6 +101,7 @@ struct MacSidebar: View {
             .pmAnimation(.list, value: sidebarLibrarySections)
             .pmAnimation(.list, value: hasSources)
         }
+        .onChange(of: counts, initial: true) { _, counts in shownCounts = counts }
         .frame(maxHeight: .infinity)
         // 底色接到窗口顶: 播放页开着时标题栏褪透明, 侧栏的封面色从红绿灯那一角就开始。
         .background(MacSidebarBackdrop().macExtendsUnderTitleBar().ignoresSafeArea())
@@ -147,11 +148,12 @@ struct MacSidebar: View {
     // MARK: - Library section
 
     private var librarySection: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        let counts = self.counts
+        return VStack(alignment: .leading, spacing: 1) {
             sectionHeader("library_title")
 
             ForEach(sidebarLibrarySections) { section in
-                libraryNavigationItems(for: section)
+                libraryNavigationItems(for: section, counts: counts)
             }
         }
         .padding(.horizontal, 6)
@@ -159,7 +161,7 @@ struct MacSidebar: View {
     }
 
     @ViewBuilder
-    private func libraryNavigationItems(for section: LibrarySection) -> some View {
+    private func libraryNavigationItems(for section: LibrarySection, counts: MacSidebarCounts) -> some View {
         switch section {
         case .folders, .releaseDate:
             item(route: .section(section), icon: section.icon, title: section.title)
@@ -172,7 +174,7 @@ struct MacSidebar: View {
                 icon: section.icon,
                 title: "sidebar_all_songs",
                 // 「歌曲」只数音乐, 有声内容按书计在自己那一行。
-                trailing: countLabel(catalogHubCounts?.music ?? library.musicSongs.count)
+                trailing: countLabel(counts.music)
             )
         case .radio:
             item(
@@ -202,35 +204,35 @@ struct MacSidebar: View {
                 route: .section(.ambient),
                 icon: section.icon,
                 title: ListeningSpace.ambient.titleKey,
-                trailing: countLabel(catalogHubCounts?.ambient ?? library.ambientSongs.count)
+                trailing: countLabel(counts.ambient)
             )
         case .musicVideos:
             item(
                 route: .section(.musicVideos),
                 icon: section.icon,
                 title: "library_music_videos_title",
-                trailing: countLabel(catalogHubCounts?.musicVideos ?? library.musicVideoSongs.count)
+                trailing: countLabel(counts.musicVideos)
             )
         case .albums:
             item(
                 route: .section(.albums),
                 icon: section.icon,
                 title: section.title,
-                trailing: countLabel(catalogHubCounts?.albums ?? library.visibleAlbums.count)
+                trailing: countLabel(counts.albums)
             )
         case .artists:
             item(
                 route: .section(.artists),
                 icon: section.icon,
                 title: section.title,
-                trailing: countLabel(browsableArtistCount)
+                trailing: countLabel(counts.artists)
             )
         case .genres:
             item(
                 route: .section(.genres),
                 icon: section.icon,
                 title: section.title,
-                trailing: countLabel(catalogHubCounts?.genres ?? library.visibleGenres.count)
+                trailing: countLabel(counts.genres)
             )
         }
     }
@@ -371,7 +373,8 @@ struct MacSidebar: View {
     /// 音乐源分区: 标题行右侧一颗「音乐源管理」小键(和歌单分区标题的「+」同一种), 下面列前 6 个源。
     /// 添加、编辑、超出 6 个的音乐源都在那一页; 以前末尾单独一行「音乐源管理」, 看着像第 7 个源。
     private var sourcesSection: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        let sourceCounts = counts.bySource
+        return VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
                 sectionHeader("sources_title")
                 Spacer()
@@ -386,9 +389,8 @@ struct MacSidebar: View {
                 let dotColor = !source.isEnabled
                     ? PMColor.textFaint.opacity(0.45)
                     : (isUnauthorizedAppleMusic ? Color.orange : sourceDotColor(for: source))
-                // 设计稿: 音乐源行右侧显示该源的歌曲数 (mono 字体 + textFaint)
-                let count = catalogHubCounts.map { $0.visibleBySource[source.id] ?? 0 }
-                    ?? library.visibleSongCount(forSourceID: source.id)
+                // 设计稿: 音乐源行右侧显示该源的歌曲数 (mono 字体 + textFaint); 答不出时「—」。
+                let count = sourceCounts[source.id]
                 let route = MacRoute.source(source.id)
                 MacSidebarRow(route: route, highlight: routeSwitch.rowHighlight(for: route), onSelectRoute: onSelectRoute) { selected in
                     HStack(spacing: 8) {
@@ -415,10 +417,8 @@ struct MacSidebar: View {
                                 .font(.system(size: 10))
                                 .foregroundStyle(.orange)
                                 .accessibilityHidden(true)
-                        } else if count > 0 {
-                            Text("\(count)")
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(PMColor.textFaint)
+                        } else if let label = countLabel(count) {
+                            label
                         }
                     }
                     .accessibilityValue(Text(
@@ -522,7 +522,15 @@ struct MacSidebar: View {
         }
     }
 
-    private func countLabel(_ n: Int) -> AnyView? {
+    /// nil 是「答不出」(歌曲模型放掉了、目录也还没答过):显示「—」,不当成 0 把数字藏掉。
+    private func countLabel(_ n: Int?) -> AnyView? {
+        guard let n else {
+            return AnyView(
+                Text(verbatim: "—")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(PMColor.textFaint)
+            )
+        }
         guard n > 0 else { return nil }
         return AnyView(
             Text("\(n)")

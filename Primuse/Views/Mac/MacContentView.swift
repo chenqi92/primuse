@@ -986,10 +986,8 @@ struct MacContentView: View {
             )
             Task {
                 if await player.playLibraryFromCatalog(request, caller: "Spotlight") { return }
-                guard library.visibleSong(id: id) != nil else { return }
-                var ids = [id]
-                ids.reserveCapacity(library.visibleSongs.count)
-                for song in library.visibleSongs where song.id != id { ids.append(song.id) }
+                // 目录答不了时才读整库数组(歌曲模型放掉了先装回来)。
+                guard let ids = await MacLibraryArrayFallback.visibleQueueIDs(startingWith: id, in: library) else { return }
                 await player.play(queueIDs: ids, startingAt: 0, caller: "Spotlight")
             }
         case .album(let id):
@@ -1697,6 +1695,8 @@ private struct MacSongListPrewarm: ViewModifier {
             }
             // 目录可读、这种排序目录给得出时,歌曲页直接从目录按页取,用不上内存里的整库快照。
             if library.readableCatalogReader != nil, SongListCatalogPolicy.supports(order) { return }
+            // 歌曲模型放掉了:没有整库数组可排(歌曲页要用时自己装回来),不为预热去装。
+            guard library.isReady else { return }
             let version = SongListSnapshotVersion(
                 collectionRevision: library.visibleSongCollectionRevision,
                 replacementToken: library.songReplacementToken

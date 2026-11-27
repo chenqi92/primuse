@@ -522,7 +522,8 @@ struct MacQueuePanel: View {
         Task {
             let handled = await player.playLibraryFromCatalog(request) { player.shuffleEnabled = false }
             guard !handled else { return }
-            let ids = library.musicSongIDsExcludingDisliked
+            // 目录答不了时才读整库数组;歌曲模型放掉了就先装回来再读。
+            let ids = await MacLibraryArrayFallback.read(library) { library.musicSongIDsExcludingDisliked }
             guard !ids.isEmpty else { return }
             player.shuffleEnabled = false
             await player.play(queueIDs: ids, order: .shuffled)

@@ -94,11 +94,11 @@ legacy-library-api	Primuse/Views/Library/ReleaseDateLibraryView.swift	2
 legacy-library-api	Primuse/Views/Library/SongListView.swift	2
 legacy-library-api	Primuse/Views/Library/SpokenWordLibraryView.swift	5
 legacy-library-api	Primuse/Views/Library/TagEditorView.swift	3
-legacy-library-api	Primuse/Views/Mac/MacContentView.swift	3
-legacy-library-api	Primuse/Views/Mac/MacHomeView.swift	6
+legacy-library-api	Primuse/Views/Mac/MacContentView.swift	1
+legacy-library-api	Primuse/Views/Mac/MacHomeView.swift	4
 legacy-library-api	Primuse/Views/Mac/MacImmersivePlayerView.swift	1
 legacy-library-api	Primuse/Views/Mac/MacSettingsView.swift	1
-legacy-library-api	Primuse/Views/Mac/MacSidebar.swift	9
+legacy-library-api	Primuse/Views/Mac/MacSidebar.swift	4
 legacy-library-api	Primuse/Views/Mac/PMTitleBar.swift	1
 legacy-library-api	Primuse/Views/Mac/PlayerMoreMenu.swift	2
 legacy-library-api	Primuse/Views/NowPlaying/ImmersivePlayerView.swift	1
@@ -199,7 +199,6 @@ library-array-property	Primuse/Views/Library/PlaylistPendingEntryRow.swift	1
 library-array-property	Primuse/Views/Library/SongListView.swift	1
 library-array-property	Primuse/Views/Library/SpokenWordLibraryView.swift	5
 library-array-property	Primuse/Views/Library/TagEditorView.swift	1
-library-array-property	Primuse/Views/Mac/MacHomeView.swift	3
 library-array-property	Primuse/Views/Mac/MacImmersivePlayerView.swift	1
 library-array-property	Primuse/Views/Mac/PlayerMoreMenu.swift	1
 library-array-property	Primuse/Views/NowPlaying/AlbumMetadataView.swift	2
