@@ -335,6 +335,26 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         XCTAssertEqual(pinnedIDs, [pinned.song.id])
     }
 
+    /// 旧文件名的缓存要数出「整座曲库里只有这一首对得上」才认领。曲库数不了(还没装好,或歌曲模型不在内存里)时
+    /// 数出来是 0:以前会被当成来源不明拒掉,而且这一次运行里不再比对,明明缓存着的歌就成了没缓存。
+    /// 现在数不了就不动它、也不记;数得了之后照常认领。
+    func testLegacyNamedCacheIsNotRejectedWhileTheLibraryCannotBeCounted() async throws {
+        let fixture = try await fixture()
+        defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }
+        let legacyURL = fixture.url.deletingLastPathComponent().appendingPathComponent("_songs_fixture.flac")
+        try Data(repeating: 7, count: 128).write(to: legacyURL)
+        defer { try? FileManager.default.removeItem(at: legacyURL) }
+
+        fixture.manager.librarySongsAreLoaded = { false }
+        XCTAssertNil(fixture.manager.cachedURL(for: fixture.song), "not adopted while the library cannot be counted")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path), "and left where it is")
+
+        fixture.manager.librarySongsAreLoaded = { true }
+        XCTAssertEqual(fixture.manager.cachedURL(for: fixture.song)?.path, fixture.url.path,
+                       "adopted once the library can be counted: the earlier miss was not remembered as a rejection")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path))
+    }
+
     func testCacheRemovalUpdatesAvailabilityWithoutReloadingLibrary() async throws {
         let fixture = try await fixture()
         defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }

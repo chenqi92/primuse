@@ -7959,6 +7959,10 @@ extension SourceManager {
         guard resolvedLegacyAudioCacheNames[song.sourceID]?.contains(legacyName) != true else { return }
         let legacyURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(legacyName)
         guard FileManager.default.fileExists(atPath: legacyURL.path) else { return }
+        // 「这个旧文件名只对得上这一首」要数整座曲库。曲库没装好(或歌曲模型不在内存里)时数出来是 0,
+        // 会被当成来源不明而拒掉、并且这一次运行里不再比对 —— 明明缓存着的歌就成了没缓存。数不了就先不动它,
+        // 也不记,等数得了再来。
+        guard librarySongsAreLoaded() else { return }
 
         let attributes = try? FileManager.default.attributesOfItem(atPath: legacyURL.path)
         let byteCount = (attributes?[.size] as? NSNumber)?.int64Value
@@ -8028,6 +8032,8 @@ extension SourceManager {
         let legacyURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(legacyName)
         var adoptable = false
         if FileManager.default.fileExists(atPath: legacyURL.path) {
+            // 同 `migrateLegacyAudioCacheIfUnambiguous`:曲库数不了的时候答不了,这一次按「没有」答,不把它记成结论。
+            guard librarySongsAreLoaded() else { return false }
             let attributes = try? FileManager.default.attributesOfItem(atPath: legacyURL.path)
             let byteCount = (attributes?[.size] as? NSNumber)?.int64Value
             adoptable = LegacyAudioCacheMigrationPolicy.decision(
