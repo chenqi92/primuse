@@ -739,7 +739,8 @@ extension ListeningIntentService {
                     plog("🎯 Listening intent queue catalog read failed (\(error)); using the in-memory library")
                 }
             }
-            let songs = library.musicSongsExcludingDisliked
+            // 目录答不了时照旧交整份音乐;模型不在内存里时先占用装回来(6c 单元 4),不拿空数组排队。
+            let songs = await library.withSongModel(.legacyPage) { library.musicSongsExcludingDisliked }
             return await Task.detached(priority: .userInitiated) {
                 let history = Self.history(entries, now: now)
                 return ListeningIntentEngine.queueSongIDs(
@@ -778,7 +779,8 @@ extension ListeningIntentService {
                     plog("🎯 Listening intent songs catalog read failed (\(error)); using the in-memory library")
                 }
             }
-            let songs = library.musicSongs
+            // 同上:模型不在内存里时先占用装回来,不拿空数组列。
+            let songs = await library.withSongModel(.legacyPage) { library.musicSongs }
             return await Task.detached(priority: .userInitiated) {
                 let history = Self.history(entries, now: now)
                 guard let matched = ListeningIntentEngine.matchingSongIDs(

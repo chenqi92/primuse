@@ -3677,7 +3677,9 @@ struct HomeView: View {
     private func refreshHomeSnapshotAfterPresentationIfNeeded() async {
         isHomeVisible = true
         guard showsMusicHomeSnapshot else { return }
-        if library.isReady {
+        // 6c: 歌曲模型放掉之后(目录读得到)与装着时一样刷新,只是改从曲库目录读;只有第一次发布之前走启动快照。
+        let refreshesFully = library.isReady || Self.refreshesFromTheCatalog(library)
+        if refreshesFully {
             await Task.yield()
         } else if let prewarm = model.startupPrewarm {
             await prewarm.value
@@ -3688,9 +3690,9 @@ struct HomeView: View {
             return
         }
 
-        if !library.isReady || !model.isPrepared || model.signature == nil {
-            if !library.isReady, model.isPrepared, model.startupScope != nil, validStartupScope { return }
-            if !library.isReady { model.isPrepared = false }
+        if !refreshesFully || !model.isPrepared || model.signature == nil {
+            if !refreshesFully, model.isPrepared, model.startupScope != nil, validStartupScope { return }
+            if !refreshesFully { model.isPrepared = false }
             await prepareInitialHomeSnapshot()
             return
         }
@@ -3734,11 +3736,13 @@ struct HomeView: View {
                 dayStamp: signature.dayStamp
             )
         }
-        if !library.isReady {
+        if !library.isReady && !Self.refreshesFromTheCatalog(library) {
             await prepareStartupHomeSnapshot(persistedSnapshot)
             return
         }
-        let visibleSongs = library.visibleSongs
+        // 6c: 模型放掉了:不读整库数组,顶部封面、最近添加、最近播放改从曲库目录算,推荐沿用存下的那一份。
+        let released = !library.isReady
+        let visibleSongs = released ? [] : library.visibleSongs
         let payload = Self.rehydrateInitialHomePayload(
             persistedSnapshot,
             showsExternalAlbums: showsExternalAlbums,
@@ -3747,7 +3751,8 @@ struct HomeView: View {
         )
         let snapshot = makeHomeSnapshot(
             forYouResults: showForYou ? (payload?.forYouResults ?? []) : [],
-            heroCoverSongs: payload?.heroCoverSongs ?? Self.provisionalHeroCoverSongs(from: library.musicSongs),
+            heroCoverSongs: payload?.heroCoverSongs
+                ?? (released ? [] : Self.provisionalHeroCoverSongs(from: library.musicSongs)),
             recentlyAddedAlbums: payload?.recentlyAddedAlbums ?? [],
             recentlyAddedSongs: payload?.recentlyAddedSongs ?? []
         )
@@ -3757,13 +3762,14 @@ struct HomeView: View {
         guard !Task.isCancelled else { return }
         scheduleLibraryHighlightsRefresh(
             songs: visibleSongs,
-            musicSongs: library.musicSongs,
-            albums: library.visibleAlbums,
-            recentSongs: library.recentlyPlayedSongs(limit: 30),
+            musicSongs: released ? [] : library.musicSongs,
+            albums: released ? [] : library.visibleAlbums,
+            recentSongs: released ? snapshot.recentSongs : library.recentlyPlayedSongs(limit: 30),
             playedAlbumKeys: recentlyPlayedAlbumKeys(),
-            signature: signature
+            signature: signature,
+            readsTheCatalogOnly: released
         )
-        if showForYou {
+        if showForYou, !released {
             scheduleRecommendationRefresh(
                 input: MusicDiscoveryEngine.recommendationSnapshot(in: library),
                 signature: signature
@@ -4263,7 +4269,9 @@ struct HomeView: View {
     }
 
     private func refreshHomeSnapshot() {
-        guard library.isReady, showsMusicHomeSnapshot else { return }
+        // 6c: 模型放掉了而目录读得到时照样刷新,只是不读整库数组(见 `scheduleLibraryHighlightsRefresh`)。
+        guard library.isReady || Self.refreshesFromTheCatalog(library), showsMusicHomeSnapshot else { return }
+        let released = !library.isReady
         guard isSceneActive, isHomeVisible, !playerCoversContent else {
             needsHomeRefreshWhenActive = true
             refreshCoordinator.cancelAll()
@@ -4288,13 +4296,14 @@ struct HomeView: View {
         let retainedRecentlyAddedSongs = model.snapshot.recentlyAddedSongs.filter {
             library.unobservedVisibleSong(id: $0.id) != nil
         }
-        let recommendationInput = showForYou
+        // 推荐要整份音乐的特征:模型不在内存里时不重算,沿用手上的(15c 的 Q1)。
+        let recommendationInput = showForYou && !released
             ? MusicDiscoveryEngine.recommendationSnapshot(in: library)
             : nil
         // Array copies are copy-on-write and therefore cheap on the main actor.
         // The detached worker below is the only place that traverses them.
-        let visibleSongs = library.visibleSongs
-        let visibleAlbums = library.visibleAlbums
+        let visibleSongs = released ? [] : library.visibleSongs
+        let visibleAlbums = released ? [] : library.visibleAlbums
 
         let startedAt = Date()
         let snapshot = makeHomeSnapshot(
@@ -4313,11 +4322,12 @@ struct HomeView: View {
 
         scheduleLibraryHighlightsRefresh(
             songs: visibleSongs,
-            musicSongs: library.musicSongs,
+            musicSongs: released ? [] : library.musicSongs,
             albums: visibleAlbums,
-            recentSongs: library.recentlyPlayedSongs(limit: 30),
+            recentSongs: released ? snapshot.recentSongs : library.recentlyPlayedSongs(limit: 30),
             playedAlbumKeys: recentlyPlayedAlbumKeys(),
-            signature: signature
+            signature: signature,
+            readsTheCatalogOnly: released
         )
 
         if let recommendationInput {
@@ -4358,7 +4368,8 @@ struct HomeView: View {
         albums: [Album],
         recentSongs: [Song],
         playedAlbumKeys: Set<String>,
-        signature: HomeSnapshotSignature
+        signature: HomeSnapshotSignature,
+        readsTheCatalogOnly: Bool = false
     ) {
         guard showsMusicHomeSnapshot, isHomeVisible, isSceneActive, !playerCoversContent else { return }
         refreshCoordinator.libraryHighlightsTask?.cancel()
@@ -4378,7 +4389,12 @@ struct HomeView: View {
         // P2:目录可读时在目录上流式地算(结果相同、有界),读失败或目录不能读时照旧遍历内存里的整库数组。
         let catalogReader = PlaybackCatalogAccess.reader(for: library)
         refreshCoordinator.libraryHighlightsTask = Task { @MainActor in
-            let worker = Task.detached(priority: .utility) { () -> ([Song], [HomeAlbumTile], TimeInterval, [Song], [String], [Song]) in
+            // 6c: 模型放掉了(`readsTheCatalogOnly`):最近播放按 id 从曲库目录取(S6),答不了就留着手上的。
+            let recentSongs = readsTheCatalogOnly
+                ? (await Self.recentMusicSongs(limit: 30, library: library) ?? recentSongs)
+                : recentSongs
+            guard !Task.isCancelled else { return }
+            let worker = Task.detached(priority: .utility) { () -> ([Song], [HomeAlbumTile], TimeInterval, [Song], [String], [Song])? in
                 let startedAt = Date()
                 if let catalogReader {
                     do {
@@ -4407,6 +4423,8 @@ struct HomeView: View {
                         plog("🏠 library highlights catalog read failed (\(error)); using the in-memory library")
                     }
                 }
+                // 模型不在内存里时手上没有整库数组:目录读不了就不算,留着上一次的(不发一份空的)。
+                if readsTheCatalogOnly { return nil }
                 // 两处都只要最近加入的头几十首: 有界选择一次, 不为它把整库复制、
                 // 排序两遍(百万首各要几百 MB)。与 `sorted(by:).prefix` 结果相同。
                 let latestAdded = cachedLatestAdded
@@ -4438,13 +4456,13 @@ struct HomeView: View {
                     latestAdded
                 )
             }
-            let payload = await withTaskCancellationHandler {
+            let computed = await withTaskCancellationHandler {
                 await worker.value
             } onCancel: {
                 worker.cancel()
             }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, let payload = computed else { return }
             refreshCoordinator.highlightsBase = HomeHighlightsBase(
                 key: baseKey, latestAdded: payload.5, albumTiles: payload.1
             )
@@ -4631,7 +4649,7 @@ struct HomeView: View {
         }
     }
 
-    nonisolated private static func makeRecentlyAddedAlbumTiles(
+    nonisolated static func makeRecentlyAddedAlbumTiles(
         songs: [Song],
         albums: [Album],
         limit: Int,
@@ -5050,7 +5068,7 @@ struct HomeView: View {
     ///
     /// `latestAdded`: 按加入时间从新到旧的前 60 首。`playedAlbumKeys`: 近 30 天放过的专辑,
     /// 「好久没听」那一组跳过它们。
-    nonisolated private static func makeHeroCoverSongs(
+    nonisolated static func makeHeroCoverSongs(
         musicSongs: [Song],
         latestAdded: [Song],
         recentSongs: [Song],
@@ -5843,6 +5861,8 @@ struct HomeView: View {
     }
 
     private func topArtistsForHome(history: [PlayHistoryStore.RankedItem]) -> [Artist] {
+        // 6c: 目录读不了而模型也不在内存里:留着上一次的,不拿空数组排一份空的。
+        guard library.isReady else { return model.snapshot.topArtists }
         guard !history.isEmpty else {
             return Array(library.visibleArtists.prefix(Self.topArtistPoolLimit))
         }
@@ -5895,7 +5915,7 @@ struct HomeView: View {
     }
 
     private func playSong(_ song: Song) {
-        if !library.isReady {
+        if !library.isReady && !Self.refreshesFromTheCatalog(library) {
             guard song.isPlayable, startupSourceIDs.contains(song.sourceID) else { return }
             Task { await player.play(queue: [song], startingAt: 0) }
             return
@@ -5905,8 +5925,21 @@ struct HomeView: View {
         // Build queue from recently played songs, supplemented by library.
         // Those are songs only; a chapter found by search plays on its own
         // rather than running on into music. 环境音同样单独放(循环着)。
+        if !library.isReady {
+            // 6c: 模型放掉了:这一首是什么、最近放过的歌都从曲库目录问(S6),不装模型。
+            Task {
+                let isSpokenWord = await Self.isNonMusic(song.id, library: library) ?? false
+                let recent = isSpokenWord ? [song] : (await Self.recentMusicSongs(limit: 50, library: library) ?? [])
+                playSong(song, isSpokenWord: isSpokenWord, queueSongs: recent)
+            }
+            return
+        }
         let isSpokenWord = library.nonMusicSongIDs.contains(song.id)
-        var queueSongs = isSpokenWord ? [song] : library.recentlyPlayedSongs(limit: 50)
+        playSong(song, isSpokenWord: isSpokenWord, queueSongs: isSpokenWord ? [song] : library.recentlyPlayedSongs(limit: 50))
+    }
+
+    private func playSong(_ song: Song, isSpokenWord: Bool, queueSongs recentQueue: [Song]) {
+        var queueSongs = recentQueue
         plog("🏠 recentlyPlayed queue: \(queueSongs.count) songs, first3=\(queueSongs.prefix(3).map(\.title))")
 
         // If tapped song isn't in recent list, prepend it
@@ -5933,9 +5966,11 @@ struct HomeView: View {
             )
             Task {
                 if await player.playLibraryFromCatalog(request) { return }
+                // 目录拼不出来时照旧从整份音乐拼;模型不在内存里时先占用装回来(6c)。
+                let music = await library.withSongModel(.legacyPage) { library.musicSongs }
                 var ids = leading
-                ids.reserveCapacity(leading.count + library.musicSongs.count)
-                for candidate in library.musicSongs where !existingIDs.contains(candidate.id) {
+                ids.reserveCapacity(leading.count + music.count)
+                for candidate in music where !existingIDs.contains(candidate.id) {
                     ids.append(candidate.id)
                 }
                 plog("🏠 setQueue: \(ids.count) songs, startIndex=\(startIndex)")
@@ -5965,7 +6000,7 @@ struct HomeView: View {
     /// 先放这一首,其余音乐随机接在后面(顶部封面轮播)。同 `playLibrary`,只把 id 交出去,
     /// 过滤与打乱在后台做;这一首在整库里还会再出现一次,排队时只留开头那次。
     private func playLibraryShuffled(startingWith song: Song) {
-        guard library.isReady else {
+        guard library.isReady || Self.refreshesFromTheCatalog(library) else {
             SiriMediaInteractionDonor.donate(song: song)
             startupPlayback.start(shuffled: true, library: library, player: player,
                 sourceIDs: startupSourceIDs, startingWith: song.id, currentSourceIDs: { startupSourceIDs })
@@ -5982,7 +6017,8 @@ struct HomeView: View {
                 SiriMediaInteractionDonor.donate(song: song)
             }
             guard !handled else { return }
-            let ids = library.musicSongIDsExcludingDisliked
+            // 目录拼不出来时照旧从整份音乐拼;模型不在内存里时先占用装回来(6c)。
+            let ids = await library.withSongModel(.legacyPage) { library.musicSongIDsExcludingDisliked }
             guard !ids.isEmpty else { return }
             player.shuffleEnabled = false
             SiriMediaInteractionDonor.donate(song: song)
@@ -5991,7 +6027,7 @@ struct HomeView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
-        guard library.isReady else {
+        guard library.isReady || Self.refreshesFromTheCatalog(library) else {
             startupPlayback.start(shuffled: shuffled, library: library, player: player,
                 sourceIDs: startupSourceIDs, currentSourceIDs: { startupSourceIDs })
             return
@@ -6008,7 +6044,8 @@ struct HomeView: View {
         Task {
             let handled = await player.playLibraryFromCatalog(request) { player.shuffleEnabled = false }
             guard !handled else { return }
-            let ids = library.musicSongIDsExcludingDisliked
+            // 目录拼不出来时照旧从整份音乐拼;模型不在内存里时先占用装回来(6c)。
+            let ids = await library.withSongModel(.legacyPage) { library.musicSongIDsExcludingDisliked }
             guard !ids.isEmpty else { return }
             player.shuffleEnabled = false
             await player.play(queueIDs: ids, order: order)
