@@ -264,9 +264,20 @@ extension PlayHistoryStore {
         return entriesMutation
     }
 
+    /// 历史分类用的整库查找表。歌曲模型不在内存里时不取(那是一张空表,查不到不是「不在曲库里」):
+    /// 记录按它自己存下的内容认,同曲库还没装好时;也不为一张空表去跑旧记录的找回。
+    /// 电视端的曲库一直常驻,重装快照期间旧数组也还在,照旧取。
+    private var loadedLibrarySongLookup: VisibleSongLookup? {
+        guard let library else { return nil }
+        #if !os(tvOS)
+        guard library.isReady else { return nil }
+        #endif
+        return library.historySongLookup()
+    }
+
     var classification: Classification {
         Classification(
-            library: library?.historySongLookup(), inputs: spokenWordStore.classificationSnapshot,
+            library: loadedLibrarySongLookup, inputs: spokenWordStore.classificationSnapshot,
             legacySpokenWordIDs: spokenWordSongIDs.union(spokenWordStore.positions.keys).union(spokenWordStore.finishedAt.keys),
             legacyAmbientIDs: ambientSongIDs
         )
@@ -409,8 +420,9 @@ extension PlayHistoryStore {
             && ListeningHistorySpacePolicy.space(of: spokenWordStore.kind(for: song)) == .music
         var duration = song.duration
         if isMusic, !(duration.isFinite && duration > 0) {
-            // Apple Music 等播放后才知道时长的歌, 曲库里那份已经补上了。
-            duration = classification.library?.song(id: song.id)?.duration ?? 0
+            // Apple Music 等播放后才知道时长的歌, 曲库里那份已经补上了。按 id 取这一行
+            // (歌曲模型不在内存里时曲库照样答), 不为它取整库的查找表。
+            duration = library?.storedSong(id: song.id)?.duration ?? 0
         }
         return rule.recordsLocalListen(
             listenedSeconds: listenedSec,

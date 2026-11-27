@@ -1415,6 +1415,11 @@ extension AppleMusicLibraryService {
         if let cached = librarySongIdentityCache, cached.generation == generation {
             return cached.index
         }
+        // 歌曲模型不在内存里时 `library.songs` 是空的:沿用上一次建好的索引(曲库里 Apple Music 的行只在同步时变,
+        // 同步会把模型装回来),不拿空数组重建,也不把空索引记成这一代的答案。
+        guard library.isReady else {
+            return librarySongIdentityCache?.index ?? AppleMusicTrackIdentityIndex([])
+        }
         let songs = library.songs
         var identities: [AppleMusicTrackIdentity] = []
         songs.withUnsafeBufferPointer { buffer in

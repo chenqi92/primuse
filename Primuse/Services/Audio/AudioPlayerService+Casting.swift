@@ -866,7 +866,10 @@ extension AudioPlayerService {
             countedPendingSkip = true
         }
         if queueEntries.count == 1, shuffleEnabled, repeatMode == .off {
-            _ = extendExhaustedShuffleFromLibrary()
+            // 歌曲模型不在内存里时要等它装回来才续得上;这一会儿里换过歌,这一次「下一首」就作废。
+            let extendingPlayID = playID
+            await extendExhaustedShuffleHoldingTheSongModel()
+            guard playID == extendingPlayID, !queueEntries.isEmpty else { return false }
         }
         // A manual next skips past repeat-one when there is another queue
         // entry, matching the existing transport controls. A true one-song

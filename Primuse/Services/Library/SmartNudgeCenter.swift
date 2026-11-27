@@ -150,6 +150,9 @@ extension SmartNudgeCenter {
             now: now
         ) else { return }
 
+        // 这两种提示的歌要在整库的音乐上挑(`MusicDiscoveryEngine` 读整库数组)。歌曲模型不在内存里时那是空的:
+        // 这一轮不提,不为一条提示去装模型;装回来之后的下一轮照常。
+        if kind == .playSimilar || kind == .continueWithRecommendations, !library.isReady { return }
         var songs: [Song] = []
         switch kind {
         case .playSimilar:

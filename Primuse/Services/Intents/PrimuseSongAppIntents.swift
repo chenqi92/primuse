@@ -2,6 +2,7 @@
 import AppIntents
 import Foundation
 import ImageIO
+import os
 import PrimuseKit
 import UniformTypeIdentifiers
 
@@ -18,7 +19,7 @@ final class SiriSongSuggestionCache {
     typealias Select = @Sendable ([Song], [String], Int) async -> [Song]
     private let select: Select
     private var cached: (inputs: Inputs, songs: [Song])?
-    private var pending: (inputs: Inputs, token: UUID, task: Task<[Song], Never>)?
+    private var pending: (inputs: Inputs, token: UUID, task: Task<[Song]?, Never>)?
 
     init(select: @escaping Select = { SiriSongCatalog.shortcuts(from: $0, priorityIDs: $1, limit: $2) }) {
         self.select = select
@@ -30,8 +31,9 @@ final class SiriSongSuggestionCache {
     }
 
     /// 同 `songs(for:from:)`,但挑选由调用方给(曲库目录上流式挑,不交整库数组)。同一份输入只挑一次,
-    /// 共用、作废的规则不变;`selecting` 在主线程外执行。
-    func songs(for inputs: Inputs, selecting: @escaping @Sendable () async -> [Song]) async -> [Song]? {
+    /// 共用、作废的规则不变;`selecting` 在主线程外执行。它返回 nil 表示这一次曲库答不了:不记进缓存
+    /// (查不到不是「一首都没有」),等着这一次的调用方都拿到 nil。
+    func songs(for inputs: Inputs, selecting: @escaping @Sendable () async -> [Song]?) async -> [Song]? {
         guard !Task.isCancelled else { return nil }
         if let cached, cached.inputs == inputs { return cached.songs }
         if pending?.inputs != inputs {
@@ -45,12 +47,26 @@ final class SiriSongSuggestionCache {
         // One cancelled system query must not cancel work shared by other callers.
         let selected = await request.task.value
         if pending?.token == request.token {
-            cached = (inputs, selected)
             pending = nil
-            plog("Siri song shortcuts: selected=\(selected.count) budget=\(inputs.limit)")
+            if let selected {
+                cached = (inputs, selected)
+                plog("Siri song shortcuts: selected=\(selected.count) budget=\(inputs.limit)")
+            }
         }
         guard !Task.isCancelled, cached?.inputs == inputs else { return nil }
         return cached?.songs
+    }
+}
+
+/// 调用方自己那一次挑选里「曲库答不了」的记号(挑选在主线程外跑):拿到 nil 时凭它分清是答不了,还是被别的
+/// 请求顶掉了要重挑。几份拷贝共用同一把锁。
+struct SiriSongSelectionFailure: Sendable {
+    private let marked = OSAllocatedUnfairLock(initialState: false)
+
+    var isMarked: Bool { marked.withLock { $0 } }
+
+    func mark() {
+        marked.withLock { $0 = true }
     }
 }
 

@@ -62,9 +62,6 @@ extension AudioPlayerService {
             AppleMusicCatalogContinuationPolicy.songKey(title: $0.song.title, artist: $0.song.artistName ?? "")
         })
         let recentIDs = Set(PlayHistoryStore.shared.entries(in: .month).map(\.songID))
-        // Copy-on-write: the worker reads the library's own array.
-        let songs = library.musicSongs
-        let revision = library.musicSongsRevision
         let token = queueRequestToken
         let startedAt = ProcessInfo.processInfo.systemUptime
 
@@ -89,6 +86,22 @@ extension AudioPlayerService {
                     return
                 }
             }
+            // 相似歌要在整库的音乐上算。歌曲模型不在内存里时先占住它(等它装回来):空数组不是「找不到相似的」,
+            // 不能凭它把这一首记成死胡同。只有队列放到最后一首才走到这里;模型在内存里时不挂起。
+            // 已经被新队列顶掉的这一次不再去要模型。
+            guard !Task.isCancelled else { return }
+            let hold = await library.holdSongModel(.playbackContinuation)
+            defer { hold.end() }
+            guard let self, !Task.isCancelled else { return }
+            guard self.queueRequestToken == token,
+                  self.queueEntries.last?.id == lastEntryID,
+                  self.autoContinuationDecision == .similarSongs else {
+                self.autoContinuationTask = nil
+                return
+            }
+            // Copy-on-write: the worker reads the library's own array.
+            let songs = library.musicSongs
+            let revision = library.musicSongsRevision
             let worker = Task.detached(priority: .userInitiated) {
                 MusicDiscoveryEngine.continuationSongIDs(
                     seeds: seeds,
@@ -106,7 +119,7 @@ extension AudioPlayerService {
                 worker.cancel()
             }
             // A cancelled top-up was already replaced by `resetAutoContinuation`.
-            guard let self, !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return }
             self.autoContinuationTask = nil
             // The queue moved on while the worker ran: a new request landed,
             // the listener added songs, or a setting changed.

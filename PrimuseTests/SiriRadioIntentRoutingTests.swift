@@ -95,6 +95,19 @@ final class SiriRadioIntentRoutingTests: XCTestCase {
         XCTAssertEqual(calls, 2)
     }
 
+    /// 挑选答不了(曲库读不出来)时给 nil:不记进缓存,同一份输入下次重新挑 —— 查不到不是「一首都没有」。
+    func testSongSuggestionCacheDoesNotKeepAnUnanswerableSelection() async {
+        let cache = SiriSongSuggestionCache()
+        let inputs = shortcutInputs()
+        let kept = shortcutSong("kept")
+        let unanswered = await cache.songs(for: inputs) { nil }
+        XCTAssertNil(unanswered)
+        let answered = await cache.songs(for: inputs) { [kept] }
+        XCTAssertEqual(answered?.map(\.id), ["kept"], "the nil was not cached as an empty answer")
+        let cached = await cache.songs(for: inputs) { nil }
+        XCTAssertEqual(cached?.map(\.id), ["kept"], "an answer is cached as before")
+    }
+
     func testSongSuggestionCacheTracksMetadataPriorityBudgetAndRemoval() async {
         let cache = SiriSongSuggestionCache()
         let first = shortcutSong("first")

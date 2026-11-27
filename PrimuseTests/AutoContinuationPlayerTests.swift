@@ -149,4 +149,78 @@ final class AutoContinuationPlayerTests: XCTestCase {
         XCTAssertTrue(player.autoContinuationEntryIDs.isEmpty)
         XCTAssertEqual(player.autoContinuationDecision, QueueContinuationPolicy.Decision.none)
     }
+
+    /// 歌曲模型放掉之后(P3 步骤 6c):队列后面还有歌时,相似续播和随机续歌都不要歌曲模型;放到最后一首才要,
+    /// 只要一次占用。等到模型之前不往队列里加歌,也不把这一首记成「找不到相似的」(空数组不是答案)。
+    /// 模型在内存里时两样照旧。
+    @MainActor
+    func testQueueEndAsksForTheSongModelOnceAndNothingBeforeIt() async throws {
+        let player = try await makePlayer()
+        let library = try XCTUnwrap(player.library)
+        let first = try XCTUnwrap(library.unobservedVisibleSong(id: "faye0"))
+        let second = try XCTUnwrap(library.unobservedVisibleSong(id: "faye1"))
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        func holds() -> [MusicLibrary.SongModelHoldReason] {
+            (MusicLibrary.songModelHoldRequestsForTesting ?? [])
+                .filter { $0.library == ObjectIdentifier(library) }
+                .map(\.reason)
+        }
+
+        // 模型在内存里:相似续播在最后一首时占用一次(立刻拿到),随机续歌直接续、不经占用。
+        player.setQueue([first], startAt: 0)
+        await continueQueue(player)
+        XCTAssertGreaterThan(player.queueCount, 1)
+        XCTAssertEqual(holds(), [.playbackContinuation])
+        player.setQueue([first], startAt: 0)
+        // 随机续歌只接着音乐续:要有正在放的这一首才认得出是音乐。
+        player.currentSong = first
+        player.shuffleEnabled = true
+        let extendedWhileLoaded = await player.extendExhaustedShuffleHoldingTheSongModel()
+        XCTAssertTrue(extendedWhileLoaded)
+        XCTAssertGreaterThan(player.queueCount, 1)
+        XCTAssertEqual(holds(), [.playbackContinuation])
+
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(library.isReady)
+
+        // 后面还有歌:两样都什么也不要。
+        player.shuffleEnabled = false
+        player.setQueue([first, second], startAt: 0)
+        player.scheduleAutoContinuationIfNeeded()
+        XCTAssertNil(player.autoContinuationTask)
+        player.shuffleEnabled = true
+        player.setQueue([first, second], startAt: 0)
+        player.currentSong = first
+        let extendedEarly = await player.extendExhaustedShuffleHoldingTheSongModel()
+        XCTAssertFalse(extendedEarly)
+        XCTAssertFalse(player.extendExhaustedShuffleFromLibrary(), "the direct call reads no empty array as an answer")
+        XCTAssertEqual(player.queueCount, 2)
+        XCTAssertEqual(holds(), [])
+
+        // 随机放到了最后一首:占用一次,等不到模型就挂着,队列不动。
+        player.setQueue([first], startAt: 0)
+        player.currentSong = first
+        let extending = Task { @MainActor in _ = await player.extendExhaustedShuffleHoldingTheSongModel() }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(holds(), [.playbackContinuation])
+        XCTAssertEqual(player.queueCount, 1)
+        extending.cancel()
+
+        // 相似续播放到了最后一首:同样只占用一次;没等到模型,这一首不算死胡同。
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        player.shuffleEnabled = false
+        player.setQueue([first], startAt: 0)
+        XCTAssertEqual(player.autoContinuationDecision, .similarSongs)
+        player.scheduleAutoContinuationIfNeeded()
+        XCTAssertNotNil(player.autoContinuationTask)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(holds(), [.playbackContinuation])
+        player.scheduleAutoContinuationIfNeeded()
+        XCTAssertEqual(holds(), [.playbackContinuation], "one pending top-up, one hold")
+        XCTAssertEqual(player.queueCount, 1)
+        XCTAssertNil(player.autoContinuationDeadEndEntryID, "an unloaded library is not a dead end")
+        player.resetAutoContinuation()
+    }
 }

@@ -270,7 +270,14 @@ extension ListeningIntentService {
                     plog("🎯 Listening intents catalog read failed (\(error)); using the in-memory library")
                 }
             }
-            if outcome == nil {
+            // 目录没答上来:内存这条路读整库数组。等目录的那一会儿里歌曲模型可能已经不在内存里,空数组不是
+            // 「一首都点不亮」—— 那样就不算这一轮,留着上次的结果。电视端的曲库一直常驻,重装快照期间旧数组也还在,照旧读。
+            #if os(tvOS)
+            let arraysAnswer = true
+            #else
+            let arraysAnswer = library?.isReady == true
+            #endif
+            if outcome == nil, arraysAnswer {
                 let memorySongs = library?.musicSongs ?? []
                 let worker = Task.detached(priority: .utility) { () -> LightingResult? in
                     try? Self.lighting(

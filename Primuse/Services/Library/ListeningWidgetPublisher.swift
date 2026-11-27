@@ -72,8 +72,16 @@ final class ListeningWidgetPublisher {
 
     private func observeLibrary() {
         withObservationTracking {
+            _ = library.isUsable
+            // 本机播客变了要重发。歌曲模型在内存里时盯它那份数组换没换(`localPodcastContentRevision` 随数组前进,
+            // 不读数组本身);不在时盯曲库目录的修订号。
             _ = library.isReady
-            _ = library.localPodcastSongs
+            _ = library.localPodcastContentRevision
+            if !library.isReady, let revisions = library.catalogHost?.revisions {
+                _ = revisions.isReadable
+                _ = revisions.membership
+                _ = revisions.books
+            }
             _ = radioStations()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -110,7 +118,9 @@ final class ListeningWidgetPublisher {
         // 冷启动、只被车机 / Siri / 小组件叫起时,订阅还没读盘、曲库也没装好;这时按「没有播客」
         // 发布会把小组件刷成空的。留着上次的快照,读完订阅(发 primusePodcastsDidChange)、
         // 曲库就绪(observeLibrary 盯着 isReady)时会再排一次。
-        guard store.isLoaded, library.isReady else { return }
+        guard store.isLoaded, library.isUsable else { return }
+        // 本机播客:曲库答不了(目录读不出、歌曲模型也不在内存里)时留着上次的快照,不为小组件去装模型。
+        guard let localEpisodes = await localPodcastEpisodes(), !Task.isCancelled else { return }
         let positions = SpokenWordStore.shared
         var candidates: [ListeningWidgetPolicy.Candidate] = []
         var recentCandidates: [(item: ListeningWidgetSnapshot.Item, record: ListeningWidgetPolicy.ListeningRecord)] = []
@@ -147,11 +157,11 @@ final class ListeningWidgetPublisher {
                 artworkIDs[episode.id] = episode.artworkURL == nil ? show.id : episode.id
             }
         }
-        for song in library.localPodcastSongs {
+        for song in localEpisodes {
             let position = positions.position(forSongID: song.id)
             let isFinished = positions.isFinished(songID: song.id)
             let item = ListeningWidgetSnapshot.Item(id: song.id, title: song.title,
-                                                    subtitle: song.albumTitle ?? song.artistName ?? "",
+                                                    subtitle: song.subtitle,
                                                     fractionComplete: position.map { floor($0.fractionComplete * 100) / 100 })
             candidates.append(.init(
                 item: item,
@@ -293,6 +303,43 @@ final class ListeningWidgetPublisher {
         for file in files where file.lastPathComponent.hasPrefix(ListeningWidgetPolicy.coverPrefix) && !keeping.contains(file.lastPathComponent) {
             try? FileManager.default.removeItem(at: file)
         }
+    }
+}
+
+extension ListeningWidgetPublisher {
+    /// 小组件要的本机播客单集的那几项。
+    struct LocalEpisode: Sendable, Equatable {
+        let id: String
+        let title: String
+        let subtitle: String
+        let dateAdded: Date
+
+        init(_ song: Song) {
+            id = song.id
+            title = song.title
+            subtitle = song.albumTitle ?? song.artistName ?? ""
+            dateAdded = song.dateAdded
+        }
+    }
+
+    /// 本机播客的单集,库内顺序。曲库目录可读时在主线程外从目录流式取(可见的播客,同 `localPodcastSongs`),
+    /// 只留小组件要的那几项;目录读不出时,歌曲模型在内存里才读那份数组。两边都答不了时 nil ——
+    /// 查不到不是「没有播客」,调用方留着上次发布的快照。不要歌曲模型。
+    func localPodcastEpisodes() async -> [LocalEpisode]? {
+        if let reader = library.readableCatalogReader {
+            do {
+                return try await reader.reduceSongs(
+                    LibrarySongScope(kinds: [.podcast]), into: [LocalEpisode]()
+                ) { episodes, song in
+                    episodes.append(LocalEpisode(song))
+                    return true
+                }
+            } catch {
+                plog("📚 listening widget: catalog podcast read failed: \(error)")
+            }
+        }
+        guard library.isReady else { return nil }
+        return library.localPodcastSongs.map(LocalEpisode.init)
     }
 }
 

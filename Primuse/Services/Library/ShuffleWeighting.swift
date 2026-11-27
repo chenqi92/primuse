@@ -94,11 +94,18 @@ final class ShufflePlayCountStore {
         let archiveGeneration: UInt64
         let library: ObjectIdentifier?
         let libraryRevision: UInt64?
+        /// 歌曲模型在不在内存里: 不在时算出的那份(服务器播放次数沿用上一次扫出来的)不留给装回来之后用。
+        let songModelLoaded: Bool
     }
 
     private var cached: (key: CacheKey, counts: ShufflePlayCounts)?
     /// 服务器上有播放次数的那些歌, 曲库换一版才重新扫。
     private var serverCounted: (library: ObjectIdentifier, revision: UInt64, songs: [ShuffleCandidate])?
+    /// 歌曲模型不在内存里时, 本机有播放次数的歌按 id 问过曲库目录的结果(值为 nil: 不在可见曲库里)。
+    /// 每放一首只多查新出现的那几首, 不把听歌记录里的几千首重新按 id 查一遍。条数以听歌记录为界。
+    private var localCandidatesWithoutTheModel: (
+        library: ObjectIdentifier, revision: UInt64, candidates: [String: ShuffleCandidate?]
+    )?
     private var archiveGeneration: UInt64 = 0
     #if !os(tvOS)
     /// 年归档里、本机记录之外的播放次数。清空听歌记录(也可能是别的设备清的)之后要重读。
@@ -118,11 +125,13 @@ final class ShufflePlayCountStore {
         #if !os(tvOS)
         loadArchivedCountsIfNeeded(history: history)
         #endif
+        let songModelLoaded = library.map(Self.songModelIsLoaded) ?? true
         let key = CacheKey(
             historyVersion: history.playCountsVersion,
             archiveGeneration: archiveGeneration,
             library: library.map(ObjectIdentifier.init),
-            libraryRevision: library?.musicSongsRevision
+            libraryRevision: library?.musicSongsRevision,
+            songModelLoaded: songModelLoaded
         )
         if let cached, cached.key == key { return cached.counts }
 
@@ -132,9 +141,35 @@ final class ShufflePlayCountStore {
             counted = serverCountedSongs(in: library)
             var resolver = ShuffleArtistKeyResolver()
             counted.reserveCapacity(counted.count + local.count)
-            for songID in local.keys {
-                guard let song = library.unobservedVisibleSong(id: songID) else { continue }
-                counted.append(ShuffleWeighting.candidate(for: song, resolver: &resolver))
+            if songModelLoaded {
+                localCandidatesWithoutTheModel = nil
+                for songID in local.keys {
+                    guard let song = library.unobservedVisibleSong(id: songID) else { continue }
+                    counted.append(ShuffleWeighting.candidate(for: song, resolver: &resolver))
+                }
+            } else if library.canAnswerSongLookups {
+                // 歌曲模型不在内存里: 按 id 读问的是曲库目录。问过的记着, 这一轮只问新出现的。
+                let identity = ObjectIdentifier(library)
+                let revision = library.musicSongsRevision
+                var memo = localCandidatesWithoutTheModel.flatMap {
+                    $0.library == identity && $0.revision == revision ? $0.candidates : nil
+                } ?? [:]
+                for songID in local.keys {
+                    if let known = memo[songID] {
+                        if let known { counted.append(known) }
+                        continue
+                    }
+                    let candidate = library.unobservedVisibleSong(id: songID).map {
+                        ShuffleWeighting.candidate(for: $0, resolver: &resolver)
+                    }
+                    memo.updateValue(candidate, forKey: songID)
+                    if let candidate { counted.append(candidate) }
+                }
+                // 问到一半目录答不了了: 这一轮里的「不在」不可信, 不留。
+                localCandidatesWithoutTheModel = library.canAnswerSongLookups ? (identity, revision, memo) : nil
+            } else {
+                // 模型不在、目录这条路也答不了: 查不到不是「这些歌都不在了」。沿用上一次算好的, 不把这一轮记下来。
+                return cached?.counts ?? ShufflePlayCounts(localCounts: local, countedSongs: counted)
             }
         }
         let counts = ShufflePlayCounts(localCounts: local, countedSongs: counted)
@@ -158,6 +193,11 @@ final class ShufflePlayCountStore {
         let revision = library.musicSongsRevision
         if let serverCounted, serverCounted.library == identity, serverCounted.revision == revision {
             return serverCounted.songs
+        }
+        // 歌曲模型不在内存里时这趟整库遍历读到的是空的。沿用这个库上一次扫出来的那份(服务器播放次数只在扫描时变,
+        // 扫描会把模型装回来), 不把空结果记成这一版的答案, 也不为它去装模型。
+        guard Self.songModelIsLoaded(library) else {
+            return serverCounted.flatMap { $0.library == identity ? $0.songs : nil } ?? []
         }
         var resolver = ShuffleArtistKeyResolver()
         var songs: [ShuffleCandidate] = []
@@ -197,4 +237,15 @@ final class ShufflePlayCountStore {
         return task
     }
     #endif
+}
+
+extension ShufflePlayCountStore {
+    /// 整库数组此刻读不读得到。电视端的曲库一直常驻, 重装快照期间旧数组也还在。
+    fileprivate static func songModelIsLoaded(_ library: MusicLibrary) -> Bool {
+        #if os(tvOS)
+        true
+        #else
+        library.isReady
+        #endif
+    }
 }

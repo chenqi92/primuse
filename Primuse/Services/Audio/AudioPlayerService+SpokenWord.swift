@@ -302,12 +302,22 @@ extension AudioPlayerService {
     private func adoptServerSpokenWordBookProgress(_ records: [ServerListeningProgress], around song: Song) {
         guard let library, !records.isEmpty else { return }
         let bookID = spokenWordBookID(for: song)
-        let idsByPath = Dictionary(
-            library.spokenWordSongs.lazy
-                .filter { $0.sourceID == song.sourceID && library.spokenWordBookIDs[$0.id] == bookID }
-                .map { ($0.filePath, $0.id) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let idsByPath: [String: String]
+        if library.isReady {
+            idsByPath = Dictionary(
+                library.spokenWordSongs.lazy
+                    .filter { $0.sourceID == song.sourceID && library.spokenWordBookIDs[$0.id] == bookID }
+                    .map { ($0.filePath, $0.id) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        } else {
+            // 歌曲模型不在内存里:这本书的章节从曲库目录取。答不了就这一次不记别的章节的进度(下次续播还会取回来)。
+            guard let members = catalogBookMembers(of: song, bookID: bookID) else { return }
+            idsByPath = Dictionary(
+                members.lazy.filter { $0.sourceID == song.sourceID }.map { ($0.filePath, $0.id) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
         var adopted = 0
         for record in records where record.songPath != song.filePath {
             guard let songID = idsByPath[record.songPath] else { continue }
@@ -354,12 +364,19 @@ extension AudioPlayerService {
         // 队列里没有(只装了一段,或是从别处点进来的):整本书装进去。
         guard let library else { return nil }
         let bookID = spokenWordBookID(for: song)
-        let members = Dictionary(
-            library.spokenWordSongs.lazy
-                .filter { library.spokenWordBookIDs[$0.id] == bookID }
-                .map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let members: [String: Song]
+        if library.isReady {
+            members = Dictionary(
+                library.spokenWordSongs.lazy
+                    .filter { library.spokenWordBookIDs[$0.id] == bookID }
+                    .map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        } else {
+            // 歌曲模型不在内存里:章节从曲库目录取;答不了就接着当前这一条。
+            guard let fromCatalog = catalogBookMembers(of: song, bookID: bookID) else { return nil }
+            members = Dictionary(fromCatalog.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        }
         let songs = book.items.compactMap { members[$0.id] }
         guard let index = songs.firstIndex(where: { $0.id == targetID }) else { return nil }
         return (songs, index)
@@ -841,6 +858,9 @@ extension AudioPlayerService {
     /// does not hold falls back to what its own tags and path say.
     func spokenWordBookID(for song: Song) -> String {
         if let bookID = library?.spokenWordBookIDs[song.id] ?? library?.localPodcastBookIDs[song.id] { return bookID }
+        // 歌曲模型不在内存里时那两张表是空的:归书从曲库目录按 id 问,给的是表里的同一个 id
+        // (否则按文件夹归书的书会退回只看自己标签的 id,这本书的倍速、片头片尾就对不上了)。
+        if let placement = catalogBookPlacement(of: song) { return placement.bookID }
         return SpokenWordBookGrouping.bookID(for: SpokenWordBookItem(song: song))
     }
 
@@ -870,11 +890,13 @@ extension AudioPlayerService {
         // queue even when the answer comes from the cache.
         let key = "\(bookID)|\(queueEntries.count)|\(watchQueueSnapshotRevision)"
             + "|\(SpokenWordStore.shared.nonProgressRevision)|\(library?.spokenWordContentRevision ?? 0)"
+            + "|\(catalogBookRevisionKey)"
         if let cache = currentBookItemIDsCache, cache.key == key { return cache.ids }
         let ids = queueEntries.compactMap { entry -> String? in
             let song = entry.song
-            guard spokenWordBookID(for: song) == bookID,
-                  SpokenWordStore.shared.isSpokenWord(song) else { return nil }
+            // 先看是不是有声内容(不查曲库),再问它属于哪本书。
+            guard SpokenWordStore.shared.isSpokenWord(song),
+                  spokenWordBookID(for: song) == bookID else { return nil }
             return song.id
         }
         currentBookItemIDsCache = (key, ids)
@@ -892,7 +914,8 @@ extension AudioPlayerService {
         let bookID = spokenWordBookID(for: song)
         var cache = spokenWordBookCache
         let book = cache.book(
-            groupingKey: "\(bookID)|\(store.nonProgressRevision)|\(library?.spokenWordContentRevision ?? 0)",
+            groupingKey: "\(bookID)|\(store.nonProgressRevision)|\(library?.spokenWordContentRevision ?? 0)"
+                + "|\(catalogBookRevisionKey)",
             progressKey: "\(store.revision)",
             itemID: song.id,
             group: { groupCurrentBook(song) },
@@ -1029,11 +1052,13 @@ extension AudioPlayerService {
                     }
                 } catch {
                     plog("📖 Book item catalog read failed (\(error)); using the in-memory library")
-                    let memory = Dictionary(
-                        library.spokenWordSongs.map { ($0.id, $0) },
-                        uniquingKeysWith: { first, _ in first }
-                    )
-                    byID = memory
+                    // 内存这条路读整份有声歌曲:歌曲模型不在内存里时先占住它(等它装回来),空数组不是「这本书没有这一章」。
+                    byID = await library.withSongModel(.playbackContinuation) {
+                        Dictionary(
+                            library.spokenWordSongs.map { ($0.id, $0) },
+                            uniquingKeysWith: { first, _ in first }
+                        )
+                    }
                 }
                 let songs = itemIDs.compactMap { byID[$0] }
                 guard let index = songs.firstIndex(where: { $0.id == itemID }) else { return }
@@ -1041,13 +1066,19 @@ extension AudioPlayerService {
             }
             return
         }
-        let byID = Dictionary(
-            library.spokenWordSongs.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let songs = book.items.compactMap { byID[$0.id] }
-        guard let index = songs.firstIndex(where: { $0.id == itemID }) else { return }
-        Task { await play(queue: songs, startingAt: index) }
+        let itemIDs = book.items.map(\.id)
+        Task {
+            // 目录读不了:同上,先占住歌曲模型再读整份有声歌曲(模型在内存里时不挂起)。
+            let byID = await library.withSongModel(.playbackContinuation) {
+                Dictionary(
+                    library.spokenWordSongs.map { ($0.id, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+            }
+            let songs = itemIDs.compactMap { byID[$0] }
+            guard let index = songs.firstIndex(where: { $0.id == itemID }) else { return }
+            await play(queue: songs, startingAt: index)
+        }
     }
 
     /// Jumps to a bookmark anywhere in the playing book.
@@ -1156,7 +1187,14 @@ extension AudioPlayerService {
     private func groupCurrentBook(_ song: Song) -> SpokenWordCurrentBookCache.Grouped {
         guard let library else { return .init(book: nil) }
         let bookID = spokenWordBookID(for: song)
-        let members = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
+        let members: [Song]
+        if library.isReady {
+            members = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
+        } else {
+            // 歌曲模型不在内存里:这本书的章节从曲库目录取(结果同上一行)。答不了时先当没有这本书,
+            // 目录再变(`catalogBookRevisionKey`)时重新分。
+            members = catalogBookMembers(of: song, bookID: bookID) ?? []
+        }
         guard !members.isEmpty else { return .init(book: nil) }
         let store = SpokenWordStore.shared
         let books = SpokenWordBookGrouping.books(
@@ -1166,6 +1204,60 @@ extension AudioPlayerService {
             book: books.first { book in book.items.contains { $0.id == song.id } },
             untimedItemIDs: Set(members.lazy.filter { !($0.duration > 0) }.map(\.id))
         )
+    }
+
+    // MARK: - Books from the catalog while the song model is not loaded
+
+    /// 归书缓存键里跟曲库目录走的那一段。歌曲模型在内存里时是常数(归书读内存里的表,键里已有
+    /// `spokenWordContentRevision`);不在时跟着目录的归书修订号与可读与否变,目录一动就重新问。
+    var catalogBookRevisionKey: String {
+        guard let library, !library.isReady, let revisions = library.catalogHost?.revisions else { return "m" }
+        return "c\(revisions.books)\(revisions.isReadable ? "r" : "u")"
+    }
+
+    /// 歌曲模型不在内存里时,`song` 的归书(书或节目的 id、是有声书还是播客),从曲库目录按 id 问,问过的记着。
+    /// nil:模型在内存里(读内存里的表)、目录此刻读不了或读失败,或者目录里没有这一首的归书。
+    func catalogBookPlacement(of song: Song) -> SpokenWordCatalogBooks.Placement? {
+        guard let library, !library.isReady, let host = library.catalogHost, host.revisions.isReadable,
+              let catalog = host.mirror.readableCatalog,
+              // 内存里的归书表只有可见的条目:停用源里的同样不从目录认。
+              !library.disabledPlaybackSourceIDs.contains(song.sourceID) else { return nil }
+        spokenWordCatalogBooks.reset(unlessAt: host.revisions.catalogRevision)
+        if let known = spokenWordCatalogBooks.placements[song.id] { return known }
+        do {
+            let placement = try catalog.bookPlacement(songID: song.id).map {
+                SpokenWordCatalogBooks.Placement(bookID: $0.bookID, kind: $0.kind)
+            }
+            spokenWordCatalogBooks.remember(placement, forSongID: song.id)
+            return placement
+        } catch {
+            // 读失败不记:查不到不是「它不属于哪本书」。
+            plog("📖 Book placement catalog read failed (\(error))")
+            return nil
+        }
+    }
+
+    /// 歌曲模型不在内存里时,`song` 所在那本有声书的章节:可见的,库内顺序,同内存里按归书表筛整份有声条目的结果。
+    /// 播客节目没有「这本书」(同内存那条路),给空数组。nil:目录此刻读不了、读失败,或者这本书超过一次物化的
+    /// 上限 —— 查不到不是「这本书没有章节」。
+    func catalogBookMembers(of song: Song, bookID: String) -> [Song]? {
+        guard let library, let host = library.catalogHost, host.revisions.isReadable,
+              let catalog = host.mirror.readableCatalog else { return nil }
+        if let placement = catalogBookPlacement(of: song), placement.bookID == bookID, placement.kind != .spokenWord {
+            return []
+        }
+        do {
+            let rows = try catalog.bookRowList(bookID: bookID)
+            guard rows.count <= LibraryScale.maxMaterializedRows else {
+                plog("📖 Book \(bookID) has \(rows.count) items; not read from the catalog in one piece")
+                return nil
+            }
+            let disabled = library.disabledPlaybackSourceIDs
+            return try catalog.songs(rowids: rows.rowids).filter { !disabled.contains($0.sourceID) }
+        } catch {
+            plog("📖 Book members catalog read failed (\(error))")
+            return nil
+        }
     }
 
     // MARK: - Per-book speed
@@ -1830,4 +1922,30 @@ extension AudioPlayerService {
 struct SpokenWordChapterSleepLock: Equatable {
     let songID: String
     let chapterIndex: Int
+}
+
+/// 歌曲模型不在内存里时,播放器从曲库目录按 id 问来的归书。只记问过的条目(正在放的、队列里的),
+/// 目录每提交一次就整份作废,条数另有上限。
+struct SpokenWordCatalogBooks {
+    struct Placement: Equatable, Sendable {
+        let bookID: String
+        let kind: LibraryCatalogContentKind
+    }
+
+    static let placementLimit = 2_000
+
+    private(set) var catalogRevision: Int64 = -1
+    /// 值为 nil:目录里没有这一首的归书(不是有声内容,或不在可见曲库里)。
+    private(set) var placements: [String: Placement?] = [:]
+
+    mutating func reset(unlessAt revision: Int64) {
+        guard revision != catalogRevision else { return }
+        catalogRevision = revision
+        placements.removeAll(keepingCapacity: true)
+    }
+
+    mutating func remember(_ placement: Placement?, forSongID songID: String) {
+        if placements.count >= Self.placementLimit { placements.removeAll(keepingCapacity: true) }
+        placements.updateValue(placement, forKey: songID)
+    }
 }

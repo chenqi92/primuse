@@ -3237,6 +3237,234 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         let whileReleased = await service.catalogCandidateIDsForTesting()
         XCTAssertEqual(try XCTUnwrap(whileReleased).sorted(), fromMemory.sorted(), "the catalog answers the same without the model")
     }
+
+    // MARK: - Per-track consumers without the song model (P3 step 6c, unit 2a)
+
+    /// 随机播放的加权(#332):歌曲模型放掉之后再算播放次数,给每首歌、每位歌手的次数与模型在内存里的同一座曲库
+    /// 相同 —— 服务器记的次数沿用放掉之前扫出来的那份,本机有次数的歌按 id 问曲库目录(问过的记着)。不要歌曲
+    /// 模型。目录也答不了时沿用上一次算好的,不把查不到当成「这些歌都不在了」。
+    func testShuffleWeightingCountsAreTheSameOnceTheSongModelIsReleased() async throws {
+        let library = makeLibrary(disabledSourceIDs: [Self.sourceB])
+        var songs = Self.fixture()
+        songs[1].serverPlayCount = 9
+        songs[4].serverPlayCount = 3
+        songs[7].serverPlayCount = 5 // 停用源里的:不可见,不计
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let history = PlayHistoryStore(storeURL: directory.appendingPathComponent("shuffle-history.json"))
+        let stranger = Song(id: "never-in-the-library", title: "Stranger", fileFormat: .flac,
+                            filePath: "/nowhere.flac", sourceID: Self.sourceA)
+        for (offset, song) in [songs[0], songs[0], songs[2], songs[5], songs[8], stranger].enumerated() {
+            history.record(song: song, startedAt: Date(timeIntervalSince1970: 1_800_000_000 + Double(offset) * 400),
+                           listenedSec: 120)
+        }
+        let store = ShufflePlayCountStore.shared
+        func answers(_ counts: ShufflePlayCounts) -> [String] {
+            var resolver = ShuffleArtistKeyResolver()
+            return songs.map { song in
+                let candidate = ShuffleWeighting.candidate(for: song, resolver: &resolver)
+                return "\(song.id) song=\(counts.songPlayCount(candidate)) artist=\(counts.artistPlayCount(candidate))"
+            }
+        }
+        let loaded = answers(store.playCounts(library: library, history: history))
+        XCTAssertTrue(loaded[1].contains("song=9 "), "the server's count: \(loaded[1])")
+        XCTAssertTrue(loaded[0].contains("song=2 "), "two local plays: \(loaded[0])")
+
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertEqual(answers(store.playCounts(library: library, history: history)), loaded, "the same history, the model released")
+
+        // 又放了一首(听歌记录前进一版,次数重算):与带着模型时多放这一首的结果相同。
+        history.record(song: songs[5], startedAt: Date(timeIntervalSince1970: 1_800_010_000), listenedSec: 120)
+        let afterOneMore = answers(store.playCounts(library: library, history: history))
+        var expected = loaded
+        let comp2 = try XCTUnwrap(songs.firstIndex { $0.id == songs[5].id })
+        XCTAssertNotEqual(afterOneMore, loaded)
+        XCTAssertNotEqual(afterOneMore[comp2], expected[comp2], "the song just played counts one more")
+        expected[comp2] = afterOneMore[comp2]
+        XCTAssertEqual(afterOneMore, expected, "nothing else moved")
+        XCTAssertEqual(songModelHolds(of: library), [], "weighting asks for no song model")
+
+        // 目录不再跟写:按 id 读此刻答不了。再放一首,次数沿用上一次算好的。
+        await library.stopCatalogMirror()
+        XCTAssertFalse(library.canAnswerSongLookups)
+        history.record(song: songs[0], startedAt: Date(timeIntervalSince1970: 1_800_020_000), listenedSec: 120)
+        XCTAssertEqual(answers(store.playCounts(library: library, history: history)), afterOneMore,
+                       "unanswerable is not the same as absent")
+        XCTAssertEqual(songModelHolds(of: library), [])
+    }
+
+    /// 「在听」小组件里的本机播客:曲库目录这条路与内存里的 `localPodcastSongs` 给出同样的单集、同样的先后
+    /// (停用源里的不算)。歌曲模型放掉之后目录照样答;目录也答不了时是「答不了」(留着上次的快照),不是空的。
+    /// 都不要歌曲模型。
+    func testListeningWidgetLocalPodcastsFromTheCatalogMatchTheInMemoryList() async throws {
+        let hidden = "dual-write-hidden"
+        let library = makeLibrary(disabledSourceIDs: [hidden])
+        var songs = Self.fixture()
+        songs.append(Song(id: "hidden-episode", title: "Hidden Episode", albumTitle: "Weekly Show", artistName: "Host",
+                          trackNumber: 3, duration: 900, fileFormat: .mp3, filePath: "/Podcasts/Weekly/3.mp3",
+                          sourceID: hidden, genre: "Podcast"))
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB, hidden])
+        await assertShadowMatches(library, "fixture")
+        let publisher = ListeningWidgetPublisher(library: library, radioStations: { [] })
+        let fromMemory = library.localPodcastSongs.map(ListeningWidgetPublisher.LocalEpisode.init)
+        XCTAssertEqual(fromMemory.count, 2, "the two episodes of the enabled source")
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let fromCatalog = await publisher.localPodcastEpisodes()
+        XCTAssertEqual(fromCatalog, fromMemory)
+
+        library.dropSongModelForMeasurement(includingCollections: true)
+        let whileReleased = await publisher.localPodcastEpisodes()
+        XCTAssertEqual(whileReleased, fromMemory, "the catalog answers the same without the model")
+        XCTAssertEqual(songModelHolds(of: library), [], "the widget never asks for the song model")
+
+        // 没有曲库目录的库:歌曲模型在内存里时读那份数组(同样的结果),放掉之后答不了。
+        let bare = MusicLibrary(
+            disabledSourceIDs: [hidden], storageDirectory: directory.appendingPathComponent("no-catalog"),
+            artistNameConfiguration: .defaultValue, catalogMirroring: .disabled
+        )
+        libraries.append(bare)
+        bare.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB, hidden])
+        for _ in 0..<500 where bare.localPodcastSongs.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        let barePublisher = ListeningWidgetPublisher(library: bare, radioStations: { [] })
+        let fromTheArray = await barePublisher.localPodcastEpisodes()
+        XCTAssertEqual(fromTheArray, fromMemory)
+        bare.dropSongModelForMeasurement(includingCollections: true)
+        let unanswerable = await barePublisher.localPodcastEpisodes()
+        XCTAssertNil(unanswerable, "neither the catalog nor the model: no answer, not an empty list")
+        XCTAssertEqual(songModelHolds(of: bare), [])
+    }
+
+    /// 播放器里「这一首属于哪本书、这本书有哪些章节」:歌曲模型在内存里时读内存里的归书表,放掉之后从曲库目录
+    /// 按 id 问 —— 书 id、当前这本书的章节与先后、队列里属于这本书的条目都相同(按标签归的书、按文件夹归的书、
+    /// 播客节目、音乐;停用源里的条目不算章节,也不从目录认)。不要歌曲模型。目录也答不了时退回只看标签的 id、
+    /// 没有「当前这本书」。
+    func testPlayerBooksFromTheCatalogMatchTheInMemoryGroupingOnceTheSongModelIsReleased() async throws {
+        let hidden = "dual-write-hidden"
+        let library = makeLibrary(disabledSourceIDs: [hidden])
+        var songs = Self.fixture()
+        // 没有专辑标签、靠文件夹归到一起的一本书;第 4 章在停用的源里。
+        for chapter in 1...4 {
+            songs.append(Song(
+                id: "loose-\(chapter)", title: "Chapter \(chapter)", trackNumber: chapter, duration: 600,
+                fileFormat: .m4a, filePath: "/Books/Loose/\(String(format: "%02d", chapter)).m4b",
+                sourceID: chapter == 4 ? hidden : Self.sourceA
+            ))
+        }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB, hidden])
+        await assertShadowMatches(library, "fixture")
+        let suite = "catalog-player-books-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        func makePlayer(_ library: MusicLibrary, _ name: String) -> AudioPlayerService {
+            let sessions = directory.appendingPathComponent(name, isDirectory: true)
+            let musicMemory = MusicSessionMemoryStore(defaults: defaults, url: sessions.appendingPathComponent("music-memory.json"))
+            addTeardownBlock { @MainActor in await musicMemory.waitForPendingPersistence() }
+            return AudioPlayerService(
+                library: library,
+                playbackSettings: PlaybackSettingsStore(defaults: defaults),
+                playbackSessionStore: PlaybackSessionStore(url: sessions.appendingPathComponent("session.json")),
+                musicSessionMemoryStore: musicMemory,
+                queueBookmarkStore: QueueBookmarkStore(directory: sessions.appendingPathComponent("bookmarks")),
+                activateAudioSession: { _ in XCTFail("Book lookups must not start audio") }
+            )
+        }
+        let player = makePlayer(library, "player-books")
+
+        let shelf = library.spokenWordSongs
+        let podcasts = library.localPodcastSongs
+        let hiddenChapter = try XCTUnwrap(songs.first { $0.id == "loose-4" })
+        let music = try XCTUnwrap(library.musicSongs.first)
+        XCTAssertGreaterThanOrEqual(shelf.count, 6)
+        XCTAssertEqual(podcasts.count, 2)
+        XCTAssertFalse(shelf.contains { $0.id == hiddenChapter.id })
+        let probes = shelf + podcasts + [music, hiddenChapter]
+        struct Answer: Equatable {
+            var bookIDs: [String] = []
+            var currentBooks: [[String]?] = []
+            var queueItems: [[String]] = []
+        }
+        func ask(_ player: AudioPlayerService) -> Answer {
+            var answer = Answer()
+            answer.bookIDs = probes.map { player.spokenWordBookID(for: $0) }
+            player.setQueue(shelf + [music], startAt: 0)
+            for song in shelf {
+                player.currentSong = song
+                player.currentItemIsSpokenWord = true
+                answer.currentBooks.append(player.currentSpokenWordBook?.items.map(\.id))
+                answer.queueItems.append(player.currentBookItemIDs)
+            }
+            return answer
+        }
+        let loaded = ask(player)
+        let looseIDs = ["loose-1", "loose-2", "loose-3"]
+        XCTAssertTrue(loaded.currentBooks.contains(looseIDs), "the folder book has its three visible chapters: \(loaded.currentBooks)")
+        XCTAssertEqual(Set(looseIDs.map { id in loaded.bookIDs[try! XCTUnwrap(probes.firstIndex { $0.id == id })] }).count, 1)
+
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertTrue(library.spokenWordBookIDs.isEmpty, "the in-memory grouping is gone")
+        let released = ask(player)
+        XCTAssertEqual(released.bookIDs, loaded.bookIDs)
+        XCTAssertEqual(released.currentBooks, loaded.currentBooks)
+        XCTAssertEqual(released.queueItems, loaded.queueItems)
+        XCTAssertEqual(songModelHolds(of: library), [], "book lookups ask for no song model")
+
+        // 没有曲库目录的库放掉歌曲模型之后:归书退回只看标签的 id,没有「当前这本书」;仍然不要歌曲模型。
+        let bare = MusicLibrary(
+            disabledSourceIDs: [hidden], storageDirectory: directory.appendingPathComponent("no-catalog"),
+            artistNameConfiguration: .defaultValue, catalogMirroring: .disabled
+        )
+        libraries.append(bare)
+        bare.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB, hidden])
+        for _ in 0..<500 where bare.spokenWordSongs.count < shelf.count { try await Task.sleep(for: .milliseconds(10)) }
+        let barePlayer = makePlayer(bare, "bare-player-books")
+        XCTAssertEqual(ask(barePlayer), loaded, "the same library without a catalog groups the same from memory")
+        bare.dropSongModelForMeasurement(includingCollections: true)
+        let unanswerable = ask(barePlayer)
+        XCTAssertEqual(unanswerable.bookIDs, probes.map { SpokenWordBookGrouping.bookID(for: SpokenWordBookItem(song: $0)) })
+        XCTAssertTrue(unanswerable.currentBooks.allSatisfy { $0 == nil })
+        XCTAssertEqual(songModelHolds(of: bare), [])
+    }
+
+    /// 曲终记不记进本机听歌记录(跟着计入规则时):播放器交来的那一份没有时长(Apple Music 等放了才知道)时,
+    /// 看曲库里那一行的时长。歌曲模型放掉之后按 id 问曲库目录,答案与模型在内存里时相同;不要歌曲模型。
+    func testListenRuleReadsTheLibraryDurationByIDOnceTheSongModelIsReleased() async throws {
+        let library = makeLibrary()
+        let songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let stored = songs[0]
+        XCTAssertEqual(stored.duration, 180)
+        var handedOver = stored
+        handedOver.duration = 0
+        let history = PlayHistoryStore(
+            storeURL: directory.appendingPathComponent("listen-rule-history.json"),
+            localListenRule: { (ListenCountRule(percent: 80, countsAfterFourMinutes: false), true) }
+        )
+        history.refreshClassification(library: library)
+        func recordsListen(after seconds: TimeInterval) -> Bool {
+            let before = history.entries.count
+            history.beginSession(song: handedOver)
+            history.tick(playedDelta: seconds)
+            history.endSession()
+            return history.entries.count > before
+        }
+        // 曲库里那一行 180 秒:听 60 秒不到八成,不记;听 150 秒记。
+        XCTAssertFalse(recordsListen(after: 60))
+        XCTAssertTrue(recordsListen(after: 150))
+
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(library.isReady)
+        XCTAssertFalse(recordsListen(after: 60), "the library's 180 seconds still count, not an unknown duration")
+        XCTAssertTrue(recordsListen(after: 150))
+        XCTAssertEqual(songModelHolds(of: library), [], "the listen rule asks for no song model")
+    }
 }
 
 /// 智能歌单对照测试用的确定性随机数。

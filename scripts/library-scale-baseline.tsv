@@ -37,7 +37,7 @@ legacy-library-api	Primuse/Services/Library/DuplicateCleanupService.swift	3
 legacy-library-api	Primuse/Services/Library/FavoriteCollectionStore.swift	6
 legacy-library-api	Primuse/Services/Library/HomeHeroRecommendationModel.swift	1
 legacy-library-api	Primuse/Services/Library/ListeningIntentService.swift	4
-legacy-library-api	Primuse/Services/Library/ListeningWidgetPublisher.swift	2
+legacy-library-api	Primuse/Services/Library/ListeningWidgetPublisher.swift	1
 legacy-library-api	Primuse/Services/Library/LyricsTextBackfillService.swift	1
 legacy-library-api	Primuse/Services/Library/MetadataBackfillService.swift	37
 legacy-library-api	Primuse/Services/Library/MusicLibrary.swift	160

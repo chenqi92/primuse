@@ -1225,6 +1225,8 @@ final class AudioPlayerService {
     /// The playing item's book, grouped from its own items, kept between
     /// saved positions. See `currentSpokenWordBook`.
     @ObservationIgnored var spokenWordBookCache = SpokenWordCurrentBookCache()
+    /// 歌曲模型不在内存里时从曲库目录问来的归书(哪一首属于哪本书、哪档节目)。见 `catalogBookPlacement(of:)`。
+    @ObservationIgnored var spokenWordCatalogBooks = SpokenWordCatalogBooks()
     /// The current book's items in queue order, with the key they were
     /// collected for. See `currentBookItemIDs`.
     @ObservationIgnored var currentBookItemIDsCache: (key: String, ids: [String])?

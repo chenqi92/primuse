@@ -249,7 +249,10 @@ extension AudioPlayerService {
             guard playID == endedPlayID else { return }
         }
         if shuffleEnabled, repeatMode != .one, nextSongInQueue() == nil {
-            _ = extendExhaustedShuffleFromLibrary()
+            // 歌曲模型不在内存里时要等它装回来才续得上;这一会儿里换过歌就不再往下走。
+            let endedPlayID = playID
+            await extendExhaustedShuffleHoldingTheSongModel()
+            guard playID == endedPlayID else { return }
         }
         // 队列里的停止点标在这首上,或者是「逐首播放」:停下,下一首(含刚续上的)就位。
         if stopForTrackEndIfNeeded() { return }

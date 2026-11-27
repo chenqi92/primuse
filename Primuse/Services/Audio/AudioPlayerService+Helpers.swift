@@ -211,6 +211,9 @@ extension AudioPlayerService {
               nextSongInQueue() == nil,
               let library,
               queueEntries.indices.contains(currentIndex) else { return false }
+        // 下面在整库的音乐上挑。歌曲模型不在内存里时那是空的, 不是「曲库里没有别的歌」:
+        // 这时由 `extendExhaustedShuffleHoldingTheSongModel` 先把模型占住再进来。
+        guard library.isReady else { return false }
 
         // 续进来的是整库随机抽的歌, 不喜欢的(#193)不在其中。
         let dislikedIDs = library.dislikedSongIDs
@@ -257,6 +260,22 @@ extension AudioPlayerService {
         shufflePosition = 0
         plog("🔀 Extended exhausted shuffle queue by \(additions.count) library songs")
         return true
+    }
+
+    /// 同 `extendExhaustedShuffleFromLibrary`, 给曲终和「下一首」用: 歌曲模型不在内存里、而这一轮随机确实
+    /// 放完了的时候, 先占住歌曲模型(等它装回来)再续。模型在内存里时与直接调用相同, 不挂起。
+    @discardableResult
+    func extendExhaustedShuffleHoldingTheSongModel() async -> Bool {
+        guard let library, !library.isReady else { return extendExhaustedShuffleFromLibrary() }
+        // 先看用不用续: 不用续就不为它装模型。
+        guard shuffleEnabled,
+              repeatMode != .one,
+              ShuffleLibraryContinuationPolicy.continuesFromLibrary(currentSpace: currentListeningSpace),
+              nextSongInQueue() == nil,
+              queueEntries.indices.contains(currentIndex) else { return false }
+        let hold = await library.holdSongModel(.playbackContinuation)
+        defer { hold.end() }
+        return extendExhaustedShuffleFromLibrary()
     }
 
     /// Replace the pending remainder of a large request and persist it off
@@ -320,6 +339,8 @@ extension AudioPlayerService {
         if !library.isReady {
             guard queueContinuationReadTask == nil else { return }
             queueContinuationReadTask = Task { [weak self] in
+                // 续接已经换过(这个任务被取消)就不再去要模型。
+                guard !Task.isCancelled else { return }
                 let hold = await library.holdSongModel(.playbackContinuation)
                 defer { hold.end() }
                 guard !Task.isCancelled, let self else { return }
@@ -456,7 +477,8 @@ extension AudioPlayerService {
                 blockedIndices.append(index)
             }
         }
-        guard !blockedIndices.isEmpty, let library else { return songs }
+        // `otherCopies` 扫一遍可见曲库的数组:歌曲模型不在内存里时那是空的,这一次不换(同找不到别的版本)。
+        guard !blockedIndices.isEmpty, let library, library.isReady else { return songs }
         let alternatives = library.otherCopies(of: blockedIndices.map { songs[$0] })
         guard !alternatives.isEmpty else { return songs }
         var result = songs
@@ -486,7 +508,8 @@ extension AudioPlayerService {
                 && queueEntries[index].song.sourceID == sourceID
                 && sourceManager?.hasUsableCachedAudioForPlayback(queueEntries[index].song) != true
         }
-        guard !indices.isEmpty, let library else { return }
+        // 同上:歌曲模型不在内存里时不扫那份空数组,换不了的照原来的规则跳过。
+        guard !indices.isEmpty, let library, library.isReady else { return }
         let alternatives = library.otherCopies(of: indices.map { queueEntries[$0].song })
         guard !alternatives.isEmpty else { return }
         var entries = queueEntries

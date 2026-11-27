@@ -1187,6 +1187,10 @@ final class AppServices {
     /// 交给 Siri 的书单(按「接着听」排好的前 50 本)和分它时的输入:曲库里有声内容与
     /// 有声内容那份账都没变就沿用,不再整库分组。
     private var siriCatalogBooks: (inputs: SiriCatalogBookInputs, books: [SpokenWordBook])?
+    /// 歌曲模型在内存里时算出的 Siri 播客清单(前 50 档)和本机播客节目数:这两样读的是整库数组与分节目的表,
+    /// 模型不在内存里时沿用,不拿空数组重算。
+    private var siriCatalogPodcastShowsWhileLoaded: [SiriPodcastShow]?
+    private var siriLibraryPodcastShowCountWhileLoaded: Int?
     private var siriCatalogRefreshTask: Task<Void, Never>?
     private var siriCatalogRefreshSchedule = SiriCatalogRefreshSchedule()
     #if os(iOS)
@@ -2787,7 +2791,8 @@ final class AppServices {
             guard let books = await self.siriCatalogBookList(),
                   !Task.isCancelled else { return }
             let stations = self.siriShortcutRadioStations
-            let shows = self.siriPodcastCatalog(subscriptions: PodcastStore.shared.shows, limit: 50)
+            // 歌曲模型不在内存里、之前又一次都没算过节目清单:这一轮答不了,不登记(不把「没有本机播客」交给系统)。
+            guard let shows = self.siriCatalogPodcastShows() else { return }
             var signature = stations.map { "r\($0.id)\u{1F}\($0.name)" }
                 + books.map { "b\($0.id)\u{1F}\($0.title)" }
                 + shows.map { "p\($0.id)\u{1F}\($0.title)" }
@@ -2820,7 +2825,8 @@ final class AppServices {
 
     #if os(iOS)
     func siriSongShortcutSuggestions() async -> [Song] {
-        guard await musicLibrary.whenReady(timeout: .seconds(8)),
+        // 等的是「可用」:`refreshSiriSongs` 从曲库目录挑,不要歌曲模型在内存里。
+        guard await musicLibrary.whenUsable(timeout: .seconds(8)),
               await refreshSiriSongs() else { return [] }
         return siriShortcutSongs
     }
@@ -2832,7 +2838,7 @@ final class AppServices {
             settingsCount: SettingsCatalog.available.filter(\.isPage).count,
             stationCount: siriShortcutRadioStations.count,
             bookCount: min(bookCount, SiriListeningCatalog.bookLimit),
-            podcastCount: min(PodcastStore.shared.shows.count + musicLibrary.localPodcastShowCount, SiriListeningCatalog.podcastShowLimit)
+            podcastCount: min(PodcastStore.shared.shows.count + siriLibraryPodcastShowCount, SiriListeningCatalog.podcastShowLimit)
         )
     }
 
@@ -2848,16 +2854,19 @@ final class AppServices {
     }
 
     private func refreshSiriSongs() async -> Bool {
-        guard musicLibrary.isReady else { return false }
+        // 等的是「可用」:歌从曲库目录上流式挑,不要歌曲模型在内存里。
+        guard musicLibrary.isUsable else { return false }
         while !Task.isCancelled {
             guard let books = await siriCatalogBookList(), !Task.isCancelled else { return false }
             let inputs = siriSongSuggestionInputs(limit: siriSongShortcutLimit(bookCount: books.count))
             let selected: [Song]?
             if let reader = PlaybackCatalogAccess.reader(for: musicLibrary) {
                 // 目录可读时在目录上流式挑(只留够格的优先歌与最新的那些),不交整库数组。挑法与先后无关
-                // (优先歌按给的先后,其余按加入时间与 id),同交整库的结果;读失败时照旧挑内存里的整库。
+                // (优先歌按给的先后,其余按加入时间与 id),同交整库的结果;读失败时照旧挑内存里的整库 ——
+                // 歌曲模型在内存里才有这份后备,不在时读失败就是这一轮答不了。
                 // crash-pattern: allow legacy-library-api 只是读失败时的后备,共用存储不复制
-                let fallback = musicLibrary.musicSongs
+                let fallback = musicLibrary.isReady ? musicLibrary.musicSongs : nil
+                let unanswered = SiriSongSelectionFailure()
                 selected = await siriSongSuggestions.songs(for: inputs) {
                     do {
                         return try await reader.read { catalog in
@@ -2866,13 +2875,23 @@ final class AppServices {
                             }
                         }
                     } catch {
+                        guard let fallback else {
+                            plog("Siri song shortcuts: catalog read failed (\(error)); the song model is not loaded, skipping this round")
+                            unanswered.mark()
+                            return nil
+                        }
                         plog("Siri song shortcuts: catalog read failed (\(error)); using the in-memory library")
                         return SiriSongCatalog.shortcuts(from: fallback, priorityIDs: inputs.priorityIDs, limit: inputs.limit)
                     }
                 }
-            } else {
+                // 查不到不是「一首都没有」:这一轮不换快捷指令里的歌,也不交给系统。
+                if unanswered.isMarked { return false }
+            } else if musicLibrary.isReady {
                 // crash-pattern: allow legacy-library-api 目录读不了时照旧交整库
                 selected = await siriSongSuggestions.songs(for: inputs, from: musicLibrary.musicSongs)
+            } else {
+                // 目录读不了、歌曲模型也不在内存里:这一轮答不了。
+                return false
             }
             guard let currentBooks = await siriCatalogBookList(), !Task.isCancelled else { return false }
             // A source can disappear or metadata can land while selection runs.
@@ -2893,6 +2912,9 @@ final class AppServices {
             storeRevision: store.revision
         )
         if let cached = siriCatalogBooks, cached.inputs == inputs { return cached.books }
+        // 分书要整份有声条目。歌曲模型不在内存里时那份数组是空的:沿用上一次分好的书单(只是不跟着新的进度重排);
+        // 一次都没分过就答不了(nil,调用方这一轮不登记),不为 Siri 的词表去装模型。
+        guard musicLibrary.isReady else { return siriCatalogBooks?.books }
         let songs = musicLibrary.spokenWordSongs
         let positions = store.positions
         let finishedAt = store.finishedAt
@@ -3973,5 +3995,24 @@ final class AppServices {
             // 不弹确认（askToEmbedLyrics: false），走不到这里。
             return String(localized: "intent_scrape_deferred")
         }
+    }
+}
+
+// MARK: - Siri 词表里读歌曲模型的两样(P3 步骤 6c)
+
+extension AppServices {
+    /// 交给 Siri 的播客清单。本机播客那一部分读整库数组和分节目的表:歌曲模型在内存里时现算并记下,
+    /// 不在时给上一次记下的那份(订阅的增减要等模型装回来才跟上);一次都没算过时 nil。
+    fileprivate func siriCatalogPodcastShows() -> [SiriPodcastShow]? {
+        guard musicLibrary.isReady else { return siriCatalogPodcastShowsWhileLoaded }
+        let shows = siriPodcastCatalog(subscriptions: PodcastStore.shared.shows, limit: 50)
+        siriCatalogPodcastShowsWhileLoaded = shows
+        return shows
+    }
+
+    /// 本机播客有几档节目(占 Siri 快捷指令的名额)。歌曲模型不在内存里时那张表是空的,沿用上一次数到的。
+    fileprivate var siriLibraryPodcastShowCount: Int {
+        if musicLibrary.isReady { siriLibraryPodcastShowCountWhileLoaded = musicLibrary.localPodcastShowCount }
+        return siriLibraryPodcastShowCountWhileLoaded ?? 0
     }
 }
