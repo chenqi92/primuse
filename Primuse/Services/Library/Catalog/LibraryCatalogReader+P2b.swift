@@ -298,32 +298,34 @@ enum PlaybackSurfaceCountsModel {
     }
 }
 
-/// 视图里只问「几首」「有没有」的地方用:目录可读且已经读到计数时读目录,否则照旧读内存模型
-/// (P2 过渡)。在视图里读会登记对目录可读状态与计数的观察。
+/// 视图里只问「几首」「有没有」的地方用:目录可读且已经读到计数时读目录,否则歌曲模型在内存里时读内存模型
+/// (P2 过渡)。两样都答不了(模型放掉了、目录的计数还没读到)时是 nil —— 不知道,不是 0:调用方不据此
+/// 显示空状态(6c 单元 4 S2)。在视图里读会登记对目录可读状态、计数与就绪的观察。
 extension PlaybackSurfaceCountsModel {
     /// `musicSongs.count`
-    static func musicSongCount(in library: MusicLibrary) -> Int {
-        counts(for: library)?.music ?? library.musicSongs.count
+    static func musicSongCount(in library: MusicLibrary) -> Int? {
+        counts(for: library)?.music ?? (library.isReady ? library.musicSongs.count : nil)
     }
 
     /// `visibleSongs.count`
-    static func visibleSongCount(in library: MusicLibrary) -> Int {
-        counts(for: library)?.visibleSongs ?? library.visibleSongs.count
+    static func visibleSongCount(in library: MusicLibrary) -> Int? {
+        counts(for: library)?.visibleSongs ?? (library.isReady ? library.visibleSongs.count : nil)
     }
 
     /// `visibleAlbums.count`
-    static func visibleAlbumCount(in library: MusicLibrary) -> Int {
-        counts(for: library)?.albums ?? library.visibleAlbums.count
+    static func visibleAlbumCount(in library: MusicLibrary) -> Int? {
+        counts(for: library)?.albums ?? (library.isReady ? library.visibleAlbums.count : nil)
     }
 
     /// `visibleArtists.count`
-    static func visibleArtistCount(in library: MusicLibrary) -> Int {
-        counts(for: library)?.artists ?? library.visibleArtists.count
+    static func visibleArtistCount(in library: MusicLibrary) -> Int? {
+        counts(for: library)?.artists ?? (library.isReady ? library.visibleArtists.count : nil)
     }
 
     /// `visibleSongs.contains(where: \.isPlayable)`
-    static func hasPlayableVisibleSong(in library: MusicLibrary) -> Bool {
-        counts(for: library)?.hasPlayableVisibleSong ?? library.visibleSongs.contains(where: \.isPlayable)
+    static func hasPlayableVisibleSong(in library: MusicLibrary) -> Bool? {
+        counts(for: library)?.hasPlayableVisibleSong
+            ?? (library.isReady ? library.visibleSongs.contains(where: \.isPlayable) : nil)
     }
 }
 #endif

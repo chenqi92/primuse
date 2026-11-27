@@ -84,8 +84,10 @@ final class HomeScreenQuickActionCenter {
         // 6c: 歌曲模型不在内存里时数不出整库和「喜欢」里有没有歌(数出来是 0 不是「没有」):这两项沿用上一次发布的。
         let countsAnswer = library.isReady
         let previouslyPublished = Set((UIApplication.shared.shortcutItems ?? []).map(\.type))
-        func stillOffered(_ action: HomeScreenQuickAction, _ count: () -> Int) -> Bool {
-            countsAnswer ? count() > 0 : previouslyPublished.contains(action.rawValue)
+        // 数不出来(nil:歌曲模型放掉、目录计数还没读到)时与还没有计数时一样,沿用上次发布的。
+        func stillOffered(_ action: HomeScreenQuickAction, _ count: () -> Int?) -> Bool {
+            guard countsAnswer, let known = count() else { return previouslyPublished.contains(action.rawValue) }
+            return known > 0
         }
         if let song = services.playerService.currentSong {
             let artist = library.artistDisplayName(for: song) ?? song.artistName ?? ""

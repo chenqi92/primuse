@@ -146,7 +146,7 @@ struct AIRecommendationLibraryView: View {
 
     var body: some View {
         Group {
-            if !PlaybackSurfaceCountsModel.hasPlayableVisibleSong(in: library) {
+            if PlaybackSurfaceCountsModel.hasPlayableVisibleSong(in: library) == false {
                 ContentUnavailableView {
                     Label("library_recommendations_empty_title", systemImage: "sparkles")
                 } description: {

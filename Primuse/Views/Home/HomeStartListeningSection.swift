@@ -108,7 +108,7 @@ struct StartListeningShelf: View {
                     }
                 }
                 .transition(.opacity)
-            } else if service.availability == nil, PlaybackSurfaceCountsModel.musicSongCount(in: library) > 0 {
+            } else if service.availability == nil, PlaybackSurfaceCountsModel.musicSongCount(in: library) != 0 {
                 placeholder
             }
         }

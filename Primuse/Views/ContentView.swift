@@ -1368,6 +1368,8 @@ struct LibraryReadyContent<Content: View>: View {
     @State private var isVisible = false
     var startupSection: LibrarySection? = nil
     var startupSearch: LibraryStartupSearchResults? = nil
+    /// nil:按分类定(`readiness(for:)`)。改成读曲库目录的页面传 `.catalog`。
+    var readiness: LibraryPageReadiness? = nil
     @ViewBuilder let content: () -> Content
 
     private var sourceIDs: Set<String> {
@@ -1375,17 +1377,27 @@ struct LibraryReadyContent<Content: View>: View {
     }
 
     /// 不等曲库装好就直接画的分类: 电台、播客不读曲库; 有声书架自己先摆上次的书架或骨架
-    /// (见 `SpokenWordShelfStartupHost`)。
-    private var showsBeforeLibraryReady: Bool {
-        switch startupSection {
-        case .radio, .podcasts, .spokenWord: true
-        default: false
+    /// (见 `SpokenWordShelfStartupHost`)。其余的还读整库数组。
+    static func readiness(for section: LibrarySection?) -> LibraryPageReadiness {
+        switch section {
+        case .radio, .podcasts, .spokenWord: .always
+        default: .legacy
+        }
+    }
+
+    private var policy: LibraryPageReadiness { readiness ?? Self.readiness(for: startupSection) }
+
+    private var showsContent: Bool {
+        switch policy {
+        case .always: true
+        case .catalog: library.isUsable
+        case .legacy: library.isReady
         }
     }
 
     var body: some View {
         ZStack {
-            if library.isReady || showsBeforeLibraryReady {
+            if showsContent {
                 content()
             } else {
                 Group {
@@ -1430,6 +1442,7 @@ struct LibraryReadyContent<Content: View>: View {
                     }
             }
         }
+        .songModelPage(needsArrays: policy == .legacy)
         .onAppear {
             isVisible = true
             startupPlayback.setContext(isVisible: true, isActive: scenePhase == .active)

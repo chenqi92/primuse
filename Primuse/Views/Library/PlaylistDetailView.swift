@@ -1704,7 +1704,7 @@ struct PlaylistDetailView: View {
         } else {
             EmptyStateView(
                 titleKey: "no_songs",
-                descriptionKey: PlaybackSurfaceCountsModel.musicSongCount(in: library) > 0
+                descriptionKey: PlaybackSurfaceCountsModel.musicSongCount(in: library) != 0
                     ? "playlist_empty_desc"
                     : "no_songs_desc",
                 systemImage: "music.note.list"

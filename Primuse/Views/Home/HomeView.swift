@@ -2440,9 +2440,9 @@ struct HomeView: View {
         let libraryRevision: Int
         let playlistRevision: Int
         let historyRevision: Int
-        let visibleSongCount: Int
-        let visibleAlbumCount: Int
-        let visibleArtistCount: Int
+        let visibleSongCount: Int?
+        let visibleAlbumCount: Int?
+        let visibleArtistCount: Int?
         let recentSongIDs: [String]
         let dayStamp: Int
         let localeIdentifier: String
@@ -2661,7 +2661,7 @@ struct HomeView: View {
                 HomeDeferredSection { artistsSection(style) }
             }
         case .recentlyAdded:
-            if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty || PlaybackSurfaceCountsModel.visibleAlbumCount(in: library) > 0 {
+            if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty || PlaybackSurfaceCountsModel.visibleAlbumCount(in: library) != 0 {
                 HomeDeferredSection { recentlyAddedAlbumsSection(style) }
             }
         case .recentlyAddedSongs:
@@ -3898,14 +3898,18 @@ struct HomeView: View {
     }
 
     private func persistInitialHomeSnapshotCache(signature: HomeSnapshotSignature) {
+        // 计数不知道(nil)时不写:写进去的是给下次启动对的数。
         guard model.highlightsSignature == signature,
-              let nextHero = model.preparedNextHero else { return }
+              let nextHero = model.preparedNextHero,
+              let visibleSongCount = signature.visibleSongCount,
+              let visibleAlbumCount = signature.visibleAlbumCount,
+              let visibleArtistCount = signature.visibleArtistCount else { return }
         let persisted = PersistedHomeSnapshot(
             version: PersistedHomeSnapshot.currentVersion,
             dayStamp: signature.dayStamp,
-            visibleSongCount: signature.visibleSongCount,
-            visibleAlbumCount: signature.visibleAlbumCount,
-            visibleArtistCount: signature.visibleArtistCount,
+            visibleSongCount: visibleSongCount,
+            visibleAlbumCount: visibleAlbumCount,
+            visibleArtistCount: visibleArtistCount,
             recentSongIDs: signature.recentSongIDs,
             heroSongIDs: nextHero.songIDs,
             recentlyAddedAlbums: model.snapshot.recentlyAddedAlbums.map {
@@ -4010,7 +4014,7 @@ struct HomeView: View {
         case .musicVideos:
             return library.hasMusicVideoContent
         case .recentlyAddedSongs:
-            return PlaybackSurfaceCountsModel.musicSongCount(in: library) > 0
+            return PlaybackSurfaceCountsModel.musicSongCount(in: library) != 0
         default:
             return true
         }
@@ -4330,16 +4334,16 @@ struct HomeView: View {
         #if DEBUG
         plog(String(format: "🏠 home snapshot main %.0fms songs=%d albums=%d artists=%d",
                     elapsed * 1000,
-                    signature.visibleSongCount,
-                    signature.visibleAlbumCount,
-                    signature.visibleArtistCount))
+                    signature.visibleSongCount ?? -1,
+                    signature.visibleAlbumCount ?? -1,
+                    signature.visibleArtistCount ?? -1))
         #else
         if elapsed > 0.08 {
             plog(String(format: "🏠 home snapshot refresh %.0fms songs=%d albums=%d artists=%d",
                         elapsed * 1000,
-                        signature.visibleSongCount,
-                        signature.visibleAlbumCount,
-                        signature.visibleArtistCount))
+                        signature.visibleSongCount ?? -1,
+                        signature.visibleAlbumCount ?? -1,
+                        signature.visibleArtistCount ?? -1))
         }
         #endif
     }
@@ -4554,7 +4558,7 @@ struct HomeView: View {
         let quickFinishedAt = Date()
 
         let snapshot = HomeSnapshot(
-            hasContent: PlaybackSurfaceCountsModel.visibleSongCount(in: library) > 0,
+            hasContent: PlaybackSurfaceCountsModel.visibleSongCount(in: library) != 0,
             statsGlimpse: summary.totalPlays > 0 ? summary : nil,
             forYouResults: forYouResults,
             recentSongs: recentSongs,

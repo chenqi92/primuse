@@ -187,7 +187,7 @@ struct MacQueuePanel: View {
             }
 
             // 资料库里一首歌都没有时, 这个按钮按下去什么也不会发生, 不给。
-            if PlaybackSurfaceCountsModel.musicSongCount(in: library) > 0 {
+            if PlaybackSurfaceCountsModel.musicSongCount(in: library) != 0 {
                 QueueEmptyShuffleButton(action: shuffleLibrary)
                     .padding(.top, 4)
             }

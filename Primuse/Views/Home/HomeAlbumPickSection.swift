@@ -46,7 +46,7 @@ struct HomeAlbumPickSection: View {
                             .transition(.opacity)
                     }
                 }
-            } else if service.recommendations == nil, PlaybackSurfaceCountsModel.visibleAlbumCount(in: library) > 0 {
+            } else if service.recommendations == nil, PlaybackSurfaceCountsModel.visibleAlbumCount(in: library) != 0 {
                 placeholder
             }
         }

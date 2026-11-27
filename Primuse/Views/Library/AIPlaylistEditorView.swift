@@ -240,7 +240,7 @@ struct AIPlaylistEditorView: View {
             && !normalizedPrompt.isEmpty
             && requestedSongCount != nil
             && remainingSelectionCapacity > 0
-            && PlaybackSurfaceCountsModel.visibleSongCount(in: library) > 0
+            && PlaybackSurfaceCountsModel.visibleSongCount(in: library) != 0
             && intelligence.isPersonalizedRecommendationsConfigured
     }
 

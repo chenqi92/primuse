@@ -423,7 +423,7 @@ struct MacHomeView: View {
                     .pmAppearFade(.contentAppear)
             }
         case .recentlyAdded:
-            if hasContent, showRecentlyAdded, PlaybackSurfaceCountsModel.visibleAlbumCount(in: library) > 0 {
+            if hasContent, showRecentlyAdded, PlaybackSurfaceCountsModel.visibleAlbumCount(in: library) != 0 {
                 recentlyAddedSection
                     .pmAppearFade(.contentAppear)
             }
