@@ -4361,8 +4361,19 @@ final class MusicLibrary {
     @ObservationIgnored private(set) var songModelResidencyStatistics = SongModelResidencyStatistics()
     /// 放掉了、装回来了、占用都结束了:App 那一层据此安排下一次空闲时的放掉。
     @ObservationIgnored var songModelResidencyObserver: (@MainActor (SongModelResidencyEvent) -> Void)?
-    /// 启动时读到的不常驻开关与两个过渡期策略开关(`applySongModelResidencySettings`)。
+    /// 启动时读到的不常驻开关与过渡期的策略开关(`applySongModelResidencySettings`)。
     @ObservationIgnored private(set) var songModelResidencySettings = SongModelResidencySettings.off
+    /// 开关已经装上(App 在构造库之后立刻装;场景那一层不再装第二遍)。
+    @ObservationIgnored private(set) var songModelResidencySettingsApplied = false
+    /// 不装歌曲模型的启动开着时,启动窗口里等「可用」的(`whenUsable`、`onUsable`):只装小状态的发布、目录读得了
+    /// 之后放行,不等歌曲模型。开关关着时它们照旧排在等就绪的那几张表里。
+    @ObservationIgnored private var usableContinuations: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var boundedUsableContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
+    @ObservationIgnored private var usableHandlers: [@MainActor () -> Void] = []
+    /// 不装歌曲模型的启动开着时,启动窗口里调了 `whenReady()` 的地方(只装小状态发布时它们要模型,日志里点名)。
+    @ObservationIgnored private var launchWhenReadyCallers: [String] = []
+    /// 这一次启动怎么发布的:`load`(今天的装法)、`unloaded`,或者 `load reason=<第一条不满足的启动条件>`。
+    @ObservationIgnored private(set) var songModelLaunch = "load"
     /// 前台的场景拿着的那一个占用(`setSongModelForegroundHold`)。
     @ObservationIgnored private var songModelForegroundHold: SongModelHold?
     /// 整份装载之前小状态落不了盘时,隔多久再试一次装载。
@@ -5877,6 +5888,7 @@ extension MusicLibrary {
     func whenReady(caller: StaticString = #function, file: StaticString = #fileID) async {
         startPendingCatalogueRead()
         if songModelLoadsOnDemand { requestSongModelLoad(reason: "whenReady \(file) \(caller)") }
+        if launchMayPublishWithoutTheSongModel, readiness != .ready { noteLaunchWhenReady("\(file) \(caller)") }
         await waitForSourceRemoval()
         guard readiness != .ready else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -5898,6 +5910,7 @@ extension MusicLibrary {
         guard readiness != .ready else { return true }
         if !Task.isCancelled { startPendingCatalogueRead() }
         if songModelLoadsOnDemand, !Task.isCancelled { requestSongModelLoad(reason: "whenReady(timeout) \(file) \(caller)") }
+        if launchMayPublishWithoutTheSongModel { noteLaunchWhenReady("\(file) \(caller)") }
         await waitForPublish(timeout: timeout)
         return isReady
     }
@@ -6024,12 +6037,15 @@ extension MusicLibrary {
         let handlers = readinessHandlers
         readinessHandlers.removeAll(keepingCapacity: false)
         for handler in handlers { handler() }
+        // 不装歌曲模型的启动开着时另排的等「可用」的(开关关着时这两张表是空的)。
+        runUsableHandlers()
         let continuations = readinessContinuations
         readinessContinuations.removeAll(keepingCapacity: false)
         for continuation in continuations { continuation.resume() }
         let bounded = boundedReadinessContinuations
         boundedReadinessContinuations.removeAll(keepingCapacity: false)
         for continuation in bounded.values { continuation.resume() }
+        resumeUsableContinuations()
     }
 
     /// 发布步骤第 4 步: 把 `.preparing` 期间被 S1 拦下的持久化各补一次。
@@ -6852,7 +6868,15 @@ extension MusicLibrary {
         // S3: 全量准备会把这份快照当成索引的全部内容, 并在结束时把 pending
         // 标记置为已完成。`.preparing` 期间 songs 还是空的, 那一次就会永久地
         // 把搜索索引标成"已经准备好的空索引"。标记留着, 下一次机会再跑。
-        guard isReady else { return }
+        guard isReady else {
+            // 歌曲模型放掉了(或者启动时没装):没有欠着的准备就什么都不做;欠着(上次准备到一半被杀)才拿占用装回来做。
+            guard songModelLoadsOnDemand, LibrarySearchIndex.hasPendingPreparation(defaults: searchIndexDefaults) else { return }
+            let hold = await holdSongModel(.launchMaintenance)
+            defer { hold.end() }
+            guard isReady, !Task.isCancelled else { return }
+            await prepareSearchIndexIfNeeded()
+            return
+        }
         guard LibrarySearchIndex.hasPendingPreparation(defaults: searchIndexDefaults) else { return }
         let previous = searchIndexUpdateTask
         let task = DeferredLibrarySnapshotWork.schedule(after: previous, capture: { [weak self] in
@@ -9232,6 +9256,13 @@ extension MusicLibrary {
     /// Snapshot-sized dictionary (normally only a handful of sources), backed
     /// by the cached all-library aggregate prepared with the song lookups.
     func songCountsBySourceID() -> [String: Int] {
+        // 歌曲模型不在内存里:不读整库数组,按源的数从目录来(含停用源,同 `songs` 的口径);目录答不了时给记着的那一份。
+        if songModelReleased {
+            guard let lookup = lookupOutsideTheModel, let counts = try? lookup.songCountsBySource() else {
+                return songCountBySourceID
+            }
+            return counts
+        }
         guard songCountBySourceID.values.reduce(0, +) == songs.count else {
             return Self.makeSongCountsBySourceID(songs)
         }
@@ -9702,6 +9733,8 @@ extension MusicLibrary {
         artworkSongIDResolutions.removeAll()
         smartPlaylistMatchCache.removeAll()
         smartPlaylistCatalogMatchCache.removeAll()
+        // 歌单条目的匹配键:用到时现算。
+        playlistEntryMatchKeyCache.removeAll()
         shuffleLinkGraphCache = nil
         favoriteArtistCandidatesCache = nil
         disabledSourcePlaylistCache = nil
@@ -9785,10 +9818,25 @@ extension MusicLibrary {
     }
 
     /// 放掉的内存先回到 malloc 的空闲表, 不还给系统的话挂起时的占用照旧。在主线程外做。
+    /// 回收队列上已经交来的释放都做完才返回。
+    nonisolated static func waitForPendingArrayReleases() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            LibraryArrayReclaimer.afterPendingReleases { continuation.resume() }
+        }
+    }
+
     nonisolated static func returnFreedMemoryToSystem() async {
-        await Task.detached(priority: .utility) {
+        _ = await returnFreedMemoryToSystemCountingBytes()
+    }
+
+    /// 同上,返回这一次还给系统的字节数(诊断日志用)。
+    @discardableResult
+    nonisolated static func returnFreedMemoryToSystemCountingBytes() async -> Int {
+        await Task.detached(priority: .utility) { () -> Int in
             #if canImport(Darwin)
-            _ = malloc_zone_pressure_relief(nil, 0)
+            return Int(malloc_zone_pressure_relief(nil, 0))
+            #else
+            return 0
             #endif
         }.value
     }
@@ -13288,7 +13336,10 @@ extension MusicLibrary {
             return false
         }
         guard !unresolved.isEmpty else { return result }
-        let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache)
+        // 只给与这些记号同歌名主体的歌建索引(元数据匹配一定同歌名主体,结果不变),不为整库算匹配键。
+        let matcher = PlaylistEntryMatcher(
+            songs: songs, keyCache: keyCache, matching: unresolved.map(\.matchSubject)
+        )
         for entry in unresolved {
             let confident = matcher.match(entry.matchSubject).confident
             guard !confident.isEmpty else { continue }
@@ -14332,6 +14383,17 @@ extension MusicLibrary {
                 self.schedulePendingIdentityFlush(after: .seconds(10))
                 return
             }
+            // 歌曲模型不在内存里:匹配要整库的表,只在还有待认领的身份时拿占用把模型装回来。
+            var hold: SongModelHold?
+            if !self.isReady, self.songModelLoadsOnDemand {
+                guard self.hasPendingIdentityResolution else { return }
+                hold = await self.holdSongModel(.launchMaintenance)
+                guard !Task.isCancelled, self.isReady else {
+                    hold?.end()
+                    return
+                }
+            }
+            defer { hold?.end() }
             if self.flushPendingIdentities(exactIDOnly: exactIDOnly && !self.allowsPendingIdentityFlush) {
                 self.persistSnapshot()
             }
@@ -14350,6 +14412,11 @@ extension MusicLibrary {
     func resumePendingIdentityResolution() {
         allowsPendingIdentityFlush = true
         schedulePendingIdentityFlush()
+    }
+
+    /// 还有等认领的身份(别的设备的歌单成员、最近播放先到,本机的歌还没扫到)。后台唤醒的「有没有活」看它。
+    var hasPendingIdentityResolution: Bool {
+        !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty
     }
 
     /// Convert a legacy CloudKit hard deletion into a durable tombstone. The
@@ -16015,6 +16082,16 @@ extension MusicLibrary {
         var songModelLoadUsedDerivedCache = false
         /// 发布时按流水补的行数上限;超过就重新装。
         static let journalPatchRowLimit = 20_000
+        // MARK: 不装歌曲模型的启动(`loadSmallStateOnly`, P3 步骤 6e)
+        /// 这一份只装了小状态,发布走 `publishWithoutTheSongModel`。
+        var isSmallStateOnly = false
+        /// 不装歌曲模型的启动条件里第一条不满足的;非 nil 时这一份照今天的装法装。
+        var unloadedLaunchRefusal: String?
+        /// 小状态最后一次整份落盘时旧库的修订号与旧库此刻的修订号:相同就不必清歌单与最近播放(15c 第 9 行)。
+        var smallStateStoreRevision: Int64?
+        var storeRevisionAtLaunch: Int64?
+        /// 读小状态花的时间(启动日志)。
+        var smallStateMilliseconds = 0
 
         var snapshotURL: URL { directory.appendingPathComponent("library-cache.json") }
         var backupSnapshotURL: URL { directory.appendingPathComponent("library-cache.backup.json") }
@@ -16199,6 +16276,7 @@ extension MusicLibrary {
                    let songStore {
                     do {
                         canonicalSongs = try songStore.loadSongs()
+                        MusicLibrary.noteSongModelStoreRead()
                         resolvedSnapshot = portableStartupCache.snapshot
                         canRefreshStartupCache = true
                         usedPortableStartupCache = true
@@ -16216,6 +16294,7 @@ extension MusicLibrary {
                    canonicalSongs == nil {
                     do {
                         canonicalSongs = try songStore.loadSongs()
+                        MusicLibrary.noteSongModelStoreRead()
                     } catch {
                         plog("⚠️ Incremental song store read failed; recovering from JSON: \(error.localizedDescription)")
                     }
@@ -16402,55 +16481,7 @@ extension MusicLibrary {
             }
             songs = loadedSongs
             songIndexByID = MusicLibrary.makeSongIndex(loadedSongs)
-            allPlaylists = snapshot.playlists
-            automaticArtistArtworkCatalogsBySource = Dictionary(
-                uniqueKeysWithValues: (snapshot.automaticArtistArtworkCatalogs ?? []).map {
-                    ($0.sourceID, $0)
-                }
-            )
-            artworkOverridesByOwner = Dictionary(
-                (snapshot.artworkOverrides ?? []).map { ($0.owner.storageKey, $0) },
-                uniquingKeysWith: { local, remote in
-                    LibraryArtworkOverrideReconciliationPolicy.winner(
-                        local: local,
-                        remote: remote
-                    ) == .local ? local : remote
-                }
-            )
-            libraryReviewsBySubject = Dictionary(
-                (snapshot.libraryReviews ?? []).map { ($0.subject.storageKey, $0) },
-                uniquingKeysWith: { local, remote in
-                    LibraryReviewReconciliationPolicy.winner(local: local, remote: remote)
-                }
-            )
-            libraryInsightRecordsByID = Dictionary(
-                (snapshot.libraryInsights ?? []).map { ($0.id, $0) },
-                uniquingKeysWith: { LibraryInsightEditing.winner($0, $1) }
-            )
-            generatedChaptersByID = Dictionary(SpokenChapterRecord.merge([], snapshot.generatedChapters ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            mirrorPlaylistSuppressions = Dictionary(
-                uniqueKeysWithValues: (snapshot.mirrorPlaylistSuppressions ?? []).map { ($0.id, $0) }
-            )
-            loadPlaylistDurabilityLedger()
-            allSmartPlaylists = snapshot.smartPlaylists ?? []
-            playlistSongIDs = snapshot.playlistSongIDs ?? [:]
-            playlistSyncBaseSongIDs = snapshot.playlistSyncBaseSongIDs ?? [:]
-            recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
-            // Old `deletedSongIDs` field stored mount-UUID-derived song.id
-            // tombstones — useless after re-OAuth changes the source UUID.
-            // Drop them silently; new identity-based tombstones replace.
-            // 装载时对账一次: 证据表说已撤销的键不再进集合, 过了保留期的撤销
-            // 记录和孤儿记录一并清掉。一次启动只跑一遍。
-            let tombstoneLedger = MusicLibrary.reconciledTombstoneLedger(
-                identities: snapshot.deletedSongIdentities == persistenceBase?.snapshot.deletedSongIdentities
-                    ? (persistenceBase?.deletedIdentities ?? []) : Set(snapshot.deletedSongIdentities ?? []),
-                details: snapshot.deletedSongIdentityDetails ?? [:]
-            )
-            deletedSongIdentities = tombstoneLedger.identities
-            deletedSongIdentityDetails = tombstoneLedger.details
-            pendingPlaylistIdentities = snapshot.pendingPlaylistIdentities ?? [:]
-            pendingHistoryIdentities = snapshot.pendingHistoryIdentities ?? []
-            playlistPendingEntries = snapshot.playlistPendingEntries ?? [:]
+            applySnapshotSmallState(snapshot)
             cleanPlaylistEntries()
             cleanPlaybackHistoryEntries()
             // Songs may already include matches for pending entries from a
@@ -16558,6 +16589,59 @@ extension MusicLibrary {
             }
         }
 
+        /// 快照里的小状态(歌单、成员、最近播放、墓碑、评价……)装进来:整份装载与只装小状态的启动共用这一段。
+        mutating func applySnapshotSmallState(_ snapshot: Snapshot) {
+            allPlaylists = snapshot.playlists
+            automaticArtistArtworkCatalogsBySource = Dictionary(
+                uniqueKeysWithValues: (snapshot.automaticArtistArtworkCatalogs ?? []).map {
+                    ($0.sourceID, $0)
+                }
+            )
+            artworkOverridesByOwner = Dictionary(
+                (snapshot.artworkOverrides ?? []).map { ($0.owner.storageKey, $0) },
+                uniquingKeysWith: { local, remote in
+                    LibraryArtworkOverrideReconciliationPolicy.winner(
+                        local: local,
+                        remote: remote
+                    ) == .local ? local : remote
+                }
+            )
+            libraryReviewsBySubject = Dictionary(
+                (snapshot.libraryReviews ?? []).map { ($0.subject.storageKey, $0) },
+                uniquingKeysWith: { local, remote in
+                    LibraryReviewReconciliationPolicy.winner(local: local, remote: remote)
+                }
+            )
+            libraryInsightRecordsByID = Dictionary(
+                (snapshot.libraryInsights ?? []).map { ($0.id, $0) },
+                uniquingKeysWith: { LibraryInsightEditing.winner($0, $1) }
+            )
+            generatedChaptersByID = Dictionary(SpokenChapterRecord.merge([], snapshot.generatedChapters ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            mirrorPlaylistSuppressions = Dictionary(
+                uniqueKeysWithValues: (snapshot.mirrorPlaylistSuppressions ?? []).map { ($0.id, $0) }
+            )
+            loadPlaylistDurabilityLedger()
+            allSmartPlaylists = snapshot.smartPlaylists ?? []
+            playlistSongIDs = snapshot.playlistSongIDs ?? [:]
+            playlistSyncBaseSongIDs = snapshot.playlistSyncBaseSongIDs ?? [:]
+            recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
+            // Old `deletedSongIDs` field stored mount-UUID-derived song.id
+            // tombstones — useless after re-OAuth changes the source UUID.
+            // Drop them silently; new identity-based tombstones replace.
+            // 装载时对账一次: 证据表说已撤销的键不再进集合, 过了保留期的撤销
+            // 记录和孤儿记录一并清掉。一次启动只跑一遍。
+            let tombstoneLedger = MusicLibrary.reconciledTombstoneLedger(
+                identities: snapshot.deletedSongIdentities == persistenceBase?.snapshot.deletedSongIdentities
+                    ? (persistenceBase?.deletedIdentities ?? []) : Set(snapshot.deletedSongIdentities ?? []),
+                details: snapshot.deletedSongIdentityDetails ?? [:]
+            )
+            deletedSongIdentities = tombstoneLedger.identities
+            deletedSongIdentityDetails = tombstoneLedger.details
+            pendingPlaylistIdentities = snapshot.pendingPlaylistIdentities ?? [:]
+            pendingHistoryIdentities = snapshot.pendingHistoryIdentities ?? []
+            playlistPendingEntries = snapshot.playlistPendingEntries ?? [:]
+        }
+
         mutating func loadPlaylistDurabilityLedger() {
             if let data = try? Data(contentsOf: playlistDurabilityURL, options: .mappedIfSafe),
                let ledger = try? decoder.decode(PlaylistDurabilityLedger.self, from: data) {
@@ -16658,6 +16742,74 @@ extension MusicLibrary {
             deviceLocalRemovalMetadataByID = resolved.metadata
         }
 
+        // MARK: 只装小状态的启动(P3 步骤 6e)
+
+        /// 不装歌曲模型的启动(P3 15b「启动条件」第 2、3、5 条):只读小状态 —— 启动缓存里那份不带歌的快照
+        /// (没有时读 JSON 快照)加增量,歌一首不读、派生的一层不建。条件不满足时记下第一条
+        /// (`unloadedLaunchRefusal`),这一份不用,调用方照今天的装法再装一次。
+        mutating func loadSmallStateOnly() {
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            guard let songStore, let state = try? songStore.startupState() else {
+                unloadedLaunchRefusal = "no song store"
+                return
+            }
+            guard state.isAuthoritative, state.completedMigrationVersion >= MusicLibrary.loadedSongMigrationVersion else {
+                unloadedLaunchRefusal = "the store is not what a launch would load as it is"
+                return
+            }
+            guard FileManager.default.fileExists(atPath: snapshotURL.path) else {
+                unloadedLaunchRefusal = "no snapshot"
+                return
+            }
+            let fingerprint = MusicLibrary.snapshotFingerprint(at: snapshotURL)
+            var snapshot: Snapshot
+            var base: SnapshotPersistenceBase?
+            if let cache = loadStartupCache(snapshotFingerprint: fingerprint) {
+                // 同整份装载:启动缓存里的快照就是 JSON 那一份(指纹对得上才解得出来)。
+                snapshot = cache.snapshot
+                smallStateStoreRevision = cache.songStoreRevision
+                // 派生缓存的目录指纹:装模型时据此认派生缓存,目录(专辑艺人文件夹)到了时据此核对而不是整库重分。
+                derivedIndexFolderSignature = cache.folderSignature
+                if cache.completeSnapshotBase == true, snapshot.separateSongStore == true, let fingerprint {
+                    base = SnapshotPersistenceBase(
+                        snapshot: snapshot, fingerprint: fingerprint,
+                        songStoreRevision: cache.songStoreRevision ?? state.contentRevision
+                    )
+                }
+            } else {
+                guard let data = try? Data(contentsOf: snapshotURL, options: .mappedIfSafe),
+                      let decoded = try? decoder.decode(Snapshot.self, from: data) else {
+                    unloadedLaunchRefusal = "the snapshot cannot be read"
+                    return
+                }
+                snapshot = decoded
+                if snapshot.separateSongStore == true, let fingerprint {
+                    base = SnapshotPersistenceBase(snapshot: snapshot, fingerprint: fingerprint, songStoreRevision: state.contentRevision)
+                }
+            }
+            guard snapshot.separateSongStore == true else {
+                unloadedLaunchRefusal = "the snapshot carries the songs"
+                return
+            }
+            do {
+                snapshot = try MusicLibrary.applyingSnapshotDelta(to: snapshot, at: snapshotURL, fingerprint: fingerprint)
+            } catch {
+                unloadedLaunchRefusal = "the snapshot delta cannot be read"
+                return
+            }
+            // 从这里起才改这一份:条件都满足了。
+            persistenceBase = base
+            storeRevisionAtLaunch = state.contentRevision
+            persistenceBlockedByCorruption = false
+            didPublishSnapshot = true
+            MusicLibrary.restorePortableArtworkAssets(snapshot, assetStore: .shared)
+            applySnapshotSmallState(snapshot)
+            isSmallStateOnly = true
+            smallStateMilliseconds = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+            plog("🚀 library load stage=small-state ms=\(smallStateMilliseconds) playlists=\(allPlaylists.count)"
+                 + " storeRevision=\(state.contentRevision) cleanStateRevision=\(smallStateStoreRevision.map(String.init) ?? "-")")
+        }
+
         // MARK: 只装歌曲模型(放掉之后装回来, P3 步骤 6d)
 
         /// 只把歌曲和由歌曲派生的那一层装回来;小状态一样不读 —— 内存里的那一份比磁盘上的新。
@@ -16679,6 +16831,7 @@ extension MusicLibrary {
                         return
                     }
                     let rows = try songStore.loadSongs()
+                    MusicLibrary.noteSongModelStoreRead()
                     if try songStore.startupState().contentRevision == state.contentRevision {
                         loaded = rows
                         revision = state.contentRevision
@@ -16733,8 +16886,10 @@ extension MusicLibrary {
         /// 专辑、艺人与可见集:派生缓存对得上(歌曲签名、目录指纹)就用,否则整库重算。
         mutating func deriveCollections(expectedFolderSignature: String?) {
             let signature = MusicLibrary.derivedIndexSignature(for: songs, configuration: artistNameConfiguration)
+            // 专辑艺人目录还没到(启动时没装模型,或者一直没收到):同启动的装载,派生缓存的目录指纹认它自己的,
+            // 目录到了再核对(`startupFolderValidationSignature`)。
             let cached = loadDerivedIndexCache(matching: signature).flatMap { cache in
-                cache.folderSignature == expectedFolderSignature ? cache : nil
+                albumArtistFolders == nil || cache.folderSignature == expectedFolderSignature ? cache : nil
             }
             if let cached {
                 albums = cached.albums
@@ -17101,7 +17256,10 @@ extension MusicLibrary {
         /// G3: sourceID → cloudAccountID。resolver 直到库构造之后才安装,
         /// 因此账号型源的身份键必须由调用方在准备阶段直接提供。
         sourceIdentityPrefixes: [String: String] = [:],
-        spokenWordClassification: SpokenWordClassificationInputs = .empty
+        spokenWordClassification: SpokenWordClassificationInputs = .empty,
+        /// 先试不装歌曲模型的启动(P3 步骤 6e,`SongModelResidencySettings.launchUnloaded`):只读小状态。
+        /// 条件不满足时同一个任务里照今天的装法装,日志里记第一条不满足的。
+        withoutTheSongModel: Bool = false
     ) async -> PreparedStartup {
         let configuration = (artistNameConfiguration ?? ArtistNameConfiguration.load(from: .standard)).normalized()
         let writerID = startupPlaylistWriterID()
@@ -17135,6 +17293,15 @@ extension MusicLibrary {
             storage.spokenWordClassification = spokenWordClassification
             storage.knownSourceIDs = knownSourceIDs
             storage.loadDeviceLocalExclusions()
+            if withoutTheSongModel, !preferExternalSnapshot {
+                let baseline = storage
+                storage.loadSmallStateOnly()
+                if storage.isSmallStateOnly { return PreparedStartup(storage: storage) }
+                let refusal = storage.unloadedLaunchRefusal ?? "unknown"
+                plog("🧠 residency launch=load reason=\(refusal)")
+                storage = baseline
+                storage.unloadedLaunchRefusal = refusal
+            }
             storage.loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)
             return PreparedStartup(storage: storage)
         }.value
@@ -21512,8 +21679,20 @@ extension MusicLibrary {
 
     /// 已经可用时立即返回,否则挂起到可用。
     func whenUsable() async {
-        // 模型在内存里、第一次装载或整份重载期间:与等就绪是同一件事。
-        guard songModelReleased, isPreparing else { return await whenReady() }
+        // 模型在内存里、第一次装载或整份重载期间:与等就绪是同一件事 —— 不装歌曲模型的启动开着时除外,
+        // 那时启动窗口里只等可用(只装小状态的发布、目录读得了之后)。
+        guard songModelReleased, isPreparing else {
+            guard launchMayPublishWithoutTheSongModel, isPreparing else { return await whenReady() }
+            startPendingCatalogueRead()
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                if !isPreparing || isUsable {
+                    continuation.resume()
+                } else {
+                    usableContinuations.append(continuation)
+                }
+            }
+            return
+        }
         if isUsable { return }
         // 放掉了而目录答不了:装回来的请求由曲库自己发(见 `lookupOutsideTheModel`),这里只等发布。
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -21527,7 +21706,12 @@ extension MusicLibrary {
 
     /// 有界等待:可用与超时哪个先到都立刻返回,返回值是返回时刻的 `isUsable`。
     func whenUsable(timeout: Duration) async -> Bool {
-        guard songModelReleased, isPreparing else { return await whenReady(timeout: timeout) }
+        guard songModelReleased, isPreparing else {
+            guard launchMayPublishWithoutTheSongModel, isPreparing else { return await whenReady(timeout: timeout) }
+            if !Task.isCancelled { startPendingCatalogueRead() }
+            await waitForUsable(timeout: timeout)
+            return isUsable
+        }
         if isUsable { return true }
         // 同 `whenUsable()`:只等发布,不替调用方请求装载(装载由曲库自己发,见 `lookupOutsideTheModel`)。
         await waitForPublish(timeout: timeout)
@@ -21536,7 +21720,11 @@ extension MusicLibrary {
 
     /// 已经可用时立即执行,否则在变成可用时按注册顺序执行一次。
     func onUsable(_ handler: @escaping @MainActor () -> Void) {
-        guard songModelReleased, isPreparing else { return onReady(handler) }
+        guard songModelReleased, isPreparing else {
+            guard launchMayPublishWithoutTheSongModel, isPreparing else { return onReady(handler) }
+            usableHandlers.append(handler)
+            return
+        }
         if isUsable {
             handler()
         } else {
@@ -21570,6 +21758,10 @@ extension MusicLibrary {
         case playbackContinuation
         /// 局域网缓存互传:目录答不了清单时读整库的那一下。
         case cacheSync
+        /// 服务器歌单、评分、喜欢的同步要整库的表时。
+        case serverSync
+        /// 收到 CloudKit 的改动,应用时要整库的表。
+        case cloudKitReceive
         /// 界面在前台。页面还没全部改成读目录之前的过渡办法:前台一直占着,退到后台才放手。
         case foreground
     }
@@ -21627,6 +21819,7 @@ extension MusicLibrary {
     /// 启动时装上不常驻的开关与两个过渡期策略开关,记一行启动日志。开关关着时与以前完全相同。
     func applySongModelResidencySettings(_ settings: SongModelResidencySettings) {
         songModelResidencySettings = settings
+        songModelResidencySettingsApplied = true
         songModelResidencyEnabled = settings.isEnabled
         if !settings.isEnabled { setSongModelForegroundHold(false) }
         plog(settings.launchLine)
@@ -21686,6 +21879,8 @@ extension MusicLibrary {
         var wholeLibraryLoads = 0
         /// 整份装载之前小状态没能落盘、留在放掉的状态稍后再试的次数。
         var deferredWholeLibraryLoads = 0
+        /// 不装歌曲模型的启动:等目录认下输入、追上旧库用了多久。
+        var launchCatalogMilliseconds = 0
         var lastLoadReason: String?
         var lastLoadJournalRows = 0
         var lastLoadMilliseconds = 0
@@ -21717,12 +21912,19 @@ extension MusicLibrary {
         static let enabledEnvironmentKey = "PRIMUSE_SONG_MODEL_RESIDENCY"
         static let foregroundHoldEnvironmentKey = "PRIMUSE_SONG_MODEL_RESIDENCY_FOREGROUND_HOLD"
         static let playbackBlocksReleaseEnvironmentKey = "PRIMUSE_SONG_MODEL_RESIDENCY_PLAYBACK_BLOCKS"
+        static let launchUnloadedKey = "PrimuseSongModelResidencyLaunchUnloaded"
+        static let launchUnloadedEnvironmentKey = "PRIMUSE_SONG_MODEL_RESIDENCY_LAUNCH_UNLOADED"
 
         var isEnabled: Bool
         /// 前台的场景占着歌曲模型,退到后台才放手(页面还没改完之前的过渡办法)。默认开。
         var foregroundHold: Bool
         /// 后台放歌时不放(每首歌都要的那些读者都改完之前的过渡办法)。默认开。
         var playbackBlocksRelease: Bool
+        /// 启动时不装歌曲模型(P3 步骤 6e):只装小状态、接上目录就算能用。总开关开着时也默认关。
+        var launchUnloaded: Bool = false
+
+        /// 这一次启动要先试不装歌曲模型:总开关与这个开关都开着。
+        var launchesUnloaded: Bool { isEnabled && launchUnloaded }
 
         static let off = SongModelResidencySettings(isEnabled: false, foregroundHold: true, playbackBlocksRelease: true)
 
@@ -21745,15 +21947,19 @@ extension MusicLibrary {
             return SongModelResidencySettings(
                 isEnabled: flag(enabledKey, enabledEnvironmentKey, default: false),
                 foregroundHold: flag(foregroundHoldKey, foregroundHoldEnvironmentKey, default: true),
-                playbackBlocksRelease: flag(playbackBlocksReleaseKey, playbackBlocksReleaseEnvironmentKey, default: true)
+                playbackBlocksRelease: flag(playbackBlocksReleaseKey, playbackBlocksReleaseEnvironmentKey, default: true),
+                launchUnloaded: flag(launchUnloadedKey, launchUnloadedEnvironmentKey, default: false)
             )
             #endif
         }
 
+        /// 启动时那一行。要先试不装歌曲模型时开头是 `launch=unloaded-requested`,试的结果另起一行
+        /// (`launch=unloaded …` 或 `launch=load reason=…`)。
         var launchLine: String {
             func onOff(_ value: Bool) -> String { value ? "on" : "off" }
-            return "🧠 residency launch=load residency=\(onOff(isEnabled)) foregroundHold=\(onOff(foregroundHold))"
-                + " playbackBlocks=\(onOff(playbackBlocksRelease))"
+            return "🧠 residency launch=\(launchesUnloaded ? "unloaded-requested" : "load") residency=\(onOff(isEnabled))"
+                + " foregroundHold=\(onOff(foregroundHold)) playbackBlocks=\(onOff(playbackBlocksRelease))"
+                + " launchUnloaded=\(onOff(launchUnloaded))"
         }
     }
 
@@ -21799,6 +22005,18 @@ extension MusicLibrary {
         }
         guard result == KERN_SUCCESS else { return "?" }
         return String(format: "%.1fMiB", Double(info.phys_footprint) / 1_048_576)
+    }
+
+    /// malloc 各区合计:在用的与从系统拿着的(相差的是空着没还的块)。放掉前后各记一次,看空页是不是留在堆里。
+    nonisolated static func mallocZoneUsage() -> String {
+        #if canImport(Darwin)
+        var statistics = malloc_statistics_t()
+        malloc_zone_statistics(nil, &statistics)
+        return String(format: "mallocInUse=%.1fMiB mallocAllocated=%.1fMiB",
+                      Double(statistics.size_in_use) / 1_048_576, Double(statistics.size_allocated) / 1_048_576)
+        #else
+        return "mallocInUse=? mallocAllocated=?"
+        #endif
     }
 
     // MARK: 放掉
@@ -21868,6 +22086,8 @@ extension MusicLibrary {
               !deferredIncrementalScanMaintenancePending else { return "deferred maintenance pending" }
         guard startupFolderValidationTask == nil else { return "folder validation in flight" }
         guard contentClassificationRefreshTask == nil else { return "classification refresh in flight" }
+        // 深的影子校验把整份数组交给目录去比(开发构建、10 万首以内),比完之前放掉也还不回内存。
+        guard catalogShadowTask == nil else { return "catalog shadow verification in flight" }
         // 旧库与快照。
         guard songStore != nil else { return "no song store" }
         // 旧库要整份重写时快照也带歌,先点它的名。
@@ -21894,6 +22114,7 @@ extension MusicLibrary {
         let songCount = songIndexByID.count
         let albumCount = albumsReference.value.count
         let footprintBefore = Self.residencyFootprint()
+        let mallocBefore = Self.mallocZoneUsage()
         // 放掉之后答不了的两样,趁数组还在先留下:各音乐源的 id、被停用的源藏起来的歌单。
         releasedSongSourceIDs = Set(songCountBySourceID.keys)
         if disabledSourceIDs.isEmpty {
@@ -21925,11 +22146,27 @@ extension MusicLibrary {
         plog("🧠 residency release songs=\(songCount) albums=\(albumCount) footprintBefore=\(footprintBefore) trigger=\(trigger)")
         // 放掉的对象在回收队列上释放;释放完把空闲页还给系统,再量一次。
         songModelReclaimTask = Task.detached(priority: .utility) {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                LibraryArrayReclaimer.afterPendingReleases { continuation.resume() }
+            // 这一次换下来的对象先在回收队列上释放完(排在它们后面等),再把空页还给系统。
+            await MusicLibrary.waitForPendingArrayReleases()
+            guard returningFreedMemory else {
+                // 正在放歌:不整理大堆(断音),空页等放歌停了再还(App 那一层排)。
+                plog("🧠 residency release done songs=\(songCount) footprintBefore=\(footprintBefore)"
+                     + " footprintAfter=\(MusicLibrary.residencyFootprint()) relief=deferred \(MusicLibrary.mallocZoneUsage())")
+                return
             }
-            if returningFreedMemory { await MusicLibrary.returnFreedMemoryToSystem() }
-            plog("🧠 residency release done songs=\(songCount) footprintBefore=\(footprintBefore) footprintAfter=\(MusicLibrary.residencyFootprint())")
+            var relieved = [await MusicLibrary.returnFreedMemoryToSystemCountingBytes()]
+            let afterFirstRelief = MusicLibrary.residencyFootprint()
+            // 有几处晚一点才放手(界面按就绪重画时手上的那一份、列表快照、搜索的读缓存、目录的页缓存):
+            // 它们在主线程或别的队列上释放,不经回收队列。隔一会儿再还两次(都在后台时间之内)。
+            for delay in [2, 4] {
+                try? await Task.sleep(for: .seconds(delay))
+                await MusicLibrary.waitForPendingArrayReleases()
+                relieved.append(await MusicLibrary.returnFreedMemoryToSystemCountingBytes())
+            }
+            let relievedMiB = relieved.map { String(format: "%.1f", Double($0) / 1_048_576) }.joined(separator: "+")
+            plog("🧠 residency release done songs=\(songCount) footprintBefore=\(footprintBefore)"
+                 + " afterFirstRelief=\(afterFirstRelief) footprintAfter=\(MusicLibrary.residencyFootprint())"
+                 + " relievedMiB=\(relievedMiB) \(MusicLibrary.mallocZoneUsage()) (before: \(mallocBefore))")
         }
         songModelResidencyObserver?(.released)
         return .released(songs: songCount, albums: albumCount)
@@ -22068,7 +22305,8 @@ extension MusicLibrary {
         storage.deviceLocalExcludedSongIdentities = deviceLocalExcludedSongIdentities
         storage.deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID
         storage.deviceLocalRemovalMetadataByID = deviceLocalRemovalMetadataByID
-        storage.albumArtistFolders = albumArtistFolders
+        // 这一轮进程里还没收到专辑艺人目录(不装模型启动的,或者一直没收到):当「不知道」,派生缓存认它自己的指纹。
+        storage.albumArtistFolders = catalogAlbumArtistFoldersReceived ? albumArtistFolders : nil
         storage.spokenWordClassification = SpokenWordStore.shared.classificationSnapshot
         let sourceIDs = releasedSongSourceIDs.union(deviceLocalExcludedSongsByID.values.map(\.sourceID))
         for sourceID in sourceIDs {
@@ -22225,6 +22463,8 @@ extension MusicLibrary {
         artists = storage.artists
         derivedIndexSignature = storage.derivedIndexSignature
         derivedIndexFolderSignature = storage.derivedIndexFolderSignature
+        // 专辑艺人目录还没到:到了先拿这次用的派生缓存的指纹核对,对得上不整库重分组(同启动的发布)。
+        if !catalogAlbumArtistFoldersReceived { startupFolderValidationSignature = storage.derivedIndexFolderSignature }
         if storage.deviceLocalExclusionsChanged {
             deviceLocalExcludedSongIdentities = storage.deviceLocalExcludedSongIdentities
             deviceLocalExcludedSongsByID = storage.deviceLocalExcludedSongsByID
@@ -22271,6 +22511,222 @@ extension MusicLibrary {
         // crash-pattern: allow legacy-library-api 同上
         let hasMusicVideos = !musicVideoSongs.isEmpty
         if hasMusicVideoContent != hasMusicVideos { hasMusicVideoContent = hasMusicVideos }
+    }
+
+    // MARK: 不装歌曲模型的启动(P3 步骤 6e)
+
+    /// 装载从旧库读整份歌曲的次数(测试:不装歌曲模型的启动一次都不读)。
+    nonisolated static let songModelStoreReads = OSAllocatedUnfairLock(initialState: 0)
+
+    nonisolated static func noteSongModelStoreRead() {
+        songModelStoreReads.withLock { $0 += 1 }
+    }
+
+    /// 启动条件第 4 条:提前启动的目录要在小状态装好之后这么久之内认下输入、追上旧库(P3 15g-7 的提议值)。
+    /// 规模夹具在外接盘上冷开 50 万首的目录要两三秒,量那边的时候测试把它放宽。
+    static var unloadedLaunchCatalogWait: Duration = .milliseconds(500)
+
+    /// 不装歌曲模型的启动开着,而且还在第一次发布之前(启动窗口):等可用的另排,`whenReady()` 记下是谁。
+    fileprivate var launchMayPublishWithoutTheSongModel: Bool {
+        songModelResidencyEnabled && songModelResidencySettings.launchUnloaded && !songModelReleased
+    }
+
+    fileprivate func noteLaunchWhenReady(_ caller: String) {
+        guard isPreparing, launchWhenReadyCallers.count < 16, !launchWhenReadyCallers.contains(caller) else { return }
+        launchWhenReadyCallers.append(caller)
+    }
+
+    /// `whenUsable(timeout:)` 在启动窗口里的等待(不装歌曲模型的启动开着时):可用、超时、取消哪个先到都返回。
+    private func waitForUsable(timeout: Duration) async {
+        guard isPreparing, !isUsable else { return }
+        let id = UUID()
+        let timer = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            self?.resumeBoundedUsableWaiter(id: id)
+        }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                if !isPreparing || isUsable || Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    boundedUsableContinuations[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.resumeBoundedUsableWaiter(id: id) }
+        }
+        timer.cancel()
+    }
+
+    private func resumeBoundedUsableWaiter(id: UUID) {
+        boundedUsableContinuations.removeValue(forKey: id)?.resume()
+    }
+
+    fileprivate func runUsableHandlers() {
+        guard !usableHandlers.isEmpty else { return }
+        let handlers = usableHandlers
+        usableHandlers.removeAll(keepingCapacity: false)
+        for handler in handlers { handler() }
+    }
+
+    fileprivate func resumeUsableContinuations() {
+        let continuations = usableContinuations
+        usableContinuations.removeAll(keepingCapacity: false)
+        for continuation in continuations { continuation.resume() }
+        let bounded = boundedUsableContinuations
+        boundedUsableContinuations.removeAll(keepingCapacity: false)
+        for continuation in bounded.values { continuation.resume() }
+    }
+
+    /// 启动的发布(App 的启动任务调用)。只装了小状态的那一份(`prepareStartup(withoutTheSongModel: true)`)先等
+    /// 提前启动的目录认下输入、追上旧库(启动条件第 4 条,至多 `unloadedLaunchCatalogWait`):等到了就不装歌曲模型
+    /// 发布,等不到就照今天的装法再装一次(`fullLoad`)再发布,日志里记原因。整份装载的那一份照旧 `publish`。
+    func publishStartup(_ prepared: PreparedStartup, fullLoad: @escaping @Sendable () async -> PreparedStartup) async {
+        guard prepared.storage.isSmallStateOnly else {
+            if let refusal = prepared.storage.unloadedLaunchRefusal { songModelLaunch = "load reason=\(refusal)" }
+            return publish(prepared)
+        }
+        let started = ContinuousClock.now
+        var refusal: String?
+        if let host = catalogHost, let revision = prepared.storage.storeRevisionAtLaunch {
+            let deadline = started + Self.unloadedLaunchCatalogWait
+            while !host.mirror.earlyStartIsCaughtUp(through: revision), ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            if !host.mirror.earlyStartIsCaughtUp(through: revision) {
+                refusal = "the catalog did not adopt its inputs and catch up within \(Self.unloadedLaunchCatalogWait)"
+            }
+        } else {
+            refusal = "no catalog"
+        }
+        guard isPreparing, !songModelReleased else { return }
+        if let refusal {
+            plog("🧠 residency launch=load reason=\(refusal)")
+            songModelLaunch = "load reason=\(refusal)"
+            publish(await fullLoad())
+            return
+        }
+        let catalogMilliseconds = Int((ContinuousClock.now - started) / .milliseconds(1))
+        songModelResidencyStatistics.launchCatalogMilliseconds = catalogMilliseconds
+        publishWithoutTheSongModel(prepared, catalogMilliseconds: catalogMilliseconds)
+    }
+
+    /// 只装了小状态的发布:小状态拷进来、接上目录,停在「可用、没装」(`.preparing`、放掉了、要用时自己装回来)。
+    /// 等就绪的、`onReady` 的都不放行;等可用的在目录读得了之后放行。启动窗口里排了队的突变过一遍(只动小状态和
+    /// 行的当场做,要模型的重新排队并开始装)。之后做 17f 的两步:本机移除的账本、歌单与最近播放的清理。
+    private func publishWithoutTheSongModel(_ prepared: PreparedStartup, catalogMilliseconds: Int) {
+        let storage = prepared.storage
+        disabledSourceIDs = storage.disabledSourceIDs
+        artistNameConfiguration = storage.artistNameConfiguration
+        invalidateArtistDisplayNameCache()
+        songStore = storage.songStore
+        // 目录的分组输入里的分类:与提前启动时预估的那一份相同,接上时目录不重分组。
+        visibleContentClassification = storage.spokenWordClassification
+        persistenceBlockedByCorruption = storage.persistenceBlockedByCorruption
+        allPlaylists = storage.allPlaylists
+        mirrorPlaylistSuppressions = storage.mirrorPlaylistSuppressions
+        artworkOverridesByOwner = storage.artworkOverridesByOwner
+        deviceLocalExcludedSongIdentities = storage.deviceLocalExcludedSongIdentities
+        deviceLocalExcludedSongsByID = storage.deviceLocalExcludedSongsByID
+        deviceLocalRemovalMetadataByID = storage.deviceLocalRemovalMetadataByID
+        let persistenceBase = storage.persistenceBase
+        snapshotPersistenceState.base.withLock { $0 = persistenceBase }
+        allSmartPlaylists = storage.allSmartPlaylists
+        playlistSongIDs = storage.playlistSongIDs
+        playlistSyncBaseSongIDs = storage.playlistSyncBaseSongIDs
+        recentPlaybackSongIDs = storage.recentPlaybackSongIDs
+        deletedSongIdentities = storage.deletedSongIdentities
+        deletedSongIdentityDetails = storage.deletedSongIdentityDetails
+        pendingPlaylistIdentities = storage.pendingPlaylistIdentities
+        pendingHistoryIdentities = storage.pendingHistoryIdentities
+        playlistPendingEntries = storage.playlistPendingEntries
+        automaticArtistArtworkCatalogsBySource = storage.automaticArtistArtworkCatalogsBySource
+        libraryReviewsBySubject = storage.libraryReviewsBySubject
+        generatedChaptersByID = storage.generatedChaptersByID
+        generatedChaptersRevision &+= 1
+        NotificationCenter.default.post(name: .primuseGeneratedChaptersDidChange, object: nil)
+        libraryInsightRecordsByID = storage.libraryInsightRecordsByID
+        songStoreRequiresReplacement = storage.songStoreRequiresReplacement
+        pendingSnapshotImportID = storage.pendingSnapshotImportID
+        derivedIndexFolderSignature = storage.derivedIndexFolderSignature
+        // 同整份发布:专辑艺人目录还没到时,到了先核对指纹,对得上就不整库重分组。
+        startupFolderValidationSignature = storage.albumArtistFolders == nil ? storage.derivedIndexFolderSignature : nil
+        playlistCollectionRevision &+= 1
+        artworkOverrideRevision &+= 1
+        libraryReviewRevision &+= 1
+        libraryInsightRevision &+= 1
+        // 「可用、没装」:与放掉之后同一个状态,要用时自己装回来。
+        songModelReleased = true
+        songModelLoadsOnDemand = true
+        releasedSongSourceIDs = Set(storage.sourceIdentityPrefixes.keys)
+        startCatalogIfNeeded()
+        // 准备中 `syncCatalogInputs` 不交输入;这里交一次正式的(与预估的相同时目录什么都不做)。
+        catalogHost?.mirror.updateInputs(catalogInputs())
+        // 接上之后目录马上读得了(追上了旧库、持有方已发布):入口的标记、书架条数、按源的曲数这时就从目录数好,
+        // 界面第一次看它们时已经是对的。
+        applyLaunchCountsFromTheCatalog()
+        if storage.shouldPersistPlaylistDurabilityLedger { _ = persistPlaylistDurabilityLedger() }
+        songModelResidencyRevision &+= 1
+        plog("🧠 residency launch=unloaded smallStateMs=\(storage.smallStateMilliseconds) catalogMs=\(catalogMilliseconds)")
+        songModelLaunch = "unloaded"
+        let cleanUp = storage.smallStateStoreRevision == nil || storage.smallStateStoreRevision != storage.storeRevisionAtLaunch
+        Task { @MainActor [weak self] in await self?.finishUnloadedLaunch(cleaningUpPlaylists: cleanUp) }
+    }
+
+    /// 只装小状态发布之后:目录在主线程上读得了,才算「可用」—— 那时放行等可用的,
+    /// 过一遍启动窗口里排了队的突变,再做 17f 的两步。启动窗口里已经要了模型的(占用、`whenReady()`)这时开始装。
+    private func finishUnloadedLaunch(cleaningUpPlaylists: Bool) async {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while songModelReleased, isPreparing, !(isUsable && catalogHost?.revisions.isReadable == true),
+              ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        guard songModelReleased, isPreparing else { return }
+        guard isUsable, catalogHost?.revisions.isReadable == true else {
+            // 目录接上了却读不了:等可用的由装模型的那次发布放行。
+            requestSongModelLoad(reason: "the catalog did not become readable after an unloaded launch")
+            return
+        }
+        runUsableHandlers()
+        resumeUsableContinuations()
+        // 启动窗口里排了队的突变:只动小状态和行的现在当场做;要模型的重新排队(顺序不乱:前面有排着的,后面的都排)。
+        if !deferredMutations.isEmpty {
+            let pending = deferredMutations
+            deferredMutations.removeAll(keepingCapacity: false)
+            for work in pending { work() }
+        }
+        // 启动窗口里已经有人要模型了:现在开始装。
+        if !songModelHolds.isEmpty {
+            requestSongModelLoad(reason: "hold \(songModelHoldReasons.map(\.rawValue).joined(separator: ",")) at launch")
+        } else if !launchWhenReadyCallers.isEmpty {
+            requestSongModelLoad(reason: "whenReady at launch: \(launchWhenReadyCallers.joined(separator: "; "))")
+        }
+        launchWhenReadyCallers.removeAll()
+        reconcileDeviceLocalExclusionsWithoutTheModel()
+        if cleaningUpPlaylists, songModelReleased {
+            _ = await cleanPlaylistAndHistoryEntriesWithoutTheModel()
+        }
+    }
+
+    /// 入口的几个标记、书架条数、按源的曲数,不装歌曲模型时从目录数(装模型的发布时数组那一边会再算一遍)。
+    private func applyLaunchCountsFromTheCatalog() {
+        guard let catalog = catalogHost?.mirror.readableCatalog else { return }
+        if let spokenWord = try? catalog.songCount(LibrarySongScope(kinds: [.spokenWord])) {
+            if hasSpokenWordContent != (spokenWord > 0) { hasSpokenWordContent = spokenWord > 0 }
+            if spokenWordSongCount != spokenWord { spokenWordSongCount = spokenWord }
+        }
+        if let ambient = try? catalog.songCount(LibrarySongScope(kinds: [.ambient])),
+           hasAmbientContent != (ambient > 0) {
+            hasAmbientContent = ambient > 0
+        }
+        if let musicVideos = try? catalog.musicVideoSongCount(), hasMusicVideoContent != (musicVideos > 0) {
+            hasMusicVideoContent = musicVideos > 0
+        }
+        if let lookup = lookupOutsideTheModel, let counts = try? lookup.songCountsBySource() {
+            songCountBySourceID = counts
+            releasedSongSourceIDs.formUnion(counts.keys)
+        }
     }
 
     // MARK: 歌单的可见曲数,模型不在内存里时

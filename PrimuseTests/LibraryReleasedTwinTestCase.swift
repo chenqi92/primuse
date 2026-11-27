@@ -158,12 +158,26 @@ class LibraryReleasedTwinTestCase: XCTestCase {
     }
 
     func released(_ library: MusicLibrary, _ step: String, file: StaticString = #filePath, line: UInt = #line) async -> Bool {
-        let outcome = await library.releaseSongModelIfIdle(trigger: step)
+        let outcome = await releaseOnceShadowVerificationIsDone(library, trigger: step)
         guard case .released = outcome else {
             XCTFail("\(step): not released: \(outcome)", file: file, line: line)
             return false
         }
         return true
+    }
+
+    /// 放掉歌曲模型;影子校验还在跑时放不了(那是放掉自己的一条空闲条件),等它跑完再试,最多等 15 秒。
+    /// 机器忙的时候定时的那一轮校验会正好落在测试要放的这一刻。别的拒绝理由原样返回。
+    func releaseOnceShadowVerificationIsDone(
+        _ library: MusicLibrary, trigger: String
+    ) async -> MusicLibrary.SongModelReleaseOutcome {
+        let deadline = ContinuousClock.now + .seconds(15)
+        var outcome = await library.releaseSongModelIfIdle(trigger: trigger)
+        while outcome == .skipped("catalog shadow verification in flight"), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+            outcome = await library.releaseSongModelIfIdle(trigger: trigger)
+        }
+        return outcome
     }
 
     func waitUntilReady(_ library: MusicLibrary) async throws {
@@ -187,7 +201,7 @@ class LibraryReleasedTwinTestCase: XCTestCase {
     /// 真放掉歌曲模型(`releaseSongModelIfIdle`)。返回放掉那一刻的统计,给「没装、没读整库数组」比。
     func releaseForReal(_ library: MusicLibrary) async throws -> MusicLibrary.SongModelResidencyStatistics {
         library.songModelResidencyEnabled = true
-        let outcome = await library.releaseSongModelIfIdle(trigger: "test")
+        let outcome = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         guard case .released = outcome else {
             XCTFail("not released: \(outcome)")
             throw CancellationError()

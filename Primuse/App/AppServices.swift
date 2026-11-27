@@ -1301,6 +1301,9 @@ final class AppServices {
             )
         } else {
             library = MusicLibrary.makePreparing(disabledSourceIDs: initiallyDisabledSourceIDs)
+            // 歌曲模型不常驻的开关在发布之前装上:不装歌曲模型的启动(P3 6e)从准备这一步就分路。
+            let residency = MusicLibrary.SongModelResidencySettings.current()
+            library.applySongModelResidencySettings(residency)
             // 曲库目录不等发布:现在就打开、按旧库的变更流水追上。列表读者与整库的活照旧等发布。
             library.startCatalogBeforePublish(spokenWordClassification: initialClassification)
             let presentation = presentationFirst ? library.deferStartupReadUntilPresentation() : nil
@@ -1312,7 +1315,8 @@ final class AppServices {
                 return await MusicLibrary.prepareStartup(
                     disabledSourceIDs: initiallyDisabledSourceIDs,
                     sourceIdentityPrefixes: sourceIdentityPrefixes,
-                    spokenWordClassification: initialClassification
+                    spokenWordClassification: initialClassification,
+                    withoutTheSongModel: residency.launchesUnloaded
                 )
             }
         }
@@ -2025,9 +2029,21 @@ final class AppServices {
         #endif
         if let preparation {
             startupPublication = Task { @MainActor [library] in
-                library.publish(await preparation.value)
+                // 只装了小状态的那一份等不到目录时,照今天的装法再装一次(同样的输入)。
+                await library.publishStartup(await preparation.value) {
+                    await MusicLibrary.prepareStartup(
+                        disabledSourceIDs: initiallyDisabledSourceIDs,
+                        sourceIdentityPrefixes: sourceIdentityPrefixes,
+                        spokenWordClassification: initialClassification
+                    )
+                }
                 // Cloud corrections can arrive while the disk snapshot is loading.
-                await library.refreshContentClassificationInBackground()
+                // 没装歌曲模型时只记下来(准备中的配置照常),装模型的那次发布再对账:后台的重分要等就绪,会把模型装回来。
+                if library.isReady {
+                    await library.refreshContentClassificationInBackground()
+                } else {
+                    library.refreshContentClassification()
+                }
                 plog(String(
                     format: "🚀 library published %.0fms after launch services",
                     (ProcessInfo.processInfo.systemUptime - startupFinishedAt) * 1_000

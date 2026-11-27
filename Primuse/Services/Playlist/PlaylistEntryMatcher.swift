@@ -163,7 +163,13 @@ struct PlaylistEntryMatcher: Sendable {
 }
 
 /// 每首歌归一化后的匹配键缓存。键随标题/歌手/时长变化失效。
+///
+/// 有上限(`capacity`):整个源、整库那么多的匹配(源的歌单同步、导入)超出的部分现算、不记,缓存不随曲库长大。
+/// 歌曲模型放掉、退到后台放能重建的缓存时整份清掉(`MusicLibrary.releaseRebuildableCaches`)。
 final class PlaylistEntryMatchKeyCache: @unchecked Sendable {
+    /// 至多记这么多首。
+    static let capacity = LibraryScale.maxMaterializedRows
+
     private struct Entry {
         let fingerprint: Fingerprint
         let key: ExternalTrackMatchPolicy.Key
@@ -178,6 +184,7 @@ final class PlaylistEntryMatchKeyCache: @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    // crash-pattern: allow song-id-collection-property 至多 `capacity`(5,000)首,超出的现算不记
     private var entries: [String: Entry] = [:]
 
     func key(for song: Song) -> ExternalTrackMatchPolicy.Key {
@@ -191,9 +198,25 @@ final class PlaylistEntryMatchKeyCache: @unchecked Sendable {
         lock.unlock()
         let key = ExternalTrackMatchPolicy.Key(PlaylistEntryMatcher.subject(of: song))
         lock.lock()
-        entries[song.id] = Entry(fingerprint: fingerprint, key: key)
+        if entries.count < Self.capacity || entries[song.id] != nil {
+            entries[song.id] = Entry(fingerprint: fingerprint, key: key)
+        }
         lock.unlock()
         return key
+    }
+
+    /// 记着几首(测试与诊断)。
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries.count
+    }
+
+    /// 整份清掉(能重建:用到时现算)。
+    func removeAll() {
+        lock.lock()
+        entries.removeAll()
+        lock.unlock()
     }
 
     /// 只留下仍在曲库里的歌，免得删掉的源一直占着内存。

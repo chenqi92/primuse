@@ -1112,14 +1112,25 @@ final class LibraryStartupHarnessTests: XCTestCase {
             try await Task.sleep(for: .seconds(1))
             return Self.residentFootprint().current
         }
+        // 歌单同步那样对整库算一遍匹配键(缓存有上限,看它记了多少、放掉之后还剩多少)。
+        _ = PlaylistEntryMatcher(songs: library.visibleSongs, keyCache: library.playlistEntryMatchKeyCache)
+        let keyCacheLoaded = library.playlistEntryMatchKeyCache.count
         let loaded = try await settle()
         library.applySongModelResidencySettings(.init(isEnabled: true, foregroundHold: false, playbackBlocksRelease: true))
 
+        // 启动后排的影子校验(开发构建里 10 万首以内是深的那种,拿着整份数组)做完之前放不掉:等它。
         var started = ContinuousClock.now
-        let outcome = await library.releaseSongModelIfIdle(trigger: "scale harness")
+        var outcome = await library.releaseSongModelIfIdle(trigger: "scale harness")
+        for _ in 0..<120 where outcome == .skipped("catalog shadow verification in flight") {
+            try await Task.sleep(for: .seconds(1))
+            started = ContinuousClock.now
+            outcome = await library.releaseSongModelIfIdle(trigger: "scale harness")
+        }
         let releaseMs = Double((ContinuousClock.now - started) / .microseconds(1)) / 1_000
         guard case .released = outcome else { return XCTFail("not released: \(outcome)") }
         await library.songModelReleaseDidReclaimMemory()
+        let reclaimed = Self.residentFootprint().current
+        let keyCacheReleased = library.playlistEntryMatchKeyCache.count
         let released = try await settle()
         library.releaseCatalogMemory()
         host.reader.rowCache.removeAll()
@@ -1171,6 +1182,10 @@ final class LibraryStartupHarnessTests: XCTestCase {
 
         func megabytes(_ bytes: UInt64) -> Double { Self.megabytes(bytes) }
         Self.report(String(
+            format: "📏 residency yield: matchKeyCache loaded=%d released=%d | footprint right after the library's own reclaim=%.1fMB",
+            keyCacheLoaded, keyCacheReleased, Self.megabytes(reclaimed)
+        ))
+        Self.report(String(
             format: "📏 residency songs=%d albums=%d before=%.1fMB loaded=%.1fMB released=%.1fMB catalogReleased=%.1fMB "
                 + "reloaded=%.1fMB | releaseMs=%.0f loadMs=%.0f (library ms=%d derived=%@ journalRows=%d)",
             songCount, albumCount, megabytes(before), megabytes(loaded), megabytes(released), megabytes(catalogReleased),
@@ -1185,6 +1200,67 @@ final class LibraryStartupHarnessTests: XCTestCase {
             titleCandidates, plainDelete / 1_000, plainQueued, referencedDelete / 1_000, referencedQueued,
             loadAfterDelete ? "yes" : "no"
         ))
+        await library.stopCatalogMirror()
+    }
+
+    /// 步骤 6e: 不装歌曲模型的启动。构造(准备中)到能用(只装小状态、目录接上读得了)要多久、能用时占多少;
+    /// 之后拿占用装上模型要多久、装上之后占多少。整库的歌一首都不从旧库读(计数器)。
+    func testScaleFixtureUnloadedLaunch() async throws {
+        let fixture = try Self.existingScaleCatalogFixture()
+        let directory = try Self.copyDirectory(fixture)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func settle() async throws -> UInt64 {
+            await MusicLibrary.drainDisplacedArraysForMeasurement()
+            try await Task.sleep(for: .milliseconds(500))
+            await MusicLibrary.returnFreedMemoryToSystem()
+            try await Task.sleep(for: .seconds(1))
+            return Self.residentFootprint().current
+        }
+        let before = try await settle()
+        let readsBefore = MusicLibrary.songModelStoreReads.withLock { $0 }
+        // 规模夹具在外接盘上,冷开大目录要几秒:这里量的是不装模型时的样子,不是启动条件第 4 条的等待上限。
+        let catalogWait = MusicLibrary.unloadedLaunchCatalogWait
+        MusicLibrary.unloadedLaunchCatalogWait = .seconds(20)
+        defer { MusicLibrary.unloadedLaunchCatalogWait = catalogWait }
+        let started = ContinuousClock.now
+        let library = MusicLibrary.makePreparing(storageDirectory: directory, catalogMirroring: .enabled(startDelay: .zero))
+        library.applySongModelResidencySettings(.init(
+            isEnabled: true, foregroundHold: false, playbackBlocksRelease: true, launchUnloaded: true
+        ))
+        let classification = SpokenWordStore.shared.classificationSnapshot
+        library.startCatalogBeforePublish(spokenWordClassification: classification)
+        let prepared = await MusicLibrary.prepareStartup(
+            storageDirectory: directory, spokenWordClassification: classification, withoutTheSongModel: true
+        )
+        await library.publishStartup(prepared) {
+            await MusicLibrary.prepareStartup(storageDirectory: directory, spokenWordClassification: classification)
+        }
+        await library.whenUsable()
+        let usableMs = Double((ContinuousClock.now - started) / .microseconds(1)) / 1_000
+        XCTAssertEqual(library.songModelLaunch, "unloaded")
+        XCTAssertTrue(library.isUsable)
+        XCTAssertFalse(library.isReady)
+        let usable = try await settle()
+        let readsAfterLaunch = MusicLibrary.songModelStoreReads.withLock { $0 }
+        XCTAssertEqual(readsAfterLaunch, readsBefore, "the launch read no song from the store")
+
+        let loadStarted = ContinuousClock.now
+        let hold = await library.holdSongModel(.legacyPage)
+        let loadMs = Double((ContinuousClock.now - loadStarted) / .microseconds(1)) / 1_000
+        let songCount = library.songs.count
+        let loaded = try await settle()
+        hold.end()
+        func megabytes(_ bytes: UInt64) -> Double { Self.megabytes(bytes) }
+        Self.report(String(
+            format: "📏 unloaded launch songs=%d before=%.1fMB usable=%.1fMB (grew %.1fMB) usableAfter=%.0fms "
+                + "(catalog wait %dms) launch=%@ | hold→ready %.0fms derived=%@ loaded=%.1fMB wholeLibraryLoads=%d "
+                + "storeReadsDuringLaunch=%d",
+            songCount, megabytes(before), megabytes(usable), megabytes(usable) - megabytes(before), usableMs,
+            library.songModelResidencyStatistics.launchCatalogMilliseconds, library.songModelLaunch, loadMs,
+            library.songModelResidencyStatistics.lastLoadUsedDerivedCache ? "cache" : "rebuilt", megabytes(loaded),
+            library.songModelResidencyStatistics.wholeLibraryLoads, readsAfterLaunch - readsBefore
+        ))
+        XCTAssertGreaterThan(songCount, 0)
         await library.stopCatalogMirror()
     }
 

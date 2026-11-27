@@ -1762,7 +1762,8 @@ final class RebuildableMemoryReliefCoordinator {
 /// 前台的场景占着歌曲模型(过渡期开关,默认开):回到前台就拿 `.foreground` 占用,模型放掉了就装回来。
 extension RebuildableMemoryReliefCoordinator {
     fileprivate func installSongModelResidency(library: MusicLibrary) {
-        library.applySongModelResidencySettings(.current())
+        // `AppServices` 构造库之后就装上了(不装歌曲模型的启动要在准备时分路);同步构造的库在这里装。
+        if !library.songModelResidencySettingsApplied { library.applySongModelResidencySettings(.current()) }
         // 设备上前后对照比的是这几个数:每次启动、模型第一次发布之后记一行(开关关着也记)。
         library.onReady { [weak library] in
             guard let library else { return }
@@ -1888,6 +1889,8 @@ extension RebuildableMemoryReliefCoordinator {
                 switch outcome {
                 case .released:
                     await library.songModelReleaseDidReclaimMemory()
+                    // 放歌时空页没还给系统(不整理大堆):放歌一停就还,不让它们一直留到这一轮进程结束。
+                    if activity.isPlaybackActive { self.returnFreedPagesWhenPlaybackStops() }
                     return
                 case .skipped(let why) where why.hasPrefix("hold(") || why == "the song model is not loaded"
                     || why == "residency is off":
@@ -1896,6 +1899,34 @@ extension RebuildableMemoryReliefCoordinator {
                     try? await Task.sleep(for: .seconds(8))
                 }
             }
+        }
+    }
+
+    /// 放歌停下的那一刻把放掉的歌曲模型留下的空页还给系统(那时放掉,为了不断音没有整理大堆)。
+    private func returnFreedPagesWhenPlaybackStops() {
+        guard let player else { return }
+        withObservationTracking {
+            _ = player.isPlaybackActive
+        } onChange: {
+            Task { @MainActor in RebuildableMemoryReliefCoordinator.shared.playbackActivityDidChangeAfterRelease() }
+        }
+    }
+
+    private func playbackActivityDidChangeAfterRelease() {
+        guard let player else { return }
+        guard !player.isPlaybackActive else {
+            returnFreedPagesWhenPlaybackStops()
+            return
+        }
+        #if os(iOS)
+        let assertion = UIApplication.shared.beginBackgroundTask(withName: "primuse.song-model-relief")
+        #endif
+        Task { @MainActor in
+            await MusicLibrary.returnFreedMemoryToSystem()
+            plog("🧠 residency relief after playback stopped footprint=\(MusicLibrary.residencyFootprint()) \(MusicLibrary.mallocZoneUsage())")
+            #if os(iOS)
+            if assertion != .invalid { UIApplication.shared.endBackgroundTask(assertion) }
+            #endif
         }
     }
 

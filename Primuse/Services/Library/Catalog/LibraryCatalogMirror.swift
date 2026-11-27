@@ -270,6 +270,15 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     var lastShadowReport: LibraryCatalogShadowReport? { lock.withLock { state.lastShadowReport } }
     var mirroredStoreRevision: Int64? { lock.withLock { state.mirroredRevision } }
 
+    /// 提前启动的目录已经认下了预估的输入,并且此刻至少是旧库 `storeRevision` 那一刻的样子(不装歌曲模型的启动,
+    /// P3 15b 启动条件第 4 条)。持有方发布之后(不再是提前启动)恒为假。
+    func earlyStartIsCaughtUp(through storeRevision: Int64) -> Bool {
+        lock.withLock {
+            state.earlyStart != nil && state.inputs != nil && state.readable && !state.poisoned
+                && (state.mirroredRevision ?? -1) >= storeRevision
+        }
+    }
+
     /// `library-songs.sqlite` 刚提交了一次增量(按提交顺序调用)。
     func enqueueApply(upserts: [Song], deletingIDs: Set<String>, renaming: [String: String] = [:], storeRevision: Int64) {
         guard !upserts.isEmpty || !deletingIDs.isEmpty || !renaming.isEmpty else { return }

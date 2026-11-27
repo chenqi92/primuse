@@ -3429,7 +3429,8 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(Settings.current(defaults, environment: [:]), .off)
         XCTAssertEqual(Settings.off, Settings(isEnabled: false, foregroundHold: true, playbackBlocksRelease: true))
         XCTAssertEqual(
-            Settings.off.launchLine, "🧠 residency launch=load residency=off foregroundHold=on playbackBlocks=on"
+            Settings.off.launchLine,
+            "🧠 residency launch=load residency=off foregroundHold=on playbackBlocks=on launchUnloaded=off"
         )
         // 启动参数 `-PrimuseSongModelResidency YES` 进参数域时是字符串。
         defaults.set("YES", forKey: Settings.enabledKey)
@@ -3437,11 +3438,26 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         defaults.set(false, forKey: Settings.playbackBlocksReleaseKey)
         let settings = Settings.current(defaults, environment: [:])
         XCTAssertEqual(settings, Settings(isEnabled: true, foregroundHold: false, playbackBlocksRelease: false))
-        XCTAssertEqual(settings.launchLine, "🧠 residency launch=load residency=on foregroundHold=off playbackBlocks=off")
+        XCTAssertEqual(
+            settings.launchLine,
+            "🧠 residency launch=load residency=on foregroundHold=off playbackBlocks=off launchUnloaded=off"
+        )
+        // 不装歌曲模型的启动:总开关开着时也默认关;开着时启动那一行先说要试。
+        XCTAssertFalse(settings.launchesUnloaded)
+        defaults.set("YES", forKey: Settings.launchUnloadedKey)
+        let unloaded = Settings.current(defaults, environment: [:])
+        XCTAssertTrue(unloaded.launchUnloaded)
+        XCTAssertTrue(unloaded.launchesUnloaded)
+        XCTAssertEqual(
+            unloaded.launchLine,
+            "🧠 residency launch=unloaded-requested residency=on foregroundHold=off playbackBlocks=off launchUnloaded=on"
+        )
+        XCTAssertFalse(Settings.current(defaults, environment: [Settings.enabledEnvironmentKey: "0"]).launchesUnloaded,
+                       "without residency the switch does nothing")
         // 开发构建里启动环境变量优先(设备脚本只能传环境变量)。
         let fromEnvironment = Settings.current(defaults, environment: [
             Settings.enabledEnvironmentKey: "0", Settings.foregroundHoldEnvironmentKey: "1",
-            Settings.playbackBlocksReleaseEnvironmentKey: "true",
+            Settings.playbackBlocksReleaseEnvironmentKey: "true", Settings.launchUnloadedEnvironmentKey: "0",
         ])
         XCTAssertEqual(fromEnvironment, .off)
     }
@@ -3518,6 +3534,341 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         XCTAssertTrue(library.isLiked(songID: songs[2].id), "the change made while released survived")
         XCTAssertEqual(library.songs.count, songs.count)
         hold.end()
+    }
+
+    // MARK: - Release yield: the playlist match-key cache
+
+    /// 匹配键缓存有上限,放掉歌曲模型、放能重建的缓存时整份清掉;清掉之后照样算得出同样的键。
+    func testPlaylistMatchKeyCacheIsBoundedAndGoesWithTheRebuildableCaches() async throws {
+        let capacity = PlaylistEntryMatchKeyCache.capacity
+        let cache = PlaylistEntryMatchKeyCache()
+        let many = (0..<(capacity + 25)).map { index in
+            Song(id: "key-\(index)", title: "Song \(index)", artistName: "Artist \(index % 7)", duration: 180,
+                 fileFormat: .flac, filePath: "/Music/\(index).flac", sourceID: Self.sourceA)
+        }
+        for song in many { _ = cache.key(for: song) }
+        XCTAssertEqual(cache.count, capacity, "the cache does not grow with the library")
+        let beyond = try XCTUnwrap(many.last)
+        XCTAssertEqual(cache.key(for: beyond), ExternalTrackMatchPolicy.Key(PlaylistEntryMatcher.subject(of: beyond)))
+        cache.removeAll()
+        XCTAssertEqual(cache.count, 0)
+
+        let songs = Self.fixture(prefix: "keys")
+        let library = try makeLaunchedTwin("keys", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        _ = PlaylistEntryMatcher(songs: library.visibleSongs, keyCache: library.playlistEntryMatchKeyCache)
+        XCTAssertGreaterThan(library.playlistEntryMatchKeyCache.count, 0)
+        // 退到后台的那一轮放能重建的缓存(开关关着也是这样)。
+        library.releaseRebuildableCaches()
+        XCTAssertEqual(library.playlistEntryMatchKeyCache.count, 0)
+        // 放掉歌曲模型时也清掉。
+        _ = PlaylistEntryMatcher(songs: library.visibleSongs, keyCache: library.playlistEntryMatchKeyCache)
+        library.songModelResidencyEnabled = true
+        guard await released(library, "release") else { return }
+        XCTAssertEqual(library.playlistEntryMatchKeyCache.count, 0)
+    }
+
+    /// 缓存是缓存:冷的、热的、只给同歌名主体建索引的匹配器,对同一批条目给出相同的「就是它」;
+    /// 冷热两个的「可能是」也相同。带上记号的认领(`matchCarriedMarks`)有没有缓存结果一样。
+    func testPlaylistMatchesAreTheSameWithAndWithoutTheKeyCache() throws {
+        let songs = Self.fixture(prefix: "match")
+        var copy = songs[0]
+        copy.id = "match-blue-1-copy"
+        copy.sourceID = "dual-write-c"
+        copy.filePath = "/Other/Blue Room/1.flac"
+        let library = songs + [copy]
+        var subjects = library.map { PlaylistEntryMatcher.subject(of: $0) }
+        subjects += ExternalPlaylistTrack(title: songs[1].title, artists: ["Ada"], album: nil, duration: songs[1].duration).matchSubjects
+        subjects += ExternalPlaylistTrack(title: "Nothing Like It", artists: ["Nobody"], album: nil, duration: 1).matchSubjects
+        let cache = PlaylistEntryMatchKeyCache()
+        let cold = PlaylistEntryMatcher(songs: library)
+        let filling = PlaylistEntryMatcher(songs: library, keyCache: cache)
+        let warm = PlaylistEntryMatcher(songs: library, keyCache: cache)
+        let narrow = PlaylistEntryMatcher(songs: library, keyCache: cache, matching: subjects)
+        for subject in subjects {
+            let expected = cold.match(subject)
+            for matcher in [filling, warm] {
+                XCTAssertEqual(matcher.match(subject).confident.map(\.id), expected.confident.map(\.id))
+                XCTAssertEqual(matcher.match(subject).probable.map(\.id), expected.probable.map(\.id))
+            }
+            XCTAssertEqual(narrow.match(subject).confident.map(\.id), expected.confident.map(\.id))
+        }
+        let marks = [songs[0], songs[2], songs[5]].map { song in
+            CarriedSongMarks(
+                id: "gone-\(song.id)", title: song.title, artists: PlaylistEntryMatcher.artists(of: song),
+                album: song.albumTitle, duration: song.duration, liked: true, origin: .removedSource
+            )
+        }
+        XCTAssertEqual(
+            MusicLibrary.matchCarriedMarks(marks, against: library, keyCache: cache),
+            MusicLibrary.matchCarriedMarks(marks, against: library, keyCache: nil)
+        )
+    }
+
+    // MARK: - Launch without the song model (P3 step 6e)
+
+    /// 一个装好、落了盘的库(旧库像启动过那样标好):小状态有歌单、喜欢、最近播放;目录停下之后整个目录拷一份,
+    /// 后面的「启动」都从拷贝开。
+    private func launchFixture(_ name: String, songs: [Song]) async throws -> (source: MusicLibrary, directory: URL) {
+        let (library, storage) = try makeLaunchedTwin(name, songs: songs)
+        _ = library.createPlaylist(name: "Kept", songIDs: [songs[0].id, songs[4].id, songs[7].id])
+        library.setLiked(songID: songs[1].id, isLiked: true, propagatesServerMutation: false)
+        library.recordPlayback(of: songs[2].id)
+        await assertShadowMatches(library, "\(name) fixture")
+        library.markPortableSnapshotDirtyForTesting()
+        guard case .success = await library.persistNowAndWait(materializePortableSnapshot: true) else {
+            throw XCTSkip("the fixture did not persist")
+        }
+        await library.waitForCatalogMirror()
+        await library.stopCatalogMirror()
+        return (library, storage)
+    }
+
+    /// 拷整个目录。原来那个库可能还在后台写缓存文件(先写临时文件再改名),拷到一半那个临时文件没了就再拷一次。
+    private func copyOfDirectory(_ directory: URL, _ name: String) throws -> URL {
+        let copy = self.directory.appendingPathComponent(name, isDirectory: true)
+        var lastError: Error?
+        for _ in 0..<5 {
+            try? FileManager.default.removeItem(at: copy)
+            do {
+                try FileManager.default.copyItem(at: directory, to: copy)
+                return copy
+            } catch {
+                lastError = error
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
+        throw lastError ?? CocoaError(.fileWriteUnknown)
+    }
+
+    /// 像 App 那样启动一个库:准备中构造、装开关、目录提前启动、主线程外准备、`publishStartup` 发布。
+    private func launch(
+        _ directory: URL, unloaded: Bool, residency: Bool = true, catalog: LibraryCatalogMirroring = .enabled(startDelay: .zero)
+    ) async -> MusicLibrary {
+        let library = MusicLibrary.makePreparing(
+            storageDirectory: directory, disabledSourceIDs: [Self.sourceB], artistNameConfiguration: .defaultValue,
+            catalogMirroring: catalog
+        )
+        library.catalogShadowModeOverride = .deep
+        libraries.append(library)
+        library.applySongModelResidencySettings(.init(
+            isEnabled: residency, foregroundHold: false, playbackBlocksRelease: true, launchUnloaded: unloaded
+        ))
+        let classification = SpokenWordStore.shared.classificationSnapshot
+        library.startCatalogBeforePublish(spokenWordClassification: classification)
+        let disabled: Set<String> = [Self.sourceB]
+        let prepared = await MusicLibrary.prepareStartup(
+            disabledSourceIDs: disabled, storageDirectory: directory, artistNameConfiguration: .defaultValue,
+            spokenWordClassification: classification, withoutTheSongModel: library.songModelResidencySettings.launchesUnloaded
+        )
+        await library.publishStartup(prepared) {
+            await MusicLibrary.prepareStartup(
+                disabledSourceIDs: disabled, storageDirectory: directory, artistNameConfiguration: .defaultValue,
+                spokenWordClassification: classification
+            )
+        }
+        return library
+    }
+
+    private func waitUntilUsable(_ library: MusicLibrary) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !library.isUsable, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// 启动条件都满足:只装小状态,接上目录就能用 —— 旧库的歌一首都不读;歌单、喜欢、最近播放、按 id 读、歌单曲数、
+    /// 入口的标记都在。之后不碰它就一直不装模型(后台启动也是这样);只动小状态的突变当场做,要模型的突变和占用
+    /// 把它装回来。
+    func testAnUnloadedLaunchIsUsableWithoutReadingTheSongModel() async throws {
+        let songs = Self.fixture(prefix: "unloaded")
+        let (source, storage) = try await launchFixture("unloaded", songs: songs)
+        let flagsBefore = [source.hasSpokenWordContent, source.hasAmbientContent, source.hasMusicVideoContent]
+        let spokenWordCount = source.spokenWordSongCount
+        let playlistID = try XCTUnwrap(source.allPlaylists.first { $0.name == "Kept" }).id
+        let countBefore = source.songCount(forPlaylist: playlistID)
+        let directory = try copyOfDirectory(storage, "unloaded-launch")
+
+        let readsBefore = MusicLibrary.songModelStoreReads.withLock { $0 }
+        let library = await launch(directory, unloaded: true)
+        XCTAssertEqual(library.songModelLaunch, "unloaded")
+        try await waitUntilUsable(library)
+        XCTAssertTrue(library.isUsable)
+        XCTAssertFalse(library.isReady)
+        XCTAssertEqual(MusicLibrary.songModelStoreReads.withLock { $0 }, readsBefore, "no song was read from the store")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, 0)
+        library.songModelArrayReadPolicy = .ignore
+        XCTAssertTrue(library.songs.isEmpty)
+        library.songModelArrayReadPolicy = .log
+        // 小状态、按 id 读、歌单曲数、入口的标记。
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlistID), [songs[0].id, songs[4].id, songs[7].id])
+        XCTAssertTrue(library.isLiked(songID: songs[1].id))
+        XCTAssertEqual(library.recentPlaybackSongIDsForSync, [songs[2].id])
+        XCTAssertEqual(library.storedSong(id: songs[3].id)?.title, songs[3].title)
+        XCTAssertNil(library.visibleSong(id: songs[7].id), "a song in a disabled source is not visible")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while library.songCount(forPlaylist: playlistID) != countBefore, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(library.songCount(forPlaylist: playlistID), countBefore)
+        XCTAssertEqual([library.hasSpokenWordContent, library.hasAmbientContent, library.hasMusicVideoContent], flagsBefore)
+        XCTAssertEqual(library.spokenWordSongCount, spokenWordCount)
+        await library.whenUsable()
+        let usableInTime = await library.whenUsable(timeout: .milliseconds(50))
+        XCTAssertTrue(usableInTime)
+
+        // 不碰它(没有前台占用,像后台启动):不装模型。
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(library.isLoadingSongModelForTesting, "nothing asked for the model")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, 0)
+
+        // 启动之后马上的突变:喜欢当场做;加歌排队、把模型装回来。
+        library.setLiked(songID: songs[3].id, isLiked: true, propagatesServerMutation: false)
+        XCTAssertEqual(library.deferredMutationCountForTesting, 0, "small state is written without the model")
+        XCTAssertFalse(library.isLoadingSongModelForTesting)
+        var added = songs[0]
+        added.id = "unloaded-added"
+        added.title = "Blue 9"
+        added.trackNumber = 9
+        added.filePath = "/Music/Ada/Blue Room/9.flac"
+        library.addSongs([added], affectedSourceIDs: [Self.sourceA], notifyRemovals: false, pruneMissingSongs: false)
+        XCTAssertTrue(library.isLoadingSongModelForTesting || library.isReady, "a queued mutation asks for the model")
+        let hold = await library.holdSongModel(.legacyPage)
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(library.songs.count, songs.count + 1)
+        XCTAssertTrue(library.isLiked(songID: songs[3].id))
+        XCTAssertEqual(library.songModelResidencyStatistics.wholeLibraryLoads, 0)
+        hold.end()
+        await assertShadowMatches(library, "after the load that followed an unloaded launch")
+    }
+
+    /// 等可用的在只装小状态的发布(目录读得了之后)放行;等就绪的、`onReady` 的不放行,装模型的那次发布才放行;
+    /// 启动窗口里拿的占用让模型在发布之后就开始装。
+    func testAnUnloadedLaunchReleasesUsableWaitersAndKeepsReadyWaitersForTheLoad() async throws {
+        let songs = Self.fixture(prefix: "waiters")
+        let (_, storage) = try await launchFixture("waiters", songs: songs)
+        let directory = try copyOfDirectory(storage, "waiters-launch")
+        let library = MusicLibrary.makePreparing(
+            storageDirectory: directory, disabledSourceIDs: [Self.sourceB], artistNameConfiguration: .defaultValue,
+            catalogMirroring: .enabled(startDelay: .zero)
+        )
+        libraries.append(library)
+        library.applySongModelResidencySettings(.init(
+            isEnabled: true, foregroundHold: false, playbackBlocksRelease: true, launchUnloaded: true
+        ))
+        let usable = Tally()
+        let ready = Tally()
+        library.onUsable { usable.count += 1 }
+        library.onReady { ready.count += 1 }
+        let usableWaiter = Task { @MainActor in await library.whenUsable(); usable.count += 10 }
+        let readyWaiter = Task { @MainActor in await library.whenReady(); ready.count += 10 }
+        try await Task.sleep(for: .milliseconds(50))
+        let classification = SpokenWordStore.shared.classificationSnapshot
+        library.startCatalogBeforePublish(spokenWordClassification: classification)
+        let prepared = await MusicLibrary.prepareStartup(
+            disabledSourceIDs: [Self.sourceB], storageDirectory: directory, artistNameConfiguration: .defaultValue,
+            spokenWordClassification: classification, withoutTheSongModel: true
+        )
+        await library.publishStartup(prepared) { await MusicLibrary.prepareStartup(storageDirectory: directory) }
+        XCTAssertEqual(library.songModelLaunch, "unloaded")
+        await usableWaiter.value
+        XCTAssertEqual(usable.count, 11, "usable waiters and handlers run once the catalog is readable")
+        // 启动窗口里有人 `whenReady()`:只装小状态发布之后,模型为它装回来,装好时等就绪的、`onReady` 的才放行。
+        await readyWaiter.value
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(ready.count, 11)
+        XCTAssertTrue(library.songModelResidencyStatistics.lastLoadReason?.hasPrefix("whenReady at launch") == true,
+                      "\(library.songModelResidencyStatistics)")
+    }
+
+    /// 一个不装模型启动、随后装上模型的库,与一个照今天装法启动的库:各份数组、行、小状态、目录都相同。
+    func testAnUnloadedLaunchThenALoadMatchesALaunchThatLoaded() async throws {
+        let songs = Self.fixture(prefix: "parity")
+        let (_, storage) = try await launchFixture("parity", songs: songs)
+        let unloaded = await launch(try copyOfDirectory(storage, "parity-unloaded"), unloaded: true)
+        let loaded = await launch(try copyOfDirectory(storage, "parity-loaded"), unloaded: false)
+        XCTAssertEqual(unloaded.songModelLaunch, "unloaded")
+        XCTAssertEqual(loaded.songModelLaunch, "load")
+        XCTAssertTrue(loaded.isReady)
+        try await waitUntilUsable(unloaded)
+        let hold = await unloaded.holdSongModel(.legacyPage)
+        XCTAssertTrue(unloaded.isReady)
+        XCTAssertEqual(modelPicture(unloaded), modelPicture(loaded))
+        assertSameSongs(unloaded.songs, loaded.songs, "rows")
+        XCTAssertEqual(unloaded.allPlaylists.map(\.id), loaded.allPlaylists.map(\.id))
+        XCTAssertEqual(unloaded.likedSongIDSnapshot(), loaded.likedSongIDSnapshot())
+        XCTAssertEqual(unloaded.recentPlaybackSongIDsForSync, loaded.recentPlaybackSongIDsForSync)
+        XCTAssertEqual(unloaded.deletedSongIdentities, loaded.deletedSongIdentities)
+        hold.end()
+        await assertShadowMatches(unloaded, "unloaded launch, then loaded")
+        await assertShadowMatches(loaded, "loaded launch")
+    }
+
+    /// 启动条件逐条不满足:照今天的装法启动(就绪、模型在内存里),记下的是第一条不满足的。
+    func testEachFailingLaunchConditionFallsBackToTodaysLaunch() async throws {
+        let songs = Self.fixture(prefix: "fallback")
+        let (_, storage) = try await launchFixture("fallback", songs: songs)
+
+        // 开关关着(总开关开着):今天的装法,不试。
+        let switchOff = await launch(try copyOfDirectory(storage, "fallback-off"), unloaded: false)
+        XCTAssertEqual(switchOff.songModelLaunch, "load")
+        XCTAssertTrue(switchOff.isReady)
+        // 总开关关着,这个开关开着:同样不试。
+        let residencyOff = await launch(try copyOfDirectory(storage, "fallback-residency-off"), unloaded: true, residency: false)
+        XCTAssertEqual(residencyOff.songModelLaunch, "load")
+        XCTAssertTrue(residencyOff.isReady)
+
+        // 旧库没被哪次启动认过(这一轮进程里才建起来的)。
+        let unlaunched = try makeTwin("fallback-unlaunched", songs: songs).library
+        _ = await unlaunched.persistNowAndWait()
+        await unlaunched.waitForCatalogMirror()
+        await unlaunched.stopCatalogMirror()
+        let freshStore = await launch(
+            try copyOfDirectory(directory.appendingPathComponent("fallback-unlaunched"), "fallback-unlaunched-launch"),
+            unloaded: true
+        )
+        XCTAssertEqual(freshStore.songModelLaunch, "load reason=the store is not what a launch would load as it is")
+        XCTAssertTrue(freshStore.isReady)
+
+        // 快照不在。
+        let noSnapshot = try copyOfDirectory(storage, "fallback-no-snapshot")
+        try FileManager.default.removeItem(at: noSnapshot.appendingPathComponent("library-cache.json"))
+        let withoutSnapshot = await launch(noSnapshot, unloaded: true)
+        XCTAssertEqual(withoutSnapshot.songModelLaunch, "load reason=no snapshot")
+        XCTAssertTrue(withoutSnapshot.isReady)
+        XCTAssertEqual(withoutSnapshot.songs.count, songs.count)
+
+        // 快照读不出来。
+        let corrupt = try copyOfDirectory(storage, "fallback-corrupt")
+        try FileManager.default.removeItem(at: corrupt.appendingPathComponent("library-startup-cache.plist"))
+        try Data("not json".utf8).write(to: corrupt.appendingPathComponent("library-cache.json"))
+        let withCorruptSnapshot = await launch(corrupt, unloaded: true)
+        XCTAssertEqual(withCorruptSnapshot.songModelLaunch, "load reason=the snapshot cannot be read")
+        XCTAssertTrue(withCorruptSnapshot.isReady)
+
+        // 没有目录(提前启动不了,第 4 条)。
+        let withoutCatalog = await launch(try copyOfDirectory(storage, "fallback-no-catalog"), unloaded: true, catalog: .disabled)
+        XCTAssertEqual(withoutCatalog.songModelLaunch, "load reason=no catalog")
+        XCTAssertTrue(withoutCatalog.isReady)
+        XCTAssertEqual(withoutCatalog.songs.count, songs.count)
+    }
+
+    /// 放掉之后:按源的歌数从目录来、与放掉之前相同,不读整库数组;没有待认领的身份;搜索索引没有欠着的准备就不装模型,
+    /// 欠着才拿占用装回来做。
+    func testAReleasedLibraryCountsSourcesAndSkipsIdleMaintenanceWithoutTheModel() async throws {
+        let songs = Self.fixture(prefix: "requests")
+        let library = try makeLaunchedTwin("requests", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        let counts = library.songCountsBySourceID()
+        library.songModelResidencyEnabled = true
+        guard await released(library, "release") else { return }
+        let readsBefore = library.songModelResidencyStatistics.arrayReadsWhileUnloaded
+        XCTAssertEqual(library.songCountsBySourceID(), counts)
+        XCTAssertEqual(library.songModelResidencyStatistics.arrayReadsWhileUnloaded, readsBefore, "no array was read")
+        XCTAssertFalse(library.hasPendingIdentityResolution)
+        let preparationOwed = LibrarySearchIndex.hasPendingPreparation(defaults: LibrarySearchIndex.maintenanceDefaults)
+        await library.prepareSearchIndexIfNeeded()
+        XCTAssertEqual(library.isReady, preparationOwed, "the model comes back only for an owed preparation")
     }
 
     /// 主线程外的一步停在这里,直到测试放行。
