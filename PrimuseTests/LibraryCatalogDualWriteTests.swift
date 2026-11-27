@@ -4717,6 +4717,44 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertNil(player.autoContinuationDeadEndEntryID)
         player.resetAutoContinuation()
     }
+
+    // MARK: - P3 step 6c, unit 3: launch reads
+
+    /// 启动时的入口计数与对账(6c 单元 3):MV 条数在目录上数(资料库入口、Mac 侧栏的计数模型),与内存里的
+    /// `musicVideoSongs` 相同;启动时按源数歌、找出源已不在的那些,目录数出的与整库数组的相同。歌曲模型真放掉之后
+    /// 两样都从目录答出同样的结果,不装模型、不读整库数组。
+    func testLaunchCountsComeFromTheCatalogWithTheSameAnswersWhileReleased() async throws {
+        var songs = Self.fixture(prefix: "launch-counts")
+        songs[0].mvPath = "/Videos/blue-1.mp4"
+        songs[4].mvPath = "/Videos/comp-1.mp4"
+        let (library, _) = try makeLaunchedTwin("launch-counts", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        let memoryVideos = library.musicVideoSongs.count
+        XCTAssertEqual(memoryVideos, 2)
+        let reader = try XCTUnwrap(library.readableCatalogReader)
+        let catalogVideos = try await reader.read { try $0.musicVideoSongCount() }
+        XCTAssertEqual(catalogVideos, memoryVideos)
+        let hub = try XCTUnwrap(LibraryHubCatalogCountsModel.shared(for: library))
+        for _ in 0..<250 where hub.readableCounts?.musicVideos != memoryVideos {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(hub.readableCounts?.musicVideos, memoryVideos, "the hub and the Mac sidebar read this")
+
+        // 只认得源 A:源 B 的歌是「源不在了」的那一类;源 B 停用着,停用的源也数。
+        let sources = [MusicSource(id: Self.sourceA, name: "A", type: .local)]
+        let fromArrays = await AppServices.startupReconciliation(library: library, sources: sources)
+        let fromCatalog = await AppServices.catalogStartupReconciliation(library: library, sources: sources)
+        XCTAssertNotNil(fromArrays)
+        XCTAssertEqual(fromCatalog, fromArrays, "the catalog counts every source as the arrays do")
+        XCTAssertEqual(fromArrays?.staleSourceIDsWithSongs, [Self.sourceB])
+
+        let before = try await releaseForReal(library)
+        let released = await AppServices.startupReconciliation(library: library, sources: sources)
+        XCTAssertEqual(released, fromArrays, "released: counted from the catalog")
+        let releasedVideos = try await reader.read { try $0.musicVideoSongCount() }
+        XCTAssertEqual(releasedVideos, memoryVideos)
+        assertNoLoadAndNoArrayRead(library, since: before, "launch counts while released")
+    }
 }
 
 /// 列目录时停在闸门上,直到测试放行(看扫描跑着时的占用)。

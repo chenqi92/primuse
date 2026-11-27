@@ -1251,7 +1251,8 @@ final class BackfillStatusReuseTests: XCTestCase {
         XCTAssertEqual(backfill.executionMode, .userInitiated)
         final class Decision { var ran = 0 }
         let decision = Decision()
-        func decide() {
+        // 等数的那个任务本身结束(决定已作完或已作废),不按时间猜:机器很忙时数完到回主线程作决定可能远超百毫秒。
+        func decide() -> Task<Void, Never>? {
             backfill.whenRemainingCountsAreCurrentForForegroundIntent {
                 decision.ran += 1
                 if !backfill.resumeUserInitiatedIfNeeded(), !backfill.resumeAutomaticForegroundIfNeeded() {
@@ -1260,23 +1261,17 @@ final class BackfillStatusReuseTests: XCTestCase {
                 backfill.stop()
             }
         }
-        func countLanded(after before: Int) async throws {
-            let deadline = Date().addingTimeInterval(10)
-            while backfill.remainingCountsComputationCount == before, Date() < deadline {
-                try await Task.sleep(for: .milliseconds(5))
-            }
-            try await Task.sleep(for: .milliseconds(100))
-        }
 
         // 曲库变了(剩余数要重数),场景在数完之前离开了前台。
         library.addSongs([Song(id: "intent-new", title: "New", fileFormat: .m4a, filePath: "/Music/new.m4a",
                                sourceID: "count-source")])
         await library.waitForPendingIndex()
         var before = backfill.remainingCountsComputationCount
-        decide()
+        let leavingCount = decide()
+        let leaving = try XCTUnwrap(leavingCount, "the count has to be redone first")
         XCTAssertEqual(decision.ran, 0, "the decision waits for the count")
         active = false
-        try await countLanded(after: before)
+        await leaving.value
         XCTAssertGreaterThan(backfill.remainingCountsComputationCount, before)
         XCTAssertEqual(decision.ran, 0, "the scene left the foreground: nothing is resumed")
         XCTAssertEqual(backfill.executionMode, .userInitiated, "and the mode is not set back to standard")
@@ -1288,8 +1283,10 @@ final class BackfillStatusReuseTests: XCTestCase {
                                sourceID: "count-source")])
         await library.waitForPendingIndex()
         before = backfill.remainingCountsComputationCount
-        decide()
-        try await countLanded(after: before)
+        let stayingCount = decide()
+        let staying = try XCTUnwrap(stayingCount, "the count has to be redone first")
+        await staying.value
+        XCTAssertGreaterThan(backfill.remainingCountsComputationCount, before)
         XCTAssertEqual(decision.ran, 1, "still in the foreground: the decision runs once the count landed")
         XCTAssertEqual(backfill.mainActorRemainingCountsComputationCount, onMainAfterUserStart,
                        "after the user's own start nothing counts on the main actor")

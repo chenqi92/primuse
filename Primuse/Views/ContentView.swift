@@ -2406,7 +2406,8 @@ struct ContentView: View {
                 selectedTab = restoredTab
                 synchronizeSidebarForCurrentSelection()
             }
-            await library.whenReady()
+            // 6c: 等的是「可用」:落地页只看小状态与入口标志(放掉歌曲模型时照样留着),不为它装模型。
+            await library.whenUsable()
             guard !Task.isCancelled else { return }
             activateMinimalLandingPageIfNeeded()
             // 展示前就写入“一次性”标记。这样即使用户在导览期间直接杀掉
@@ -2433,14 +2434,14 @@ struct ContentView: View {
         }
         .onChange(of: navigationModeRawValue) { _, _ in
             if navigationMode == .minimal {
-                if library.isReady { activateMinimalLandingPageIfNeeded() }
+                if library.isUsable { activateMinimalLandingPageIfNeeded() }
             } else {
                 synchronizeSidebarForCurrentSelection()
             }
         }
         .onChange(of: visibleLibrarySections) { _, _ in
             // 资料库设置里把正停着的分类藏了，或者有声内容都移走了：回到顶栏上排在最前的那一格（默认是音乐）。
-            guard library.isReady, navigationMode == .minimal, selectedTab == 1 else { return }
+            guard library.isUsable, navigationMode == .minimal, selectedTab == 1 else { return }
             if let section = minimalLibrarySection, minimalSectionIsAvailable(section) { return }
             selectMinimalPage(minimalLandingPage)
         }

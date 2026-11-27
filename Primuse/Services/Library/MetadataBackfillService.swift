@@ -9196,11 +9196,13 @@ extension MetadataBackfillService {
     /// 回到前台、删掉音乐源之后接着上次的前台意图(用户点开的单源读取、扫描后的前台续读)要看各源还剩几首。
     /// 有这样的意图时先把剩余数对到此刻(在后台执行器上),对完再调 `body` —— 那时已经不在前台(`foregroundIsActive`)
     /// 就不调;没有意图、或者剩余数已经是此刻的,当场调。`body` 里的 `resumeUserInitiatedIfNeeded` / `resumeAutomaticForegroundIfNeeded` 只读算好的数。
-    func whenRemainingCountsAreCurrentForForegroundIntent(_ body: @escaping @MainActor () -> Void) {
+    /// 要先数时返回数的那个任务(它结束时决定已作完或已作废),当场调了就返回 nil。
+    @discardableResult
+    func whenRemainingCountsAreCurrentForForegroundIntent(_ body: @escaping @MainActor () -> Void) -> Task<Void, Never>? {
         let hasIntent = userInitiatedSourceID != nil
             || automaticDeviceLocalSourceID != nil
             || !automaticForegroundSourceIDs.isEmpty
-        if hasIntent, countRemainingRowsOffTheMainActorIfNeeded(force: true, then: { service, _ in
+        if hasIntent, let counting = countRemainingRowsOffTheMainActorIfNeeded(force: true, then: { service, _ in
             // 数完时可能已经离开了前台(5.5 万首数一次约一秒,45 万首好几秒):这个前台的决定就作废,
             // 后台那一路已经定了自己的档位。
             guard service.foregroundIsActive() else {
@@ -9208,9 +9210,10 @@ extension MetadataBackfillService {
                 return
             }
             body()
-        }) != nil {
-            return
+        }) {
+            return counting
         }
         body()
+        return nil
     }
 }

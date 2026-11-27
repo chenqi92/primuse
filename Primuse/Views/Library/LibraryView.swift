@@ -2358,7 +2358,8 @@ struct LibraryView: View {
         case .ambient:
             return count(ambientCount, unitKey: "ambient_sounds_count")
         case .musicVideos:
-            return count(library.musicVideoSongs.count, unitKey: "music_videos_count")
+            // 目录可读时从目录数(歌曲模型放掉时那份数组是空的,不是「没有 MV」)。
+            return count(catalogHubCounts?.musicVideos ?? library.musicVideoSongs.count, unitKey: "music_videos_count")
         }
     }
 

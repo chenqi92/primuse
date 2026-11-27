@@ -400,3 +400,18 @@ extension LibraryCatalog {
         }
     }
 }
+
+extension LibraryCatalog {
+    /// 可见音乐里带 MV 的歌有几首,同内存里的 `musicVideoSongs.count`(可见集里的音乐、有 MV 路径的那些)。
+    /// 读 `flags` 里的 MV 位,不逐首解码;资料库入口与 Mac 侧栏的 MV 计数用它,歌曲模型不在内存里时照样答。
+    public func musicVideoSongCount() throws -> Int {
+        try reader.read { db in
+            let (sql, arguments) = try LibrarySongScope.visibleMusic.whereClause(in: db)
+            return try Int.fetchOne(
+                db,
+                sql: "SELECT count(*) FROM song s WHERE \(sql) AND (s.flags & \(LibraryCatalogSongFlags.hasMusicVideo)) != 0",
+                arguments: arguments
+            ) ?? 0
+        }
+    }
+}

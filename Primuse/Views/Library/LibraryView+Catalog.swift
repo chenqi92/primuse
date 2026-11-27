@@ -8,8 +8,9 @@ import PrimuseKit
 /// - `albums`:`visibleAlbums.count`;`artists`:`visibleArtists.count`(「全部艺术家」列法);
 /// - `genres`:`visibleGenres.count`;`ambient`:`ambientSongs.count`;
 /// - `podcast`:`localPodcastSongs.count`(本机的播客单集);
+/// - `musicVideos`:`musicVideoSongs.count`(带 MV 的音乐,读 MV 标志位);
 /// - `visibleBySource`:`visibleSongCount(forSourceID:)`。
-/// MV 条数、有声书本数目录还没有不逐首解码的查法,照旧读内存模型。
+/// 有声书本数目录还没有不逐首解码的查法,照旧读内存模型。
 struct LibraryHubCatalogCounts: Sendable, Equatable {
     var music = 0
     var visibleSongs = 0
@@ -18,6 +19,7 @@ struct LibraryHubCatalogCounts: Sendable, Equatable {
     var genres = 0
     var ambient = 0
     var podcast = 0
+    var musicVideos = 0
     var visibleBySource: [String: Int] = [:]
     /// `visibleSongs.contains(where: \.isPlayable)`
     var hasPlayableVisibleSong = false
@@ -104,6 +106,7 @@ final class LibraryHubCatalogCountsModel {
                 counts.genres = try catalog.genres().count
                 counts.ambient = try catalog.songCount(LibrarySongScope(kinds: [.ambient]))
                 counts.podcast = try catalog.songCount(LibrarySongScope(kinds: [.podcast]))
+                counts.musicVideos = try catalog.musicVideoSongCount()
                 counts.visibleBySource = try catalog.songCountsBySource(.visible)
                 counts.hasPlayableVisibleSong = try catalog.containsSongs(LibrarySongScope(playableOnly: true))
                 return counts

@@ -209,7 +209,7 @@ struct MacSidebar: View {
                 route: .section(.musicVideos),
                 icon: section.icon,
                 title: "library_music_videos_title",
-                trailing: countLabel(library.musicVideoSongs.count)
+                trailing: countLabel(catalogHubCounts?.musicVideos ?? library.musicVideoSongs.count)
             )
         case .albums:
             item(

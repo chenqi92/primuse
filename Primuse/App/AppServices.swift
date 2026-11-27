@@ -1225,7 +1225,7 @@ final class AppServices {
     private var didFinishDeferredStartup = false
     private var sourceCountReconciliationTask: Task<Void, Never>?
 
-    private struct StartupLibraryReconciliation: Sendable {
+    struct StartupLibraryReconciliation: Sendable, Equatable {
         let sourceSongCounts: [String: Int]
         let staleSourceIDsWithSongs: Set<String>
     }
@@ -2128,7 +2128,8 @@ final class AppServices {
         }
         // Reconciliation and maintenance need the complete library. Restoring
         // the saved queue above only needs its own rows from the local store.
-        await musicLibrary.whenReady()
+        // 6c: 只等「可用」:歌曲模型不在内存里时按源数歌从曲库目录数(`startupReconciliation`),不为它装模型。
+        await musicLibrary.whenUsable()
         await scanService.whenStartupStateReady()
         #if os(iOS)
         LaunchDiagnostics.mark(.deferredStartup)
@@ -2145,8 +2146,10 @@ final class AppServices {
         #endif
 
         let sourceSnapshot = sourcesStore.allSources
-        let songSnapshot = musicLibrary.songs
         let usesCatalogOfflineState = musicLibrary.catalogHost != nil
+        // 不带曲库目录时(没有放掉歌曲模型这回事)才拿整库数组登记下载名。
+        let songSnapshot = usesCatalogOfflineState ? [] : musicLibrary.songs
+        let library = musicLibrary
         Task { [sourceManager] in
             await AudioCacheManager.shared.warmUp()
             let downloadedPaths = (try? AudioCacheManager.shared.downloadStore.paths()) ?? []
@@ -2155,6 +2158,11 @@ final class AppServices {
             // (到那时才取整库,等待期间不握着启动时那一份)。
             if usesCatalogOfflineState {
                 if await sourceManager.waitForOfflineCatalogNames(timeout: .seconds(90)) { return }
+                // 离线表一直没登记上:歌曲模型在内存里才按整库数组补登记,不为它装模型(下次启动由离线表登记)。
+                guard library.isReady else {
+                    plog("📚 download names: offline table not ready and the song model is not loaded; skipped")
+                    return
+                }
                 await sourceManager.registerDownloadNamesFromLibrary(downloadedPaths: Set(downloadedPaths))
                 return
             }
@@ -2167,21 +2175,7 @@ final class AppServices {
             }.value
             await sourceManager.registerDownloadNames(for: downloadedSongs)
         }
-        let reconciliation = await Task.detached(priority: .utility) {
-            var counts: [String: Int] = [:]
-            counts.reserveCapacity(sourceSnapshot.count)
-            for song in songSnapshot {
-                counts[song.sourceID, default: 0] += 1
-            }
-            let knownSourceIDs = Set(sourceSnapshot.map(\.id))
-            let deletedSourceIDs = Set(sourceSnapshot.lazy.filter(\.isDeleted).map(\.id))
-            let missingSourceIDs = Set(counts.keys).subtracting(knownSourceIDs)
-            let staleSourceIDs = deletedSourceIDs.union(missingSourceIDs)
-            return StartupLibraryReconciliation(
-                sourceSongCounts: counts,
-                staleSourceIDsWithSongs: Set(staleSourceIDs.filter { (counts[$0] ?? 0) > 0 })
-            )
-        }.value
+        let reconciliation = await Self.startupReconciliation(library: musicLibrary, sources: sourceSnapshot)
         await playbackRestore
         #if os(iOS)
         LaunchDiagnostics.mark(.playbackRestored)
@@ -2203,13 +2197,17 @@ final class AppServices {
         }
         ScraperConfigStore.shared.pruneConfigs(deletedBefore: pruneThreshold)
 
-        let currentlyStaleSourceIDs = reconciliation.staleSourceIDsWithSongs.filter { sourceID in
+        // 数不出来(目录读不了、歌曲模型也不在内存里):这一次不删歌、不写回源的歌数,下次启动再对。
+        if reconciliation == nil {
+            plog("📚 startup reconciliation skipped: neither the catalog nor the song model can count the sources")
+        }
+        let currentlyStaleSourceIDs = (reconciliation?.staleSourceIDsWithSongs ?? []).filter { sourceID in
             guard let currentSource = sourcesStore.source(id: sourceID) else { return true }
             return currentSource.isDeleted
         }
         if !currentlyStaleSourceIDs.isEmpty {
             let removedCount = currentlyStaleSourceIDs.reduce(0) {
-                $0 + (reconciliation.sourceSongCounts[$1] ?? 0)
+                $0 + (reconciliation?.sourceSongCounts[$1] ?? 0)
             }
             plog("📚 removing \(removedCount) song(s) from deleted/missing source(s): \(currentlyStaleSourceIDs)")
             for id in currentlyStaleSourceIDs {
@@ -2223,7 +2221,9 @@ final class AppServices {
                 .compactMap(\.sourceID)
         ).subtracting(activeSourceIDs)
         radioStationsStore.removeServerMirrors(forSourceIDs: staleRadioSourceIDs)
-        sourcesStore.reconcileLocalSongCounts(reconciliation.sourceSongCounts)
+        if let reconciliation {
+            sourcesStore.reconcileLocalSongCounts(reconciliation.sourceSongCounts)
+        }
         migrateSourceDirectoryDisplayNames()
         #if os(iOS) || os(macOS)
         localReferenceRefresh.start()
@@ -2264,7 +2264,8 @@ final class AppServices {
         // 服务器上新建的歌单不该等到用户想起来去手动扫一次曲库才出现(#142)。
         serverMirrorRefresh.startColdLaunchRefresh()
         Task {
-            await musicLibrary.whenReady()
+            // 只等「可用」,不为它装歌曲模型;模型不在内存里时这一轮对不了,不进冷却(见 `refresh`)。
+            await musicLibrary.whenUsable()
             await tingReaderProgressSync.refresh()
         }
         #if os(iOS) || os(macOS)
@@ -4021,5 +4022,47 @@ extension AppServices {
     fileprivate var siriLibraryPodcastShowCount: Int {
         if musicLibrary.isReady { siriLibraryPodcastShowCountWhileLoaded = musicLibrary.localPodcastShowCount }
         return siriLibraryPodcastShowCountWhileLoaded ?? 0
+    }
+}
+
+// MARK: - 启动对账按源数歌(P3 步骤 6c 单元 3)
+
+extension AppServices {
+    /// 启动时按源数歌(停用的源也数),找出库里还有歌、源却已删除或不在了的那些。歌曲模型在内存里时照旧按整库的
+    /// 按源计数(与以前相同);不在时从曲库目录数(`catalogStartupReconciliation`)。nil:两边都答不了 —— 调用方这一次不删歌、
+    /// 不把 0 写回源的歌数。
+    static func startupReconciliation(
+        library: MusicLibrary,
+        sources: [MusicSource]
+    ) async -> StartupLibraryReconciliation? {
+        guard library.isReady else {
+            return await catalogStartupReconciliation(library: library, sources: sources)
+        }
+        // 与以前逐首数整库数组的结果相同(按源的聚合与整库同一代,对不上时它自己重数)。
+        return reconciliation(counts: library.songCountsBySourceID(), sources: sources)
+    }
+
+    /// 同上,从曲库目录数(先等它跟上最近的提交),不要歌曲模型。目录读不了或读失败时 nil。
+    static func catalogStartupReconciliation(
+        library: MusicLibrary,
+        sources: [MusicSource]
+    ) async -> StartupLibraryReconciliation? {
+        guard let reader = await library.catalogReaderCaughtUp() else { return nil }
+        do {
+            return reconciliation(counts: try await reader.songCountsBySource(.everything), sources: sources)
+        } catch {
+            plog("📚 startup reconciliation: catalog count failed (\(error))")
+            return nil
+        }
+    }
+
+    private static func reconciliation(counts: [String: Int], sources: [MusicSource]) -> StartupLibraryReconciliation {
+        let knownSourceIDs = Set(sources.map(\.id))
+        let deletedSourceIDs = Set(sources.lazy.filter(\.isDeleted).map(\.id))
+        let staleSourceIDs = deletedSourceIDs.union(Set(counts.keys).subtracting(knownSourceIDs))
+        return StartupLibraryReconciliation(
+            sourceSongCounts: counts,
+            staleSourceIDsWithSongs: Set(staleSourceIDs.filter { (counts[$0] ?? 0) > 0 })
+        )
     }
 }
