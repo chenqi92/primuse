@@ -5764,7 +5764,10 @@ extension MetadataBackfillService {
         }
         if queueNeedsRefresh
             || reconciledQueueGeneration != queueMutationGeneration {
-            refreshRemainingCounts(force: true)
+            // 6c: 不在主线程上整库重数(设备上退到后台约三秒、场景结算排下一次唤醒时,主线程卡 0.4–1 s):
+            // 在后台执行器上对一次账;这一次先用缓存的答案(队列脏着时它只看源集合,是保守的),下一次排唤醒
+            // 时就是新数。
+            Task { @MainActor [weak self] in await self?.refreshRemainingCountsOffMain(force: true) }
         }
         return backgroundWakeRequiresNetworkConnectivityFromCachedCounts
     }

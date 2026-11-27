@@ -237,6 +237,12 @@ enum SpokenWordCollection: Hashable, Sendable {
         }
     }
 
+    /// 同 `songs(in:)`,只是歌曲模型不在内存里(放掉了,或启动装载中)时答 nil,不读那份空数组:空数组不是「没有书」。
+    @MainActor
+    func songsIfLoaded(in library: MusicLibrary) -> [Song]? {
+        library.isReady ? songs(in: library) : nil
+    }
+
     @MainActor
     func revision(in library: MusicLibrary) -> UInt64 {
         switch self {
@@ -307,9 +313,14 @@ private struct SpokenWordBooksRefresh: ViewModifier {
                 libraryRevision: collection.revision(in: library), progressRevision: progressRevision,
                 libraryIsReady: library.isReady
             )) {
+                // 6c: 歌曲模型不在内存里时这份有声条目答不了(数组是空的,不是「没有书」):分好的书架留着,
+                // 不重分、不发一份空书架(首页、书架启动快照都读它);装回来时(就绪变了)再分。还没分好过的
+                // (启动装载中)照旧按未就绪分一次,显示占位。
+                let songs = collection.songsIfLoaded(in: library)
+                if songs == nil, model.isSettled { return }
                 let store = SpokenWordStore.shared
                 await model.refresh(
-                    songs: collection.songs(in: library),
+                    songs: songs ?? [],
                     positions: store.positions,
                     finishedAt: store.finishedAt,
                     archived: store.archivedBookIDs,

@@ -1160,6 +1160,10 @@ final class BackfillStatusReuseTests: XCTestCase {
         defer { backfill.stop() }
         let onMainBefore = backfill.mainActorRemainingCountsComputationCount
         XCTAssertTrue(backfill.hasPendingWork)
+        // 场景结算、系统唤醒排下一次唤醒时问的「要不要网络」:队列脏着也不在主线程上数(6c 单元 2c,设备上退到后台
+        // 约三秒时主线程卡 0.4–1 s 的那一次)。
+        _ = backfill.backgroundWakeRequiresNetworkConnectivity
+        XCTAssertEqual(backfill.mainActorRemainingCountsComputationCount, onMainBefore)
 
         backfill.start()
         let deadline = Date().addingTimeInterval(10)

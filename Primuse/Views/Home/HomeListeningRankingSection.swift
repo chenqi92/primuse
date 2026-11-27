@@ -736,6 +736,9 @@ struct HomeListeningRankingSection: View {
         // Lazy-stack reappearance must not collapse a loaded card to its
         // spinner height and repeatedly move it across the visible boundary.
         guard preparedRequest != request else { return }
+        // 6c: 歌曲模型不在内存里(放掉了)时可见歌曲是空的,对着它排出来的榜是空榜:留着上一份榜,装回来再排
+        // (请求里的曲库修订号会变)。
+        guard library.isReady else { return }
 
         let librarySnapshot = library.visibleSongs
         let folders = category == .folders ? model.index : nil

@@ -219,8 +219,15 @@ struct PrimuseLibrarySongEntity: AppEntity {
 struct PrimuseLibrarySongQuery: EntityStringQuery {
     @MainActor
     func entities(for identifiers: [String]) async throws -> [PrimuseLibrarySongEntity] {
-        let library = AppServices.shared.musicLibrary
-        guard await library.whenReady(timeout: .seconds(8)) else { return [] }
+        let songs = await Self.playableSongs(forIdentifiers: identifiers, in: AppServices.shared.musicLibrary)
+        return await PrimuseLibrarySongEntity.entities(for: songs)
+    }
+
+    /// 系统按 id 要歌(换歌时、快捷指令列表):等的是「可用」,按 id 从目录取、再问按 id 读的接口,不要歌曲模型在内存里
+    /// (6c:设备上播放中换歌时系统来要,以前等「就绪」会把放掉的模型在后台装回来)。
+    @MainActor
+    static func playableSongs(forIdentifiers identifiers: [String], in library: MusicLibrary) async -> [Song] {
+        guard await library.whenUsable(timeout: .seconds(8)) else { return [] }
         var resolved: [Song]?
         if let reader = P2cCatalogAccess.reader(for: library) {
             // 曲库目录可读时按 id 从目录取(P2c),保持请求的顺序。
@@ -233,9 +240,8 @@ struct PrimuseLibrarySongQuery: EntityStringQuery {
                 plog("Siri song entities: catalog lookup failed, using in-memory library: \(error.localizedDescription)")
             }
         }
-        let songs = (resolved ?? identifiers.compactMap { library.visibleSong(id: $0) })
+        return (resolved ?? identifiers.compactMap { library.visibleSong(id: $0) })
             .filter { $0.isPlayable && SiriRadioStationCatalog.safeDisplayName($0.title) != nil }
-        return await PrimuseLibrarySongEntity.entities(for: songs)
     }
 
     @MainActor

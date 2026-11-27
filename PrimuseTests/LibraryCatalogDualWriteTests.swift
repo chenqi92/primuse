@@ -4470,11 +4470,10 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         library.dropSongModelForMeasurement(includingCollections: true)
         let releasedRecords = await SpotlightIndexService.preparedRecordsForTesting(library: library, catalogGroups: true)
         let whileReleased = try XCTUnwrap(releasedRecords)
-        // 生产路径:这个检出里放掉之后「可用」跟着为假(残留态单元之后放掉而目录答得出时就是上面这条分页路),
-        // 这一轮不出快照 —— 不拿空的去删条目,也不从目录取。
+        // 生产路径:放掉之后目录答得出(曲库仍可用),专辑、艺人从目录分页取一次,发布的条目相同。
         let releasedProduction = await SpotlightIndexService.productionRecordsForTesting(library: library)
-        XCTAssertNil(releasedProduction)
-        XCTAssertEqual(SpotlightIndexService.catalogGroupPagingCountForTesting, pagedBefore)
+        XCTAssertEqual(withoutPlaylists(try XCTUnwrap(releasedProduction)), withoutPlaylists(fromMemory))
+        XCTAssertEqual(SpotlightIndexService.catalogGroupPagingCountForTesting, pagedBefore + 1, "paged once")
         func withoutPlaylists(_ records: [String: String]) -> [String: String] {
             records.filter { !$0.key.hasPrefix("playlist:") }
         }
@@ -4485,7 +4484,7 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
 
     /// CloudKit 发送(P3 步骤 6c 单元 2b):歌单记录拼的是小状态与按 id 的歌。拼得出时照常;曲库此刻答不了时这一条
     /// 是「此刻答不了」—— 留在待发里,不发一条只带空身份的记录,也不当成本机已经删了。都不要歌曲模型。
-    /// (这个检出里放掉之后「可用」跟着为假;放掉而目录答得出时拼出同样成员身份的那一步,换到残留态单元之后再测。)
+    /// 放掉之后目录答得出时照样拼出来(成员身份与装着时相同,见真放掉的那条测试);目录也答不了时才是「此刻答不了」。
     func testCloudKitSendKeepsARecordThatCannotBeBuiltNowPendingInsteadOfSendingStubIdentities() async throws {
         let library = makeLibrary()
         let songs = Self.fixture()
@@ -4516,10 +4515,244 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         }
 
         library.dropSongModelForMeasurement(includingCollections: true)
+        guard case .built = sync.recordBuildOutcomeForTesting(
+            recordType: CloudKitSyncService.RecordType.playlist, localID: playlist.id
+        ) else { return XCTFail("released but usable: built from the catalog") }
+        await library.stopCatalogMirror()
+        XCTAssertFalse(library.isUsable)
         guard case .cannotAnswerNow = sync.recordBuildOutcomeForTesting(
             recordType: CloudKitSyncService.RecordType.playlist, localID: playlist.id
         ) else { return XCTFail("cannot answer now: the record stays pending, never a stub") }
         XCTAssertEqual(songModelHolds(of: library), [], "building records asks for no song model")
+    }
+
+    // MARK: - P3 step 6c, unit 2c: real releases (the residency machinery, not the measurement hook)
+
+    /// 真放掉歌曲模型(`releaseSongModelIfIdle`)。返回放掉那一刻的统计,给「没装、没读整库数组」比。
+    private func releaseForReal(_ library: MusicLibrary) async throws -> MusicLibrary.SongModelResidencyStatistics {
+        library.songModelResidencyEnabled = true
+        let outcome = await library.releaseSongModelIfIdle(trigger: "test")
+        guard case .released = outcome else {
+            XCTFail("not released: \(outcome)")
+            throw CancellationError()
+        }
+        XCTAssertFalse(library.isReady)
+        XCTAssertTrue(library.isUsable)
+        return library.songModelResidencyStatistics
+    }
+
+    private func assertNoLoadAndNoArrayRead(
+        _ library: MusicLibrary, since before: MusicLibrary.SongModelResidencyStatistics, _ step: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let now = library.songModelResidencyStatistics
+        XCTAssertEqual(now.loads, before.loads, "\(step): a load was requested", file: file, line: line)
+        XCTAssertEqual(now.arrayReadsWhileUnloaded, before.arrayReadsWhileUnloaded,
+                       "\(step): a whole-library array was read", file: file, line: line)
+        XCTAssertFalse(library.isLoadingSongModelForTesting, "\(step): a load is running", file: file, line: line)
+    }
+
+    /// 设备上抓到的读者(6c 单元 2c),歌曲模型真放掉之后:书架的有声条目答「答不了」(不发空书架);盯音乐数组的
+    /// 监视器只盯就绪,装回来时回调;系统按 id 要歌从目录答出与装着时相同的歌。都不装模型、不读整库数组。
+    func testReadersTheDeviceRunCaughtNeitherLoadTheSongModelNorReadItsArrays() async throws {
+        let songs = Self.fixture(prefix: "device-readers")
+        let (library, _) = try makeLaunchedTwin("device-readers", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        let ids = [songs[0].id, songs[4].id, "no-such-song"]
+        let loadedSongs = await PrimuseLibrarySongQuery.playableSongs(forIdentifiers: ids, in: library)
+        XCTAssertEqual(loadedSongs.map(\.id), [songs[0].id, songs[4].id])
+        XCTAssertNotNil(SpokenWordCollection.books.songsIfLoaded(in: library))
+        let watcher = LibraryMusicSongsWatcher()
+        let fired = Tally()
+        watcher.watch(library) { fired.count += 1 }
+
+        let before = try await releaseForReal(library)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(SpokenWordCollection.books.songsIfLoaded(in: library), "the shelf cannot answer: the last one stays")
+        let releasedSongs = await PrimuseLibrarySongQuery.playableSongs(forIdentifiers: ids, in: library)
+        XCTAssertEqual(releasedSongs.map(\.id), loadedSongs.map(\.id), "by id from the catalog, as when loaded")
+        assertNoLoadAndNoArrayRead(library, since: before, "readers while released")
+
+        let firedWhileReleased = fired.count
+        let hold = await library.holdSongModel(.legacyPage)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertGreaterThan(fired.count, firedWhileReleased, "the watcher fires once the model is back")
+        hold.end()
+    }
+
+    /// 2b 的真放掉测试:歌曲模型放掉、曲库照样可用时,CloudKit 的歌单记录从目录拼出与装着时相同的成员身份;Spotlight
+    /// 的生产路径从目录分页取专辑、艺人(只取一次),发布的条目与装着时相同(歌单的歌数也由目录答)。都不装模型、
+    /// 不读整库数组。
+    func testWithTheSongModelReallyReleasedCloudKitAndSpotlightAnswerTheSameFromTheCatalog() async throws {
+        let songs = Self.fixture(prefix: "released-sync")
+        let (library, _) = try makeLaunchedTwin("released-sync", songs: songs)
+        let playlist = library.createPlaylist(name: "Cloud send", songIDs: [songs[0].id, songs[4].id])
+        await assertShadowMatches(library, "fixture")
+        let suite = "released-sync-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let sync = CloudKitSyncService(
+            library: library,
+            sourcesStore: SourcesStore(storageDirectoryURL: directory.appendingPathComponent("released-sync-sources")),
+            radioStationsStore: RadioStationsStore(storeURL: directory.appendingPathComponent("released-sync-radio.json")),
+            scraperSettingsStore: ScraperSettingsStore(defaults: defaults)
+        )
+        // 身份信封按值比:JSON 里键的先后每次编码可能不同,字节不一定相同。
+        func playlistRecord() -> (songIDs: [String]?, identities: [SongIdentity]?)? {
+            guard case .built(let record) = sync.recordBuildOutcomeForTesting(
+                recordType: CloudKitSyncService.RecordType.playlist, localID: playlist.id
+            ) else { return nil }
+            let envelope = (record[CloudKitSyncService.songIdentitiesField] as? Data)
+                .flatMap { try? JSONDecoder().decode(PlaylistCloudSyncEnvelope.self, from: $0) }
+            return (record["songIDs"] as? [String], envelope?.songIdentities)
+        }
+        let loadedRecord = try XCTUnwrap(playlistRecord())
+        XCTAssertEqual(loadedRecord.identities?.map(\.songID), [songs[0].id, songs[4].id])
+        let loadedSpotlightRecords = await SpotlightIndexService.productionRecordsForTesting(library: library)
+        let loadedSpotlight = try XCTUnwrap(loadedSpotlightRecords)
+        let pagedBefore = SpotlightIndexService.catalogGroupPagingCountForTesting
+
+        let before = try await releaseForReal(library)
+        let releasedRecord = try XCTUnwrap(playlistRecord(), "built from the catalog, not kept pending")
+        XCTAssertEqual(releasedRecord.songIDs, loadedRecord.songIDs)
+        XCTAssertEqual(releasedRecord.identities, loadedRecord.identities, "the same member identities")
+        let releasedSpotlightRecords = await SpotlightIndexService.productionRecordsForTesting(library: library)
+        XCTAssertEqual(SpotlightIndexService.catalogGroupPagingCountForTesting, pagedBefore + 1, "paged once")
+        XCTAssertEqual(try XCTUnwrap(releasedSpotlightRecords), loadedSpotlight)
+        assertNoLoadAndNoArrayRead(library, since: before, "sync inputs while released")
+    }
+
+    /// 2b-1 的真放掉测试:场景切换、系统唤醒起的活儿,歌曲模型放掉之后没活儿时什么也不要、回调等着;有活儿就请模型装回来,
+    /// 装回来时回调照常执行(连同先前等着的),请求的那份占用随后放手,模型又放得掉。
+    func testABackgroundStartWithWorkLoadsTheReleasedSongModelAndRunsItsHandlers() async throws {
+        let songs = Self.fixture(prefix: "wake")
+        let (library, _) = try makeLaunchedTwin("wake", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        let before = try await releaseForReal(library)
+        let handled = Tally()
+        library.onReady(holding: .scan, ifThereIsWork: { false }) { handled.count += 1 }
+        try await Task.sleep(for: .milliseconds(150))
+        assertNoLoadAndNoArrayRead(library, since: before, "no work")
+        XCTAssertEqual(handled.count, 0, "the handler waits for the model")
+
+        library.onReady(holding: .backgroundDrain) { handled.count += 10 }
+        try await waitUntilReady(library)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(handled.count, 11, "both handlers ran at the load")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1)
+        let again = await library.releaseSongModelIfIdle(trigger: "test")
+        if case .skipped(let why) = again {
+            XCTAssertFalse(why.hasPrefix("hold("), "the requesting hold has ended: \(why)")
+        }
+    }
+
+    /// 2b-1 的真放掉测试:一轮扫描跑着时占着歌曲模型,这时放掉被拒(理由是那份占用);扫描连同收尾放手之后就不再因占用而拒。
+    func testARunningScanHoldsTheSongModelAndRefusesItsRelease() async throws {
+        let songs = Self.fixture(prefix: "scan-hold")
+        let (library, _) = try makeLaunchedTwin("scan-hold", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        library.songModelResidencyEnabled = true
+        var source = MusicSource(id: "scan-hold-\(UUID().uuidString)", name: "Gated", type: .webdav)
+        source.extraConfig = MusicSource.encodeScannedDirectories(["/Music"], into: nil, type: source.type)
+        let root = directory.appendingPathComponent("scan-hold-state", isDirectory: true)
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let connector = GatedListingConnector(sourceID: source.id)
+        let scan = ScanService(fileManager: RootedTestFileManager(root: root), connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) })
+        defer { scan.cancelAllActiveScans() }
+        let manager = SourceManager(sourcesProvider: { [source] in [source] })
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library,
+                                      sourceStore: store, requestsContinuedProcessing: false))
+        let deadline = Date().addingTimeInterval(10)
+        while await connector.listings == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(songModelHolds(of: library).contains(.scan))
+        let refused = await library.releaseSongModelIfIdle(trigger: "test")
+        XCTAssertEqual(refused, .skipped("hold(scan)"), "the running scan holds the model")
+        XCTAssertTrue(library.isReady)
+
+        await connector.open()
+        while scan.scanStates[source.id]?.isScanning == true, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        var outcome = await library.releaseSongModelIfIdle(trigger: "test")
+        while case .skipped(let why) = outcome, why.hasPrefix("hold("), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+            outcome = await library.releaseSongModelIfIdle(trigger: "test")
+        }
+        if case .skipped(let why) = outcome {
+            XCTAssertFalse(why.hasPrefix("hold("), "the scan and its follow-up let go: \(why)")
+        }
+    }
+
+    /// 2a 的真放掉测试:歌曲模型放掉之后队列放到最后一首,相似续播占用一次、把模型装回来,占用拿到之后照常把相似的歌接上,
+    /// 不把这一首记成死胡同。
+    func testAutoContinuationAfterARealReleaseLoadsTheModelOnceAndAppends() async throws {
+        let songs = Self.fixture(prefix: "continuation")
+        let (library, _) = try makeLaunchedTwin("continuation", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        let suite = "continuation-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let player = AudioPlayerService(
+            library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("continuation-session.json")),
+            activateAudioSession: { _ in XCTFail("Queue tests must not start audio") }
+        )
+        player.shuffleEnabled = false
+        player.repeatMode = .off
+        let before = try await releaseForReal(library)
+
+        player.setQueue([songs[0]], startAt: 0)
+        XCTAssertEqual(player.autoContinuationDecision, .similarSongs)
+        if player.autoContinuationTask == nil { player.scheduleAutoContinuationIfNeeded() }
+        await player.autoContinuationTask?.value
+        XCTAssertTrue(library.isReady, "the continuation's hold loaded the model")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1)
+        XCTAssertGreaterThan(player.queueCount, 1, "similar songs appended after the hold returned")
+        XCTAssertNil(player.autoContinuationDeadEndEntryID)
+        player.resetAutoContinuation()
+    }
+}
+
+/// 列目录时停在闸门上,直到测试放行(看扫描跑着时的占用)。
+private actor GatedListingConnector: MusicSourceConnector {
+    let sourceID: String
+    private(set) var listings = 0
+    private var isOpen = false
+    private var waiting: CheckedContinuation<Void, Never>?
+
+    init(sourceID: String) { self.sourceID = sourceID }
+
+    func open() {
+        isOpen = true
+        waiting?.resume()
+        waiting = nil
+    }
+
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        listings += 1
+        if !isOpen { await withCheckedContinuation { waiting = $0 } }
+        return [RemoteFileItem(name: "gated.mp3", path: "/Music/gated.mp3", isDirectory: false,
+                               size: 100, modifiedDate: nil, revision: "v1", providerID: "gated")]
+    }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+}
+
+/// 把扫描服务的状态文件放进测试目录。
+private final class RootedTestFileManager: FileManager, @unchecked Sendable {
+    let root: URL
+    init(root: URL) { self.root = root; super.init() }
+    override func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] {
+        [root]
     }
 }
 

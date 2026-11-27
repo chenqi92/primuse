@@ -951,7 +951,9 @@ final class LibraryMusicSongsWatcher {
     private func arm() {
         guard let library else { return }
         withObservationTracking {
-            _ = library.musicSongs
+            // 6c: 歌曲模型不在内存里时不读那份数组(读到的是空的,还算一次整库数组读):只盯就绪,
+            // 装回来时(就绪变了)回调一次,再挂到数组上。
+            if library.isReady { _ = library.musicSongs } else { _ = library.isReady }
         } onChange: { [weak self] in
             // 在值换上之前回调:下一拍再读,拿到的才是新数组。
             Task { @MainActor [weak self] in

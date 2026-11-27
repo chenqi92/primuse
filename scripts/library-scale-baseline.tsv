@@ -47,7 +47,7 @@ legacy-library-api	Primuse/Services/Library/ServerPlaylistMirror.swift	9
 legacy-library-api	Primuse/Services/Library/ShuffleWeighting.swift	1
 legacy-library-api	Primuse/Services/Library/SmartPlaylistEngine.swift	6
 legacy-library-api	Primuse/Services/Library/SongBatchRemovalService.swift	2
-legacy-library-api	Primuse/Services/Library/SpokenWordWidgetPublisher.swift	2
+legacy-library-api	Primuse/Services/Library/SpokenWordWidgetPublisher.swift	1
 legacy-library-api	Primuse/Services/Library/SpotlightIndexService.swift	3
 legacy-library-api	Primuse/Services/Metadata/LibraryInsightWriteback.swift	3
 legacy-library-api	Primuse/Services/Metadata/MotionCoverStore.swift	1

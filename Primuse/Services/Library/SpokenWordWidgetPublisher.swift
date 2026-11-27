@@ -68,7 +68,9 @@ final class SpokenWordWidgetPublisher {
     /// Books appear and go with the library, not only with listening.
     private func observeLibrary() {
         withObservationTracking {
-            _ = library.spokenWordSongs
+            // 盯修订号,不读整份有声条目(6c:歌曲模型放掉之后读它就是一次整库数组读;放掉本身不动修订号,
+            // 书架内容没变就不必重发)。
+            _ = library.spokenWordContentRevision
             if let revisions = library.catalogHost?.revisions {
                 _ = revisions.isReadable
                 _ = revisions.songs
