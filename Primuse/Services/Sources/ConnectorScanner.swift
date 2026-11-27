@@ -799,6 +799,7 @@ actor ConnectorScanner {
                         }
 
                         if !hadDirectoryFailure {
+                            existingByID.compareTerminalDeletions(encountered: encounteredSongIDs)
                             allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                             scannedCount = allSongs.count
                         }
@@ -1385,6 +1386,7 @@ actor ConnectorScanner {
 
                     if !hadDirectoryFailure {
                         let encounteredSongIDs = walk.songIDSet()
+                        existingByID.compareTerminalDeletions(encountered: encounteredSongIDs)
                         allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                         scannedCount = allSongs.count
                     }

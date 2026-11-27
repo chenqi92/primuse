@@ -410,6 +410,15 @@ public final class ScanExistingSongs: @unchecked Sendable {
         return result
     }
 
+    /// 走查完整走完(没有目录失败)时调:扫描开始时有、这一轮没遇到的歌就是要删的。给了影子时目录那边
+    /// 按开始时的行减去遇到的再算一遍比对(按目录对比扫描时删除改由目录这样算)。
+    public func compareTerminalDeletions(encountered: Set<String>) {
+        guard let shadow else { return }
+        shadow.compareTerminalDeletions(
+            encountered: encountered, expected: Set(songs.lazy.map(\.id)).subtracting(encountered)
+        )
+    }
+
     /// 走查进到这个目录了(目录那边可以先把这个目录的行取来)。
     public func prepareDirectory(_ directory: String) {
         shadow?.prepareDirectory(directory)
@@ -642,6 +651,26 @@ public final class ScanExistingSongsCatalogShadow: @unchecked Sendable {
             record(actual == Set(expected), "songIDs(under) \(directory) catalog=\(actual.count) array=\(expected.count)")
         } catch {
             recordFailure(error, "songIDs(under) \(directory)")
+        }
+    }
+
+    func compareTerminalDeletions(encountered: Set<String>, expected: Set<String>) {
+        do {
+            var start = Set<String>()
+            try catalog.forEachSongIdentity(.source(sourceID)) { _, id, _ in
+                if !excludedIDs.contains(id) { start.insert(id) }
+                return true
+            }
+            for (id, state) in startStates {
+                if state != nil { start.insert(id) } else { start.remove(id) }
+            }
+            let actual = start.subtracting(encountered)
+            record(actual == expected, """
+                terminalDeletions catalog=\(actual.count) array=\(expected.count) \
+                onlyCatalog=\(actual.subtracting(expected).sorted().prefix(3)) onlyArray=\(expected.subtracting(actual).sorted().prefix(3))
+                """)
+        } catch {
+            recordFailure(error, "terminalDeletions")
         }
     }
 

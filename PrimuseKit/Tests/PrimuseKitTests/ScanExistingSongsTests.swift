@@ -106,6 +106,11 @@ struct ScanExistingSongsTests {
         _ = lookup.songID(forOriginalPath: moved.filePath)
         _ = lookup[moved.id]
         _ = lookup[added.id]
+        // 走查走完:遇到的是一部分开始时的歌加新加的那首,其余的要删;目录算出来的与数组的相同。
+        var encountered = Set(array.filter { _ in Bool.random() }.map(\.id))
+        encountered.insert(added.id)
+        lookup.compareTerminalDeletions(encountered: encountered)
+        lookup.compareTerminalDeletions(encountered: Set(array.map(\.id)))
         report = try #require(lookup.shadowReport)
         #expect(report.mismatches == 0, "\(report.logLine)")
         #expect(lookup.originalFilePath(forID: moved.id) == sourceSongs[20].filePath)
