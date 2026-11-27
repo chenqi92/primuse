@@ -900,6 +900,371 @@ final class FolderPlaylistTests: XCTestCase {
         XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
     }
 
+    // MARK: 文件走查只交遇到的 id 与改过的行
+
+    /// 文件走查的提交不再带整份终态快照:只交这一轮遇到的歌的 id 和改过的行。结果要和原来把整份快照
+    /// 交给资料库剪枝的提交一样。一边是 ScanService 扫出来的资料库,一边照原来的做法维护一份对照
+    /// (直接跑走查,拿整份快照 `addSongs`);加歌、删歌、改大小、挪文件夹、删文件夹、本机隐藏的 CUE 分轨、
+    /// 带着断点行续扫之后,两边这个源的歌逐项相同(新歌的加入时间除外),本机隐藏的行也相同。
+    /// 这一遍开着影子比对:走查照旧带上整份快照,`ScanFileWalkCommitShadow` 对一遍新提交,不能有不一致。
+    func testFileWalkCommitMatchesWholeSnapshotCommit() async throws {
+        try await runFileWalkCommitScenario(shadow: true)
+    }
+
+    /// 同一套情形,走查不带整份快照(发布版的样子)。
+    func testFileWalkCommitWithoutSnapshotMatchesWholeSnapshotCommit() async throws {
+        try await runFileWalkCommitScenario(shadow: false)
+    }
+
+    private func runFileWalkCommitScenario(shadow: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("FileWalkCommit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: "walk-\(UUID().uuidString)", name: "NAS", type: .webdav, extraConfig: "[\"/Music\"]")
+        func dir(_ path: String) -> RemoteFileItem {
+            RemoteFileItem(name: (path as NSString).lastPathComponent, path: path,
+                           isDirectory: true, size: 0, modifiedDate: nil)
+        }
+        func file(_ path: String, size: Int64 = 1_000) -> RemoteFileItem {
+            RemoteFileItem(name: (path as NSString).lastPathComponent, path: path,
+                           isDirectory: false, size: size, modifiedDate: Date(timeIntervalSince1970: 1_700_000_000))
+        }
+        let cue = Data("""
+        FILE "image.flac" WAVE
+          TRACK 01 AUDIO
+            TITLE "First Light"
+            INDEX 01 00:00:00
+          TRACK 02 AUDIO
+            TITLE "Evening Walk"
+            INDEX 01 03:00:00
+        """.utf8)
+        let image = [file("/Music/B/image.flac", size: 50_000), file("/Music/B/image.cue", size: Int64(cue.count))]
+        let connector = FileWalkScenarioConnector(sourceID: source.id, listings: [
+            "/Music": [dir("/Music/A"), dir("/Music/B"), file("/Music/top.flac")],
+            "/Music/A": [file("/Music/A/a1.flac"), file("/Music/A/a3.flac"), dir("/Music/A/Disc")],
+            "/Music/A/Disc": [file("/Music/A/Disc/d1.flac"), file("/Music/A/Disc/d2.flac")],
+            "/Music/B": [file("/Music/B/b1.flac")] + image,
+        ], contents: ["/Music/B/image.cue": cue])
+
+        // 被比的一边:ScanService 扫出来的资料库。
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let manager = SourceManager(sourcesProvider: { [] })
+        let fileManager = FolderPlaylistTestFileManager(root: root)
+        func makeScanService() -> ScanService {
+            let service = ScanService(
+                fileManager: fileManager, connectorProvider: { _ in connector },
+                diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) }
+            )
+            service.fileWalkCommitShadowOverride = shadow
+            return service
+        }
+        var scan = makeScanService()
+        func scanSubject(_ step: String) async throws {
+            XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store), step)
+            await scan.waitForActiveScansToComplete()
+            await library.waitForPendingIndex()
+            XCTAssertNil(scan.scanStates[source.id]?.failureMessage, step)
+            XCTAssertFalse(scan.scanStates[source.id]?.canResume == true, step)
+            if shadow {
+                let report = try XCTUnwrap(scan.lastFileWalkCommitShadowReports[source.id], step)
+                XCTAssertGreaterThan(report.lookups, 0, step)
+                XCTAssertEqual(report.mismatches, 0, "\(step): \(report.logLine)")
+            } else {
+                XCTAssertNil(scan.lastFileWalkCommitShadowReports[source.id], step)
+            }
+        }
+
+        // 对照的一边:原来的提交。走查交出整份终态快照,和库里不一样就整份交给 `addSongs` 剪枝;
+        // 续扫时先把断点行回灌进库(`scanSource` 的做法),再把它们排在已有的歌前面交给走查。
+        let reference = MusicLibrary(storageDirectory: root.appendingPathComponent("reference"))
+        var referenceIndex = SourceSyncIndex()
+        func hiddenSegments(_ library: MusicLibrary) -> [Song] {
+            library.locallyRemovedEntries(forSourceID: source.id).map(\.song)
+                .filter { SourceFileDeletionPolicy.isFileSegment($0) }
+        }
+        func scanReference(resuming checkpoint: ScanCheckpoint? = nil) async throws {
+            let resumeRows = checkpoint?.songs ?? []
+            let seed = resumeRows.filter { row in
+                guard let existing = reference.song(id: row.id) else { return true }
+                return ScanService.resumeSeedNeedsUpdate(checkpointRow: row, libraryRow: existing)
+            }
+            if !seed.isEmpty {
+                reference.addSongs(seed, affectedSourceIDs: [source.id], notifyRemovals: false, pruneMissingSongs: false)
+            }
+            let resumeIDs = Set(resumeRows.map(\.id))
+            let known = reference.songs.filter { $0.sourceID == source.id } + hiddenSegments(reference)
+            let existing = resumeRows + known.filter { !resumeIDs.contains($0.id) }
+            let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
+            var snapshot: [Song] = []
+            let updates = await scanner.scan(
+                directories: ["/Music"], existingSongs: existing,
+                resumeState: checkpoint?.directoryState, identityIndex: referenceIndex
+            )
+            for try await update in updates where update.carriesFullSnapshot {
+                snapshot = update.songs
+            }
+            referenceIndex = await scanner.syncIndexSnapshot()
+            if SourceCatalogSnapshotPolicy.hasChanges(
+                existing: reference.songs.filter { $0.sourceID == source.id }, candidate: snapshot
+            ) {
+                reference.addSongs(snapshot, affectedSourceIDs: [source.id])
+            }
+            await reference.waitForPendingIndex()
+        }
+
+        func rows(_ library: MusicLibrary) -> [String: Song] {
+            var rows: [String: Song] = [:]
+            for var song in library.songs where song.sourceID == source.id {
+                song.dateAdded = .distantPast
+                rows[song.id] = song
+            }
+            return rows
+        }
+        func paths(_ library: MusicLibrary) -> Set<String> {
+            Set(library.songs.filter { $0.sourceID == source.id && !$0.isCueTrack }.map(\.filePath))
+        }
+        func assertSame(_ step: String) {
+            let subject = rows(library)
+            let expected = rows(reference)
+            XCTAssertEqual(Set(subject.keys), Set(expected.keys), step)
+            for (id, row) in expected where subject[id] != nil {
+                XCTAssertEqual(subject[id], row, "\(step): \(row.filePath)")
+            }
+            XCTAssertEqual(library.locallyRemovedSongIDs(forSourceID: source.id),
+                           reference.locallyRemovedSongIDs(forSourceID: source.id), step)
+        }
+        func scanBoth(_ step: String) async throws {
+            try await scanSubject(step)
+            try await scanReference()
+            assertSame(step)
+        }
+        /// 像补读那样给一首歌写上标签(两边写的一样)。
+        func tag(_ path: String) throws {
+            for target in [library, reference] {
+                var song = try XCTUnwrap(target.songs.first { $0.sourceID == source.id && $0.filePath == path })
+                song.duration = 180
+                song.artistName = "Tagged"
+                target.replaceSongs([song])
+            }
+        }
+
+        try await scanBoth("first scan")
+        XCTAssertEqual(paths(library), ["/Music/top.flac", "/Music/A/a1.flac", "/Music/A/a3.flac", "/Music/A/Disc/d1.flac",
+                                        "/Music/A/Disc/d2.flac", "/Music/B/b1.flac"])
+        XCTAssertEqual(library.songs.filter(\.isCueTrack).count, 2)
+        try tag("/Music/A/a1.flac")
+        try tag("/Music/A/a3.flac")
+        try tag("/Music/B/b1.flac")
+
+        try await scanBoth("unchanged rescan")
+        XCTAssertEqual(library.songs.first { $0.filePath == "/Music/A/a1.flac" }?.duration, 180)
+
+        // 加歌、一首改了大小、删一个子文件夹换一个新的、B 多一首。
+        await connector.replaceListings([
+            "/Music": [dir("/Music/A"), dir("/Music/B"), file("/Music/top.flac")],
+            "/Music/A": [file("/Music/A/a1.flac"), file("/Music/A/a2.flac"), file("/Music/A/a3.flac", size: 2_000),
+                         dir("/Music/A/NewDisc")],
+            "/Music/A/NewDisc": [file("/Music/A/NewDisc/n1.flac")],
+            "/Music/B": [file("/Music/B/b1.flac"), file("/Music/B/b2.flac")] + image,
+        ])
+        try await scanBoth("added, resized, folder replaced")
+        XCTAssertEqual(paths(library), ["/Music/top.flac", "/Music/A/a1.flac", "/Music/A/a2.flac", "/Music/A/a3.flac",
+                                        "/Music/A/NewDisc/n1.flac", "/Music/B/b1.flac", "/Music/B/b2.flac"])
+        XCTAssertEqual(library.songs.first { $0.filePath == "/Music/A/a1.flac" }?.duration, 180)
+        XCTAssertEqual(library.songs.first { $0.filePath == "/Music/A/a3.flac" }?.duration, 0)
+        XCTAssertEqual(library.songs.first { $0.filePath == "/Music/A/a3.flac" }?.fileSize, 2_000)
+
+        // 挪一首到别的文件夹、删掉 top。
+        await connector.replaceListings([
+            "/Music": [dir("/Music/A"), dir("/Music/B")],
+            "/Music/A": [file("/Music/A/a1.flac"), file("/Music/A/a3.flac", size: 2_000), dir("/Music/A/NewDisc")],
+            "/Music/A/NewDisc": [file("/Music/A/NewDisc/n1.flac")],
+            "/Music/B": [file("/Music/B/b1.flac"), file("/Music/B/b2.flac"), file("/Music/B/a2.flac")] + image,
+        ])
+        try await scanBoth("moved and removed")
+        XCTAssertEqual(paths(library), ["/Music/A/a1.flac", "/Music/A/a3.flac", "/Music/A/NewDisc/n1.flac",
+                                        "/Music/B/b1.flac", "/Music/B/b2.flac", "/Music/B/a2.flac"])
+
+        // 本机隐藏一条 CUE 分轨(源文件留着):重扫不把它带回来,保留的记录也还在。
+        let hiddenTrack = try XCTUnwrap(library.songs.first { $0.isCueTrack && $0.trackNumber == 2 })
+        let visibleTrack = try XCTUnwrap(library.songs.first { $0.isCueTrack && $0.trackNumber == 1 })
+        try library.removeSongsFromThisDevice([hiddenTrack])
+        try reference.removeSongsFromThisDevice([try XCTUnwrap(reference.song(id: hiddenTrack.id))])
+        try await scanBoth("hidden CUE segment, unchanged rescan")
+        XCTAssertEqual(library.songs.filter(\.isCueTrack).map(\.id), [visibleTrack.id])
+        XCTAssertEqual(library.locallyRemovedSongIDs(forSourceID: source.id), [hiddenTrack.id])
+
+        await connector.setListing("/Music/B", [file("/Music/B/b1.flac"), file("/Music/B/b2.flac"), file("/Music/B/a2.flac"),
+                                                file("/Music/B/b3.flac")] + image)
+        try await scanBoth("hidden CUE segment, another file added")
+        XCTAssertEqual(library.songs.filter(\.isCueTrack).map(\.id), [visibleTrack.id])
+        XCTAssertEqual(library.locallyRemovedSongIDs(forSourceID: source.id), [hiddenTrack.id])
+
+        // 镜像没了:看得见的那条分轨删掉,隐藏那条的保留记录也清掉。
+        await connector.setListing("/Music/B", [file("/Music/B/b1.flac"), file("/Music/B/b2.flac"), file("/Music/B/a2.flac"),
+                                                file("/Music/B/b3.flac")])
+        try await scanBoth("CUE image removed")
+        XCTAssertTrue(library.songs.filter(\.isCueTrack).isEmpty)
+        XCTAssertTrue(library.locallyRemovedSongIDs(forSourceID: source.id).isEmpty)
+
+        // 带着断点行续扫。扫描在 B 没列完时被杀掉:A 里改过的一首和 C 里的新歌读到了、还没入库,
+        // 断点里是这几行和走查进度。重开后接着走 B。
+        let checkpointURL = root.appendingPathComponent("Primuse/scan-checkpoints.json")
+        func interruptedWalk() async throws -> (rows: [Song], state: SourceScanResumeState) {
+            let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
+            var rows: [Song] = []
+            var state: SourceScanResumeState?
+            await connector.setFailing(["/Music/B"])
+            let existing = library.songs.filter { $0.sourceID == source.id } + hiddenSegments(library)
+            let updates = await scanner.scan(directories: ["/Music"], existingSongs: existing, identityIndex: referenceIndex)
+            do {
+                for try await update in updates {
+                    rows.append(contentsOf: await scanner.takePendingChangedSongs())
+                    if let resumeState = update.resumeState { state = resumeState }
+                }
+                XCTFail("the walk must stop at the failing folder")
+            } catch {}
+            rows.append(contentsOf: await scanner.takePendingChangedSongs())
+            await connector.setFailing([])
+            return (rows, try XCTUnwrap(state))
+        }
+        /// 把断点写到盘上,像重开 App 那样换一个 ScanService 读回来;返回它读到的断点。
+        func relaunch(rows: [Song], state: SourceScanResumeState?) async throws -> ScanCheckpoint {
+            await scan.waitForActiveScansToComplete()
+            let scope = ScanService.scopeFingerprint(for: store.source(id: source.id) ?? source, directories: ["/Music"])
+            try ScanCheckpointFileStore.writeSnapshot([source.id: ScanCheckpoint(
+                phase: .scanning, intent: .fullScan, directories: ["/Music"], songs: rows,
+                scannedSongCount: rows.count, totalCount: 0, currentFile: "",
+                updatedAt: Date().addingTimeInterval(-3_600),
+                scopeFingerprint: scope, directoryState: state
+            )], to: checkpointURL)
+            scan = makeScanService()
+            await scan.whenStartupStateReady()
+            return try XCTUnwrap(ScanCheckpointFileStore.load(from: checkpointURL)[source.id])
+        }
+
+        await connector.replaceListings([
+            "/Music": [dir("/Music/A"), dir("/Music/B"), dir("/Music/C")],
+            "/Music/A": [file("/Music/A/a1.flac", size: 3_000), file("/Music/A/a3.flac", size: 2_000), dir("/Music/A/NewDisc")],
+            "/Music/A/NewDisc": [file("/Music/A/NewDisc/n1.flac")],
+            "/Music/B": [file("/Music/B/b1.flac"), file("/Music/B/b2.flac"), file("/Music/B/a2.flac"),
+                         file("/Music/B/b3.flac"), file("/Music/B/b4.flac")],
+            "/Music/C": [file("/Music/C/c1.flac"), file("/Music/C/c2.flac")],
+        ])
+        var interrupted = try await interruptedWalk()
+        XCTAssertEqual(Set(interrupted.rows.map(\.filePath)), ["/Music/A/a1.flac", "/Music/C/c1.flac", "/Music/C/c2.flac"])
+        XCTAssertEqual(interrupted.state.pendingDirectories, ["/Music/B"])
+        var checkpoint = try await relaunch(rows: interrupted.rows, state: interrupted.state)
+        let listedBeforeResume = await connector.listedPaths.count
+        // 续扫正列着 B 又被停掉:上一轮带回来的行这时还没随提交入库,得照样留在断点里。
+        await connector.holdNextListing(of: "/Music/B")
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        let holdDeadline = Date().addingTimeInterval(10)
+        while await !connector.isHolding, Date() < holdDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let isHolding = await connector.isHolding
+        XCTAssertTrue(isHolding)
+        try await Task.sleep(for: .milliseconds(300))
+        scan.cancelScan(for: source.id)
+        await connector.releaseListing()
+        await scan.waitForActiveScansToComplete()
+        var rewritten: ScanCheckpoint?
+        let rewriteDeadline = Date().addingTimeInterval(5)
+        repeat {
+            rewritten = ScanCheckpointFileStore.load(from: checkpointURL)[source.id]
+            if let rewritten, rewritten.updatedAt > checkpoint.updatedAt { break }
+            try await Task.sleep(for: .milliseconds(50))
+        } while Date() < rewriteDeadline
+        XCTAssertTrue(
+            Set(try XCTUnwrap(rewritten).songs.map(\.filePath)).isSuperset(of: interrupted.rows.map(\.filePath)),
+            "rows carried by the checkpoint stay in it until they are committed"
+        )
+        try await scanSubject("resumed with checkpoint rows")
+        let listedByResume = await connector.listedPaths.dropFirst(listedBeforeResume)
+        XCTAssertEqual(Array(listedByResume), ["/Music/B", "/Music/B"], "the resumed walks only list the unfinished folder")
+        try await scanReference(resuming: checkpoint)
+        assertSame("resumed with checkpoint rows")
+        XCTAssertEqual(paths(library), ["/Music/A/a1.flac", "/Music/A/a3.flac", "/Music/A/NewDisc/n1.flac", "/Music/B/b1.flac",
+                                        "/Music/B/b2.flac", "/Music/B/a2.flac", "/Music/B/b3.flac", "/Music/B/b4.flac",
+                                        "/Music/C/c1.flac", "/Music/C/c2.flac"])
+        XCTAssertEqual(library.songs.first { $0.filePath == "/Music/A/a1.flac" }?.fileSize, 3_000)
+
+        // 断点里只有行、走查进度用不上(从头走):其中一首的文件在重开前没了,它不能被带回资料库。
+        await connector.setListing("/Music/A", [file("/Music/A/a1.flac", size: 3_000), file("/Music/A/a3.flac", size: 2_000),
+                                                file("/Music/A/a5.flac"), dir("/Music/A/NewDisc")])
+        await connector.setListing("/Music/C", [file("/Music/C/c1.flac"), file("/Music/C/c2.flac"), file("/Music/C/c3.flac")])
+        interrupted = try await interruptedWalk()
+        XCTAssertEqual(Set(interrupted.rows.map(\.filePath)), ["/Music/A/a5.flac", "/Music/C/c3.flac"])
+        await connector.setListing("/Music/A", [file("/Music/A/a1.flac", size: 3_000), file("/Music/A/a3.flac", size: 2_000),
+                                                dir("/Music/A/NewDisc")])
+        checkpoint = try await relaunch(rows: interrupted.rows, state: nil)
+        try await scanSubject("resumed from the roots with a stale checkpoint row")
+        try await scanReference(resuming: checkpoint)
+        assertSame("resumed from the roots with a stale checkpoint row")
+        XCTAssertFalse(paths(library).contains("/Music/A/a5.flac"))
+        XCTAssertTrue(paths(library).contains("/Music/C/c3.flac"))
+
+        try await scanBoth("unchanged rescan after the resumed scans")
+    }
+
+    /// 扫描途中别处给这个源加了一行(走查没遇到它):这一轮没有别的变化也照样提交,把它剪掉,
+    /// 和原来拿整份快照比出「歌数不一样」时相同。没有这种事的重扫不提交。
+    func testRowAddedDuringAnUnchangedWalkIsStillPruned() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("FileWalkCount-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: "walk-\(UUID().uuidString)", name: "NAS", type: .webdav, extraConfig: "[\"/Music\"]")
+        let tracks = ["/Music/t1.mp3", "/Music/t2.mp3"].map {
+            RemoteFileItem(name: ($0 as NSString).lastPathComponent, path: $0, isDirectory: false, size: 1_000,
+                           modifiedDate: Date(timeIntervalSince1970: 1_700_000_000))
+        }
+        let connector = FileWalkScenarioConnector(sourceID: source.id, listings: ["/Music": tracks])
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let manager = SourceManager(sourcesProvider: { [] })
+        for shadow in [true, false] {
+            let scan = ScanService(
+                fileManager: FolderPlaylistTestFileManager(root: root), connectorProvider: { _ in connector },
+                diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) }
+            )
+            scan.fileWalkCommitShadowOverride = shadow
+            var completions: [SourceScanLifecycleCompletion] = []
+            scan.successfulSourceScanHandler = { _, completion in completions.append(completion) }
+            XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+            await scan.waitForActiveScansToComplete()
+            XCTAssertEqual(Set(library.songs.map(\.filePath)), ["/Music/t1.mp3", "/Music/t2.mp3"])
+
+            XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+            await scan.waitForActiveScansToComplete()
+            XCTAssertEqual(completions.last, .committedNoChanges, "shadow=\(shadow)")
+
+            await connector.holdNextListing(of: "/Music")
+            XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+            let deadline = Date().addingTimeInterval(10)
+            while await !connector.isHolding, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            let isHolding = await connector.isHolding
+            XCTAssertTrue(isHolding)
+            let stray = Song(id: "stray-\(shadow)", title: "Stray", fileFormat: .mp3,
+                             filePath: "/Music/stray.mp3", sourceID: source.id)
+            library.addSongs([stray], affectedSourceIDs: [source.id], notifyRemovals: false, pruneMissingSongs: false)
+            XCTAssertNotNil(library.storedSong(id: stray.id))
+            await connector.releaseListing()
+            await scan.waitForActiveScansToComplete()
+            XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+            XCTAssertEqual(completions.last, .committedSnapshot, "shadow=\(shadow)")
+            XCTAssertEqual(Set(library.songs.map(\.filePath)), ["/Music/t1.mp3", "/Music/t2.mp3"], "shadow=\(shadow)")
+            if shadow {
+                XCTAssertEqual(scan.lastFileWalkCommitShadowReports[source.id]?.mismatches, 0)
+            }
+        }
+    }
+
     private struct SwitchableWalkFixture {
         let source: MusicSource
         let connector: SwitchableListingConnector
@@ -1055,6 +1420,54 @@ private actor FolderRescanTestConnector: MusicSourceConnector {
         listedPaths.append(path)
         guard let items = listings[path] else { throw SourceError.pathNotFound(path) }
         return items
+    }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        .init { $0.finish() }
+    }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        .init { $0.finish() }
+    }
+}
+
+/// 可以改的文件树:目录列表、文件内容(CUE)、列不出来的目录,以及把某个目录的下一次列表扣住。
+private actor FileWalkScenarioConnector: MusicSourceConnector {
+    nonisolated let sourceID: String
+    private var listings: [String: [RemoteFileItem]]
+    private let contents: [String: Data]
+    private var failing: Set<String> = []
+    private var heldPath: String?
+    private(set) var isHolding = false
+    private(set) var listedPaths: [String] = []
+
+    init(sourceID: String, listings: [String: [RemoteFileItem]], contents: [String: Data] = [:]) {
+        self.sourceID = sourceID
+        self.listings = listings
+        self.contents = contents
+    }
+
+    func replaceListings(_ listings: [String: [RemoteFileItem]]) { self.listings = listings }
+    func setListing(_ path: String, _ items: [RemoteFileItem]) { listings[path] = items }
+    func setFailing(_ paths: Set<String>) { failing = paths }
+    func holdNextListing(of path: String) { heldPath = path }
+    func releaseListing() { heldPath = nil }
+
+    func connect() async throws { }
+    func disconnect() async { }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        listedPaths.append(path)
+        if heldPath == path {
+            isHolding = true
+            while heldPath == path { try await Task.sleep(for: .milliseconds(10)) }
+            isHolding = false
+        }
+        if failing.contains(path) { throw HTTPResponseFailure(statusCode: 500) }
+        guard let items = listings[path] else { throw SourceError.pathNotFound(path) }
+        return items
+    }
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        guard let data = contents[path] else { throw SourceError.fileNotFound(path) }
+        return data
     }
     func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {

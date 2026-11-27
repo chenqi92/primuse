@@ -441,6 +441,65 @@ public struct ScanExistingSongsShadowReport: Sendable, Equatable {
     }
 }
 
+/// 文件走查的终态改成「这一轮遇到的歌的 id + 改过的行」之后(不再交整份源快照),拿原来那份终态快照
+/// 对一遍这一轮交给资料库的东西:整份快照提交能带进库的,只交改动的提交是不是一样都带到了。
+/// - 快照里的每一行都遇到过(按遇到的 id 剪不会剪掉它);
+/// - 快照里和扫描开始时不一样的行(新歌、改过的、续扫带回来的、旧根目录修正过的)都交过,
+///   最后交的那一份就是快照里的那一份;
+/// - 遇到过、快照里却没有行的 id 不是开始时已有的歌(按遇到的 id 剪和按快照剪,删的是同一批)。
+/// 只在深度影子校验与 DEBUG 时算;按 id 建的表以这一个源为界,算完即放。
+public enum ScanFileWalkCommitShadow {
+    private static let sampleLimit = 5
+
+    /// - Parameters:
+    ///   - start: 扫描开始时资料库里这个源的歌,加上本机删掉的文件分段(走查拿它们当已有的歌)。
+    ///   - terminalSnapshot: 原来的终态快照(开始时的歌盖上走查的改动、去掉没遇到的)。
+    ///   - encountered: 这一轮遇到的歌的 id。
+    ///   - submitted: 这一轮交给资料库的行(中间提交的在前,终态剩下的在后)。
+    public static func compare(
+        start: [Song],
+        terminalSnapshot: [Song],
+        encountered: Set<String>,
+        submitted: [Song]
+    ) -> ScanExistingSongsShadowReport {
+        var report = ScanExistingSongsShadowReport()
+        func record(_ matches: Bool, _ what: @autoclosure () -> String) {
+            report.lookups += 1
+            guard !matches else { return }
+            report.mismatches += 1
+            if report.samples.count < sampleLimit { report.samples.append(what()) }
+        }
+        var startByID: [String: Song] = [:]
+        startByID.reserveCapacity(start.count)
+        for song in start where startByID[song.id] == nil { startByID[song.id] = song }
+        // 同一个 id 交过几次、快照里出现几次时,资料库都以最后一份为准。
+        var submittedByID: [String: Song] = [:]
+        for song in submitted { submittedByID[song.id] = song }
+        var snapshotByID: [String: Song] = [:]
+        snapshotByID.reserveCapacity(terminalSnapshot.count)
+        for song in terminalSnapshot { snapshotByID[song.id] = song }
+
+        for (id, row) in snapshotByID {
+            record(encountered.contains(id), "snapshot row \(id) was not encountered")
+            if let sent = submittedByID[id] {
+                record(sent == row, "submitted row \(id) differs from the snapshot: "
+                    + ScanExistingSongsCatalogShadow.difference(catalog: sent, array: row))
+            } else {
+                record(startByID[id] == row, "snapshot row \(id) differs from the start and was never submitted: "
+                    + ScanExistingSongsCatalogShadow.difference(catalog: startByID[id], array: row))
+            }
+        }
+        for id in encountered where snapshotByID[id] == nil {
+            if startByID[id] != nil {
+                record(false, "start row \(id) was encountered but is not in the snapshot")
+            } else if submittedByID[id] != nil {
+                record(false, "submitted row \(id) was encountered but is not in the snapshot")
+            }
+        }
+        return report
+    }
+}
+
 /// 在曲库目录上答「这个源扫描开始时已有的歌」,与按数组答的相同:
 /// - 开始时的行:扫描开始前已跟上内存模型的目录(按 id 先看待写登记,与 `storedSong(id:)` 相同),
 ///   去掉 `excludedIDs`(仅歌单的行);`overrides`(续扫带回来的行、本机删掉的文件分段)优先;

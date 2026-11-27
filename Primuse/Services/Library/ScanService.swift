@@ -3621,6 +3621,13 @@ final class ScanService {
                 plog("🧪 scan existing-song lookups on the catalog source=\(LogRedactionPolicy.digest(source.id)) \(report.logLine)")
             }
         }
+        // 按目录列文件的连接器扫文件源: 走查的终态不带整份源快照, 提交只用这一轮遇到的歌的 id
+        // 和改过的行。服务器目录的扫描(`SongScanningConnector`)与按服务器目录提交的源类型照旧。
+        let commitsFileWalkChanges = !requiresAtomicCatalogCommit && !(connector is any SongScanningConnector)
+        // 影子校验时走查照旧带上整份终态快照, 只拿来和新提交对一遍, 提交本身不用它。
+        let shadowsFileWalkCommit = commitsFileWalkChanges
+            && fileWalkCommitShadowEnabled(library: library, knownSongCount: existingForScan.count)
+        lastFileWalkCommitShadowReports[source.id] = nil
         let stream = await scanner.scan(
             directories: effectiveDirectories,
             existingSongs: existingForScan,
@@ -3634,7 +3641,8 @@ final class ScanService {
             ),
             identityMissingStableKeys: workingState?.missingStableKeys ?? [:],
             scanEpoch: nextScanEpoch,
-            existingLookupShadow: existingLookupShadow
+            existingLookupShadow: existingLookupShadow,
+            fileWalkCarriesSnapshot: !commitsFileWalkChanges || shadowsFileWalkCommit
         )
 
         // 扫描失败时用它把已经走通的目录层级留下来,见
@@ -3646,7 +3654,15 @@ final class ScanService {
         // 资料库自己持久化, 把整份累积目录再塞进 checkpoint 只会让每次落盘
         // 重新编码一遍全库 —— 而写入间隔本来就随体积变长, 越大的库反而存得
         // 越少。带上尾巴就能既小又频繁。
-        var unpublishedRows: [Song] = []
+        //
+        // 续扫带回来的行(上一轮读到、还没入库)也从这条尾巴走: 走查拿它们当已有的歌, 没变就
+        // 不会再记一遍, 原来只随终态的整份快照入库。放回尾巴后随下一次中间提交或终态提交入库,
+        // 再被打断时也照样留在 checkpoint 里。
+        var unpublishedRows: [Song] = commitsFileWalkChanges ? genericResumeSongs : []
+        // 文件走查最后一条: 走完了没有, 以及这一轮遇到的歌(走查进度里的紧凑记录)。
+        var terminalFileWalk: (outcome: ConnectorScanner.FileWalkOutcome, walkLog: SourceScanWalkLog)?
+        // 影子校验用: 这一轮中间提交交过的行。
+        var shadowSubmittedRows: [Song] = []
         var completedFlushes = 0
         // 扫描中途出错或让路时, 已经读到的行照样入库: 提交间隔放宽之后, 两次提交
         // 之间可能攒着上千首, 不能因为后面一页读失败就让这些已经读好的歌一起消失,
@@ -3735,6 +3751,9 @@ final class ScanService {
                 if let directoryState = update.resumeState {
                     lastObservedSyncIndex = directoryState.walkLog
                     lastObservedPendingDirectories = directoryState.pendingDirectories
+                    if let outcome = update.fileWalkOutcome {
+                        terminalFileWalk = (outcome, directoryState.walkLog)
+                    }
                     // Update the in-memory checkpoint on every completed (or
                     // in-flight) directory. Disk encoding remains throttled;
                     // cancellation forces the latest snapshot to disk.
@@ -3795,6 +3814,7 @@ final class ScanService {
                         )
                     }
                     unpublishedRows.removeAll(keepingCapacity: true)
+                    if shadowsFileWalkCommit { shadowSubmittedRows.append(contentsOf: changedRows) }
                     if !changedRows.isEmpty {
                         if let prepared {
                             library.addSongs(
@@ -3853,6 +3873,18 @@ final class ScanService {
 
             let metadataInspectedSongIDs = await scanner.takeMetadataInspectedSongIDs()
             let peerSeedAdoptions = await scanner.takePeerSeedAdoptions()
+            // 文件走查这一轮遇到的歌(含没变的)。没有整份快照可依, 走完的走查最后一条必带终态;
+            // 没带、或者没走完(那样流会先抛错), 都当没走完: 一首不删, 读到的行照样入库。
+            var walkedSongIDs: Set<String>?
+            if commitsFileWalkChanges {
+                guard let terminal = terminalFileWalk, terminal.outcome == .complete else {
+                    throw SourceError.connectionFailed("The directory walk ended without a complete result")
+                }
+                // 最后一条到手之后走查不会再记行; 再取一次, 没有快照兜着, 一行都不能落下。
+                let lateRows = await scanner.takePendingChangedSongs()
+                unpublishedRows.append(contentsOf: lateRows)
+                walkedSongIDs = terminal.walkLog.songIDSet()
+            }
             try checkScanCommitFence(
                 sourceID: source.id,
                 generation: generation,
@@ -3873,9 +3905,10 @@ final class ScanService {
             if allowsAuthoritativeCatalogPrune,
                let previousState = workingState,
                !(connector is any ResumableSnapshotMusicSourceConnector) {
-                // 不先拼出整源的 id 数组再建集合。
+                // 不先拼出整源的 id 数组再建集合。文件走查直接用这一轮遇到的歌的 id:
+                // 「开始时有、这一轮没遇到」与拿整份终态快照算出来的是同一批。
                 let existingIDs = Set(knownExisting.lazy.map(\.id))
-                let snapshotIDs = Set(lastSongs.lazy.map(\.id))
+                let snapshotIDs = walkedSongIDs ?? Set(lastSongs.lazy.map(\.id))
                 let plan = ServerCatalogDeletionConfirmationPolicy.plan(
                     existingSongIDs: existingIDs,
                     authoritativeSongIDs: snapshotIDs,
@@ -3923,14 +3956,55 @@ final class ScanService {
                 missingCatalogSongIDs: deletionPlan?.missingCounts ?? [:],
                 deletionEvidenceRevision: deletionPlan?.evidenceRevision
             )
+            var commitSongs = lastSongs
+            var commitAuthoritativeSongIDs = prunableSongIDs
+            var fileWalkCommit: FileWalkCommit?
+            if let walkedSongIDs {
+                // 文件走查的提交: 还没入库的改动行, 加上剪枝用的权威集合 —— 有歌在等确认删除时
+                // 是留下它们的那一份, 否则就是这一轮遇到的歌。没变的行不再交一遍。
+                let authoritativeSongIDs = prunableSongIDs ?? walkedSongIDs
+                // 只交遇到过的行: 续扫带回来、这一轮没再遇到的(文件已经不在了)原来也不在终态快照里。
+                let rows = unpublishedRows.filter { walkedSongIDs.contains($0.id) }
+                // 开始时资料库里这个源的歌(排在本机隐藏的文件分段前面)有没有要删的, 在后台看一遍。
+                let knownLibrarySongCount = knownExisting.count - hiddenTracks.count
+                let prunesMissingSongs = allowsAuthoritativeCatalogPrune
+                let removesKnownSongs = await Task.detached(priority: .utility) {
+                    prunesMissingSongs && knownExisting.prefix(knownLibrarySongCount).contains {
+                        !authoritativeSongIDs.contains($0.id)
+                    }
+                }.value
+                if shadowsFileWalkCommit {
+                    let submittedRows = shadowSubmittedRows + rows
+                    let terminalSnapshot = lastSongs
+                    let report = await Task.detached(priority: .utility) {
+                        ScanFileWalkCommitShadow.compare(
+                            start: knownExisting, terminalSnapshot: terminalSnapshot,
+                            encountered: walkedSongIDs, submitted: submittedRows
+                        )
+                    }.value
+                    lastFileWalkCommitShadowReports[source.id] = report
+                    plog("🧪 scan file-walk commit against the terminal snapshot source=\(LogRedactionPolicy.digest(source.id)) \(report.logLine)")
+                }
+                try checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                commitSongs = rows
+                commitAuthoritativeSongIDs = authoritativeSongIDs
+                fileWalkCommit = (walkedSongIDs, removesKnownSongs, knownLibrarySongCount)
+            }
             try await completeScan(
                 sourceID: source.id,
                 generation: generation,
-                songs: lastSongs,
-                authoritativeSongIDs: prunableSongIDs,
+                songs: commitSongs,
+                authoritativeSongIDs: commitAuthoritativeSongIDs,
                 pruneMissingSongs: allowsAuthoritativeCatalogPrune,
                 forcesCatalogCommit: publishedIntermediateRows,
                 changedCatalogSongIDs: source.type == .fnMusic ? changedCatalogSongIDs : nil,
+                fileWalk: fileWalkCommit,
                 expectedScopeFingerprint: scopeFingerprint,
                 expectedScopeDirectories: directories,
                 library: library,
@@ -4283,6 +4357,28 @@ final class ScanService {
 
     /// 测试看:每个源最近一次走查的「已有的歌」在曲库目录上的影子比对结果。
     private(set) var lastExistingLookupShadowReports: [String: ScanExistingSongsShadowReport] = [:]
+
+    /// 文件走查交给 `completeScan` 的终态(一次提交里的局部值,不常驻):这一轮遇到的歌的 id(含没变的);
+    /// 扫描开始时资料库里这个源的歌(不算仅歌单的行)有没有不在权威集合里、要删的;当时一共多少首。
+    private typealias FileWalkCommit = (songIDs: Set<String>, removesKnownSongs: Bool, knownSongCount: Int)
+
+    /// 测试看:每个源最近一次文件走查的提交(只交遇到的 id 与改过的行)和原来整份终态快照的比对结果
+    /// (`ScanFileWalkCommitShadow`)。没做比对的那一轮是 nil。
+    private(set) var lastFileWalkCommitShadowReports: [String: ScanExistingSongsShadowReport] = [:]
+    /// 测试用:强行开或关上面的比对(关掉时走查不带整份快照,与发布版相同)。
+    @ObservationIgnored var fileWalkCommitShadowOverride: Bool?
+
+    /// 文件走查的提交要不要拿整份终态快照对一遍:深度影子校验开着时,以及 DEBUG 下不超过 10 万首的源
+    /// (与深度影子校验的默认范围相同)。比对要走查照旧拼出整份快照,发布版默认不做。
+    private func fileWalkCommitShadowEnabled(library: MusicLibrary, knownSongCount: Int) -> Bool {
+        if let fileWalkCommitShadowOverride { return fileWalkCommitShadowOverride }
+        if library.catalogScanLookupShadowEnabled { return true }
+        #if DEBUG
+        return knownSongCount <= 100_000
+        #else
+        return false
+        #endif
+    }
 
     /// 走查「这个源扫描开始时已有的歌」的目录影子用的目录:深度影子校验开着、目录跟上了内存模型
     /// (没有还在路上的改动)时,冻结此刻的目录。调用方紧接着取已有的歌,中间不让出主线程。
@@ -5672,6 +5768,9 @@ final class ScanService {
         // detection below would otherwise read a first scan as a no-op.
         forcesCatalogCommit: Bool = false,
         changedCatalogSongIDs: Set<String>? = nil,
+        // 文件走查的提交: `songs` 只有这一轮改过、还没入库的行(不是整份源快照),
+        // `authoritativeSongIDs` 是剪枝用的集合, 这里是走查遇到的歌和判断有没有变化要的两样。
+        fileWalk: FileWalkCommit? = nil,
         expectedScopeFingerprint: String? = nil,
         expectedScopeDirectories: [String] = [],
         library: MusicLibrary,
@@ -5696,7 +5795,7 @@ final class ScanService {
         var catalogAuthoritativeSongIDs = authoritativeSongIDs
         // 只在服务端歌单里的歌不在走查里, 整源替换时照留; 走查列出来的那些已经是曲库里的歌,
         // 不再算仅歌单, 目录没别的变化、下面不提交时也要放回歌曲列表。
-        let walkedSongIDs = Set(songs.lazy.map(\.id))
+        let walkedSongIDs = fileWalk?.songIDs ?? Set(songs.lazy.map(\.id))
         let trackedCollectionOnlyIDs = CollectionOnlySongStore.shared.songIDs(forSourceID: sourceID)
         if !trackedCollectionOnlyIDs.isDisjoint(with: walkedSongIDs) {
             CollectionOnlySongStore.shared.replace(
@@ -5759,6 +5858,19 @@ final class ScanService {
             catalogAuthoritativeSongIDs = plan.authoritativeSongIDs
             detectedCatalogChanges = !plan.songs.isEmpty || plan.hasRemovals
             plog("source=\(LogRedactionPolicy.digest(sourceID)) FN catalog commit walked=\(songs.count) changed=\(plan.enrichmentSongs.count) upserts=\(plan.songs.count) prune=\(pruneMissingSongs) removals=\(plan.hasRemovals)")
+        } else if let fileWalk {
+            // 文件走查只交改过的行与遇到的歌的 id, 没有整份快照可比: 有行要写、开始时库里的歌
+            // 有要删的, 才算有变化。再看一眼这个源在库里的歌数: 和开始时不一样, 说明扫描途中别处
+            // 加过或删过行, 也照有变化提交(没遇到的行在提交里剪掉), 与拿整份快照比时相同。
+            if !songs.isEmpty || fileWalk.removesKnownSongs {
+                detectedCatalogChanges = true
+            } else if forcesCatalogCommit {
+                detectedCatalogChanges = false
+            } else {
+                let librarySongCount = library.exactSongCount(forSourceID: sourceID)
+                    - collectionOnlySongIDs.filter { library.storedSong(id: $0) != nil }.count
+                detectedCatalogChanges = librarySongCount != fileWalk.knownSongCount
+            }
         } else if let source, !source.type.isServerLibrary, source.type != .upnp {
             // Unchanged file trees only need their sync/checkpoint state updated.
             // Republishing the full catalogue repeats library-wide indexing and

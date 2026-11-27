@@ -163,4 +163,83 @@ struct ScanExistingSongsTests {
         #expect(lookup.shadowReport == nil)
         #expect(lookup.count == 1)
     }
+
+    // MARK: 文件走查的提交(遇到的 id + 改过的行)对整份终态快照
+
+    private static func row(_ id: String, _ path: String? = nil, size: Int64 = 1_000) -> Song {
+        Song(id: id, title: id, fileFormat: .flac, filePath: path ?? "/Music/\(id).flac", sourceID: source, fileSize: size)
+    }
+
+    /// 一轮走查:开始时库里有 a、b、c 和本机隐藏的分轨 h;a 没变,b 改了大小,c 的文件没了,
+    /// 多了新歌 d,续扫带回来一行 r(库里没有),旧根目录修正过一行 m。
+    private static func walk() -> (start: [Song], snapshot: [Song], encountered: Set<String>, submitted: [Song]) {
+        let hidden = Song(id: "h", title: "Hidden", duration: 60, fileFormat: .flac, filePath: "/Music/image.flac",
+                          sourceID: source, cueSheetPath: "/Music/image.cue", cueStartTime: 60)
+        // 没变的行在快照里就是开始时的那一份(加入时间也一样)。
+        let unchanged = row("a")
+        let start = [unchanged, row("b"), row("c"), row("m", "m.flac"), hidden]
+        let changed = row("b", size: 2_000)
+        let repaired = row("m", "/Music/m.flac")
+        let resumed = row("r")
+        let new = row("d")
+        return (start, [resumed, unchanged, changed, repaired, hidden, new], ["a", "b", "m", "h", "d", "r"],
+                [resumed, changed, repaired, new])
+    }
+
+    @Test("A commit of changed rows and encountered ids carries what the terminal snapshot carried")
+    func fileWalkCommitMatchesTheSnapshot() {
+        let walk = Self.walk()
+        let report = ScanFileWalkCommitShadow.compare(
+            start: walk.start, terminalSnapshot: walk.snapshot, encountered: walk.encountered, submitted: walk.submitted
+        )
+        #expect(report.mismatches == 0, "\(report.logLine)")
+        #expect(report.lookups == walk.snapshot.count * 2)
+
+        // 同一行交过两次(续扫带回来、走查又改了一次):以后交的为准。
+        let earlier = Self.row("b", size: 1_500)
+        let twice = ScanFileWalkCommitShadow.compare(
+            start: walk.start, terminalSnapshot: walk.snapshot, encountered: walk.encountered,
+            submitted: [earlier] + walk.submitted
+        )
+        #expect(twice.mismatches == 0, "\(twice.logLine)")
+
+        // 交过、这一轮却没遇到的行(续扫带回来、文件已经不在了)不在快照里,也不算数。
+        let stale = ScanFileWalkCommitShadow.compare(
+            start: walk.start, terminalSnapshot: walk.snapshot, encountered: walk.encountered,
+            submitted: walk.submitted + [Self.row("gone")]
+        )
+        #expect(stale.mismatches == 0, "\(stale.logLine)")
+    }
+
+    @Test("Rows that only the terminal snapshot would have carried are reported")
+    func fileWalkCommitReportsWhatItWouldLose() {
+        let walk = Self.walk()
+        func mismatches(
+            snapshot: [Song]? = nil, encountered: Set<String>? = nil, submitted: [Song]? = nil
+        ) -> ScanExistingSongsShadowReport {
+            ScanFileWalkCommitShadow.compare(
+                start: walk.start, terminalSnapshot: snapshot ?? walk.snapshot,
+                encountered: encountered ?? walk.encountered, submitted: submitted ?? walk.submitted
+            )
+        }
+        // 续扫带回来的行、旧根目录修正过的行、改过的行、新歌:哪一样没交都要报。
+        for missing in ["r", "m", "b", "d"] {
+            let report = mismatches(submitted: walk.submitted.filter { $0.id != missing })
+            #expect(report.mismatches == 1, "\(missing): \(report.logLine)")
+            #expect(report.samples.first?.contains("never submitted") == true, "\(missing): \(report.logLine)")
+        }
+        // 交的不是快照里那一份。
+        let stale = mismatches(submitted: walk.submitted.map { $0.id == "b" ? Self.row("b", size: 1_500) : $0 })
+        #expect(stale.mismatches == 1, "\(stale.logLine)")
+        #expect(stale.samples.first?.contains("fileSize") == true, "\(stale.logLine)")
+        // 快照里有、却没算遇到的行:按遇到的 id 剪会把它剪掉。
+        let unseen = mismatches(encountered: walk.encountered.subtracting(["a"]))
+        #expect(unseen.mismatches == 1, "\(unseen.logLine)")
+        // 遇到了、快照里却没有的开始时的行:按快照剪会删、按遇到的 id 剪会留。
+        let kept = mismatches(encountered: walk.encountered.union(["c"]))
+        #expect(kept.mismatches == 1, "\(kept.logLine)")
+        // 遇到过、没有行、也不是开始时的歌(索引里留下的旧 id):两种剪法没有区别。
+        let orphan = mismatches(encountered: walk.encountered.union(["index-only"]))
+        #expect(orphan.mismatches == 0, "\(orphan.logLine)")
+    }
 }

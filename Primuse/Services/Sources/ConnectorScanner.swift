@@ -173,6 +173,17 @@ actor ConnectorScanner {
         /// same checkpoint as `songs`, so an interrupted scan resumes at the
         /// next unfinished directory without making partial results authoritative.
         var resumeState: SourceScanResumeState? = nil
+        /// 文件走查(按目录列文件的连接器)的最后一条才有。走查的终态不靠整份源快照:
+        /// 这一轮遇到的歌的 id 在 `resumeState` 的走查进度里(`walkLog.songIDSet()`),改过的行由
+        /// `takePendingChangedSongs()` 取,这里说走完了没有。服务器目录的扫描没有这一项。
+        var fileWalkOutcome: FileWalkOutcome? = nil
+    }
+
+    enum FileWalkOutcome: Sendable, Equatable {
+        /// 每个目录都列到了:没遇到的歌就是远端没有了。
+        case complete
+        /// 有目录列不出来或被限流打断:没遇到不说明什么,一首都不删。
+        case incomplete
     }
 
     struct IncrementalResult: Sendable {
@@ -531,7 +542,11 @@ actor ConnectorScanner {
         identityIndex: SourceSyncIndex = SourceSyncIndex(),
         identityMissingStableKeys: [String: Int] = [:],
         scanEpoch: Int64 = 0,
-        existingLookupShadow: ScanExistingSongsCatalogShadow? = nil
+        existingLookupShadow: ScanExistingSongsCatalogShadow? = nil,
+        // 文件走查要不要照旧在开头和最后各交一份整源快照。ScanService 提交文件源只用
+        // 「遇到的 id + 改过的行」,传 false;要拿快照对一遍新提交(影子校验)或源类型按服务器目录
+        // 提交时才要。服务器目录的扫描(`SongScanningConnector`)不看它,照旧交快照。
+        fileWalkCarriesSnapshot: Bool = true
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
         completedSyncIndex = SourceSyncIndex()
         completedReconciliation = nil
@@ -643,6 +658,7 @@ actor ConnectorScanner {
                         }
                         : [:]
 
+                    let carriesSnapshot = fileWalkCarriesSnapshot || (connector is any SongScanningConnector)
                     if !existingSongs.isEmpty {
                         continuation.yield(
                             ScanUpdate(
@@ -651,7 +667,8 @@ actor ConnectorScanner {
                                 mutationCount: mutationCount,
                                 totalCount: totalCount,
                                 currentFile: "",
-                                songs: allSongs.songs
+                                songs: carriesSnapshot ? allSongs.songs : [],
+                                carriesFullSnapshot: carriesSnapshot
                             )
                         )
                     }
@@ -1387,15 +1404,31 @@ actor ConnectorScanner {
                     if !hadDirectoryFailure {
                         let encounteredSongIDs = walk.songIDSet()
                         existingByID.compareTerminalDeletions(encountered: encounteredSongIDs)
-                        allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
-                        scannedCount = allSongs.count
+                        // 旧根目录修正过、这一轮遇到了却没有别的改动可记的行(读不出的 STRM、原样留下的
+                        // 光盘分轨、缺失子目录下保住的行):原来只随终态快照入库,现在补记成改过的行。
+                        for songID in pendingRootRepairs.sorted() where encounteredSongIDs.contains(songID) {
+                            if let repaired = existingByID[songID] { pendingChangedSongs.append(repaired) }
+                        }
+                        pendingRootRepairs.removeAll()
+                        if carriesSnapshot {
+                            allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
+                            scannedCount = allSongs.count
+                        } else {
+                            // 不交快照时只数一遍留下的行,不为了一个数拼出整份歌曲表。
+                            var keptCount = 0
+                            for position in allSongs.indices where encounteredSongIDs.contains(allSongs[position].id) {
+                                keptCount += 1
+                            }
+                            scannedCount = keptCount
+                        }
                     }
 
-                    // 并成一段:终态快照与提交用的索引共用这一份存储,不再另拷。
+                    // 并成一段:终态的走查进度与提交用的索引共用这一份存储,不再另拷。
                     walk.consolidate()
                     completedSyncIndex = walk.materializedIndex()
 
-                    // 终态快照: completeScan 的删除对账就是拿这一份和资料库比。
+                    // 终态:走完了没有,遇到的歌的 id 在走查进度里,改过的行已经记在
+                    // `pendingChangedSongs`。completeScan 按这些提交和剪枝;整份快照只在要对照时才带。
                     continuation.yield(
                         ScanUpdate(
                             scannedCount: scannedCount,
@@ -1403,8 +1436,10 @@ actor ConnectorScanner {
                             mutationCount: mutationCount,
                             totalCount: totalCount,
                             currentFile: "",
-                            songs: allSongs.songs,
-                            resumeState: walkResumeState(pendingDirectories + failedDirectories)
+                            songs: carriesSnapshot ? allSongs.songs : [],
+                            carriesFullSnapshot: carriesSnapshot,
+                            resumeState: walkResumeState(pendingDirectories + failedDirectories),
+                            fileWalkOutcome: hadDirectoryFailure ? .incomplete : .complete
                         )
                     )
                     if let stopError = rateLimitStopError ?? firstDirectoryError {
