@@ -4444,6 +4444,83 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertEqual(songModelHolds(of: library), [.backgroundDrain], "work: one request for the song model")
         XCTAssertEqual(handled.count, 1, "the work still starts only once the model is back")
     }
+
+    /// Spotlight 收录(P3 步骤 6c 单元 2b):专辑、艺人从目录按键分页取,与内存里的整库数组得出同样的条目与签名
+    /// (停用源里的不算)。生产路径在歌曲模型在内存里时用它的数组、不从目录另取一层;放掉之后才从目录分页取,
+    /// 答出同一份,不要歌曲模型。歌单的歌数这里不比:放掉之后的歌单计数由残留态单元从目录答(这个检出还没有)。
+    func testSpotlightItemsFromTheCatalogMatchTheInMemoryGroupsAndNeedNoSongModel() async throws {
+        let library = makeLibrary(disabledSourceIDs: [Self.sourceB])
+        library.addSongs(Self.fixture(), affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let memoryRecords = await SpotlightIndexService.preparedRecordsForTesting(library: library, catalogGroups: false)
+        let catalogRecords = await SpotlightIndexService.preparedRecordsForTesting(library: library, catalogGroups: true)
+        let fromMemory = try XCTUnwrap(memoryRecords)
+        let fromCatalog = try XCTUnwrap(catalogRecords)
+        XCTAssertEqual(fromCatalog, fromMemory)
+        XCTAssertTrue(fromCatalog.keys.contains { $0.hasPrefix("album:") })
+        XCTAssertTrue(fromCatalog.keys.contains { $0.hasPrefix("artist:") })
+        let pagedBefore = SpotlightIndexService.catalogGroupPagingCountForTesting
+        let loadedProduction = await SpotlightIndexService.productionRecordsForTesting(library: library)
+        XCTAssertEqual(try XCTUnwrap(loadedProduction), fromMemory)
+        XCTAssertEqual(SpotlightIndexService.catalogGroupPagingCountForTesting, pagedBefore,
+                       "with the model loaded the production path takes its arrays and pages nothing from the catalog")
+
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        library.dropSongModelForMeasurement(includingCollections: true)
+        let releasedRecords = await SpotlightIndexService.preparedRecordsForTesting(library: library, catalogGroups: true)
+        let whileReleased = try XCTUnwrap(releasedRecords)
+        // 生产路径:这个检出里放掉之后「可用」跟着为假(残留态单元之后放掉而目录答得出时就是上面这条分页路),
+        // 这一轮不出快照 —— 不拿空的去删条目,也不从目录取。
+        let releasedProduction = await SpotlightIndexService.productionRecordsForTesting(library: library)
+        XCTAssertNil(releasedProduction)
+        XCTAssertEqual(SpotlightIndexService.catalogGroupPagingCountForTesting, pagedBefore)
+        func withoutPlaylists(_ records: [String: String]) -> [String: String] {
+            records.filter { !$0.key.hasPrefix("playlist:") }
+        }
+        XCTAssertEqual(withoutPlaylists(whileReleased), withoutPlaylists(fromMemory),
+                       "the catalog answers the same songs, albums and artists without the model")
+        XCTAssertEqual(songModelHolds(of: library), [])
+    }
+
+    /// CloudKit 发送(P3 步骤 6c 单元 2b):歌单记录拼的是小状态与按 id 的歌。拼得出时照常;曲库此刻答不了时这一条
+    /// 是「此刻答不了」—— 留在待发里,不发一条只带空身份的记录,也不当成本机已经删了。都不要歌曲模型。
+    /// (这个检出里放掉之后「可用」跟着为假;放掉而目录答得出时拼出同样成员身份的那一步,换到残留态单元之后再测。)
+    func testCloudKitSendKeepsARecordThatCannotBeBuiltNowPendingInsteadOfSendingStubIdentities() async throws {
+        let library = makeLibrary()
+        let songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        let playlist = library.createPlaylist(name: "Cloud send")
+        library.add(songIDs: [songs[0].id, songs[1].id], toPlaylist: playlist.id)
+        let suite = "cloud-send-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let sync = CloudKitSyncService(
+            library: library,
+            sourcesStore: SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources")),
+            radioStationsStore: RadioStationsStore(storeURL: directory.appendingPathComponent("radio.json")),
+            scraperSettingsStore: ScraperSettingsStore(defaults: defaults)
+        )
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+
+        guard case .built(let record) = sync.recordBuildOutcomeForTesting(
+            recordType: CloudKitSyncService.RecordType.playlist, localID: playlist.id
+        ) else { return XCTFail("the loaded library builds the playlist record") }
+        XCTAssertEqual(record["songIDs"] as? [String], [songs[0].id, songs[1].id])
+        XCTAssertNotNil(record[CloudKitSyncService.songIdentitiesField], "with the members' identities")
+        if case .gone = sync.recordBuildOutcomeForTesting(recordType: CloudKitSyncService.RecordType.playlist, localID: "no-such-playlist") {
+        } else {
+            XCTFail("a playlist that no longer exists is gone")
+        }
+
+        library.dropSongModelForMeasurement(includingCollections: true)
+        guard case .cannotAnswerNow = sync.recordBuildOutcomeForTesting(
+            recordType: CloudKitSyncService.RecordType.playlist, localID: playlist.id
+        ) else { return XCTFail("cannot answer now: the record stays pending, never a stub") }
+        XCTAssertEqual(songModelHolds(of: library), [], "building records asks for no song model")
+    }
 }
 
 /// 智能歌单对照测试用的确定性随机数。

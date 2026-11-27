@@ -33,6 +33,7 @@ struct ArtistNameConfiguration: Sendable { let cacheSignature = "smoke" }
 final class MusicLibrary {
     static let likedSongsPlaylistID = "liked"
     var isReady = true
+    var isUsable: Bool { isReady }
     var visibleSongs = [Song(id: "one", title: "Green spotlight smoke"), Song(id: "emoji", title: "🎵")]
     var visibleAlbums = [Album(id: "one", title: "Smoke album")]
     var visibleArtists = [Artist(id: "one", name: "Smoke artist")]
@@ -42,6 +43,7 @@ final class MusicLibrary {
     func songCount(forPlaylist id: String) -> Int { 1 }
     func songIDs(forPlaylist id: String) -> [String] { ["one"] }
     func onReady(_ work: @escaping @MainActor () -> Void) { work() }
+    func onUsable(_ work: @escaping @MainActor () -> Void) { work() }
 }
 
 // 曲库目录(P2c):冒烟测试里目录永远不可读,收录走原来的内存路径。
@@ -53,6 +55,14 @@ final class LibraryCatalogReader: Sendable {
     func spotlightSongSelection(prioritySongIDs: [String], limit: Int) async throws -> LibraryCatalogSpotlightSelection {
         LibraryCatalogSpotlightSelection(songs: [], priorityCount: 0, visibleCount: 0)
     }
+    func albumKeyList(visibleOnly: Bool = true) async throws -> LibraryCatalogKeyList { LibraryCatalogKeyList(keys: []) }
+    func artistKeyList(visibleOnly: Bool = true) async throws -> LibraryCatalogKeyList { LibraryCatalogKeyList(keys: []) }
+    func albums(keys: [Int32], visibleCounts: Bool = true) async throws -> [Album] { [] }
+    func artists(keys: [Int32], visibleCounts: Bool = true) async throws -> [Artist] { [] }
+}
+
+struct LibraryCatalogKeyList: Sendable {
+    let keys: ContiguousArray<Int32>
 }
 
 struct LibraryCatalogSpotlightSelection: Sendable {

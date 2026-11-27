@@ -325,8 +325,9 @@ final class SpotlightIndexService {
         // 提交删除, 发布之后再花几分钟重建。守卫放在这里, 启动定时器、后台
         // settle 与非 iOS 的 `.active` 三个入口(含 `resumePendingSynchronization`)
         // 一起覆盖。
-        guard library.isReady else {
-            library.onReady { [weak self] in
+        // 6c: 等的是「可用」(目录答得出就不要歌曲模型在内存里),不为 Spotlight 装模型。
+        guard library.isUsable else {
+            library.onUsable { [weak self] in
                 self?.synchronizeIfNeeded(library: library, delay: delay)
             }
             return
@@ -695,22 +696,38 @@ final class SpotlightIndexService {
         }
     }
 
-    /// 曲库目录可读时(P2c)收录的歌从目录选(`selectingCatalogSongs`),专辑、艺人、歌单照旧;
-    /// 目录不可读或读失败时就是 `makeLibrarySnapshot`。
+    /// 曲库目录可读时(P2c)收录的歌从目录选(`selectingCatalogSongs`);专辑、艺人在歌曲模型在内存里时用它的整库数组
+    /// (与曲库共用存储,不另拷一份),不在时才从目录按键分页取(`selectingCatalogGroups`,P3 步骤 6c);歌单照旧读
+    /// 小状态。目录不可读或读失败时就是 `makeLibrarySnapshot`(只在歌曲模型在内存里时)。
     ///
-    /// nil:此刻曲库没装好。调用方是隔了一次任务切换才走到这里的,进来时装好了不等于现在还装着;
-    /// 没装好时专辑、艺人、歌单都是空的,拿去同步就是把它们从 Spotlight 里全删掉。
+    /// nil:此刻答不了。调用方是隔了一次任务切换才走到这里的,进来时可用不等于现在还可用;
+    /// 答不了时专辑、艺人、歌单都是空的,拿去同步就是把它们从 Spotlight 里全删掉。
     private func librarySnapshotPreferringCatalog(library: MusicLibrary) async -> LibrarySnapshot? {
-        guard library.isReady else { return nil }
-        guard let reader = P2cCatalogAccess.reader(for: library) else { return makeLibrarySnapshot(library: library) }
-        let base = makeLibrarySnapshot(library: library, includingSongs: false)
-        do {
-            return try await Self.selectingCatalogSongs(base, reader: reader)
-        } catch {
-            if !(error is CancellationError) { spotlightError("catalog song selection", error) }
-            // 读目录时等过:退回整库数组之前再问一次。
+        self.library = library
+        return await Self.librarySnapshotPreferringCatalog(of: library)
+    }
+
+    private static func librarySnapshotPreferringCatalog(of library: MusicLibrary) async -> LibrarySnapshot? {
+        guard library.isUsable else { return nil }
+        guard let reader = P2cCatalogAccess.reader(for: library) else {
             guard library.isReady else { return nil }
-            return makeLibrarySnapshot(library: library)
+            return librarySnapshot(of: library, includingSongs: true, includingGroups: true)
+        }
+        // 模型在内存里:专辑、艺人拿它的数组(不拷贝)。后台同步时正是内存最紧的时候,不再为它另建一层。
+        let groupsFromMemory = library.isReady
+        let base = librarySnapshot(of: library, includingSongs: false, includingGroups: groupsFromMemory)
+        do {
+            let withSongs = try await selectingCatalogSongs(base, reader: reader)
+            guard !groupsFromMemory else { return withSongs }
+            #if DEBUG
+            catalogGroupPagingCountForTesting += 1
+            #endif
+            return try await selectingCatalogGroups(withSongs, reader: reader)
+        } catch {
+            if !(error is CancellationError) { spotlightError("catalog selection", error) }
+            // 读目录时等过:退回整库数组之前再问一次,歌曲模型不在内存里就这一轮不同步。
+            guard library.isReady else { return nil }
+            return librarySnapshot(of: library, includingSongs: true, includingGroups: true)
         }
     }
 
@@ -736,8 +753,60 @@ final class SpotlightIndexService {
         )
     }
 
-    private func makeLibrarySnapshot(library: MusicLibrary, includingSongs: Bool = true) -> LibrarySnapshot {
+    /// 一页取多少个专辑 / 艺人。
+    nonisolated static let catalogGroupPageSize = 2_000
+
+    /// 可见的专辑与艺人从目录按键分页取(与内存里的 `visibleAlbums` / `visibleArtists` 同一份),在读者池上读,
+    /// 不在主线程上、也不经整库数组。只在歌曲模型不在内存里时走;取来的值只在这一轮同步期间拿着,同步完就放掉
+    /// (连同 `prepareSnapshot` 里引用它们的待写条目)。
+    private nonisolated static func selectingCatalogGroups(
+        _ base: LibrarySnapshot,
+        reader: LibraryCatalogReader
+    ) async throws -> LibrarySnapshot {
+        let albumKeys = try await reader.albumKeyList(visibleOnly: true).keys
+        var albums: [Album] = []
+        albums.reserveCapacity(albumKeys.count)
+        for start in stride(from: 0, to: albumKeys.count, by: catalogGroupPageSize) {
+            try Task.checkCancellation()
+            let page = Array(albumKeys[start..<min(albumKeys.count, start + catalogGroupPageSize)])
+            albums += try await reader.albums(keys: page)
+        }
+        let artistKeys = try await reader.artistKeyList(visibleOnly: true).keys
+        var artists: [Artist] = []
+        artists.reserveCapacity(artistKeys.count)
+        for start in stride(from: 0, to: artistKeys.count, by: catalogGroupPageSize) {
+            try Task.checkCancellation()
+            let page = Array(artistKeys[start..<min(artistKeys.count, start + catalogGroupPageSize)])
+            artists += try await reader.artists(keys: page)
+        }
+        return LibrarySnapshot(
+            songs: base.songs,
+            prioritySongIDs: base.prioritySongIDs,
+            albums: albums,
+            artists: artists,
+            playlists: base.playlists,
+            artistNameConfiguration: base.artistNameConfiguration,
+            showsArtwork: base.showsArtwork,
+            catalogPriorityCount: base.catalogPriorityCount,
+            catalogVisibleSongCount: base.catalogVisibleSongCount
+        )
+    }
+
+    /// `includingGroups` 为 false 时专辑、艺人留空(由 `selectingCatalogGroups` 从目录补上),不读整库数组。
+    private func makeLibrarySnapshot(
+        library: MusicLibrary,
+        includingSongs: Bool = true,
+        includingGroups: Bool = true
+    ) -> LibrarySnapshot {
         self.library = library
+        return Self.librarySnapshot(of: library, includingSongs: includingSongs, includingGroups: includingGroups)
+    }
+
+    private static func librarySnapshot(
+        of library: MusicLibrary,
+        includingSongs: Bool,
+        includingGroups: Bool
+    ) -> LibrarySnapshot {
         let playlistSummaries = library.playlists.map { playlist in
             PlaylistSummary(
                 id: playlist.id,
@@ -751,13 +820,46 @@ final class SpotlightIndexService {
         return LibrarySnapshot(
             songs: includingSongs ? library.visibleSongs : [],
             prioritySongIDs: prioritySongIDs,
-            albums: library.visibleAlbums,
-            artists: library.visibleArtists,
+            albums: includingGroups ? library.visibleAlbums : [],
+            artists: includingGroups ? library.visibleArtists : [],
             playlists: playlistSummaries,
             artistNameConfiguration: library.artistNameConfiguration,
             showsArtwork: Self.showsArtwork
         )
     }
+
+    #if DEBUG
+    /// 测试:生产路径取专辑、艺人时从目录分页取了几次(`librarySnapshotPreferringCatalog(of:)`)。
+    static var catalogGroupPagingCountForTesting = 0
+
+    /// 测试:Spotlight 这一轮要发布的条目(标识 → 内容签名),歌从目录选。`catalogGroups` 为 false 时专辑、艺人取
+    /// 内存里的整库数组,为 true 时强制从目录分页取(模型在内存里也一样)。nil:目录此刻读不了或读失败。
+    static func preparedRecordsForTesting(library: MusicLibrary, catalogGroups: Bool) async -> [String: String]? {
+        guard let reader = P2cCatalogAccess.reader(for: library) else { return nil }
+        do {
+            let base = librarySnapshot(of: library, includingSongs: false, includingGroups: !catalogGroups)
+            var snapshot = try await selectingCatalogSongs(base, reader: reader)
+            if catalogGroups { snapshot = try await selectingCatalogGroups(snapshot, reader: reader) }
+            return preparedRecordSignatures(snapshot)
+        } catch {
+            return nil
+        }
+    }
+
+    /// 测试:生产路径(`librarySnapshotPreferringCatalog(of:)`)这一轮要发布的条目。
+    static func productionRecordsForTesting(library: MusicLibrary) async -> [String: String]? {
+        guard let snapshot = await librarySnapshotPreferringCatalog(of: library) else { return nil }
+        return preparedRecordSignatures(snapshot)
+    }
+
+    private static func preparedRecordSignatures(_ snapshot: LibrarySnapshot) -> [String: String]? {
+        guard let prepared = prepareSnapshot(snapshot) else { return nil }
+        return Dictionary(
+            prepared.records.map { ($0.identifier, $0.signature) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+    #endif
 
     private func beginDebouncedSynchronization(delay: Duration) {
         let generation = UUID()
@@ -817,7 +919,7 @@ final class SpotlightIndexService {
     /// index session; its result contains only the selected song payloads.
     private func prepareSynchronizationSnapshot() -> Task<PreparedSnapshot?, Never>? {
         guard !isSynchronizationSuspended, Self.canPerformIndexing,
-              let library, library.isReady else { return nil }
+              let library, library.isUsable else { return nil }
         if P2cCatalogAccess.reader(for: library) != nil {
             // 曲库目录可读(P2c):要收录的歌在后台从目录选,不拍整份可见歌曲。
             return Task.detached(priority: .background) { [weak self] in
@@ -827,6 +929,8 @@ final class SpotlightIndexService {
                 return Self.prepareSnapshot(snapshot)
             }
         }
+        // 目录读不了:整库数组只在歌曲模型在内存里时有。
+        guard library.isReady else { return nil }
         let snapshot = makeLibrarySnapshot(library: library)
         return Task.detached(priority: .background) {
             guard !Task.isCancelled else { return nil }

@@ -225,6 +225,8 @@ final class CloudKitSyncService {
     /// Participant 端的第二个 sync engine, 监听 .sharedCloudDatabase。
     /// owner 端不需要 (owner 写自己的 privateDB + family zone, 走 privateEngine)。
     private(set) var sharedEngine: CKSyncEngine?
+    /// 这一次拼记录时有歌的身份答不出来(歌曲模型不在内存里、目录也答不了)。见 `buildRecordForSending`。
+    @ObservationIgnored private var identityLookupWasUnanswered = false
 
     // The cross-device 3-tier resolver lives on `MusicLibrary` — it
     // owns the songs collection, can use `sourceIdentityResolver` to map
@@ -2487,8 +2489,12 @@ extension CloudKitSyncService {
         #endif
     }
 
+    /// 收到的改动要落进曲库(歌单成员按整库认身份等,仍要歌曲模型):占用歌曲模型再落,落完放手。歌曲模型被放掉了
+    /// 就请它装回来。6c: 以前是不具名的 `whenReady()`;占用带上理由,诊断里看得出是谁要的(还没有专门的理由,先记作
+    /// `.backgroundDrain`)。
     private func withReadyLibrary(_ apply: @MainActor () -> Void) async {
-        await library.whenReady()
+        let hold = await library.holdSongModel(.backgroundDrain)
+        defer { hold.end() }
         apply()
     }
 
@@ -3821,8 +3827,13 @@ extension CloudKitSyncService {
     private func makeIdentities(forSongIDs songIDs: [String]) -> [SongIdentity] {
         // 一批一起取(歌曲模型不在内存里时目录那一边一次查回来,不是一首一查)。调用方已经在同一轮里确认
         // 曲库装好了;万一此刻答不了,逐首问的答案与以前相同。
-        let songs = library.songsForSynchronization(ids: songIDs)
-            ?? songIDs.map { library.songForSynchronization(id: $0) }
+        // 6c: 歌曲模型不在内存里、目录也答不了时,这批身份此刻说不出来:记下来,这条记录这一轮不发
+        // (留在待发里,见 `buildRecordForSending`),不发一条只带空身份的记录。
+        guard let songs = library.songsForSynchronization(ids: songIDs)
+                ?? (library.isReady ? songIDs.map { library.songForSynchronization(id: $0) } : nil) else {
+            identityLookupWasUnanswered = true
+            return []
+        }
         return zip(songIDs, songs).map { id, song in
             if let song {
                 return SongIdentity(
@@ -4067,7 +4078,9 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         // 要发的记录是对着曲库拼的(歌单成员、播放历史里每首歌的身份):曲库没装好就等它装好再拼,
         // 与收的那一边(`withReadyLibrary`)一样。不等的话歌单查不到、成员都成了空身份。
         let library = await MainActor.run { self.library }
-        await library.whenReady()
+        // 6c: 只等「可用」:拼记录读的是小状态和按 id 的歌(歌曲模型不在内存里时由目录答),不为发送装模型。
+        // 哪一条此刻拼不出来由下面逐条判断,留在待发里。
+        await library.whenUsable()
         let scope = context.options.scope
         let scopedPending = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         let filtered = await MainActor.run {
@@ -4085,16 +4098,18 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { recordID in
             // 每条记录拼之前在同一轮主线程里再问一次(上一条拼完之后又等过):曲库这一刻不在内存里的话,
             // 「拼不出来」不等于「本机已经没有这个东西」—— 这条不发、也不从待发里拿掉,留给下一次。
-            let outcome = await MainActor.run { () -> (record: CKRecord?, libraryIsReady: Bool) in
-                guard self.library.isReady else { return (nil, false) }
-                return (self.makeRecord(for: recordID), true)
+            let outcome = await MainActor.run { self.buildRecordForSending(recordID) }
+            switch outcome {
+            case .built(let record):
+                return record
+            case .cannotAnswerNow:
+                return nil
+            case .gone:
+                // Local entity is gone — drop the pending change so the engine
+                // doesn't retry forever. (Default behavior is to leave it queued.)
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                return nil
             }
-            if let record = outcome.record { return record }
-            guard outcome.libraryIsReady else { return nil }
-            // Local entity is gone — drop the pending change so the engine
-            // doesn't retry forever. (Default behavior is to leave it queued.)
-            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
-            return nil
         }
     }
 
@@ -4449,6 +4464,33 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     }
 
     @MainActor
+    enum RecordBuildOutcome {
+        case built(CKRecord)
+        /// 曲库此刻答不了(不在内存里、目录也答不了):留在待发里,下一次再拼。
+        case cannotAnswerNow
+        /// 本机已经没有这个东西了。
+        case gone
+    }
+
+    /// 发送前拼一条记录。拼的时候有歌的身份答不出来就是「此刻答不了」,不发一条带空身份的记录。
+    func buildRecordForSending(_ recordID: CKRecord.ID) -> RecordBuildOutcome {
+        guard library.isUsable else { return .cannotAnswerNow }
+        identityLookupWasUnanswered = false
+        let record = makeRecord(for: recordID)
+        if identityLookupWasUnanswered {
+            identityLookupWasUnanswered = false
+            return .cannotAnswerNow
+        }
+        return record.map(RecordBuildOutcome.built) ?? .gone
+    }
+
+    #if DEBUG
+    /// 测试:这一类、这个本机 id 的记录此刻拼不拼得出来。
+    func recordBuildOutcomeForTesting(recordType: String, localID: String) -> RecordBuildOutcome {
+        buildRecordForSending(recordID(recordType: recordType, id: localID))
+    }
+    #endif
+
     private func makeRecord(for recordID: CKRecord.ID) -> CKRecord? {
         guard isSyncableRecordID(recordID),
               let metadata = recordMetadata(for: recordID) else {
