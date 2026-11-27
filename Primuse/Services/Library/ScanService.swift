@@ -1305,6 +1305,18 @@ extension ScanService {
         return nil
     }
 
+    /// `startFolderTopologyRebuildsIfNeeded` 有没有可能要干活:启动状态还没读完(答不了),或者有启用中的、
+    /// 可能要重建目录层级的音乐源(服务端曲库、UPnP、用不透明条目 ID 的网盘)。不读曲库,所以歌曲模型
+    /// 不在内存里时也答得出;真要不要重建(源里有没有歌、同步状态缺不缺层级)在曲库发布之后照旧细查。
+    func mayNeedFolderTopologyRebuild(sourceStore: SourcesStore) -> Bool {
+        guard isStartupStateReady else { return true }
+        guard folderTopologyRebuildTask == nil else { return false }
+        return sourceStore.sources.contains { source in
+            source.isEnabled && !source.isDeleted
+                && (source.type.isServerLibrary || source.type == .upnp || source.type.usesOpaqueDirectoryIdentifiers)
+        }
+    }
+
     func startFolderTopologyRebuildsIfNeeded(
         sourceManager: SourceManager,
         library: MusicLibrary,
@@ -1663,6 +1675,11 @@ extension ScanService {
             context: snapshotExecutionContext
         )
         let task = Task(priority: taskPriority) {
+            // 6c: 这一轮扫描(连同提交和收尾)跑完之前占住歌曲模型,跑到一半模型被放掉,后面读到的就是空库。
+            // 模型此刻在内存里才占(立刻拿到);启动装载中照旧不等,由提交前的就绪等待接住。
+            // 写在下面的收尾之前:收尾先跑(它会接着起排队的扫描),然后才放手。
+            let modelHold: MusicLibrary.SongModelHold? = library.isReady ? await library.holdSongModel(.scan) : nil
+            defer { modelHold?.end() }
             defer {
                 // Only release shared state if we're still the current scan.
                 // A cancelled-but-resuming old task must not wipe the

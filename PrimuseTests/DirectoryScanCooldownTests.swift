@@ -363,6 +363,14 @@ final class DirectoryScanCooldownTests: XCTestCase {
         var completions: [SourceScanLifecycleCompletion] = []
         scan.successfulSourceScanHandler = { _, completion in completions.append(completion) }
         defer { scan.cancelAllActiveScans() }
+        // P3 步骤 6c:每一轮扫描整个跑完之前都占着歌曲模型(模型在内存里,立刻拿到)。
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        func scanHolds() -> [MusicLibrary.SongModelHoldReason] {
+            (MusicLibrary.songModelHoldRequestsForTesting ?? [])
+                .filter { $0.library == ObjectIdentifier(library) }
+                .map(\.reason)
+        }
         func run() async throws {
             XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library,
                 sourceStore: store, requestsContinuedProcessing: false))
@@ -376,6 +384,7 @@ final class DirectoryScanCooldownTests: XCTestCase {
         }
         try await run()
         XCTAssertEqual(library.songs.count, 2)
+        XCTAssertEqual(scanHolds(), [.scan], "a scan holds the song model while it runs")
         let tagged = library.songs.map { song -> Song in
             var song = song
             song.duration = 180
@@ -1132,6 +1141,42 @@ final class BackfillStatusReuseTests: XCTestCase {
         sources = ["count-source"]
         await backfill.refreshStatusSnapshotOffMain()
         XCTAssertEqual(backfill.remainingCount(forSource: "count-source"), songs.count)
+    }
+    /// 起补读的路上不在主线程上数剩余(设备上 5.5 万首时每回到前台,`start()` 在主线程上把整座曲库从目录里流一遍、
+    /// 卡 0.3–0.6 s):`start()` 在后台执行器上对账、对完再进来;回到前台接着前台意图的那两步只读算好的数,
+    /// 没有意图时当场接着走。
+    func testStartPathsCountTheRemainingRowsOffTheMainActor() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let songs = (0..<2_000).map { Song(id: "start-count-\($0)", title: "Track", fileFormat: .m4a,
+            filePath: "/Music/Album\($0 / 50)/\($0).m4a", sourceID: "count-source") }
+        library.addSongs(songs)
+        let backfill = MetadataBackfillService(library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
+            backfillableSourceIDs: { ["count-source"] }, bareOnlySourceIDs: { ["count-source"] },
+            storageDirectory: root.appendingPathComponent("state"))
+        defer { backfill.stop() }
+        let onMainBefore = backfill.mainActorRemainingCountsComputationCount
+        XCTAssertTrue(backfill.hasPendingWork)
+
+        backfill.start()
+        let deadline = Date().addingTimeInterval(10)
+        while backfill.remainingCountsComputationCount == 0, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(backfill.remainingCountsComputationCount, 0, "start() had the remaining rows counted")
+        backfill.stop()
+        XCTAssertEqual(backfill.mainActorRemainingCountsComputationCount, onMainBefore,
+                       "start() counted off the main actor")
+
+        final class Decision { var ran = false }
+        let decision = Decision()
+        backfill.whenRemainingCountsAreCurrentForForegroundIntent {
+            decision.ran = !backfill.resumeUserInitiatedIfNeeded() && !backfill.resumeAutomaticForegroundIfNeeded()
+        }
+        XCTAssertTrue(decision.ran, "no foreground intent: the decision runs at once")
+        XCTAssertEqual(backfill.mainActorRemainingCountsComputationCount, onMainBefore,
+                       "resuming a foreground intent reads the counted numbers only")
     }
 }
 

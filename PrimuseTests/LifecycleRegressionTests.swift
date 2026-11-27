@@ -318,16 +318,21 @@ final class LifecycleRegressionTests: XCTestCase {
     // MARK: - BGProcessing drain
 
     /// T6 — Stage 2: a background wake can arrive while the library is still
-    /// being prepared off the main actor. The drain must wait for publication
+    /// being prepared off the main actor. The drain must take the library
     /// before it asks anything whether there is work: on an empty preparing
     /// model every probe answers "nothing pending", so the drain would finish
-    /// immediately and drop the wake.
+    /// immediately and drop the wake. 6c: taking it is a song-model hold that
+    /// lasts to the end of the drain, so the model cannot be released while
+    /// the drain waits on scans; no second wait is needed between the stages.
     @MainActor
-    func testBackgroundDrainWaitsForLibraryReadinessBeforeProbingForWork() async {
+    func testBackgroundDrainTakesTheLibraryBeforeProbingForWorkAndHoldsItToTheEnd() async {
         let completion = TestBackgroundTaskCompletion()
         let recorder = BackgroundDrainRecorder()
         var dependencies = BackgroundProcessingDrain.Dependencies()
-        dependencies.waitForLibraryReady = { recorder.record("waitForLibraryReady") }
+        dependencies.holdLibraryIfThereIsWork = {
+            recorder.record("holdLibrary")
+            return { recorder.record("endLibraryHold") }
+        }
         dependencies.isPlaybackActive = {
             recorder.record("isPlaybackActive")
             return false
@@ -357,30 +362,46 @@ final class LifecycleRegressionTests: XCTestCase {
         let drain = BackgroundProcessingDrain(completion: completion, dependencies: dependencies)
         await drain.run()
 
-        // 入口等一次;每段长等待(这里是等扫描)之后、起下一段活儿之前再等一次。
-        XCTAssertEqual(recorder.count(of: "waitForLibraryReady"), 2)
-        XCTAssertEqual(
-            recorder.events.first,
-            "waitForLibraryReady",
-            "readiness must be awaited before any other dependency runs"
-        )
-        if let scans = recorder.events.firstIndex(of: "waitForScans"),
-           let scrapeProbe = recorder.events.firstIndex(of: "hasPendingScrape") {
-            XCTAssertTrue(
-                recorder.events[scans..<scrapeProbe].contains("waitForLibraryReady"),
-                "readiness must be awaited again between the scan wait and the next probe"
-            )
-        } else {
-            XCTFail("the scan wait or the scrape probe never ran")
-        }
-        // 三个"有没有活儿"的判定都必须排在就绪等待之后。
+        XCTAssertEqual(recorder.count(of: "holdLibrary"), 1)
+        XCTAssertEqual(recorder.events.first, "holdLibrary", "the library must be taken before any other dependency runs")
+        XCTAssertEqual(recorder.count(of: "endLibraryHold"), 1)
+        XCTAssertEqual(recorder.events.last, "endLibraryHold", "the hold lasts until the drain has finished")
+        // 三个"有没有活儿"的判定都排在占用之后、放手之前。
         for probe in ["hasResumableScanWork", "hasPendingScrape", "backfillHasPendingWork"] {
             guard let probeIndex = recorder.events.firstIndex(of: probe) else {
                 XCTFail("\(probe) was never evaluated")
                 continue
             }
-            XCTAssertGreaterThan(probeIndex, 0, "\(probe) ran before the readiness wait")
+            XCTAssertGreaterThan(probeIndex, 0, "\(probe) ran before the library was taken")
         }
+        XCTAssertEqual(completion.completionResults, [true])
+    }
+
+    /// 6c: 一样活儿都没有的系统唤醒不占用歌曲模型(不为它把放掉的模型装回来),照样把每一步空跑一遍、
+    /// 收尾并续订下一次唤醒。
+    @MainActor
+    func testBackgroundDrainWithNoWorkRunsWithoutTheLibraryAndStillRenewsTheRequest() async {
+        let completion = TestBackgroundTaskCompletion()
+        let recorder = BackgroundDrainRecorder()
+        var dependencies = BackgroundProcessingDrain.Dependencies()
+        dependencies.holdLibraryIfThereIsWork = {
+            recorder.record("askedForWork")
+            return nil
+        }
+        dependencies.isPlaybackActive = { false }
+        dependencies.isApplicationActive = { false }
+        dependencies.hasResumableScanWork = { false }
+        dependencies.resumeScans = { recorder.record("resumeScans") }
+        dependencies.hasPendingScrape = { false }
+        dependencies.resumeScrape = { recorder.record("resumeScrape") }
+        dependencies.backfillHasPendingWork = { false }
+        dependencies.startBackfill = { recorder.record("startBackfill") }
+        dependencies.scheduleNextRequest = { recorder.record("scheduleNextRequest") }
+
+        let drain = BackgroundProcessingDrain(completion: completion, dependencies: dependencies)
+        await drain.run()
+
+        XCTAssertEqual(recorder.events, ["askedForWork", "scheduleNextRequest"])
         XCTAssertEqual(completion.completionResults, [true])
     }
 

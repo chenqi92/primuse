@@ -177,7 +177,24 @@ private enum BackgroundScanResumeTask {
         processingSession: UUID
     ) -> BackgroundProcessingDrain.Dependencies {
         BackgroundProcessingDrain.Dependencies(
-            waitForLibraryReady: { await AppServices.shared.musicLibrary.whenReady() },
+            holdLibraryIfThereIsWork: {
+                let services = AppServices.shared
+                let scans = services.scanService
+                let quickSyncIsDue = scans.nextPeriodicSyncDate(sourceStore: services.sourcesStore)
+                    .map { $0 <= Date() } ?? false
+                let hasWork = !scans.isStartupStateReady
+                    || scans.hasResumableScanWork
+                    || quickSyncIsDue
+                    || services.scraperService.hasPendingBackgroundContinuation
+                    || services.metadataBackfill.hasPendingWork
+                    || LocalImportService.hasPendingScan
+                guard hasWork else {
+                    plog("🧠 BGProcessing drain: no work; the song model is not requested")
+                    return nil
+                }
+                let hold = await services.musicLibrary.holdSongModel(.backgroundDrain)
+                return { hold.end() }
+            },
             isPlaybackActive: { AppServices.shared.playerService.isPlaybackActive },
             isApplicationActive: { LiveApplicationState.isActive },
             hasResumableScanWork: { AppServices.shared.scanService.hasResumableScanWork },
@@ -909,6 +926,35 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
 }
 #endif
 
+// MARK: - 后台、唤醒和场景切换里起的活儿怎么等曲库(P3 步骤 6c)
+
+extension MusicLibrary {
+    /// 场景切换、后台和系统唤醒时要起的活儿(续扫、续刮、补读标签):歌曲模型不在内存里(启动装载中,或者被放掉了)
+    /// 而 `hasWork` 答「有活儿」时占用一次歌曲模型,请它装回来;装回来(发布)就放手。起的活儿自己在跑的时候
+    /// 占着模型(扫描、补读、批量刮削的任务各自占用),所以这里不必一直占着。没有活儿时什么也不要,
+    /// 不为一次场景切换装整座曲库。模型在内存里时什么也不做。
+    func requestSongModel(for reason: SongModelHoldReason, ifThereIsWork hasWork: () -> Bool) {
+        guard !isReady, hasWork() else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let hold = await self.holdSongModel(reason)
+            hold.end()
+        }
+    }
+
+    /// 同 `onReady`:就绪时当场执行,否则在发布时执行。另外按 `requestSongModel(for:ifThereIsWork:)` 在有活儿时
+    /// 请歌曲模型装回来 —— 模型被放掉之后 `onReady` 的回调要等别人把模型装回来才跑,没人装就一直不跑。
+    /// 启动装载中照旧在发布时执行(占用只是等发布)。
+    func onReady(
+        holding reason: SongModelHoldReason,
+        ifThereIsWork hasWork: () -> Bool = { true },
+        _ handler: @escaping @MainActor () -> Void
+    ) {
+        requestSongModel(for: reason, ifThereIsWork: hasWork)
+        onReady(handler)
+    }
+}
+
 /// The exactly-once completion contract of a background processing task.
 /// `BGTask` exists only on iOS, so `BackgroundProcessingDrain` depends on this
 /// instead and stays buildable — and testable — on every platform.
@@ -936,8 +982,11 @@ final class BackgroundProcessingDrain {
     struct Dependencies: Sendable {
         /// Stage 2: the library is loaded off the main actor and published
         /// once. Every dependency below reads or mutates it, so the drain
-        /// waits for publication before it decides there is nothing to do.
-        var waitForLibraryReady: @MainActor @Sendable () async -> Void = {}
+        /// takes the library before it starts any of them.
+        /// 6c: 先看有没有活儿;有就占用歌曲模型(启动装载中等发布,被放掉了就请它装回来),返回结束这份占用的
+        /// 闭包,整轮跑完才放手。答不了有没有(启动状态还没读完)按有算。一样活儿都没有时返回 nil:不占用,
+        /// 下面每一步照样走一遍(都是空跑),不为一次系统唤醒装整座曲库。
+        var holdLibraryIfThereIsWork: @MainActor @Sendable () async -> (@MainActor @Sendable () -> Void)? = { {} }
         var isPlaybackActive: @MainActor @Sendable () -> Bool = { false }
         var isApplicationActive: @MainActor @Sendable () -> Bool = { false }
         var hasResumableScanWork: @MainActor @Sendable () -> Bool = { false }
@@ -978,7 +1027,8 @@ final class BackgroundProcessingDrain {
     }
 
     func run() async {
-        await dependencies.waitForLibraryReady()
+        let endLibraryHold = await dependencies.holdLibraryIfThereIsWork()
+        defer { endLibraryHold?() }
         guard !completion.isCompleted else { return }
         if dependencies.isPlaybackActive() {
             await drainDuringPlayback()
@@ -995,7 +1045,7 @@ final class BackgroundProcessingDrain {
         }
         dependencies.startPeriodicQuickSync()
         await dependencies.waitForScans()
-        guard await libraryIsReadyForMoreWork() else { return }
+        guard libraryIsReadyForMoreWork() else { return }
         // Playback can start from the lock screen while this drain is
         // suspended, so the check repeats after every long wait.
         if dependencies.isPlaybackActive() {
@@ -1006,7 +1056,7 @@ final class BackgroundProcessingDrain {
         if dependencies.hasPendingScrape() {
             dependencies.resumeScrape()
             await dependencies.waitForScrape()
-            guard await libraryIsReadyForMoreWork() else { return }
+            guard libraryIsReadyForMoreWork() else { return }
             if dependencies.isPlaybackActive() {
                 await drainDuringPlayback()
                 return
@@ -1020,12 +1070,10 @@ final class BackgroundProcessingDrain {
         finish()
     }
 
-    /// 每段长等待之后、起下一段活儿之前再等一次曲库就绪(已经就绪时立即返回)。等的那一会儿歌曲模型可能已经
-    /// 不在内存里:这时问「还有没有活儿」答案都是没有,起的刮削、补读也是对着空库跑。任务已到期时返回 false。
-    private func libraryIsReadyForMoreWork() async -> Bool {
-        guard !completion.isCompleted else { return false }
-        await dependencies.waitForLibraryReady()
-        return !completion.isCompleted
+    /// 每段长等待之后、起下一段活儿之前:任务已到期时返回 false。歌曲模型从入口起一直占着(有活儿时),
+    /// 等的那一会儿里不会被放掉,所以不必再等一次曲库;没占的那一轮本来就没有活儿可起。
+    private func libraryIsReadyForMoreWork() -> Bool {
+        !completion.isCompleted
     }
 
     /// Background audio is user-facing foreground work, but it also keeps the
@@ -1041,7 +1089,7 @@ final class BackgroundProcessingDrain {
             dependencies.resumeScans()
         }
         await dependencies.waitForScans()
-        guard await libraryIsReadyForMoreWork() else { return }
+        guard libraryIsReadyForMoreWork() else { return }
         if dependencies.backfillHasPendingWork() {
             dependencies.startBackfill()
             await dependencies.waitBackfillIdle()
@@ -1784,6 +1832,8 @@ private struct AppThemeTintModifier: ViewModifier {
 /// 就是每次都从根上重算整棵视图树。
 private struct LibraryReplacementObserver: View {
     @Environment(\.scenePhase) private var scenePhase
+    /// 歌曲模型放掉之前的行数,见下面 `songs.count` 的监听。
+    @State private var songCountBeforeRelease: Int?
 
     let musicLibrary: MusicLibrary
     let playerService: AudioPlayerService
@@ -1857,7 +1907,18 @@ private struct LibraryReplacementObserver: View {
             // Continue a background scan/backfill pipeline as new bare
             // rows arrive. On iOS, an ordinary foreground publication only
             // marks durable pending work; it must not start maintenance.
-            .onChange(of: musicLibrary.songs.count) { _, _ in
+            // 6c: 歌曲模型不在内存里时不读整库数组(记成 nil)。放掉模型(行数变成 nil)和把同一座曲库装回来
+            // (nil 变回放掉之前的行数)都不是「新来了光秃秃的行」:不标脏、不起补读,否则每放一次模型,
+            // 下一次后台唤醒就会为补读把模型装回来。
+            .onChange(of: musicLibrary.isReady ? musicLibrary.songs.count : nil) { previous, current in
+                guard let current else {
+                    if let previous { songCountBeforeRelease = previous }
+                    return
+                }
+                if previous == nil, let before = songCountBeforeRelease {
+                    songCountBeforeRelease = nil
+                    if before == current { return }
+                }
                 #if os(iOS)
                 metadataBackfill.refreshQueue(
                     startImmediately: scenePhase == .background
@@ -2623,7 +2684,7 @@ struct PrimuseApp: App {
                             if playerService.isPlaybackActive {
                                 metadataBackfill.setExecutionMode(.backgroundDuringPlayback)
                                 if metadataBackfill.hasPendingWork {
-                                    metadataBackfill.start()
+                                    musicLibrary.onReady(holding: .backfill) { metadataBackfill.start() }
                                 }
                                 // Audio keeps the process alive, so scanning
                                 // continues on the reduced playback profile
@@ -2632,8 +2693,11 @@ struct PrimuseApp: App {
                                 // for the foreground. Scraping, Spotlight and
                                 // lyrics stay postponed as before.
                                 scanService.setBackgroundPlaybackActive(true)
-                                // Stage 2: 续扫要等库发布, 否则合并进的是空模型。
-                                musicLibrary.onReady {
+                                // Stage 2: 续扫要等库发布, 否则合并进的是空模型。歌曲模型被放掉了而真有要续的,
+                                // 先请它装回来(6c);没有要续的不为它装模型。
+                                musicLibrary.onReady(holding: .scan, ifThereIsWork: {
+                                    scanService.hasResumableScanWork
+                                }) {
                                     guard scanService.hasResumableScanWork else { return }
                                     // #99: 后台音频让窗口无限, 这个守卫在这条腿
                                     // 上永远放行 —— 播放绝不能把扫描停掉。
@@ -2668,8 +2732,13 @@ struct PrimuseApp: App {
                                 library: musicLibrary
                             )
                             AppServices.shared.resumePendingLocalImportScanIfNeeded()
-                            // Stage 2: 同上, 续扫推迟到发布之后。
-                            musicLibrary.onReady {
+                            // Stage 2: 同上, 续扫推迟到发布之后。有要续的、窗口也够时才请歌曲模型装回来。
+                            musicLibrary.onReady(holding: .scan, ifThereIsWork: {
+                                scanService.hasResumableScanWork
+                                    && scanService.shouldResumeInCurrentBackgroundWindow(
+                                        isBackgroundPlaybackActive: playerService.isPlaybackActive
+                                    )
+                            }) {
                                 guard scanService.hasResumableScanWork else { return }
                                 // 没有音频时窗口只有几十秒。连预检都装不下、而且
                                 // 上面已经排好了 BGProcessing 唤醒, 就把这轮让给
@@ -2689,12 +2758,15 @@ struct PrimuseApp: App {
                             // `visibleSongs`, 就绪之前进去会把上一轮的检查点当成
                             // "歌一首都不在了"清掉。服务入口也有同样的守卫, 这里
                             // 与相邻的续扫保持一致的写法。
-                            musicLibrary.onReady {
+                            musicLibrary.onReady(holding: .scraper, ifThereIsWork: {
+                                scraperService.hasPendingBackgroundContinuation
+                            }) {
                                 guard scraperService.hasPendingBackgroundContinuation else { return }
                                 scraperService.resumeBackgroundContinuation(in: musicLibrary)
                             }
+                            // 补读要整座曲库:歌曲模型被放掉了就先请它装回来,装回来时开工(同 `start()` 自己的等待)。
                             if metadataBackfill.hasPendingWork {
-                                metadataBackfill.start()
+                                musicLibrary.onReady(holding: .backfill) { metadataBackfill.start() }
                             }
                             AppServices.shared.lyricsTextBackfill.startIfNeeded()
                             BackgroundLibraryMaintenanceCoordinator.shared
@@ -2739,12 +2811,20 @@ struct PrimuseApp: App {
                             phase: .active,
                             isPlaybackActive: playerService.isPlaybackActive
                         )
-                        if !metadataBackfill.resumeUserInitiatedIfNeeded(),
-                           !metadataBackfill.resumeAutomaticForegroundIfNeeded() {
-                            metadataBackfill.setExecutionMode(.standard)
+                        // 有前台意图时各源剩几首先在后台执行器上对到此刻,不在主线程上整库折一遍。
+                        metadataBackfill.whenRemainingCountsAreCurrentForForegroundIntent {
+                            if !metadataBackfill.resumeUserInitiatedIfNeeded(),
+                               !metadataBackfill.resumeAutomaticForegroundIfNeeded() {
+                                metadataBackfill.setExecutionMode(.standard)
+                            }
                         }
                         musicLibrary.suspendPendingIdentityResolution()
                         scraperService.resumeAfterSceneTransition(in: musicLibrary)
+                        // 续刮要等曲库发布(刮削服务自己登记了 onReady):停在断点上的批量刮削还在时,
+                        // 歌曲模型被放掉了就请它装回来。
+                        musicLibrary.requestSongModel(for: .scraper, ifThereIsWork: {
+                            scraperService.hasPendingScrape && !scraperService.isScraping
+                        })
                         // Back in the foreground: full scan cadence and the
                         // normal assertion policy apply again.
                         scanService.setBackgroundPlaybackActive(false)
@@ -2754,8 +2834,10 @@ struct PrimuseApp: App {
                         scanService.sceneTransitionPhaseChanged(.active)
                         // Stage 2: 续扫会往库里合并行。就绪前进去只会看到空
                         // 模型, 所以推迟到发布之后 (已就绪时 onReady 立即执行,
-                        // 行为与历史版本一致)。
-                        musicLibrary.onReady {
+                        // 行为与历史版本一致)。扫描的启动状态还没读完时答不了有没有要续的, 按有算。
+                        musicLibrary.onReady(holding: .scan, ifThereIsWork: {
+                            !scanService.isStartupStateReady || scanService.hasResumableScanWork
+                        }) {
                             scanService.resumePendingScans(
                                 context: .foregroundResume,
                                 sourceManager: sourceManager,
@@ -2781,8 +2863,11 @@ struct PrimuseApp: App {
                         )
                         AppServices.shared.resumePendingLocalImportScanIfNeeded()
                         #endif
-                        // 同上: 目录拓扑重建同样以库为输入。
-                        musicLibrary.onReady {
+                        // 同上: 目录拓扑重建同样以库为输入。只有可能要重建的音乐源在时才请歌曲模型装回来,
+                        // 要不要重建在发布后照旧细查。
+                        musicLibrary.onReady(holding: .scan, ifThereIsWork: {
+                            scanService.mayNeedFolderTopologyRebuild(sourceStore: sourcesStore)
+                        }) {
                             scanService.startFolderTopologyRebuildsIfNeeded(
                                 sourceManager: sourceManager,
                                 library: musicLibrary,
@@ -2827,8 +2912,10 @@ struct PrimuseApp: App {
                             // settlement must still release publications and persist.
                             BackgroundLibraryMaintenanceCoordinator.shared.cancelMaintenance()
                             // Stage 2: 远程播控可能在冷启动还没发布时就到, 续扫
-                            // 同样要等发布。
-                            musicLibrary.onReady {
+                            // 同样要等发布。歌曲模型被放掉了而真有要续的, 先请它装回来。
+                            musicLibrary.onReady(holding: .scan, ifThereIsWork: {
+                                scanService.hasResumableScanWork && !scanService.hasActiveScans
+                            }) {
                                 guard scanService.hasResumableScanWork,
                                       !scanService.hasActiveScans else { return }
                                 scanService.resumePendingScans(
@@ -2849,7 +2936,7 @@ struct PrimuseApp: App {
                             )
                         }
                         if metadataBackfill.hasPendingWork, !metadataBackfill.isRunning {
-                            metadataBackfill.start()
+                            musicLibrary.onReady(holding: .backfill) { metadataBackfill.start() }
                         }
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,

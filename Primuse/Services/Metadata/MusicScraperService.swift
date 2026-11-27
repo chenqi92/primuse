@@ -1519,6 +1519,10 @@ extension MusicScraperService {
         beginBackgroundTaskIfNeeded()
 
         scrapingTask = Task {
+            // 6c: 这一轮批量刮削跑完之前占住歌曲模型,刮到一半模型被放掉,后面就是对着空库找歌、写回。
+            // 模型此刻在内存里才占(立刻拿到)。写在下面的收尾之前:收尾先跑,然后才放手。
+            let modelHold: MusicLibrary.SongModelHold? = library.isReady ? await library.holdSongModel(.scraper) : nil
+            defer { modelHold?.end() }
             var deferredForSourceFailure = false
             await sidecarCircuitBreaker.resetIdleUnavailableSources()
             defer {

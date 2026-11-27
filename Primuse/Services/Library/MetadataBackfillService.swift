@@ -816,6 +816,11 @@ final class MetadataBackfillService {
     @ObservationIgnored private var completedRemainingCounts: (RemainingCountsState, RemainingCountsComputation)?
     @ObservationIgnored private var pendingRemainingCounts: (RemainingCountsState, Task<RemainingCountsComputation, Never>)?
     @ObservationIgnored private(set) var remainingCountsComputationCount = 0
+    /// 其中在主 actor 上同步算的次数(`refreshRemainingCounts`)。起补读的路上不许走到它,测试据此核对。
+    @ObservationIgnored private(set) var mainActorRemainingCountsComputationCount = 0
+    /// `start()` 先在后台执行器上数剩余、数完再进来的那一趟(见 `start(countingRemainingRows:)`)。
+    /// `stop()` 取消它,`waitUntilIdle()` 先等它。
+    @ObservationIgnored private var pendingCountedStart: Task<Void, Never>?
     @ObservationIgnored private var mergedLyricsRepairTask: Task<Void, Never>?
     @ObservationIgnored private var didAttemptMergedLyricsRepair = false
     @ObservationIgnored private var batchSelectionCursor = BatchSelectionCursor()
@@ -1117,8 +1122,8 @@ extension MetadataBackfillService {
         saveArtworkGivenUp()
         library.replaceSongs(cleared)
         plog("📥 Backfill: reopening \(cleared.count) rows whose cover bytes are missing")
+        // 队列已标脏,`start()` 在后台执行器上重数剩余(6c)。
         markQueueDirty()
-        refreshRemainingCounts(force: true)
         start()
     }
 
@@ -2100,6 +2105,11 @@ extension MetadataBackfillService {
     /// running this is a no-op. A durable clean state returns before touching
     /// the library array. Wi-Fi-only gating remains enforced before dispatch.
     func start() {
+        start(countingRemainingRows: true)
+    }
+
+    /// `countingRemainingRows` 为 false:剩余数刚在后台执行器上对过账(见 `countRemainingRowsOffTheMainActorIfNeeded`),直接用。
+    private func start(countingRemainingRows: Bool) {
         // Stage 2: 库异步发布。就绪之前 `hasPendingWork` 与剩余计数都算在空
         // 模型上, 这一轮会被当成"没有待办"直接收尾 (并清掉续跑状态)。改为
         // 等发布后重试; 下面 `worker == nil` 的幂等守卫让重复注册无害。
@@ -2140,10 +2150,22 @@ extension MetadataBackfillService {
             finishContinuedProcessing(success: true)
             return
         }
-        refreshRemainingCounts(
-            force: queueNeedsRefresh
-                || reconciledQueueGeneration != queueMutationGeneration
-        )
+        // 剩余数不在主线程上整库折一遍(5.5 万首时每回到前台主线程卡 0.3–0.6 s):对不上此刻就先在后台执行器上
+        // 对账,对完再进来。
+        if countingRemainingRows {
+            // 已经在数了:数完会再进来。
+            guard pendingCountedStart == nil else { return }
+            if let counting = countRemainingRowsOffTheMainActorIfNeeded(
+                force: queueNeedsRefresh || reconciledQueueGeneration != queueMutationGeneration,
+                then: { service, applied in
+                    service.pendingCountedStart = nil
+                    applied ? service.start(countingRemainingRows: false) : service.start()
+                }
+            ) {
+                pendingCountedStart = counting
+                return
+            }
+        }
         guard cachedRemainingCount > 0 else {
             finishContinuedProcessing(success: true)
             return
@@ -2204,8 +2226,12 @@ extension MetadataBackfillService {
                 }
                 return
             }
+            // 6c: 这一轮补读跑完之前占住歌曲模型:后台跑到一半模型被放掉,下一批就是从空库里挑。
+            // `start()` 只在模型在内存里时起工作线程,这里立刻拿到。
+            let modelHold = await self?.holdSongModelIfLoaded()
             let processedBatch = await self?.runWorker() ?? false
             await MainActor.run { [weak self] in
+                modelHold?.end()
                 guard let self else { return }
                 // A stopped worker parks itself in `drainingWorker`; clear that
                 // handle here so a waiter can tell "still draining" from "done".
@@ -2318,6 +2344,9 @@ extension MetadataBackfillService {
         if !preservingContinuation { finishContinuedProcessing(success: false) }
         deferredQueueReconcileTask?.cancel()
         deferredQueueReconcileTask = nil
+        // 还在数剩余、没起工作线程的那一趟也作废:数完不再开工。
+        pendingCountedStart?.cancel()
+        pendingCountedStart = nil
         // A hard stop ends any scene-transition pause: the parked worker is
         // being cancelled, and its final flush must be allowed to publish.
         isSceneTransitionPaused = false
@@ -2401,8 +2430,8 @@ extension MetadataBackfillService {
         // A bounded background wake may have drained this source while the
         // scene was inactive. Reconcile once before restoring the foreground
         // intent so an already-finished job does not remain presented as a
-        // user-paused session with no eligible rows.
-        refreshRemainingCounts(force: true)
+        // user-paused session with no eligible rows. 6c: 对账由调用方先在后台执行器上
+        // 做完(`whenRemainingCountsAreCurrentForForegroundIntent`),这里不在主线程上整库折一遍。
         guard remainingCount(forSource: sourceID) > 0 else {
             finishContinuedProcessing(success: true)
             userInitiatedSourceID = nil
@@ -2425,7 +2454,7 @@ extension MetadataBackfillService {
         // 等于白等一整批。场景切换的暂停/恢复不受影响: 那时的档位不是后台档。
         let wasBackgroundScoped = worker != nil
             && (executionMode == .background || executionMode == .backgroundDuringPlayback)
-        refreshRemainingCounts(force: true)
+        // 6c: 剩余数由调用方先在后台执行器上对到此刻(`whenRemainingCountsAreCurrentForForegroundIntent`)。
         let readable = backfillableSourceIDs().subtracting(library.disabledSourceIDs)
         automaticForegroundSourceIDs = automaticForegroundSourceIDs.filter {
             readable.contains($0) && remainingCount(forSource: $0) > 0
@@ -2713,10 +2742,13 @@ extension MetadataBackfillService {
         #if os(iOS)
         guard UIApplication.shared.applicationState == .active else { return }
         #endif
-        if !resumeUserInitiatedIfNeeded(), !resumeAutomaticForegroundIfNeeded() {
-            #if !os(iOS)
-            start()
-            #endif
+        whenRemainingCountsAreCurrentForForegroundIntent { [weak self] in
+            guard let self else { return }
+            if !self.resumeUserInitiatedIfNeeded(), !self.resumeAutomaticForegroundIfNeeded() {
+                #if !os(iOS)
+                self.start()
+                #endif
+            }
         }
     }
 
@@ -2798,7 +2830,8 @@ extension MetadataBackfillService {
         guard !retryableIDs.isEmpty else { return }
         sessionNetworkParkedIDs.subtract(retryableIDs)
         sessionGivenUpIDs.subtract(retryableIDs)
-        refreshRemainingCounts(force: true)
+        // 6c: 不在主线程上对账:标脏,接着的 `start()` 在后台执行器上重数。
+        markQueueDirty()
         plog("📥 Backfill: network path changed; resumed \(retryableIDs.count) deferred inspections")
     }
 
@@ -2906,6 +2939,11 @@ extension MetadataBackfillService {
     /// That drain is waited out too, but only up to `drainGrace`, so an
     /// expired BGProcessing task can never be held open by it.
     func waitUntilIdle(drainGrace: TimeInterval = MetadataBackfillDrainWaitPolicy.drainGrace) async {
+        // `start()` 还在后台执行器上数剩余:等它数完、起了(或决定不起)工作线程再看。
+        while let counting = pendingCountedStart {
+            await counting.value
+            if pendingCountedStart == counting { pendingCountedStart = nil }
+        }
         // 宽限只约束"没有活着的 worker、只剩收尾任务"的那一段, 所以从观察到
         // 这个状态的那一刻开始计时, 而不是从进入等待开始。
         var drainStartedAt: ContinuousClock.Instant?
@@ -3317,6 +3355,7 @@ extension MetadataBackfillService {
             return
         }
         remainingCountsComputationCount += 1
+        mainActorRemainingCountsComputationCount += 1
         let result = Self.computeRemainingCounts(input)
         completedRemainingCounts = (state, result)
         applyRemainingCounts(result)
@@ -3358,16 +3397,18 @@ extension MetadataBackfillService {
         albumArtistVerdictComputedAt = now
     }
 
-    private func refreshRemainingCountsOffMain(force: Bool = false) async {
+    /// 返回这一轮的数字落没落地(被顶替、输入变了、曲库不在内存里时为 false)。
+    @discardableResult
+    private func refreshRemainingCountsOffMain(force: Bool = false) async -> Bool {
         // 同 `refreshRemainingCounts`: 准备中的库不参与对账, 也不落盘。
-        guard library.isReady, maintenance.isReady else { return }
+        guard library.isReady, maintenance.isReady else { return false }
         await refreshAlbumArtistVerdictOffMain()
         // 上面等过一回:曲库这期间不在内存里了的话,下面读到的是空的歌曲表,算出来就是「什么都不剩」。
-        guard library.isReady else { return }
+        guard library.isReady else { return false }
         let now = Date()
         guard force
                 || now.timeIntervalSince(lastRemainingCountRefreshAt)
-                    >= remainingCountRefreshInterval else { return }
+                    >= remainingCountRefreshInterval else { return false }
         lastRemainingCountRefreshAt = now
         remainingCountComputationGeneration &+= 1
         let computationGeneration = remainingCountComputationGeneration
@@ -3398,7 +3439,7 @@ extension MetadataBackfillService {
         // 算的时候又等过一回:曲库不在内存里了就不落地、不落盘,节流也退回去,装好后重新对账。
         guard library.isReady else {
             lastRemainingCountRefreshAt = .distantPast
-            return
+            return false
         }
         // 代次被顶替与"输入真的变了"必须分开: 被顶替时接管的那次刷新还在跑,
         // 把节流时间戳退回 .distantPast 会让它之后的 start() 再次整库同步对账。
@@ -3425,6 +3466,7 @@ extension MetadataBackfillService {
                 .throttleResetsAfterFailure(reason: staleReason) {
                 lastRemainingCountRefreshAt = .distantPast
             }
+            return false
         case .applyKeepingQueueDirty:
             // 这份快照算在一次资料库发布之前, 数字只能少算不会多算。发布给
             // 源卡片没问题, 但节流必须像 HEAD 上的 `.inputsChanged` 那样退回,
@@ -3435,6 +3477,7 @@ extension MetadataBackfillService {
         case .apply:
             applyRemainingCounts(computation, precedesLibraryPublication: false)
         }
+        return true
     }
 
     /// `trimmingCharacters(in:).isEmpty` 要为每个字段分配一个新字符串。整库
@@ -3823,7 +3866,8 @@ extension MetadataBackfillService {
         saveInspectionState()
         saveRetryCounts()
         plog("📥 Backfill: retryFailed reopened \(retryIDs.count) blocked inspections")
-        refreshRemainingCounts(force: true)
+        // 6c: 不在主线程上对账:标脏,接着的 `start()` 在后台执行器上重数(单源的用户读取照旧当场数,见那里)。
+        markQueueDirty()
         if startImmediately {
             if let sourceID {
                 startUserInitiated(sourceID: sourceID)
@@ -3836,7 +3880,8 @@ extension MetadataBackfillService {
 
     func retry(songID: String) {
         guard reopenInspection(for: songID) else { return }
-        refreshRemainingCounts(force: true)
+        // 6c: 不在主线程上对账:标脏,`start()` 在后台执行器上重数。
+        markQueueDirty()
         start()
     }
 
@@ -9069,5 +9114,59 @@ extension MetadataBackfillService {
     private nonisolated static func hash(_ input: String) -> String {
         let digest = SHA256.hash(data: Data(input.utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+extension MetadataBackfillService {
+    /// 补读的工作线程占用的歌曲模型(见 `start()` 起的那个任务)。模型不在内存里时不占也不等。
+    fileprivate func holdSongModelIfLoaded() async -> MusicLibrary.SongModelHold? {
+        guard library.isReady else { return nil }
+        return await library.holdSongModel(.backfill)
+    }
+
+    /// 起补读的路上用的剩余数,不在主线程上算(整库折一遍:设备上 5.5 万首时每回到前台主线程卡 0.3–0.6 s,
+    /// 45 万首时是好几秒)。节流期内不必重算,或者上一次算好的正对得上此刻的输入(套用它)时返回 nil,调用方
+    /// 照旧往下走;否则在后台执行器上对一次账,返回那个任务,对完再调 `then`(第二个参数:这一轮的数字落没落地;
+    /// 任务被取消就不调)。数字落地之前界面照旧显示上一次的。准备中的库、还没接上的账照旧不对账(返回 nil,
+    /// 调用方自己有守卫)。
+    fileprivate func countRemainingRowsOffTheMainActorIfNeeded(
+        force: Bool,
+        then: @escaping @MainActor (MetadataBackfillService, Bool) -> Void
+    ) -> Task<Void, Never>? {
+        guard library.isReady, maintenance.isReady else { return nil }
+        let now = Date()
+        guard force
+                || now.timeIntervalSince(lastRemainingCountRefreshAt)
+                    >= remainingCountRefreshInterval else { return nil }
+        let state = RemainingCountsState(
+            input: makeRemainingCountsInput(),
+            songGeneration: library.songMutationGenerationForMaintenance,
+            maintenanceRevision: maintenance.revision
+        )
+        if let cached = completedRemainingCounts, cached.0 == state {
+            lastRemainingCountRefreshAt = now
+            remainingCountComputationGeneration &+= 1
+            applyRemainingCounts(cached.1)
+            return nil
+        }
+        return Task { @MainActor [weak self] in
+            guard let self else { return }
+            let applied = await self.refreshRemainingCountsOffMain(force: true)
+            guard !Task.isCancelled else { return }
+            then(self, applied)
+        }
+    }
+
+    /// 回到前台、删掉音乐源之后接着上次的前台意图(用户点开的单源读取、扫描后的前台续读)要看各源还剩几首。
+    /// 有这样的意图时先把剩余数对到此刻(在后台执行器上),对完再调 `body`;没有意图、或者剩余数已经是此刻的,
+    /// 当场调。`body` 里的 `resumeUserInitiatedIfNeeded` / `resumeAutomaticForegroundIfNeeded` 只读算好的数。
+    func whenRemainingCountsAreCurrentForForegroundIntent(_ body: @escaping @MainActor () -> Void) {
+        let hasIntent = userInitiatedSourceID != nil
+            || automaticDeviceLocalSourceID != nil
+            || !automaticForegroundSourceIDs.isEmpty
+        if hasIntent, countRemainingRowsOffTheMainActorIfNeeded(force: true, then: { _, _ in body() }) != nil {
+            return
+        }
+        body()
     }
 }

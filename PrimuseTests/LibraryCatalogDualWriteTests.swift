@@ -4299,6 +4299,47 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertTrue(recordsListen(after: 150))
         XCTAssertEqual(songModelHolds(of: library), [], "the listen rule asks for no song model")
     }
+
+    /// 场景切换、后台和系统唤醒时起的活儿(P3 步骤 6c 单元 2b):模型在内存里时当场执行,不问有没有活儿,
+    /// 也不占用;放掉之后没有活儿什么也不要(回调等着模型),有活儿才占用一次、请模型装回来,回调仍等发布。
+    func testBackgroundWorkAsksForTheSongModelOnlyWhenThereIsWork() async throws {
+        let library = makeLibrary()
+        library.addSongs(Self.fixture(), affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let handled = Tally()
+        let asked = Tally()
+
+        library.onReady(holding: .scan, ifThereIsWork: {
+            asked.count += 1
+            return true
+        }) { handled.count += 1 }
+        library.requestSongModel(for: .backfill, ifThereIsWork: {
+            asked.count += 1
+            return true
+        })
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(handled.count, 1, "loaded: the work starts at once")
+        XCTAssertEqual(asked.count, 0, "loaded: whether there is work is not even asked")
+        XCTAssertEqual(songModelHolds(of: library), [])
+
+        library.dropSongModelForMeasurement(includingCollections: true)
+        library.onReady(holding: .scan, ifThereIsWork: {
+            asked.count += 1
+            return false
+        }) { handled.count += 1 }
+        library.requestSongModel(for: .scraper, ifThereIsWork: { false })
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(asked.count, 1)
+        XCTAssertEqual(handled.count, 1, "released: the work waits for the model")
+        XCTAssertEqual(songModelHolds(of: library), [], "no work: no song model is asked for")
+
+        library.onReady(holding: .backgroundDrain) { handled.count += 1 }
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(songModelHolds(of: library), [.backgroundDrain], "work: one request for the song model")
+        XCTAssertEqual(handled.count, 1, "the work still starts only once the model is back")
+    }
 }
 
 /// 智能歌单对照测试用的确定性随机数。
