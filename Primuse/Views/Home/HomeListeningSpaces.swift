@@ -43,7 +43,17 @@ struct PodcastResumeItem {
     ) -> [Self] {
         guard limit > 0 else { return [] }
         _ = library.localPodcastContentRevision
-        let showIDs = library.localPodcastBookIDs
+        var showIDs = library.localPodcastBookIDs
+        var showTitles: [String: String] = [:]
+        // 6c: 歌曲模型放掉时 `localPodcastBookIDs` 是空的,本机播客会从「接着听」里消失:听过的那些 id 在哪个节目、
+        // 节目叫什么,从曲库目录一批查出来(按 id,只查有进度的)。
+        if !library.isReady, let catalog = library.catalogHost?.mirror.readableCatalog,
+           let placements = try? catalog.podcastShowPlacements(songIDs: progress.positions.keys) {
+            for (songID, placement) in placements {
+                showIDs[songID] = placement.showID
+                if let title = placement.title { showTitles[songID] = title }
+            }
+        }
         // 只按听过的播客排序，资料库里的所有单集无需重新分组。
         let positions = progress.positions.filter { showIDs[$0.key] != nil || PodcastIdentity.isEpisodeID($0.key) }
             .sorted {
@@ -58,7 +68,7 @@ struct PodcastResumeItem {
             if let showID = showIDs[id] {
                 guard !progress.isArchived(bookID: showID),
                       let song = library.unobservedVisibleSong(id: id), song.isPlayable else { continue }
-                let title = library.localPodcastShowTitle(forSongID: id) ?? song.albumTitle ?? song.title
+                let title = library.localPodcastShowTitle(forSongID: id) ?? showTitles[id] ?? song.albumTitle ?? song.title
                 items.append(Self(source: .library(song, showID: showID, showTitle: title), position: stored))
             } else if let (episode, show) = subscription(id) {
                 var position = stored

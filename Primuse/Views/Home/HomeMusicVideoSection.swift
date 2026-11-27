@@ -8,6 +8,30 @@ enum HomeMusicVideoMetrics {
     }
 }
 
+/// 首页「MV」那一排挑哪几支(6c 单元 4 U1b)。
+enum HomeMusicVideoPicks {
+    /// 歌曲模型在内存里时同以前,从 `musicVideoSongs` 挑;不在时候选(id、艺人、加入时间)从曲库目录读,与那份数组
+    /// 同一些、同一先后,挑中的再按 id 取歌。目录答不了时为 nil(调用方留着上一排)。
+    @MainActor
+    static func picks(
+        for request: MusicVideoRecommendationPolicy.Request, library: MusicLibrary, now: Date
+    ) async -> [Song]? {
+        if library.isReady { return await request.picks(from: library.musicVideoSongs, now: now) }
+        guard let reader = PlaybackCatalogAccess.reader(for: library) else { return nil }
+        do {
+            let candidates = try await reader.read { try $0.musicVideoCandidates() }
+            let ids = request.pickIDs(from: candidates, now: now)
+            guard !ids.isEmpty else { return [] }
+            let songs = try await reader.songsChunked(ids: ids, scope: .visibleMusic)
+            let byID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            return ids.compactMap { byID[$0] }
+        } catch {
+            plog("🎬 Home MV picks: catalog read failed (\(error))")
+            return nil
+        }
+    }
+}
+
 /// 首页「MV」:按常听的艺人、新加进来的挑几支 MV(`MusicVideoRecommendationPolicy`),
 /// 横着排、两列网格或列表(界面编辑里选),点一支从它开始按 MV 连着放,和资料库 MV 页一样。
 /// 曲库里没有 MV 时首页不画这一块。
@@ -84,8 +108,9 @@ struct HomeMusicVideoSection<Trailing: View>: View {
             .accessibilityIdentifier("home.musicVideos.shelf")
         }
         .task(id: request) {
-            let next = await request.picks(from: library.musicVideoSongs, now: Date())
-            guard !Task.isCancelled else { return }
+            // 6c: 歌曲模型放掉时整份 MV 是空的:候选改从曲库目录读;答不了就留着这一排。
+            let next = await HomeMusicVideoPicks.picks(for: request, library: library, now: Date())
+            guard !Task.isCancelled, let next else { return }
             picks = next
         }
         .sheet(item: $playlistSong) { song in

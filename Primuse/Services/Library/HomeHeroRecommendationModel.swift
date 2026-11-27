@@ -106,6 +106,9 @@ final class HomeHeroRecommendationModel {
             }
         }
 
+        // 6c(Q1):重新挑要整份音乐的特征;歌曲模型不在内存里时不挑,手上这一组(或上面按 id 还原的)留着,
+        // 等模型装好再按今天的挑。
+        guard library.isReady else { return }
         isLoading = true
         defer { if operation == generation { isLoading = false } }
         let round = force && saved?.day == day ? (saved?.round ?? 0) + 1 : 0

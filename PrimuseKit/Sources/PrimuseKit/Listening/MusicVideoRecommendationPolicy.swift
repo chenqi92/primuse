@@ -36,10 +36,8 @@ public enum MusicVideoRecommendationPolicy {
         @concurrent
         public func picks(from songs: [Song], now: Date) async -> [Song] {
             guard limit > 0, !songs.isEmpty, !Task.isCancelled else { return [] }
-            let ids = MusicVideoRecommendationPolicy.recommended(
-                songs.map { Candidate(id: $0.id, artistID: $0.artistID, dateAdded: $0.dateAdded) },
-                favoriteArtistIDs: favoriteArtistIDs, recentlyPlayedIDs: recentlyPlayedIDs,
-                now: now, day: day, limit: limit
+            let ids = pickIDs(
+                from: songs.map { Candidate(id: $0.id, artistID: $0.artistID, dateAdded: $0.dateAdded) }, now: now
             )
             var missing = Set(ids)
             var picksByID: [String: Song] = [:]
@@ -48,6 +46,16 @@ public enum MusicVideoRecommendationPolicy {
                 if missing.isEmpty { break }
             }
             return ids.compactMap { picksByID[$0] }
+        }
+
+        /// 只按候选(id、艺人、加入时间)挑,给不在内存里的整份 MV 用(候选从曲库目录读,挑中的再按 id 取歌)。
+        /// 候选的先后与 `picks(from:)` 交的歌一样(`musicVideoSongs` 的先后)时结果相同。
+        public func pickIDs(from candidates: [Candidate], now: Date) -> [String] {
+            guard limit > 0, !candidates.isEmpty else { return [] }
+            return MusicVideoRecommendationPolicy.recommended(
+                candidates, favoriteArtistIDs: favoriteArtistIDs, recentlyPlayedIDs: recentlyPlayedIDs,
+                now: now, day: day, limit: limit
+            )
         }
     }
 

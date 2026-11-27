@@ -52,6 +52,26 @@ struct LibraryCatalogStoredLevelQueriesTests {
         #expect(try catalog.hasSongsWithoutDuration(sourceID: "source-b") == false)
     }
 
+    @Test("Lists the music-video candidates in library order")
+    func listsMusicVideoCandidatesInLibraryOrder() throws {
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        func video(_ id: String, mv: String?, added: TimeInterval) -> Song {
+            var song = song(id, album: nil)
+            song.mvPath = mv
+            song.dateAdded = Date(timeIntervalSinceReferenceDate: added)
+            return song
+        }
+        try catalog.apply(upserts: [
+            video("one", mv: "/Videos/one.mp4", added: 100),
+            video("two", mv: nil, added: 200),
+            video("three", mv: "/Videos/three.mp4", added: 300),
+        ])
+        let candidates = try catalog.musicVideoCandidates()
+        #expect(candidates.map(\.id) == ["one", "three"])
+        #expect(candidates.map(\.dateAdded) == [Date(timeIntervalSinceReferenceDate: 100), Date(timeIntervalSinceReferenceDate: 300)])
+    }
+
     @Test("Tells which albums still have a song")
     func tellsWhichAlbumsStillHaveASong() throws {
         let temporary = try TemporaryCatalog()

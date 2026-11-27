@@ -415,6 +415,57 @@ extension LibraryCatalog {
         }
     }
 
+    /// 这些 id 里本机播客单集各在哪个节目里(节目 id 与节目名),同内存里 `localPodcastBookIDs` 与
+    /// `localPodcastShowTitle(forSongID:)`。不是播客单集的 id 不在结果里。按 id 分批查,不逐首解码。
+    public func podcastShowPlacements(songIDs: some Collection<String>) throws -> [String: LibraryCatalogShowPlacement] {
+        let requested = Array(Set(songIDs))
+        guard !requested.isEmpty else { return [:] }
+        return try reader.read { db in
+            var placements: [String: LibraryCatalogShowPlacement] = [:]
+            for chunk in Self.chunks(of: requested) {
+                let rows = try Row.fetchCursor(
+                    db,
+                    sql: """
+                        SELECT s.id, b.bookID, k.title FROM song s
+                        JOIN songBook b ON b.songRowid = s.rowid
+                        LEFT JOIN book k ON k.id = b.bookID AND k.kind = b.kind
+                        WHERE s.id IN (\(Self.placeholders(chunk.count)))
+                          AND b.kind = \(LibraryCatalogContentKind.podcast.rawValue) AND b.bookID IS NOT NULL
+                        """,
+                    arguments: StatementArguments(Array(chunk))
+                )
+                while let row = try rows.next() {
+                    placements[row[0]] = LibraryCatalogShowPlacement(showID: row[1], title: row[2])
+                }
+            }
+            return placements
+        }
+    }
+
+    /// 可见音乐里带 MV 的歌作挑选候选(id、艺人、加入时间),按库内顺序 —— 同内存里 `musicVideoSongs` 的那些与先后。
+    /// 读 `flags` 里的 MV 位与三列,不逐首解码。
+    public func musicVideoCandidates() throws -> [MusicVideoRecommendationPolicy.Candidate] {
+        try reader.read { db in
+            let (sql, arguments) = try LibrarySongScope.visibleMusic.whereClause(in: db)
+            let rows = try Row.fetchCursor(
+                db,
+                sql: """
+                    SELECT s.id, s.artistID, s.dateAdded FROM song s
+                    WHERE \(sql) AND (s.flags & \(LibraryCatalogSongFlags.hasMusicVideo)) != 0
+                    ORDER BY s.rowid
+                    """,
+                arguments: arguments
+            )
+            var candidates: [MusicVideoRecommendationPolicy.Candidate] = []
+            while let row = try rows.next() {
+                candidates.append(MusicVideoRecommendationPolicy.Candidate(
+                    id: row[0], artistID: row[1], dateAdded: Date(timeIntervalSinceReferenceDate: row[2])
+                ))
+            }
+            return candidates
+        }
+    }
+
     /// 打着「用户编辑」标记(`userMetadataEditedAt` 不为空)的歌的 id,含停用源、所有类别,
     /// 同 `songs.filter { $0.userMetadataEditedAt != nil }` 的那些 id。读 `flags` 里的标记位,不逐首解码。
     public func userEditedSongIDs() throws -> Set<String> {
@@ -454,5 +505,16 @@ extension LibraryCatalog {
             }
             return found
         }
+    }
+}
+
+/// 一首本机播客单集所在的节目(`podcastShowPlacements`)。
+public struct LibraryCatalogShowPlacement: Sendable, Equatable {
+    public let showID: String
+    public let title: String?
+
+    public init(showID: String, title: String?) {
+        self.showID = showID
+        self.title = title
     }
 }
