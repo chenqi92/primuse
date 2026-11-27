@@ -74,6 +74,9 @@ final class FavoriteCollectionStore {
     /// 第一次读到 iCloud 那份之前不推，免得拿本机这份先把云端那份盖掉。
     private var isAwaitingCloudRead = true
     private var cloudPushTask: Task<Void, Never>?
+    /// 歌曲模型不在内存里时从曲库目录书架问来的「书 id → 章节所在的源」,只在拿着它重来的那一下有值
+    /// (见 `retryWithBooksAnsweredOutsideTheModel`)。
+    private var bookSourcesAnsweredOutsideTheModel: [String: Set<String>]?
 
     init(
         defaults: UserDefaults = .standard,
@@ -104,6 +107,15 @@ final class FavoriteCollectionStore {
                 let isLocal = note.userInfo?["origin"] == nil
                 Task { @MainActor [weak self] in self?.enqueueLikeChanges(ids, isLocal: isLocal) }
             }
+        }
+        // 6c: 一次性迁移要整份专辑、艺人。歌曲模型放掉了(可用而不在内存里)时先问曲库目录库里有没有可见的歌
+        // (没有就像以前库空时一样下次启动再来),有才占用模型做;做完再接上 iCloud,先后与模型在内存里时相同。
+        if !defaults.bool(forKey: Self.migrationKey), !library.isReady, library.isUsable {
+            Task { @MainActor [weak self] in
+                await self?.migrateHoldingTheSongModelIfNeeded(library)
+                self?.startCloudSync()
+            }
+            return
         }
         migrateIfNeeded()
         startCloudSync()
@@ -421,6 +433,15 @@ final class FavoriteCollectionStore {
             }
         }
         guard let library, !added.isEmpty || !removed.isEmpty else { return }
+        // 6c: 歌曲模型不在内存里时专辑、艺人的整份列表是空的,这一批会被当成对不上而丢掉:先不消化,
+        // 退回等着的里,模型装好时再挪(收藏区只在前台显示,那时模型在内存里)。
+        guard library.isReady else {
+            for id in added { likedSnapshot.remove(id) }
+            for id in removed { likedSnapshot.insert(id) }
+            pendingLikeChanges.formUnion(added.union(removed))
+            library.onReady { [weak self] in self?.followLikeChanges() }
+            return
+        }
 
         var pins = storedPins
         if !removed.isEmpty {
@@ -464,6 +485,7 @@ final class FavoriteCollectionStore {
     private func migrateIfNeeded() {
         guard !defaults.bool(forKey: Self.migrationKey),
               let library,
+              library.isReady,
               !library.visibleSongs.isEmpty else { return }
 
         let legacy = storedPins
@@ -494,6 +516,16 @@ final class FavoriteCollectionStore {
         plog("💗 favorites migrated: legacy=\(legacy.count) liked=\(migrated) appended=\(appended.count)")
     }
 
+    /// 歌曲模型不在内存里时的一次性迁移:曲库目录说库里有可见的歌才拿 `.migration` 占用(装回模型)做,
+    /// 做的还是 `migrateIfNeeded`。目录答不了或库是空的,与以前库空时一样下次启动再来。
+    private func migrateHoldingTheSongModelIfNeeded(_ library: MusicLibrary) async {
+        guard !defaults.bool(forKey: Self.migrationKey),
+              let reader = await library.catalogReaderCaughtUp(),
+              let visibleSongCount = try? await reader.read({ try $0.songCount(.visible) }),
+              visibleSongCount > 0 else { return }
+        await library.withSongModel(.migration) { migrateIfNeeded() }
+    }
+
     // MARK: - iCloud
 
     // 收藏经 iCloud 键值存储（`CloudKVSSync`，跟着 iCloud 总开关与「设置」那一类走）同步：
@@ -516,7 +548,7 @@ final class FavoriteCollectionStore {
             let likedRemoved = !storedRawValue.isEmpty && !storedPins.contains(Self.anchor)
             // 收藏的书是不是只在这台设备上要看整份有声条目:歌曲模型不在内存里时答不了,装回来再接上同步。
             guard let localOnly = deviceBoundIDs(among: snapshot.collected) else {
-                library?.onReady { [weak self] in self?.startCloudSync() }
+                retryWithBooksAnsweredOutsideTheModel { [weak self] in self?.startCloudSync() }
                 return
             }
             syncState = FavoriteCollectionSyncPolicy.initialState(
@@ -565,9 +597,9 @@ final class FavoriteCollectionStore {
         guard let state = syncState, !isApplyingCloudCopy else { return }
         let snapshot = localSnapshot()
         // 新收藏的书是不是只在这台设备上答不了(歌曲模型不在内存里):这一轮不记、不推,免得把只在本机的书
-        // 当成能同步的推给别的设备;模型装回来时补记一次。
+        // 当成能同步的推给别的设备;问到曲库目录的书架(或模型装回来)时补记一次。
         guard let localOnly = deviceBoundIDs(among: snapshot.collected.subtracting(state.members.keys)) else {
-            library?.onReady { [weak self] in self?.recordLocalChanges(orderEdited: false) }
+            retryWithBooksAnsweredOutsideTheModel { [weak self] in self?.recordLocalChanges(orderEdited: false) }
             return
         }
         let next = FavoriteCollectionSyncPolicy.recording(
@@ -602,7 +634,7 @@ final class FavoriteCollectionStore {
 
     /// 只在这台设备上有意义的收藏：本机音乐源上的目录、整本都在本机音乐源上的书（别的设备没有这个源，
     /// 那边永远对不上）；音乐源已经不在这台设备上的目录也算。已经在同步里的不受影响，照常同步。
-    /// nil：有书要判断而歌曲模型不在内存里(整份有声条目是空的),此刻答不了。
+    /// nil：有书要判断而歌曲模型不在内存里(整份有声条目是空的),也还没从曲库目录问来,此刻答不了。
     private func deviceBoundIDs(among ids: some Sequence<String>) -> Set<String>? {
         guard let sourcesProvider else { return [] }
         var folders: [(id: String, sourceID: String)] = []
@@ -628,16 +660,61 @@ final class FavoriteCollectionStore {
             result.insert(folder.id)
         }
         guard !bookIDs.isEmpty, !localSourceIDs.isEmpty, let library else { return result }
-        guard library.isReady else { return nil }
-        var sourcesByBook: [String: Set<String>] = [:]
-        for song in library.spokenWordSongs {
-            guard let bookID = library.spokenWordBookIDs[song.id], bookIDs.contains(bookID) else { continue }
-            sourcesByBook[bookID, default: []].insert(song.sourceID)
+        let sourcesByBook: [String: Set<String>]
+        if library.isReady {
+            sourcesByBook = Self.sourcesByBookInTheModel(bookIDs, library: library)
+        } else if let answered = bookSourcesAnsweredOutsideTheModel {
+            sourcesByBook = answered.filter { bookIDs.contains($0.key) }
+        } else {
+            return nil
         }
         for (bookID, sourceIDs) in sourcesByBook where sourceIDs.isSubset(of: localSourceIDs) {
             result.insert(QuickAccessPinReference(kind: .book, itemID: bookID).id)
         }
         return result
+    }
+
+    /// `deviceBoundIDs` 答不了(歌曲模型不在内存里)时:问曲库目录的书架(不装回模型),拿着这一次的答案
+    /// 当场重来一遍。目录也答不了时等下一次装好再来(与以前相同)。
+    private func retryWithBooksAnsweredOutsideTheModel(_ retry: @escaping @MainActor () -> Void) {
+        guard let library else { return }
+        // 第一次发布之前(还没装过)与以前一样等装好。
+        guard library.isUsable else {
+            library.onReady(retry)
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let answer = await Self.sourcesByBookOutsideTheModel(library: library) else {
+                library.onReady(retry)
+                return
+            }
+            guard let self else { return }
+            self.bookSourcesAnsweredOutsideTheModel = answer
+            defer { self.bookSourcesAnsweredOutsideTheModel = nil }
+            retry()
+        }
+    }
+
+    /// 这些书的章节在哪些源上(书 id → 源 id)。模型在内存里时数整份有声条目(与以前相同);不在时问跟上了的
+    /// 曲库目录书架(可见的有声书,同一份分书),不装回模型。nil:答不了。
+    static func sourcesByBook(_ bookIDs: Set<String>, library: MusicLibrary) async -> [String: Set<String>]? {
+        if library.isReady { return sourcesByBookInTheModel(bookIDs, library: library) }
+        return await sourcesByBookOutsideTheModel(library: library)?.filter { bookIDs.contains($0.key) }
+    }
+
+    private static func sourcesByBookInTheModel(_ bookIDs: Set<String>, library: MusicLibrary) -> [String: Set<String>] {
+        var sourcesByBook: [String: Set<String>] = [:]
+        for song in library.spokenWordSongs {
+            guard let bookID = library.spokenWordBookIDs[song.id], bookIDs.contains(bookID) else { continue }
+            sourcesByBook[bookID, default: []].insert(song.sourceID)
+        }
+        return sourcesByBook
+    }
+
+    private static func sourcesByBookOutsideTheModel(library: MusicLibrary) async -> [String: Set<String>]? {
+        guard let reader = await library.catalogReaderCaughtUp(),
+              let shelf = try? await reader.bookshelf(kind: .spokenWord) else { return nil }
+        return Dictionary(shelf.map { ($0.id, $0.sourceIDs) }, uniquingKeysWith: { $0.union($1) })
     }
 
     private func persistSyncState() {

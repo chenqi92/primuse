@@ -143,19 +143,47 @@ extension MotionCoverStore {
     }
 
     private func removeBindings(ofOrphanedAlbumsAmong candidateAlbums: Set<String>) {
-        // 曲库没装好时整库数组是空的,每张专辑看起来都没歌了:这时不判,等装好再看。
-        guard AppServices.shared.musicLibrary.isReady else {
-            AppServices.shared.musicLibrary.onReady { [weak self] in
-                self?.removeBindings(ofOrphanedAlbumsAmong: candidateAlbums)
-            }
+        let library = AppServices.shared.musicLibrary
+        if library.isReady {
+            removeBindings(ofOrphanedAlbums: Self.orphanedAlbumsInTheModel(among: candidateAlbums, library: library))
             return
         }
-        let songs = AppServices.shared.musicLibrary.songs
-        let orphanedAlbums = candidateAlbums.filter { albumID in
-            !songs.contains { $0.albumID == albumID }
+        // 6c: 歌曲模型不在内存里时问曲库目录(不装回模型)。目录也答不了时不判 —— 空数组会让每张专辑
+        // 看起来都没歌了 —— 等装好再看。
+        Task { @MainActor [weak self] in
+            guard let orphaned = await Self.orphanedAlbums(among: candidateAlbums, library: library) else {
+                library.onReady { [weak self] in self?.removeBindings(ofOrphanedAlbumsAmong: candidateAlbums) }
+                return
+            }
+            self?.removeBindings(ofOrphanedAlbums: orphaned)
         }
+    }
+
+    private func removeBindings(ofOrphanedAlbums orphanedAlbums: Set<String>) {
         guard !orphanedAlbums.isEmpty, index.remove(songIDs: [], albumIDs: orphanedAlbums) else { return }
         commit()
+    }
+
+    /// 候选专辑里一首歌都不剩的(任一源,含停用源)。歌曲模型在内存里时看整库数组(与以前相同);
+    /// 不在时问跟上了的曲库目录,不装回模型。两样都答不了时为 nil。
+    static func orphanedAlbums(among candidateAlbums: Set<String>, library: MusicLibrary) async -> Set<String>? {
+        guard !candidateAlbums.isEmpty else { return [] }
+        if library.isReady { return orphanedAlbumsInTheModel(among: candidateAlbums, library: library) }
+        guard let reader = await library.catalogReaderCaughtUp() else { return nil }
+        do {
+            let withSongs = try await reader.read { try $0.albumIDsWithSongs(among: candidateAlbums) }
+            return candidateAlbums.subtracting(withSongs)
+        } catch {
+            plog("⚠️ MotionCover orphan check: catalog read failed (\(error))")
+            return nil
+        }
+    }
+
+    private static func orphanedAlbumsInTheModel(among candidateAlbums: Set<String>, library: MusicLibrary) -> Set<String> {
+        let songs = library.songs
+        return candidateAlbums.filter { albumID in
+            !songs.contains { $0.albumID == albumID }
+        }
     }
 
     private func commit() {

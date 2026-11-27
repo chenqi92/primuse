@@ -4755,6 +4755,154 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertEqual(releasedVideos, memoryVideos)
         assertNoLoadAndNoArrayRead(library, since: before, "launch counts while released")
     }
+
+    /// 动态封面的孤儿专辑(6c 单元 3b):删歌之后哪些专辑一首都不剩,模型在内存里时看整库数组,真放掉之后问目录
+    /// (任一源,含停用源),答案相同,不装模型、不读整库数组。
+    func testMotionCoverOrphanAlbumsComeFromTheCatalogWhileReleased() async throws {
+        let songs = Self.fixture(prefix: "motion-orphans")
+        let (library, _) = try makeLaunchedTwin("motion-orphans", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        // 曲库给每首歌定的专辑 id(源 B 停用着,它的歌也在里面)。
+        let present = Set(songs.compactMap { library.storedSong(id: $0.id)?.albumID })
+        XCTAssertFalse(present.isEmpty)
+        let candidates = present.union(["motion-orphans-gone"])
+        let loaded = await MotionCoverStore.orphanedAlbums(among: candidates, library: library)
+        XCTAssertEqual(loaded, ["motion-orphans-gone"])
+
+        let before = try await releaseForReal(library)
+        let released = await MotionCoverStore.orphanedAlbums(among: candidates, library: library)
+        XCTAssertEqual(released, loaded, "the catalog answers as the arrays did")
+        assertNoLoadAndNoArrayRead(library, since: before, "motion-cover orphan check")
+    }
+
+    /// 云账号合并时把多余挂载上的歌改挂到留下的那份(6c 单元 3b):真放掉之后多余的挂载上没歌就不装模型;有歌才拿
+    /// `.migration` 占用装回来改挂,改完与模型一直在内存里时改出来的相同,目录跟着一致。
+    func testCloudAccountMergeRepointsOnlyWithAHoldWhenTheCatalogFindsSongs() async throws {
+        let songs = Self.fixture(prefix: "account-merge")
+        let movedCount = songs.filter { $0.sourceID == Self.sourceB }.count
+        let (loadedLibrary, _) = try makeLaunchedTwin("account-merge-loaded", songs: songs)
+        await assertShadowMatches(loadedLibrary, "fixture, loaded")
+        let loaded = await CloudAccountMigrationService.repointSongs(from: [Self.sourceB], to: Self.sourceA, library: loadedLibrary)
+        XCTAssertEqual(loaded, movedCount)
+        func placements(_ library: MusicLibrary) -> [String: String] {
+            Dictionary(uniqueKeysWithValues: library.songs.map { ($0.id, $0.sourceID) })
+        }
+        let loadedPlacements = placements(loadedLibrary)
+        XCTAssertFalse(loadedPlacements.values.contains(Self.sourceB))
+
+        let (library, _) = try makeLaunchedTwin("account-merge-released", songs: songs)
+        await assertShadowMatches(library, "fixture, released")
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(library)
+        let none = await CloudAccountMigrationService.repointSongs(from: ["account-merge-empty-mount"], to: Self.sourceA, library: library)
+        XCTAssertEqual(none, 0, "no songs on that mount: nothing to repoint")
+        assertNoLoadAndNoArrayRead(library, since: before, "an empty redundant mount")
+        XCTAssertFalse(songModelHolds(of: library).contains(.migration))
+
+        let released = await CloudAccountMigrationService.repointSongs(from: [Self.sourceB], to: Self.sourceA, library: library)
+        XCTAssertEqual(released, movedCount)
+        XCTAssertTrue(songModelHolds(of: library).contains(.migration), "songs to repoint: the migration hold loads the model")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1)
+        XCTAssertEqual(placements(library), loadedPlacements, "the same repoint as with the model loaded")
+        await assertShadowMatches(library, "after the repoint")
+    }
+
+    /// 手改标签的启动那一轮(6c 单元 3b):模型在内存里时与以前相同,补记上线前手改过的行。真放掉之后记录都套过了就
+    /// 不装模型、不读整库数组;有打着标记却没记录的行时拿 `.launchMaintenance` 占用装回来,补记出的与模型在内存里时相同。
+    func testTagEditLaunchPassHoldsTheSongModelOnlyWhenThereIsWork() async throws {
+        var songs = Self.fixture(prefix: "tag-launch")
+        songs[1].title = "Blue Two (edited)"
+        songs[1].userMetadataEditedAt = Date(timeIntervalSince1970: 1_700_000_100)
+        songs[10].albumTitle = "Long Story (edited)"
+        songs[10].userMetadataEditedAt = Date(timeIntervalSince1970: 1_700_000_200)
+        let (library, _) = try makeLaunchedTwin("tag-launch", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+
+        let loadedStore = SongTagEditStore(fileURL: directory.appendingPathComponent("tag-launch-loaded.json"))
+        loadedStore.attach(library: library)
+        let loadedPass = await loadedStore.launchPass?.value
+        XCTAssertEqual(loadedPass, .inTheModel)
+        XCTAssertEqual(Set(loadedStore.entries.keys), [songs[1].id, songs[10].id], "the earlier hand edits are recorded")
+
+        let before = try await releaseForReal(library)
+        let nothing = await loadedStore.runLaunchPass()
+        XCTAssertEqual(nothing, .nothingToDo)
+        assertNoLoadAndNoArrayRead(library, since: before, "every record applied")
+        XCTAssertFalse(songModelHolds(of: library).contains(.launchMaintenance))
+
+        let releasedStore = SongTagEditStore(fileURL: directory.appendingPathComponent("tag-launch-released.json"))
+        releasedStore.attach(library: library)
+        let releasedPass = await releasedStore.launchPass?.value
+        XCTAssertEqual(releasedPass, .heldTheModel)
+        XCTAssertTrue(songModelHolds(of: library).contains(.launchMaintenance))
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1)
+        XCTAssertEqual(releasedStore.entries, loadedStore.entries, "the same records as with the model loaded")
+    }
+
+    /// 收藏的启动与事件那几样(6c 单元 3b):收藏的书在哪些源上从目录书架答出与整份有声条目相同的;迁移过的
+    /// 收藏启动时不要模型;还没迁移而库里有歌时拿 `.migration` 占用做一次;模型不在时到来的喜欢不被空列表吞掉,
+    /// 装回来时照常排进收藏。
+    func testFavoriteCollectionLaunchWorkWhileReleased() async throws {
+        let songs = Self.fixture(prefix: "favorites-launch")
+        let (library, _) = try makeLaunchedTwin("favorites-launch", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        let bookIDs = Set(library.spokenWordBookIDs.values)
+        XCTAssertFalse(bookIDs.isEmpty)
+        let loadedAnswer = await FavoriteCollectionStore.sourcesByBook(bookIDs, library: library)
+        let loadedBooks = try XCTUnwrap(loadedAnswer)
+        XCTAssertEqual(Set(loadedBooks.keys), bookIDs)
+        let album = try XCTUnwrap(library.visibleAlbums.first)
+        func makeDefaults(_ name: String) throws -> UserDefaults {
+            let suite = "favorites-launch-\(name)-\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+            return defaults
+        }
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+
+        let before = try await releaseForReal(library)
+        let releasedBooks = await FavoriteCollectionStore.sourcesByBook(bookIDs, library: library)
+        XCTAssertEqual(releasedBooks, loadedBooks, "the catalog shelf answers as the arrays did")
+        let migratedDefaults = try makeDefaults("migrated")
+        migratedDefaults.set(true, forKey: FavoriteCollectionStore.migrationKey)
+        let likes = LibraryFavoritesStore(fileURL: directory.appendingPathComponent("favorites-launch-likes.json"))
+        let migrated = FavoriteCollectionStore(defaults: migratedDefaults, favorites: likes,
+                                               cloud: CloudKVSSync(store: nil, defaults: migratedDefaults, observing: nil))
+        migrated.start(library: library)
+        // 模型不在时点上的喜欢:不消化,等装回来。
+        likes.setLiked(true, album: album)
+        try await Task.sleep(for: .milliseconds(700))
+        assertNoLoadAndNoArrayRead(library, since: before, "books, a migrated collection and a like while released")
+        XCTAssertFalse(songModelHolds(of: library).contains(.migration))
+        let albumPin = QuickAccessPinReference(kind: .album, itemID: album.id)
+        func pins(_ defaults: UserDefaults) -> [QuickAccessPinReference] {
+            LibraryPinStorage.decode(defaults.string(forKey: LibraryPinStorage.defaultsKey) ?? "")
+        }
+        XCTAssertFalse(pins(migratedDefaults).contains(albumPin), "the like waits for the model")
+
+        let freshDefaults = try makeDefaults("fresh")
+        let fresh = FavoriteCollectionStore(
+            defaults: freshDefaults,
+            favorites: LibraryFavoritesStore(fileURL: directory.appendingPathComponent("favorites-launch-fresh.json")),
+            cloud: CloudKVSSync(store: nil, defaults: freshDefaults, observing: nil)
+        )
+        fresh.start(library: library)
+        let deadline = Date().addingTimeInterval(10)
+        while !freshDefaults.bool(forKey: FavoriteCollectionStore.migrationKey), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(freshDefaults.bool(forKey: FavoriteCollectionStore.migrationKey), "the migration ran under its hold")
+        XCTAssertTrue(songModelHolds(of: library).contains(.migration))
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1)
+        while !pins(migratedDefaults).contains(albumPin), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(pins(migratedDefaults).contains(albumPin), "the waiting like is placed once the model is back")
+    }
 }
 
 /// 列目录时停在闸门上,直到测试放行(看扫描跑着时的占用)。

@@ -159,19 +159,13 @@ enum CloudAccountMigrationService {
             // (don't recompute hash), only swap sourceID — playlists
             // and play history stay valid.
             let redundantIDs = Set(toMerge.map(\.id))
-            // 改挂之前曲库必须在内存里:不在的话一首都改不到,接着软删多余的挂载,那些歌就跟着没了。
-            // 前面认账号时等过网络,所以在用到的这一刻等,不是在入口。
-            await library.whenReady()
-            let affectedSongs = library.songs.filter { redundantIDs.contains($0.sourceID) }
-            if !affectedSongs.isEmpty {
-                let repointed = affectedSongs.map { song -> Song in
-                    var copy = song
-                    copy.sourceID = keeper.id
-                    return copy
-                }
-                library.replaceSongs(repointed)
-                stats.songsRepointed += affectedSongs.count
+            // 改挂之前要答得出这几个挂载上有哪些歌:答不出就不软删,不然那些歌跟着没了,下次启动再来。
+            // 前面认账号时等过网络,所以在用到的这一刻问,不是在入口。
+            guard let repointed = await repointSongs(from: redundantIDs, to: keeper.id, library: library) else {
+                stats.failed += 1
+                continue
             }
+            stats.songsRepointed += repointed
 
             // Soft-delete the redundant mounts. This triggers
             // `primuseSourceDidSoftDelete`, which CloudKitSyncService
@@ -211,25 +205,45 @@ enum CloudAccountMigrationService {
             )
             plog("☁️ Migration: phase 1.5 config-dedup — \(toMerge.count) exact-duplicate \(keeper.type.rawValue) mount(s) → keeper=\(keeper.id)")
             let redundantIDs = Set(toMerge.map(\.id))
-            // 改挂之前曲库必须在内存里:不在的话一首都改不到,接着软删多余的挂载,那些歌就跟着没了。
-            // 前面认账号时等过网络,所以在用到的这一刻等,不是在入口。
-            await library.whenReady()
-            let affectedSongs = library.songs.filter { redundantIDs.contains($0.sourceID) }
-            if !affectedSongs.isEmpty {
-                let repointed = affectedSongs.map { song -> Song in
-                    var copy = song
-                    copy.sourceID = keeper.id
-                    return copy
-                }
-                library.replaceSongs(repointed)
-                stats.songsRepointed += affectedSongs.count
+            // 同上:答不出这几个挂载上有哪些歌就不软删。
+            guard let repointed = await repointSongs(from: redundantIDs, to: keeper.id, library: library) else {
+                stats.failed += 1
+                continue
             }
+            stats.songsRepointed += repointed
             for source in toMerge {
                 sourcesStore.remove(id: source.id)
                 stats.merged += 1
             }
         }
         return stats
+    }
+
+    /// 把挂在多余挂载上的歌改挂到 keeper 上(歌曲 id 不变,只换 `sourceID`),返回改挂了几首。
+    /// nil:此刻答不了,什么都没改,调用方不能接着软删多余的挂载。
+    ///
+    /// 歌曲模型在内存里时当场拿占用、读整库数组,与以前相同(不让出主线程)。不在时先问跟上了的曲库目录
+    /// 这几个挂载上有没有歌(含停用源):一首都没有就不必装回模型;有、或者目录答不了,才拿 `.migration`
+    /// 占用把模型装回来再改。
+    static func repointSongs(from redundantIDs: Set<String>, to keeperID: String, library: MusicLibrary) async -> Int? {
+        if !library.isReady, let reader = await library.catalogReaderCaughtUp(),
+           let counts = try? await reader.songCountsBySource(.everything),
+           !redundantIDs.contains(where: { (counts[$0] ?? 0) > 0 }) {
+            return 0
+        }
+        let hold = await library.holdSongModel(.migration)
+        defer { hold.end() }
+        // 占着模型再等一下进行中的删源(与以前的 `whenReady()` 一样),这时不会再引起装载。
+        await library.whenReady()
+        guard library.isReady else { return nil }
+        let affectedSongs = library.songs.filter { redundantIDs.contains($0.sourceID) }
+        guard !affectedSongs.isEmpty else { return 0 }
+        library.replaceSongs(affectedSongs.map { song -> Song in
+            var copy = song
+            copy.sourceID = keeperID
+            return copy
+        })
+        return affectedSongs.count
     }
 
     /// 多份挂载里留下哪一份。规则与收敛论证见 `CloudAccountMountKeeperPolicy`。

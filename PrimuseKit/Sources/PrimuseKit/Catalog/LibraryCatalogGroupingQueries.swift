@@ -414,4 +414,32 @@ extension LibraryCatalog {
             ) ?? 0
         }
     }
+
+    /// 打着「用户编辑」标记(`userMetadataEditedAt` 不为空)的歌的 id,含停用源、所有类别,
+    /// 同 `songs.filter { $0.userMetadataEditedAt != nil }` 的那些 id。读 `flags` 里的标记位,不逐首解码。
+    public func userEditedSongIDs() throws -> Set<String> {
+        try reader.read { db in
+            Set(try String.fetchAll(
+                db,
+                sql: "SELECT id FROM song WHERE (flags & \(LibraryCatalogSongFlags.userEdited)) != 0"
+            ))
+        }
+    }
+
+    /// 这些专辑 id 里还有歌的那些(任一源、任一类别,含停用源),同 `songs.contains { $0.albumID == id }`。
+    public func albumIDsWithSongs(among albumIDs: some Collection<String>) throws -> Set<String> {
+        let requested = Array(Set(albumIDs))
+        guard !requested.isEmpty else { return [] }
+        return try reader.read { db in
+            var found = Set<String>()
+            for chunk in Self.chunks(of: requested) {
+                found.formUnion(try String.fetchAll(
+                    db,
+                    sql: "SELECT DISTINCT albumID FROM song WHERE albumID IN (\(Self.placeholders(chunk.count)))",
+                    arguments: StatementArguments(Array(chunk))
+                ))
+            }
+            return found
+        }
+    }
 }

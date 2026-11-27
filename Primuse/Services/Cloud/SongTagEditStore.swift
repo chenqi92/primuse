@@ -55,6 +55,8 @@ final class SongTagEditStore {
     /// iCloud 一批送来好几百条:攒一下再一起套,曲库只发布一次。
     private var queuedReconcileIDs: Set<String> = []
     private var queuedReconcileTask: Task<Void, Never>?
+    /// 曲库可用时起的启动那一轮(测试等它做完)。
+    private(set) var launchPass: Task<LaunchPass, Never>?
     private static let writeQueue = DispatchQueue(label: "primuse.songTagEdits.write", qos: .utility)
 
     private weak var library: MusicLibrary?
@@ -88,8 +90,10 @@ final class SongTagEditStore {
         library.userMetadataEditRemapHandler = { [weak self] replacements in
             self?.remapSongIDs(replacements)
         }
-        library.onReady { [weak self] in
-            self?.recordLegacyEditsAndReconcile()
+        // 6c: 等曲库可用(不引起装载)。模型不在内存里时先看有没有活,有才占用模型(`runLaunchPass`)。
+        library.onUsable { [weak self] in
+            guard let self else { return }
+            self.launchPass = Task { @MainActor [weak self] in await self?.runLaunchPass() ?? .deferred }
         }
     }
 
@@ -294,14 +298,91 @@ final class SongTagEditStore {
 
     // MARK: - 上线前的手改、整库套用
 
-    /// 曲库就绪时:上线前手改过、还没有记录的行补记一笔,再把记录套到本机各行上。
-    private func recordLegacyEditsAndReconcile() {
-        guard let library else { return }
+    /// 启动那一轮怎么走的。
+    enum LaunchPass: Equatable {
+        /// 歌曲模型在内存里,与以前相同。
+        case inTheModel
+        /// 模型不在内存里,曲库目录说没有要补记、要套的:没装回模型。
+        case nothingToDo
+        /// 模型不在内存里而有活:占用模型(装回来)做完。
+        case heldTheModel
+        /// 目录答不了:等下一次装好再来(与以前的 `onReady` 相同),不替它装。
+        case deferred
+    }
+
+    /// 曲库可用时一次:上线前手改过、还没有记录的行补记一笔,再把记录套到本机各行上。
+    /// 模型在内存里时与以前相同。不在时先问曲库目录有没有活(`launchPassHasWorkOutsideTheModel`),
+    /// 没有就不装回模型;有才拿 `.launchMaintenance` 占用,走与模型在内存里时同一条路。
+    @discardableResult
+    func runLaunchPass() async -> LaunchPass {
+        guard let library else { return .deferred }
+        if library.isReady {
+            await recordLegacyEditsAndReconcile()?.value
+            return .inTheModel
+        }
+        guard let hasWork = await launchPassHasWorkOutsideTheModel(library) else {
+            library.onReady { [weak self] in self?.recordLegacyEditsAndReconcile() }
+            return .deferred
+        }
+        guard hasWork else {
+            plog("🏷️ tag edits: nothing to record or apply at launch; the song model stays released")
+            return .nothingToDo
+        }
+        let hold = await library.holdSongModel(.launchMaintenance)
+        defer { hold.end() }
+        guard library.isReady else { return .deferred }
+        await recordLegacyEditsAndReconcile()?.value
+        return .heldTheModel
+    }
+
+    /// 曲库就绪时:上线前手改过、还没有记录的行补记一笔,再把记录套到本机各行上。返回做这件事的任务。
+    @discardableResult
+    private func recordLegacyEditsAndReconcile() -> Task<Void, Never>? {
+        guard let library else { return nil }
         let songs = library.songs
-        Task.detached(priority: .utility) { [weak self] in
+        return Task.detached(priority: .utility) { [weak self] in
             let edited = songs.filter { $0.userMetadataEditedAt != nil }
             await self?.recordLegacyEdits(edited)
         }
+    }
+
+    /// 歌曲模型不在内存里时,启动那一轮有没有活(nil:目录答不了)。只看曲库目录里的手改标记与在不在,
+    /// 不读整库数组;算多不算少 —— 说有活时那一轮照样逐首判,说没有时以前那条路也一首都不会改:
+    /// - 打着标记却没有记录的行(要补记);
+    /// - 本机有这首歌的记录里:有改动而还没套上这一版的(`readinessProvider` 说这一行还在等读标签的不算,
+    ///   与 `reconcile` 一样记进等着的里)、有文字字段却丢了标记的、恢复了文件标签而行上还有标记的、在等按文件重读的。
+    private func launchPassHasWorkOutsideTheModel(_ library: MusicLibrary) async -> Bool? {
+        guard let reader = await library.catalogReaderCaughtUp() else { return nil }
+        let edited: Set<String>
+        let present: Set<String>
+        do {
+            edited = try await reader.read { try $0.userEditedSongIDs() }
+            present = try await reader.existingSongIDs(Array(entries.keys))
+        } catch {
+            plog("⚠️ tag edits: launch check could not read the catalog (\(error))")
+            return nil
+        }
+        if edited.contains(where: { entries[$0] == nil }) { return true }
+        for id in present {
+            guard let entry = entries[id] else { continue }
+            // 等着按文件重读的(或有了新改动、要从等重读里拿掉的)。
+            if pendingRestoreIDs.contains(id) { return true }
+            if entry.hasActiveFields {
+                if appliedRevisions[id] != stamps[id] {
+                    // 按 id 读这一行(不要整库数组):还在等读标签的,读完由补读叫来再套。
+                    guard let song = library.storedSong(id: id) else { continue }
+                    guard readinessProvider?(song, Self.isResolvableHere(entry[.cover]?.cover)) ?? true else {
+                        pendingApplySongIDs.insert(id)
+                        continue
+                    }
+                    return true
+                }
+                if entry.hasActiveTextFields, !edited.contains(id) { return true }
+            } else if entry.restoredAt != nil, edited.contains(id) {
+                return true
+            }
+        }
+        return false
     }
 
     private func recordLegacyEdits(_ edited: [Song]) {

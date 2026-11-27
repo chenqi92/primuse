@@ -22,7 +22,7 @@ legacy-library-api	Primuse/Services/Audio/KaraokeSession.swift	1
 legacy-library-api	Primuse/Services/CarPlayEditorCatalog.swift	6
 legacy-library-api	Primuse/Services/CarPlayHomeContent.swift	2
 legacy-library-api	Primuse/Services/CarPlaySettingsStore.swift	1
-legacy-library-api	Primuse/Services/Cloud/CloudAccountMigrationService.swift	2
+legacy-library-api	Primuse/Services/Cloud/CloudAccountMigrationService.swift	1
 legacy-library-api	Primuse/Services/Cloud/PeerScanSeedStore.swift	2
 legacy-library-api	Primuse/Services/Cloud/SongTagEditStore.swift	1
 legacy-library-api	Primuse/Services/Discovery/SimilarTracksService.swift	1
