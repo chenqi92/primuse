@@ -47,8 +47,9 @@ final class LyricsTextBackfillService {
         // Stage 2b: 库还在准备时 `library.songs` 是空的, `run()` 会把"没有候选"
         // 当成迁移完成并永久写下标记位 —— 真正该解析的歌词从此再也不会进
         // FTS 索引。守卫放在入口, 后台 settle 与 macOS 的延后任务一起覆盖。
-        guard library.isReady else {
-            library.onReady { [weak self] in
+        // 等的是「可用」: 候选从曲库目录挑, 写回按 id 写, 都不要歌曲模型在内存里。
+        guard library.isUsable else {
+            library.onUsable { [weak self] in
                 self?.startIfNeeded()
             }
             return
@@ -79,14 +80,18 @@ final class LyricsTextBackfillService {
         if let fromCatalog = await catalogCandidates() {
             candidates = fromCatalog
         } else {
-            candidates = library.songs.compactMap { song in
-                guard song.lyricsText == nil, song.lyricsFileName?.isEmpty == false else { return nil }
-                return Candidate(id: song.id, lyricsFileName: song.lyricsFileName)
+            // 目录答不了: 这条旧路读整库数组, 先占住歌曲模型(不在内存里时等它装回来) ——
+            // 放掉之后的空数组不是「没有候选」。数组读完就放手, 后面的写回按 id 写。
+            candidates = await library.withSongModel(.lyricsTextBackfill) {
+                library.songs.compactMap { song -> Candidate? in
+                    guard song.lyricsText == nil, song.lyricsFileName?.isEmpty == false else { return nil }
+                    return Candidate(id: song.id, lyricsFileName: song.lyricsFileName)
+                }
             }
         }
         // 二道闸: `startIfNeeded()` 之后到这里之间理论上不会翻回 `.preparing`,
         // 但写标记位是一次性的、不可逆的, 所以再确认一次。
-        guard library.isReady else { return }
+        guard library.isUsable else { return }
         guard !candidates.isEmpty else {
             UserDefaults.standard.set(true, forKey: Self.migrationKey)
             return
@@ -179,3 +184,12 @@ final class LyricsTextBackfillService {
         }
     }
 }
+
+#if DEBUG
+extension LyricsTextBackfillService {
+    /// 测试:目录那条路挑出的候选 id(库内顺序);目录答不了时 nil。
+    func catalogCandidateIDsForTesting() async -> [String]? {
+        await catalogCandidates()?.map(\.id)
+    }
+}
+#endif

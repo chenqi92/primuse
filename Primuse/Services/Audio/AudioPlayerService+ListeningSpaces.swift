@@ -95,11 +95,13 @@ extension MusicSessionMemoryStore {
         enqueueWrite(memory)
     }
 
+    /// 启动窗口到曲库「可用」为止:之后队列里的歌按 id 问曲库(歌曲模型不必在内存里),
+    /// 不再用启动时从旧库直接读的那一份。
     func bindStartupLibrary(_ library: MusicLibrary?) {
         startupLibrary = library
         prepareStartupWindow()
-        guard let library, !library.isReady else { return }
-        library.onReady { [weak self, weak library] in
+        guard let library, !library.isUsable else { return }
+        library.onUsable { [weak self, weak library] in
             if self?.startupLibrary === library { self?.prepareStartupWindow() }
         }
     }
@@ -107,7 +109,7 @@ extension MusicSessionMemoryStore {
     /// Until the saved window is resolved, the installed queue is only a possible fallback.
     var isPreparingResumeTarget: Bool {
         guard memory != nil else { return revision == 0 && loadTask != nil }
-        return startupLibrary?.isReady == false && startupPlayableCounts == nil
+        return startupLibrary?.isUsable == false && startupPlayableCounts == nil
     }
 
     func waitForStartupResumeTarget() async {
@@ -119,7 +121,7 @@ extension MusicSessionMemoryStore {
         startupRead?.cancel()
         startupRead = nil
         startupPlayableCounts = nil
-        guard let library = startupLibrary, !library.isReady, let memory else { return }
+        guard let library = startupLibrary, !library.isUsable, let memory else { return }
         startupRead = Task { [weak self] in
             let ids = await Task.detached(priority: .userInitiated) {
                 QueueWindowPolicy.restoring(memory.snapshot, savedContinuation: memory.continuation).snapshot.queueSongIDs
@@ -464,7 +466,7 @@ extension AudioPlayerService {
     /// remaining IDs are resolved when playback actually needs another window.
     var rememberedMusicSessionPlayableCount: Int {
         guard let memory = musicSessionMemoryStore.memory, let library else { return 0 }
-        if !library.isReady {
+        if !library.isUsable {
             guard let counts = musicSessionMemoryStore.startupPlayableCounts else { return 0 }
             let disabled = library.disabledPlaybackSourceIDs
             return counts.reduce(0) { disabled.contains($1.key) ? $0 : $0 + $1.value }
@@ -476,7 +478,7 @@ extension AudioPlayerService {
 
     var hasPlayableRememberedMusicSession: Bool {
         guard let memory = musicSessionMemoryStore.memory, let library else { return false }
-        if !library.isReady { return rememberedMusicSessionPlayableCount > 0 }
+        if !library.isUsable { return rememberedMusicSessionPlayableCount > 0 }
         return memory.snapshot.queueSongIDs.contains {
             library.visibleSong(id: $0)?.isPlayable == true
         }
@@ -528,24 +530,33 @@ extension AudioPlayerService {
             QueueWindowPolicy.restoring(memory.snapshot, savedContinuation: memory.continuation)
         }.value
         var savedRows: [String: Song]?
-        if !library.isReady {
+        if !library.isUsable {
             if let live = musicSessionMemoryStore.memory, live.snapshot.queueSongIDs == memory.snapshot.queueSongIDs,
                live.savedAt == memory.savedAt, let read = musicSessionMemoryStore.startupRead {
                 savedRows = await read.value
             } else {
                 savedRows = await library.prepareStartupSavedQueue(ids: restored.snapshot.queueSongIDs)
             }
-            if savedRows == nil { await library.whenReady() }
+            if savedRows == nil { await library.whenUsable() }
         }
         guard !Task.isCancelled, queueRequestToken == requestToken, castingCommandGeneration == commandGeneration,
               playbackAdvancePolicy.generation == advanceGeneration else { return false }
-        // P2:曲库就绪且目录可读时,队列里的歌按 id 从目录取(含停用源、只要能放的),
+        // P2:曲库可用且目录可读时,队列里的歌按 id 从目录取(含停用源、只要能放的),
         // 结果与 `historySongLookup` 逐首查后再筛能放的相同;否则照旧查内存模型。
         var catalogRows: [String: Song]?
-        if library.isReady {
+        if library.isUsable {
             catalogRows = await Self.catalogPlayableSongs(
                 ids: Set(restored.snapshot.queueSongIDs), library: library, visibility: .includingDisabledSources
             )
+            guard !Task.isCancelled, queueRequestToken == requestToken, castingCommandGeneration == commandGeneration,
+                  playbackAdvancePolicy.generation == advanceGeneration else { return false }
+        }
+        // 目录答不了、手里也没有启动时从旧库读到的行,歌曲模型又不在内存里:先把它占住(等它装回来)再查内存,
+        // 不把「查不到」当成「这张队列一首都放不了」。占到这次恢复做完。
+        var modelHold: MusicLibrary.SongModelHold?
+        defer { modelHold?.end() }
+        if catalogRows == nil, savedRows == nil, !library.isReady {
+            modelHold = await library.holdSongModel(.playbackContinuation)
             guard !Task.isCancelled, queueRequestToken == requestToken, castingCommandGeneration == commandGeneration,
                   playbackAdvancePolicy.generation == advanceGeneration else { return false }
         }

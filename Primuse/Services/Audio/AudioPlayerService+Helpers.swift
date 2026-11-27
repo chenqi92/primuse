@@ -290,7 +290,8 @@ extension AudioPlayerService {
               let library,
               queueEntries.indices.contains(currentIndex) else { return }
         guard QueueWindowPolicy.shouldRefill(upcomingCount: upcomingQueueCount) else { return }
-        if !library.isReady {
+        // 启动窗口到曲库「可用」为止:之后这一批从目录取,不要歌曲模型在内存里。
+        if !library.isUsable {
             guard queueContinuationReadTask == nil else { return }
             let request = continuation
             let repeatsAll = repeatMode == .all
@@ -301,16 +302,30 @@ extension AudioPlayerService {
                     return
                 }
                 // An old or changing database may not offer an authoritative read yet.
-                let ready = await library.whenReady(timeout: .seconds(60))
+                let usable = await library.whenUsable(timeout: .seconds(60))
                 guard !Task.isCancelled, let self else { return }
                 self.queueContinuationReadTask = nil
-                if ready { self.refillQueueFromContinuationIfNeeded() }
+                if usable { self.refillQueueFromContinuationIfNeeded() }
             }
             return
         }
         // 启动时的磁盘续接(`musicSourceIDs`)还要按内存里的分类筛,留在内存路径。
         if allowsCatalog, continuation.musicSourceIDs == nil,
            refillQueueFromCatalog(continuation, library: library) {
+            return
+        }
+        // 走到这里是内存这条路:续接要按内存里的分类筛,或者目录这一批没读成。歌曲模型不在内存里时那几张
+        // 分类表是空的、按 id 也可能答不了 —— 先占住歌曲模型(等它装回来)再补这一批,不把「查不到」当成
+        // 「这些歌不在了」把续接里的 id 白白消耗掉。
+        if !library.isReady {
+            guard queueContinuationReadTask == nil else { return }
+            queueContinuationReadTask = Task { [weak self] in
+                let hold = await library.holdSongModel(.playbackContinuation)
+                defer { hold.end() }
+                guard !Task.isCancelled, let self else { return }
+                self.queueContinuationReadTask = nil
+                self.refillQueueFromContinuationIfNeeded(allowsCatalog: allowsCatalog)
+            }
             return
         }
 

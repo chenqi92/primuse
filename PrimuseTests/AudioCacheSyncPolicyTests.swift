@@ -1,5 +1,6 @@
 import XCTest
 import Network
+import os
 import PrimuseKit
 @testable import Primuse
 
@@ -40,6 +41,96 @@ final class AudioCacheSyncPolicyTests: XCTestCase {
             }
             try await Task.sleep(for: .milliseconds(20))
         }
+    }
+
+    /// 本机清单(P3 步骤 6c):按页走曲库目录的那条路与读整库数组的那条路给出同样的条目,把这份清单当作对端
+    /// 推来的请求时两边的应答也相同;目录那条路不要歌曲模型,数组那条路先占住它。歌曲模型放掉之后出清单只是
+    /// 等可用:不要歌曲模型,也不交出一份「一个缓存都没有」的空清单。
+    @MainActor
+    func testLocalManifestFromTheCatalogMatchesTheWholeLibraryAndWaitsWhileTheSongModelIsReleased() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cache-sync-manifest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let source = MusicSource(id: UUID().uuidString, name: "Manifest fixture", type: .navidrome)
+        let prefix = UUID().uuidString.prefix(6).lowercased()
+        let songs = (0..<4).map { index in
+            Song(id: "\(prefix)-\(index)", title: "Manifest \(index)", fileFormat: .flac,
+                 filePath: "/songs/\(prefix)-\(index).flac", sourceID: source.id, fileSize: 128)
+        }
+        let manager = SourceManager(sourcesProvider: { [source] }, songsProvider: { songs })
+        // 新配的源先验过缓存命名空间才收文件(同下面 `OfflineAudioSnapshotTests` 的夹具)。
+        let deadline = Date().addingTimeInterval(3)
+        while !(await manager.prepareAutomaticOfflineDownload(song: songs[0], forceRedownload: false)) {
+            guard Date() < deadline else { throw URLError(.timedOut) }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        // 前三首在本机有播放留下的缓存,第四首没有。
+        for song in songs.prefix(3) {
+            let url = manager.cacheURL(for: song)
+            try Data(repeating: 7, count: 128).write(to: url)
+            await AudioCacheManager.shared.recordAccess(path: source.id + "/" + url.lastPathComponent)
+        }
+        let sourcesStore = SourcesStore(
+            storageDirectoryURL: root.appendingPathComponent("sources"), publishesKeychainOptOuts: false
+        )
+        sourcesStore.add(source)
+
+        func makeLibrary(_ name: String, catalog: LibraryCatalogMirroring) async throws -> MusicLibrary {
+            let library = MusicLibrary(storageDirectory: root.appendingPathComponent(name), catalogMirroring: catalog)
+            library.addSongs(songs, affectedSourceIDs: [source.id])
+            for _ in 0..<500 where library.unobservedVisibleSong(id: songs[3].id) == nil {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertNotNil(library.unobservedVisibleSong(id: songs[3].id))
+            return library
+        }
+        let withCatalog = try await makeLibrary("with-catalog", catalog: .enabled(startDelay: .zero))
+        let withoutCatalog = try await makeLibrary("without-catalog", catalog: .disabled)
+        await withCatalog.waitForCatalogMirror()
+        XCTAssertEqual(withCatalog.catalogHost?.revisions.isReadable, true)
+        XCTAssertNil(withoutCatalog.readableCatalogReader)
+        func holds(of library: MusicLibrary) -> [MusicLibrary.SongModelHoldReason] {
+            (MusicLibrary.songModelHoldRequestsForTesting ?? [])
+                .filter { $0.library == ObjectIdentifier(library) }
+                .map(\.reason)
+        }
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        let catalogService = AudioCacheSyncService(advertisesBonjour: false)
+        catalogService.attach(sourceManager: manager, sourcesStore: sourcesStore, library: withCatalog)
+        let memoryService = AudioCacheSyncService(advertisesBonjour: false)
+        memoryService.attach(sourceManager: manager, sourcesStore: sourcesStore, library: withoutCatalog)
+        let finishedWhileReleased = OSAllocatedUnfairLock(initialState: false)
+        var parked: Task<Void, Never>?
+        defer { parked?.cancel() }
+        addTeardownBlock { @MainActor in
+            MusicLibrary.songModelHoldRequestsForTesting = nil
+            await manager.deleteLocalCaches(for: songs)?.value
+            await withCatalog.stopCatalogMirror()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let fromCatalog = await catalogService.localManifestRoundTripForTesting()
+        let fromMemory = await memoryService.localManifestRoundTripForTesting()
+        XCTAssertEqual(fromCatalog.items, fromMemory.items)
+        XCTAssertEqual(Set(fromCatalog.items.values.flatMap { $0 }), Set(songs.prefix(3).map(\.id)))
+        XCTAssertEqual(fromCatalog.alreadyPresentCount, 3)
+        XCTAssertEqual(fromMemory.alreadyPresentCount, 3)
+        XCTAssertEqual(fromCatalog.missingItemIDs, [])
+        XCTAssertEqual(fromMemory.missingItemIDs, [])
+        XCTAssertEqual(fromCatalog.rejectedCount, 0)
+        XCTAssertEqual(fromMemory.rejectedCount, 0)
+        XCTAssertEqual(holds(of: withCatalog), [], "the catalog path needs no song model")
+        XCTAssertEqual(holds(of: withoutCatalog), [.cacheSync, .cacheSync], "the whole-library path holds the model for each read")
+
+        withCatalog.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(withCatalog.isUsable)
+        parked = Task { @MainActor in
+            _ = await catalogService.localManifestRoundTripForTesting()
+            finishedWhileReleased.withLock { $0 = true }
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertFalse(finishedWhileReleased.withLock { $0 }, "no manifest is handed out while the library is not usable")
+        XCTAssertEqual(holds(of: withCatalog), [], "waiting asks for no song model")
     }
 
     func testNetworkFailuresDoNotAllBecomePermissionErrors() {

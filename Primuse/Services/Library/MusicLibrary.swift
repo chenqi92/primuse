@@ -21227,3 +21227,95 @@ extension MusicLibrary: LibraryCatalogOwner {
         await catalogHost?.mirror.stop()
     }
 }
+
+// MARK: - 歌曲模型不常驻:对外接口的外壳(P3 步骤 6c)
+//
+// 这一块只定接口。今天歌曲模型启动时总会装载、之后一直留在内存里,所以「可用」与「已就绪」是同一件事,
+// 「占用」也只是等就绪。步骤 6d 把这几个函数体换成真正的实现(按需装载、计数的占用、空闲时释放),签名不变。
+//
+// 调用方依赖的约定,换实现时要守住:
+// - `isUsable` 为真时,要么歌曲模型在内存里(`isReady`),要么小状态已经发布、按 id 读和曲库目录此刻答得出;
+//   两样都不成立时为假。
+// - 占用期间(`holdSongModel` 返回之后到 `end()`、`withSongModel` 的闭包在跑)`isReady` 为真,整库数组读得到。
+//   「目录答不了就读整库数组」的旧路先拿占用再读,读到的不会是放掉之后的空数组。
+// - `whenUsable()`、`onUsable` 只等,不引起装载;`holdSongModel`、`withSongModel` 引起装载。
+extension MusicLibrary {
+    /// 曲库现在能用:小状态(歌单、喜欢、播放历史)在内存里,按 id 取歌、曲库目录的列表与计数答得出。
+    /// 歌曲模型不必在内存里 —— 要读整库数组的地方看 `isReady`,或者先拿占用。
+    var isUsable: Bool { isReady }
+
+    /// 已经可用时立即返回,否则挂起到可用。
+    func whenUsable() async {
+        await whenReady()
+    }
+
+    /// 有界等待,同 `whenReady(timeout:)`:可用与超时哪个先到都立刻返回,返回值是返回时刻的 `isUsable`。
+    func whenUsable(timeout: Duration) async -> Bool {
+        await whenReady(timeout: timeout)
+    }
+
+    /// 已经可用时立即执行,否则在变成可用时按注册顺序执行一次。
+    func onUsable(_ handler: @escaping @MainActor () -> Void) {
+        onReady(handler)
+    }
+
+    /// 谁占着歌曲模型。诊断日志里按它点名。
+    enum SongModelHoldReason: String, Sendable, CaseIterable {
+        /// 一次扫描(含扫描之后的提交与收尾)。
+        case scan
+        /// 元数据补全的一轮。
+        case backfill
+        /// 刮削的一轮。
+        case scraper
+        /// 歌词全文补索引:目录答不了候选时读整库的那一下。
+        case lyricsTextBackfill
+        /// 整库导出(iCloud 整库快照、给 Apple TV 的传输、给对端的种子)。
+        case export
+        /// 主数据还是整库数组的页面。
+        case legacyPage
+        /// CarPlay 连着的期间。
+        case carPlay
+        /// 启动后的例行维护(按源计数、清理过期的源、一次性的迁移检查)。
+        case launchMaintenance
+        /// 系统唤醒的后台处理任务。
+        case backgroundDrain
+        /// 一次性的数据迁移。
+        case migration
+        /// 播放要接着放下去(恢复会话、补队列)而目录答不了。
+        case playbackContinuation
+        /// 局域网缓存互传:目录答不了清单时读整库的那一下。
+        case cacheSync
+    }
+
+    /// 对歌曲模型的一次占用。用完调 `end()`;多调一次无害。
+    struct SongModelHold: Sendable {
+        let reason: SongModelHoldReason
+
+        @MainActor
+        func end() {}
+    }
+
+    /// 占用歌曲模型:返回时模型在内存里,到 `end()` 之前不会被放掉。
+    func holdSongModel(_ reason: SongModelHoldReason) async -> SongModelHold {
+        #if DEBUG
+        Self.songModelHoldRequestsForTesting?.append((ObjectIdentifier(self), reason))
+        #endif
+        await whenReady()
+        return SongModelHold(reason: reason)
+    }
+
+    /// 占用歌曲模型跑完 `body` 再放手。
+    func withSongModel<T>(
+        _ reason: SongModelHoldReason,
+        _ body: @MainActor () async throws -> T
+    ) async rethrows -> T {
+        let hold = await holdSongModel(reason)
+        defer { hold.end() }
+        return try await body()
+    }
+
+    #if DEBUG
+    /// 测试:设成空数组之后,按先后记下每一次要占用(哪个库、什么理由);nil 时不记。
+    static var songModelHoldRequestsForTesting: [(library: ObjectIdentifier, reason: SongModelHoldReason)]?
+    #endif
+}

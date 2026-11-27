@@ -240,6 +240,71 @@ final class QueueWindowPlayerTests: XCTestCase {
         XCTAssertFalse(library.isReady)
     }
 
+    /// 歌曲模型放掉之后(P3 步骤 6c;今天「可用」跟着为假):补队列、恢复记着的音乐队列走的还是启动窗口里读
+    /// 旧库的那条路,不要歌曲模型。旧库读得到时结果与启动窗口里相同;读不到时只是等,不把续接里的 id 消耗掉,
+    /// 不清掉记着的队列,也不报「源已停用」。
+    @MainActor
+    func testRefillAndResumeAskForNoSongModelAndConsumeNothingWhileItIsReleased() async throws {
+        let catalog = songs(750)
+        let player = try await makePlayer(librarySongs: catalog)
+        let library = try XCTUnwrap(player.library)
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        func holds() -> [MusicLibrary.SongModelHoldReason] {
+            (MusicLibrary.songModelHoldRequestsForTesting ?? [])
+                .filter { $0.library == ObjectIdentifier(library) }
+                .map(\.reason)
+        }
+        // 先让旧库把这些歌写完,放掉之后才谈得上从旧库读。
+        _ = await library.persistNowAndWait()
+        _ = await library.presentationCacheStamp()
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(library.isUsable)
+        // 这个库的旧库此刻读不读得到,决定下面走哪一边;两边都不许要歌曲模型。
+        let storeAnswers = await library.prepareStartupSavedQueue(ids: [catalog[12].id]) != nil
+        print("REPORT_RELEASED_QUEUE storeAnswers=\(storeAnswers)")
+
+        player.setQueue(Array(catalog.prefix(12)), startAt: 9)
+        player.currentSong = catalog[9]
+        let continuation = QueueContinuation(requestedIDs: catalog.map(\.id), window: 0..<12)
+        player.setQueueContinuation(continuation)
+        player.refillQueueFromContinuationIfNeeded()
+        if storeAnswers {
+            await player.queueContinuationReadTask?.value
+            XCTAssertEqual(player.queueCount, 12 + QueueWindowPolicy.refillBatch)
+            XCTAssertEqual(player.queuedSong(at: 12)?.id, catalog[12].id)
+        } else {
+            try await Task.sleep(for: .milliseconds(150))
+            XCTAssertEqual(player.queueCount, 12, "nothing was appended")
+            XCTAssertEqual(player.queueContinuation, continuation, "and nothing was taken from the continuation")
+        }
+        XCTAssertEqual(holds(), [], "the refill asks for no song model")
+        player.setQueue([catalog[3]])
+        XCTAssertNil(player.queueContinuation)
+
+        let snapshot = PlaybackSessionSnapshot(queueSongIDs: ["s2", "s1", "s4"], currentSongID: "s1", currentIndex: 1,
+            currentTime: 42, duration: 180, wasPlaying: false, shuffleEnabled: false, shuffledIndices: [],
+            shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false)
+        let store = player.musicSessionMemoryStore
+        store.save(.init(snapshot: snapshot, title: "Song 1", songID: "s1", sourceID: "local-source", savedAt: Date()))
+        if storeAnswers {
+            let restored = await player.resumeMusicSession(startPlayback: false)
+            XCTAssertTrue(restored)
+            XCTAssertEqual(player.queue.map(\.id), ["s2", "s1", "s4"])
+            XCTAssertEqual(player.currentIndex, 1)
+            XCTAssertEqual(player.currentTime, 42)
+        } else {
+            let resume = Task { @MainActor in _ = await player.resumeMusicSession(startPlayback: false) }
+            try await Task.sleep(for: .milliseconds(150))
+            XCTAssertNotNil(store.memory, "the remembered queue is still there")
+            XCTAssertEqual(player.queue.map(\.id), [catalog[3].id], "the installed queue was not replaced")
+            XCTAssertNil(player.lastPlaybackError, "and no playback error is shown")
+            resume.cancel()
+        }
+        XCTAssertFalse(library.isReady)
+        XCTAssertEqual(holds(), [], "the resume asks for no song model")
+    }
+
     @MainActor
     func testBookmarkSkipsUnavailableCurrentSongInSavedShuffleOrder() async throws {
         var catalog = songs(5)

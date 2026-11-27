@@ -1061,7 +1061,8 @@ extension AudioCacheSyncService {
         // 主线程之外装载。空的 `library.songs` 会让本机对外声称"一个缓存都
         // 没有"。协议里没有"稍后重试"的应答, 所以在这里等发布 —— 白跑一轮的
         // 代价比错误的空清单大得多。
-        await library.whenReady()
+        // 等的是「可用」: 清单从曲库目录按页走; 目录答不了时才读整库数组, 那时先占住歌曲模型。
+        await library.whenUsable()
         let sourceByID = Dictionary(
             sourcesStore.sources.lazy
                 .filter {
@@ -1082,8 +1083,10 @@ extension AudioCacheSyncService {
             // 目录可读:按页流式走歌,每页一批探测本机缓存,不拼整库的歌曲数组,也不往逐首状态表里留。
             drafts = fromCatalog
         } else {
+            // 目录答不了:这条旧路读整库数组,先占住歌曲模型(不在内存里时等它装回来),
+            // 放掉之后的空数组不是「一个缓存都没有」。数组取到手就放手。
+            let allSongs = await library.withSongModel(.cacheSync) { library.songs }
             // 整库逐首判断(含扩展名小写化)放到后台,打开同步页时不占主线程。
-            let allSongs = library.songs
             let songs = await Task.detached(priority: .utility) {
                 allSongs.filter {
                     sourceIDs.contains($0.sourceID) && !$0.isStreamDescriptor && !$0.isDiscImageTrack
@@ -1179,8 +1182,8 @@ extension AudioCacheSyncService {
             )
         }
         // 同 `buildLocalManifest`: 库没发布之前 `songsByID` 是空的, 对端推来的
-        // 每一项都会被当成"库里没有这首歌"拒掉。
-        await library.whenReady()
+        // 每一项都会被当成"库里没有这首歌"拒掉。等的是「可用」, 理由也同那边。
+        await library.whenUsable()
 
         let sourcesByID = Dictionary(
             sourcesStore.sources.filter {
@@ -1199,10 +1202,13 @@ extension AudioCacheSyncService {
            ) {
             songsByID = fetched
         } else {
-            songsByID = Dictionary(
-                library.songs.map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
-            )
+            // 目录答不了:整库建表这条旧路先占住歌曲模型,空数组不是「库里没有这些歌」。
+            songsByID = await library.withSongModel(.cacheSync) {
+                Dictionary(
+                    library.songs.map { ($0.id, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+            }
         }
         var candidates: [(AudioCacheSyncWireItem, Song)] = []
         var seenItemIDs = Set<String>()
@@ -2053,4 +2059,21 @@ private final class AudioCacheSyncConnectionStartGate: @unchecked Sendable {
         }
     }
 }
+
+#if DEBUG
+extension AudioCacheSyncService {
+    /// 测试:本机清单(条目 id → 它带的歌曲 id),以及把这份清单原样当作对端推来的请求时本机的应答。
+    func localManifestRoundTripForTesting() async -> (
+        items: [String: [String]], missingItemIDs: [String], alreadyPresentCount: Int, rejectedCount: Int
+    ) {
+        let manifest = await buildLocalManifest()
+        let plan = await prepareIncomingPlan(AudioCacheSyncWireRequest(action: .inspect, items: manifest.items))
+        return (
+            Dictionary(manifest.items.map { ($0.id, $0.songIDs) }, uniquingKeysWith: { first, _ in first }),
+            plan.response.missingItemIDs, plan.response.alreadyPresentCount, plan.response.rejectedCount
+        )
+    }
+}
+#endif
+
 #endif

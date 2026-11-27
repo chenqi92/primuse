@@ -244,14 +244,19 @@ extension AudioPlayerService {
                 ) {
                     matches = savedSongs.filter(\.isPlayable)
                 } else {
-                    await library.whenReady()
+                    // 等的是「可用」:队列里的歌按 id 从目录取,不要歌曲模型在内存里。
+                    await library.whenUsable()
                     // P2:目录可读时按 id 从目录取(可见、能放),否则照旧查内存模型。
                     if let catalogRows = await Self.catalogPlayableSongs(
                         ids: missingIDs, library: library, visibility: .visible
                     ) {
                         matches = Array(catalogRows.values)
                     } else {
+                        // 目录答不了:内存这条路先占住歌曲模型(不在内存里时等它装回来),
+                        // 放掉之后的空表不是「这些歌都不在了」。表取到手就放手。
+                        let hold = await library.holdSongModel(.playbackContinuation)
                         let lookup = await library.visibleSongLookup()
+                        await hold.end()
                         matches = lookup.playableSongs(forIDs: missingIDs)
                     }
                 }

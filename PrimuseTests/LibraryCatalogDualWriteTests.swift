@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import PrimuseKit
 import XCTest
 @testable import Primuse
@@ -3131,6 +3132,110 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         }
         XCTAssertTrue(all.contains { $0.id == "short-0" })
         XCTAssertTrue(all.allSatisfy { $0.id.hasPrefix("short-") }, "the fixture's longer titles are not shortcut phrases")
+    }
+
+    // MARK: - Usable without the song model (P3 step 6c)
+
+    private final class Tally {
+        var count = 0
+    }
+
+    /// 这个库要过的歌曲模型占用,按先后(测试登记开着的时候)。
+    private func songModelHolds(of library: MusicLibrary) -> [MusicLibrary.SongModelHoldReason] {
+        (MusicLibrary.songModelHoldRequestsForTesting ?? [])
+            .filter { $0.library == ObjectIdentifier(library) }
+            .map(\.reason)
+    }
+
+    /// 接口外壳今天的语义:「可用」与「已就绪」同真同假,观察也跟得上;等可用(`whenUsable`、`onUsable`)
+    /// 不要歌曲模型,占用(`holdSongModel`、`withSongModel`)才要。模型放掉之后「可用」跟着为假,等可用的只是等。
+    func testUsableFollowsReadinessAndOnlyAHoldAsksForTheSongModel() async throws {
+        let library = makeLibrary()
+        library.addSongs(Self.fixture(), affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        await assertShadowMatches(library, "fixture")
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+
+        XCTAssertTrue(library.isReady)
+        XCTAssertTrue(library.isUsable)
+        await library.whenUsable()
+        let usableInTime = await library.whenUsable(timeout: .milliseconds(50))
+        XCTAssertTrue(usableInTime)
+        let handled = Tally()
+        library.onUsable { handled.count += 1 }
+        XCTAssertEqual(handled.count, 1, "already usable: the handler runs at once")
+        XCTAssertEqual(songModelHolds(of: library), [], "waiting for usable asks for no song model")
+
+        let hold = await library.holdSongModel(.scan)
+        XCTAssertEqual(hold.reason, .scan)
+        XCTAssertTrue(library.isReady, "the model is in memory while it is held")
+        hold.end()
+        hold.end()
+        let expectedCount = library.songs.count
+        let counted = await library.withSongModel(.export) { library.songs.count }
+        XCTAssertEqual(counted, expectedCount)
+        XCTAssertEqual(songModelHolds(of: library), [.scan, .export])
+
+        // 放掉歌曲模型:今天「可用」跟着为假,观察着它的界面收到变化。
+        let changed = expectation(description: "observers of isUsable are told")
+        withObservationTracking { _ = library.isUsable } onChange: { changed.fulfill() }
+        library.dropSongModelForMeasurement(includingCollections: true)
+        await fulfillment(of: [changed], timeout: 2)
+        XCTAssertFalse(library.isReady)
+        XCTAssertFalse(library.isUsable)
+        let usableAfterRelease = await library.whenUsable(timeout: .milliseconds(50))
+        XCTAssertFalse(usableAfterRelease)
+        library.onUsable { handled.count += 1 }
+        XCTAssertEqual(handled.count, 1, "not usable: the handler waits")
+        XCTAssertEqual(songModelHolds(of: library), [.scan, .export], "waiting for usable still asks for no song model")
+    }
+
+    /// 歌词全文补索引挑候选:目录这条路与整库数组上的写法挑出同样的歌(有歌词文件引用、还没有全文;停用源的
+    /// 歌也算,本机移除的不算)。歌曲模型放掉之后启动它:只登记等可用,不起 worker、不要歌曲模型、不写「已完成」
+    /// 标记;目录这时挑出的候选与放掉之前相同。
+    func testLyricsTextBackfillPicksItsCandidatesFromTheCatalogAndWaitsWhileTheSongModelIsReleased() async throws {
+        // 与 `LyricsTextBackfillService.migrationKey` 保持一致(私有常量);服务直接读写 `UserDefaults.standard`。
+        let migrationKey = "primuse.lyricsTextBackfill.v1_initial"
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: migrationKey)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: migrationKey)
+            } else {
+                defaults.removeObject(forKey: migrationKey)
+            }
+        }
+        defaults.removeObject(forKey: migrationKey)
+
+        let library = makeLibrary(disabledSourceIDs: [Self.sourceB])
+        var songs = Self.fixture()
+        // 0、2 在启用的源里,7、14 在停用的源里,12 之后在本机移除;2 已经有全文,5 的引用是空串。
+        for index in [0, 2, 5, 7, 12, 14] { songs[index].lyricsFileName = "\(songs[index].id).lrc" }
+        songs[2].lyricsText = "already indexed"
+        songs[5].lyricsFileName = ""
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        XCTAssertFalse(try library.removeSongsFromThisDevice([songs[12]]).isEmpty)
+        await assertShadowMatches(library, "fixture")
+
+        let service = LyricsTextBackfillService(library: library)
+        let fromCatalog = await service.catalogCandidateIDsForTesting()
+        let fromMemory = library.songs.compactMap { song -> String? in
+            guard song.lyricsText == nil, song.lyricsFileName?.isEmpty == false else { return nil }
+            return song.id
+        }
+        XCTAssertEqual(try XCTUnwrap(fromCatalog).sorted(), fromMemory.sorted())
+        XCTAssertEqual(Set(fromMemory), [songs[0].id, songs[7].id, songs[14].id])
+
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        library.dropSongModelForMeasurement(includingCollections: true)
+        service.startIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(service.isRunning, "no worker on a library that is not usable")
+        XCTAssertFalse(defaults.bool(forKey: migrationKey), "the migration is not marked as done")
+        XCTAssertEqual(songModelHolds(of: library), [], "it does not ask for the song model")
+        let whileReleased = await service.catalogCandidateIDsForTesting()
+        XCTAssertEqual(try XCTUnwrap(whileReleased).sorted(), fromMemory.sorted(), "the catalog answers the same without the model")
     }
 }
 
