@@ -892,6 +892,171 @@ final class LibraryCatalogDualWriteTests: XCTestCase {
         XCTAssertNil(stored.first { $0.id == songs[2].id }?.lyricsText)
     }
 
+    // MARK: - Small state without the song model (P3 step 6a)
+
+    /// 小状态的落盘(便携快照的基线 `library-cache.json` 与增量 `library-cache.delta.plist`)在歌曲模型在内存里和
+    /// 放掉之后写出来的文件相同:同一个库、同一份状态,先走原来的路(模型在),再放掉模型走新的路,逐字节比。
+    /// 库里有停用的源、本机移除的行(随快照走)、墓碑、歌单、喜欢/不喜欢、最近播放、评价。
+    /// 兜底歌曲副本在模型放掉时不重写(更不会被空数组盖掉);不带专辑的启动缓存不妨碍下一次装载。
+    func testSmallStateFilesAreByteIdenticalWithTheSongModelLoadedOrReleased() async throws {
+        func seeded(_ name: String) async throws -> (library: MusicLibrary, storage: URL, songs: [Song]) {
+            let storage = directory.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+            let library = MusicLibrary(
+                disabledSourceIDs: [Self.sourceB], storageDirectory: storage, artistNameConfiguration: .defaultValue,
+                deferredMaintenanceAllowed: { true }, catalogMirroring: .enabled(startDelay: .zero)
+            )
+            library.catalogShadowModeOverride = .deep
+            libraries.append(library)
+            let songs = Self.fixture(prefix: name)
+            library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+            _ = library.createPlaylist(name: "Kept", songIDs: songs.prefix(6).map(\.id))
+            library.setLiked(songID: songs[0].id, isLiked: true, propagatesServerMutation: false)
+            library.setDisliked(songID: songs[1].id, isDisliked: true)
+            library.recordPlayback(of: songs[2].id)
+            library.updateLibraryReview(for: .song(songs[3].id), rating: 4, comment: "kept")
+            XCTAssertFalse(try library.removeSongsFromThisDevice([songs[8]]).isEmpty)
+            _ = library.deleteSongs([songs[9]])
+            await assertShadowMatches(library, "\(name) fixture")
+            return (library, storage, songs)
+        }
+        func bytes(_ storage: URL, _ file: String) throws -> Data {
+            try Data(contentsOf: storage.appendingPathComponent(file))
+        }
+        func write(_ library: MusicLibrary, materialize: Bool, _ step: String) async {
+            library.markPortableSnapshotDirtyForTesting()
+            guard case .success = await library.persistNowAndWait(materializePortableSnapshot: materialize) else {
+                return XCTFail("\(step): the snapshot was not written")
+            }
+        }
+        let baseFile = "library-cache.json"
+        let deltaFile = "library-cache.delta.plist"
+
+        // 1. 整份基线。
+        do {
+            let (library, storage, songs) = try await seeded("base")
+            await write(library, materialize: true, "loaded")
+            let loaded = try bytes(storage, baseFile)
+            await write(library, materialize: true, "loaded again")
+            XCTAssertEqual(try bytes(storage, baseFile), loaded, "the existing path writes the same bytes for an unchanged state")
+            let fallback = try bytes(storage, MusicLibrary.songFallbackFileName)
+            let albumCount = library.albums.count
+            XCTAssertGreaterThan(albumCount, 0)
+
+            library.dropSongModelForMeasurement(includingCollections: true)
+            XCTAssertTrue(library.songs.isEmpty)
+            await write(library, materialize: true, "released")
+            XCTAssertEqual(try bytes(storage, baseFile), loaded, "base written with the model released")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: storage.appendingPathComponent(deltaFile).path))
+            XCTAssertEqual(try bytes(storage, MusicLibrary.songFallbackFileName), fallback, "the fallback copy is neither rewritten nor emptied")
+            // 文件里是今天那份不带歌的快照:只带本机移除后留着的那一行。
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: loaded) as? [String: Any])
+            XCTAssertEqual(object["separateSongStore"] as? Bool, true)
+            XCTAssertEqual((object["songs"] as? [[String: Any]])?.compactMap { $0["id"] as? String }, [songs[8].id])
+            // 带歌的整库导出(iCloud、Apple TV)要模型:放掉时不导出,不会把空曲库发出去。
+            guard case .unavailable = await library.portableSnapshotIncludingSongs(byteLimit: .max) else {
+                return XCTFail("a library without its song model must not export a whole-library snapshot")
+            }
+            // 这次写的启动缓存不带专辑、艺人:从同一个目录再装一次,歌和专辑都齐。
+            let reopened = MusicLibrary(
+                disabledSourceIDs: [Self.sourceB], storageDirectory: storage, artistNameConfiguration: .defaultValue,
+                deferredMaintenanceAllowed: { true }, catalogMirroring: .disabled
+            )
+            XCTAssertEqual(reopened.songs.count, songs.count - 2)
+            XCTAssertEqual(reopened.albums.count, albumCount)
+            XCTAssertTrue(reopened.isLiked(songID: songs[0].id))
+        }
+
+        // 2. 增量。只改一个字段(最近播放)时属性表里只有一个键,逐字节比;改了几个字段时键的先后原来那条路
+        // 两次写也不保证相同(每次新建的字典各有各的遍历顺序),那时比内容,原来的路自己两次相同才比字节。
+        func compareDelta(_ name: String, singleField: Bool, _ mutate: (MusicLibrary, [Song]) -> Void) async throws {
+            let (library, storage, songs) = try await seeded(name)
+            await write(library, materialize: true, "\(name) baseline")
+            let base = try bytes(storage, baseFile)
+            mutate(library, songs)
+            await write(library, materialize: false, "\(name) loaded")
+            let loaded = try bytes(storage, deltaFile)
+            await write(library, materialize: false, "\(name) loaded again")
+            let loadedAgain = try bytes(storage, deltaFile)
+
+            library.dropSongModelForMeasurement(includingCollections: true)
+            await write(library, materialize: false, "\(name) released")
+            let released = try bytes(storage, deltaFile)
+            XCTAssertEqual(try bytes(storage, baseFile), base, "\(name): a delta write leaves the base alone")
+            func propertyList(_ data: Data) throws -> NSDictionary {
+                try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? NSDictionary)
+            }
+            XCTAssertEqual(try propertyList(released), try propertyList(loaded), "\(name): delta content")
+            if singleField {
+                XCTAssertEqual(loadedAgain, loaded, "\(name): the existing path writes the same bytes for an unchanged state")
+                XCTAssertEqual(released, loaded, "\(name): delta written with the model released")
+            } else if loadedAgain == loaded {
+                XCTAssertEqual(released, loaded, "\(name): delta written with the model released")
+            }
+            print("REPORT_SMALL_STATE_DELTA \(name) bytes=\(loaded.count) existingPathStable=\(loadedAgain == loaded) releasedSameBytes=\(released == loaded)")
+        }
+        try await compareDelta("delta-one", singleField: true) { library, songs in
+            library.recordPlayback(of: songs[3].id)
+        }
+        try await compareDelta("delta-many", singleField: false) { library, songs in
+            library.recordPlayback(of: songs[3].id)
+            library.setLiked(songID: songs[4].id, isLiked: true, propagatesServerMutation: false)
+            library.updateLibraryReview(for: .song(songs[5].id), rating: 5, comment: "later")
+        }
+    }
+
+    /// 歌曲模型放掉之后改的小状态(喜欢/不喜欢、歌单成员与先后、最近播放、评价)不排队等模型,当场生效、照常落盘。
+    /// 不做任何收尾 —— 只等武装好的那次防抖写入自己跑完,像进程随后被杀那样 —— 从同一个目录再开一个库,改动都在。
+    func testSmallStateChangedWhileTheSongModelIsReleasedSurvivesWithoutACleanShutdown() async throws {
+        let library = makeLibrary()
+        let songs = Self.fixture()
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceA, Self.sourceB])
+        let playlist = library.createPlaylist(name: "Kept", songIDs: songs.prefix(3).map(\.id))
+        library.setLiked(songID: songs[0].id, isLiked: true, propagatesServerMutation: false)
+        await assertShadowMatches(library, "fixture")
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("the fixture did not persist") }
+
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(library.isReady)
+        let queued = library.deferredMutationCountForTesting
+        library.setLiked(songID: songs[4].id, isLiked: true, propagatesServerMutation: true)
+        library.setLiked(songID: songs[0].id, isLiked: false, propagatesServerMutation: true)
+        library.setDisliked(songID: songs[5].id, isDisliked: true)
+        library.setLiked(songID: "never-in-the-library", isLiked: true, propagatesServerMutation: true)
+        library.add(songIDs: [songs[6].id, "never-in-the-library"], toPlaylist: playlist.id)
+        library.remove(songID: songs[1].id, fromPlaylist: playlist.id)
+        library.reorderPlaylistSongs(playlistID: playlist.id, listedOrder: [songs[6].id, songs[2].id, songs[0].id])
+        library.recordPlayback(of: songs[3].id)
+        library.recordPlayback(of: "never-in-the-library")
+        library.updateLibraryReview(for: .song(songs[2].id), rating: 4, comment: "while released")
+        XCTAssertEqual(library.deferredMutationCountForTesting, queued, "none of these waits for the song model")
+
+        func assertSmallState(_ library: MusicLibrary, _ step: String) {
+            XCTAssertTrue(library.isLiked(songID: songs[4].id), step)
+            XCTAssertFalse(library.isLiked(songID: songs[0].id), step)
+            XCTAssertFalse(library.isLiked(songID: "never-in-the-library"), step)
+            XCTAssertTrue(library.isDisliked(songID: songs[5].id), step)
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), [songs[6].id, songs[2].id, songs[0].id], step)
+            XCTAssertEqual(library.recentPlaybackSongIDsForSync.first, songs[3].id, step)
+            XCTAssertFalse(library.recentPlaybackSongIDsForSync.contains("never-in-the-library"), step)
+            XCTAssertEqual(library.libraryReview(for: .song(songs[2].id))?.rating, 4, step)
+            XCTAssertEqual(library.libraryReview(for: .song(songs[2].id))?.comment, "while released", step)
+        }
+        assertSmallState(library, "at once, with the model released")
+
+        // 不调任何落盘入口:评价武装的是 0.2 秒档的防抖写入,等它自己写完。
+        let deadline = ContinuousClock.now + .seconds(10)
+        while library.hasPendingPortableSnapshotChanges, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertFalse(library.hasPendingPortableSnapshotChanges, "the debounced write ran with the model released")
+
+        // 「进程被杀」:原来那个库不再碰,同一个目录再开一个。
+        let reopened = makeLibrary(catalog: .disabled)
+        XCTAssertEqual(reopened.songs.count, songs.count)
+        assertSmallState(reopened, "after reopening")
+    }
+
     /// 进后台、内存警告走的那条路把目录各连接的缓存也放掉;放完目录照常答、照常跟写。
     func testReleasingRebuildableCachesAlsoReleasesTheCatalogMemory() async throws {
         let library = makeLibrary()

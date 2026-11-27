@@ -9328,7 +9328,7 @@ extension MusicLibrary {
         updatedAt: Date = Date()
     ) {
         // S2: 评分评论在发布时被存储里的值整体覆盖, 必须排队重放。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.updateLibraryReview(
                 for: subject,
                 rating: rating,
@@ -10982,8 +10982,10 @@ extension MusicLibrary {
 
     func recordPlayback(of songID: String) {
         // 启动期间先排队，等歌曲索引就绪后再记录。
-        if deferringUntilReady({ [weak self] in self?.recordPlayback(of: songID) }) { return }
-        guard songIndexByID[songID] != nil else { return }
+        guard let access = songAccessForSmallState(
+            [songID], orDeferring: { [weak self] in self?.recordPlayback(of: songID) }
+        ) else { return }
+        guard librarySongIsStored(songID, access) else { return }
 
         recentPlaybackSongIDs.removeAll { $0 == songID }
         recentPlaybackSongIDs.insert(songID, at: 0)
@@ -11211,7 +11213,8 @@ extension MusicLibrary {
     func ensurePlaylist(id: String, name: String) -> Playlist {
         // S2: 空库上必然落到"新建"分支。排队时保留同一个 playlist 值,
         // 重放时若存储里已经有这一行, 就改走正常的改名 / 取消删除路径。
-        if isPreparing {
+        // (歌曲模型放掉之后歌单集合就在内存里, 不排队, 走下面正常的那条路。)
+        if isPreparing, smallStateWritesWithoutTheModel == nil {
             let playlist = MirrorPlaylistIdentity.isMirrorPlaylist(id)
                 ? Playlist(id: id, name: name)
                 : stampedPlaylist(Playlist(id: id, name: name))
@@ -11377,7 +11380,7 @@ extension MusicLibrary {
     /// 置顶的留在原位, 以后取消置顶还回得去。
     func reorderPlaylistSongs(playlistID: String, listedOrder songIDs: [String]) {
         // S2: 同上。
-        if deferringUntilReady({ [weak self] in
+        if deferringSmallStateMutation({ [weak self] in
             self?.reorderPlaylistSongs(playlistID: playlistID, listedOrder: songIDs)
         }) { return }
         let pinned = editableUserPlaylistIndex(playlistID).map { allPlaylists[$0].pinnedSongIDs } ?? []
@@ -11627,7 +11630,7 @@ extension MusicLibrary {
     /// Restore a soft-deleted playlist (e.g. from the Recently Deleted view).
     func restorePlaylist(id: String) {
         // S2: 恢复的目标行要等发布之后才存在。
-        if deferringUntilReady({ [weak self] in self?.restorePlaylist(id: id) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.restorePlaylist(id: id) }) { return }
         guard let index = allPlaylists.firstIndex(where: { $0.id == id }),
               allPlaylists[index].isDeleted,
               !allPlaylists[index].isPurged,
@@ -11984,13 +11987,13 @@ extension MusicLibrary {
     ) {
         // S2: `add(songID:toPlaylist:)` / `add(songIDs:toPlaylist:)` 共用这里。
         // 歌单行与歌曲行都要等发布之后才存在, 不排队这批插入就没了。
-        if deferringUntilReady({ [weak self] in
+        guard let access = songAccessForSmallState(songIDs, orDeferring: { [weak self] in
             self?.add(
                 songIDs: songIDs,
                 toPlaylist: playlistID,
                 propagatesLikedMutation: propagatesLikedMutation
             )
-        }) { return }
+        }) else { return }
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               !songIDs.isEmpty,
               let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }),
@@ -12003,13 +12006,13 @@ extension MusicLibrary {
         var addedIDs: [String] = []
         var changedSongs: [Song] = []
         entries.reserveCapacity(entries.count + songIDs.count)
-        for songID in songIDs where songIndexByID[songID] != nil {
+        for songID in songIDs where librarySongIsStored(songID, access) {
             if seen.insert(songID).inserted {
                 entries.append(songID)
                 addedIDs.append(songID)
                 if playlistID == Self.likedSongsPlaylistID,
                    propagatesLikedMutation,
-                   let song = indexedLibrarySong(songID) {
+                   let song = storedLibrarySong(songID, access) {
                     changedSongs.append(song)
                 }
             }
@@ -12065,7 +12068,7 @@ extension MusicLibrary {
     /// the next server sync would take the imported likes away again.
     func likeSongs(_ songIDs: [String]) {
         // S2: 「我喜欢」歌单与歌曲行都要等发布之后才在库里。
-        if deferringUntilReady({ [weak self] in self?.likeSongs(songIDs) }) { return }
+        if deferringSmallStateMutation({ [weak self] in self?.likeSongs(songIDs) }) { return }
         guard !songIDs.isEmpty else { return }
         ensureLikedPlaylist()
         add(songIDs: songIDs, toPlaylist: Self.likedSongsPlaylistID)
@@ -12109,14 +12112,17 @@ extension MusicLibrary {
         propagatesServerMutation: Bool
     ) {
         // S2: 目标歌曲与「我喜欢」歌单都要等发布之后才在库里。
-        if deferringUntilReady({ [weak self] in
+        guard let access = songAccessForSmallState([songID], orDeferring: { [weak self] in
             self?.setLiked(
                 songID: songID,
                 isLiked: desired,
                 propagatesServerMutation: propagatesServerMutation
             )
-        }) { return }
-        guard song(id: songID) != nil else { return }
+        }) else { return }
+        switch access {
+        case .memory: guard song(id: songID) != nil else { return }
+        case .stored(let rows): guard rows[songID] != nil else { return }
+        }
         let previous = isLiked(songID: songID)
         guard previous != desired else { return }
 
@@ -12215,10 +12221,13 @@ extension MusicLibrary {
 
     func setDisliked(songID: String, isDisliked desired: Bool) {
         // S2: 目标歌曲与「不喜欢」歌单都要等发布之后才在库里。
-        if deferringUntilReady({ [weak self] in
+        guard let access = songAccessForSmallState([songID], orDeferring: { [weak self] in
             self?.setDisliked(songID: songID, isDisliked: desired)
-        }) { return }
-        guard song(id: songID) != nil else { return }
+        }) else { return }
+        switch access {
+        case .memory: guard song(id: songID) != nil else { return }
+        case .stored(let rows): guard rows[songID] != nil else { return }
+        }
         if desired {
             // 不喜欢了就不再留在「我喜欢」里, 服务端的收藏也照常一并取消。
             setLiked(songID: songID, isLiked: false, propagatesServerMutation: true)
@@ -12406,13 +12415,15 @@ extension MusicLibrary {
         propagatesLikedMutation: Bool
     ) {
         // S2: `remove(songID:fromPlaylist:)` / `remove(songIDs:fromPlaylist:)` 共用这里。
-        if deferringUntilReady({ [weak self] in
+        // 行只在「从我喜欢里拿掉、要告诉服务端」时用得到;模型放掉之后只为这种情况读行。
+        let notifiesLikedMutation = playlistID == Self.likedSongsPlaylistID && propagatesLikedMutation
+        guard let access = songAccessForSmallState(notifiesLikedMutation ? songIDs : [], orDeferring: { [weak self] in
             self?.remove(
                 songIDs: songIDs,
                 fromPlaylist: playlistID,
                 propagatesLikedMutation: propagatesLikedMutation
             )
-        }) { return }
+        }) else { return }
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               !songIDs.isEmpty,
               let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }),
@@ -12437,7 +12448,7 @@ extension MusicLibrary {
         notifyPlaylistsChanged([playlistID])
         if playlistID == Self.likedSongsPlaylistID, propagatesLikedMutation {
             for songID in removedSongIDs {
-                guard let song = indexedLibrarySong(songID) else { continue }
+                guard let song = storedLibrarySong(songID, access) else { continue }
                 likedStateMutationHandler?(song, true, false)
             }
         }
@@ -17261,7 +17272,7 @@ extension MusicLibrary {
     /// the whole library inline.
     func persistNow() {
         // S1: 发布前不落盘, 记账后在发布步骤补一次。
-        guard !isPreparing else {
+        guard smallStateIsWritable else {
             deferredPortableSnapshotPersistRequested = true
             return
         }
@@ -17294,8 +17305,8 @@ extension MusicLibrary {
     }
 
     private func markPortableSnapshotDirty() {
-        // S1: 发布前不推进可移植快照的写入代际。
-        guard !isPreparing else {
+        // S1: 发布前不推进可移植快照的写入代际。(歌曲模型放掉之后小状态照常落盘, 见 `smallStateIsWritable`。)
+        guard smallStateIsWritable else {
             deferredPortableSnapshotPersistRequested = true
             return
         }
@@ -17303,11 +17314,14 @@ extension MusicLibrary {
     }
 
     private func enqueueSnapshotWrite(materialize: Bool = false) -> Task<Bool, Never>? {
-        // S1: 发布前不落盘。
-        guard !isPreparing else {
+        // S1: 发布前不落盘。歌曲模型发布过、之后放掉了, 而快照本来就不带歌时照常写(`smallStateIsWritable`):
+        // 这份快照里要数组的只有三处 —— 本机移除的行在不在曲库里(改问目录)、启动缓存里的专辑/艺人
+        // (这次不带, 下次装模型时走独立的派生缓存或重建)、每天一份的兜底歌曲副本(这次不写, 记下等模型回来)。
+        guard smallStateIsWritable else {
             deferredPortableSnapshotPersistRequested = true
             return nil
         }
+        let songModelIsLoaded = !isPreparing
         guard !persistenceBlockedByCorruption else {
             plog("⛔ Library persistence skipped because the on-disk snapshot is corrupt")
             return nil
@@ -17321,10 +17335,23 @@ extension MusicLibrary {
            let persistWriteTask {
             return persistWriteTask
         }
-        pendingSongPersistenceBatch?.seal()
-        let includesSongs = writesSongsIntoPortableSnapshot
-        let snapshot = makeSnapshot(includingSongs: includesSongs)
-        let fallbackSongs: [Song]? = !includesSongs && songFallbackIsDue() ? songs : nil
+        let includesSongs = songModelIsLoaded && writesSongsIntoPortableSnapshot
+        let snapshot: Snapshot
+        if songModelIsLoaded {
+            pendingSongPersistenceBatch?.seal()
+            snapshot = makeSnapshot(includingSongs: includesSongs)
+        } else {
+            // 答不出本机移除的那些行此刻在不在曲库里: 这次不写, 记成待补(随快照走的行不能凭猜)。
+            guard let retained = retainedSongsForSnapshotOutsideTheModel() else {
+                deferredPortableSnapshotPersistRequested = true
+                return nil
+            }
+            pendingSongPersistenceBatch?.seal()
+            snapshot = makeSnapshot(includingSongs: false, retained: retained)
+            // 兜底副本是整份歌曲, 数组不在时不写(更不能拿空数组去盖掉已有的那份); 模型回来后的下一次写补上。
+            songFallbackRefreshRequested = true
+        }
+        let fallbackSongs: [Song]? = songModelIsLoaded && !includesSongs && songFallbackIsDue() ? songs : nil
         if let fallbackSongs {
             songFallbackScheduledAt = Date()
             songFallbackScheduledSongCount = fallbackSongs.count
@@ -17338,10 +17365,11 @@ extension MusicLibrary {
         let capturedStoreRevision = pendingSongStoreWrite == nil
             ? (try? songStore?.startupState().contentRevision)
             : nil
-        let cachedAlbums = albums
-        let cachedArtists = artists
-        let cachedDerivedSignature = derivedIndexSignature
-        let cachedFolderSignature = derivedIndexFolderSignature
+        // 模型不在时启动缓存只带快照那一半: 专辑/艺人留空、签名留空, 装载时对不上签名就不会采用它们。
+        let cachedAlbums = songModelIsLoaded ? albums : []
+        let cachedArtists = songModelIsLoaded ? artists : []
+        let cachedDerivedSignature = songModelIsLoaded ? derivedIndexSignature : nil
+        let cachedFolderSignature = songModelIsLoaded ? derivedIndexFolderSignature : nil
         let cacheFormatVersion = Self.startupCacheFormatVersion
         let persistenceState = snapshotPersistenceState
         let currentDeletedIdentities = deletedSongIdentities
@@ -17428,6 +17456,22 @@ extension MusicLibrary {
         let retained = deviceLocalExcludedSongsByID.values.filter {
             songIndexByID[$0.id] == nil && !deletedSongIdentities.contains(identityKey(for: $0))
         }.sorted { $0.id < $1.id }
+        return makeSnapshot(includingSongs: includingSongs, retained: retained)
+    }
+
+    /// 同上面 `retained` 那一步, 歌曲模型不在内存里时用: 「在不在曲库里」问待写登记 + 目录
+    /// (本机排除的行在那条路上本来就不算在库里, 与装载时滤掉它们一致)。nil: 此刻答不出来。
+    private func retainedSongsForSnapshotOutsideTheModel() -> [Song]? {
+        let candidates = deviceLocalExcludedSongsByID.values.filter {
+            !deletedSongIdentities.contains(identityKey(for: $0))
+        }.sorted { $0.id < $1.id }
+        guard !candidates.isEmpty else { return [] }
+        guard let lookup = lookupOutsideTheModel,
+              let stored = storedSongsOutsideTheModel(candidates.map(\.id), lookup: lookup, observed: false) else { return nil }
+        return zip(candidates, stored).compactMap { candidate, row in row == nil ? candidate : nil }
+    }
+
+    private func makeSnapshot(includingSongs: Bool, retained: [Song]) -> Snapshot {
         var snapshot = Snapshot(
             songs: !includingSongs ? retained : (retained.isEmpty ? songs : songs + retained),
             playlists: allPlaylists,
@@ -17602,7 +17646,8 @@ extension MusicLibrary {
         // 会在一个字节都没写的情况下返回 .success —— 把 addSongs 提交的行当成
         // 已落盘, 调用方 (扫描游标 / Apple TV 传输检查点) 就会提交一个磁盘上
         // 并不存在的检查点。屏障语义要求先等发布 (含排队突变重放) 完成。
-        await whenReady()
+        // 歌曲模型放掉之后不等: 旧库的句柄在, 歌曲行是按 id 直接写的, 小状态不靠数组落盘(`smallStateIsWritable`)。
+        if !(songModelReleased && smallStateIsWritable) { await whenReady() }
         // 整份替换进行中就先等它结束: 这个调用的契约是"返回时已落盘", 既不能
         // 空写成功, 也不能和事务抢同一个文件。
         await awaitExternalSnapshotWriteRelease()
@@ -17619,7 +17664,11 @@ extension MusicLibrary {
         if persistenceBlockedByCorruption {
             return .failure(.snapshotPreparationFailed)
         }
-        guard let task = enqueueSnapshotWrite(materialize: materializePortableSnapshot) else { return .success(()) }
+        guard let task = enqueueSnapshotWrite(materialize: materializePortableSnapshot) else {
+            // 模型放掉时这次没写成(答不出本机移除的行在不在曲库里)而又有东西欠着: 屏障不能报成功。
+            if songModelReleased, hasPendingPortableSnapshotChanges { return .failure(.snapshotPreparationFailed) }
+            return .success(())
+        }
         let generation = portableSnapshotMutationGeneration
         let succeeded = await task.value
         recordPortableSnapshotWriteCompletion(
@@ -18598,7 +18647,7 @@ extension MusicLibrary {
     private func persistPlaylistDurabilityLedger() -> Bool {
         // S1: 发布前不写歌单耐久账本。返回 true 让调用方的回滚分支
         // 不被误触发, 写入在发布步骤补做。
-        guard !isPreparing else {
+        guard smallStateIsWritable else {
             deferredPlaylistDurabilityWriteRequested = true
             return true
         }
@@ -20001,6 +20050,78 @@ extension MusicLibrary {
               !sourceRemovalInProgress, deferredMutations.isEmpty else { return nil }
         return lookupOutsideTheModel
     }
+
+    // MARK: Small state without the song model (P3 step 6a)
+
+    /// 便携快照此刻不带歌(歌在旧库里)。只有这时小状态才能不靠数组落盘;电视的快照带歌,恒为 false。
+    fileprivate var portableSnapshotIsSongless: Bool {
+        #if os(tvOS)
+        return false
+        #else
+        return songStore != nil && !songStoreRequiresReplacement && separateSongStoreMinimumSongsOverride == nil
+        #endif
+    }
+
+    /// 小状态(歌单、成员、最近播放、评价、墓碑……)此刻能不能落盘:模型在内存里(S1 之外),或者模型发布过、
+    /// 之后放掉了而快照不带歌。第一次发布之前、发布之后再装载一次的那段时间照旧不写(小状态还没装好 / 正在被替换)。
+    fileprivate var smallStateIsWritable: Bool {
+        !isPreparing || (songModelReleased && portableSnapshotIsSongless)
+    }
+
+    /// 歌曲模型放掉之后,播放历史、喜欢/不喜欢、歌单成员与先后、评价这些小状态的突变不排队等模型:条件同
+    /// `rowWritesWithoutTheModel`(目录答得出、前面没有排着的突变……),外加小状态此刻落得了盘。
+    /// 今天的发版里没有放掉模型的入口,这条路走不到。
+    fileprivate var smallStateWritesWithoutTheModel: LibraryCatalogSongLookup? {
+        guard portableSnapshotIsSongless else { return nil }
+        return rowWritesWithoutTheModel
+    }
+
+    /// 小状态突变入口的排队判定:同 `deferringUntilReady`,只是歌曲模型放掉之后当场做。
+    fileprivate func deferringSmallStateMutation(_ work: @escaping @MainActor () -> Void) -> Bool {
+        if smallStateWritesWithoutTheModel != nil { return false }
+        return deferringUntilReady(work)
+    }
+
+    /// 小状态突变对歌曲的两问 ——「在不在曲库里」「存着的那一行」—— 从哪里答。
+    fileprivate enum SmallStateSongAccess {
+        /// 模型在内存里:与原来逐字相同(查 `songIndexByID`、`indexedLibrarySong`)。
+        case memory
+        /// 模型放掉了:入口处一次从待写登记 + 目录读回来的行(不在曲库里的 id 不在表里)。
+        case stored([String: Song])
+    }
+
+    /// 取这次突变要问的那些歌的读法。返回 nil 表示这次调用已经排队(模型没装好;或者放掉之后此刻读不出行、
+    /// 前面排着别的突变),调用方立刻返回。
+    fileprivate func songAccessForSmallState(
+        _ ids: [String], orDeferring work: @escaping @MainActor () -> Void
+    ) -> SmallStateSongAccess? {
+        if let lookup = smallStateWritesWithoutTheModel, let rows = rowsForWritingWithoutTheModel(ids, lookup: lookup) {
+            return .stored(rows)
+        }
+        if deferringUntilReady(work) { return nil }
+        return .memory
+    }
+
+    fileprivate func librarySongIsStored(_ id: String, _ access: SmallStateSongAccess) -> Bool {
+        switch access {
+        case .memory: songIndexByID[id] != nil
+        case .stored(let rows): rows[id] != nil
+        }
+    }
+
+    fileprivate func storedLibrarySong(_ id: String, _ access: SmallStateSongAccess) -> Song? {
+        switch access {
+        case .memory: indexedLibrarySong(id)
+        case .stored(let rows): rows[id]
+        }
+    }
+
+    #if DEBUG
+    /// 测试:当作小状态又改过一次,让下一次落盘把同一份状态再写一遍(拿两条路写出来的文件逐字节比)。
+    func markPortableSnapshotDirtyForTesting() {
+        portableSnapshotMutationGeneration &+= 1
+    }
+    #endif
 
     /// 曲库里存着的行(待写登记 + 目录),不叠发布之前排队的整行替换:直接写旧库的那条路拿它当「改之前」。
     /// nil:此刻读不出来(目录读失败)。
