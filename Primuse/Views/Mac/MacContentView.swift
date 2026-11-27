@@ -199,9 +199,9 @@ struct MacContentView: View {
 
     var body: some View {
         Group {
-            // Stage 2: 资料库在主线程之外装载。就绪之前不渲染任何读库的界面 ——
-            // 既不能闪 onboarding, 也不能闪"空资料库"状态。
-            if library.isReady {
+            // Stage 2: 资料库在主线程之外装载。可用之前不渲染任何读库的界面 —— 既不能闪 onboarding, 也不能闪
+            // "空资料库"状态。可用而歌曲模型不在内存里时各页按自己的规则显示(`MacPageKind`, 6c 单元 4 U2b)。
+            if library.isUsable {
                 mainContent
             } else {
                 LibraryPreparingView()
@@ -457,10 +457,10 @@ struct MacContentView: View {
                 .frame(minWidth: 720, minHeight: 560)
         }
         .sheet(isPresented: $showsListeningStats) {
-            MacListeningStatsSheet(model: listeningStatsModel)
+            MacListeningStatsSheet(model: listeningStatsModel).macLibraryPage(.listeningStats)
         }
         .sheet(item: $activeTool) { tool in
-            toolSheet(tool)
+            toolSheet(tool).macLibraryPage(.tool)
         }
         .sheet(item: $lyricsTranscriptionEditorTargetSong) { song in
             LyricsEditorSheet(song: song, autoStartsAudioTranscription: true) { updated in
@@ -489,10 +489,10 @@ struct MacContentView: View {
             )
         }
         .sheet(isPresented: $showSmartEditor) {
-            SmartPlaylistEditorView(existing: nil)
+            SmartPlaylistEditorView(existing: nil).macLibraryPage(.smartPlaylistEditor)
         }
         .sheet(isPresented: $showAIPlaylistEditor) {
-            AIPlaylistEditorView(existing: nil)
+            AIPlaylistEditorView(existing: nil).macLibraryPage(.smartPlaylistEditor)
         }
         .modifier(MacServerSyncErrorAlerts())
         .alert(String(localized: "scrape_song"),
@@ -655,7 +655,7 @@ struct MacContentView: View {
     /// ⌃⌘F 与菜单栏:正在全屏播放就退出,否则进入。
     private func toggleFullScreenPlayer(in window: NSWindow?) {
         guard let window, hostWindow == nil || window === hostWindow else { return }
-        guard library.isReady else {
+        guard library.isUsable else {
             // 资料库还在装载,没有播放页可装:只切系统全屏。
             window.toggleFullScreen(nil)
             return
@@ -744,7 +744,7 @@ struct MacContentView: View {
 
     /// 点的是 MV:视频管线接手后直接全屏播放。已经在全屏播放页里就不再动。
     private func enterMusicVideoFullScreenAfterUserPlayback() {
-        guard library.isReady, !isFullScreenNowPlaying else { return }
+        guard library.isUsable, !isFullScreenNowPlaying else { return }
         enterFullScreenPlayer(in: hostWindow)
     }
 
@@ -1624,7 +1624,7 @@ private struct MacRecommendationsPanel: View {
     let onClose: () -> Void
 
     var body: some View {
-        AIRecommendationLibraryView(panelOnClose: onClose)
+        AIRecommendationLibraryView(panelOnClose: onClose).macLibraryPage(.recommendationsPanel)
             .background {
                 ZStack {
                     NSVisualEffectBackdrop(material: .sidebar, blending: .behindWindow)

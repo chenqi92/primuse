@@ -1369,7 +1369,7 @@ struct RecentPlaybackSection: View {
     }
 
     private var tiles: [Tile] {
-        if !library.isReady {
+        if !library.isUsable { // 下面都按 id 取,模型不在内存里时由曲库目录作答;启动时还不可用才摆启动那一份
             return startupSongs.prefix(limit).filter {
                 $0.isPlayable && !library.disabledSourceIDs.contains($0.sourceID)
             }.map { Tile(id: "song:\($0.id)", content: .song($0)) }

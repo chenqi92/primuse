@@ -22,6 +22,8 @@ struct MacDetailContainer: View {
     var body: some View {
         NavigationStack(path: $path) {
             content
+                // 这一项还读整库数组时:歌曲模型不在内存里就显示加载、替它占用模型(6c 单元 4 U2b)。
+                .macLibraryPage(route.pageKind)
                 #if DEBUG
                 .onAppear {
                     MacRouteTiming.mark("appear")
@@ -35,31 +37,37 @@ struct MacDetailContainer: View {
                 // 自己淡入一下, 免得点进去像换了张截图。
                 .navigationDestination(for: Album.self) { album in
                     AlbumDetailView(album: album, onMacInlineBack: popDetail)
+                        .macLibraryPage(.albumDetail)
                         .navigationBarBackButtonHidden(true)
                         .pmAppearFade()
                 }
                 .navigationDestination(for: Artist.self) { artist in
                     ArtistDetailView(artist: artist, onMacInlineBack: popDetail)
+                        .macLibraryPage(.artistDetail)
                         .navigationBarBackButtonHidden(true)
                         .pmAppearFade()
                 }
                 .navigationDestination(for: Playlist.self) { playlist in
                     PlaylistDetailView(playlist: playlist, onMacInlineBack: popDetail)
+                        .macLibraryPage(.playlistDetail)
                         .navigationBarBackButtonHidden(true)
                         .pmAppearFade()
                 }
                 .navigationDestination(for: MacSearchCollectionDestination.self) { destination in
                     SearchCollectionDetailView(result: destination.result, onMacInlineBack: popDetail)
+                        .macLibraryPage(.searchCollection)
                         .navigationBarBackButtonHidden(true)
                         .pmAppearFade()
                 }
                 .navigationDestination(for: AppleMusicCatalogArtistHit.self) { artist in
                     AppleMusicCatalogArtistView(artist: artist, onMacInlineBack: popDetail)
+                        .macLibraryPage(.appleMusicArtist)
                         .navigationBarBackButtonHidden(true)
                         .pmAppearFade()
                 }
                 .navigationDestination(for: MacSpokenWordBookDestination.self) { destination in
                     SpokenWordBookDetailView(bookID: destination.bookID, onMacInlineBack: popDetail)
+                        .macLibraryPage(.spokenWordBook)
                         .navigationBarBackButtonHidden(true)
                         .pmAppearFade()
                 }
@@ -68,6 +76,7 @@ struct MacDetailContainer: View {
                         smartPlaylistID: smart.id,
                         onMacInlineBack: popDetail
                     )
+                    .macLibraryPage(.smartPlaylistDetail)
                     .navigationBarBackButtonHidden(true)
                     .pmAppearFade()
                 }

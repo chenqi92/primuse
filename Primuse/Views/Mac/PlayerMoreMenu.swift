@@ -1484,11 +1484,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         Task {
             await player.next()
 
-            let retainedSongs = library.songs.filter { $0.id != song.id }
-            let deleteSidecars = sourceManager.shouldDeleteSidecars(
-                for: song,
-                retaining: retainedSongs
-            )
+            // 别的歌还用着的旁挂文件不删。要整库来判断:歌曲模型放掉了就先装回来,答不了时不删(6c 单元 4 U2b)。
+            let deleteSidecars = await SongModelArrayRead.deletesSidecars(for: song, in: library)
             let result = await sourceManager.deleteSourceFilesAndCaches(
                 for: song,
                 deleteSidecars: deleteSidecars
@@ -2603,7 +2600,10 @@ struct MacSimilarSongsPopover: View {
             return
         }
         let service = AppServices.shared.similarTracks
-        let pool = library.musicSongs
+        guard let pool = await SongModelArrayRead.read(library, { library.musicSongs }) else { // 模型装不回来:不给候选
+            isLoadingLastFm = false
+            return
+        }
         do {
             lastFmCandidates = try await service.fetchSimilar(
                 to: seed,

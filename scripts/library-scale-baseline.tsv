@@ -100,7 +100,7 @@ legacy-library-api	Primuse/Views/Mac/MacImmersivePlayerView.swift	1
 legacy-library-api	Primuse/Views/Mac/MacSettingsView.swift	1
 legacy-library-api	Primuse/Views/Mac/MacSidebar.swift	4
 legacy-library-api	Primuse/Views/Mac/PMTitleBar.swift	1
-legacy-library-api	Primuse/Views/Mac/PlayerMoreMenu.swift	2
+legacy-library-api	Primuse/Views/Mac/PlayerMoreMenu.swift	1
 legacy-library-api	Primuse/Views/NowPlaying/ImmersivePlayerView.swift	1
 legacy-library-api	Primuse/Views/NowPlaying/NowPlayingCarouselExploreFace.swift	3
 legacy-library-api	Primuse/Views/NowPlaying/NowPlayingView.swift	1
