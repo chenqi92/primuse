@@ -162,6 +162,11 @@ final class PhoneRelayServer: @unchecked Sendable {
             } else {
                 catalogFileSize = nil
             }
+            // 目录答不了、歌曲模型也不在内存里(6c):这时说不出库里有没有这一首,答 503 让对方稍后再取,
+            // 不答 404(「没有这首」)。
+            if catalogFileSize == nil, await MainActor.run(body: { self.library?.isReady != true }) {
+                Self.respond(conn, status: 503, headers: [:], body: Data()); return
+            }
             let prep: (SourceManager, MusicSource, Int64)? = await MainActor.run {
                 guard let manager = self.sourceManager,
                       let source = self.sourcesStore?.source(id: sourceID) else { return nil }
@@ -253,7 +258,7 @@ final class PhoneRelayServer: @unchecked Sendable {
 
     private static func respond(_ conn: NWConnection, status: Int, headers: [String: String], body: Data) {
         let reason = [200: "OK", 206: "Partial Content", 403: "Forbidden",
-                      404: "Not Found", 502: "Bad Gateway"][status] ?? "OK"
+                      404: "Not Found", 502: "Bad Gateway", 503: "Service Unavailable"][status] ?? "OK"
         var h = headers
         h["Content-Length"] = "\(body.count)"
         h["Connection"] = "close"
@@ -296,7 +301,7 @@ final class PhoneRelayServer: @unchecked Sendable {
         let firstChunk = total > 0 ? try await fetchWithRetry(0, firstLen) : Data()
 
         let reason = [200: "OK", 206: "Partial Content", 403: "Forbidden",
-                      404: "Not Found", 502: "Bad Gateway"][status] ?? "OK"
+                      404: "Not Found", 502: "Bad Gateway", 503: "Service Unavailable"][status] ?? "OK"
         var h = headers
         h["Content-Length"] = "\(total)"
         h["Connection"] = "close"

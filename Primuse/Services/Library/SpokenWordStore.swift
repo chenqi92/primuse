@@ -10,7 +10,8 @@ final class TingReaderProgressSyncCoordinator {
     private let defaults: UserDefaults
     private let store: SpokenWordStore
     private let sources: () -> [MusicSource]
-    private let songs: (String) -> [Song]
+    /// 这个源的歌。nil:此刻答不了(歌曲模型不在内存里),不是「一首都没有」。
+    private let songs: (String) -> [Song]?
     private let fetch: @MainActor (MusicSource) async throws -> [TingReaderListeningProgress]
     private let protectedSongID: () -> String?
     private let didAdopt: (Song) -> Void
@@ -26,7 +27,7 @@ final class TingReaderProgressSyncCoordinator {
         defaults: UserDefaults = .standard,
         store: SpokenWordStore = .shared,
         sources: @escaping () -> [MusicSource],
-        songs: @escaping (String) -> [Song],
+        songs: @escaping (String) -> [Song]?,
         fetch: @escaping @MainActor (MusicSource) async throws -> [TingReaderListeningProgress],
         protectedSongID: @escaping () -> String?,
         didAdopt: @escaping (Song) -> Void = { _ in },
@@ -77,8 +78,14 @@ final class TingReaderProgressSyncCoordinator {
                       manual || (isEnabled(for: source.id) && preferenceRevision[source.id, default: 0] == revision),
                       let current = sources().first(where: { $0.id == source.id }), Self.supports(current),
                       MusicSourceSecurityRevision.scopedFingerprint(for: current) == fingerprint else { continue }
+                // 曲库答不了这个源有哪些章节:这一轮什么也不对,也不算试过(不进冷却),曲库装好后的下一次照常对。
+                guard let sourceSongs = songs(source.id) else {
+                    lastAttempt[source.id] = nil
+                    plog("Ting Reader progress refresh skipped: the library cannot list the source's chapters now")
+                    continue
+                }
                 let byChapter = Dictionary(
-                    songs(source.id).compactMap { song -> (String, Song)? in
+                    sourceSongs.compactMap { song -> (String, Song)? in
                         guard song.sourceID == source.id,
                               !current.excludedServerLibraryIDs.contains(song.serverLibraryID ?? ""),
                               let ref = TingReaderAPIProtocol.trackReference(from: song.filePath) else { return nil }

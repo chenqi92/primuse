@@ -507,6 +507,9 @@ final class ServerRatingSyncService {
         if let cached = songItemIDsBySource[sourceID], cached.sourceType == sourceType {
             return cached.itemIDs
         }
+        // 歌曲模型不在内存里(网络往返的那一会儿里被放掉了)时整库是空的:这时答「不在」只是答不了,不记进缓存 ——
+        // 记下了,装回来之后同一代里还当这些歌都不在,排着的评分就被当作废删掉。调用方此时只是跳过这一条。
+        guard library.isReady else { return [] }
         var itemIDs = Set<String>()
         for song in library.songs {
             if let itemID = Self.itemID(of: song, sourceID: sourceID, sourceType: sourceType) {

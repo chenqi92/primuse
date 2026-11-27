@@ -26,6 +26,9 @@ final class ServerCollectionFavoriteSyncService {
     private let sourcesProvider: @MainActor () -> [MusicSource]
     private let connectorProvider: ConnectorProvider
     private let songProvider: SongProvider
+    /// 曲库此刻答不答得出「这个源上有没有这张专辑 / 这位艺人的歌」(歌曲模型在内存里)。答不出时 `songProvider`
+    /// 的 nil 不是「这个源上没有」。
+    private let libraryCanAnswer: @MainActor () -> Bool
     private let favorites: LibraryFavoritesStore
     private let defaults: UserDefaults
     private let localChangeDelay: Duration
@@ -40,6 +43,7 @@ final class ServerCollectionFavoriteSyncService {
         sourcesProvider: @escaping @MainActor () -> [MusicSource],
         connectorProvider: @escaping ConnectorProvider,
         songProvider: @escaping SongProvider,
+        libraryCanAnswer: @escaping @MainActor () -> Bool = { true },
         favorites: LibraryFavoritesStore = .shared,
         defaults: UserDefaults = .standard,
         localChangeDelay: Duration = .seconds(2)
@@ -47,6 +51,7 @@ final class ServerCollectionFavoriteSyncService {
         self.sourcesProvider = sourcesProvider
         self.connectorProvider = connectorProvider
         self.songProvider = songProvider
+        self.libraryCanAnswer = libraryCanAnswer
         self.favorites = favorites
         self.defaults = defaults
         self.localChangeDelay = localChangeDelay
@@ -190,6 +195,12 @@ final class ServerCollectionFavoriteSyncService {
             }
             for key in plan.starOnServer.sorted() {
                 guard let entry = favorites.entry(id: key) else { continue }
+                // 歌曲模型不在内存里时查不到这个源上的歌,那不是「这个源上没有」:当作这一次没推成,下一轮再推。
+                // 当成「没有」的话,对账时刻就盖过了这条喜欢,下一轮会把它当成服务端删掉的、在本机取消。
+                guard libraryCanAnswer() else {
+                    failedEntries.append(entry)
+                    continue
+                }
                 do {
                     guard let itemID = try await serverItemID(for: entry, source: source, connector: connector) else {
                         notOnSource += 1

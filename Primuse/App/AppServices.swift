@@ -1389,7 +1389,9 @@ final class AppServices {
                     library: library,
                     favorites: .shared
                 )
-            }
+            },
+            // 按名字找专辑 / 艺人读的是整库的专辑、艺人表:歌曲模型在内存里才答得出。
+            libraryCanAnswer: { [weak library] in library?.isReady ?? false }
         )
         let bookFavoriteSync = ServerBookFavoriteSyncService(
             sourcesProvider: { [weak store] in store?.sources ?? [] },
@@ -1523,7 +1525,11 @@ final class AppServices {
         )
         self.tingReaderProgressSync = TingReaderProgressSyncCoordinator(
             sources: { [weak store] in store?.sources ?? [] },
-            songs: { [weak library] in library?.visibleSongs(forSourceID: $0) ?? [] },
+            // 歌曲模型不在内存里时那份数组是空的:答「答不了」,不答「这个源没有章节」。
+            songs: { [weak library] in
+                guard let library, library.isReady else { return nil }
+                return library.visibleSongs(forSourceID: $0)
+            },
             fetch: { [weak manager] source in
                 guard let manager else { throw CancellationError() }
                 return try await manager.fetchRecentTingReaderProgress(for: source)
@@ -2297,7 +2303,8 @@ final class AppServices {
         schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.musicLibrary.whenReady()
+            // 只等「可用」:排上的收尾自己占用歌曲模型(见 `enqueuePostScanMaintenance`),没有排着的就不为它装模型。
+            await self.musicLibrary.whenUsable()
             self.scanService.resumePostScanMaintenance(
                 sourceManager: self.sourceManager, library: self.musicLibrary,
                 sourceStore: self.sourcesStore, scraperService: self.scraperService

@@ -1482,6 +1482,30 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(store.position(forSongID: "chapter")?.position, 100)
     }
 
+    /// 曲库此刻答不了这个源有哪些章节(歌曲模型不在内存里,P3 步骤 6c):这一轮不对进度、不进冷却;
+    /// 答得了之后的下一次照常对上。
+    func testTingReaderProgressWaitsWithoutCooldownWhileTheLibraryCannotListChapters() async throws {
+        let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("progress.json"))
+        let source = MusicSource(id: "ting", name: "Ting", type: .tingReader, username: "reader")
+        var chapter = song("chapter", duration: 3_600, path: "/tingreader/books/book/chapters/chapter.mp3")
+        chapter.sourceID = source.id
+        let records = try [tingProgress(chapter: "chapter", position: 500, at: Date())]
+        var loaded = false
+        var requests = 0
+        let sync = TingReaderProgressSyncCoordinator(defaults: try makeDefaults(), store: store,
+            sources: { [source] }, songs: { _ in loaded ? [chapter] : nil }, fetch: { _ in
+                requests += 1
+                return records
+            }, protectedSongID: { nil })
+        await sync.refresh()
+        XCTAssertEqual(requests, 1)
+        XCTAssertNil(store.position(forSongID: chapter.id), "nothing adopted while the chapters cannot be listed")
+        loaded = true
+        await sync.refresh()
+        XCTAssertEqual(requests, 2, "the unanswered round did not start the cooldown")
+        XCTAssertEqual(store.position(forSongID: chapter.id)?.position, 500)
+    }
+
     func testTingReaderProgressRejectsResponseAfterSourceOrPreferenceChanges() async throws {
         let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("progress.json"))
         var source = MusicSource(id: "ting", name: "Ting", type: .tingReader, username: "reader")

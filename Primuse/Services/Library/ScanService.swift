@@ -6268,6 +6268,10 @@ extension ScanService {
         let committedState = syncState.flatMap { $0.requiresDeepScan && $0.lastFullScanAt == nil ? nil : $0 }
         postScanMaintenance.enqueue(sourceID: source.id) { [weak self] in
             guard let self, let ticket = self.postScanMaintenance.operationToken(for: source.id) else { throw CancellationError() }
+            // 6c: 扫描收尾的这一趟(歌手图、文件夹歌单、服务端歌单与喜欢)跑完之前占住歌曲模型。它在扫描任务结束、
+            // 扫描那份占用放手之后才排到;文件夹歌单读不了目录时按整库歌曲数组重建,空数组就是把歌单清空。
+            let modelHold = await library.holdSongModel(.scan)
+            defer { modelHold.end() }
             let fence: ServerMirrorApplyFence = {
                 guard self.postScanMaintenance.operationToken(for: source.id) == ticket,
                       let current = sourceStore.source(id: source.id), current.isEnabled, !current.isDeleted else { return false }

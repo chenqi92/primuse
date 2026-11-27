@@ -1225,7 +1225,8 @@ private final class LifecycleSnapshotUploadCoordinator {
             } catch {
                 return
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  LifecycleSnapshotUploadCoordinator.songModelAllowsAutomaticUpload(library) else { return }
             if library.hasPendingPortableSnapshotChanges,
                case .failure = await library.persistNowAndWait(materializePortableSnapshot: false) {
                 return
@@ -1247,7 +1248,8 @@ private final class LifecycleSnapshotUploadCoordinator {
             } catch {
                 return
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  LifecycleSnapshotUploadCoordinator.songModelAllowsAutomaticUpload(library) else { return }
             if library.hasPendingPortableSnapshotChanges,
                case .failure = await library.persistNowAndWait(materializePortableSnapshot: false) {
                 return
@@ -1262,6 +1264,16 @@ private final class LifecycleSnapshotUploadCoordinator {
         Task {
             await LibrarySnapshotSync.shared.cancelUpload()
         }
+    }
+
+    /// 6c(15g-8 的过渡做法):歌曲模型不在内存里时不自动上传整座曲库 —— 导出要整份歌曲,而为它占用模型就是
+    /// 每小时在后台装一次整库。等模型为别的事装回来,下一次场景切换再传。不占用模型。
+    static func songModelAllowsAutomaticUpload(_ library: MusicLibrary) -> Bool {
+        guard library.isReady else {
+            plog("☁️ Automatic library upload skipped: the song model is not loaded")
+            return false
+        }
+        return true
     }
 }
 
@@ -2880,7 +2892,8 @@ struct PrimuseApp: App {
                         // 回到前台顺手对一次服务端歌单 /「喜欢」/ 电台, 自带冷却。
                         AppServices.shared.serverMirrorRefresh.applicationDidBecomeActive()
                         Task {
-                            await musicLibrary.whenReady()
+                            // 只等「可用」,不为它装歌曲模型;模型不在内存里时这一轮对不了,不进冷却。
+                            await musicLibrary.whenUsable()
                             await AppServices.shared.tingReaderProgressSync.refresh()
                         }
                         Task { await appleMusicLibrary.refreshAfterAccountChange() }

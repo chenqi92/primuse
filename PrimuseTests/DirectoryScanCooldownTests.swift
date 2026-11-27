@@ -384,7 +384,9 @@ final class DirectoryScanCooldownTests: XCTestCase {
         }
         try await run()
         XCTAssertEqual(library.songs.count, 2)
-        XCTAssertEqual(scanHolds(), [.scan], "a scan holds the song model while it runs")
+        // 扫描本身一份;扫描之后的收尾(歌手图、文件夹歌单)排上时再占一份,同样记成 `.scan`。
+        XCTAssertEqual(scanHolds().first, .scan, "a scan holds the song model while it runs")
+        XCTAssertTrue(scanHolds().allSatisfy { $0 == .scan }, "\(scanHolds())")
         let tagged = library.songs.map { song -> Song in
             var song = song
             song.duration = 180
@@ -1177,6 +1179,116 @@ final class BackfillStatusReuseTests: XCTestCase {
         XCTAssertTrue(decision.ran, "no foreground intent: the decision runs at once")
         XCTAssertEqual(backfill.mainActorRemainingCountsComputationCount, onMainBefore,
                        "resuming a foreground intent reads the counted numbers only")
+    }
+
+    /// `start()` 每次触发至多数一次剩余,数完只走不再数的那一条路。数的时候输入变了(可补读的源换了),这一轮
+    /// 不落地:快照里一首不剩就这一次不开工、队列保持脏着,也不接着再数;快照里还有没读的就照样开工。
+    func testACountedStartWhoseCountDoesNotLandDoesNotCountAgain() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let songs = (0..<30_000).map { Song(id: "landing-\($0)", title: "Track", fileFormat: .m4a,
+            filePath: "/Music/Album\($0 / 50)/\($0).m4a", sourceID: "count-source") }
+        library.addSongs(songs)
+        var sources: Set<String> = []
+        let backfill = MetadataBackfillService(library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
+            backfillableSourceIDs: { sources }, bareOnlySourceIDs: { ["count-source"] },
+            storageDirectory: root.appendingPathComponent("state"))
+        defer { backfill.stop() }
+        let onMainBefore = backfill.mainActorRemainingCountsComputationCount
+        func countOnce(changing change: () -> Void) async throws -> Int {
+            let before = backfill.remainingCountsComputationCount
+            backfill.start()
+            let deadline = Date().addingTimeInterval(20)
+            while backfill.remainingCountsComputationCount == before, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            change()   // 数到一半,输入变了
+            return before
+        }
+
+        // 数的时候没有可补读的源(快照里一首不剩),数到一半源来了:这一次不开工,不再数。
+        let first = try await countOnce { sources = ["count-source"] }
+        await backfill.waitUntilIdle()
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(backfill.remainingCountsComputationCount, first + 1, "one count for this start, no second one")
+        XCTAssertFalse(backfill.isRunning, "the start was skipped")
+        XCTAssertTrue(backfill.hasPendingWork, "the queue is left dirty for the next trigger")
+
+        // 快照里有没读的,数到一半又多了一个源:没落地,照样开工,同样只数一次。
+        let second = try await countOnce { sources = ["count-source", "another-source"] }
+        let started = Date().addingTimeInterval(10)
+        while !backfill.isRunning, Date() < started { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(backfill.isRunning, "the snapshot still had work: the worker starts")
+        XCTAssertEqual(backfill.remainingCountsComputationCount, second + 1)
+        backfill.stop()
+        XCTAssertEqual(backfill.mainActorRemainingCountsComputationCount, onMainBefore)
+    }
+
+    /// 回到前台时有前台意图而剩余数要重数:数完才作决定。数的这一会儿里场景离开了前台,这个决定就作废 ——
+    /// 不接着读、不把档位改回标准(后台那一路已经定了自己的)。还在前台就照常决定。
+    func testAForegroundDecisionThatLandsAfterTheSceneLeftIsDropped() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        library.addSongs((0..<2_000).map { Song(id: "intent-\($0)", title: "Track", fileFormat: .m4a,
+            filePath: "/Music/Album\($0 / 50)/\($0).m4a", sourceID: "count-source") })
+        let backfill = MetadataBackfillService(library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
+            backfillableSourceIDs: { ["count-source"] }, bareOnlySourceIDs: { ["count-source"] },
+            storageDirectory: root.appendingPathComponent("state"))
+        defer { backfill.stop() }
+        var active = true
+        backfill.foregroundIsActive = { active }
+        // 用户点了这个源的读取(前台意图),随后工作线程停下(场景切换之类),意图还在。
+        _ = backfill.startUserInitiated(sourceID: "count-source")
+        backfill.stop()
+        let onMainAfterUserStart = backfill.mainActorRemainingCountsComputationCount
+        XCTAssertEqual(backfill.userInitiatedSourceID, "count-source")
+        XCTAssertEqual(backfill.executionMode, .userInitiated)
+        final class Decision { var ran = 0 }
+        let decision = Decision()
+        func decide() {
+            backfill.whenRemainingCountsAreCurrentForForegroundIntent {
+                decision.ran += 1
+                if !backfill.resumeUserInitiatedIfNeeded(), !backfill.resumeAutomaticForegroundIfNeeded() {
+                    backfill.setExecutionMode(.standard)
+                }
+                backfill.stop()
+            }
+        }
+        func countLanded(after before: Int) async throws {
+            let deadline = Date().addingTimeInterval(10)
+            while backfill.remainingCountsComputationCount == before, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        // 曲库变了(剩余数要重数),场景在数完之前离开了前台。
+        library.addSongs([Song(id: "intent-new", title: "New", fileFormat: .m4a, filePath: "/Music/new.m4a",
+                               sourceID: "count-source")])
+        await library.waitForPendingIndex()
+        var before = backfill.remainingCountsComputationCount
+        decide()
+        XCTAssertEqual(decision.ran, 0, "the decision waits for the count")
+        active = false
+        try await countLanded(after: before)
+        XCTAssertGreaterThan(backfill.remainingCountsComputationCount, before)
+        XCTAssertEqual(decision.ran, 0, "the scene left the foreground: nothing is resumed")
+        XCTAssertEqual(backfill.executionMode, .userInitiated, "and the mode is not set back to standard")
+        XCTAssertEqual(backfill.userInitiatedSourceID, "count-source")
+
+        // 同样要重数,这回数完时还在前台:照常决定。
+        active = true
+        library.addSongs([Song(id: "intent-newer", title: "Newer", fileFormat: .m4a, filePath: "/Music/newer.m4a",
+                               sourceID: "count-source")])
+        await library.waitForPendingIndex()
+        before = backfill.remainingCountsComputationCount
+        decide()
+        try await countLanded(after: before)
+        XCTAssertEqual(decision.ran, 1, "still in the foreground: the decision runs once the count landed")
+        XCTAssertEqual(backfill.mainActorRemainingCountsComputationCount, onMainAfterUserStart,
+                       "after the user's own start nothing counts on the main actor")
     }
 }
 

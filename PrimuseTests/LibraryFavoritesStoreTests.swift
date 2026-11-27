@@ -257,7 +257,9 @@ final class LibraryCollectionRenameTests: XCTestCase {
 
 @MainActor
 final class ServerCollectionFavoriteSyncServiceTests: XCTestCase {
-    private func makeFixture() -> (LibraryFavoritesStore, FakeCollectionFavoriteConnector, ServerCollectionFavoriteSyncService, UserDefaults, URL) {
+    private func makeFixture(
+        libraryCanAnswer: @escaping @MainActor () -> Bool = { true }
+    ) -> (LibraryFavoritesStore, FakeCollectionFavoriteConnector, ServerCollectionFavoriteSyncService, UserDefaults, URL) {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("CollectionFavorites-\(UUID().uuidString).json")
         let store = LibraryFavoritesStore(fileURL: url)
@@ -272,6 +274,7 @@ final class ServerCollectionFavoriteSyncServiceTests: XCTestCase {
                 Song(id: "song-\(entry.albumTitle)", title: "T", fileFormat: .mp3,
                      filePath: "/songs/server-song-1.mp3", sourceID: "nav")
             },
+            libraryCanAnswer: libraryCanAnswer,
             favorites: store,
             defaults: defaults,
             localChangeDelay: .seconds(3600)
@@ -333,6 +336,33 @@ final class ServerCollectionFavoriteSyncServiceTests: XCTestCase {
         XCTAssertEqual(calls.last?.isFavorite, false)
         let unstarred = await connector.favorites.contains { $0.albumTitle == "25" }
         XCTAssertFalse(unstarred)
+    }
+
+    /// 歌曲模型不在内存里时查不到这个源上的歌(P3 步骤 6c):本机新的喜欢这一轮不推,也不会因为对账时刻盖过它,
+    /// 下一轮被当成服务端删掉的、在本机取消;模型回来之后照常推上去。
+    func testALocalLikeIsKeptAndPushedLaterWhileTheLibraryCannotFindItsSongs() async throws {
+        final class Answer { var canAnswer = true }
+        let answer = Answer()
+        let (store, connector, service, _, url) = makeFixture(libraryCanAnswer: { answer.canAnswer })
+        defer { try? FileManager.default.removeItem(at: url) }
+        await service.syncAllNow()
+
+        try await Task.sleep(for: .milliseconds(20))
+        let liked = Album(id: "z", title: "25", artistName: "Adele")
+        store.setLiked(true, album: liked)
+        answer.canAnswer = false
+        await service.syncAllNow()
+        await service.syncAllNow()
+        var calls = await connector.setCalls
+        XCTAssertTrue(calls.isEmpty, "nothing is pushed while the library cannot answer")
+        XCTAssertTrue(store.isLiked(liked), "and the like is not taken for a removal on the server")
+
+        answer.canAnswer = true
+        await service.syncAllNow()
+        calls = await connector.setCalls
+        XCTAssertEqual(calls.last?.itemID, "server-album-of-server-song-1")
+        XCTAssertEqual(calls.last?.isFavorite, true)
+        XCTAssertTrue(store.isLiked(liked))
     }
 
     func testALikeMadeWhileAPassIsPushingIsPushedByTheNextPass() async throws {

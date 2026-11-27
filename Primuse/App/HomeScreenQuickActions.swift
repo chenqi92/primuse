@@ -81,6 +81,12 @@ final class HomeScreenQuickActionCenter {
         let services = AppServices.shared
         let library = services.musicLibrary
         var items: [UIApplicationShortcutItem] = []
+        // 6c: 歌曲模型不在内存里时数不出整库和「喜欢」里有没有歌(数出来是 0 不是「没有」):这两项沿用上一次发布的。
+        let countsAnswer = library.isReady
+        let previouslyPublished = Set((UIApplication.shared.shortcutItems ?? []).map(\.type))
+        func stillOffered(_ action: HomeScreenQuickAction, _ count: () -> Int) -> Bool {
+            countsAnswer ? count() > 0 : previouslyPublished.contains(action.rawValue)
+        }
         if let song = services.playerService.currentSong {
             let artist = library.artistDisplayName(for: song) ?? song.artistName ?? ""
             items.append(UIApplicationShortcutItem(
@@ -90,7 +96,7 @@ final class HomeScreenQuickActionCenter {
                 icon: UIApplicationShortcutIcon(systemImageName: "play.fill")
             ))
         }
-        if PlaybackSurfaceCountsModel.musicSongCount(in: library) > 0 {
+        if stillOffered(.shuffleLibrary, { PlaybackSurfaceCountsModel.musicSongCount(in: library) }) {
             items.append(UIApplicationShortcutItem(
                 type: HomeScreenQuickAction.shuffleLibrary.rawValue,
                 localizedTitle: HomeScreenQuickAction.shuffleLibrary.localizedTitle(),
@@ -98,7 +104,7 @@ final class HomeScreenQuickActionCenter {
                 icon: UIApplicationShortcutIcon(systemImageName: "shuffle")
             ))
         }
-        if library.songCount(forPlaylist: MusicLibrary.likedSongsPlaylistID) > 0 {
+        if stillOffered(.shuffleLiked, { library.songCount(forPlaylist: MusicLibrary.likedSongsPlaylistID) }) {
             items.append(UIApplicationShortcutItem(
                 type: HomeScreenQuickAction.shuffleLiked.rawValue,
                 localizedTitle: HomeScreenQuickAction.shuffleLiked.localizedTitle(),

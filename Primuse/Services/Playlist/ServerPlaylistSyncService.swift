@@ -1158,8 +1158,11 @@ final class ServerMirrorRefreshCoordinator {
             defer { self.runningTask = nil }
             guard !Task.isCancelled else { return }
             // 库还在准备时 `library.songs` 是空的, 服务端歌单会被整份判成
-            // "一首都对不上"而不建 —— 等发布完再对。
-            await self.library.whenReady()
+            // "一首都对不上"而不建 —— 等发布完再对。6c: 有到期的源才占用歌曲模型(被放掉了就请它装回来),
+            // 对完放手;一个到期的都没有就不为它装模型。
+            guard self.sourcesStore.sources.contains(where: { self.isDue($0, now: Date()) }) else { return }
+            let hold = await self.library.holdSongModel(.scan)
+            defer { hold.end() }
             await self.refreshDueSources()
         }
     }

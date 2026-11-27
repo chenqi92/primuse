@@ -514,12 +514,17 @@ final class FavoriteCollectionStore {
             let snapshot = localSnapshot()
             // 「我喜欢」默认在收藏里；收藏改过却没有它，就是用户拿掉的。
             let likedRemoved = !storedRawValue.isEmpty && !storedPins.contains(Self.anchor)
+            // 收藏的书是不是只在这台设备上要看整份有声条目:歌曲模型不在内存里时答不了,装回来再接上同步。
+            guard let localOnly = deviceBoundIDs(among: snapshot.collected) else {
+                library?.onReady { [weak self] in self?.startCloudSync() }
+                return
+            }
             syncState = FavoriteCollectionSyncPolicy.initialState(
                 collected: snapshot.collected,
                 removed: likedRemoved ? [Self.anchor.id] : [],
                 order: snapshot.order,
                 folderOrder: snapshot.folderOrder,
-                localOnly: deviceBoundIDs(among: snapshot.collected)
+                localOnly: localOnly
             )
             persistSyncState()
         }
@@ -559,10 +564,16 @@ final class FavoriteCollectionStore {
     private func recordLocalChanges(orderEdited: Bool) {
         guard let state = syncState, !isApplyingCloudCopy else { return }
         let snapshot = localSnapshot()
+        // 新收藏的书是不是只在这台设备上答不了(歌曲模型不在内存里):这一轮不记、不推,免得把只在本机的书
+        // 当成能同步的推给别的设备;模型装回来时补记一次。
+        guard let localOnly = deviceBoundIDs(among: snapshot.collected.subtracting(state.members.keys)) else {
+            library?.onReady { [weak self] in self?.recordLocalChanges(orderEdited: false) }
+            return
+        }
         let next = FavoriteCollectionSyncPolicy.recording(
             state,
             collected: snapshot.collected,
-            localOnly: deviceBoundIDs(among: snapshot.collected.subtracting(state.members.keys)),
+            localOnly: localOnly,
             order: orderEdited ? orderForRecording(snapshot.order, previous: state.order?.ids) : nil,
             folderOrder: orderEdited ? snapshot.folderOrder : nil,
             now: Date().timeIntervalSince1970
@@ -591,7 +602,8 @@ final class FavoriteCollectionStore {
 
     /// 只在这台设备上有意义的收藏：本机音乐源上的目录、整本都在本机音乐源上的书（别的设备没有这个源，
     /// 那边永远对不上）；音乐源已经不在这台设备上的目录也算。已经在同步里的不受影响，照常同步。
-    private func deviceBoundIDs(among ids: some Sequence<String>) -> Set<String> {
+    /// nil：有书要判断而歌曲模型不在内存里(整份有声条目是空的),此刻答不了。
+    private func deviceBoundIDs(among ids: some Sequence<String>) -> Set<String>? {
         guard let sourcesProvider else { return [] }
         var folders: [(id: String, sourceID: String)] = []
         var bookIDs = Set<String>()
@@ -616,6 +628,7 @@ final class FavoriteCollectionStore {
             result.insert(folder.id)
         }
         guard !bookIDs.isEmpty, !localSourceIDs.isEmpty, let library else { return result }
+        guard library.isReady else { return nil }
         var sourcesByBook: [String: Set<String>] = [:]
         for song in library.spokenWordSongs {
             guard let bookID = library.spokenWordBookIDs[song.id], bookIDs.contains(bookID) else { continue }
