@@ -415,6 +415,32 @@ extension LibraryCatalog {
         }
     }
 
+    /// 本机播客有几档节目(可见的播客单集分到的节目 id 有几个),同内存里的 `localPodcastShowCount`。
+    public func podcastShowCount() throws -> Int {
+        try reader.read { db in
+            let (sql, arguments) = try LibrarySongScope(kinds: [.podcast]).whereClause(in: db)
+            return try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT count(DISTINCT b.bookID) FROM song s JOIN songBook b ON b.songRowid = s.rowid
+                    WHERE \(sql) AND b.kind = \(LibraryCatalogContentKind.podcast.rawValue) AND b.bookID IS NOT NULL
+                    """,
+                arguments: arguments
+            ) ?? 0
+        }
+    }
+
+    /// 一个范围里按库内顺序的头几首的 id(资料库入口上 MV、有声书、环境音那几张小封面,同数组的 `prefix`)。
+    public func firstSongIDs(_ scope: LibrarySongScope, limit: Int) throws -> [String] {
+        guard limit > 0 else { return [] }
+        return try reader.read { db in
+            let (sql, arguments) = try scope.whereClause(in: db)
+            return try String.fetchAll(
+                db, sql: "SELECT s.id FROM song s WHERE \(sql) ORDER BY s.rowid LIMIT \(limit)", arguments: arguments
+            )
+        }
+    }
+
     /// 这些 id 里本机播客单集各在哪个节目里(节目 id 与节目名),同内存里 `localPodcastBookIDs` 与
     /// `localPodcastShowTitle(forSongID:)`。不是播客单集的 id 不在结果里。按 id 分批查,不逐首解码。
     public func podcastShowPlacements(songIDs: some Collection<String>) throws -> [String: LibraryCatalogShowPlacement] {

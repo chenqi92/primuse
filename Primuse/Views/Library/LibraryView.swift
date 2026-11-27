@@ -851,6 +851,8 @@ struct LibraryView: View {
     @State private var artworkPreviewBuiltAt: Date?
     @State private var startupPreview: LibraryHubStartupPreview?
     @State private var startupCoverSongs: [String: Song] = [:]
+    /// 歌曲模型不在内存里时 MV、有声书、环境音入口上的头三首(从曲库目录读,见 `LibraryHubReleased`)。
+    @State private var releasedTileSongs: [LibrarySection: [Song]] = [:]
     @AppStorage(LibraryHubStartupPreview.storageKey) private var hubPreviewData: Data?
 
     private var hubScope: LibraryHubStartupPreview.Scope {
@@ -859,8 +861,32 @@ struct LibraryView: View {
     }
 
     private var currentStartupPreview: LibraryHubStartupPreview? {
-        guard !library.isReady, startupPreview?.scope == hubScope else { return nil }
+        guard !hubIsLive, startupPreview?.scope == hubScope else { return nil }
         return startupPreview
+    }
+
+    /// 入口此刻按真的数画(6c 单元 4 U3):模型在内存里,或者模型放掉了而曲库目录的计数读到了。
+    /// 第一次发布之前(还没装过)照旧画启动时存下的那份。
+    private var hubIsLive: Bool {
+        library.isReady || (library.isUsable && catalogHubCounts != nil)
+    }
+
+    /// 模型放掉时入口上各分类的数,从曲库目录的计数来;答不了的为 nil(显示存下的数或「—」)。
+    private func releasedCount(_ section: LibrarySection) -> Int? {
+        guard let counts = catalogHubCounts else { return nil }
+        switch section {
+        // crash-pattern: allow legacy-library-api 目录计数的字段名,不是整库数组
+        case .folders: return counts.visibleSongs
+        case .songs: return counts.music
+        case .albums: return counts.albums
+        case .artists:
+            return ArtistBrowseMode.resolved(artistBrowseModeRaw) == .allArtists ? counts.artists : nil
+        case .genres: return counts.genres
+        case .playlists: return regularPlaylists.count + library.smartPlaylists.count
+        case .ambient: return counts.ambient
+        case .musicVideos: return counts.musicVideos
+        default: return nil
+        }
     }
 
     private var songs: [Song] { library.visibleSongs }
@@ -1071,7 +1097,7 @@ struct LibraryView: View {
         if let rootSection {
             sectionPage(rootSection)
         } else {
-            if !library.isReady || hasContent {
+            if !hubIsLive || hasContent {
                 libraryHub
             } else {
                 emptyLibraryState
@@ -1301,7 +1327,7 @@ struct LibraryView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 LibraryOfflineModeBanner(horizontalInset: 16)
-                if !library.isReady, currentStartupPreview == nil {
+                if !hubIsLive, currentStartupPreview == nil {
                     ProgressView("library_preparing")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1318,7 +1344,7 @@ struct LibraryView: View {
                 HomeDiscoveryObserver(model: favoriteFolderModel)
             }
         }
-        .task(id: HubRefreshKey(scope: hubScope, ready: library.isReady, revision: previewRevision)) {
+        .task(id: HubRefreshKey(scope: hubScope, ready: library.isReady, live: hubIsLive, revision: previewRevision)) {
             if library.isReady {
                 await refreshArtworkPreviews(for: previewRevision)
                 if !Task.isCancelled, artworkPreviewSelection.revision == previewRevision {
@@ -1326,7 +1352,12 @@ struct LibraryView: View {
                     startupCoverSongs = [:]
                 }
             } else {
+                // 封面照旧用存下的那份;模型放掉了时 MV、有声书、环境音入口的小封面从曲库目录读(6c)。
                 await restoreHubPreview()
+                if hubIsLive, !Task.isCancelled, let tiles = await LibraryHubReleased.tileSongs(library: library),
+                   !Task.isCancelled {
+                    releasedTileSongs = tiles
+                }
             }
         }
         .serverCatalogPullToRefresh(alsoRefresh: {
@@ -1749,7 +1780,7 @@ struct LibraryView: View {
                 )
             }
         case .musicVideos:
-            overlappingPreview(Array(library.musicVideoSongs.prefix(3))) { song in
+            overlappingPreview(library.isReady ? Array(library.musicVideoSongs.prefix(3)) : releasedTileSongs[.musicVideos] ?? []) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -1774,7 +1805,7 @@ struct LibraryView: View {
                 )
             }
         case .spokenWord:
-            overlappingPreview(Array(library.spokenWordSongs.prefix(3))) { song in
+            overlappingPreview(library.isReady ? Array(library.spokenWordSongs.prefix(3)) : releasedTileSongs[.spokenWord] ?? []) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -1843,7 +1874,7 @@ struct LibraryView: View {
                 }
             }
         case .ambient:
-            overlappingPreview(Array(library.ambientSongs.prefix(3))) { song in
+            overlappingPreview(library.isReady ? Array(library.ambientSongs.prefix(3)) : releasedTileSongs[.ambient] ?? []) { song in
                 // 没有封面的声音和环境音页的声音卡一样画自己的图案,不是三块灰色占位。
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
@@ -1884,19 +1915,19 @@ struct LibraryView: View {
     private var previewSongs: [Song] {
         hasArtworkPreviewSelection
             ? artworkPreviewSelection.songs
-            : Array(songs.prefix(3))
+            : (library.isReady ? Array(songs.prefix(3)) : [])
     }
 
     private var previewAlbums: [Album] {
         hasArtworkPreviewSelection
             ? artworkPreviewSelection.albums
-            : Array(albums.prefix(3))
+            : (library.isReady ? Array(albums.prefix(3)) : [])
     }
 
     private var previewArtists: [Artist] {
         hasArtworkPreviewSelection
             ? artworkPreviewSelection.artists
-            : Array(artists.prefix(3))
+            : (library.isReady ? Array(artists.prefix(3)) : [])
     }
 
     private var previewGenreSongs: [Song] {
@@ -2074,6 +2105,7 @@ struct LibraryView: View {
     private struct HubRefreshKey: Equatable {
         let scope: LibraryHubStartupPreview.Scope
         let ready: Bool
+        let live: Bool
         let revision: String
     }
 
@@ -2315,6 +2347,7 @@ struct LibraryView: View {
     private func categoryCountText(_ section: LibrarySection) -> String {
         func count(_ live: @autoclosure () -> Int, unitKey: String.LocalizationValue) -> String {
             if library.isReady { return countText(live(), unitKey: unitKey) }
+            if hubIsLive, let released = releasedCount(section) { return countText(released, unitKey: unitKey) }
             guard let cached = currentStartupPreview?.counts[section.rawValue] else { return "—" }
             return countText(cached, unitKey: unitKey)
         }
@@ -2335,8 +2368,10 @@ struct LibraryView: View {
         case .spokenWord:
             // 有声书按书和章节计,不是「几首歌曲」。带内嵌章节的文件按章节数算,其余一个文件一章。
             let totals: (books: Int, chapters: Int)
-            if library.isReady { totals = (library.spokenWordBookCount, library.spokenWordChapterCount) }
-            else if let cached = currentStartupPreview, let books = cached.counts[section.rawValue] {
+            // 书与章节的数放掉模型时照旧留着(19a)。
+            if library.isReady || (hubIsLive && library.spokenWordBookCount > 0) {
+                totals = (library.spokenWordBookCount, library.spokenWordChapterCount)
+            } else if let cached = currentStartupPreview, let books = cached.counts[section.rawValue] {
                 totals = (books, cached.chapters)
             } else { return "—" }
             return String(format: String(localized: "library_spoken_word_count_format"), totals.books, totals.chapters)
@@ -2354,7 +2389,10 @@ struct LibraryView: View {
         case .radio:
             return countText(radioStationsStore.stations.count, unitKey: "radio_stations_count")
         case .podcasts:
-            return countText(PodcastStore.shared.shows.count + library.localPodcastShowCount, unitKey: "podcast_shows_count")
+            // 本机播客的节目数放掉模型时是空的:从曲库目录数(6c)。
+            let localShows = library.isReady ? library.localPodcastShowCount
+                : catalogHubCounts?.podcastShows ?? library.localPodcastShowCount
+            return countText(PodcastStore.shared.shows.count + localShows, unitKey: "podcast_shows_count")
         case .ambient:
             return count(ambientCount, unitKey: "ambient_sounds_count")
         case .musicVideos:
