@@ -70,6 +70,12 @@ enum ServerPlaylistSyncService {
             plog("\(context) stage=apply result=skipped reason=stale-scan")
             return result
         }
+        // 对照是对着曲库算的,落地也要对着曲库改:算的时候、落的这一刻曲库都得在内存里(或者目录读得了)。
+        // 不在就不落 —— 落下去是把歌单成员换成占位、把镜像歌单删掉。下一轮同步再来。
+        guard prepared.isMatched, library.isReady else {
+            plog("\(context) stage=apply result=skipped reason=library-not-ready")
+            return result
+        }
 
         result = ServerPlaylistMirror.apply(prepared, snapshot: snapshot, source: source, library: library,
                                             readRevision: applier.readRevision)
@@ -530,6 +536,8 @@ extension SourcesStore: ServerFavoriteSourcesProviding {}
 @MainActor
 protocol ServerFavoriteLibraryManaging: AnyObject {
     var songs: [Song] { get }
+    /// `songs` 与「喜欢」此刻是不是整座曲库的样子(歌曲模型在内存里)。不是的时候两者都是空的。
+    var isLibraryLoaded: Bool { get }
     func isLiked(songID: String) -> Bool
     func likedSongIDs(fromSourceID sourceID: String) -> [String]
     func setLiked(songID: String, isLiked: Bool, propagatesServerMutation: Bool)
@@ -540,6 +548,7 @@ protocol ServerFavoriteLibraryManaging: AnyObject {
 }
 
 extension ServerFavoriteLibraryManaging {
+    var isLibraryLoaded: Bool { true }
     func likedSongIDs(fromSourceID sourceID: String) -> [String] {
         Array(songs.lazy.filter { $0.sourceID == sourceID && self.isLiked(songID: $0.id) }.map(\.id))
     }
@@ -547,7 +556,9 @@ extension ServerFavoriteLibraryManaging {
     func releaseUnreferencedCollectionOnlySongs(sourceID: String) {}
 }
 
-extension MusicLibrary: ServerFavoriteLibraryManaging {}
+extension MusicLibrary: ServerFavoriteLibraryManaging {
+    var isLibraryLoaded: Bool { isReady }
+}
 
 @MainActor
 protocol ServerFavoriteSurfacePublishing: AnyObject {
@@ -883,6 +894,8 @@ final class ServerFavoriteSyncService {
         sourceType: MusicSourceType,
         applyFence: () -> Bool
     ) async -> Bool {
+        // 曲库没装好时服务器的收藏一首都对不上本机的歌,对出来的「空」不能当成「都取消了」。
+        guard library.isLibraryLoaded else { return false }
         // 曲库里没有的收藏(插件的在线收藏)先作为仅歌单的歌入库, 下面才对得上号。
         let admitted = snapshot.itemIDs.compactMap { snapshot.playableSongs[$0] }
         library.admitCollectionOnlySongs(
@@ -913,6 +926,8 @@ final class ServerFavoriteSyncService {
                 plog("Server favorites source=\(LogRedactionPolicy.digest(sourceID)) catalog match failed, using in-memory library: \(error.localizedDescription)")
             }
         }
+        // 上面读目录时等过:这一刻再问一次。
+        guard library.isLibraryLoaded else { return false }
         let songs = library.songs
         let worker = Task.detached(priority: .utility) { () -> [String]? in
             let requested = Set(snapshot.itemIDs)
@@ -934,6 +949,8 @@ final class ServerFavoriteSyncService {
     }
 
     private func applyReconciled(_ snapshot: ServerFavoriteSnapshot, sourceID: String, serverLikes: [String]) -> Bool {
+        // 曲库没装好时「这个源现在喜欢了哪些」读出来是空的:照着落地,排队重放时就是把这个源的喜欢清掉。
+        guard library.isLibraryLoaded else { return false }
         let currentLikes = library.likedSongIDs(fromSourceID: sourceID)
         let likedBefore = Set(currentLikes)
         // 清单不完整时只加不撤：被跳过的那几条里可能就有本机已喜欢的歌。

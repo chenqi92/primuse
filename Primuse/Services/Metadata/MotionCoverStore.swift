@@ -135,14 +135,24 @@ final class MotionCoverStore {
         guard !candidateAlbums.isEmpty else { return }
         // 删音乐源时资料库可能在这条通知之后才换上新的歌曲表；等下一轮再看专辑还有没有歌。
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            let songs = AppServices.shared.musicLibrary.songs
-            let orphanedAlbums = candidateAlbums.filter { albumID in
-                !songs.contains { $0.albumID == albumID }
-            }
-            guard !orphanedAlbums.isEmpty, self.index.remove(songIDs: [], albumIDs: orphanedAlbums) else { return }
-            self.commit()
+            self?.removeBindings(ofOrphanedAlbumsAmong: candidateAlbums)
         }
+    }
+
+    private func removeBindings(ofOrphanedAlbumsAmong candidateAlbums: Set<String>) {
+        // 曲库没装好时整库数组是空的,每张专辑看起来都没歌了:这时不判,等装好再看。
+        guard AppServices.shared.musicLibrary.isReady else {
+            AppServices.shared.musicLibrary.onReady { [weak self] in
+                self?.removeBindings(ofOrphanedAlbumsAmong: candidateAlbums)
+            }
+            return
+        }
+        let songs = AppServices.shared.musicLibrary.songs
+        let orphanedAlbums = candidateAlbums.filter { albumID in
+            !songs.contains { $0.albumID == albumID }
+        }
+        guard !orphanedAlbums.isEmpty, index.remove(songIDs: [], albumIDs: orphanedAlbums) else { return }
+        commit()
     }
 
     private func commit() {

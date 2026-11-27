@@ -159,6 +159,9 @@ enum CloudAccountMigrationService {
             // (don't recompute hash), only swap sourceID — playlists
             // and play history stay valid.
             let redundantIDs = Set(toMerge.map(\.id))
+            // 改挂之前曲库必须在内存里:不在的话一首都改不到,接着软删多余的挂载,那些歌就跟着没了。
+            // 前面认账号时等过网络,所以在用到的这一刻等,不是在入口。
+            await library.whenReady()
             let affectedSongs = library.songs.filter { redundantIDs.contains($0.sourceID) }
             if !affectedSongs.isEmpty {
                 let repointed = affectedSongs.map { song -> Song in
@@ -208,6 +211,9 @@ enum CloudAccountMigrationService {
             )
             plog("☁️ Migration: phase 1.5 config-dedup — \(toMerge.count) exact-duplicate \(keeper.type.rawValue) mount(s) → keeper=\(keeper.id)")
             let redundantIDs = Set(toMerge.map(\.id))
+            // 改挂之前曲库必须在内存里:不在的话一首都改不到,接着软删多余的挂载,那些歌就跟着没了。
+            // 前面认账号时等过网络,所以在用到的这一刻等,不是在入口。
+            await library.whenReady()
             let affectedSongs = library.songs.filter { redundantIDs.contains($0.sourceID) }
             if !affectedSongs.isEmpty {
                 let repointed = affectedSongs.map { song -> Song in

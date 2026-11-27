@@ -357,12 +357,22 @@ final class LifecycleRegressionTests: XCTestCase {
         let drain = BackgroundProcessingDrain(completion: completion, dependencies: dependencies)
         await drain.run()
 
-        XCTAssertEqual(recorder.count(of: "waitForLibraryReady"), 1)
+        // 入口等一次;每段长等待(这里是等扫描)之后、起下一段活儿之前再等一次。
+        XCTAssertEqual(recorder.count(of: "waitForLibraryReady"), 2)
         XCTAssertEqual(
             recorder.events.first,
             "waitForLibraryReady",
             "readiness must be awaited before any other dependency runs"
         )
+        if let scans = recorder.events.firstIndex(of: "waitForScans"),
+           let scrapeProbe = recorder.events.firstIndex(of: "hasPendingScrape") {
+            XCTAssertTrue(
+                recorder.events[scans..<scrapeProbe].contains("waitForLibraryReady"),
+                "readiness must be awaited again between the scan wait and the next probe"
+            )
+        } else {
+            XCTFail("the scan wait or the scrape probe never ran")
+        }
         // 三个"有没有活儿"的判定都必须排在就绪等待之后。
         for probe in ["hasResumableScanWork", "hasPendingScrape", "backfillHasPendingWork"] {
             guard let probeIndex = recorder.events.firstIndex(of: probe) else {

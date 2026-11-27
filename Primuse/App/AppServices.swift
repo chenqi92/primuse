@@ -1321,6 +1321,7 @@ final class AppServices {
             guard let host = library?.catalogHost, host.revisions.isReadable else { return nil }
             return host.reader
         }
+        manager.librarySongsAreLoaded = { [weak library] in library?.isReady ?? false }
         // 离线表(`songOffline`)跟着目录:变得可读、整份重建(导入会清空它)时对一次账,歌刚进目录时补写。
         library.catalogHost?.revisions.addListener { [weak manager] change in
             guard let manager else { return false }
@@ -3352,6 +3353,8 @@ final class AppServices {
     /// library snapshot/replacement lands so an old scan count cannot masquerade
     /// as the number of songs currently available on this device.
     private func reconcileSourceSongCounts() {
+        // 曲库没装好时每个源数出来都是 0:不拿它覆盖源卡片上存着的数。装好时歌曲表一变,这里会再来一次。
+        guard musicLibrary.isReady else { return }
         sourcesStore.reconcileLocalSongCounts(musicLibrary.songCountsBySourceID())
     }
 
@@ -3794,9 +3797,10 @@ final class AppServices {
                 }
                 return
             }
-            // 对齐到目标状态: 已经是想要的结果就别再 toggle 一次。
-            guard library.isLiked(songID: songID) != desired else { return }
-            library.toggleLiked(songID: songID)
+            // 对齐到目标状态: 已经是想要的结果就不动。曲库还没装好时「我喜欢」是空的, 比不出来,
+            // 直接按目标值交给曲库(它排队到装好再设), 不拿空表去取反、也不把「取消喜欢」吞掉。
+            guard !library.isReady || library.isLiked(songID: songID) != desired else { return }
+            library.setLiked(songID: songID, isLiked: desired, propagatesServerMutation: true)
             // 心的状态同时挂在两个 surface 上, 都要立刻跟上, 否则乐观 UI
             // 会在下一次刷新时被旧数据打回去。
             player.republishNowPlayingSurfaces()

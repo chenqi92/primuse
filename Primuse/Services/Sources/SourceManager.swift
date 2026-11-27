@@ -3747,6 +3747,9 @@ final class SourceManager {
     /// 曲库目录此刻可读时的读接口(P2d);nil 时照旧用 `songsProvider` 的整库数组。
     /// 由 `AppServices` 接上 `MusicLibrary.catalogHost`。
     @ObservationIgnored var catalogReaderProvider: @MainActor () -> LibraryCatalogReader? = { nil }
+    /// `songsProvider` 此刻给的是不是整座曲库(歌曲模型在内存里)。不是的时候它是空的,不能拿它当
+    /// 「还有哪些歌在用这些文件」的依据。由 `AppServices` 接上 `MusicLibrary.isReady`。
+    @ObservationIgnored var librarySongsAreLoaded: @MainActor () -> Bool = { true }
     @ObservationIgnored private var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
     @ObservationIgnored private var offlineAudioSnapshotVersions: [String: UInt64] = [:]
     @ObservationIgnored private var pendingOfflineAudioCachePaths: Set<String> = []
@@ -13190,10 +13193,12 @@ extension SourceManager {
         let legacyWebDAVRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_webdav_cache")
         let removedAt = Date()
-        let retainingSongs = songsProvider()
         SourceCacheReclamationQueue.enqueue { [songs, legacyWebDAVRoot] in
             await Self.removeLegacyWebDAVCaches(for: songs, root: legacyWebDAVRoot)
         }
+        // 曲库没装好时不知道留下的歌还在用哪些封面、歌词:不知道就不删(多留的缓存以后还能清,删错的回不来)。
+        guard librarySongsAreLoaded() else { return }
+        let retainingSongs = songsProvider()
         SourceCacheReclamationQueue.enqueue { [songs, songIDs, retainingSongs, removedAt] in
             guard !Task.isCancelled else { return }
             await MetadataAssetStore.shared.invalidateRemovedSongCaches(
@@ -13380,6 +13385,8 @@ extension SourceManager {
         SourceCacheReclamationQueue.enqueue { [stagedPaths] in
             await Self.deleteStagedCacheDirectories(stagedPaths)
         }
+        // 同上:共用的封面缓存要对着「留下的歌」筛,曲库没装好时不筛也不删。
+        guard librarySongsAreLoaded() else { return }
         let retainingSongs = songsProvider()
         SourceCacheReclamationQueue.enqueue { [sourceIDs, retainingSongs, removedAt] in
             await MetadataAssetStore.shared.invalidateSourceArtworkCaches(

@@ -3816,8 +3816,12 @@ extension CloudKitSyncService {
     /// identity so the receiving device can attempt a fuzzy match — at
     /// worst it's dropped, which matches the receiver's reality anyway.
     private func makeIdentities(forSongIDs songIDs: [String]) -> [SongIdentity] {
-        songIDs.map { id in
-            if let song = library.songForSynchronization(id: id) {
+        // 一批一起取(歌曲模型不在内存里时目录那一边一次查回来,不是一首一查)。调用方已经在同一轮里确认
+        // 曲库装好了;万一此刻答不了,逐首问的答案与以前相同。
+        let songs = library.songsForSynchronization(ids: songIDs)
+            ?? songIDs.map { library.songForSynchronization(id: $0) }
+        return zip(songIDs, songs).map { id, song in
+            if let song {
                 return SongIdentity(
                     songID: song.id,
                     title: song.title,
@@ -4057,6 +4061,10 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             syncEngine === self.engine || syncEngine === self.sharedEngine
         }
         guard syncEngineIsCurrent else { return nil }
+        // 要发的记录是对着曲库拼的(歌单成员、播放历史里每首歌的身份):曲库没装好就等它装好再拼,
+        // 与收的那一边(`withReadyLibrary`)一样。不等的话歌单查不到、成员都成了空身份。
+        let library = await MainActor.run { self.library }
+        await library.whenReady()
         let scope = context.options.scope
         let scopedPending = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         let filtered = await MainActor.run {
@@ -4072,8 +4080,14 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         }
 
         return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { recordID in
-            let record = await MainActor.run { self.makeRecord(for: recordID) }
-            if let record { return record }
+            // 每条记录拼之前在同一轮主线程里再问一次(上一条拼完之后又等过):曲库这一刻不在内存里的话,
+            // 「拼不出来」不等于「本机已经没有这个东西」—— 这条不发、也不从待发里拿掉,留给下一次。
+            let outcome = await MainActor.run { () -> (record: CKRecord?, libraryIsReady: Bool) in
+                guard self.library.isReady else { return (nil, false) }
+                return (self.makeRecord(for: recordID), true)
+            }
+            if let record = outcome.record { return record }
+            guard outcome.libraryIsReady else { return nil }
             // Local entity is gone — drop the pending change so the engine
             // doesn't retry forever. (Default behavior is to leave it queued.)
             syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])

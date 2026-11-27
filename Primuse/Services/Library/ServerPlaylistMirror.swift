@@ -54,6 +54,9 @@ enum ServerPlaylistMirror {
         fileprivate let entries: [Entry]
         /// 歌单引用到、在本地按服务端 ID 对上的曲目数(以前是整源建了对照的曲目数)。
         fileprivate let indexedTrackCount: Int
+        /// false:算的时候曲库目录读不了、歌曲模型也不在内存里,没有歌可对照。这样的结果不落地
+        /// (落下去是把成员都换成占位、把没出现的镜像歌单删掉)。
+        var isMatched = true
     }
 
     static func apply(
@@ -93,6 +96,9 @@ enum ServerPlaylistMirror {
                 plog("\(logContext(sourceID: sourceID, sourceType: sourceType)) catalog prepare failed, using in-memory library: \(error.localizedDescription)")
             }
         }
+        // 曲库目录读不了、歌曲模型也不在内存里:对照做不出来(对着空的歌曲表,每个成员都成了占位)。
+        // 交回一份标明「没对照」的结果,落地那一步不认它。
+        guard library.isReady else { return PreparedSnapshot(entries: [], indexedTrackCount: 0, isMatched: false) }
         let songs = library.songs
         let matchingSongs = library.visibleSongs
         let worker = Task.detached(priority: .utility) {
@@ -256,6 +262,9 @@ enum ServerPlaylistMirror {
         readRevision: UInt64? = nil
     ) -> SyncResult {
         var result = SyncResult()
+        // 落地对着曲库改歌单:歌曲模型不在内存里时不落。这时的对照是对着空的歌曲表算的(成员全是占位),
+        // 没出现在快照里的镜像歌单还会被删;发布之前这些改动是排着队的,装好之后照样重放。
+        guard library.isReady, prepared.isMatched else { return result }
         let context = logContext(sourceID: source.id, sourceType: source.type)
         let prefix = ServerPlaylistIdentity.playlistIDPrefix(sourceID: source.id)
         let previousIDs = Set(library.allPlaylists.filter { $0.id.hasPrefix(prefix) }.map(\.id))
@@ -376,6 +385,8 @@ enum ServerPlaylistMirror {
             if let catalogBuilt = await ServerPlaylistMirror.catalogServerItemIndex(sourceID: sourceID, library: library) {
                 built = catalogBuilt
             } else {
+                // 歌曲模型不在内存里时不拿空的歌曲表建对照。
+                guard library.isReady else { return }
                 let songs = library.songs
                 built = await Task.detached(priority: .utility) {
                     ServerPlaylistMirror.serverItemIndex(sourceID: sourceID, songs: songs)
@@ -388,6 +399,8 @@ enum ServerPlaylistMirror {
         /// 当场落地这一张。整源对照还没建好时只为它引用到的曲目对一遍(结果相同), 不再为
         /// 一张歌单把整个源的对照建出来留着。
         func apply(_ serverPlaylist: ServerPlaylist) {
+            // 曲库没装好时成员一个都对不上,落地就是把这张歌单的成员全换成占位:这一张先不落,下一轮同步再来。
+            guard library.isReady else { return }
             if let index {
                 flushWaiting(index: index)
                 applyEntry(serverPlaylist, index: index)
@@ -400,7 +413,7 @@ enum ServerPlaylistMirror {
         /// 同步途中逐张读回来时用, 调用方已经过了闸(扫描仍是当前这一轮、源没被停用)。
         /// 对照没建好之前先排着, 不在主线程上整源走一遍。
         func enqueue(_ serverPlaylist: ServerPlaylist) {
-            guard !isFinished else { return }
+            guard !isFinished, library.isReady else { return }
             if let index {
                 flushWaiting(index: index)
                 applyEntry(serverPlaylist, index: index)
@@ -451,7 +464,7 @@ enum ServerPlaylistMirror {
                 if let catalogBuilt = await ServerPlaylistMirror.catalogServerItemIndex(sourceID: sourceID, library: library) {
                     built = catalogBuilt
                 } else {
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled, library.isReady else { return }
                     let songs = library.songs
                     let worker = Task.detached(priority: .utility) {
                         ServerPlaylistMirror.serverItemIndex(sourceID: sourceID, songs: songs)

@@ -100,6 +100,30 @@ final class ServerFavoriteSyncServiceTests: XCTestCase {
         XCTAssertTrue(library.isLiked(songID: local.id))
     }
 
+    /// 曲库没装好时(歌曲表与「我喜欢」都还是空的)服务器收藏的对账不落地:那时对出来的「这个源一首都没喜欢」
+    /// 不是真的,照着落地就是把这个源的喜欢清掉。装好之后的下一轮照常对。
+    func testRefreshLeavesLikesAloneWhileTheLibraryIsNotLoaded() async {
+        let source = makeSource(type: .navidrome)
+        let first = makeSong(sourceID: source.id, path: "/songs/song-1.flac")
+        let second = makeSong(sourceID: source.id, path: "/songs/song-2.flac")
+        let manager = FavoriteManagerFake()
+        manager.serverItemIDs = ["song-2"]
+        let library = FavoriteLibraryFake(songs: [first, second])
+        library.setLocalLiked(first.id, true)
+        let service = makeService(source: source, manager: manager, library: library)
+
+        library.isLibraryLoaded = false
+        await service.refresh(source: source)
+        XCTAssertTrue(library.isLiked(songID: first.id), "nothing may be un-liked from a library that is not loaded")
+        XCTAssertFalse(library.isLiked(songID: second.id))
+        XCTAssertEqual(library.songs.count, 2)
+
+        library.isLibraryLoaded = true
+        await service.refresh(source: source)
+        XCTAssertFalse(library.isLiked(songID: first.id))
+        XCTAssertTrue(library.isLiked(songID: second.id))
+    }
+
     func testIncompleteServerListAddsLikesButNeverRemovesThem() async {
         let source = makeSource(type: .navidrome)
         let kept = makeSong(sourceID: source.id, path: "/songs/song-1.flac")
@@ -767,6 +791,7 @@ private final class FavoriteSourcesFake: ServerFavoriteSourcesProviding {
 @MainActor
 private final class FavoriteLibraryFake: ServerFavoriteLibraryManaging {
     private(set) var songs: [Song]
+    var isLibraryLoaded = true
     private var likedSongIDs = Set<String>()
     private(set) var errorMessages: [String] = []
 

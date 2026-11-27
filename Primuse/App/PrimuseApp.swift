@@ -995,7 +995,7 @@ final class BackgroundProcessingDrain {
         }
         dependencies.startPeriodicQuickSync()
         await dependencies.waitForScans()
-        guard !completion.isCompleted else { return }
+        guard await libraryIsReadyForMoreWork() else { return }
         // Playback can start from the lock screen while this drain is
         // suspended, so the check repeats after every long wait.
         if dependencies.isPlaybackActive() {
@@ -1006,7 +1006,7 @@ final class BackgroundProcessingDrain {
         if dependencies.hasPendingScrape() {
             dependencies.resumeScrape()
             await dependencies.waitForScrape()
-            guard !completion.isCompleted else { return }
+            guard await libraryIsReadyForMoreWork() else { return }
             if dependencies.isPlaybackActive() {
                 await drainDuringPlayback()
                 return
@@ -1018,6 +1018,14 @@ final class BackgroundProcessingDrain {
             await dependencies.waitBackfillIdle()
         }
         finish()
+    }
+
+    /// 每段长等待之后、起下一段活儿之前再等一次曲库就绪(已经就绪时立即返回)。等的那一会儿歌曲模型可能已经
+    /// 不在内存里:这时问「还有没有活儿」答案都是没有,起的刮削、补读也是对着空库跑。任务已到期时返回 false。
+    private func libraryIsReadyForMoreWork() async -> Bool {
+        guard !completion.isCompleted else { return false }
+        await dependencies.waitForLibraryReady()
+        return !completion.isCompleted
     }
 
     /// Background audio is user-facing foreground work, but it also keeps the
@@ -1033,7 +1041,7 @@ final class BackgroundProcessingDrain {
             dependencies.resumeScans()
         }
         await dependencies.waitForScans()
-        guard !completion.isCompleted else { return }
+        guard await libraryIsReadyForMoreWork() else { return }
         if dependencies.backfillHasPendingWork() {
             dependencies.startBackfill()
             await dependencies.waitBackfillIdle()

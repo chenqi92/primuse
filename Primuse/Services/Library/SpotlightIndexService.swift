@@ -456,7 +456,10 @@ final class SpotlightIndexService {
             spotlightDiagnostic("search export skipped reason=library-not-ready")
             return
         }
-        let snapshot = await librarySnapshotPreferringCatalog(library: library)
+        guard let snapshot = await librarySnapshotPreferringCatalog(library: library) else {
+            spotlightDiagnostic("search export skipped reason=library-not-ready")
+            return
+        }
         spotlightDiagnostic("search export state songs=\(snapshot.visibleSongCount) limit=\(Self.maxIndexedSongs) phase=\(workPhase) pending=\(Self.isSynchronizationPending)")
         let task = Task.detached(priority: .utility) {
             guard let prepared = Self.prepareSnapshot(snapshot) else { return }
@@ -694,13 +697,19 @@ final class SpotlightIndexService {
 
     /// 曲库目录可读时(P2c)收录的歌从目录选(`selectingCatalogSongs`),专辑、艺人、歌单照旧;
     /// 目录不可读或读失败时就是 `makeLibrarySnapshot`。
-    private func librarySnapshotPreferringCatalog(library: MusicLibrary) async -> LibrarySnapshot {
+    ///
+    /// nil:此刻曲库没装好。调用方是隔了一次任务切换才走到这里的,进来时装好了不等于现在还装着;
+    /// 没装好时专辑、艺人、歌单都是空的,拿去同步就是把它们从 Spotlight 里全删掉。
+    private func librarySnapshotPreferringCatalog(library: MusicLibrary) async -> LibrarySnapshot? {
+        guard library.isReady else { return nil }
         guard let reader = P2cCatalogAccess.reader(for: library) else { return makeLibrarySnapshot(library: library) }
         let base = makeLibrarySnapshot(library: library, includingSongs: false)
         do {
             return try await Self.selectingCatalogSongs(base, reader: reader)
         } catch {
             if !(error is CancellationError) { spotlightError("catalog song selection", error) }
+            // 读目录时等过:退回整库数组之前再问一次。
+            guard library.isReady else { return nil }
             return makeLibrarySnapshot(library: library)
         }
     }

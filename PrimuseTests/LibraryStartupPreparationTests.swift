@@ -806,7 +806,7 @@ final class LibraryStartupPreparationTests: XCTestCase {
         )
         XCTAssertEqual(library.rawSongIDs(forPlaylist: created.id), [a1.id, b1.id])
         XCTAssertTrue(library.isLiked(songID: a1.id))
-        XCTAssertTrue(library.isLiked(songID: a2.id), "toggleLiked 的取反要在发布后再读一次状态")
+        XCTAssertTrue(library.isLiked(songID: a2.id), "发布之前点的喜欢按「设成喜欢」排队(那时「我喜欢」是空的, 界面上是没点亮的心)")
         XCTAssertEqual(library.recentPlaybackSongIDsForSync, [a1.id])
         XCTAssertEqual(library.libraryReview(for: .song(a1.id))?.rating, 4)
         XCTAssertEqual(library.libraryReview(for: .song(a1.id))?.comment, "排队的评论")

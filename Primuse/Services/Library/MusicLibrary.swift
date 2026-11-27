@@ -4402,6 +4402,9 @@ final class MusicLibrary {
     ///    `updateAppleMusicLibrarySyncEnabled` / `suspendPendingIdentityResolution` /
     ///    `resumePendingIdentityResolution` / 场景切换静默与派生维护调度。
     @ObservationIgnored private var deferredMutations: [@MainActor () -> Void] = []
+    /// `.preparing` 期间排队的整行替换里已经改过的字段(歌曲 id → 字段名 → 值,清掉的字段记 `NSNull`),
+    /// 见 `queuingRowEdits`。这期间按 id 从目录读出来的行叠上它;重放完清空。
+    @ObservationIgnored private var queuedSongFieldEdits: [String: [String: Any]] = [:]
     /// S2 例外 1: `.preparing` 期间记录下来的配置最新值, 发布后对账用。
     @ObservationIgnored private var preparingDisabledSourceIDs: Set<String>?
     @ObservationIgnored private var preparingArtistNameConfiguration: ArtistNameConfiguration?
@@ -5047,6 +5050,11 @@ extension MusicLibrary {
     /// Ordinary playback and UI lookups must continue to use `song(id:)`.
     func songForSynchronization(id: String) -> Song? {
         if let song = song(id: id) { return song }
+        return retainedSongForSynchronization(id)
+    }
+
+    /// 本机移除后留着、没有被全局删除的那一份。
+    fileprivate func retainedSongForSynchronization(_ id: String) -> Song? {
         guard let retained = deviceLocalExcludedSongsByID[id],
               !deletedSongIdentities.contains(identityKey(for: retained)) else { return nil }
         return retained
@@ -5878,6 +5886,8 @@ extension MusicLibrary {
             deferredMutations.removeAll(keepingCapacity: false)
             for work in pending { work() }
         }
+        // 排队的整行替换都落到内存的行上了,读法不用再叠。
+        if !queuedSongFieldEdits.isEmpty { queuedSongFieldEdits = [:] }
     }
 
     /// 发布步骤第 2.5 步: 配置对账 (S2 例外 1)。准备期间记录的最新配置在这里
@@ -12027,11 +12037,11 @@ extension MusicLibrary {
     }
 
     func toggleLiked(songID: String) {
-        // S2: 空库里 `isLiked` 恒为 false, 不排队的话取反结果会是错的 ——
-        // 当前状态必须在发布之后再读一次。
-        if deferringUntilReady({ [weak self] in self?.toggleLiked(songID: songID) }) { return }
-        let previous = isLiked(songID: songID)
-        setLiked(songID: songID, isLiked: !previous, propagatesServerMutation: true)
+        // 一次点按的意思按调用方此刻看得见的状态定:界面上是没点亮的心,点下去就是「喜欢」。
+        // S2: 发布之前「我喜欢」还是空的(`isLiked` 恒为 false),排队的必须是「设成这个值」。排成「发布之后
+        // 再取反」的话,重放时对着真实的表取反,本来就喜欢的歌会被取消喜欢,还会同步到服务器。
+        let desired = !isLiked(songID: songID)
+        setLiked(songID: songID, isLiked: desired, propagatesServerMutation: true)
     }
 
     func isLiked(songID: String) -> Bool {
@@ -12164,8 +12174,7 @@ extension MusicLibrary {
     }
 
     func toggleDisliked(songID: String) {
-        // 和 `toggleLiked` 一样, 当前状态要在发布之后再读。
-        if deferringUntilReady({ [weak self] in self?.toggleDisliked(songID: songID) }) { return }
+        // 和 `toggleLiked` 一样:按此刻看得见的状态定下要设成的值,排队的是「设成这个值」。
         setDisliked(songID: songID, isDisliked: !isDisliked(songID: songID))
     }
 
@@ -14312,6 +14321,9 @@ extension MusicLibrary {
     func replaceSong(_ updatedSong: Song, choosingCover selectedCover: String? = nil) {
         // S2: 与 `replaceSongs` 一致地排队。空库上 `validatedSongIndex` 返回 nil,
         // 不排队的话标签编辑 / 歌词回写 / 播放时长纠正会被直接丢掉。
+        if queuingRowEdits(for: [updatedSong], replay: { [weak self] merged in
+            if let row = merged.first { self?.replaceSong(row, choosingCover: selectedCover) }
+        }) { return }
         if deferringUntilReady({ [weak self] in self?.replaceSong(updatedSong, choosingCover: selectedCover) }) { return }
         let playlistCleanupWasVerified = playlistCleanupIsVerified
         // 整行替换必须排在已入队的旁挂资源补丁之后, 否则窗口内的补丁会把
@@ -14431,6 +14443,9 @@ extension MusicLibrary {
         maintenance: LibraryMaintenanceDisposition = .immediate
     ) {
         guard !updatedSongs.isEmpty else { return }
+        if queuingRowEdits(for: updatedSongs, replay: { [weak self] merged in
+            self?.replaceSongs(merged, maintenance: maintenance)
+        }) { return }
         if deferringUntilReady({ [weak self] in
             self?.replaceSongs(updatedSongs, maintenance: maintenance)
         }) { return }
@@ -17588,6 +17603,17 @@ extension MusicLibrary {
         return .success(())
     }
 
+    #if DEBUG
+    /// 测试:此刻排着队等重放的突变有多少个(发布之前、删源期间的调用)。
+    var deferredMutationCountForTesting: Int { deferredMutations.count }
+
+    /// 测试:当作旧库要整份恢复,直接走恢复写入(平时由 `persistNowAndWait` 等到就绪之后才走到)。
+    func recoverIncrementalSongStoreForTesting() async -> Bool {
+        songStoreRequiresReplacement = true
+        return await flushIncrementalSongStore()
+    }
+    #endif
+
     private func flushIncrementalSongStore() async -> Bool {
         pendingSongPersistenceBatch?.seal()
         let pendingSucceeded: Bool
@@ -17601,6 +17627,11 @@ extension MusicLibrary {
             return false
         }
 
+        // 歌曲模型不在内存里时 `songs` 是空的(上面等过一次写入,状态可能已经变了):拿它整份替换旧库就是把库清空。
+        guard isReady else {
+            plog("⛔ Incremental song recovery skipped: the song model is not loaded")
+            return false
+        }
         let recoverySnapshot = songs
         let writer = songStoreSnapshotWriter
         let importID = pendingSnapshotImportID
@@ -18430,6 +18461,9 @@ extension MusicLibrary {
 
     private func cleanPlaylistEntries() {
         guard !playlistCleanupIsVerified else { return }
+        // 「这首歌还在不在曲库里」此刻答不了(歌曲模型不在内存里、目录那条路也不通,或者目录读失败)就不清:
+        // 那时每个成员都查不到,清下去是把歌单清空。没清就不记成核对过,下次照常再来。
+        guard let isInLibrary = librarySongPresence(among: { playlistSongIDs.values.joined() }) else { return }
         playlistCleanupFullPassCount += 1
         defer { verifiedPlaylistCleanupInputs = playlistCleanupInputs }
         for playlistID in playlistSongIDs.keys {
@@ -18437,7 +18471,7 @@ extension MusicLibrary {
             let waiting = Set((pendingPlaylistIdentities[playlistID] ?? []).map { $0.identity.songID })
             var seen = Set<String>()
             let kept = current.filter {
-                (songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil || waiting.contains($0))
+                (isInLibrary($0) || playlistPendingEntries[$0] != nil || waiting.contains($0))
                     && seen.insert($0).inserted
             }
             // 没变就别写: 每写一次都会让观察者以为成员变了。
@@ -18463,8 +18497,31 @@ extension MusicLibrary {
     }
 
     private func cleanPlaybackHistoryEntries() {
-        recentPlaybackSongIDs = recentPlaybackSongIDs.filter { songForSynchronization(id: $0) != nil }
+        // 同上:答不了就不清,最近播放不能因为模型不在内存里被清空。
+        guard let isInLibrary = librarySongPresence(among: { recentPlaybackSongIDs }) else { return }
+        recentPlaybackSongIDs = recentPlaybackSongIDs.filter(isInLibrary)
     }
+
+    /// 清理歌单成员、最近播放用的「这个 id 还在不在曲库里」(口径同 `songForSynchronization`)。
+    /// 模型在内存里:逐个查索引,与以前一样。不在内存里:把要问的 id 一次交给目录(不是一首一查)。
+    /// nil:此刻答不了,调用方什么都别删。
+    private func librarySongPresence<IDs: Sequence>(among ids: () -> IDs) -> ((String) -> Bool)? where IDs.Element == String {
+        if songModelAnswersFromMemory { return { [self] id in songForSynchronization(id: id) != nil } }
+        let asked = Array(Set(ids()))
+        guard let rows = songsForSynchronization(ids: asked) else { return nil }
+        var present = Set<String>()
+        for (id, row) in zip(asked, rows) where row != nil { present.insert(id) }
+        return { present.contains($0) }
+    }
+
+    #if DEBUG
+    /// 测试:直接跑一遍歌单成员与最近播放的清理(平时只在突变之后跑)。
+    func cleanPlaylistAndHistoryEntriesForTesting() {
+        verifiedPlaylistCleanupInputs = nil
+        cleanPlaylistEntries()
+        cleanPlaybackHistoryEntries()
+    }
+    #endif
 
     /// CloudKit 逐条并进来的远端歌单只记账: 账本整份重写, 逐条写会让一批同步的
     /// 写入量随歌单数平方增长。`CloudKitSyncService` 在一批处理完、引擎游标落盘
@@ -19848,6 +19905,99 @@ extension MusicLibrary {
         songIndexByID.isEmpty && visibleSongIndexByID.isEmpty && mayAnswerOutsideTheModel && readiness == .preparing
     }
 
+    /// 按 id 的读法此刻由内存答:模型发布着,或者正在重载、旧数组还在(电视装快照)。
+    fileprivate var songModelAnswersFromMemory: Bool {
+        readiness == .ready || !songIndexByID.isEmpty
+    }
+
+    /// 按 id 的读法此刻答不答得了:歌曲模型在内存里,或者不在、但目录这条路能答(已经跟上旧库、在跟写)。
+    /// 答不了时 `song(id:)`、`storedSong(id:)`、`storedSongs(forPlaylist:)` 这些入口给的 nil / 空不是
+    /// 「曲库里没有」:拿答案去删、去清、去上传、去标记完成的调用方在用到的那一刻先问这个。
+    var canAnswerSongLookups: Bool {
+        songModelAnswersFromMemory || lookupOutsideTheModel != nil
+    }
+
+    /// 同 `songForSynchronization(id:)`,一批一起取,与输入一一对应。模型不在内存里时目录那一边一次查回来,
+    /// 不是一首一查。nil:此刻答不了(模型不在、目录这条路不通,或者目录读失败),不是「这些都不在曲库里」。
+    func songsForSynchronization(ids: [String]) -> [Song?]? {
+        if songModelAnswersFromMemory { return ids.map { songForSynchronization(id: $0) } }
+        guard let lookup = lookupOutsideTheModel,
+              let stored = storedSongsOutsideTheModel(ids, lookup: lookup, observed: false) else { return nil }
+        guard !deviceLocalExcludedSongsByID.isEmpty else { return stored }
+        // 本机移除后留着的那一份,同步照旧看得见。
+        return zip(ids, stored).map { id, song in song ?? retainedSongForSynchronization(id) }
+    }
+
+    // MARK: Row replacements queued before the model is loaded
+
+    /// 模型还没装好、而按 id 读已经从目录答得出时,排队的整行替换不记整行,记「相对调用方此刻读到的那一行
+    /// 改了哪些字段」;重放时对着那一刻曲库里的行把这些字段改上去。调用方是先读一行、改一个字段、再整行交回来的
+    /// (时长纠正、封面、音轨清单、标签重读……):整行原样重放会把排在它前面的改动、装载时才做的迁移一起盖回去。
+    /// 这期间按 id 再读,目录给的行上叠着已经排队的字段(`withQueuedFieldEdits`),调用方读得到自己刚交的改动。
+    ///
+    /// 返回 true:已经排队。false:这条路此刻不答(调用方手上的行不是从曲库读的),照旧整行排队。
+    fileprivate func queuingRowEdits(for rows: [Song], replay: @escaping @MainActor ([Song]) -> Void) -> Bool {
+        guard isPreparing, let lookup = lookupOutsideTheModel else { return false }
+        var queued: [(row: Song, edits: [String: Any]?)] = []
+        queued.reserveCapacity(rows.count)
+        for row in rows {
+            guard case .some(.some(let base)) = storedSongOutsideTheModel(row.id, lookup: lookup, observed: false),
+                  let edits = Self.fieldEdits(from: base, to: row) else {
+                // 曲库里读不到可比的那一行:这一首照旧整行。
+                queued.append((row, nil))
+                continue
+            }
+            queued.append((row, edits))
+            if !edits.isEmpty { queuedSongFieldEdits[row.id, default: [:]].merge(edits) { _, new in new } }
+        }
+        let entries = queued
+        deferredMutations.append { [weak self] in
+            guard let self else { return }
+            let merged = entries.compactMap { entry -> Song? in
+                guard let edits = entry.edits else { return entry.row }
+                // 重放的这一刻再读:行已经不在了就不写(整行替换对不在库里的行本来也不做事)。
+                guard let current = self.storedSong(id: entry.row.id) else { return nil }
+                return Self.applying(edits, to: current) ?? entry.row
+            }
+            if !merged.isEmpty { replay(merged) }
+        }
+        return true
+    }
+
+    /// 目录给的这一行叠上发布之前排队的整行替换已经改过的字段。
+    fileprivate func withQueuedFieldEdits(_ song: Song?) -> Song? {
+        guard !queuedSongFieldEdits.isEmpty, let song, let edits = queuedSongFieldEdits[song.id] else { return song }
+        return Self.applying(edits, to: song) ?? song
+    }
+
+    /// `Song` 按存盘的编码拆成「字段名 → 值」(曲库里的行不带播放区间,这一来一回不丢东西)。
+    private static func encodedFields(of song: Song) -> [String: Any]? {
+        guard let data = try? JSONEncoder().encode(song) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    /// `updated` 相对 `base` 改了哪些字段:改成的值;清掉的字段记 `NSNull`。
+    private static func fieldEdits(from base: Song, to updated: Song) -> [String: Any]? {
+        guard let before = encodedFields(of: base), let after = encodedFields(of: updated) else { return nil }
+        var edits: [String: Any] = [:]
+        for (key, value) in after {
+            if let previous = before[key] as? NSObject, previous.isEqual(value) { continue }
+            edits[key] = value
+        }
+        for key in before.keys where after[key] == nil { edits[key] = NSNull() }
+        return edits
+    }
+
+    private static func applying(_ edits: [String: Any], to song: Song) -> Song? {
+        guard !edits.isEmpty else { return song }
+        guard var fields = encodedFields(of: song) else { return nil }
+        for (key, value) in edits {
+            if value is NSNull { fields[key] = nil } else { fields[key] = value }
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: fields) else { return nil }
+        return try? JSONDecoder().decode(Song.self, from: data)
+    }
+
     /// 模型不在内存里而目录答得出它的样子(已经跟上旧库、在跟写、没有等着跟上的整份替换)时,按 id 读的那条路;
     /// 否则 nil,调用方照今天的答法。先看索引(不登记观察,模型在的时候一步答完),再看许不许、目录答不答得了,
     /// 最后才读发布状态:冷启动期间开关关着,走不到最后一步,不多登记一份观察。
@@ -19901,7 +20051,7 @@ extension MusicLibrary {
     fileprivate func storedSongOutsideTheModel(_ id: String, lookup: LibraryCatalogSongLookup, observed: Bool) -> Song?? {
         if observed { observeCatalogSongs() }
         do {
-            return .some(admittedOutsideTheModel(try lookup.song(id: id)))
+            return .some(withQueuedFieldEdits(admittedOutsideTheModel(try lookup.song(id: id))))
         } catch {
             noteCatalogByIDReadFailure(error)
             return nil
@@ -19923,7 +20073,8 @@ extension MusicLibrary {
         if observed { observeCatalogSongs() }
         do {
             let songs = try lookup.songs(ids: ids)
-            return deviceLocalExcludedSongIdentities.isEmpty ? songs : songs.map { admittedOutsideTheModel($0) }
+            guard !deviceLocalExcludedSongIdentities.isEmpty || !queuedSongFieldEdits.isEmpty else { return songs }
+            return songs.map { withQueuedFieldEdits(admittedOutsideTheModel($0)) }
         } catch {
             noteCatalogByIDReadFailure(error)
             return nil

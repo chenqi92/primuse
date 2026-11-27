@@ -5792,6 +5792,15 @@ extension ScanService {
         guard isCurrentScan(sourceID, generation: generation) else {
             throw CancellationError()
         }
+        // 提交对着整座曲库算「这个源已有哪些歌、哪些要留下」:歌曲模型不在内存里时那是空的,算出来的保留集合
+        // 只剩这一轮扫到的,接下来的 `addSongs` 会把这个源其余的歌剪掉。没装好就等它装好(等的这一会儿
+        // 扫描可能已被取代);下面每次读整库数组之前再问一次,不在了就按取消收场,断点留着。
+        if !library.isReady {
+            await library.whenReady()
+            guard isCurrentScan(sourceID, generation: generation) else {
+                throw CancellationError()
+            }
+        }
         if let expectedScopeFingerprint {
             try checkSourceScope(
                 sourceID: sourceID,
@@ -5818,6 +5827,7 @@ extension ScanService {
         if let folderRemovedSongIDs {
             detectedCatalogChanges = !songs.isEmpty || !folderRemovedSongIDs.isEmpty
         } else if let authoritativeSongIDs, source?.type.usesPagedCatalogStaging == true {
+            guard library.isReady else { throw CancellationError() }
             let librarySongsSnapshot = library.songs
             let existingIDs = await Task.detached(priority: .utility) {
                 Set(
@@ -5834,6 +5844,7 @@ extension ScanService {
             detectedCatalogChanges = !songs.isEmpty
                 || !existingIDs.subtracting(authoritativeSongIDs).subtracting(collectionOnlySongIDs).isEmpty
         } else if source?.type.isSubsonicFamily == true {
+            guard library.isReady else { throw CancellationError() }
             let existingSongs = library.songs.filter { $0.sourceID == sourceID }
             let prepared = await Task.detached(priority: .utility) {
                 let merged = ServerSongCatalogMergePolicy.mergedSnapshot(
@@ -5851,6 +5862,7 @@ extension ScanService {
             catalogSongs = prepared.0
             detectedCatalogChanges = prepared.1
         } else if source?.type == .fnMusic {
+            guard library.isReady else { throw CancellationError() }
             let existingSongs = library.songs.filter {
                 $0.sourceID == sourceID && !collectionOnlySongIDs.contains($0.id)
             }
@@ -5884,6 +5896,7 @@ extension ScanService {
             // Unchanged file trees only need their sync/checkpoint state updated.
             // Republishing the full catalogue repeats library-wide indexing and
             // enrichment, especially when several sources finish together.
+            guard library.isReady else { throw CancellationError() }
             let librarySongs = library.songs
             detectedCatalogChanges = await Task.detached(priority: .utility) {
                 SourceCatalogSnapshotPolicy.hasChanges(
@@ -5936,6 +5949,7 @@ extension ScanService {
             previousFolderMemberships = [:]
         }
         if let removedIDs = folderRemovedSongIDs, !removedIDs.isEmpty {
+            guard library.isReady else { throw CancellationError() }
             var keep = Set(library.songs.lazy.filter { $0.sourceID == sourceID }.map(\.id))
             keep.formUnion(library.locallyRemovedEntries(forSourceID: sourceID).map { $0.song.id })
             keep.formUnion(walkedSongIDs)

@@ -1074,6 +1074,11 @@ extension MetadataBackfillService {
     /// capacity eviction retains its reference and bypasses this repair path.
     private func clearEvictedArtworkReferences(_ refs: Set<String>) {
         guard !refs.isEmpty else { return }
+        // 曲库没装好时歌曲表是空的,一行都对不上,这批引用就永远留在行上了:等装好再摘。
+        guard library.isReady else {
+            library.onReady { [weak self] in self?.clearEvictedArtworkReferences(refs) }
+            return
+        }
         let affected = library.songs.filter { song in
             guard let ref = song.coverArtFileName, !ref.isEmpty else { return false }
             return refs.contains(ref)
@@ -1283,6 +1288,12 @@ extension MetadataBackfillService {
     /// 一次性修复 / 迁移。它们全部需要读取已发布的 `library.songs`,
     /// 因此只在库就绪之后运行一次(D-Startup 的 S3 不变量)。
     private func runOneTimeRepairsAfterLibraryReady() {
+        // 从「曲库就绪」到这里中间还等过维护账:到了这一刻曲库不在内存里的话,这些修复会在空库上跑完、
+        // 各自的 done-key 永久落下。重新等就绪。
+        guard library.isReady else {
+            library.onReady { [weak self] in self?.runOneTimeRepairsAfterLibraryReady() }
+            return
+        }
         // 这些一次性修复原本写在 init 里, 抽出来之后 `defaults` 必须在本方法
         // 内重新取得 —— 仍然是同一个 `UserDefaults.standard`, 各修复的判定与
         // 落标语义不变。
@@ -3329,6 +3340,8 @@ extension MetadataBackfillService {
         // 同 `refreshRemainingCounts`: 准备中的库不参与对账, 也不落盘。
         guard library.isReady, maintenance.isReady else { return }
         await refreshAlbumArtistVerdictOffMain()
+        // 上面等过一回:曲库这期间不在内存里了的话,下面读到的是空的歌曲表,算出来就是「什么都不剩」。
+        guard library.isReady else { return }
         let now = Date()
         guard force
                 || now.timeIntervalSince(lastRemainingCountRefreshAt)
@@ -3359,6 +3372,11 @@ extension MetadataBackfillService {
             computation = await task.value
             if pendingRemainingCounts?.0 == state { pendingRemainingCounts = nil }
             completedRemainingCounts = (state, computation)
+        }
+        // 算的时候又等过一回:曲库不在内存里了就不落地、不落盘,节流也退回去,装好后重新对账。
+        guard library.isReady else {
+            lastRemainingCountRefreshAt = .distantPast
+            return
         }
         // 代次被顶替与"输入真的变了"必须分开: 被顶替时接管的那次刷新还在跑,
         // 把节流时间戳退回 .distantPast 会让它之后的 start() 再次整库同步对账。

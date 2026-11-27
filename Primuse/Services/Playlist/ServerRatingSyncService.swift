@@ -410,6 +410,12 @@ final class ServerRatingSyncService {
             $0.target.sourceID == sourceID && $0.pending && !$0.blockedByConflict
                 && !attempted.contains($0.id)
         }) {
+            // 曲库没装好时「这条评分还作不作数」答不出(评价、歌曲都查不到):不能当成作废了结。留着,装好再排。
+            // 每一轮都问:上一条的网络往返期间状态可能变了。
+            guard library.readiness == .ready else {
+                library.onReady { [weak self] in self?.resume(sourceID: sourceID) }
+                break
+            }
             attempted.insert(entry.id)
             let fresh = freshMutations.remove(entry.id) != nil
             // Disabled sources keep their pending edit until re-enabled.

@@ -220,7 +220,8 @@ final class SongBatchRemovalService {
             }
         }
 
-        if includesSegments, !removable.isEmpty {
+        // 曲库没装好时整库数组是空的:受牵连的分轨算不全,「没有别的歌还在用」也是假的。这时不补算、不清旁挂文件。
+        if includesSegments, !removable.isEmpty, library.isReady {
             // A scan or hide/restore can complete during a network deletion.
             let catalogue = library.songs + library.locallyRemovedEntries().map(\.song)
             removable = SourceFileDeletionPolicy.affectedSongs(deleting: removable, in: catalogue)

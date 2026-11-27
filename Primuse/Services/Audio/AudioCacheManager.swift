@@ -3289,6 +3289,8 @@ final class AlwaysDownloadCoordinator {
     @ObservationIgnored private var reconciliationTask: Task<Void, Never>?
     @ObservationIgnored private var resourceObserverTokens: [NSObjectProtocol] = []
     @ObservationIgnored private var didStart = false
+    /// 一轮对账因为曲库没装好被推后了,已经登记了「装好再来」。
+    @ObservationIgnored private var isWaitingForLibrary = false
     @ObservationIgnored private var applicationIsActive = false
     private(set) var enabledPlaylistIDs: Set<String>
     /// 开着「保持离线」的书,键是书架给的 book id。
@@ -3585,6 +3587,9 @@ final class AlwaysDownloadCoordinator {
             plog(String(format: "📌 AlwaysDownload reconcile pass trigger=%@ took=%.0fms",
                         reasons, (ProcessInfo.processInfo.systemUptime - startedAt) * 1000))
         }
+        // 曲库没装好时歌单表是空的、歌曲行也答不出:这时对账会把「保持下载」的歌单设置清掉,
+        // 再拿空的期望集合把已下载文件的钉子全摘了。等装好再来一轮。
+        guard library.isReady else { return reconcileWhenLibraryIsReady() }
         let visiblePlaylistIDs = Set(library.playlists.map(\.id))
         let cleanedIDs = enabledPlaylistIDs.intersection(visiblePlaylistIDs)
         if cleanedIDs != enabledPlaylistIDs {
@@ -3607,8 +3612,19 @@ final class AlwaysDownloadCoordinator {
             )
         }.value
         guard !Task.isCancelled else { return }
+        // 上面等过一回:这期间曲库不在了的话这一轮不落地。
+        guard library.isReady else { return reconcileWhenLibraryIsReady() }
         await worker.replaceDesiredSongs(desired)
         pinRevision &+= 1
+    }
+
+    private func reconcileWhenLibraryIsReady() {
+        guard !isWaitingForLibrary else { return }
+        isWaitingForLibrary = true
+        library.onReady { [weak self] in
+            self?.isWaitingForLibrary = false
+            self?.scheduleReconciliation(reason: "library-ready")
+        }
     }
 
     /// 开着的书各自要保持的章节,保持者记成 `book:<id>`。章节按书架当前的分组取(新加的

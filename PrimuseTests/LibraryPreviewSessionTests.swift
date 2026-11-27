@@ -823,6 +823,45 @@ final class SourcePlaylistVisibilityTests: XCTestCase {
         return id
     }
 
+    /// 歌曲模型不在内存里时(发布之前,或者模型被放掉),服务器歌单的同步不动本机的镜像歌单、也不排队等重放:
+    /// 对着空的歌曲表成员一个都对不上,落地就是把成员换成占位,快照里没有的镜像歌单还会被删。
+    func testServerPlaylistSyncLeavesMirrorsAloneWhileTheSongModelIsNotLoaded() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SourcePlaylistVisibility-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([
+            Song(id: "remote", title: "Remote", fileFormat: .mp3, filePath: "/songs/remote.mp3", sourceID: "server-a"),
+        ])
+        await library.waitForPendingIndex()
+        let kept = mirror(in: library)
+        let source = MusicSource(id: "server-a", name: "Server", type: .navidrome)
+        let renamed = ServerPlaylist(id: "favorites", name: "Renamed", trackIDs: ["remote", "unknown-on-this-device"])
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("the fixture did not persist") }
+
+        library.dropSongModelForMeasurement(includingCollections: true)
+        XCTAssertFalse(library.isReady)
+        let queuedBefore = library.deferredMutationCountForTesting
+
+        // 整轮同步:服务器说这个源一张歌单都没有了。
+        let emptied = ServerPlaylistMirror.apply(snapshot: ServerPlaylistSnapshot(playlists: []), source: source, library: library)
+        XCTAssertEqual(emptied.syncedPlaylistCount, 0)
+        // 整轮同步:歌单还在,成员有一首本机对不上。
+        _ = ServerPlaylistMirror.apply(snapshot: ServerPlaylistSnapshot(playlists: [renamed]), source: source, library: library)
+        // 「添加到歌单」之后单张落地的那条路。
+        ServerPlaylistMirror.applyAppended(renamed, source: source, library: library)
+        let prepared = await ServerPlaylistMirror.prepareOffMain(
+            snapshot: ServerPlaylistSnapshot(playlists: [renamed]), source: source, library: library
+        )
+        XCTAssertFalse(prepared.isMatched, "nothing can be matched against a model that is not loaded")
+        _ = ServerPlaylistMirror.apply(prepared, snapshot: ServerPlaylistSnapshot(playlists: [renamed]), source: source, library: library)
+
+        XCTAssertEqual(library.deferredMutationCountForTesting, queuedBefore, "nothing was queued for replay")
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: kept), ["remote"])
+        XCTAssertTrue(library.allPlaylists.contains { $0.id == kept && $0.name == "favorites" })
+    }
+
     func testDisablingSourceHidesExclusivePlaylistsAndKeepsMixedAndEmptyUserPlaylists() async throws {
         try await withLibrary { library, _ in
             let server = mirror(in: library)

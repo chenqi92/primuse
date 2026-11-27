@@ -1028,6 +1028,9 @@ extension AppleMusicLibraryService {
     }
 
     private func reconcileCatalogDislikes() {
+        // 曲库没装好时「我喜欢」是空的:对着它判断「这首没被喜欢」,排队的「不喜欢」重放时会把本来喜欢的歌取消掉
+        // (还会同步到服务器),待处理的 id 也跟着从账上销了。等装好之后的那次同步再对。
+        guard library.isReady else { return }
         let pending = dislikedCatalogIDs
         var remaining = pending
         for id in pending {

@@ -383,7 +383,8 @@ final class DuplicateCleanupService {
             // 网盘上逐个删可能要很久,以前要等它们全删完才删库记录,App 一退后台
             // 记录就永远留着,下次打开重复歌又回来了(PM-TR0559)。保留哪些旁挂文件
             // 要看落地后的库(某首没删掉的副本可能还在用同一份歌词)。
-            if !removableSongs.isEmpty {
+            // 曲库没装好时整库数组是空的,「没有别的歌还在用这份歌词、封面」是假的:这时不清旁挂文件。
+            if !removableSongs.isEmpty, self.library.isReady {
                 let removedSongs = removableSongs
                 let retainedSongs = self.library.songs
                 let sourceManager = self.sourceManager

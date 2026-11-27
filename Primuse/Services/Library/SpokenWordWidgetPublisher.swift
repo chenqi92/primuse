@@ -112,6 +112,9 @@ final class SpokenWordWidgetPublisher {
         // 小组件只放有进度的书。曲库目录可读时只读这些书所在的连通块(分书与整个书架相同),
         // 不在这里留一份整库有声条目的索引;不可读时照旧按内存里的整个书架建。
         let catalogReader = library.readableCatalogReader
+        // 曲库目录读不了、歌曲模型也不在内存里时,手上是一个空书架:不拿它覆盖已经存下的书架、删书封。
+        // 曲库装好时书架内容会变,那时再发一次。
+        guard catalogReader != nil || library.isReady else { return }
         let catalogKey: CatalogKey? = catalogReader == nil ? nil : library.catalogHost.map { host in
             CatalogKey(
                 progressIDs: Set(positions.keys).union(finishedAt.keys),
