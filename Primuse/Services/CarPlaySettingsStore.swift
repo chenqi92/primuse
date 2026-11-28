@@ -136,11 +136,7 @@ final class CarPlayFolderLibrary {
         let library = AppServices.shared.musicLibrary
         return (index?.songIDs(in: id, scope: scope) ?? [])
             .compactMap { library.unobservedVisibleSong(id: $0) }
-            .sorted {
-                if $0.discNumber != $1.discNumber { return ($0.discNumber ?? 0) < ($1.discNumber ?? 0) }
-                if $0.trackNumber != $1.trackNumber { return ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
-                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-            }
+            .sorted(by: Self.playOrder)
     }
 
     private func observeInputs(generation expectedGeneration: Int) {
@@ -211,8 +207,12 @@ final class CarPlayFolderLibrary {
                     return
                 }
             }
-            let songs = library.visibleSongs
-            let collections = library.appleMusicFolderCollections(availableSongs: songs)
+            // C2:歌曲模型不在内存里时不读整库数组(同手机上的文件夹索引,U6b):Apple Music 虚拟集合只看那个源的歌,
+            // 从目录取;索引按目录建;目录答不出这一轮不发布,留着上一份(没有就一直是「正在载入」),目录能读时再建。
+            let released = !library.isReady
+            // crash-pattern: allow legacy-library-api 模型在内存里时同原来;不在时不读
+            let songs = released ? [] : library.visibleSongs
+            let collectionSnapshot = library.appleMusicFolderSnapshot()
             var descriptors = configuredDescriptors
             var known = Set(descriptors.map(\.sourceID))
             for song in songs where known.insert(song.sourceID).inserted {
@@ -234,7 +234,11 @@ final class CarPlayFolderLibrary {
             let catalogReader = library.readableCatalogReader
             let appleMusicName = String(localized: "apple_music_library_section")
             let genericSourceName = String(localized: "source_label")
-            let task = Task.detached(priority: .utility) { [descriptors, providers, catalogReader] () async -> LibraryFolderIndex in
+            let task = Task.detached(priority: .utility) { [descriptors, providers, catalogReader] () async -> LibraryFolderIndex? in
+                guard let collectionSongs = released
+                    ? await LibraryFolderCatalogSongs.appleMusicSongs(collectionSnapshot, scope: .visible, reader: catalogReader)
+                    : songs else { return nil }
+                let collections = collectionSnapshot.collections(availableSongs: collectionSongs)
                 // 和歌曲页同一套挂法：借来的索引和自己建的一样。
                 let resolved = descriptors.map { descriptor in
                     guard let provider = providers[descriptor.sourceID] else { return descriptor }
@@ -247,7 +251,7 @@ final class CarPlayFolderLibrary {
                 if let catalogReader {
                     // 目录可读:按目录建,索引里每首歌只留行号。
                     let virtualSourceIDs = Set(collections.filter { $0.kind == .librarySongs }.map(\.sourceID))
-                    let memorySongs = virtualSourceIDs.isEmpty ? [] : songs.filter { virtualSourceIDs.contains($0.sourceID) }
+                    let memorySongs = virtualSourceIDs.isEmpty ? [] : collectionSongs.filter { virtualSourceIDs.contains($0.sourceID) }
                     do {
                         return try await catalogReader.folderIndex { [resolved] catalog, isCancelled in
                             try LibraryFolderIndexBuilder.build(
@@ -270,6 +274,7 @@ final class CarPlayFolderLibrary {
                         // 取消也落到这里:外面按取消丢弃结果,其余错误改按内存建。
                     }
                 }
+                if released { return nil }
                 return LibraryFolderIndexBuilder.build(sources: resolved, songs: songs, virtualCollections: collections,
                                                        spokenWordSongIDs: spokenWordSongIDs)
             }
@@ -277,6 +282,11 @@ final class CarPlayFolderLibrary {
                 await task.value
             } onCancel: { task.cancel() }
             guard !Task.isCancelled else { return }
+            guard let result else {
+                self.isLoading = self.index == nil
+                self.buildTask = nil
+                return
+            }
             self.index = result
             self.cachedInput = stamp
             self.revision &+= 1

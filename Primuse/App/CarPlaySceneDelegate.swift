@@ -326,18 +326,18 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             CarPlayFolderLibrary.shared.acquire(self.folderLibraryOwner)
             CarPlayEditorCatalog.shared.acquire(self.folderLibraryOwner)
             let library = AppServices.shared.musicLibrary
-            guard library.isReady else {
+            guard library.isUsable else {
                 // Stage 2: 冷启动时资料库还在主线程之外装载。先装一个只读的
                 // "正在准备"根模板 —— 每一个真正的标签页都要读库, 这时候建
                 // 出来的只会是空列表。Now Playing 模板照常配置, 从 CarPlay
-                // 直接恢复播放的路径不受影响。
+                // 直接恢复播放的路径不受影响。C2:等的是「可用」(歌曲模型不必在内存里,各页从曲库目录答)。
                 carplayLog.notice("📱 library still preparing — installing the loading root template")
                 interfaceController.setRootTemplate(
                     Self.makeLibraryPreparingTemplate(),
                     animated: false
                 ) { _, _ in }
                 self.configureNowPlayingTemplate()
-                library.onReady { [weak self] in
+                library.onUsable { [weak self] in
                     // 与其它观察者同样的世代守卫: 期间断开 / 重连过就不再改
                     // 这一代的模板。
                     guard let self, self.interfaceController != nil,
@@ -652,7 +652,7 @@ extension CarPlaySceneDelegate {
         let generation = connectionGeneration
         Task { @MainActor [weak self, weak template] in
             guard let self else { return }
-            let matches = await self.searchMatches(normalized)
+            let matches = await CarPlaySearchMatches.songs(matching: normalized, in: AppServices.shared.musicLibrary)
             guard self.connectionGeneration == generation,
                   self.interfaceController != nil,
                   let template else { return }
@@ -667,35 +667,6 @@ extension CarPlaySceneDelegate {
             }
             template.updateSections([CPListSection(items: items)])
         }
-    }
-
-    private func searchMatches(_ normalized: String) async -> [Song] {
-        let library = AppServices.shared.musicLibrary
-        let snapshot = library.searchSongSnapshot(musicOnly: false)
-        let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
-        if let indexed = await LibrarySearchIndex.shared.search(
-            query: normalized,
-            snapshot: snapshot,
-            albums: [],
-            metadataRevisionKey: metadataRevisionKey,
-            songLimit: 100,
-            albumLimit: 0
-        ) {
-            return indexed.output.songResults.map(\.song)
-        }
-        return await Task.detached(priority: .userInitiated) {
-            LibrarySearchWorker.compute(
-                query: normalized,
-                songs: snapshot.songs,
-                albums: [],
-                cache: LibrarySearchCache(),
-                sourceTypes: snapshot.sourceTypes,
-                includeMetadata: true,
-                includeLyrics: false,
-                songLimit: 100,
-                albumLimit: 0
-            ).songResults.map(\.song)
-        }.value
     }
 
     /// Serializes navigation and makes room before the five-level framework
@@ -801,26 +772,11 @@ extension CarPlaySceneDelegate {
 // MARK: - Section builders
 
 extension CarPlaySceneDelegate {
-    /// 曲库目录可读时直接在目录上取车机列表(一次有界的查询,结果与在内存数组上 `firstSorted` 一样);
-    /// 目录不能读或读失败返回 nil,调用方照旧在内存里的整库上挑。
-    private func fromCatalog<T>(_ list: String, _ body: (LibraryCatalog) throws -> T) -> T? {
-        let library = AppServices.shared.musicLibrary
-        guard let host = library.catalogHost, host.revisions.isReadable,
-              let catalog = host.mirror.readableCatalog else { return nil }
-        do {
-            return try body(catalog)
-        } catch {
-            plog("🚗 CarPlay \(list) catalog read failed (\(error)); using the in-memory library")
-            return nil
-        }
-    }
-
+    /// 专辑、歌曲 A–Z 与喜欢的专辑在歌曲模型不在内存里时从曲库目录取,还答不出时摆一行「正在准备」(C2)。
     private func albumsSections() -> [CPListSection] {
-        let library = AppServices.shared.musicLibrary
-        let albums = fromCatalog("albums", { try $0.firstAlbumsByTitle(limit: 500) })
-            ?? CarPlayListSelection.firstSorted(library.visibleAlbums, limit: 500) {
-                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
+        guard let albums = CarPlayCatalogLists.shared.albumsByTitle(in: AppServices.shared.musicLibrary) else {
+            return CarPlayArtistLists.preparingSections
+        }
         let indexByID = Dictionary(
             albums.enumerated().map { ($1.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -843,8 +799,9 @@ extension CarPlaySceneDelegate {
 
     /// 喜欢的专辑，最近喜欢的在前，不分字母段。
     private func likedAlbumsSections() -> [CPListSection] {
-        let library = AppServices.shared.musicLibrary
-        let albums = Array(LibraryFavoritesStore.shared.likedAlbums(in: library.visibleAlbums).prefix(500))
+        guard let albums = CarPlayCatalogLists.shared.likedAlbums(in: AppServices.shared.musicLibrary) else {
+            return CarPlayArtistLists.preparingSections
+        }
         let items = albums.enumerated().map { index, album in
             let item = CPListItem(text: album.title, detailText: album.artistName, image: CarPlayTemplateImages.placeholder("square.stack"))
             if CarPlayArtworkLoadPolicy.shouldLoad(index: index) {
@@ -873,9 +830,10 @@ extension CarPlaySceneDelegate {
 
     private func artistsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        // 「全部艺术家」列法在目录上取;「专辑艺术家」列法模型在内存里时照旧在内存里挑,不在时从目录取(C1)。
+        // 模型在内存里:「全部艺术家」在目录上取,「专辑艺术家」在内存里挑(C1);不在时两种都从目录取、在主线程外(C2)。
         let mode = ArtistBrowseMode.resolved(UserDefaults.standard.string(forKey: ArtistBrowseMode.storageKey))
-        let catalogArtists = mode == .allArtists ? fromCatalog("artists", { try $0.firstArtistsByName(limit: 500) }) : nil
+        let catalogArtists = mode == .allArtists && library.isReady
+            ? CarPlayCatalogLists.fromCatalog("artists", library, { try $0.firstArtistsByName(limit: 500) }) : nil
         guard let artists = catalogArtists ?? CarPlayArtistLists.shared.firstByName(mode, in: library) else {
             return CarPlayArtistLists.preparingSections
         }
@@ -894,11 +852,9 @@ extension CarPlaySceneDelegate {
     }
 
     private func songsSections() -> [CPListSection] {
-        let library = AppServices.shared.musicLibrary
-        let songs = fromCatalog("songs", { try $0.firstSongsByTitle(limit: 500) })
-            ?? CarPlayListSelection.firstSorted(library.musicSongs, limit: 500) {
-                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
+        guard let songs = CarPlayCatalogLists.shared.songsByTitle(in: AppServices.shared.musicLibrary) else {
+            return CarPlayArtistLists.preparingSections
+        }
         // queueProvider closures need a stable index into the whole sorted
         // array even after we group it into letter sections. Use the
         // duplicate-tolerant initializer — Song.id is supposed to be unique
@@ -1011,8 +967,10 @@ extension CarPlaySceneDelegate {
             },
         ]
         // Books have their own list, offered once there are any: the music
-        // lists above leave them out.
-        let spokenWord: [CollectionEntry] = AppServices.shared.musicLibrary.spokenWordSongs.isEmpty ? [] : [
+        // lists above leave them out. 模型不在内存里时问目录(C2);还答不出时给入口,不当成没有。
+        let lists = CarPlayCatalogLists.shared
+        let library = AppServices.shared.musicLibrary
+        let spokenWord: [CollectionEntry] = lists.shelfSongs(.books, in: library)?.isEmpty == true ? [] : [
             CollectionEntry(
                 title: String(localized: "listening_space_spoken_word"),
                 symbol: CarPlayMainTab.Kind.spokenWord.symbol
@@ -1021,7 +979,7 @@ extension CarPlaySceneDelegate {
             },
         ]
         // 有环境音才给入口:它们不在上面的歌曲、专辑里。
-        let ambient: [CollectionEntry] = AppServices.shared.musicLibrary.hasAmbientContent ? [
+        let ambient: [CollectionEntry] = library.hasAmbientContent ? [
             CollectionEntry(
                 title: String(localized: "listening_space_ambient"),
                 symbol: ListeningSpace.ambient.systemImage
@@ -1031,7 +989,7 @@ extension CarPlaySceneDelegate {
         ] : []
         // 订了播客、或资料库里有自己下载的节目才给入口:继续收听、最新单集、本地节目、各档节目。
         let hasPodcasts = !PodcastStore.shared.shows.isEmpty
-            || !AppServices.shared.musicLibrary.localPodcastSongs.isEmpty
+            || lists.shelfSongs(.localPodcasts, in: library)?.isEmpty != true
         let podcasts: [CollectionEntry] = !hasPodcasts ? [] : [
             CollectionEntry(
                 title: String(localized: "listening_space_podcast"),
@@ -1089,9 +1047,12 @@ extension CarPlaySceneDelegate {
     /// 资料库里的「环境音」:不进歌曲、专辑列表,有内容时在这里单独列一份。点一段循环着放
     /// (单曲循环由播放器的听法账本设好),队列只放这一段。
     private func ambientSoundSections() -> [CPListSection] {
-        let sounds = AppServices.shared.musicLibrary.ambientSongs
+        let limit = CPListTemplate.maximumItemCount
+        guard let sounds = CarPlayCatalogLists.shared.ambient(limit: limit, in: AppServices.shared.musicLibrary) else {
+            return CarPlayArtistLists.preparingSections
+        }
         guard !sounds.isEmpty else { return [] }
-        let items = sounds.prefix(max(0, CPListTemplate.maximumItemCount)).enumerated().map { index, song in
+        let items = sounds.enumerated().map { index, song in
             songItem(
                 song,
                 ordinal: index + 1,
@@ -1135,7 +1096,9 @@ extension CarPlaySceneDelegate {
                 self?.pushSearchTemplate()
             }
         ]
-        return sections + collectionSections(navigation, style: .list)
+        // 模型不在内存里、首页还没从曲库目录答过时先摆一行「正在准备」(C2)。
+        let preparing = CarPlayEditorCatalog.shared.waitsForTheCatalog ? CarPlayArtistLists.preparingSections : []
+        return preparing + sections + collectionSections(navigation, style: .list)
     }
 
     /// 首页一块的条目：歌按在这块里的先后编号。
@@ -1206,7 +1169,7 @@ extension CarPlaySceneDelegate {
             }
             else { pushAlbumDetail(album) }
         case .folder(let id, let directly):
-            if directly { playCollection(CarPlayHomeContent.songs(for: item.target), title: item.title) }
+            if directly { CarPlayFolderLibrary.shared.songs(in: id) { [weak self] in self?.playCollection($0, title: item.title) } }
             else { pushFolderBrowser(nodeID: id) }
         case .radio(let id):
             let stations = AppServices.shared.radioStationsStore.stations
@@ -1607,11 +1570,12 @@ extension CarPlaySceneDelegate {
             if let node, node.descendantSongCount > 0 {
                 let title = HomeDiscoveryText.folderTitle(node)
                 entries += [
+                    // 模型不在内存里时歌在主线程外从目录取,取不到就什么都不做(C2)。
                     CollectionEntry(title: String(localized: "carplay_play_all"), subtitle: title, symbol: "play.fill") { [weak self] in
-                        self?.playCollection(CarPlayFolderLibrary.shared.songs(in: nodeID), title: title)
+                        folders.songs(in: nodeID) { self?.playCollection($0, title: title) }
                     },
                     CollectionEntry(title: String(localized: "carplay_shuffle_all"), symbol: "shuffle") { [weak self] in
-                        self?.playCollection(CarPlayFolderLibrary.shared.songs(in: nodeID), title: title, shuffled: true)
+                        folders.songs(in: nodeID) { self?.playCollection($0, title: title, shuffled: true) }
                     }
                 ]
             }
@@ -1626,7 +1590,10 @@ extension CarPlaySceneDelegate {
         let title = nodeID.flatMap { index?.node(withID: $0) }.map(HomeDiscoveryText.folderTitle)
         var sections = collectionSections(entries, title: title, style: .list)
         if let nodeID {
-            let songs = folders.songs(in: nodeID, scope: .direct)
+            // 这一层的歌:模型不在内存里时从目录取,还没取到时摆一行「正在准备」(C2)。
+            guard let songs = CarPlayCatalogLists.shared.folderSongs(nodeID, in: AppServices.shared.musicLibrary) else {
+                return template.updateSections(sections + CarPlayArtistLists.preparingSections)
+            }
             let items = songs.prefix(100).enumerated().map { index, song in
                 songItem(
                     song,
@@ -1836,7 +1803,10 @@ extension CarPlaySceneDelegate {
     fileprivate func spokenWordSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
         let store = SpokenWordStore.shared
-        let spoken = library.spokenWordSongs
+        // 模型不在内存里时书架的歌从目录取,分书照旧在这里;还答不出时摆一行「正在准备」(C2)。
+        guard let spoken = CarPlayCatalogLists.shared.shelfSongs(.books, in: library) else {
+            return CarPlayArtistLists.preparingSections
+        }
         guard !spoken.isEmpty else { return [] }
         let songsByID = Dictionary(spoken.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let books = SpokenWordBookGrouping.books(
@@ -1970,8 +1940,13 @@ extension CarPlaySceneDelegate {
         }
 
         // 资料库里自己下载的节目:按节目分组,和有声书一样整档放进队列、从听到的那一集接着。
-        let localSongs = AppServices.shared.musicLibrary.localPodcastSongs
-        if !localSongs.isEmpty, budget > 0 {
+        // 模型不在内存里时本机节目的歌从目录取(C2);还答不出时这一块摆一行「正在准备」。
+        let localSongs = CarPlayCatalogLists.shared.shelfSongs(.localPodcasts, in: AppServices.shared.musicLibrary)
+        if localSongs == nil, budget > 0 {
+            sections += CarPlayArtistLists.preparingSections
+            budget -= 1
+        }
+        if let localSongs, !localSongs.isEmpty, budget > 0 {
             let spokenStore = SpokenWordStore.shared
             let songsByID = Dictionary(localSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             let currentBookID = AppServices.shared.playerService.currentBookID
@@ -2595,7 +2570,10 @@ extension CarPlaySceneDelegate {
         let player = services.playerService
         let queueToken = player.queueRequestToken
         songRadioTask = Task { @MainActor [weak self] in
-            let queue = await SongRadioBuilder.queue(from: song, in: services.musicLibrary).filteredPlayable()
+            // 本地相似度要整份音乐:模型不在内存里时为这一下占用它(C2,目录还答不了相似度)。
+            let queue = await services.musicLibrary.withSongModel(.carPlay) {
+                await SongRadioBuilder.queue(from: song, in: services.musicLibrary)
+            }.filteredPlayable()
             guard !Task.isCancelled, let self, self.interfaceController != nil,
                   player.queueRequestToken == queueToken, player.currentSong?.id == song.id,
                   !player.isLiveRadio, !player.currentItemIsSpokenWord else { return }
@@ -2978,9 +2956,14 @@ extension CarPlaySceneDelegate {
         let library = AppServices.shared.musicLibrary
         let radioStore = AppServices.shared.radioStationsStore
         withObservationTracking {
-            _ = library.visibleSongs
-            _ = library.visibleAlbums
-            _ = library.visibleArtists
+            // 模型在内存里时与以前一样看这三份;不在时不读它们(没得看,读了还算整库读),改跟曲库目录(C2)。
+            if library.isReady {
+                _ = library.visibleSongs
+                _ = library.visibleAlbums
+                _ = library.visibleArtists
+            } else if let revisions = library.catalogHost?.revisions {
+                _ = (revisions.isReadable, revisions.membership, revisions.everything)
+            }
             _ = library.allPlaylists  // 包含已删除的 — 影响 playlists 计算
             _ = library.playlistCollectionRevision
             _ = library.artworkOverrideRevision
@@ -2989,6 +2972,7 @@ extension CarPlaySceneDelegate {
             _ = CarPlayEditorCatalog.shared.revision
             _ = LibraryFavoritesStore.shared.revision
             _ = CarPlayArtistLists.shared.revision  // 模型不在内存里时从目录取的两份艺人列表到了(C1)
+            _ = CarPlayCatalogLists.shared.revision  // 其余从目录取的列表到了(C2)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.interfaceController != nil, self.connectionGeneration == generation else { return }

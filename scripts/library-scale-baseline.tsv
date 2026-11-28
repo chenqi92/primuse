@@ -2,7 +2,7 @@
 catalog-sql-outside-catalog	PrimuseKit/Sources/PrimuseKit/Library/LibraryCatalogMirrorSupport.swift	4
 catalog-sql-outside-catalog	PrimuseKit/Sources/PrimuseKit/Storage/IncrementalSongStore.swift	21
 legacy-library-api	Primuse/App/AppServices.swift	19
-legacy-library-api	Primuse/App/CarPlaySceneDelegate.swift	17
+legacy-library-api	Primuse/App/CarPlaySceneDelegate.swift	9
 legacy-library-api	Primuse/App/DebugAccessibilityScript.swift	5
 legacy-library-api	Primuse/App/HomeScreenQuickActions.swift	2
 legacy-library-api	Primuse/App/PlayMediaIntentHandler.swift	7
@@ -20,7 +20,6 @@ legacy-library-api	Primuse/Services/Audio/AudioPlayerService+SpokenWord.swift	5
 legacy-library-api	Primuse/Services/Audio/KaraokeSession.swift	1
 legacy-library-api	Primuse/Services/CarPlayEditorCatalog.swift	6
 legacy-library-api	Primuse/Services/CarPlayHomeContent.swift	2
-legacy-library-api	Primuse/Services/CarPlaySettingsStore.swift	1
 legacy-library-api	Primuse/Services/Cloud/CloudAccountMigrationService.swift	1
 legacy-library-api	Primuse/Services/Cloud/PeerScanSeedStore.swift	2
 legacy-library-api	Primuse/Services/Cloud/SongTagEditStore.swift	1

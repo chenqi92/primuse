@@ -11,6 +11,9 @@ import PrimuseKit
 ///
 /// - 不需要扫描的查询(≥3 个字,或短查询既不是短汉字也不搜路径):按 id 批量回查目录。
 /// - 需要扫描的短查询:流式走一遍目录挑出候选,其余 id(短拼音查询的 FTS 命中)按 id 同步回查。
+///
+/// `scope`:默认是可见音乐(同 `searchSongSnapshot(musicOnly: true)`);车机搜的是全部可见的歌(`musicOnly: false`),
+/// 传 `.visible`(C2)。
 enum LibrarySearchCatalogSnapshot {
     static func make(
         reader: LibraryCatalogReader,
@@ -18,7 +21,8 @@ enum LibrarySearchCatalogSnapshot {
         matchKinds: Set<LibrarySearchMatchKind>,
         wantsAlbums: Bool,
         songLimit: Int,
-        sourceTypes: [String: MusicSourceType]
+        sourceTypes: [String: MusicSourceType],
+        scope: LibrarySongScope = .visibleMusic
     ) async throws -> LibrarySearchSongSnapshot {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let searchesMetadata = wantsAlbums || matchKinds.contains(.metadata) || matchKinds.contains(.fuzzy)
@@ -27,7 +31,7 @@ enum LibrarySearchCatalogSnapshot {
         guard !trimmed.isEmpty, scansMetadata || scansPaths else {
             return LibrarySearchSongSnapshot(sourceTypes: sourceTypes) { ids in
                 do {
-                    let songs = try await reader.songsChunked(ids: Array(ids), scope: .visibleMusic)
+                    let songs = try await reader.songsChunked(ids: Array(ids), scope: scope)
                     return Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 } catch {
                     if !(error is CancellationError) {
@@ -49,7 +53,7 @@ enum LibrarySearchCatalogSnapshot {
             var pathMatches = 0
             var pathsDone = !scansPaths || limit <= 0
             var visited = 0
-            try catalog.forEachSong(.visibleMusic) { _, song in
+            try catalog.forEachSong(scope) { _, song in
                 visited += 1
                 if visited.isMultiple(of: 512), cancellation.isCancelled { return false }
                 var keep = false
@@ -87,7 +91,7 @@ enum LibrarySearchCatalogSnapshot {
         let byID = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return LibrarySearchSongSnapshot(candidates, sourceTypes: sourceTypes) { id in
             if let song = byID[id] { return song }
-            return try? catalog.songs(ids: [id], scope: .visibleMusic).first
+            return try? catalog.songs(ids: [id], scope: scope).first
         }
     }
 

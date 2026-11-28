@@ -512,7 +512,12 @@ enum CarPlayHomeContent {
                 }
                 return result?.value
             }
-            guard case .album(let album) = artwork, let song = library.preferredArtworkSong(forAlbumID: album.id) else { return nil }
+            guard case .album(let album) = artwork else { return nil }
+            // 歌曲模型不在内存里时那张表是空的:借哪一首按 id 问目录(同资料库的专辑卡片,C2)。
+            let song = library.isReady
+                ? library.preferredArtworkSong(forAlbumID: album.id)
+                : await ArtworkSongCatalogMemo.shared.preferredSong(for: .album(album.id), library: library)
+            guard let song else { return nil }
             return await songArtwork(song, pixelSize: pixelSize)
         }
     }
@@ -545,7 +550,10 @@ enum CarPlayHomeContent {
             switch artwork {
             case .playlist(let playlist): return Set(library.rawSongIDs(forPlaylist: playlist.id).lazy
                 .compactMap { library.unobservedVisibleSong(id: $0)?.id }.prefix(12))
-            case .album(let album): return Set(library.preferredArtworkSong(forAlbumID: album.id).map { [$0.id] } ?? [])
+            // 模型不在内存里时不读那张表:借的歌换了封面这一行不跟着刷新,下一次重建列表时再取。
+            case .album(let album):
+                guard library.isReady else { return [] }
+                return Set(library.preferredArtworkSong(forAlbumID: album.id).map { [$0.id] } ?? [])
             default: return []
             }
         }
