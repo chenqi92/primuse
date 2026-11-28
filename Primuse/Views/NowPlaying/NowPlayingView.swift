@@ -10200,7 +10200,7 @@ struct NowPlayingView: View {
                 let shadowCornerRatio = anchor.cornerRadiusRatio ?? anchor.cornerRadius / max(rect.width, rect.height, 1)
                 let shadowCornerRadius = (shadowCornerRatio * renderSize * 4).rounded() / 4
                 // 换歌时按方向换(下一首从右边进、上一首从左边进,自己播完的更柔):只在大封面位、
-                // 封面⇄歌词没在飞、播放页露着时;其余时候照旧一层、原地交叉淡入。
+                // 封面⇄歌词没在飞、播放页露着时;其余时候(包括全铺封面、歌词页的小封面)两层原地交叉淡入。
                 NowPlayingArtworkSwapHost(
                     subject: NowPlayingArtworkSwapSubject(
                         song: player.currentSong,
@@ -10209,6 +10209,9 @@ struct NowPlayingView: View {
                     allowsDirectionalSwap: placement == .cover
                         && settledLyricsArtworkPlacement == .cover
                         && !anchor.coversTopChrome
+                        && !player.isMusicVideoPlaybackActive
+                        && isNowPlayingSurfaceExposed,
+                    allowsCrossfadeSwap: placement == settledLyricsArtworkPlacement
                         && !player.isMusicVideoPlaybackActive
                         && isNowPlayingSurfaceExposed,
                     artworkRect: rect,
@@ -11340,6 +11343,11 @@ struct NowPlayingView: View {
         // 歌词列表的输入没变就不重算(切封面 ⇄ 歌词时外层每次都会构造新的回调闭包)：
         // 否则每次切换都要把整份歌词的每一行重新求值一遍，压在转场第一帧上。
         .equatable()
+        .nowPlayingLyricsTransition(
+            songID: player.currentSong?.id, loadedSongID: lyricsSongID,
+            hasLyrics: !romanizedLyricsDocument.lines.isEmpty, isResolving: isResolvingLyrics,
+            isSceneActive: isVisualSceneActive && isVisible, presentation: presentation
+        )
         .overlay(alignment: .topTrailing) {
             if showsReaderButton {
                 transcriptReaderButton

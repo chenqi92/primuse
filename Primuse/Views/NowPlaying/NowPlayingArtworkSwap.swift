@@ -25,19 +25,19 @@ struct NowPlayingArtworkSwapSubject: Equatable {
     let coverRevision: Int
 }
 
-/// 播放页大封面换歌时按方向换:下一首,旧封面向左退并略缩,新封面从右边略小一点滑进来、
-/// 回弹到位;上一首反过来;自己播完换到下一首时同一方向,但更柔、不回弹。
-///
-/// 只管播放页大封面这一层,`CachedArtworkView` 的通用换图路径(原地交叉淡入)不动:
-/// 判不出方向(从列表点一首、换了整个队列)、不在大封面位、封面⇄歌词正在飞、
-/// 播放页没露出来、开着减少动态效果时,照旧只有一层、原地交叉淡入。
+/// 播放页封面换歌宿主：
+/// - 能判定下一首 / 上一首方向且允许方向切换时，沿方向滑动缩放换图；
+/// - 其余换歌（直接点歌、全铺封面、歌词模式缩略图或开启减少动态效果）统一做双层原地交叉渐变，
+///   消除直接替换的生硬跳变。
 ///
 /// 每一层是一个完整的「封面 + 飞行修饰」,由调用方的 `layer` 画出来;这里只在外面加
 /// 位移、缩放和透明度。状态都在这一层里,换歌时多出来的重画只落在封面上。
 struct NowPlayingArtworkSwapHost<Layer: View>: View {
     let subject: NowPlayingArtworkSwapSubject
-    /// 这次换歌允许按方向换。
+    /// 这次换歌允许按方向滑动换图。
     let allowsDirectionalSwap: Bool
+    /// 这次换歌允许平滑原地交叉渐变（不满足方向换图时回退到此路径）。
+    var allowsCrossfadeSwap: Bool = true
     /// 封面在这一层里的位置:缩放围着它的中心,位移按它的宽度算。
     let artworkRect: CGRect
     let containerSize: CGSize
@@ -48,12 +48,12 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.displayScale) private var displayScale
 
-    @State private var layers: [SwapLayer] = [SwapLayer(id: 0, frozen: nil, phase: .resting, style: nil)]
+    @State private var layers: [SwapLayer] = [SwapLayer(id: 0, frozen: nil, phase: .resting, mode: .none)]
     @State private var nextLayerID = 1
     /// 上一次换歌之后记下的「接下来那首」「前一首」,下一次换歌时拿来判断是不是自然播完。
     /// 不参与绘制,放在引用里,更新它不重画。
     @State private var neighbours = Neighbours()
-    /// 当前那一层画的这一首。换歌那一帧它还是旧歌(要退场的那一首),等判断完方向才换成新歌:
+    /// 当前那一层画的这一首。换歌那一帧它还是旧歌(要退场的那一首),等判断完方式才换成新歌:
     /// 不然要退场的那一层会先被换成新歌、再被拉回旧歌,中间闪一下。
     @State private var displayed: NowPlayingArtworkSwapSubject?
 
@@ -85,7 +85,7 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
         /// nil 表示跟着当前这首(`displayed`)走。
         var frozen: NowPlayingArtworkSwapSubject?
         var phase: Phase
-        var style: ArtworkSwapStyle?
+        var mode: TrackSwitchTransitionPolicy.ArtworkTransitionMode
     }
 
     var body: some View {
@@ -94,12 +94,12 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
                 layer(item.frozen ?? displayed ?? subject)
                     .modifier(NowPlayingArtworkSwapMotion(
                         progress: item.phase == .exiting ? 1 : 0,
-                        style: item.style,
+                        mode: item.mode,
                         artworkRect: artworkRect,
                         containerSize: containerSize,
                         isRightToLeft: layoutDirection == .rightToLeft
                     ))
-                    .transition(entryTransition(for: item.style))
+                    .transition(entryTransition(for: item.mode))
                     .zIndex(item.phase == .exiting ? 0 : 1)
             }
         }
@@ -119,27 +119,32 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
             if allows {
                 // 播放页刚露出来:下一首的封面这时候再备。
                 recordNeighbours()
-            } else {
+            } else if !allowsCrossfadeSwap {
                 // 开始往歌词那边飞、播放页收起时,还在退场的那一层直接收掉,不跟着飞。
+                dropExitingLayers()
+            }
+        }
+        .onChange(of: allowsCrossfadeSwap) { _, allows in
+            if !allows {
                 dropExitingLayers()
             }
         }
     }
 
-    private func entryTransition(for style: ArtworkSwapStyle?) -> AnyTransition {
-        guard let style else { return .identity }
+    private func entryTransition(for mode: TrackSwitchTransitionPolicy.ArtworkTransitionMode) -> AnyTransition {
+        guard mode != .none else { return .identity }
         return .asymmetric(
             insertion: .modifier(
                 active: NowPlayingArtworkSwapMotion(
                     progress: -1,
-                    style: style,
+                    mode: mode,
                     artworkRect: artworkRect,
                     containerSize: containerSize,
                     isRightToLeft: layoutDirection == .rightToLeft
                 ),
                 identity: NowPlayingArtworkSwapMotion(
                     progress: 0,
-                    style: style,
+                    mode: mode,
                     artworkRect: artworkRect,
                     containerSize: containerSize,
                     isRightToLeft: layoutDirection == .rightToLeft
@@ -153,7 +158,7 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
         let outgoing = displayed
         displayed = subject
         let intent = ManualTrackTraversal.take()
-        let style = ArtworkSwapPolicy.style(
+        let directionalStyle = ArtworkSwapPolicy.style(
             newSongID: subject.song?.id,
             predictedNextID: neighbours.nextID,
             predictedPreviousID: neighbours.previousID,
@@ -162,9 +167,15 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
         )
         recordNeighbours()
 
-        guard allowsDirectionalSwap, !reduceMotion,
-              let style, let outgoing, outgoing.song != nil else {
-            // 判不出方向:只留一层,原地交叉淡入(CachedArtworkView 自己的换图)。
+        let mode = TrackSwitchTransitionPolicy.artworkTransition(
+            outgoingSongID: outgoing?.song?.id,
+            incomingSongID: subject.song?.id,
+            allowsDirectionalSwap: allowsDirectionalSwap,
+            allowsCrossfadeSwap: allowsCrossfadeSwap,
+            reduceMotion: reduceMotion,
+            directionalStyle: directionalStyle
+        )
+        guard mode != .none, let outgoing else {
             dropExitingLayers()
             return
         }
@@ -181,19 +192,25 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
 
         let newID = nextLayerID
         nextLayerID &+= 1
-        let motion: PMMotion = style.isGentle ? .trackSwapGentle : .trackSwap
+        let motion: PMMotion = switch mode {
+        case .directional(let style):
+            style.isGentle ? .trackSwapGentle : .trackSwap
+        case .crossfade, .none:
+            .trackChange
+        }
         withAnimation(motion.animation) {
             for index in layers.indices where layers[index].phase == .resting {
                 layers[index].phase = .exiting
                 layers[index].frozen = outgoing
-                layers[index].style = style
+                layers[index].mode = mode
             }
-            layers.append(SwapLayer(id: newID, frozen: nil, phase: .resting, style: style))
+            layers.append(SwapLayer(id: newID, frozen: nil, phase: .resting, mode: mode))
         }
 
         let retiring = Set(layers.filter { $0.phase == .exiting }.map(\.id))
+        let cleanupDelay = motion.settleDuration + 0.04
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(motion.settleDuration))
+            try? await Task.sleep(for: .seconds(cleanupDelay))
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
             withTransaction(transaction) {
@@ -295,7 +312,7 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
 /// 透明度和位移用不同的曲线,所以不能各自交给 SwiftUI 插值。
 private struct NowPlayingArtworkSwapMotion: ViewModifier, Animatable {
     var progress: Double
-    let style: ArtworkSwapStyle?
+    let mode: TrackSwitchTransitionPolicy.ArtworkTransitionMode
     let artworkRect: CGRect
     let containerSize: CGSize
     let isRightToLeft: Bool
@@ -315,17 +332,24 @@ private struct NowPlayingArtworkSwapMotion: ViewModifier, Animatable {
     }
 
     private var pose: (offset: CGFloat, scale: CGFloat, opacity: Double) {
-        guard let style, progress != 0 else { return (0, 1, 1) }
-        let fraction = ArtworkSwapPolicy.exitOffsetFraction(for: style.direction, isRightToLeft: isRightToLeft)
-        // 自然播完那种挪得近一点、缩得少一点。
-        let reach = CGFloat(fraction) * artworkRect.width * (style.isGentle ? 0.7 : 1)
-        let smallest: CGFloat = style.isGentle ? 0.92 : 0.86
-        let amount = CGFloat(min(abs(progress), 1))
-        return (
-            reach * CGFloat(progress),
-            1 - (1 - smallest) * amount,
-            ArtworkSwapPolicy.layerOpacity(signedProgress: progress)
-        )
+        guard progress != 0 else { return (0, 1, 1) }
+        switch mode {
+        case .none:
+            return (0, 1, 1)
+        case .crossfade:
+            return (0, 1, TrackSwitchTransitionPolicy.crossfadeLayerOpacity(signedProgress: progress))
+        case .directional(let style):
+            let fraction = ArtworkSwapPolicy.exitOffsetFraction(for: style.direction, isRightToLeft: isRightToLeft)
+            // 自然播完那种挪得近一点、缩得少一点。
+            let reach = CGFloat(fraction) * artworkRect.width * (style.isGentle ? 0.7 : 1)
+            let smallest: CGFloat = style.isGentle ? 0.92 : 0.86
+            let amount = CGFloat(min(abs(progress), 1))
+            return (
+                reach * CGFloat(progress),
+                1 - (1 - smallest) * amount,
+                ArtworkSwapPolicy.layerOpacity(signedProgress: progress)
+            )
+        }
     }
 
     private var anchor: UnitPoint {
