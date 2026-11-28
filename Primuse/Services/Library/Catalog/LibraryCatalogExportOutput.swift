@@ -6,6 +6,8 @@ import Foundation
 /// 立刻删掉(映射一直有效到这份 `Data` 放掉)。映射的页是文件背着的干净页:不算 malloc、不算脏内存,系统缺内存时
 /// 直接收回,要读时再从文件读。拿到的照旧是 `Data`,字节与攒在内存里时逐字节相同。
 /// 临时文件建不了时退回内存(与以前相同);写到一半写不下去(磁盘满)时把写过的读回内存接着编,不让导出失败。
+/// 写过的也读不回来时 `finish()` 报错(DL4):宁可这一次不传,也不交出缺了开头的快照。
+/// iCloud 上传前的整理(DL4)也用它:整理好的歌先写进一份,再与小状态拼成交出去的那一份。
 final class LibraryCatalogExportOutput {
     /// 攒满这么多再写一次文件(一页 1000 首约 1 MB,差不多一页一写)。
     static let bufferLimit = 1 << 20
@@ -13,7 +15,13 @@ final class LibraryCatalogExportOutput {
     #if DEBUG
     /// 测试与规模夹具:true 时照以前那样只攒在内存里,好与写文件的那一份比字节、比内存。
     nonisolated(unsafe) static var keepsInMemoryForTesting = false
+    /// 测试:写进文件的字节超过这么多时让写入失败(像磁盘满了);`failsReadBackForTesting` 再让读回也失败。
+    nonisolated(unsafe) static var failsWritesBeyondBytesForTesting: Int?
+    nonisolated(unsafe) static var failsReadBackForTesting = false
     #endif
+
+    /// 文件写不下去、写过的又读不回来:这一份已经缺了开头,`finish()` 报错,不交出残缺的快照。
+    private var lostWrittenBytes = false
 
     private var handle: FileHandle?
     private var url: URL?
@@ -48,6 +56,7 @@ final class LibraryCatalogExportOutput {
 
     func append(_ bytes: Data) {
         count += bytes.count
+        guard !lostWrittenBytes else { return }
         guard handle != nil else {
             memory.append(bytes)
             return
@@ -64,9 +73,11 @@ final class LibraryCatalogExportOutput {
 
     /// 编完:文件映射回来(删掉文件名)交出去;退回内存的交内存里的那一份。之后不要再追加。
     func finish() throws -> Data {
+        guard !lostWrittenBytes else { throw CocoaError(.fileReadUnknown) }
         guard let handle, let url else { return memory }
         flush()
-        // flush 写失败时已经退回了内存。
+        // flush 写失败时已经退回了内存(读不回来时报错)。
+        guard !lostWrittenBytes else { throw CocoaError(.fileReadUnknown) }
         guard self.handle != nil else { return memory }
         try handle.close()
         self.handle = nil
@@ -104,6 +115,11 @@ final class LibraryCatalogExportOutput {
             return
         }
         do {
+            #if DEBUG
+            if let limit = Self.failsWritesBeyondBytesForTesting, written + bytes.count > limit {
+                throw CocoaError(.fileWriteOutOfSpace)
+            }
+            #endif
             try handle.write(contentsOf: bytes)
             written += bytes.count
         } catch {
@@ -111,11 +127,23 @@ final class LibraryCatalogExportOutput {
             plog("☁️ whole-library export: the temporary file stopped accepting writes (\(error)); continuing in memory")
             try? handle.close()
             self.handle = nil
-            var recovered = Data((url.flatMap { try? Data(contentsOf: $0) } ?? Data()).prefix(written))
-            recovered.append(buffer)
-            recovered.append(bytes)
+            #if DEBUG
+            let readBack = Self.failsReadBackForTesting ? nil : url.flatMap { try? Data(contentsOf: $0) }
+            #else
+            let readBack = url.flatMap { try? Data(contentsOf: $0) }
+            #endif
+            if let readBack, readBack.count >= written {
+                var recovered = Data(readBack.prefix(written))
+                recovered.append(buffer)
+                recovered.append(bytes)
+                memory = recovered
+            } else {
+                // 以前读不回来时当作空的接着编,交出去的是缺了开头的快照。
+                plog("☁️ whole-library export: the bytes already written cannot be read back; the export fails")
+                lostWrittenBytes = true
+                memory = Data()
+            }
             buffer = Data()
-            memory = recovered
             if let url { try? FileManager.default.removeItem(at: url) }
             url = nil
         }
