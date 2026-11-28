@@ -78,15 +78,20 @@ struct SmartPlaylistDetailView: View {
         smart.map { SmartPlaylistEngine.matchToken(for: $0, in: library, history: PlayHistoryStore.shared) }
     }
 
-    /// 引擎按输入版本缓存匹配结果。这一页再按同一组输入记一份: 随机排序在页面上
-    /// 不会因为一次无关的重画就重新洗牌, 「播放全部」放的也正是眼前这一列。
-    /// 曲库目录可读时由 `.task(id: matchToken)` 在目录上匹配好再填进来, 重取的这一会儿给上一份。
+    /// 在内存里匹配(AI 歌单、目录读不了)时这一页要整库数组。
+    private var needsTheSongModel: Bool { if case .catalog? = matchToken { false } else { matchToken != nil } }
+
+    /// 按同一组输入记一份结果(随机排序不因重画重洗)。目录可读时由 `.task(id: matchToken)` 在目录上匹配好填进来;
+    /// AI 歌单与目录读不了时在内存里匹配,模型不在内存里时给上一份、页面替自己占用(6c U6a)。
     private var matched: [Song] {
         _ = catalogMatchRevision
         guard let smart, let token = matchToken else { return [] }
+        if case .catalog = token {} else if !library.isReady { return matchedCache.songs }
         switch token {
         case .uncached:
-            return SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
+            let songs = SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
+            matchedCache.store(songs, for: token)
+            return songs
         case .memory:
             return matchedCache.songs(for: token) {
                 SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
@@ -96,10 +101,10 @@ struct SmartPlaylistDetailView: View {
         }
     }
 
-    /// 目录上的那份一次都还没取到(刚进来):列表转圈, 不说「没有匹配的歌」。
+    /// 目录上的那份(或模型不在内存里时内存匹配的那份)一次都还没取到:列表转圈, 不说「没有匹配的歌」。
     private var isLoadingCatalogMatch: Bool {
         _ = catalogMatchRevision
-        guard case .catalog? = matchToken else { return false }
+        guard case .catalog? = matchToken else { return needsTheSongModel && !library.isReady && !matchedCache.hasLoaded }
         return !matchedCache.hasLoaded
     }
 
@@ -156,13 +161,12 @@ struct SmartPlaylistDetailView: View {
     }
 
     var body: some View {
-        // matched 是 computed property, 每次访问都完整跑一遍 SmartPlaylistEngine.match
-        // (全库 filter + PlayStats 聚合 + 排序)。单次 body 渲染会被多处访问 6-8 次,
-        // 这里取一次快照向下传递, 把每帧的全库扫描收敛成 1 次。
+        // matched 每次访问都可能整库匹配一遍,一次 body 里只取一次快照往下传。
         let matched = self.matched
         #if os(macOS)
         let rows = shownRows(matched)
         return AnyView(macBody(matched, rows: rows)
+            .songModelPage(needsArrays: needsTheSongModel)
             .task(id: matchToken) { await loadCatalogMatch() }
             .onDisappear { songLocation.cancel() }
             .playlistRemovalAlert($pendingRemoval) { _ in
@@ -173,6 +177,7 @@ struct SmartPlaylistDetailView: View {
         #else
         return AnyView(
             legacyBody(matched)
+                .songModelPage(needsArrays: needsTheSongModel)
                 .task(id: matchToken) { await loadCatalogMatch() }
                 .songLocationReader(songLocation, revision: shownRows(matched).map(\.id))
                 .onDisappear { songLocation.cancel() }
@@ -403,13 +408,8 @@ struct SmartPlaylistDetailView: View {
         }
     }
 
-    /// 竖屏是「居中大色块 + 名称 + 计数 + 摘要 + 操作行」的竖排; 手机横屏纵向只剩
-    /// 三百多点, 同一批视图换成「左色块 + 右信息与操作」的矮横带。
-    ///
-    /// 排布由 `AnyLayout` 决定, 视图身份不随旋转变化。竖屏取值全部照抄原常量:
-    /// 外层 8 的间距加上摘要之后那 12 的上边距, 还原成原来「摘要 → 操作行」的 20。
-    ///
-    /// `topInset`: 头部顶到屏幕上沿时状态栏加导航栏那一截, 封面墙往上铺过去, 单封面头部往下让开。
+    /// 竖屏是「居中大色块 + 名称 + 计数 + 摘要 + 操作行」的竖排;手机横屏换成「左色块 + 右信息与操作」的矮横带
+    /// (`AnyLayout`,视图身份不随旋转变)。`topInset`:状态栏加导航栏那一截,封面墙铺过去,单封面头部让开。
     @ViewBuilder
     private func legacyHeader(_ smart: SmartPlaylist, matched: [Song], topInset: CGFloat = 0) -> some View {
         #if os(iOS)

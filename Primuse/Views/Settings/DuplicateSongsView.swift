@@ -1077,8 +1077,7 @@ struct DuplicateSongsView: View {
                 isScanning = false
             }
         }
-        // 主线程只负责拍 snapshot, 实际 Dictionary(grouping:) + folding
-        // + sort 全部到后台跑。10k+ 库主线程跑要 1-3s 直接卡 UI。
+        // 主线程只负责拍 snapshot, 分组、折叠、排序都到后台跑(10k+ 库在主线程要 1-3s)。
         var catalogDetected: [DuplicateGroup]?
         if let reader = P2cCatalogAccess.reader(for: library) {
             // 曲库目录可读时(P2c)两趟流式遍历,只把可能重复的歌取出来分组,不拍整库。
@@ -1094,7 +1093,8 @@ struct DuplicateSongsView: View {
         if let catalogDetected {
             detected = catalogDetected
         } else {
-            let snapshot = library.visibleSongs
+            // 6c:目录给不了而模型不在内存里时先装回来;等的时候照旧「正在查找」,装不回来也不说没有重复(不复位)。
+            guard let snapshot = await SongModelArrayRead.read(library, { library.visibleSongs }) else { scanGeneration &+= 1; return }
             detected = await Task.detached(priority: .userInitiated) {
                 DuplicateDetector.detect(in: snapshot)
             }.value

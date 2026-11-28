@@ -60,7 +60,9 @@ struct AmbientSoundBoard: View {
     }
 
     var body: some View {
-        let songs = catalogSongs ?? library.ambientSongs
+        // 歌曲模型不在内存里、目录那份还没取到时为 nil:转圈,不说「没有环境音」(6c U6a)。
+        let loaded = catalogSongs ?? (library.isReady ? library.ambientSongs : nil)
+        let songs = loaded ?? []
         let groups = AmbientSoundGrouping.groups(for: songs)
         let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         VStack(alignment: .leading, spacing: 22) {
@@ -89,7 +91,10 @@ struct AmbientSoundBoard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay {
-            if songs.isEmpty {
+            if loaded == nil {
+                ProgressView()
+                    .padding(.top, 40)
+            } else if songs.isEmpty {
                 ContentUnavailableView(
                     "listening_space_ambient",
                     systemImage: ListeningSpace.ambient.systemImage,
@@ -104,8 +109,7 @@ struct AmbientSoundBoard: View {
         .task(id: catalogKey) { await loadCatalogSongs(catalogKey) }
     }
 
-    /// 环境音从目录取(按类别的行号列表,再按行号物化)。超过一次物化上限、读失败或目录不可读时
-    /// 退回内存模型,不截断。
+    /// 环境音从目录取(按类别的行号列表,再按行号分批物化,不截断)。读失败或目录不可读时退回内存模型。
     private func loadCatalogSongs(_ key: AmbientCatalogKey) async {
         guard key.readable, let reader = library.catalogHost?.reader else {
             catalogSongs = nil
@@ -117,17 +121,30 @@ struct AmbientSoundBoard: View {
             guard !Task.isCancelled else { return }
         }
         do {
-            let songs = try await reader.read { catalog -> [Song]? in
-                let rows = try catalog.rowList(LibrarySongScope(kinds: [.ambient]))
-                guard rows.count <= LibraryScale.maxMaterializedRows else { return nil }
-                return try catalog.songs(rowids: rows.rowids)
-            }
+            let songs = try await Self.catalogAmbientSongs(reader)
             guard !Task.isCancelled else { return }
             catalogSongs = songs
         } catch {
             plog("📚 catalog ambient songs failed: \(error)")
             guard !Task.isCancelled else { return }
             catalogSongs = nil
+        }
+    }
+
+    /// 可见的环境音,库内顺序(同 `ambientSongs`):按类别的行号列表,再按行号分批物化,不截断。
+    static func catalogAmbientSongs(_ reader: LibraryCatalogReader) async throws -> [Song] {
+        try await reader.read { catalog -> [Song] in
+            let rowids = try catalog.rowList(LibrarySongScope(kinds: [.ambient])).rowids
+            var songs: [Song] = []
+            songs.reserveCapacity(rowids.count)
+            var start = rowids.startIndex
+            while start < rowids.endIndex {
+                let end = rowids.index(start, offsetBy: LibraryScale.maxMaterializedRows, limitedBy: rowids.endIndex)
+                    ?? rowids.endIndex
+                songs.append(contentsOf: try catalog.songs(rowids: rowids[start..<end]))
+                start = end
+            }
+            return songs
         }
     }
 

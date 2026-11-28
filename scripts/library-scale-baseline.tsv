@@ -82,7 +82,7 @@ legacy-library-api	Primuse/Views/Library/FavoriteCollectionView.swift	6
 legacy-library-api	Primuse/Views/Library/LibraryDetailEvidence.swift	6
 legacy-library-api	Primuse/Views/Library/LibraryOrganizationViews.swift	5
 legacy-library-api	Primuse/Views/Library/LibraryView+Catalog.swift	3
-legacy-library-api	Primuse/Views/Library/LibraryView.swift	14
+legacy-library-api	Primuse/Views/Library/LibraryView.swift	13
 legacy-library-api	Primuse/Views/Library/PlaylistDetailView.swift	2
 legacy-library-api	Primuse/Views/Library/PlaylistListView.swift	5
 legacy-library-api	Primuse/Views/Library/PlaylistPendingEntryRow.swift	1

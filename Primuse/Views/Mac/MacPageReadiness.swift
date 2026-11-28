@@ -50,8 +50,11 @@ extension MacPageKind {
         case .spokenWordBook:
             // 书的章节随书架从目录分(`SpokenWordCatalogShelf`,U8a)。
             .catalog
-        case .listeningStats, .sources, .source, .search, .smartPlaylist, .albumDetail, .artistDetail,
-             .smartPlaylistDetail, .searchCollection, .tool, .recommendationsPanel, .smartPlaylistEditor:
+        case .smartPlaylist, .smartPlaylistDetail:
+            // 规则歌单在曲库目录上匹配;AI 歌单、目录读不了时在内存里匹配,页面自己占用并留着上一份(6c U6a)。
+            .catalog
+        case .listeningStats, .sources, .source, .search, .albumDetail, .artistDetail,
+             .searchCollection, .tool, .recommendationsPanel, .smartPlaylistEditor:
             .legacy
         }
     }
@@ -65,7 +68,7 @@ extension MacPageKind {
         case .playlists, .albums, .songs:
             // 专辑页(`AlbumGridView`)读曲库目录,还读整库数组的那几种(按发行类别筛)自己占用(6c 单元 4 U4a)。
             // 歌曲页(`SongListView`)的平铺列表、排序、页内查找、来源筛选条与「已下载」一列读目录,
-            // 目录版式与离线状态补全前的「已下载」自己占用(U5、U5b)。
+            // 目录版式与离线状态补全前的「已下载」自己占用(U5、U5b)。流派页、环境音页读目录(U6a)。
             .catalog
         case .musicVideos, .favorites:
             // MV 页、收藏页从目录读,答不了时(MV 太多、编辑收藏要挑整库专辑)自己占用(U8b)。
@@ -73,7 +76,9 @@ extension MacPageKind {
         case .artists:
             // 艺术家左栏从目录按页取;去掉只有单曲的专辑艺人、右边的详情还读整库数组,那两处自己占用(U4b)。
             .catalog
-        case .genres, .folders, .releaseDate, .recommendations, .statistics, .ambient:
+        case .genres, .ambient:
+            .catalog
+        case .folders, .releaseDate, .recommendations, .statistics:
             .legacy
         }
     }

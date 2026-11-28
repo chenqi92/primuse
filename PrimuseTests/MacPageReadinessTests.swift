@@ -28,15 +28,22 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
             XCTAssertEqual(MacPageKind.section(section).readiness, LibraryReadyContent<EmptyView>.readiness(for: section),
                            "same as the iPhone library section")
         }
+        for section in [LibrarySection.genres, .ambient] {
+            XCTAssertEqual(MacPageKind.section(section).readiness, .catalog, "U6a: \(section)")
+            XCTAssertEqual(MacPageKind.section(section).readiness, LibraryReadyContent<EmptyView>.readiness(for: section),
+                           "same as the iPhone library section")
+        }
+        XCTAssertEqual(MacPageKind.smartPlaylist.readiness, .catalog, "U6a: rule playlists match on the catalog")
+        XCTAssertEqual(MacPageKind.smartPlaylistDetail.readiness, .catalog)
         let legacySections: [LibrarySection] = [
-            .genres, .folders, .releaseDate, .recommendations, .statistics, .ambient,
+            .folders, .releaseDate, .recommendations, .statistics,
         ]
         for section in legacySections {
             XCTAssertEqual(MacPageKind.section(section).readiness, .legacy, "\(section)")
         }
         let legacyPages: [MacPageKind] = [
-            .listeningStats, .sources, .source, .search, .smartPlaylist, .albumDetail, .artistDetail,
-            .smartPlaylistDetail, .searchCollection, .tool, .recommendationsPanel, .smartPlaylistEditor,
+            .listeningStats, .sources, .source, .search, .albumDetail, .artistDetail,
+            .searchCollection, .tool, .recommendationsPanel, .smartPlaylistEditor,
         ]
         for page in legacyPages {
             XCTAssertEqual(page.readiness, .legacy, "\(page)")
@@ -55,7 +62,7 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
     }
 
     /// 模型真放掉之后:首页、歌单、歌曲这些读目录的页直接画,不占用、不装、不读整库数组;还读数组的页
-    /// (这里拿流派页)显示加载并占用 `.legacyPage`,装回来就画,页面消失就放手。
+    /// (这里拿统计页)显示加载并占用 `.legacyPage`,装回来就画,页面消失就放手。
     func testPagesAfterTheSongModelWasReleased() async throws {
         let (library, _) = try makeLaunchedTwin("mac-pages-released", songs: Self.fixture(prefix: "mac-pages-released"))
         await assertShadowMatches(library, "fixture")
@@ -108,7 +115,8 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         _ library: MusicLibrary, before: MusicLibrary.SongModelResidencyStatistics, _ state: String,
         file: StaticString = #filePath, line: UInt = #line
     ) async throws {
-        for kind in [MacPageKind.home, .playlist, .section(.playlists), .section(.songs), .section(.radio)] {
+        for kind in [MacPageKind.home, .playlist, .section(.playlists), .section(.songs), .section(.genres), .section(.ambient),
+                     .smartPlaylistDetail, .section(.radio)] {
             XCTAssertTrue(MacPageKind.showsContent(kind.readiness, isUsable: library.isUsable, isReady: library.isReady),
                           "\(state): \(kind) shows at once", file: file, line: line)
             let page = SongModelPageHold()
@@ -118,12 +126,12 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         try await Task.sleep(for: .milliseconds(100))
         assertNoLoadAndNoArrayRead(library, since: before, "\(state): converted pages", file: file, line: line)
 
-        let legacy = MacPageKind.section(.genres)
+        let legacy = MacPageKind.section(.statistics)
         XCTAssertFalse(MacPageKind.showsContent(legacy.readiness, isUsable: library.isUsable, isReady: library.isReady),
-                       "\(state): the genres page shows loading", file: file, line: line)
+                       "\(state): the statistics page shows loading", file: file, line: line)
         let page = SongModelPageHold()
         page.update(library: library, needsArrays: legacy.readiness == .legacy, isVisible: true, isActive: true)
-        XCTAssertTrue(page.isHolding, "\(state): the genres page holds", file: file, line: line)
+        XCTAssertTrue(page.isHolding, "\(state): the statistics page holds", file: file, line: line)
         try await waitUntilReady(library)
         XCTAssertTrue(library.isReady, "\(state): the hold brought the model", file: file, line: line)
         XCTAssertTrue(MacPageKind.showsContent(legacy.readiness, isUsable: library.isUsable, isReady: library.isReady),

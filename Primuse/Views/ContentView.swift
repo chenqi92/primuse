@@ -1381,8 +1381,9 @@ struct LibraryReadyContent<Content: View>: View {
     static func readiness(for section: LibrarySection?) -> LibraryPageReadiness {
         switch section {
         case .radio, .podcasts, .spokenWord: .always
-        // 专辑页、歌曲页读曲库目录,还读整库数组的那几种自己占用(6c 单元 4 U4a、U5);MV 页、收藏页(U8b)、艺术家页(U4b)同。
-        case .albums, .songs, .musicVideos, .favorites, .artists: .catalog
+        // 专辑页、歌曲页读曲库目录,还读整库数组的那几种自己占用(6c 单元 4 U4a、U5);MV 页、收藏页(U8b)、艺术家页(U4b)、
+        // 流派页、环境音页(U6a)同。
+        case .albums, .songs, .musicVideos, .favorites, .artists, .genres, .ambient: .catalog
         default: .legacy
         }
     }
@@ -2146,7 +2147,7 @@ struct ContentView: View {
         case .libraryArtists:
             librarySubpane(title: "tab_artists", startupSection: .artists) { ArtistListView() }
         case .libraryGenres:
-            librarySubpane(title: "tab_genres") { GenreLibraryView() }
+            librarySubpane(title: "tab_genres", startupSection: .genres) { GenreLibraryView() }
         case .libraryPlaylists:
             librarySubpane(title: "tab_playlists") { PlaylistListView() }
         case .libraryRadio:
@@ -2156,7 +2157,7 @@ struct ContentView: View {
         case .libraryPodcasts:
             librarySubpane(title: "listening_space_podcast", startupSection: .podcasts) { PodcastLibraryView() }
         case .libraryAmbient:
-            librarySubpane(title: "listening_space_ambient") { AmbientSoundsView() }
+            librarySubpane(title: "listening_space_ambient", startupSection: .ambient) { AmbientSoundsView() }
         case .libraryMusicVideos:
             librarySubpane(title: "library_music_videos_title") { MusicVideoLibraryView() }
         case .search:
