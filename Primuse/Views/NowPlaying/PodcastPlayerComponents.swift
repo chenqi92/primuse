@@ -16,7 +16,7 @@ enum PodcastPlayerSheetTarget: Identifiable, Hashable {
         if PodcastPlaybackSong.isEpisode(song) {
             return PodcastPlayerEpisodeActions.showID(player).map(Self.show)
         }
-        return player.library?.localPodcastShowID(forSongID: song.id).map(Self.localShow)
+        return LocalPodcastCatalogLookup.show(of: song, in: player.library).map { Self.localShow($0.id) }
     }
 
     @MainActor

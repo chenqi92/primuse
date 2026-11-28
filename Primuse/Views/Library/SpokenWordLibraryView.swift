@@ -143,6 +143,8 @@ final class SpokenWordBooksModel {
         let libraryRevision: UInt64
         let storeRevision: Int
         var libraryIsReady = true
+        /// 歌曲模型不在内存里、曲库目录在那之后又动过时,按目录分的那一刻目录的归书修订号(U8a);按内存分的是 nil。
+        var catalogBooksRevision: UInt64? = nil
     }
 
     private(set) var snapshot = SpokenWordLibrarySnapshot(isPrepared: false) {
@@ -183,7 +185,11 @@ final class SpokenWordBooksModel {
         if let inputs, inputs == preparedInputs, snapshot.isPrepared { return }
         requestRevision &+= 1
         let revision = requestRevision
-        guard !songs.isEmpty else {
+        let reusesGrouping = inputs != nil && preparedInputs?.collection == inputs?.collection
+            && preparedInputs?.libraryRevision == inputs?.libraryRevision
+            && preparedInputs?.catalogBooksRevision == inputs?.catalogBooksRevision
+        // 内容没变、只是进度变了(分组照旧)时可以不交整份歌(歌曲模型不在内存里时,U8a)。
+        guard !songs.isEmpty || (reusesGrouping && progressIndex != nil) else {
             // 本来就是分好的空书架时不换一份新的: 首页整页读着它, 换一份就整页重画一遍。
             if !snapshot.isPrepared || !snapshot.entriesByID.isEmpty {
                 snapshot = SpokenWordLibrarySnapshot()
@@ -192,8 +198,6 @@ final class SpokenWordBooksModel {
             progressIndex = nil
             return
         }
-        let reusesGrouping = inputs != nil && preparedInputs?.collection == inputs?.collection
-            && preparedInputs?.libraryRevision == inputs?.libraryRevision
         let cachedIndex = reusesGrouping ? progressIndex : nil
         let previous = reusesGrouping ? snapshot : nil
         // Build sections and chapter queues together, so scrolling and opening
@@ -222,6 +226,11 @@ final class SpokenWordBooksModel {
         progressIndex = result.1
         markPrepared(for: inputs)
     }
+}
+
+extension SpokenWordBooksModel {
+    /// 分好的书架是按哪份输入分的;还没分好(或分的是曲库还在读时那份空书架)时 nil。
+    var settledInputs: Inputs? { isSettled ? preparedInputs : nil }
 }
 
 /// 按书分组的有声内容:书架上的书,或者播客那边本机下载的节目(按节目分组,一集是一章)。
@@ -289,52 +298,6 @@ struct SpokenWordLibraryContent<Content: View>: View {
             // 被拉高或压扁(封面轮播上下空出一大截、「为你推荐」的卡片被裁掉上下)。
             content(books.snapshot)
         }
-    }
-}
-
-/// 页面在的时候,曲库这一类内容或有声内容那份账(进度、听完、归档)一变,就让 `model` 在后台重分。
-/// 只读分好的快照、不需要 `SpokenWordLibraryContent` 那层包装的页面(Mac 首页)直接挂这个。
-private struct SpokenWordBooksRefresh: ViewModifier {
-    let collection: SpokenWordCollection
-    let model: SpokenWordBooksModel
-    @Environment(MusicLibrary.self) private var library
-    @State private var progressRevision = 0
-
-    private struct RefreshIdentity: Equatable {
-        let libraryRevision: UInt64
-        let progressRevision: Int
-        /// 曲库装好时有声内容可能还是空的(修订号不动),也要再分一次,好让书架知道真没有书。
-        let libraryIsReady: Bool
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .task(id: RefreshIdentity(
-                libraryRevision: collection.revision(in: library), progressRevision: progressRevision,
-                libraryIsReady: library.isReady
-            )) {
-                // 6c: 歌曲模型不在内存里时这份有声条目答不了(数组是空的,不是「没有书」):分好的书架留着,
-                // 不重分、不发一份空书架(首页、书架启动快照都读它);装回来时(就绪变了)再分。还没分好过的
-                // (启动装载中)照旧按未就绪分一次,显示占位。
-                let songs = collection.songsIfLoaded(in: library)
-                if songs == nil, model.isSettled { return }
-                let store = SpokenWordStore.shared
-                await model.refresh(
-                    songs: songs ?? [],
-                    positions: store.positions,
-                    finishedAt: store.finishedAt,
-                    archived: store.archivedBookIDs,
-                    inputs: .init(
-                        collection: collection,
-                        libraryRevision: collection.revision(in: library),
-                        storeRevision: store.revision,
-                        libraryIsReady: library.isReady
-                    )
-                )
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordDidChange)) { _ in
-                progressRevision &+= 1
-            }
     }
 }
 
@@ -473,7 +436,7 @@ struct SpokenWordLibraryView: View {
                 ListeningShareMenu(scope: .audiobooks)
                     .tint(ListeningSpace.spokenWord.tint)
             }
-            if !library.spokenWordSongs.isEmpty {
+            if library.hasSpokenWordContent {
                 ToolbarItem(placement: .primaryAction) {
                     // 导航栏按钮默认跟 App 的主题色(可能跟着封面变),这一页的按钮跟有声书自己的颜色。
                     homeSpotlightButton
@@ -490,7 +453,7 @@ struct SpokenWordLibraryView: View {
                     MinimalHeaderActions {
                         MinimalPageFindButton()
                         ListeningShareMenu(scope: .audiobooks)
-                        if !library.spokenWordSongs.isEmpty {
+                        if library.hasSpokenWordContent {
                             homeSpotlightButton
                         }
                     }
@@ -511,7 +474,7 @@ struct SpokenWordLibraryView: View {
         }
         .overlay {
             // 曲库还在读时有声内容是空的,书架那边先摆上次的样子,不能盖一层「没有有声内容」。
-            if library.isReady, !library.hasSpokenWordContent {
+            if library.isUsable, !library.hasSpokenWordContent {
                 ContentUnavailableView(
                     "tab_spoken_word",
                     systemImage: "books.vertical",
@@ -546,7 +509,7 @@ struct SpokenWordLibraryView: View {
 
             // 查找、「首页显示哪些书」、分享同一档 32 高的玻璃键(`MacControlTier.header`);
             // 分享原来是系统的菜单按钮, 比旁边两颗矮一截。
-            if !library.spokenWordSongs.isEmpty {
+            if library.hasSpokenWordContent {
                 MacLibraryFindField(text: $findText, prompt: "filter_spoken_word_placeholder")
                 MacControlIconButton(systemImage: "house", help: "home_spotlight_manage_books") {
                     showsHomeSpotlight = true
@@ -1637,7 +1600,7 @@ struct SpokenWordBookDetailView: View {
                 #endif
             } else if !snapshot.isPrepared {
                 ProgressView()
-            } else if collection == .books, library.localPodcastBookIDs.values.contains(bookID) {
+            } else if collection == .books, LocalPodcastCatalogLookup.isShow(bookID, in: library) {
                 // 「转到这本书」从播放页、Mac 主窗口进来时只带着 id:本机下载的播客节目不在书架上。
                 SpokenWordBookDetailView(bookID: bookID, collection: .localPodcasts, onMacInlineBack: onMacInlineBack)
             } else {

@@ -357,6 +357,8 @@ struct PodcastLibraryContent: View {
 
     @Environment(MusicLibrary.self) private var library
     @AppStorage(PodcastLibrarySectionLayout.storageKey) private var sectionLayoutRawValue = ""
+    /// 歌曲模型不在内存里时,本机节目里有没有命中的(后台按曲库目录找)。
+    @State private var localFindAnswer: PodcastLocalFindAnswer?
     private var store: PodcastStore { PodcastStore.shared }
 
     var body: some View {
@@ -369,7 +371,7 @@ struct PodcastLibraryContent: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 200)
             } else if let findQuery = LibraryFindPolicy.query(findText) {
-                let localMatches = PodcastLocalShowsSection.hasMatches(findQuery, in: library)
+                let localMatches = PodcastLocalShowsSection.hasMatches(findQuery, in: library, catalogAnswer: localFindAnswer)
                 let subscriptionMatches = !PodcastShowsGrid.shows(matching: findQuery, in: store.shows).isEmpty
                 if !subscriptionMatches && !localMatches {
                     ContentUnavailableView.search(text: findText)
@@ -410,6 +412,7 @@ struct PodcastLibraryContent: View {
         .onChange(of: store.isLoaded) { _, loaded in
             if loaded { store.refreshAllIfDue() }
         }
+        .podcastLocalFind(findText, answer: $localFindAnswer)
     }
 
     @ViewBuilder
@@ -1128,16 +1131,10 @@ struct PodcastLocalShowsSection: View {
         #endif
     }
 
-    /// 在找节目时,本机节目里有没有命中的(节目名、作者,或某一集的标题)。
-    @MainActor
-    static func hasMatches(_ query: LibraryFindPolicy.Query, in library: MusicLibrary) -> Bool {
-        library.localPodcastSongs.contains {
-            LibraryFindPolicy.matches(query, fields: [$0.albumTitle, $0.albumArtistName ?? $0.artistName, $0.title])
-        }
-    }
+    // 在找节目时本机节目里有没有命中的:`hasMatches(_:in:catalogAnswer:)`(LocalPodcastCatalogLookup.swift)。
 
     var body: some View {
-        if !library.localPodcastSongs.isEmpty {
+        if LocalPodcastCatalogLookup.hasEpisodes(in: library) {
             SpokenWordLibraryContent(collection: .localPodcasts) { snapshot in
                 let shows = (snapshot.allEntries + snapshot.archived).filter { entry in
                     guard let findQuery else { return true }

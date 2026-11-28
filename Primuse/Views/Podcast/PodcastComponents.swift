@@ -1023,7 +1023,7 @@ struct LikedLocalPodcastEpisodeRow: View {
                 Label("podcast_mark_played", systemImage: "checkmark.circle")
             }
         }
-        if let openShow, let showID = library.localPodcastShowID(forSongID: song.id) {
+        if let openShow, let showID = LocalPodcastCatalogLookup.show(of: song, in: library)?.id {
             Button {
                 openShow(showID)
             } label: {

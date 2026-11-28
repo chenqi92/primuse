@@ -104,7 +104,7 @@ struct MacPodcastLibraryView: View {
 
     private var summary: String {
         guard hasLibraryContent else { return String(localized: "podcast_welcome_message") }
-        let total = store.shows.count + library.localPodcastShowCount
+        let total = store.shows.count + LocalPodcastCatalogLookup.showCount(in: library)
         var parts = ["\(total.formatted()) \(String(localized: "podcast_shows_count"))"]
         let newCount = store.shows.reduce(0) { $0 + store.newEpisodeCount(showID: $1.id) }
         if newCount > 0 {

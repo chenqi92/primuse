@@ -47,9 +47,11 @@ extension MacPageKind {
         case .appleMusicArtist:
             // Apple Music 目录里的艺人,不读本地曲库。
             .always
+        case .spokenWordBook:
+            // 书的章节随书架从目录分(`SpokenWordCatalogShelf`,U8a)。
+            .catalog
         case .listeningStats, .sources, .source, .search, .smartPlaylist, .albumDetail, .artistDetail,
-             .smartPlaylistDetail, .searchCollection, .spokenWordBook, .tool, .recommendationsPanel,
-             .smartPlaylistEditor:
+             .smartPlaylistDetail, .searchCollection, .tool, .recommendationsPanel, .smartPlaylistEditor:
             .legacy
         }
     }
@@ -58,7 +60,7 @@ extension MacPageKind {
         switch section {
         case .radio, .podcasts, .spokenWord:
             // 与 iPhone 的分类相同(`LibraryReadyContent.readiness(for:)`):电台、播客不读曲库,
-            // 有声书架自己先摆上次的书架。
+            // 有声书架自己先摆上次的书架;本机播客、书架在模型不在内存里时从目录分(U8a)。
             .always
         case .playlists, .albums:
             // 专辑页(`AlbumGridView`)读曲库目录,还读整库数组的那几种(按发行类别筛)自己占用(6c 单元 4 U4a)。

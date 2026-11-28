@@ -109,7 +109,7 @@ enum SpokenWordPlayerText {
             return show.isEmpty ? episode.artistName : show
         }
         if player.currentListeningSpace == .podcast, let song = player.currentSong {
-            return player.library?.localPodcastShowTitle(forSongID: song.id) ?? song.albumTitle
+            return LocalPodcastCatalogLookup.show(of: song, in: player.library)?.title ?? song.albumTitle
         }
         if let author = player.currentSpokenWordBook?.author, !author.isEmpty { return author }
         guard let song = player.currentSong else { return nil }

@@ -90,7 +90,7 @@ legacy-library-api	Primuse/Views/Library/PlaylistListView.swift	5
 legacy-library-api	Primuse/Views/Library/PlaylistPendingEntryRow.swift	1
 legacy-library-api	Primuse/Views/Library/ReleaseDateLibraryView.swift	2
 legacy-library-api	Primuse/Views/Library/SongListView.swift	2
-legacy-library-api	Primuse/Views/Library/SpokenWordLibraryView.swift	5
+legacy-library-api	Primuse/Views/Library/SpokenWordLibraryView.swift	2
 legacy-library-api	Primuse/Views/Library/TagEditorView.swift	3
 legacy-library-api	Primuse/Views/Mac/MacContentView.swift	1
 legacy-library-api	Primuse/Views/Mac/MacHomeView.swift	4
@@ -101,7 +101,6 @@ legacy-library-api	Primuse/Views/Mac/PMTitleBar.swift	1
 legacy-library-api	Primuse/Views/Mac/PlayerMoreMenu.swift	1
 legacy-library-api	Primuse/Views/NowPlaying/ImmersivePlayerView.swift	1
 legacy-library-api	Primuse/Views/NowPlaying/NowPlayingCarouselExploreFace.swift	3
-legacy-library-api	Primuse/Views/Podcast/PodcastLibraryView.swift	2
 legacy-library-api	Primuse/Views/Search/LibrarySearchCatalog.swift	3
 legacy-library-api	Primuse/Views/Search/SearchView.swift	16
 legacy-library-api	Primuse/Views/Settings/CarPlayEditorCanvas.swift	2

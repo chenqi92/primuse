@@ -103,7 +103,7 @@ Primuse/Views/Library/PlaylistListView.swift	1836
 Primuse/Views/Library/SmartPlaylistDetailView.swift	1165
 Primuse/Views/Library/SmartPlaylistEditorView.swift	1344
 Primuse/Views/Library/SongListView.swift	8136
-Primuse/Views/Library/SpokenWordLibraryView.swift	3298
+Primuse/Views/Library/SpokenWordLibraryView.swift	3272
 Primuse/Views/Library/TagEditorView.swift	2756
 Primuse/Views/Mac/DesktopLyricsIslandView.swift	1161
 Primuse/Views/Mac/MacContentView.swift	1717
@@ -132,7 +132,7 @@ Primuse/Views/NowPlaying/ScrapeWritebackProgress.swift	1057
 Primuse/Views/NowPlaying/SongCommentsView.swift	1333
 Primuse/Views/NowPlaying/SpokenWordPlayerComponents.swift	3730
 Primuse/Views/Podcast/PodcastComponents.swift	1396
-Primuse/Views/Podcast/PodcastLibraryView.swift	1938
+Primuse/Views/Podcast/PodcastLibraryView.swift	1935
 Primuse/Views/Radio/RadioStationsView.swift	2201
 Primuse/Views/Radio/RadioSubscriptionsView.swift	1162
 Primuse/Views/Search/SearchView.swift	5755

@@ -68,8 +68,10 @@ struct MacSidebar: View {
     /// 有声内容按「书」计数: 一部 200 集的评书是一本, 不是 200 条。分组在曲库
     /// 发布时算好一次, 这里不读收听位置, 听书时侧栏也不跟着重算。
     private var spokenWordBookCount: Int {
-        library.spokenWordBookCount
+        catalogShelfCounts?.books ?? library.spokenWordBookCount
     }
+    /// 这次启动没装过歌曲模型时,书架的本数从曲库目录数(U8a,`spokenWordCatalogShelfCounts`)。
+    @State private var catalogShelfCounts: SpokenWordShelfCounts?
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -102,6 +104,7 @@ struct MacSidebar: View {
             .pmAnimation(.list, value: hasSources)
         }
         .onChange(of: counts, initial: true) { _, counts in shownCounts = counts }
+        .spokenWordCatalogShelfCounts($catalogShelfCounts)
         .frame(maxHeight: .infinity)
         // 底色接到窗口顶: 播放页开着时标题栏褪透明, 侧栏的封面色从红绿灯那一角就开始。
         .background(MacSidebarBackdrop().macExtendsUnderTitleBar().ignoresSafeArea())
