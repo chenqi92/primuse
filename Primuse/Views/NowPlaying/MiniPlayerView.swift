@@ -216,8 +216,12 @@ struct MiniPlayerSwipeContent: View {
                             .lineLimit(1)
                             .foregroundStyle(.orange)
                             .contentTransition(.opacity)
-                    } else if showsSubtitle || miniPlayerLyrics, isDownloadingFromICloud {
-                        Label("playback_icloud_downloading", systemImage: "icloud.and.arrow.down")
+                    } else if showsSubtitle || miniPlayerLyrics, isDownloadingFromICloud, let song = player.currentSong {
+                        Label {
+                            Text(verbatim: player.iCloudDownloadStatusText(for: song.id))
+                        } icon: {
+                            Image(systemName: "icloud.and.arrow.down")
+                        }
                             .font(.caption2)
                             .lineLimit(1)
                             .foregroundStyle(.secondary)
@@ -288,8 +292,8 @@ struct MiniPlayerSwipeContent: View {
         if showsSubtitle || miniPlayerLyrics, let error = player.lastPlaybackError {
             return (parts + [error]).filter { !$0.isEmpty }.joined(separator: ": ")
         }
-        if showsSubtitle || miniPlayerLyrics, isDownloadingFromICloud {
-            parts.append(String(localized: "playback_icloud_downloading"))
+        if showsSubtitle || miniPlayerLyrics, isDownloadingFromICloud, let song = player.currentSong {
+            parts.append(player.iCloudDownloadStatusText(for: song.id))
             return parts.filter { !$0.isEmpty }.joined(separator: ": ")
         }
         if miniPlayerLyrics, !isSpokenWord, !player.isLiveRadio,

@@ -487,6 +487,9 @@ final class SourcesStore {
     @ObservationIgnored private(set) var sourceIDsCreatedOnThisDevice: Set<String> = []
     /// 其中这次运行里才建的:别的设备不可能扫过。
     @ObservationIgnored private(set) var sourceIDsCreatedThisRun: Set<String> = []
+    /// 运行时探测到的云盘托管本地源(iCloud 云盘 / File Provider)。随通知更新，让离线下载按钮即时生效。
+    private(set) var cloudBackedLocalSourceIDs: Set<String> = CloudBackedLocalSourceRegistry.shared.sourceIDs
+    @ObservationIgnored nonisolated(unsafe) private var cloudBackedLocalObserver: (any NSObjectProtocol)?
 
     init(
         fileManager: FileManager = .default,
@@ -544,6 +547,21 @@ final class SourcesStore {
             FnConnectGatewayCredentialStore.updateSources(allSources)
         }
         #endif
+        cloudBackedLocalObserver = NotificationCenter.default.addObserver(
+            forName: CloudBackedLocalSourceRegistry.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cloudBackedLocalSourceIDs = CloudBackedLocalSourceRegistry.shared.sourceIDs
+            }
+        }
+    }
+
+    deinit {
+        if let cloudBackedLocalObserver {
+            NotificationCenter.default.removeObserver(cloudBackedLocalObserver)
+        }
     }
 }
 
@@ -591,13 +609,30 @@ extension SourcesStore {
     }
 
     /// Metadata-only eligibility shared by manual song and collection actions.
-    /// Local originals do not become downloads just because their cache is empty.
+    /// True local originals do not become downloads just because their cache is
+    /// empty, while cloud-backed local folders (iCloud Drive / File Provider) do.
+    func allowsOfflineDownload(for song: Song) -> Bool {
+        OfflineDownloadActionPolicy.allowsDownload(
+            for: song,
+            source: source(id: song.sourceID),
+            cloudBackedLocalSourceIDs: cloudBackedLocalSourceIDs
+        )
+    }
+
     func downloadableSongs(in songs: [Song]) -> [Song] {
-        OfflineDownloadActionPolicy.downloadableSongs(in: songs, sources: allSources)
+        OfflineDownloadActionPolicy.downloadableSongs(
+            in: songs,
+            sources: allSources,
+            cloudBackedLocalSourceIDs: cloudBackedLocalSourceIDs
+        )
     }
 
     func containsDownloadableSong(in songs: [Song]) -> Bool {
-        OfflineDownloadActionPolicy.containsDownloadableSong(in: songs, sources: allSources)
+        OfflineDownloadActionPolicy.containsDownloadableSong(
+            in: songs,
+            sources: allSources,
+            cloudBackedLocalSourceIDs: cloudBackedLocalSourceIDs
+        )
     }
 
     /// tvOS 下载到新 sources.json 后重新从磁盘加载。

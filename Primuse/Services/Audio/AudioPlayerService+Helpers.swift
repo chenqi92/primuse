@@ -1058,10 +1058,12 @@ extension AudioPlayerService {
         plog("☁️ '\(song.title)' is not downloaded from iCloud yet; downloading before playback")
         let startedAt = ProcessInfo.processInfo.systemUptime
         iCloudDownloadingSongID = song.id
+        iCloudDownloadProgress = nil
         iCloudDownloadPlayID = id
         defer {
             if iCloudDownloadPlayID == id {
                 iCloudDownloadingSongID = nil
+                iCloudDownloadProgress = nil
                 iCloudDownloadPlayID = nil
             }
         }
@@ -1071,7 +1073,19 @@ extension AudioPlayerService {
                 isOffline: { @MainActor in
                     NetworkMonitor.shared.hasDeterminedPath && !NetworkMonitor.shared.isReachable
                 },
-                isCurrent: { @MainActor [weak self] in self?.playID == id }
+                isCurrent: { @MainActor [weak self] in self?.playID == id },
+                onProgress: { [weak self] progress in
+                    guard let progress else { return }
+                    Task { @MainActor [weak self] in
+                        guard let self, self.iCloudDownloadPlayID == id else { return }
+                        let clamped = min(max(progress, 0), 1)
+                        let nextPercent = Int((clamped * 100).rounded())
+                        let currentPercent = self.iCloudDownloadProgress.map { Int(($0 * 100).rounded()) }
+                        if currentPercent != nextPercent {
+                            self.iCloudDownloadProgress = clamped
+                        }
+                    }
+                }
             )
         } catch let error as UbiquitousPlaybackFile.DownloadError {
             plog("☁️ iCloud download failed for '\(song.title)': \(error.failure) \(error.underlyingDescription ?? "")")
@@ -1081,16 +1095,25 @@ extension AudioPlayerService {
         plog("☁️ '\(song.title)' downloaded from iCloud in \(elapsed)s")
     }
 
+    func iCloudDownloadStatusText(for songID: String) -> String {
+        UbiquitousPlaybackDownloadPolicy.formattedDownloadStatus(
+            baseText: String(localized: "playback_icloud_downloading"),
+            progress: iCloudDownloadingSongID == songID ? iCloudDownloadProgress : nil
+        )
+    }
+
     /// 队列里接下来那首若是还在 iCloud 上的本机文件,先让系统开始下载,轮到它时不用再等。
     func requestICloudDownloadForUpcomingLocalSong(_ song: Song) async {
         guard let sourceManager,
               playbackMetadataSourceType?(song.sourceID) == .local,
+              sourceManager.cachedPlaybackURL(for: song) == nil,
               let url = try? await sourceManager.resolveURL(for: song, acquirePlaybackCacheLease: false),
-              url.isFileURL,
-              await UbiquitousPlaybackFile.needsDownload(url) else { return }
+              url.isFileURL else { return }
+        await sourceManager.noteCloudBackedLocalSourceIfNeeded(song.sourceID, url: url)
         do {
-            try FileManager.default.startDownloadingUbiquitousItem(at: url)
-            plog("☁️ requested iCloud download for upcoming '\(song.title)'")
+            if try await UbiquitousPlaybackFile.requestDownloadIfNeeded(url) {
+                plog("☁️ requested iCloud download for upcoming '\(song.title)'")
+            }
         } catch {
             plog("☁️ iCloud download request failed for upcoming '\(song.title)': \(error.localizedDescription)")
         }

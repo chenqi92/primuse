@@ -502,6 +502,128 @@ final class LocalReferenceFileChangeTests: XCTestCase {
         XCTAssertTrue(hasPresenter())
         return WatchedFolder(file: file, local: local, library: library, service: service, target: target)
     }
+
+    func testUbiquitousPlaceholderAndCloudPathDetection() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/Music", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+        }
+
+        let trackURL = root.appendingPathComponent("Track.flac")
+        let placeholderURL = UbiquitousPlaybackFile.evictedPlaceholderURL(for: trackURL)
+        XCTAssertEqual(placeholderURL.lastPathComponent, ".Track.flac.icloud")
+        try Data("stub".utf8).write(to: placeholderURL)
+
+        let cloudBacked = await UbiquitousPlaybackFile.isCloudBacked(trackURL)
+        XCTAssertTrue(cloudBacked)
+        XCTAssertTrue(UbiquitousPlaybackFile.isEvictedPlaceholder(trackURL))
+        let needsBefore = await UbiquitousPlaybackFile.needsDownload(trackURL)
+        XCTAssertTrue(needsBefore)
+        let snapBefore = UbiquitousPlaybackFile.snapshot(of: trackURL)
+        XCTAssertEqual(snapBefore.status, .notDownloaded)
+
+        try FileManager.default.removeItem(at: placeholderURL)
+        try Data(repeating: 0x5A, count: 2048).write(to: trackURL)
+        XCTAssertFalse(UbiquitousPlaybackFile.isEvictedPlaceholder(trackURL))
+        let needsAfter = await UbiquitousPlaybackFile.needsDownload(trackURL)
+        XCTAssertFalse(needsAfter)
+    }
+
+    func testCloudBackedLocalSourceCachesAndServesCachedFileWhenEvicted() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let cloudDir = tempRoot.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/Music", isDirectory: true)
+        let file = cloudDir.appendingPathComponent("Album/CloudTrack.mp3")
+        try write("CloudTrack", to: file)
+        let fileSize = ((try? FileManager.default.attributesOfItem(atPath: file.path)[.size]) as? Int64) ?? 0
+        XCTAssertGreaterThan(fileSize, 0)
+
+        let source = MusicSource(
+            id: "test-cloud-local-\(UUID().uuidString)",
+            name: "iCloud Local",
+            type: .local,
+            basePath: cloudDir.path
+        )
+        let song = Song(
+            id: "song-\(UUID().uuidString)",
+            title: "CloudTrack",
+            fileFormat: .mp3,
+            filePath: "/Album/CloudTrack.mp3",
+            sourceID: source.id,
+            fileSize: fileSize
+        )
+        let local = LocalFileSource(sourceID: source.id, basePath: cloudDir)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in local })
+        addTeardownBlock {
+            await MainActor.run {
+                manager.deleteAudioCache(for: song)
+                CloudBackedLocalSourceRegistry.shared.unregister(sourceID: source.id)
+            }
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        XCTAssertTrue(manager.isCloudBackedLocalSource(source))
+        let initialURL = try await manager.resolveURL(for: song, acquirePlaybackCacheLease: false)
+        XCTAssertEqual(initialURL.resolvingSymlinksInPath().path, file.resolvingSymlinksInPath().path)
+
+        XCTAssertTrue(manager.cacheInBackground(song: song, cacheEnabled: true))
+        await manager.waitForBackgroundAudioCache(for: song)
+
+        let cachedURL = try XCTUnwrap(manager.cachedPlaybackURL(for: song))
+        XCTAssertNotEqual(cachedURL.resolvingSymlinksInPath().path, file.resolvingSymlinksInPath().path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachedURL.path))
+
+        // Simulate iCloud eviction / original file missing: playback must resolve directly from cache.
+        try FileManager.default.removeItem(at: file)
+        let resolvedAfterEviction = try await manager.resolveURL(for: song, acquirePlaybackCacheLease: false)
+        XCTAssertEqual(resolvedAfterEviction.resolvingSymlinksInPath().path, cachedURL.resolvingSymlinksInPath().path)
+    }
+
+    func testPlainLocalSourceDoesNotDuplicateIntoPlaybackCache() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let localDir = tempRoot.appendingPathComponent("PlainMusic", isDirectory: true)
+        let file = localDir.appendingPathComponent("Album/PlainTrack.mp3")
+        try write("PlainTrack", to: file)
+        let fileSize = ((try? FileManager.default.attributesOfItem(atPath: file.path)[.size]) as? Int64) ?? 0
+
+        let source = MusicSource(
+            id: "test-plain-local-\(UUID().uuidString)",
+            name: "Plain Local",
+            type: .local,
+            basePath: localDir.path
+        )
+        let song = Song(
+            id: "song-\(UUID().uuidString)",
+            title: "PlainTrack",
+            fileFormat: .mp3,
+            filePath: "/Album/PlainTrack.mp3",
+            sourceID: source.id,
+            fileSize: fileSize
+        )
+        let local = LocalFileSource(sourceID: source.id, basePath: localDir)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in local })
+        addTeardownBlock {
+            await MainActor.run {
+                manager.deleteAudioCache(for: song)
+            }
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        XCTAssertFalse(manager.isCloudBackedLocalSource(source))
+        // 先让这个源的缓存范围校验完:没校验时 `cacheInBackground` 在登记任务之前就返回了,
+        // 测不到「本机源不复制进播放缓存」这一条。任务排上了、跑完了、没有缓存,才是这一条拦下的。
+        let validated = await manager.prepareAutomaticOfflineDownload(song: song, forceRedownload: false)
+        XCTAssertTrue(validated, "the plain local source's cache scope validates")
+        XCTAssertTrue(manager.cacheInBackground(song: song, cacheEnabled: true), "a background cache task is scheduled")
+        await manager.waitForBackgroundAudioCache(for: song)
+        XCTAssertNil(manager.cachedPlaybackURL(for: song))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: manager.cacheURL(for: song).path))
+
+        let resolved = try await manager.resolveURL(for: song, acquirePlaybackCacheLease: false)
+        XCTAssertEqual(resolved.resolvingSymlinksInPath().path, file.resolvingSymlinksInPath().path)
+    }
 }
 
 private final class LocalRefreshTestFileManager: FileManager, @unchecked Sendable {

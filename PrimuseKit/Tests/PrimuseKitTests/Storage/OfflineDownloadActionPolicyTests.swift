@@ -7,6 +7,51 @@ struct OfflineDownloadActionPolicyTests {
             let source = MusicSource(id: "local", name: "Local", type: .local, basePath: root)
             let song = song(sourceID: source.id)
             #expect(!OfflineDownloadActionPolicy.allowsDownload(for: song, source: source))
+            #expect(!OfflineDownloadActionPolicy.allowsFolderDownload(for: source))
+        }
+    }
+
+    @Test func cloudBackedLocalAudioAllowsDownloadingAndFolderCaching() {
+        let icloudPaths = [
+            "/Users/listener/Library/Mobile Documents/com~apple~CloudDocs/Music",
+            "/private/var/mobile/Library/Mobile Documents/com~apple~CloudDocs/Music",
+            "/Users/listener/Library/CloudStorage/OneDrive-Personal/Music",
+            "/var/mobile/Containers/Shared/AppGroup/1234/File Provider Storage/Music",
+        ]
+        for path in icloudPaths {
+            #expect(LocalCloudStoragePathPolicy.isCloudBackedPath(path))
+            let source = MusicSource(id: "icloud-local", name: "iCloud", type: .local, basePath: path)
+            let track = song(sourceID: source.id)
+            #expect(OfflineDownloadActionPolicy.allowsDownload(for: track, source: source))
+            #expect(OfflineDownloadActionPolicy.allowsFolderDownload(for: source))
+            #expect(OfflineDownloadActionPolicy.containsDownloadableSong(in: [track], sources: [source]))
+        }
+
+        // Bookmark-only local source (nil basePath) registered at runtime via ubiquitous probe.
+        let bookmarkLocal = MusicSource(id: "bookmark-icloud", name: "iCloud", type: .local, basePath: nil)
+        let bookmarkTrack = song(sourceID: bookmarkLocal.id)
+        #expect(!OfflineDownloadActionPolicy.allowsDownload(for: bookmarkTrack, source: bookmarkLocal))
+        #expect(OfflineDownloadActionPolicy.allowsDownload(
+            for: bookmarkTrack,
+            source: bookmarkLocal,
+            cloudBackedLocalSourceIDs: [bookmarkLocal.id]
+        ))
+        #expect(OfflineDownloadActionPolicy.allowsFolderDownload(
+            for: bookmarkLocal,
+            cloudBackedLocalSourceIDs: [bookmarkLocal.id]
+        ))
+        #expect(OfflineDownloadActionPolicy.downloadableSongs(
+            in: [bookmarkTrack],
+            sources: [bookmarkLocal],
+            cloudBackedLocalSourceIDs: [bookmarkLocal.id]
+        ).map(\.id) == [bookmarkTrack.id])
+    }
+
+    @Test func onlyLocalFilesSkipTheNetworkCheckBeforeAnOfflineTransfer() {
+        #expect(!OfflineDownloadActionPolicy.transferNeedsNetwork(sourceType: .local, isStreamDescriptor: false))
+        #expect(OfflineDownloadActionPolicy.transferNeedsNetwork(sourceType: .local, isStreamDescriptor: true))
+        for type in [MusicSourceType.webdav, .smb, .navidrome, .appleMusicLibrary] {
+            #expect(OfflineDownloadActionPolicy.transferNeedsNetwork(sourceType: type, isStreamDescriptor: false))
         }
     }
 
@@ -105,6 +150,15 @@ struct FolderOfflineDownloadRequestTests {
         for type in [MusicSourceType.appleMusic, .appleMusicLibrary, .local] {
             #expect(request(songs: songs, source: MusicSource(id: "nas", name: "Music", type: type)) == nil)
         }
+        let icloudLocal = MusicSource(
+            id: "nas",
+            name: "iCloud Music",
+            type: .local,
+            basePath: "/Users/listener/Library/Mobile Documents/com~apple~CloudDocs/Music"
+        )
+        #expect(request(songs: songs, source: icloudLocal)?.songs.map(\.id) == ["one"])
+        let bookmarkCloudLocal = MusicSource(id: "nas", name: "iCloud Music", type: .local, basePath: nil)
+        #expect(request(songs: songs, source: bookmarkCloudLocal, cloudBackedLocalSourceIDs: ["nas"])?.songs.map(\.id) == ["one"])
     }
 
     @Test func sourceRootIncludesAllItsFolders() throws {
@@ -151,7 +205,8 @@ struct FolderOfflineDownloadRequestTests {
 
     private func request(
         songs: [Song], lookup: [String: Song]? = nil,
-        source: MusicSource? = nil, nodeID: LibraryFolderNodeID? = nil
+        source: MusicSource? = nil, nodeID: LibraryFolderNodeID? = nil,
+        cloudBackedLocalSourceIDs: Set<String> = []
     ) -> FolderOfflineDownloadRequest? {
         let index = LibraryFolderIndexBuilder.build(sources: [
             LibraryFolderSourceDescriptor(sourceID: "nas", displayName: "NAS", scanRoots: ["/Music"], pathSemantics: .hierarchical),
@@ -160,6 +215,7 @@ struct FolderOfflineDownloadRequestTests {
         let lookup = lookup ?? Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
         return FolderOfflineDownloadRequest(
             nodeID: nodeID ?? folderID(), index: index, source: source ?? self.source,
+            cloudBackedLocalSourceIDs: cloudBackedLocalSourceIDs,
             songForID: { lookup[$0] }
         )
     }

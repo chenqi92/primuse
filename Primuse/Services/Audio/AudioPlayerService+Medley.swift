@@ -381,10 +381,20 @@ extension AudioPlayerService {
     private func medleyAnalysisAudioURL(for song: Song) async -> URL? {
         guard let manager = sourceManager else { return nil }
         if playbackMetadataSourceType?(song.sourceID) == .local {
+            if manager.hasUsableCachedAudioForPlayback(song),
+               let cached = manager.cachedPlaybackURL(for: song) {
+                return cached
+            }
+            if manager.isCloudBackedLocalSourceID(song.sourceID) {
+                guard let url = await manager.directLocalFileURL(for: song),
+                      !(await UbiquitousPlaybackFile.needsDownload(url)) else { return nil }
+                return url
+            }
             // Resolving a local song only opens its file; it is tried once.
             medleyAudioCheckedSongIDs.insert(song.id)
             guard let url = try? await manager.resolveURL(for: song, acquirePlaybackCacheLease: false),
-                  url.isFileURL else { return nil }
+                  url.isFileURL,
+                  !(await UbiquitousPlaybackFile.needsDownload(url)) else { return nil }
             medleyAudioCheckedSongIDs.remove(song.id)
             return url
         }

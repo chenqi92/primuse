@@ -272,7 +272,8 @@ extension AudioPlayerService {
               let sourcePlayID = playID else { return nil }
         let entry = queueEntries[target.queueIndex]
         let song = entry.song
-        let hasLocalAudio = playbackMetadataSourceType?(song.sourceID) == .local
+        let isCloudBackedLocal = sourceManager?.isCloudBackedLocalSourceID(song.sourceID) == true
+        let hasLocalAudio = (playbackMetadataSourceType?(song.sourceID) == .local && !isCloudBackedLocal)
             || sourceManager?.hasUsableCachedAudioForPlayback(song) == true
         guard ManualSkipCrossfadePolicy.isEligible(.init(
             crossfadeIsEnabled: shouldUseCrossfade(playbackSettings.snapshot()),
@@ -545,6 +546,11 @@ extension AudioPlayerService {
                 for: nextSong,
                 forContinuousPreparation: true
             )
+            if nextURL.isFileURL, await UbiquitousPlaybackFile.needsDownload(nextURL) {
+                _ = try? await UbiquitousPlaybackFile.requestDownloadIfNeeded(nextURL)
+                failCrossfadeAttempt(attemptID)
+                return
+            }
             let nextDecoderKind = await decoderKind(for: nextSong, url: nextURL)
             guard isCurrentCrossfadeAttempt(
                 attemptID,

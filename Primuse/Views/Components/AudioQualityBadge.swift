@@ -73,6 +73,7 @@ struct NowPlayingAudioTagRow: View {
     /// 按设置的档位要不要标音质;有声内容不标。
     let showsAudio: Bool
     let isDownloadingFromICloud: Bool
+    var iCloudDownloadProgress: Double? = nil
     let source: NowPlayingSourceLabel?
     /// 来源要不要也挂成一枚标签。有底部状态行的版面把来源写在那一行,这里只在小卡里列出。
     var showsSourceTag = true
@@ -140,7 +141,10 @@ struct NowPlayingAudioTagRow: View {
             if isDownloadingFromICloud {
                 NowPlayingAudioTag(
                     symbol: "icloud.and.arrow.down",
-                    title: String(localized: "playback_icloud_downloading"),
+                    title: UbiquitousPlaybackDownloadPolicy.formattedDownloadStatus(
+                        baseText: String(localized: "playback_icloud_downloading"),
+                        progress: iCloudDownloadProgress
+                    ),
                     tagStyle: tagStyle,
                     tint: tint,
                     pulsesSymbol: true
@@ -438,6 +442,7 @@ struct NowPlayingFooterInfoRow: View {
     let showsAudioDetail: Bool
     /// 起播前正在从 iCloud 云盘下载这首歌:音频信息那段换成下载提示。
     let isDownloadingFromICloud: Bool
+    var iCloudDownloadProgress: Double? = nil
     /// 不止一个音乐源时才标来源。
     let source: NowPlayingSourceLabel?
     /// 输出设备此刻的采样率(Hz),拿不到为 0。
@@ -506,7 +511,10 @@ struct NowPlayingFooterInfoRow: View {
         HStack(spacing: 4) {
             Image(systemName: "icloud.and.arrow.down")
                 .symbolEffect(.pulse, options: .repeating)
-            Text("playback_icloud_downloading")
+            Text(verbatim: UbiquitousPlaybackDownloadPolicy.formattedDownloadStatus(
+                baseText: String(localized: "playback_icloud_downloading"),
+                progress: iCloudDownloadProgress
+            ))
         }
         .foregroundStyle(noticeColor)
         .accessibilityElement(children: .combine)

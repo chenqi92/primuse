@@ -454,7 +454,11 @@ struct PlaylistDetailView: View {
             return .init(
                 hasPlayable: songs.contains(where: \.isPlayable),
                 hasDownloadable: sourcesStore.containsDownloadableSong(in: songs),
-                supportsAlwaysDownload: Self.supportsAlwaysDownload(songs, sources: sourcesStore.sources),
+                supportsAlwaysDownload: Self.supportsAlwaysDownload(
+                    songs,
+                    sources: sourcesStore.sources,
+                    cloudBackedLocalSourceIDs: sourcesStore.cloudBackedLocalSourceIDs
+                ),
                 sourceIDs: Set(songs.lazy.map(\.sourceID)),
                 coverWallAvailable: coverWallAvailable
             )
@@ -465,7 +469,11 @@ struct PlaylistDetailView: View {
         songAvailability.supportsAlwaysDownload
     }
 
-    private static func supportsAlwaysDownload(_ songs: [Song], sources: [MusicSource]) -> Bool {
+    private static func supportsAlwaysDownload(
+        _ songs: [Song],
+        sources: [MusicSource],
+        cloudBackedLocalSourceIDs: Set<String>
+    ) -> Bool {
         if songs.isEmpty { return true }
         let sourcesByID = Dictionary(
             sources.map { ($0.id, $0) },
@@ -475,8 +483,12 @@ struct PlaylistDetailView: View {
             guard AutomaticOfflineSongPolicy.supports(song),
                   let source = sourcesByID[song.sourceID],
                   AutomaticOfflineDownloadPolicy.supportsSourceType(source.type) else { return false }
-            // 全是本地原始文件的歌单没有「始终下载」，和单曲菜单里不出现「下载」一致。
-            return OfflineDownloadActionPolicy.allowsDownload(for: song, source: source)
+            // 全是普通本地原始文件的歌单没有「始终下载」，云盘托管的本地源允许。
+            return OfflineDownloadActionPolicy.allowsDownload(
+                for: song,
+                source: source,
+                cloudBackedLocalSourceIDs: cloudBackedLocalSourceIDs
+            )
         }
     }
 

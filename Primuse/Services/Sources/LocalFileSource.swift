@@ -202,11 +202,20 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             for root in referenceRoots where !FileManager.default.fileExists(atPath: root.url.path) {
                 throw SourceError.pathNotFound(root.url.path)
             }
+            var isCloud = false
+            for root in referenceRoots where !isCloud {
+                isCloud = await UbiquitousPlaybackFile.isCloudBacked(root.url)
+            }
+            CloudBackedLocalSourceRegistry.shared.setCloudBacked(isCloud, for: sourceID)
             return
         }
         guard FileManager.default.fileExists(atPath: basePath.path) else {
             throw SourceError.pathNotFound(basePath.path)
         }
+        CloudBackedLocalSourceRegistry.shared.setCloudBacked(
+            await UbiquitousPlaybackFile.isCloudBacked(basePath),
+            for: sourceID
+        )
     }
 
     func disconnect() async {}
@@ -301,6 +310,9 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         guard FileManager.default.fileExists(atPath: fileURL.path)
                 || UbiquitousPlaybackFile.isEvictedPlaceholder(fileURL) else {
             throw SourceError.fileNotFound(path)
+        }
+        if await UbiquitousPlaybackFile.isCloudBacked(fileURL) {
+            CloudBackedLocalSourceRegistry.shared.setCloudBacked(true, for: sourceID)
         }
         return fileURL
     }
@@ -1807,9 +1819,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     private nonisolated static func isFileProviderPath(_ path: String) -> Bool {
-        path.contains("/Library/Mobile Documents/")
-            || path.contains("/Library/CloudStorage/")
-            || path.contains("/File Provider Storage/")
+        LocalCloudStoragePathPolicy.isCloudBackedPath(path)
     }
 
     /// 歌曲所在的文件夹能不能新建文件。确定不能时才是 `.notWritable`。
@@ -2041,121 +2051,6 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
 }
 
 extension LocalFileSource: SaveLocationProbing {}
-
-/// 本机文件夹引用里那些放在 iCloud 云盘、还没下到这台设备的歌:起播前读状态、请求下载、
-/// 等到能读(#170)。判定规则见 `UbiquitousPlaybackDownloadPolicy`。
-enum UbiquitousPlaybackFile {
-    struct DownloadError: LocalizedError, Sendable {
-        let failure: UbiquitousPlaybackDownloadPolicy.Failure
-        let underlyingDescription: String?
-
-        var errorDescription: String? {
-            switch failure {
-            case .offline:
-                String(localized: "playback_icloud_error_offline")
-            case .downloadError, .neverStarted, .timedOut:
-                String(localized: "playback_icloud_error_download")
-            }
-        }
-    }
-
-    private struct Snapshot: Sendable {
-        var status: UbiquitousPlaybackDownloadPolicy.Status
-        var isDownloading: Bool
-        var downloadErrorText: String?
-    }
-
-    /// 旧式 iCloud 占位:原文件不在,同目录下有 `.名字.icloud`。
-    nonisolated static func isEvictedPlaceholder(_ url: URL) -> Bool {
-        guard url.isFileURL else { return false }
-        let placeholder = url.deletingLastPathComponent()
-            .appendingPathComponent(".\(url.lastPathComponent).icloud")
-        return FileManager.default.fileExists(atPath: placeholder.path)
-    }
-
-    /// 这个文件要不要先从 iCloud 下载。普通本地文件、读不到状态时都是 false。
-    @concurrent
-    nonisolated static func needsDownload(_ url: URL) async -> Bool {
-        guard url.isFileURL else { return false }
-        return UbiquitousPlaybackDownloadPolicy.needsDownload(snapshot(of: url).status)
-    }
-
-    /// 读这个文件要不要走网络:还没下到本机的 iCloud 云盘文件,或者放在网络卷上(Mac 上
-    /// 挂载的 SMB 之类)。后台补资料在不能联网时先问这里。读不到属性时按本机文件算。
-    @concurrent
-    nonisolated static func readingNeedsNetwork(_ url: URL) async -> Bool {
-        guard url.isFileURL else { return false }
-        if UbiquitousPlaybackDownloadPolicy.needsDownload(snapshot(of: url).status) { return true }
-        let values = try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.volumeIsLocalKey])
-        return values?.volumeIsLocal == false
-    }
-
-    /// 请求下载并等到文件可读。`isCurrent` 为 false(已经换了别的歌)时以取消结束。
-    @concurrent
-    nonisolated static func download(
-        _ url: URL,
-        isOffline: @escaping @Sendable () async -> Bool,
-        isCurrent: @escaping @Sendable () async -> Bool
-    ) async throws {
-        do {
-            try FileManager.default.startDownloadingUbiquitousItem(at: url)
-        } catch {
-            // 请求本身失败也接着看状态:文件可能已经在下了。
-            plog("☁️ iCloud download request failed for '\(url.lastPathComponent)': \(error.localizedDescription)")
-        }
-        var monitor = UbiquitousPlaybackDownloadPolicy.Monitor(
-            startedAt: ProcessInfo.processInfo.systemUptime
-        )
-        while true {
-            try Task.checkCancellation()
-            guard await isCurrent() else { throw CancellationError() }
-            let current = snapshot(of: url)
-            let verdict = monitor.observe(
-                status: current.status,
-                isDownloading: current.isDownloading,
-                hasDownloadError: current.downloadErrorText != nil,
-                isOffline: await isOffline(),
-                at: ProcessInfo.processInfo.systemUptime
-            )
-            switch verdict {
-            case .ready:
-                return
-            case .waiting:
-                try await Task.sleep(for: UbiquitousPlaybackDownloadPolicy.pollInterval)
-            case .failed(let failure):
-                throw DownloadError(failure: failure, underlyingDescription: current.downloadErrorText)
-            }
-        }
-    }
-
-    /// 只在后台用:读的是文件提供方的状态,每次新建 URL,不吃上一次缓存的属性值。
-    private nonisolated static func snapshot(of url: URL) -> Snapshot {
-        let fresh = URL(fileURLWithPath: url.path)
-        let keys: Set<URLResourceKey> = [
-            .isUbiquitousItemKey,
-            .ubiquitousItemDownloadingStatusKey,
-            .ubiquitousItemIsDownloadingKey,
-            .ubiquitousItemDownloadingErrorKey,
-        ]
-        guard let values = try? fresh.resourceValues(forKeys: keys), values.isUbiquitousItem == true else {
-            // 只有旧式占位文件时 Foundation 也可能成功返回一组空属性。
-            let evicted = !FileManager.default.fileExists(atPath: fresh.path) && isEvictedPlaceholder(fresh)
-            return Snapshot(status: evicted ? .notDownloaded : .notUbiquitous, isDownloading: false, downloadErrorText: nil)
-        }
-        let status: UbiquitousPlaybackDownloadPolicy.Status
-        switch values.ubiquitousItemDownloadingStatus {
-        case .some(.current): status = .current
-        case .some(.downloaded): status = .downloaded
-        case .some(.notDownloaded): status = .notDownloaded
-        default: status = .notUbiquitous
-        }
-        return Snapshot(
-            status: status,
-            isDownloading: values.ubiquitousItemIsDownloading == true,
-            downloadErrorText: values.ubiquitousItemDownloadingError?.localizedDescription
-        )
-    }
-}
 
 /// 只拿到文件本身的权限(单独添加的文件),或者文件夹里不让新建文件时,改写音频文件的做法:
 /// 协调写入,从头覆盖,最后截断到新长度并落盘,不先把文件截成 0。

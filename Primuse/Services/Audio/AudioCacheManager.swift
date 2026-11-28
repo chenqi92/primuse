@@ -3427,15 +3427,24 @@ extension AlwaysDownloadCoordinator {
             sourcesStore.sources.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        let cloudLocalIDs = CloudBackedLocalSourceRegistry.shared.sourceIDs
         return songs.map { song in
             let source = sourcesByID[song.sourceID]
-            if let source, source.type == .local, !song.isStreamDescriptor {
+            if let source, source.type == .local, !song.isStreamDescriptor,
+               !LocalCloudStoragePathPolicy.isCloudBackedLocalSource(
+                source,
+                registeredCloudLocalSourceIDs: cloudLocalIDs
+               ) {
                 return .alreadyOnDevice
             }
             guard AutomaticOfflineSongPolicy.supports(song),
                   let source,
                   AutomaticOfflineDownloadPolicy.supportsSourceType(source.type),
-                  OfflineDownloadActionPolicy.allowsDownload(for: song, source: source) else {
+                  OfflineDownloadActionPolicy.allowsDownload(
+                    for: song,
+                    source: source,
+                    cloudBackedLocalSourceIDs: cloudLocalIDs
+                  ) else {
                 return .unsupported
             }
             return .downloadable
@@ -3452,6 +3461,11 @@ extension AlwaysDownloadCoordinator {
             forName: .primuseOfflineDownloadsDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.scheduleReconciliation(reason: "offline-store-changed") }
+        })
+        resourceObserverTokens.append(NotificationCenter.default.addObserver(
+            forName: CloudBackedLocalSourceRegistry.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.scheduleReconciliation(reason: "cloud-local-sources-changed") }
         })
         Task { [weak self] in
             guard let self else { return }
@@ -3665,6 +3679,7 @@ extension AlwaysDownloadCoordinator {
         // 每个源只算一次指纹：整张歌单几千首，逐首重算要反复读安全修订号。
         var identitiesBySourceID: [String: (identity: String, endpoint: String)] = [:]
         var desiredBySongID: [String: AlwaysDownloadDesiredSong] = [:]
+        let cloudLocalIDs = CloudBackedLocalSourceRegistry.shared.sourceIDs
         for (playlistID, songs) in selectedPlaylists {
             for song in songs {
                 guard let source = sourcesByID[song.sourceID],
@@ -3672,8 +3687,12 @@ extension AlwaysDownloadCoordinator {
                       !source.isDeleted,
                       AutomaticOfflineSongPolicy.supports(song),
                       AutomaticOfflineDownloadPolicy.supportsSourceType(source.type),
-                      // 本地源的原始文件手动都不提供下载，始终下载也不用复制一份。
-                      OfflineDownloadActionPolicy.allowsDownload(for: song, source: source) else {
+                      // 普通本地原始文件不复制；云盘托管的本地源可被系统驱逐，允许固定离线。
+                      OfflineDownloadActionPolicy.allowsDownload(
+                        for: song,
+                        source: source,
+                        cloudBackedLocalSourceIDs: cloudLocalIDs
+                      ) else {
                     continue
                 }
                 if let existing = desiredBySongID[song.id] {

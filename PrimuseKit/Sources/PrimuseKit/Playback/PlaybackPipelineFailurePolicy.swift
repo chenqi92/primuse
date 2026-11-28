@@ -198,10 +198,41 @@ public enum UbiquitousPlaybackDownloadPolicy {
     }
 
     public static let pollInterval: Duration = .milliseconds(500)
-    /// 请求下载之后这么久都没见到「正在下载」就算失败。
+    /// 请求下载之后这么久都没见到「已受理/正在下载」就算失败。
     public static let idleTimeout: TimeInterval = 30
+    /// 系统已受理排队(`ubiquitousItemDownloadRequested`)、正在等 iCloud 调度建连时的宽限期。
+    public static let queuedTimeout: TimeInterval = 90
     /// 整首歌最多等这么久;上百兆的无损文件在慢网络上也该够了,用户随时能切歌。
     public static let overallTimeout: TimeInterval = 600
+    /// 队列预热同时向 iCloud 发起预下载的曲目上限,避免把 fileproviderd 队列打满。
+    public static let maxUpcomingPrefetchCount = 4
+
+    public static func upcomingPrefetchCount(
+        configured: Int,
+        isMeteredNetwork: Bool
+    ) -> Int {
+        let planned = UpcomingPlaybackPrefetchPolicy.plannedSongCount(
+            configured: configured,
+            isMeteredNetwork: isMeteredNetwork
+        )
+        return min(planned, maxUpcomingPrefetchCount)
+    }
+
+    public static func normalizedProgressFraction(percent: Double?) -> Double? {
+        guard let percent, percent.isFinite, percent >= 0 else { return nil }
+        return min(max(percent / 100.0, 0), 1)
+    }
+
+    /// 「正在从 iCloud 下载」后面接百分比;百分号的写法(「%42」「42 %」)、数字按 `locale`。
+    public static func formattedDownloadStatus(baseText: String, progress: Double?, locale: Locale = .current) -> String {
+        guard let progress, progress.isFinite, progress > 0, progress < 1 else {
+            return baseText
+        }
+        let pct = Int((progress * 100).rounded(.down))
+        guard pct > 0, pct < 100 else { return baseText }
+        let percent = (Double(pct) / 100).formatted(.percent.precision(.fractionLength(0)).locale(locale))
+        return "\(baseText) \(percent)"
+    }
 
     /// 轮询下载状态的判定。每读一次状态喂一次。
     public struct Monitor: Sendable {
@@ -216,6 +247,7 @@ public enum UbiquitousPlaybackDownloadPolicy {
         public mutating func observe(
             status: Status,
             isDownloading: Bool,
+            isDownloadRequested: Bool = false,
             hasDownloadError: Bool,
             isOffline: Bool,
             at now: TimeInterval
@@ -230,7 +262,10 @@ public enum UbiquitousPlaybackDownloadPolicy {
                 lastActivityAt = now
                 return .waiting
             }
-            return now - lastActivityAt >= UbiquitousPlaybackDownloadPolicy.idleTimeout
+            let stallLimit = isDownloadRequested
+                ? UbiquitousPlaybackDownloadPolicy.queuedTimeout
+                : UbiquitousPlaybackDownloadPolicy.idleTimeout
+            return now - lastActivityAt >= stallLimit
                 ? .failed(.neverStarted) : .waiting
         }
     }

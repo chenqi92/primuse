@@ -1550,13 +1550,25 @@ private final class HomeFolderCacheAction {
     var preparingNodeID: LibraryFolderNodeID?
     @ObservationIgnored private var preparation: Task<Void, Never>?
 
-    func prepare(node: LibraryFolderNode, index: LibraryFolderIndex, library: MusicLibrary, source: MusicSource?) {
+    func prepare(
+        node: LibraryFolderNode,
+        index: LibraryFolderIndex,
+        library: MusicLibrary,
+        source: MusicSource?,
+        cloudBackedLocalSourceIDs: Set<String>
+    ) {
         cancelPreparation()
         let lookup = library.visibleSongLookup()
         preparingNodeID = node.id
         preparation = Task {
             let prepared = await Task.detached(priority: .userInitiated) {
-                FolderOfflineDownloadRequest(nodeID: node.id, index: index, source: source, songForID: lookup.song)
+                FolderOfflineDownloadRequest(
+                    nodeID: node.id,
+                    index: index,
+                    source: source,
+                    cloudBackedLocalSourceIDs: cloudBackedLocalSourceIDs,
+                    songForID: lookup.song
+                )
             }.value
             guard !Task.isCancelled else { return }
             folderTitle = HomeDiscoveryText.folderTitle(node)
@@ -1588,11 +1600,20 @@ private struct HomeFolderCacheMenuButton: View {
                 sourceManager.cancelOfflineBatch(ownerID: ownerID)
             }
             .accessibilityIdentifier("folder.cancelCache")
-        } else if let source, source.isEnabled, !source.isDeleted,
-                  source.type != .local, source.type != .appleMusic, source.type != .appleMusicLibrary {
+        } else if let source,
+                  OfflineDownloadActionPolicy.allowsFolderDownload(
+                    for: source,
+                    cloudBackedLocalSourceIDs: sourceManager.cloudBackedLocalSourceIDs
+                  ) {
             Button("source_cache_all_confirm", systemImage: "arrow.down.circle") {
                 guard let index else { return }
-                action.prepare(node: node, index: index, library: library, source: source)
+                action.prepare(
+                    node: node,
+                    index: index,
+                    library: library,
+                    source: source,
+                    cloudBackedLocalSourceIDs: sourceManager.cloudBackedLocalSourceIDs
+                )
             }
             .disabled(index == nil || node.descendantSongCount == 0 || action.preparingNodeID != nil)
             .accessibilityIdentifier("folder.cacheAll")

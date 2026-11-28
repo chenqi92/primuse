@@ -2526,7 +2526,7 @@ struct SongOfflineActionButtons: View {
     @Environment(SourcesStore.self) private var sourcesStore
 
     private var allowsDownload: Bool {
-        OfflineDownloadActionPolicy.allowsDownload(for: song, source: sourcesStore.source(id: song.sourceID))
+        sourcesStore.allowsOfflineDownload(for: song)
     }
 
     @ViewBuilder

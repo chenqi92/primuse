@@ -58,7 +58,7 @@ Primuse/Services/Sources/CloudDrive/U115Source.swift	1133
 Primuse/Services/Sources/ConnectorScanner.swift	2519
 Primuse/Services/Sources/FnMusicAPI.swift	1159
 Primuse/Services/Sources/LocalBookmarkStore.swift	1354
-Primuse/Services/Sources/LocalFileSource.swift	2489
+Primuse/Services/Sources/LocalFileSource.swift	2384
 Primuse/Services/Sources/MediaServerSource.swift	6366
 Primuse/Services/Sources/MusicSourceProtocol.swift	3108
 Primuse/Services/Sources/NFSSource.swift	1080

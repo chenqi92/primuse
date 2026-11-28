@@ -557,6 +557,10 @@ extension AudioPlayerService {
                 for: nextSong,
                 forContinuousPreparation: true
             )
+            if nextURL.isFileURL, await UbiquitousPlaybackFile.needsDownload(nextURL) {
+                _ = try? await UbiquitousPlaybackFile.requestDownloadIfNeeded(nextURL)
+                return
+            }
             nextDecoderKind = await decoderKind(for: nextSong, url: nextURL)
         } catch {
             plog("Gapless prepare URL error: \(error.localizedDescription)")

@@ -471,6 +471,15 @@ extension AudioPlayerService {
     private func resolveCastURI(for song: Song) async throws -> URL {
         let url = try await resolvedURL(for: song)
         if url.isFileURL {
+            if await UbiquitousPlaybackFile.needsDownload(url) {
+                try await UbiquitousPlaybackFile.download(
+                    url,
+                    isOffline: { @MainActor in
+                        NetworkMonitor.shared.hasDeterminedPath && !NetworkMonitor.shared.isReachable
+                    },
+                    isCurrent: { !Task.isCancelled }
+                )
+            }
             let name = (song.title.isEmpty ? "track" : song.title) + "." + (url.pathExtension.isEmpty ? "mp3" : url.pathExtension)
             return try DLNAMediaServer.shared.registerFile(localURL: url, suggestedName: name)
         }
@@ -1359,6 +1368,10 @@ extension AudioPlayerService {
                     url = try await resolvedURL(for: song, transcodePlanOverride: activeTranscodePlan)
                 }
                 guard !Task.isCancelled, playID == id else { return }
+                if url.isFileURL, await UbiquitousPlaybackFile.needsDownload(url) {
+                    try await downloadFromICloudBeforePlayback(url: url, song: song, playID: id)
+                    guard !Task.isCancelled, playID == id else { return }
+                }
                 let resolvedDecoderKind = await decoderKind(for: song, url: url)
                 guard !Task.isCancelled, playID == id else { return }
                 // A supported extension does not guarantee that native decoding

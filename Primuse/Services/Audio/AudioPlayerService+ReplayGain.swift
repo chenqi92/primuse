@@ -368,7 +368,10 @@ extension AudioPlayerService {
                         ?? sourceManager.cachedPlaybackURL(for: item) {
                         return KaraokeAudioFile(url: local)
                     }
-                    if let local = await sourceManager.directLocalFileURL(for: item) { return KaraokeAudioFile(url: local) }
+                    if let local = await sourceManager.directLocalFileURL(for: item),
+                       !(await UbiquitousPlaybackFile.needsDownload(local)) {
+                        return KaraokeAudioFile(url: local)
+                    }
                     return nil
                 }
             } catch {

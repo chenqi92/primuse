@@ -3750,7 +3750,7 @@ final class SourceManager {
     /// `songsProvider` 此刻给的是不是整座曲库(歌曲模型在内存里)。不是的时候它是空的,不能拿它当
     /// 「还有哪些歌在用这些文件」的依据。由 `AppServices` 接上 `MusicLibrary.isReady`。
     @ObservationIgnored var librarySongsAreLoaded: @MainActor () -> Bool = { true }
-    @ObservationIgnored private var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
+    @ObservationIgnored var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
     @ObservationIgnored private var offlineAudioSnapshotVersions: [String: UInt64] = [:]
     @ObservationIgnored private var pendingOfflineAudioCachePaths: Set<String> = []
     @ObservationIgnored private var offlineAudioObservedSongs: [String: (song: Song, path: String)] = [:]
@@ -3862,7 +3862,7 @@ final class SourceManager {
     @ObservationIgnored private var audioCacheScopeValidationTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var audioCacheScopeReconciliationsInProgress: [String: (generation: Int, task: Task<AudioCacheScopeReconciliationResult, Never>)] = [:]
     @ObservationIgnored private var credentialChangesInProgress: Set<String> = []
-    @ObservationIgnored private var automaticAudioCachingEnabled = true
+    @ObservationIgnored var automaticAudioCachingEnabled = true
     /// MV 后台下载登记表。带 run 身份: 被取消的旧任务可能过几秒才真正退出,
     /// 它的收尾不能把同一个 key 下新登记的替代任务删掉 —— 否则切歌取消、
     /// 驱逐保护 (protectedVideoCachePaths) 都再也找不到那个下载。
@@ -3888,6 +3888,10 @@ final class SourceManager {
     private(set) var activeOfflineBatchOwnerIDs: Set<String> = []
     /// 这几轮合起来还剩的歌数,「离线下载」页显示「正在下载」那一行用。一首下完或放弃时变。
     private(set) var offlineBatchRemainingSongCount = 0
+    /// 位于 iCloud 云盘或系统文件提供者中的本地源 ID。这类源的文件可能随时被系统逐出，
+    /// 因此参与播放缓存、手动离线下载与「始终离线保留」。
+    var cloudBackedLocalSourceIDs: Set<String> = CloudBackedLocalSourceRegistry.shared.sourceIDs
+    @ObservationIgnored var cloudBackedLocalProbeTask: Task<Void, Never>?
 
     init(
         sourcesProvider: @escaping @Sendable () async throws -> [MusicSource],
@@ -4060,6 +4064,16 @@ extension SourceManager {
     }
 
     private func observeLibraryInvalidations() {
+        NotificationCenter.default.addObserver(
+            forName: CloudBackedLocalSourceRegistry.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cloudBackedLocalSourceIDs = CloudBackedLocalSourceRegistry.shared.sourceIDs
+            }
+        }
+
         // 下载清单变了(下载完成、移除、系统清缓存后恢复):离线表对一次账。
         NotificationCenter.default.addObserver(
             forName: .primuseOfflineDownloadsDidChange,
@@ -6138,7 +6152,9 @@ extension SourceManager {
             let streamEpoch = CloudPlaybackSource.streamEpochTicket(sourceID: source.id)
             try await ensureCurrentPlaybackResolutionScope(sourceID: source.id, expectedScope: expectedScope, streamEpoch: streamEpoch)
             if let cached = ISOAudioTrackCache.cachedURL(song: song, scope: expectedScope) { return cached }
-            if source.type != .local { _ = await ensureAudioCacheScopeValidated(for: source.id) }
+            if source.type != .local || isCloudBackedLocalSource(source) {
+                _ = await ensureAudioCacheScopeValidated(for: source.id)
+            }
             try await ensureCurrentPlaybackResolutionScope(sourceID: source.id, expectedScope: expectedScope, streamEpoch: streamEpoch)
             let conn = connector(for: source)
             let result: URL
@@ -6158,13 +6174,14 @@ extension SourceManager {
             try await ensureCurrentPlaybackResolutionScope(sourceID: source.id, expectedScope: expectedScope, streamEpoch: streamEpoch)
             return result
         }
-        // 本机源的音频本来就是本地文件，从不进音频缓存（`backgroundAudioCacheTask`
-        // 对 .local 直接返回），所以跳过缓存范围校验与缓存租约：冷启动后第一次取
-        // 租约要先把整个缓存目录走一遍，那段等待对本机歌毫无意义（#170）。读不到源
-        // 列表时照旧先查缓存。
+        // 纯本地磁盘源的音频本来就是本地持久文件，从不进音频缓存，跳过缓存范围校验与
+        // 缓存租约避免冷启动扫缓存目录（#170）。位于 iCloud / 文件提供者中的本地源则
+        // 先查缓存，命中时直接零等待播放，不再受系统逐出影响。读不到源列表时照旧先查缓存。
         let knownSources = try? await sourcesProvider()
-        let isLocalSource = knownSources?.first(where: { $0.id == song.sourceID })?.type == .local
-        if !isLocalSource {
+        let isPlainLocalSource = knownSources?.first(where: { $0.id == song.sourceID }).map {
+            $0.type == .local && !isCloudBackedLocalSource($0)
+        } ?? false
+        if !isPlainLocalSource {
             _ = await ensureAudioCacheScopeValidated(for: song.sourceID)
             // Priority 1: Cached local file (instant playback). 必须在 connect() 之前判断:
             // 源不可达(断网 / NAS 关机 / 登录态失效)时 connect() 会抛错。连本地
@@ -7330,7 +7347,7 @@ extension SourceManager {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func audioCacheReadsAreAllowed(for sourceID: String) -> Bool {
+    func audioCacheReadsAreAllowed(for sourceID: String) -> Bool {
         SourceAudioCacheScopePolicy.allowsRead(
             sourceID: sourceID,
             validatedSourceIDs: validatedAudioCacheSourceIDs,
@@ -7341,6 +7358,7 @@ extension SourceManager {
     private func scheduleInitialAudioCacheScopeValidation() {
         Task { @MainActor [weak self] in
             guard let self, let sources = try? await self.sourcesProvider() else { return }
+            self.probeCloudBackedLocalSources(sources)
             self.discoverLegacyAudioCacheAdoptionCandidatesIfNeeded(from: sources)
             var namespacesToPrewarm: [String: String] = [:]
             for source in sources where !source.isDeleted {
@@ -7618,7 +7636,7 @@ extension SourceManager {
         audioCacheScopeValidationTasks[sourceID] = nil
     }
 
-    private func ensureAudioCacheScopeValidated(for sourceID: String) async -> Bool {
+    func ensureAudioCacheScopeValidated(for sourceID: String) async -> Bool {
         if audioCacheReadsAreAllowed(for: sourceID) { return true }
         let generation = audioCacheScopeGenerationBySourceID[sourceID] ?? 0
         let result = await runAudioCacheScopeReconciliation(
@@ -7935,7 +7953,7 @@ extension SourceManager {
         )
     }
 
-    private func audioCacheRelativePath(for song: Song) -> String {
+    func audioCacheRelativePath(for song: Song) -> String {
         "\(song.sourceID)/\(cacheFileName(for: song))"
     }
 
@@ -8465,8 +8483,8 @@ extension SourceManager {
         if !refreshing, let tracks = song.embeddedMediaTracks { return tracks }
         guard !Task.isCancelled, !song.isStreamDescriptor, EmbeddedMediaTrackInventory.supports(song) else { return nil }
         let ext = song.fileFormat.rawValue
-        if let file = await directLocalFileURL(for: song) {
-            guard !(await UbiquitousPlaybackFile.needsDownload(file)) else { return nil }
+        if let file = await directLocalFileURL(for: song),
+           !(await UbiquitousPlaybackFile.needsDownload(file)) {
             return await EmbeddedMediaTrackInventory.inspect(at: file, fileExtension: ext)
         }
         if !refreshing, let file = await cachedURLForBackgroundRead(for: song) {
@@ -8561,7 +8579,7 @@ extension SourceManager {
         offlineAudioEntryAccess = offlineAudioEntryAccess.filter { retained.contains($0.key) }
     }
 
-    private func setOfflineAudioSnapshot(
+    func setOfflineAudioSnapshot(
         _ snapshot: OfflineAudioCacheSnapshot,
         for songID: String
     ) {
@@ -9018,6 +9036,7 @@ extension SourceManager {
             persistOfflineModeState()
         }
         syncAudioCacheEvictionForOfflineMode()
+        probeCloudBackedLocalSources(sources)
     }
 
     private func applyOfflineModeState(_ next: OfflineModeState, reason: String) {
@@ -11313,13 +11332,16 @@ extension SourceManager {
                 ), for: song.id)
                 return .completed(byteCount: size)
             }
-            guard !NetworkMonitor.shared.hasDeterminedPath || NetworkMonitor.shared.isReachable else {
-                throw SourceError.connectionFailed(String(localized: "status_network_unavailable"))
-            }
-
             let sources = try await sourcesProvider()
             guard let source = sources.first(where: { $0.id == song.sourceID }) else {
                 throw SourceError.fileNotFound("Source not found for song: \(song.title)")
+            }
+            if OfflineDownloadActionPolicy.transferNeedsNetwork(
+                sourceType: source.type, isStreamDescriptor: song.isStreamDescriptor
+            ) {
+                guard !NetworkMonitor.shared.hasDeterminedPath || NetworkMonitor.shared.isReachable else {
+                    throw SourceError.connectionFailed(String(localized: "status_network_unavailable"))
+                }
             }
 
             let connector = connector(for: source)
@@ -11374,7 +11396,11 @@ extension SourceManager {
                     if OfflineSTRMConnectorMaterializationPolicy
                         .permitsConnectorMaterialization(sourceType: source.type) {
                         let localURL = try await connector.localURL(for: path)
+                        try await ensureLocalURLDownloadedForOffline(localURL, song: song, source: source)
                         expectedTransferSize = byteSize(at: localURL)
+                        guard expectedTransferSize > 0 else {
+                            throw SourceError.fileNotFound(path)
+                        }
                         maximumTransferBytes = try await prepareOfflineTransferCapacity(
                             expectedSize: expectedTransferSize,
                             lease: lease,
@@ -11464,7 +11490,11 @@ extension SourceManager {
                 throw AutomaticOfflineTransferDeferralError.unboundedAutomaticTransfer
             } else {
                 let localURL = try await connector.localURL(for: song.filePath)
+                try await ensureLocalURLDownloadedForOffline(localURL, song: song, source: source)
                 expectedTransferSize = byteSize(at: localURL)
+                guard expectedTransferSize > 0 else {
+                    throw SourceError.fileNotFound(song.filePath)
+                }
                 maximumTransferBytes = try await prepareOfflineTransferCapacity(
                     expectedSize: expectedTransferSize,
                     lease: lease,
@@ -11886,13 +11916,13 @@ extension SourceManager {
         try handle.write(contentsOf: data)
     }
 
-    private nonisolated func fileSize(at url: URL) -> Int64? {
+    nonisolated func fileSize(at url: URL) -> Int64? {
         guard let values = try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]),
               let size = values.totalFileAllocatedSize else { return nil }
         return Int64(size)
     }
 
-    private nonisolated func byteSize(at url: URL) -> Int64 {
+    nonisolated func byteSize(at url: URL) -> Int64 {
         guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int64 else {
             return 0
         }
@@ -14029,8 +14059,10 @@ extension SourceManager {
     /// Streamable Range formats only seed their sparse head/tail cache. Formats
     /// that require a complete local file (notably DTS/FFmpeg) materialize the
     /// canonical audio cache so switching tracks can reuse the finished file.
-    func cacheInBackground(song: Song, cacheEnabled: Bool = true) {
-        _ = backgroundAudioCacheTask(for: song, cacheEnabled: cacheEnabled)
+    /// 返回这一次有没有排上(或接上已有的)后台缓存任务;缓存范围没校验过、已经缓存过等情况下没有。
+    @discardableResult
+    func cacheInBackground(song: Song, cacheEnabled: Bool = true) -> Bool {
+        backgroundAudioCacheTask(for: song, cacheEnabled: cacheEnabled) != nil
     }
 
     /// Queue prefetch awaits each song in order so a large complete-file format
@@ -14080,7 +14112,11 @@ extension SourceManager {
         // 需要完整本地文件的格式 (DTS / FFmpeg) 根本不适合稀疏种子, 直接在
         // 登记之前剔除: 否则这条只做种子的记录会被随后的 prefetch 加入,
         // 让那首歌的完整下载在本轮被跳过。
-        var songs = songs.filter { !$0.isDiscImageTrack && !FileFormatRouter.requiresCompleteLocalFile($0.fileFormat) }
+        var songs = songs.filter { song in
+            guard !song.isDiscImageTrack else { return false }
+            if isCloudBackedLocalSourceID(song.sourceID) { return true }
+            return !FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
+        }
         guard automaticAudioCachingEnabled, !songs.isEmpty else { return }
         // 按流量计费的网络上只热恢复的那首和它后面一首。
         let meteredLimit = UpcomingPlaybackPrefetchPolicy.plannedSongCount(
@@ -14247,6 +14283,11 @@ extension SourceManager {
         return task
     }
 
+    /// 这个缓存路径上有没有正在跑的手动离线下载(它与播放缓存写的是同一份文件)。
+    func hasOfflineDownloadTask(at relativePath: String) -> Bool {
+        offlineDownloadTasks[relativePath] != nil
+    }
+
     private func setBackgroundAudioCachePhase(
         _ phase: UpcomingPlaybackPrefetchPolicy.InFlightPhase,
         songID: String,
@@ -14283,9 +14324,21 @@ extension SourceManager {
                 return
             }
 
-            // Local-source audio is already the durable local file. Copying it
-            // into the remote/offline cache only duplicates storage.
-            guard source.type != .local else { return }
+            // Plain local-disk audio is already durable locally and does not belong
+            // in the cache. Cloud-backed local sources (iCloud Drive / File Provider)
+            // can be evicted by the OS at any time, so copy materialized tracks into
+            // the bounded LRU playback cache.
+            if source.type == .local {
+                guard isCloudBackedLocalSource(source) else { return }
+                try await cacheCloudBackedLocalFile(
+                    song: song,
+                    source: source,
+                    allowsICloudDownload: false,
+                    downloadIfNeeded: false,
+                    writesToPlaybackCache: true
+                )
+                return
+            }
             // 本次会以转码流播放的曲目, 预取的是**转码产物**而不是原文件:
             // 原文件那份播放根本用不到, 体积还大得多, 在移动网络上正好抵消掉
             // 转码省下的流量。而转码这条链路是「整份下完再解码」, 冷转码的
@@ -14381,7 +14434,34 @@ extension SourceManager {
                 plog("⚠️ Cache: source not found for '\(song.title)'")
                 return
             }
-            guard source.type != .local else { return }
+            if source.type == .local {
+                guard isCloudBackedLocalSource(source) else { return }
+                if rangeSeedOnly || (rank > 0 && !prefersCompleteFile) {
+                    try await cacheCloudBackedLocalFile(
+                        song: song,
+                        source: source,
+                        allowsICloudDownload: true,
+                        downloadIfNeeded: false,
+                        writesToPlaybackCache: false
+                    )
+                    return
+                }
+                await waitForPlaybackQuietBeforePrefetch()
+                try Task.checkCancellation()
+                setBackgroundAudioCachePhase(
+                    .completeFile(prefersCompleteFile ? .medley : .original),
+                    songID: song.id,
+                    runID: runID
+                )
+                try await cacheCloudBackedLocalFile(
+                    song: song,
+                    source: source,
+                    allowsICloudDownload: true,
+                    downloadIfNeeded: true,
+                    writesToPlaybackCache: true
+                )
+                return
+            }
 
             let plan = transcodePlan(for: song, source: source)
             if case .transcode(let bitRateKbps, let format) = plan {
@@ -14820,7 +14900,7 @@ extension SourceManager {
         return (head, tail)
     }
 
-    private func prepareOfflineTransferCapacity(
+    func prepareOfflineTransferCapacity(
         expectedSize: Int64,
         lease: AudioCachePathLease,
         respectsConfiguredCacheLimit: Bool = true
@@ -14909,7 +14989,7 @@ extension SourceManager {
         return value.int64Value
     }
 
-    private nonisolated static func validateCompleteCacheFile(
+    nonisolated static func validateCompleteCacheFile(
         at url: URL,
         expectedSize: Int64,
         maximumBytes: Int64? = nil
@@ -14922,7 +15002,7 @@ extension SourceManager {
         )
     }
 
-    private nonisolated static func installCacheFile(
+    nonisolated static func installCacheFile(
         from source: URL,
         to target: URL,
         move: Bool

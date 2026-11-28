@@ -11933,6 +11933,7 @@ struct NowPlayingView: View {
                 song: song,
                 showsAudio: !isSpokenWord && audioInfoMode.showsSummary(for: song.audioQuality),
                 isDownloadingFromICloud: player.iCloudDownloadingSongID == song.id,
+                iCloudDownloadProgress: player.iCloudDownloadingSongID == song.id ? player.iCloudDownloadProgress : nil,
                 source: isSpokenWord ? nil : nowPlayingSourceLabel(for: song),
                 // 「播放页按钮」里关掉了状态行的来源时,手机横屏这枚来源标签也不挂。
                 showsSourceTag: showsSource && musicControlLayout.showsStatusItem(.source),
@@ -11961,6 +11962,7 @@ struct NowPlayingView: View {
             song: song,
             showsAudioDetail: audioInfoMode != .off,
             isDownloadingFromICloud: player.iCloudDownloadingSongID == song.id,
+            iCloudDownloadProgress: player.iCloudDownloadingSongID == song.id ? player.iCloudDownloadProgress : nil,
             // 「播放页按钮 › 有声书」里可以关掉来源。
             source: showsSource ? nowPlayingSourceLabel(for: song) : nil,
             outputSampleRate: player.audioEngine.observedOutputSampleRate,

@@ -834,6 +834,8 @@ final class AudioPlayerService {
     /// 起播前正在把这首歌从 iCloud 云盘下到本机(值是歌曲 id)。界面据此把通用的
     /// 转圈换成「正在从 iCloud 下载」。
     var iCloudDownloadingSongID: String?
+    /// 当前 iCloud 下载进度(0...1)，拿不到进度时为 nil。
+    var iCloudDownloadProgress: Double?
     /// 设下上面那个值的那一次起播;只有它自己能清掉,换歌后的旧请求不会误清新状态。
     @ObservationIgnored var iCloudDownloadPlayID: UUID?
     /// `currentSong` is published before remote resolution finishes, so it
@@ -5187,6 +5189,10 @@ extension AudioPlayerService {
                     plog("🎞️ MV unsupported format \(format.rawValue) for '\(song.title)'")
                     return .needsAudioFallback
                 }
+                if url.isFileURL, await UbiquitousPlaybackFile.needsDownload(url) {
+                    try await downloadFromICloudBeforePlayback(url: url, song: song, playID: id)
+                    guard pendingMusicVideoPlayID == id, playID == id else { return .cancelled }
+                }
                 plog("🎞️ MV playback via URL for '\(song.title)' → \(redactedURL(url))")
                 player = AVPlayer(url: url)
             case .streaming(let asset, let loader):
@@ -5989,6 +5995,9 @@ extension AudioPlayerService {
                 expectedTicket: transportTicket
             ) else { return }
             logPlayStage("url-resolved", playID: id)
+            if url.isFileURL, playbackMetadataSourceType?(song.sourceID) == .local {
+                await sourceManager?.noteCloudBackedLocalSourceIfNeeded(song.sourceID, url: url)
+            }
             if url.isFileURL, await UbiquitousPlaybackFile.needsDownload(url) {
                 try await downloadFromICloudBeforePlayback(url: url, song: song, playID: id)
                 guard isLocalTransportStartAuthorized(
@@ -8852,12 +8861,16 @@ extension AudioPlayerService {
         // 能打开文件的那一小段; 每一步都先等当前这首的读取空下来。
         // 下一首的种子到位之后, 再把它打开、解出开头一两秒放在内存里, 点下一首或
         // 播完时直接接上。已经打开的那首, 种子在它自己的会话里, 不再重复预取。
+        let iCloudPrefetchLimit = UbiquitousPlaybackDownloadPolicy.upcomingPrefetchCount(
+            configured: playbackSettings.prewarmQueueCount,
+            isMeteredNetwork: NetworkMonitor.shared.isExpensive || NetworkMonitor.shared.isConstrained
+        )
         prefetchTask = Task {
             for (rank, song) in nextSongs.enumerated() {
                 if Task.isCancelled { return }
                 if song.id == currentSong?.id { continue }
                 if song.id == preparedStart?.song.id || song.id == preparingStartSongID { continue }
-                if rank == 0 { await requestICloudDownloadForUpcomingLocalSong(song) }
+                if rank < iCloudPrefetchLimit { await requestICloudDownloadForUpcomingLocalSong(song) }
                 if sourceManager?.cachedPlaybackURL(for: song) != nil { continue }
                 if sourceManager?.isSourceManuallyOffline(song.sourceID) == true { continue }
                 plog("⏩ Prefetching queued song #\(rank + 1): \(song.title)")
