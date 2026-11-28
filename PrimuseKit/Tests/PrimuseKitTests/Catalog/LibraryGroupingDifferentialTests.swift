@@ -47,6 +47,12 @@ struct LibraryGroupingDifferentialTests {
         var albumArtwork: [String: String]
         var artistArtwork: [String: String]
         var folders: Set<FolderRow>
+        /// 可见专辑自动认出的发行类别(RC-a)。
+        var releaseCategories: [String: [String]] = [:]
+        /// 按发行类别筛的可见专辑(带一份固定的手动选择),每种类别一组。
+        var releaseCategoryAlbums: [String: [String]] = [:]
+        /// 「不列只有单曲、EP 的人」留下的专辑艺人(同一份手动选择)。
+        var fullReleaseAlbumArtists: [String] = []
 
         /// 可见专辑的时长由各源小计相加,与逐首累加只差浮点舍入;其余字段逐位相等。
         static func roundedDurations(_ albums: [Album]) -> [Album] {
@@ -57,6 +63,17 @@ struct LibraryGroupingDifferentialTests {
             }
         }
     }
+
+    /// 两边各自按可见专辑 id 排好后定下同一份「手动选择」:每四张里第二张手动改成单曲 / EP,第四张改成专辑 + 现场。
+    static func releaseOverrides(_ albumIDs: [String]) -> [String: Set<AlbumReleaseCategory>] {
+        var overrides: [String: Set<AlbumReleaseCategory>] = [:]
+        for (index, id) in albumIDs.sorted().enumerated() {
+            if index % 4 == 1 { overrides[id] = [.singleEP] } else if index % 4 == 3 { overrides[id] = [.album, .live] }
+        }
+        return overrides
+    }
+
+    static func names(_ categories: Set<AlbumReleaseCategory>) -> [String] { categories.map(\.rawValue).sorted() }
 
     static func referenceSnapshot(_ model: Model) -> Snapshot {
         let configuration = model.configuration
@@ -137,6 +154,28 @@ struct LibraryGroupingDifferentialTests {
                                            songCount: counts[path] ?? 0))
             }
         }
+        // 发行类别:App 在可见集那一趟里数标签、再按可见专辑定下(`LibraryReleaseCategoryIndex` 读的那一份)。
+        var release = lookups.releaseMetadataIndex
+        release.prepare(albums: visible.albums)
+        let overrides = releaseOverrides(visible.albums.map(\.id))
+        var releaseCategories: [String: [String]] = [:]
+        for album in visible.albums { releaseCategories[album.id] = names(release.categories(albumID: album.id)) }
+        var releaseCategoryAlbums: [String: [String]] = [:]
+        for category in AlbumReleaseCategory.allCases {
+            releaseCategoryAlbums[category.rawValue] = visible.albums
+                .filter { (overrides[$0.id] ?? release.categories(albumID: $0.id)).contains(category) }.map(\.id).sorted()
+        }
+        let visibleAlbumByID = Dictionary(visible.albums.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let fullReleaseAlbumArtists = AlbumArtistReleaseFilter.artists(
+            albumArtistIndex.artists, albumIDsByArtistID: albumArtistIndex.albumIDsByArtistID
+        ) { albumID in
+            guard let album = visibleAlbumByID[albumID] else { return false }
+            let chosen = overrides[albumID]
+            return AlbumArtistReleaseFilter.countsAsFullRelease(
+                categories: chosen ?? release.categories(albumID: albumID), isManualChoice: chosen != nil,
+                songCount: album.songCount
+            )
+        }.map(\.id)
         return Snapshot(
             albums: derived.albums, artists: derived.artists,
             visibleAlbums: Snapshot.roundedDurations(visible.albums), visibleArtists: visible.artists,
@@ -145,7 +184,9 @@ struct LibraryGroupingDifferentialTests {
             visibleCounts: lookups.countBySourceID,
             allCounts: LibraryGroupingReference.makeSongCountsBySourceID(corrected),
             albumArtwork: LibraryGroupingReference.makePreferredArtworkSongLookup(songs: visibleSongs),
-            artistArtwork: lookups.preferredArtworkSongIDByArtistID, folders: folderSet
+            artistArtwork: lookups.preferredArtworkSongIDByArtistID, folders: folderSet,
+            releaseCategories: releaseCategories, releaseCategoryAlbums: releaseCategoryAlbums,
+            fullReleaseAlbumArtists: fullReleaseAlbumArtists
         )
     }
 
@@ -192,7 +233,8 @@ struct LibraryGroupingDifferentialTests {
     static func catalogSnapshot(_ catalog: LibraryCatalog) throws -> Snapshot {
         let albums = try catalog.albums(keys: catalog.albumKeys(visibleOnly: false).keys, visibleCounts: false)
         let artists = try catalog.artists(keys: catalog.artistKeys(visibleOnly: false).keys, visibleCounts: false)
-        let visibleAlbums = try catalog.albums(keys: catalog.albumKeys(visibleOnly: true).keys, visibleCounts: true)
+        let visibleAlbumKeys = try catalog.albumKeys(visibleOnly: true).keys
+        let visibleAlbums = try catalog.albums(keys: visibleAlbumKeys, visibleCounts: true)
         let visibleArtists = try catalog.artists(keys: catalog.artistKeys(visibleOnly: true).keys, visibleCounts: true)
         let genres = try catalog.genres().map { "\($0.id)|\($0.name)|\($0.songCount)|\($0.albumCount)" }
         let albumArtists = try browsedAlbumArtists(catalog)
@@ -200,6 +242,16 @@ struct LibraryGroupingDifferentialTests {
         try checkArtistShelves(catalog, albums: visibleAlbums, artists: visibleArtists)
         let visibleCounts = try catalog.songCountsBySource(.visible)
         let allCounts = try catalog.songCountsBySource(.everything)
+        let releaseCategories = try #require(try catalog.albumReleaseCategories(), "release categories are complete").mapValues(names)
+        let overrides = releaseOverrides(visibleAlbums.map(\.id))
+        let albumIDByKey = Dictionary(zip(visibleAlbumKeys, visibleAlbums.map(\.id)), uniquingKeysWith: { first, _ in first })
+        var releaseCategoryAlbums: [String: [String]] = [:]
+        for category in AlbumReleaseCategory.allCases {
+            let keys = try #require(try catalog.albumKeys(inReleaseCategory: category, overrides: overrides))
+            releaseCategoryAlbums[category.rawValue] = keys.map { albumIDByKey[$0] ?? "key \($0)" }.sorted()
+        }
+        let fullReleaseIDs = try #require(try catalog.albumArtistIDsWithFullReleases(overrides: overrides))
+        let fullReleaseAlbumArtists = albumArtists.filter { fullReleaseIDs.contains($0.id) }.map(\.id)
         return try catalog.pool.read { db in
             var kinds: [String: Int] = [:]
             for row in try Row.fetchAll(db, sql: """
@@ -265,7 +317,9 @@ struct LibraryGroupingDifferentialTests {
                 visibleArtists: visibleArtists, albumArtists: albumArtists,
                 genres: genres, kinds: kinds, effectiveAlbumIDs: effective, books: books, bookTitles: bookTitles,
                 visibleCounts: visibleCounts, allCounts: allCounts,
-                albumArtwork: albumArtwork, artistArtwork: artistArtwork, folders: folders
+                albumArtwork: albumArtwork, artistArtwork: artistArtwork, folders: folders,
+                releaseCategories: releaseCategories, releaseCategoryAlbums: releaseCategoryAlbums,
+                fullReleaseAlbumArtists: fullReleaseAlbumArtists
             )
         }
     }
@@ -290,13 +344,19 @@ struct LibraryGroupingDifferentialTests {
         check("albumArtwork", lhs.albumArtwork, rhs.albumArtwork)
         check("artistArtwork", lhs.artistArtwork, rhs.artistArtwork)
         check("folders", lhs.folders, rhs.folders)
+        check("releaseCategories", lhs.releaseCategories, rhs.releaseCategories)
+        check("releaseCategoryAlbums", lhs.releaseCategoryAlbums, rhs.releaseCategoryAlbums)
+        check("fullReleaseAlbumArtists", lhs.fullReleaseAlbumArtists, rhs.fullReleaseAlbumArtists)
         return parts.joined(separator: "\n")
     }
 
     // MARK: - Random library operations
 
     static let sources = ["nas", "smb", "server", "drive", "local"]
-    static let albumTitles = ["鸣潮 原声带", "Greatest Hits", "Greatest Hits ", "greatest hits", "叶惠美", "OST", "Live", "Dune 01", "三体 第12集", "Untitled"]
+    static let albumTitles = ["鸣潮 原声带", "Greatest Hits", "Greatest Hits ", "greatest hits", "叶惠美", "OST", "Live", "Dune 01", "三体 第12集", "Untitled",
+                              "Summer (EP)", "Hits - Single", "Live at Budokan", "十周年演唱会"]
+    /// 发行类型标签(RC-a):认得出的、认不出的、空的、两种并存的。
+    static let releaseTypes = ["Album", "Single", "EP", "Live", "单曲", "Compilation", "", "album; live", "迷你专辑"]
     static let artistPool = [
         "周杰伦", "Taylor Swift", "RAF Camora", "RAF Camora feat. Bonez MC", "Bonez MC", "A & B", "A", "B",
         "陈奕迅;王菲", "王菲", "AC/DC", "Various Artists", "鸣潮先约电台", "Composer Y", "Label X", "Artist C", "",
@@ -356,6 +416,7 @@ struct LibraryGroupingDifferentialTests {
                 : nil
         )
         if rng.chance(15) { song.sourceArtistNames = [rng.pick(artistPool), rng.pick(artistPool)] }
+        if rng.chance(25) { song.contentMetadata = SongContentMetadata(releaseType: rng.pick(releaseTypes)) }
         fill(&song, configuration: configuration)
         return song
     }
@@ -505,6 +566,89 @@ struct LibraryGroupingDifferentialTests {
           arguments: (UInt64(1)...UInt64(20)).map { $0 &* 7_919 })
     func randomized(seed: UInt64) throws {
         try Self.run(seed: seed, steps: Self.stepsPerSeed)
+    }
+
+    /// RC-a:从 v3 升上来的目录(发行类别两列是空的、记着「待补算」)。补齐之前问发行类别的查询都答 nil(界面照旧用
+    /// 内存模型);后台补算可以停在任意两批之间、下次接着补,补的途中照常写进来的歌连同发行类别一起写;补完与参照
+    /// 实现逐项相同。整库重建做完也算补齐。
+    @Test("Release categories backfill after an upgrade: resumable, writes in between, then equal to the reference")
+    func releaseCategoryBackfill() throws {
+        var rng = CatalogTestRandom(seed: 4_242)
+        var model = Model()
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        try catalog.setGroupingConfiguration(model.configuration)
+        var serial = 0
+        for _ in 0..<60 { _ = try Self.randomStep(&rng, model: &model, catalog: catalog, serial: &serial) }
+        #expect(try catalog.releaseCategoriesAreComplete())
+        let before = try Self.catalogSnapshot(catalog)
+        #expect(before == Self.referenceSnapshot(model), "\(Self.describeDifference(before, Self.referenceSnapshot(model)))")
+
+        try catalog.simulateReleaseCategoryUpgradeForTesting()
+        #expect(try !catalog.releaseCategoriesAreComplete())
+        #expect(try catalog.hasPendingReleaseCategoryBackfill())
+        #expect(try catalog.albumReleaseCategories() == nil, "nothing is answered before the backfill completes")
+        #expect(try catalog.albumKeys(inReleaseCategory: .album, overrides: [:]) == nil)
+        #expect(try catalog.albumArtistIDsWithFullReleases(overrides: [:]) == nil)
+
+        // 两批之后停下(像滑动、来了增量那样),中间照常写几首,再接着补;再停一次、再接着。
+        #expect(before.visibleAlbums.count >= 4, "enough albums to stop halfway")
+        var batches = 0
+        #expect(try !catalog.backfillReleaseCategories(batchSize: 1, isCancelled: { batches += 1; return batches > 2 }))
+        #expect(try catalog.hasPendingReleaseCategoryBackfill())
+        for _ in 0..<5 { _ = try Self.randomStep(&rng, model: &model, catalog: catalog, serial: &serial) }
+        batches = 0
+        _ = try catalog.backfillReleaseCategories(batchSize: 1, isCancelled: { batches += 1; return batches > 1 })
+        #expect(try catalog.backfillReleaseCategories(batchSize: 4))
+        #expect(try catalog.releaseCategoriesAreComplete())
+        #expect(try !catalog.hasPendingReleaseCategoryBackfill())
+        let expected = Self.referenceSnapshot(model)
+        let actual = try Self.catalogSnapshot(catalog)
+        #expect(actual == expected, "after the backfill:\n\(Self.describeDifference(actual, expected))")
+
+        // 升级之后紧接着整库重建:重建写的每张专辑都带发行类别,做完就算齐,不用再补。
+        try catalog.simulateReleaseCategoryUpgradeForTesting()
+        try catalog.rebuildGrouping()
+        #expect(try catalog.releaseCategoriesAreComplete())
+        let rebuilt = try Self.catalogSnapshot(catalog)
+        #expect(rebuilt == expected, "after a rebuild:\n\(Self.describeDifference(rebuilt, expected))")
+    }
+
+    /// RC-a:按歌记的手动选择从目录对到专辑(只看启用的源),与内存里按可见歌曲对的相同;按专辑记的、最新的那次
+    /// 为准都由同一个 `Snapshot.resolved` 定。
+    @MainActor
+    @Test("Manual release choices filed under songs resolve to the same albums from the catalog")
+    func releaseOverrideResolution() throws {
+        var rng = CatalogTestRandom(seed: 99)
+        var model = Model()
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        try catalog.setGroupingConfiguration(model.configuration)
+        var serial = 0
+        for _ in 0..<50 { _ = try Self.randomStep(&rng, model: &model, catalog: catalog, serial: &serial) }
+        let suite = "release-overrides-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = AlbumReleaseCategoryStore(defaults: defaults)
+        let withAlbums = model.songs.filter { $0.albumID != nil }
+        for (index, song) in withAlbums.prefix(12).enumerated() {
+            let date = Date(timeIntervalSince1970: 1_700_000_000 + Double(index))
+            store.set(index.isMultiple(of: 2) ? [.singleEP] : [.live], albumID: "ignored-\(index)", songIDs: [song.id], at: date)
+        }
+        if let album = try catalog.albums(keys: catalog.albumKeys(visibleOnly: true).keys, visibleCounts: true).first {
+            store.set([.album], albumID: album.id, songIDs: [], at: Date(timeIntervalSince1970: 1_800_000_000))
+        }
+        let snapshot = store.snapshot
+        // 内存里的对法:可见歌曲的(纠正过的)专辑 id。
+        let reference = Self.referenceSnapshot(model)
+        let visibleSongs = model.songs.filter { !model.disabled.contains($0.sourceID) }
+        let expected = snapshot.resolved(albumIDForSong: { id in
+            visibleSongs.first { $0.id == id }.flatMap { reference.effectiveAlbumIDs[$0.id] }
+        })
+        let albumIDs = try catalog.visibleAlbumIDs(forSongIDs: snapshot.songIDs)
+        let actual = snapshot.resolved(albumIDForSong: { albumIDs[$0] })
+        #expect(actual == expected)
+        #expect(actual?.isEmpty == false)
     }
 
     // MARK: - Documented edge cases (AlbumArtistInferencePolicy header, #462, #333)

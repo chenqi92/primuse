@@ -12,8 +12,9 @@ import GRDB
 enum LibraryCatalogSchema {
     /// 目录还没随版本发布,v1 的布局原地替换。v2:专辑记下各源的艺人名(`album.sourceArtistNames`)。
     /// v3:逐首维护表(`songMaintenance`)改按歌曲 id 记,`songOffline` 加离线状态的整表标记
-    /// (见 `LibraryCatalog+Offline.swift`)。
-    static let schemaVersion = 3
+    /// (见 `LibraryCatalog+Offline.swift`)。v4:专辑的发行类别(`album.releaseTitleFlags`、
+    /// `albumSourceStat.releaseFlags`),已有的专辑在后台补算(`backfillReleaseCategories`)。
+    static let schemaVersion = 4
 
     /// GRDB 内置的本地化比较(每个连接打开时 GRDB 自动注册)。名字写进索引定义,
     /// 系统语言变了要 `REINDEX` 这两个排序规则。
@@ -33,6 +34,28 @@ enum LibraryCatalogSchema {
         migrator.registerMigration("catalog-v3-maintenance") { db in
             try migrateV3(db)
         }
+        migrator.registerMigration("catalog-v4-release-categories") { db in
+            try migrateV4(db)
+        }
+    }
+
+    /// v4:专辑的发行类别。只加两列(不读也不改已有的行,与曲库大小无关,不拖慢打开);已经有专辑的目录记下
+    /// 「待补算」,由镜像在空闲时分批补(可续、可中断,补完才算齐 —— 齐之前读它的界面照旧用内存模型)。
+    /// 新建的空目录没有要补的,当场算齐。
+    private static func migrateV4(_ db: Database) throws {
+        if try !db.columns(in: "album").contains(where: { $0.name == "releaseTitleFlags" }) {
+            try db.execute(sql: "ALTER TABLE album ADD COLUMN releaseTitleFlags INTEGER NOT NULL DEFAULT 0")
+        }
+        if try !db.columns(in: "albumSourceStat").contains(where: { $0.name == "releaseFlags" }) {
+            try db.execute(sql: "ALTER TABLE albumSourceStat ADD COLUMN releaseFlags INTEGER NOT NULL DEFAULT 0")
+        }
+        let hasAlbums = try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM album)") ?? false
+        try db.execute(
+            sql: "INSERT OR REPLACE INTO catalogMeta (key, value) VALUES ('releaseCategories', ?)",
+            arguments: [hasAlbums ? LibraryCatalog.ReleaseCategoryState.backfill(after: 0).metaValue
+                                  : LibraryCatalog.ReleaseCategoryState.complete.metaValue]
+        )
+        try db.execute(sql: "UPDATE catalogMeta SET value = '4' WHERE key = 'schemaVersion'")
     }
 
     /// v3:标签补读的逐首记账按歌曲 id 记(目录跟写比内存慢一拍,刚进库的歌还没有行号也要能记;

@@ -399,6 +399,8 @@ enum LibraryCatalogSongCodec {
         let titleHash: Int64?
         let effectiveAlbumRef: Int64?
         let genre: String?
+        /// 发行类型标签(`contentMetadata.releaseType`),专辑的发行类别按它算。
+        let releaseType: String?
 
         /// `AlbumArtistInferencePolicy.Track(song:directory:)` 的同一套取值;id 用行号。
         func track(sourceID: String, directory: String?) -> AlbumArtistInferencePolicy.Track {
@@ -435,14 +437,19 @@ enum LibraryCatalogSongCodec {
     static func decodeAlbumArtistFields(
         albumArtistColumn: String?,
         extraBlob: Data?
-    ) throws -> (albumArtistName: String?, sourceAlbumArtistNames: [String]?) {
-        guard let extraBlob else { return (albumArtistColumn, nil) }
+    ) throws -> (albumArtistName: String?, sourceAlbumArtistNames: [String]?, releaseType: String?) {
+        guard let extraBlob else { return (albumArtistColumn, nil, nil) }
         var reader = ExtraReader(extraBlob)
         var strings: [Int: String] = [:]
         var doubles: [Int: UInt64] = [:]
         var rare = RareFields()
         try decodeRareFields(&reader, into: &rare, strings: &strings, doubles: &doubles)
-        return (strings[Column.albumArtistName] ?? albumArtistColumn, rare.sourceAlbumArtistNames)
+        return (strings[Column.albumArtistName] ?? albumArtistColumn, rare.sourceAlbumArtistNames, rare.contentMetadata?.releaseType)
+    }
+
+    /// 只要发行类型标签时(目录补算专辑的发行类别)。
+    static func decodeReleaseType(extraBlob: Data?) throws -> String? {
+        try decodeAlbumArtistFields(albumArtistColumn: nil, extraBlob: extraBlob).releaseType
     }
 
     static func decodeGroupingFields(_ row: Row) throws -> GroupingFields {
@@ -472,7 +479,8 @@ enum LibraryCatalogSongCodec {
             dateAdded: row[13],
             titleHash: row[14],
             effectiveAlbumRef: row[15],
-            genre: strings[Column.genre] ?? row[16]
+            genre: strings[Column.genre] ?? row[16],
+            releaseType: rare.contentMetadata?.releaseType
         )
     }
 

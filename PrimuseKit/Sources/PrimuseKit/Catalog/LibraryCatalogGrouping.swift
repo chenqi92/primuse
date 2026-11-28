@@ -255,6 +255,19 @@ struct GroupingMaintenance {
     /// 导入与整库重建按阶段流式处理,不攒脏范围与增量。
     var tracksDirty = true
     private var sourceCache: [Int64: SourceInfo] = [:]
+    /// 发行类型标签 → 认出的类别(专辑的发行类别按它算;标签的写法不多,正则只跑一次)。
+    private var releaseTypeFlags: [String: AlbumReleaseCategoryRule.Flags] = [:]
+
+    /// 一首歌的发行类型标签认出的类别(`AlbumReleaseCategoryRule.explicitFlags`,记住各个写法的结果)。
+    mutating func releaseFlags(releaseType: String?) -> AlbumReleaseCategoryRule.Flags {
+        guard let releaseType, !releaseType.isEmpty else { return [] }
+        if let known = releaseTypeFlags[releaseType] { return known }
+        let flags = AlbumReleaseCategoryRule.explicitFlags(releaseType: releaseType)
+        // 写坏了的逐首标签不能让这份缓存跟着歌数长。
+        if releaseTypeFlags.count >= 512 { releaseTypeFlags.removeAll(keepingCapacity: true) }
+        releaseTypeFlags[releaseType] = flags
+        return flags
+    }
 
     struct SourceInfo {
         let id: String

@@ -5561,6 +5561,80 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         assertNoLoadAndNoArrayRead(neverLoaded, since: neverBefore, "an album-only artist in a launch that never loaded")
     }
 
+    // MARK: RC-a — release categories from the catalog
+
+    /// RC-a:从 v3 升上来的目录在启动后由镜像在后台补算发行类别(启动、「可用」都不等它);补完之后专辑页按类别筛、
+    /// 「不列只有单曲、EP 的人」从目录答,与装着模型时的结果相同(手动选择按专辑、按歌记的都算);从没装过模型的
+    /// 启动也一样,不装模型、不读整库数组。
+    func testReleaseCategoriesBackfillAfterTheUpgradeAndAnswerLikeTheLoadedLibrary() async throws {
+        var songs = Self.fixture(prefix: "rca")
+        songs[0].contentMetadata = SongContentMetadata(releaseType: "EP")
+        songs[4].contentMetadata = SongContentMetadata(releaseType: "Single")
+        songs[5].contentMetadata = SongContentMetadata(releaseType: "Album; Live")
+        let launchStorage = try await persistedLaunchFixture("rca", songs: songs, extra: [])
+        do {
+            let stored = try LibraryCatalog(path: launchStorage.appendingPathComponent("library-catalog.sqlite").path)
+            try stored.simulateReleaseCategoryUpgradeForTesting()
+            XCTAssertFalse(try stored.releaseCategoriesAreComplete(), "the stored catalog looks freshly upgraded")
+        }
+        let loaded = await launch(try copyOfDirectory(launchStorage, "rca-loaded"), unloaded: false)
+        let neverLoaded = await launch(try copyOfDirectory(launchStorage, "rca-never"), unloaded: true)
+        try await waitUntilUsable(neverLoaded)
+        XCTAssertTrue(loaded.isReady)
+        let neverBefore = neverLoaded.songModelResidencyStatistics
+        for library in [loaded, neverLoaded] {
+            let host = try XCTUnwrap(library.catalogHost)
+            let deadline = ContinuousClock.now + .seconds(10)
+            while !host.releaseCategoriesComplete, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+            XCTAssertTrue(host.releaseCategoriesComplete, "the backfill completed in the background")
+        }
+
+        let suite = "rca-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = AlbumReleaseCategoryStore(defaults: defaults)
+        let blueRoom = try XCTUnwrap(loaded.storedSong(id: songs[1].id)?.albumID)
+        store.set([.singleEP], albumID: blueRoom, songIDs: [], at: Date(timeIntervalSince1970: 1_700_000_000))
+        store.set([.album, .live], albumID: "not-an-album", songIDs: [songs[6].id], at: Date(timeIntervalSince1970: 1_700_000_100))
+        let snapshot = store.snapshot
+        let resolvedInMemory = await loaded.resolvedReleaseOverrides(snapshot)
+        let memoryOverrides = try XCTUnwrap(resolvedInMemory)
+        let memory = loaded.releaseCategorySnapshot
+        let visible = loaded.visibleAlbums
+        func memoryAlbums(_ category: AlbumReleaseCategory) -> [String] {
+            visible.filter { (memoryOverrides[$0.id] ?? memory.categories(albumID: $0.id)).contains(category) }.map(\.id).sorted()
+        }
+        let sharedSnapshot = AlbumReleaseCategoryStore.shared.snapshot
+        let defaultsKey = AlbumArtistReleaseFilter.storageKey
+        let previousFlag = UserDefaults.standard.object(forKey: defaultsKey)
+        UserDefaults.standard.set(true, forKey: defaultsKey)
+        let memoryKept = loaded.browsableArtists(.albumArtists).map(\.id)
+        UserDefaults.standard.set(false, forKey: defaultsKey)
+        let allAlbumArtists = loaded.browsableArtists(.albumArtists)
+        if let previousFlag { UserDefaults.standard.set(previousFlag, forKey: defaultsKey) } else {
+            UserDefaults.standard.removeObject(forKey: defaultsKey)
+        }
+        XCTAssertFalse(memoryAlbums(.singleEP).isEmpty)
+
+        for (library, step) in [(loaded, "loaded"), (neverLoaded, "never loaded")] {
+            let catalog = try XCTUnwrap(library.catalogHost?.mirror.readableCatalog)
+            let overrides = try XCTUnwrap(LibraryCatalogHost.releaseCategoryOverrides(snapshot, catalog: catalog))
+            XCTAssertEqual(overrides, memoryOverrides, "\(step): manual choices resolve to the same albums")
+            let keys = try catalog.albumKeys(visibleOnly: true).keys
+            let idByKey = Dictionary(zip(keys, try catalog.albums(keys: keys, visibleCounts: true).map(\.id)),
+                                     uniquingKeysWith: { first, _ in first })
+            for category in AlbumReleaseCategory.allCases {
+                let filter = LibraryReleaseCategoryFilter(category: category, overrides: overrides)
+                let matched = try XCTUnwrap(try filter.albumKeys(catalog: catalog)).compactMap { idByKey[$0] }.sorted()
+                XCTAssertEqual(matched, memoryAlbums(category), "\(step): albums in \(category)")
+            }
+            let sharedOverrides = try XCTUnwrap(LibraryCatalogHost.releaseCategoryOverrides(sharedSnapshot, catalog: catalog))
+            let full = try XCTUnwrap(try LibraryFullReleaseArtistFilter(overrides: sharedOverrides).artistIDs(catalog: catalog))
+            XCTAssertEqual(allAlbumArtists.filter { full.contains($0.id) }.map(\.id), memoryKept, "\(step): album artists kept")
+        }
+        assertNoLoadAndNoArrayRead(neverLoaded, since: neverBefore, "release categories in a launch that never loaded")
+    }
+
     /// CK-a 第 2 项:模型不在内存里时补读不拿空的歌曲表去比剩余数(以前在这里读一次 `songs`、记一笔数组读;
     /// 拿空表算出的「0 条」会把队列当成做完),队列状态原样留着。
     func testBackfillDoesNotCountFromAnEmptyLibraryWhileTheModelIsReleased() async throws {

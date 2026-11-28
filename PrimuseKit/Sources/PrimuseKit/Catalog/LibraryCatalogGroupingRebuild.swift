@@ -181,6 +181,8 @@ extension LibraryCatalog {
                     grouping.dirty.allBooks = true
                     try grouping.rebuildBooks()
                     try Self.setMeta(MetaKey.groupingFingerprint, fingerprint, in: db)
+                    // 整库重建把每张专辑连同发行类别重新写了一遍:不再欠补算。
+                    try Self.setMeta(MetaKey.releaseCategories, ReleaseCategoryState.complete.metaValue, in: db)
                     try Self.removeMeta(MetaKey.groupingRebuildPhase, in: db)
                     try Self.removeMeta(MetaKey.groupingRebuildCursor, in: db)
                     let generation = (try Self.metaValue(MetaKey.groupingGeneration, in: db).flatMap(Int64.init) ?? 0) + 1
@@ -287,7 +289,8 @@ extension LibraryCatalog {
                 members[albumKey, default: []].append(AlbumMember(
                     rowid: row.rowid, year: row.year, sourceKey: row.sourceKey, kind: row.kind, duration: row.durationKey,
                     dateAdded: row.dateAdded, credited: credits[index].contains(artistRef),
-                    sourceAlbumArtistNames: validatedSourceAlbumArtists
+                    sourceAlbumArtistNames: validatedSourceAlbumArtists,
+                    releaseFlags: grouping.releaseFlags(releaseType: row.releaseType)
                 ))
             }
         }
@@ -296,7 +299,8 @@ extension LibraryCatalog {
                 // 同一标题内按 (标题哈希, 行号) 读出,专辑成员已是库内顺序。
                 guard let aggregate = AlbumAggregate(members: members[albumKey] ?? []), let first = firstFields[albumKey] else { continue }
                 try grouping.writeAlbumAggregate(
-                    key: albumKey, aggregate: aggregate, genre: first.genre, sourceID: sources[first.sourceKey]?.id ?? ""
+                    key: albumKey, aggregate: aggregate, genre: first.genre, sourceID: sources[first.sourceKey]?.id ?? "",
+                    title: albumIdentitiesByKey[albumKey]?.albumTitle ?? ""
                 )
                 if let sourceArtistNames = aggregate.sourceArtistNames,
                    let identity = albumIdentitiesByKey[albumKey] {

@@ -11,6 +11,28 @@ enum LibraryCatalogMirroring: Sendable, Equatable {
     static let defaultStartDelay: Duration = .seconds(3)
 }
 
+/// 专辑页按发行类别筛(目录那一路):列表查询带上它,取完专辑浏览的键再与 `albumKeys(catalog:)` 求交。手动选的
+/// 类别先对到专辑(`LibraryCatalogHost.releaseCategoryOverrides`)。发行类别还没算齐(`releaseCategoriesComplete`
+/// 为 false)时不该走这一路;`albumKeys` 给 nil 时调用方照旧用内存模型。
+struct LibraryReleaseCategoryFilter: Hashable, Sendable {
+    let category: AlbumReleaseCategory
+    let overrides: [String: Set<AlbumReleaseCategory>]
+
+    func albumKeys(catalog: LibraryCatalog) throws -> Set<Int32>? {
+        try catalog.albumKeys(inReleaseCategory: category, overrides: overrides)
+    }
+}
+
+/// 艺术家页「不列只有单曲、EP 的人」(目录那一路):专辑艺人列表只留 id 在 `artistIDs(catalog:)` 里的。
+/// nil:发行类别还没算齐,调用方照旧用内存模型。
+struct LibraryFullReleaseArtistFilter: Hashable, Sendable {
+    let overrides: [String: Set<AlbumReleaseCategory>]
+
+    func artistIDs(catalog: LibraryCatalog) throws -> Set<String>? {
+        try catalog.albumArtistIDsWithFullReleases(overrides: overrides)
+    }
+}
+
 /// 目录的持有方(`MusicLibrary`):后台工作此刻能不能做、目录可读状态变了。
 @MainActor
 protocol LibraryCatalogOwner: AnyObject {
@@ -83,6 +105,23 @@ final class LibraryCatalogHost {
         self.link = link
         self.pendingWrites = pendingWrites
         self.relay = relay
+    }
+
+    /// 专辑的发行类别能从目录答:目录可读、发行类别已经算齐(从 v3 升上来、后台还没补完时为 false,这时专辑页的
+    /// 发行类别筛选、艺术家页「不列只有单曲、EP 的人」照旧用内存模型)。
+    var releaseCategoriesComplete: Bool {
+        mirror.releaseCategoriesComplete && revisions.isReadable
+    }
+
+    /// 用户手动选的发行类别,对到专辑:按专辑记的直接用,按歌记的按歌此刻所在的专辑(只看启用的源里的歌,从目录
+    /// 查),同一张专辑以最新的那次为准 —— 与内存里 `MusicLibrary.resolvedReleaseOverrides` 同一个规则
+    /// (`AlbumReleaseCategoryStore.Snapshot.resolved`)。nil:目录此刻读不了。
+    nonisolated static func releaseCategoryOverrides(
+        _ snapshot: AlbumReleaseCategoryStore.Snapshot, catalog: LibraryCatalog
+    ) -> [String: Set<AlbumReleaseCategory>]? {
+        guard !snapshot.isEmpty else { return [:] }
+        guard let albumIDs = try? catalog.visibleAlbumIDs(forSongIDs: snapshot.songIDs) else { return nil }
+        return snapshot.resolved(albumIDForSong: { albumIDs[$0] })
     }
 
     /// 能按 id 从目录读出与内存模型此刻相同的歌时给出读法:目录已经跟上旧库、在跟写、没有等着跟上的整份替换。

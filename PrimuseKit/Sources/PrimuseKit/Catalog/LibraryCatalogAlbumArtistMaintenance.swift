@@ -14,6 +14,8 @@ struct AlbumMember {
     let credited: Bool
     /// 已校验过未被推断覆盖的原生多专辑艺人列表。
     let sourceAlbumArtistNames: [String]?
+    /// 这首歌的发行类型标签认出的类别(`AlbumReleaseCategoryRule.explicitFlags`)。
+    var releaseFlags: AlbumReleaseCategoryRule.Flags = []
 }
 
 /// 一张专辑的聚合,与参照实现 `computeAlbumsAndArtists` 逐项同一口径:首首歌按库内顺序,
@@ -28,6 +30,8 @@ struct AlbumAggregate {
         var count = 0
         var duration = 0.0
         var maxDateAdded = -Double.infinity
+        /// 这个源、这一类里各首的发行类型标签认出的类别的并集(可见集按启用的源再合)。
+        var releaseFlags: AlbumReleaseCategoryRule.Flags = []
     }
 
     let firstRowid: Int64
@@ -64,6 +68,7 @@ struct AlbumAggregate {
             stat.count += 1
             stat.duration += member.duration
             stat.maxDateAdded = max(stat.maxDateAdded, member.dateAdded)
+            stat.releaseFlags.formUnion(member.releaseFlags)
             stats[key] = stat
         }
         guard let first else { return nil }
@@ -318,7 +323,9 @@ extension GroupingMaintenance {
             """), arguments: [artistRef, key])
         work.rowsRead += rows.count
         try db.cachedStatement(sql: "DELETE FROM albumSourceStat WHERE albumKey = ?").execute(arguments: [key])
-        let members = try rows.map { row -> AlbumMember in
+        var members: [AlbumMember] = []
+        members.reserveCapacity(rows.count)
+        for row in rows {
             let albumArtistFields = try LibraryCatalogSongCodec.decodeAlbumArtistFields(
                 albumArtistColumn: row[7],
                 extraBlob: row.dataNoCopy(atIndex: 8)
@@ -328,10 +335,11 @@ extension GroupingMaintenance {
                 candidate: albumArtistFields.sourceAlbumArtistNames,
                 effectiveAlbumArtistName: albumArtistName
             )
-            return AlbumMember(
+            members.append(AlbumMember(
                 rowid: row[0], year: row[1], sourceKey: row[2], kind: row[3], duration: row[4],
-                dateAdded: row[5], credited: row[6], sourceAlbumArtistNames: validatedSourceArtists
-            )
+                dateAdded: row[5], credited: row[6], sourceAlbumArtistNames: validatedSourceArtists,
+                releaseFlags: releaseFlags(releaseType: albumArtistFields.releaseType)
+            ))
         }
         guard let aggregate = AlbumAggregate(members: members) else {
             try db.cachedStatement(sql: "DELETE FROM album WHERE key = ?").execute(arguments: [key])
@@ -347,7 +355,7 @@ extension GroupingMaintenance {
         ) else { throw LibraryCatalogError.corruptRow }
         let first = try LibraryCatalogSongCodec.decodeGroupingFields(firstRow)
         let sourceID = try sourceInfo(first.sourceKey).id
-        try writeAlbumAggregate(key: key, aggregate: aggregate, genre: first.genre, sourceID: sourceID)
+        try writeAlbumAggregate(key: key, aggregate: aggregate, genre: first.genre, sourceID: sourceID, title: albumTitle)
         if aggregate.sourceArtistNames != previousSourceArtists {
             let updatedAlbum = Album(
                 id: albumID,
@@ -361,20 +369,51 @@ extension GroupingMaintenance {
         if aggregate.ownerCredited != wasCredited { dirty.artists.insert(artistRef) }
     }
 
-    /// 专辑行的聚合列与按源、按类别的统计(调用方已清掉旧统计)。
-    mutating func writeAlbumAggregate(key: Int64, aggregate: AlbumAggregate, genre: String?, sourceID: String) throws {
+    /// 只补一张专辑的发行类别(升级后补算,`backfillReleaseCategories`):各源、各类里各首标签认出的类别,与标题
+    /// 那一条。与 `refreshAlbum` 写的同一份值,不碰别的聚合列。
+    mutating func refreshReleaseCategories(albumKey key: Int64, title: String) throws {
+        var flagsByStat: [AlbumAggregate.StatKey: AlbumReleaseCategoryRule.Flags] = [:]
+        let rows = try Row.fetchAll(
+            db.cachedStatement(sql: "SELECT sourceKey, kind, extra FROM song WHERE effectiveAlbumRef = ?"), arguments: [key]
+        )
+        work.rowsRead += rows.count
+        for row in rows {
+            let releaseType = try LibraryCatalogSongCodec.decodeReleaseType(extraBlob: row.dataNoCopy(atIndex: 2))
+            let statKey = AlbumAggregate.StatKey(sourceKey: row[0], kind: row[1])
+            flagsByStat[statKey, default: []].formUnion(releaseFlags(releaseType: releaseType))
+        }
+        let update = try db.cachedStatement(sql: """
+            UPDATE albumSourceStat SET releaseFlags = ? WHERE albumKey = ? AND sourceKey = ? AND kind = ?
+            """)
+        for (statKey, flags) in flagsByStat where !flags.isEmpty {
+            try update.execute(arguments: [flags.rawValue, key, statKey.sourceKey, statKey.kind])
+        }
+        try db.cachedStatement(sql: "UPDATE album SET releaseTitleFlags = ? WHERE key = ?")
+            .execute(arguments: [AlbumReleaseCategoryRule.titleFlags(title).rawValue, key])
+        work.rowsWritten += 1 + flagsByStat.count
+    }
+
+    /// 专辑行的聚合列与按源、按类别的统计(调用方已清掉旧统计)。`title`:专辑标题,发行类别的标题那一条按它算
+    /// (`album.releaseTitleFlags`;各源统计里记标签认出的类别 `releaseFlags`)。
+    mutating func writeAlbumAggregate(
+        key: Int64, aggregate: AlbumAggregate, genre: String?, sourceID: String, title: String
+    ) throws {
         try db.cachedStatement(sql: """
             UPDATE album SET year = ?, genre = ?, sourceID = ?, firstRowid = ?, songCount = ?, duration = ?,
-                             ownerCredited = ?, sourceArtistNames = ? WHERE key = ?
+                             ownerCredited = ?, sourceArtistNames = ?, releaseTitleFlags = ? WHERE key = ?
             """).execute(arguments: [
                 aggregate.year, genre, sourceID, aggregate.firstRowid, aggregate.songCount, aggregate.duration,
-                aggregate.ownerCredited ? 1 : 0, Self.encodeSourceArtistNames(aggregate.sourceArtistNames), key,
+                aggregate.ownerCredited ? 1 : 0, Self.encodeSourceArtistNames(aggregate.sourceArtistNames),
+                AlbumReleaseCategoryRule.titleFlags(title).rawValue, key,
             ])
         let insert = try db.cachedStatement(sql: """
-            INSERT INTO albumSourceStat (albumKey, sourceKey, kind, songCount, duration, maxDateAdded) VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO albumSourceStat (albumKey, sourceKey, kind, songCount, duration, maxDateAdded, releaseFlags)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """)
         for (statKey, stat) in aggregate.stats {
-            try insert.execute(arguments: [key, statKey.sourceKey, statKey.kind, stat.count, stat.duration, stat.maxDateAdded])
+            try insert.execute(arguments: [
+                key, statKey.sourceKey, statKey.kind, stat.count, stat.duration, stat.maxDateAdded, stat.releaseFlags.rawValue,
+            ])
         }
         work.rowsWritten += 1 + aggregate.stats.count
     }

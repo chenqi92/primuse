@@ -65,6 +65,31 @@ public final class LibraryCatalog: @unchecked Sendable {
         static let groupingRebuildCursor = "grouping.rebuild.cursor"
         static let groupingGeneration = "grouping.generation"
         static let frozenAt = "frozenView.at"
+        /// 专辑的发行类别算齐了没有(`ReleaseCategoryState`)。
+        static let releaseCategories = "releaseCategories"
+    }
+
+    /// 专辑的发行类别(`album.releaseTitleFlags` + `albumSourceStat.releaseFlags`)此刻的状态。新写的专辑行
+    /// (增量维护、整库重建)总是带着算好的值;只有从 v3 升上来时已经在的那些要补。
+    enum ReleaseCategoryState: Equatable {
+        /// 每张专辑都算好了:读它的界面可以只问目录。
+        case complete
+        /// 还在补:专辑键大于 `after` 的还没补(按键从小到大补,中断后从这里接着)。
+        case backfill(after: Int64)
+
+        init?(metaValue: String?) {
+            guard let metaValue else { return nil }
+            if metaValue == "complete" { self = .complete; return }
+            guard metaValue.hasPrefix("backfill:"), let key = Int64(metaValue.dropFirst(9)) else { return nil }
+            self = .backfill(after: key)
+        }
+
+        var metaValue: String {
+            switch self {
+            case .complete: "complete"
+            case .backfill(let key): "backfill:\(key)"
+            }
+        }
     }
 
     /// 打开(不存在就新建)目录。打开只做迁移检查与 meta 读取,与曲库大小无关;

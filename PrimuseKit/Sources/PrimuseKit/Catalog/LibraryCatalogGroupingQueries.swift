@@ -297,6 +297,158 @@ extension LibraryCatalog {
         return (credited, try trackArtist(id))
     }
 
+    // MARK: - Release categories
+
+    /// 专辑的发行类别是不是每张都算好了:从 v3 升上来、后台还没补完时为 false,这时读它的界面照旧用内存模型。
+    public func releaseCategoriesAreComplete() throws -> Bool {
+        try reader.read { db in try Self.releaseCategoriesComplete(in: db) }
+    }
+
+    static func releaseCategoriesComplete(in db: Database) throws -> Bool {
+        ReleaseCategoryState(metaValue: try metaValue(MetaKey.releaseCategories, in: db)) == .complete
+    }
+
+    /// 可见专辑自动认出的发行类别(不含手动选的):启用的源里各首的发行类型标签认出的、一首都没有时看标题,
+    /// 与内存里 `AlbumReleaseMetadataIndex.categories(albumID:)` 同一条规则(`AlbumReleaseCategoryRule`)。
+    /// `albumIDs` 为 nil 时给全部可见专辑;不可见的、目录里没有的不在结果里(调用方当「专辑」,与内存里的
+    /// 默认相同)。nil:还没算齐。
+    public func albumReleaseCategories(albumIDs: [String]? = nil) throws -> [String: Set<AlbumReleaseCategory>]? {
+        try reader.read { db in
+            guard try Self.releaseCategoriesComplete(in: db) else { return nil }
+            var result: [String: Set<AlbumReleaseCategory>] = [:]
+            try Self.forEachVisibleAlbumRelease(albumIDs: albumIDs, in: db) { album in
+                result[album.id] = album.automatic
+            }
+            return result
+        }
+    }
+
+    /// 专辑页按发行类别筛:可见专辑里(手动选的,否则自动认出的)类别含 `category` 的那些的专辑键。`overrides`:
+    /// 专辑 id → 手动选的类别(`AlbumReleaseCategoryStore.Snapshot.resolved`,按歌记的先经
+    /// `visibleAlbumIDs(forSongIDs:)` 对到专辑)。与内存里专辑页的筛法相同。nil:还没算齐。
+    public func albumKeys(
+        inReleaseCategory category: AlbumReleaseCategory, overrides: [String: Set<AlbumReleaseCategory>]
+    ) throws -> Set<Int32>? {
+        try reader.read { db in
+            guard try Self.releaseCategoriesComplete(in: db) else { return nil }
+            var keys = Set<Int32>()
+            try Self.forEachVisibleAlbumRelease(albumIDs: nil, in: db) { album in
+                if (overrides[album.id] ?? album.automatic).contains(category) { keys.insert(album.key) }
+            }
+            return keys
+        }
+    }
+
+    /// 艺术家页「不列只有单曲、EP 的人」:署名在至少一张「正式专辑」上的专辑艺人 id(`AlbumArtistReleaseFilter`
+    /// 的同一条判法:类别不空、不只是单曲 / EP,手动选的或带现场的直接算,否则要不止一首可见歌;署名按
+    /// `AlbumArtistCreditPolicy.resolvedCredits` 现算,与内存里 `AlbumArtistIndexBuilder` 同一条规则)。
+    /// 专辑艺人列表里 id 在这个集合里的留下。nil:还没算齐。
+    public func albumArtistIDsWithFullReleases(overrides: [String: Set<AlbumReleaseCategory>]) throws -> Set<String>? {
+        try reader.read { db in
+            guard try Self.releaseCategoriesComplete(in: db) else { return nil }
+            var fullReleaseKeys: [Int32] = []
+            try Self.forEachVisibleAlbumRelease(albumIDs: nil, in: db) { album in
+                let chosen = overrides[album.id]
+                if AlbumArtistReleaseFilter.countsAsFullRelease(
+                    categories: chosen ?? album.automatic, isManualChoice: chosen != nil, songCount: album.songCount
+                ) { fullReleaseKeys.append(album.key) }
+            }
+            let splits = try Self.visibleSplitsLibrary(in: db)
+            var trackArtists: [String: Artist?] = [:]
+            var lookupError: Error?
+            func trackArtist(_ id: String) -> Artist? {
+                if let known = trackArtists[id] { return known }
+                do {
+                    let artist = try Self.visibleTrackArtist(id: id, splits: splits, in: db)
+                    trackArtists[id] = .some(artist)
+                    return artist
+                } catch {
+                    lookupError = error
+                    return nil
+                }
+            }
+            let configuration = groupingConfiguration.artistNames.normalized()
+            var credited = Set<String>()
+            for chunk in Self.chunks(of: fullReleaseKeys, size: 500) {
+                for album in try Self.fetchAlbums(keys: Array(chunk), splits: splits, in: db) {
+                    guard let artistID = album.artistID, !artistID.isEmpty else { continue }
+                    let credits = AlbumArtistCreditPolicy.resolvedCredits(
+                        for: album, configuration: configuration,
+                        isKnownTrackArtist: { trackArtist($0) != nil },
+                        knownTrackArtistName: { trackArtist($0)?.name },
+                        artistID: { LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey($0)) }
+                    )
+                    if let lookupError { throw lookupError }
+                    for credit in credits { credited.insert(credit.id) }
+                }
+            }
+            return credited
+        }
+    }
+
+    /// 手动选的发行类别里按歌记的那些:歌 id → 它此刻分在的专辑 id(整库分组之后的那张,内存里纠正过的
+    /// `albumID`;只看启用的源里的歌,与内存里按可见歌曲对的相同)。交给
+    /// `AlbumReleaseCategoryStore.Snapshot.resolved(albumIDForSong:)`。
+    public func visibleAlbumIDs(forSongIDs ids: [String]) throws -> [String: String] {
+        guard !ids.isEmpty else { return [:] }
+        return try reader.read { db in
+            var result: [String: String] = [:]
+            for chunk in Self.chunks(of: ids) {
+                for row in try Row.fetchAll(db, sql: """
+                    SELECT s.id, a.id FROM song s JOIN album a ON a.key = s.effectiveAlbumRef
+                    WHERE s.id IN (\(Self.placeholders(chunk.count))) AND s.sourceKey IN (\(Self.enabledSourcesSQL))
+                    """, arguments: StatementArguments(Array(chunk))) {
+                    result[row[0]] = row[1]
+                }
+            }
+            return result
+        }
+    }
+
+    /// 可见专辑一张一张交给 `body`:键、id、自动认出的类别、可见歌曲数(与 `albums(keys:visibleCounts:)` 同一个算法)。
+    private static func forEachVisibleAlbumRelease(
+        albumIDs: [String]?,
+        in db: Database,
+        _ body: (_ album: (key: Int32, id: String, automatic: Set<AlbumReleaseCategory>, songCount: Int)) throws -> Void
+    ) throws {
+        let splits = try visibleSplitsLibrary(in: db)
+        var terms: [String] = []
+        if splits {
+            terms.append("a.key IN (SELECT albumKey FROM albumSourceStat WHERE kind = 0 AND sourceKey IN (\(enabledSourcesSQL)))")
+        }
+        let select = """
+            SELECT a.key, a.id, a.releaseTitleFlags, a.songCount,
+                   (SELECT max(st.releaseFlags & 1) | max(st.releaseFlags & 2) | max(st.releaseFlags & 4)
+                      FROM albumSourceStat st WHERE st.albumKey = a.key AND st.sourceKey IN (\(enabledSourcesSQL))),
+                   (SELECT total(st.songCount) FROM albumSourceStat st
+                      WHERE st.albumKey = a.key AND st.sourceKey IN (\(enabledSourcesSQL)))
+            FROM album a
+            """
+        func visit(_ rows: RowCursor) throws {
+            while let row = try rows.next() {
+                let explicit = AlbumReleaseCategoryRule.Flags(rawValue: (row[4] as Int?) ?? 0)
+                let title = AlbumReleaseCategoryRule.Flags(rawValue: row[2])
+                let visibleCount: Double = row[5]
+                try body((
+                    key: try rowid32(row[0]), id: row[1],
+                    automatic: AlbumReleaseCategoryRule.categories(explicit: explicit, title: title),
+                    songCount: splits ? Int(visibleCount) : row[3]
+                ))
+            }
+        }
+        guard let albumIDs else {
+            let whereSQL = terms.isEmpty ? "" : " WHERE " + terms.joined(separator: " AND ")
+            try visit(try Row.fetchCursor(db, sql: select + whereSQL))
+            return
+        }
+        for chunk in chunks(of: albumIDs) {
+            let chunkTerms = terms + ["a.id IN (\(placeholders(chunk.count)))"]
+            try visit(try Row.fetchCursor(
+                db, sql: select + " WHERE " + chunkTerms.joined(separator: " AND "), arguments: StatementArguments(Array(chunk))
+            ))
+        }
+    }
+
     /// 可见曲目艺人里的这一位(`visibleArtist(id:)` 在同一个读里)。
     private static func visibleTrackArtist(id: String, splits: Bool, in db: Database) throws -> Artist? {
         let filter = splits

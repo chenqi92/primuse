@@ -264,6 +264,55 @@ extension LibraryCatalog {
         return true
     }
 
+    /// 从 v3 升上来、专辑的发行类别还欠补算(`backfillReleaseCategories`)。
+    public func hasPendingReleaseCategoryBackfill() throws -> Bool {
+        try pool.read { db in
+            if case .backfill = ReleaseCategoryState(metaValue: try Self.metaValue(MetaKey.releaseCategories, in: db)) { return true }
+            return false
+        }
+    }
+
+    /// 补算升级之前就在的专辑的发行类别:按专辑键从小到大,每批 `batchSize` 张一个写事务(只改发行类别那两列,
+    /// 不动别的聚合、不改修订号),批与批之间问 `isCancelled`。游标记在 meta 里:被杀、被叫停之后下次从没补的
+    /// 那张接着补。补完记「算齐了」。补的同时照常写进来的专辑由增量维护连同发行类别一起写,不受影响。
+    /// 导入或整库重建还没做完时不补(整库重建做完时本来就算齐了),返回 false。补完返回 true。
+    @discardableResult
+    public func backfillReleaseCategories(batchSize: Int = 500, isCancelled: () -> Bool = { false }) throws -> Bool {
+        while true {
+            if isCancelled() { return false }
+            let finished: Bool? = try pool.write { db in
+                guard case .backfill(let after) = ReleaseCategoryState(
+                    metaValue: try Self.metaValue(MetaKey.releaseCategories, in: db)
+                ) else { return true }
+                guard try Self.metaValue(MetaKey.importState, in: db) != "running",
+                      try Self.metaValue(MetaKey.groupingRebuildPhase, in: db) == nil else { return nil }
+                let albums = try Row.fetchAll(
+                    db, sql: "SELECT key, title FROM album WHERE key > ? ORDER BY key LIMIT ?", arguments: [after, batchSize]
+                )
+                guard let last = albums.last else {
+                    try Self.setMeta(MetaKey.releaseCategories, ReleaseCategoryState.complete.metaValue, in: db)
+                    return true
+                }
+                var grouping = GroupingMaintenance(db: db, configuration: groupingConfiguration)
+                for album in albums { try grouping.refreshReleaseCategories(albumKey: album[0], title: album[1]) }
+                try Self.setMeta(MetaKey.releaseCategories, ReleaseCategoryState.backfill(after: last[0]).metaValue, in: db)
+                return false
+            }
+            guard let finished else { return false }
+            if finished { return true }
+        }
+    }
+
+    #if DEBUG
+    /// 测试与规模测试:把目录弄成「刚从 v3 升上来」的样子(发行类别两列清零、记「待补算」),量升级后第一次补算。
+    public func simulateReleaseCategoryUpgradeForTesting() throws {
+        try pool.write { db in
+            try db.execute(sql: "UPDATE album SET releaseTitleFlags = 0; UPDATE albumSourceStat SET releaseFlags = 0")
+            try Self.setMeta(MetaKey.releaseCategories, ReleaseCategoryState.backfill(after: 0).metaValue, in: db)
+        }
+    }
+    #endif
+
     static func clearSongs(in db: Database) throws {
         try db.execute(sql: """
             DELETE FROM song;

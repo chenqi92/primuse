@@ -48,6 +48,54 @@ public enum AlbumReleaseClassification {
     }
 }
 
+/// 一张专辑自动认出的发行类别:歌上的发行类型标签认得出的取它们的并集,一首都没有时看专辑标题(去掉首尾空白)。
+/// 内存里的 `AlbumReleaseMetadataIndex` 与曲库目录里存的那一份(`album.releaseTitleFlags` 加各源统计的
+/// `releaseFlags`)都经这里,口径只有这一份。
+public enum AlbumReleaseCategoryRule {
+    /// 三种类别各一位,存进目录的整数列。
+    public struct Flags: OptionSet, Sendable, Hashable {
+        public let rawValue: Int
+        public init(rawValue: Int) { self.rawValue = rawValue & 0b111 }
+        public static let album = Flags(rawValue: 1)
+        public static let singleEP = Flags(rawValue: 2)
+        public static let live = Flags(rawValue: 4)
+
+        public init(_ categories: Set<AlbumReleaseCategory>) {
+            var flags: Flags = []
+            if categories.contains(.album) { flags.insert(.album) }
+            if categories.contains(.singleEP) { flags.insert(.singleEP) }
+            if categories.contains(.live) { flags.insert(.live) }
+            self = flags
+        }
+
+        public var categories: Set<AlbumReleaseCategory> {
+            var result = Set<AlbumReleaseCategory>()
+            if contains(.album) { result.insert(.album) }
+            if contains(.singleEP) { result.insert(.singleEP) }
+            if contains(.live) { result.insert(.live) }
+            return result
+        }
+    }
+
+    /// 一首歌的发行类型标签认出的类别;没有标签、空的、认不出的为空。
+    public static func explicitFlags(releaseType: String?) -> Flags {
+        guard let releaseType, !releaseType.isEmpty else { return [] }
+        return Flags(AlbumReleaseClassification.explicitCategories(releaseType: releaseType))
+    }
+
+    /// 专辑标题这一条(没有一首认得出的标签时用);从不为空(什么都不像时是「专辑」)。
+    public static func titleFlags(_ title: String) -> Flags {
+        Flags(AlbumReleaseClassification.categories(
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines), releaseTypes: []
+        ))
+    }
+
+    /// 合起来:歌上的标签有认得出的就是它们,否则是标题那一条。
+    public static func categories(explicit: Flags, title: Flags) -> Set<AlbumReleaseCategory> {
+        (explicit.isEmpty ? title : explicit).categories
+    }
+}
+
 /// Aggregated release tags, without retaining songs or a second song-ID index.
 /// Populate alongside the library's existing visible-song pass, then patch changed rows.
 public struct AlbumReleaseMetadataIndex: Sendable {
@@ -122,11 +170,11 @@ public struct AlbumReleaseMetadataIndex: Sendable {
     }
 
     private mutating func refresh(albumID: String, title: String) {
-        let explicit = counts[albumID]?.categories ?? []
+        let explicit = AlbumReleaseCategoryRule.Flags(counts[albumID]?.categories ?? [])
+        // 标题那一条只在没有认得出的标签时才算(正则不便宜)。
         results[albumID] = explicit.isEmpty
-            ? AlbumReleaseClassification.categories(
-                title: title.trimmingCharacters(in: .whitespacesAndNewlines), releaseTypes: []
-            ) : explicit
+            ? AlbumReleaseCategoryRule.titleFlags(title).categories
+            : AlbumReleaseCategoryRule.categories(explicit: explicit, title: [])
     }
 }
 
@@ -178,6 +226,11 @@ public final class AlbumReleaseCategoryStore {
     public struct Snapshot: Sendable {
         fileprivate let entries: [String: Entry]
         public var isEmpty: Bool { entries.isEmpty }
+
+        /// 按歌记的那些手动选择所在的歌 id(歌曲模型不在内存里时先从曲库目录查出它们的专辑,再交给 `resolved`)。
+        public var songIDs: [String] {
+            entries.keys.compactMap { $0.hasPrefix("song:") ? String($0.dropFirst(5)) : nil }
+        }
 
         /// Only visits manual choices, resolving song IDs through an existing lookup.
         public func resolved(

@@ -714,6 +714,52 @@ final class LibraryStartupHarnessTests: XCTestCase {
         var value: MusicDiscoveryEngine.ContinuationCatalogScan? { lock.withLock { stored } }
     }
 
+    /// RC-a:目录里的发行类别与装着的内存模型逐张比(自动认出的类别、按「单曲 / EP」筛出的专辑、
+    /// 「不列只有单曲、EP 的人」留下的专辑艺人),顺带量两个查询的时间。
+    private static func releaseCategoryParity(
+        library: MusicLibrary, host: LibraryCatalogHost
+    ) throws -> (albums: Int, mismatched: Int, categoryMs: Double, categoryKeys: Int, sameKeys: Bool,
+                 artistsMs: Double, keptArtists: Int, sameArtists: Bool) {
+        let catalog = try XCTUnwrap(host.mirror.readableCatalog)
+        let memory = library.releaseCategorySnapshot
+        let visibleAlbums = library.visibleAlbums
+        let automatic = try XCTUnwrap(try catalog.albumReleaseCategories())
+        var mismatched = 0
+        for album in visibleAlbums where (automatic[album.id] ?? [.album]) != memory.categories(albumID: album.id) {
+            mismatched += 1
+        }
+        let overrides = try XCTUnwrap(LibraryCatalogHost.releaseCategoryOverrides(AlbumReleaseCategoryStore.shared.snapshot, catalog: catalog))
+        var started = ContinuousClock.now
+        let keys = try XCTUnwrap(try catalog.albumKeys(inReleaseCategory: .album, overrides: overrides))
+        let categoryMs = Double((ContinuousClock.now - started) / .microseconds(1)) / 1_000
+        let visibleKeys = try catalog.albumKeys(visibleOnly: true).keys
+        var idByKey: [Int32: String] = [:]
+        // 一次取的专辑不超过物化上限(`LibraryScale.maxMaterializedRows`)。
+        for start in stride(from: 0, to: visibleKeys.count, by: 4_000) {
+            let chunk = Array(visibleKeys[start..<min(start + 4_000, visibleKeys.count)])
+            for (key, album) in zip(chunk, try catalog.albums(keys: chunk, visibleCounts: true)) { idByKey[key] = album.id }
+        }
+        let catalogIDs = Set(keys.compactMap { idByKey[$0] })
+        let memoryIDs = Set(visibleAlbums.filter { (overrides[$0.id] ?? memory.categories(albumID: $0.id)).contains(.album) }.map(\.id))
+        started = ContinuousClock.now
+        let fullRelease = try XCTUnwrap(try catalog.albumArtistIDsWithFullReleases(overrides: overrides))
+        let artistsMs = Double((ContinuousClock.now - started) / .microseconds(1)) / 1_000
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: AlbumArtistReleaseFilter.storageKey)
+        defaults.set(true, forKey: AlbumArtistReleaseFilter.storageKey)
+        let memoryKept = library.browsableArtists(.albumArtists).map(\.id)
+        defaults.set(false, forKey: AlbumArtistReleaseFilter.storageKey)
+        let catalogKept = library.browsableArtists(.albumArtists).filter { fullRelease.contains($0.id) }.map(\.id)
+        if let previous { defaults.set(previous, forKey: AlbumArtistReleaseFilter.storageKey) } else {
+            defaults.removeObject(forKey: AlbumArtistReleaseFilter.storageKey)
+        }
+        XCTAssertEqual(mismatched, 0, "automatic categories equal the loaded library")
+        XCTAssertEqual(catalogIDs, memoryIDs, "albums by category equal the loaded library")
+        XCTAssertEqual(catalogKept, memoryKept, "album artists with full releases equal the loaded library")
+        return (visibleAlbums.count, mismatched, categoryMs, keys.count, catalogIDs == memoryIDs,
+                artistsMs, catalogKept.count, catalogKept == memoryKept)
+    }
+
     private struct ExportMeasurement {
         let summary: String
         /// 导出的字节逐字节比用的指纹(整份留着会把下一次量的「之前」抬高)。
@@ -1192,11 +1238,24 @@ final class LibraryStartupHarnessTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let before = Self.residentFootprint().current
         let (library, host) = try await Self.loadLibraryWithCatalog(directory)
+        // RC-a:规模夹具是 v3 的目录,这一次打开就是「升级后第一次启动」:发行类别由镜像在空闲时后台补算。等它补完
+        // (App 里没有谁等它;这里等,是为了后面各项的量不受它影响),记下用了多久、其间的峰值。
+        let upgradeStarted = ContinuousClock.now
+        let upgradeFootprint = Self.residentFootprint().current
+        let upgradeSampler = PeakSampler(upgradeFootprint)
+        while !host.mirror.releaseCategoriesComplete, ContinuousClock.now - upgradeStarted < .seconds(300) {
+            upgradeSampler.note(MusicLibrary.residencyFootprintBytes() ?? 0)
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let upgradeMs = Double((ContinuousClock.now - upgradeStarted) / .microseconds(1)) / 1_000
+        XCTAssertTrue(host.mirror.releaseCategoriesComplete, "the release categories backfill finished")
         try await Task.sleep(for: .seconds(2))
         await library.waitForPendingIndex()
         await MusicLibrary.drainDisplacedArraysForMeasurement()
         let songCount = library.songs.count
         let albumCount = library.albums.count
+        // 补完之后:目录给的与装着的内存模型逐张相同(自动认出的类别、专辑页按类别筛、「不列只有单曲、EP 的人」)。
+        let releaseCheck = try Self.releaseCategoryParity(library: library, host: host)
         let samples = Array(library.visibleSongs.prefix(2))
         XCTAssertEqual(samples.count, 2)
         func settle() async throws -> UInt64 {
@@ -1409,12 +1468,47 @@ final class LibraryStartupHarnessTests: XCTestCase {
             releasedContinuation.ids == loadedContinuationWarm.ids && loadedContinuationCold.ids == loadedContinuationWarm.ids ? "yes" : "no"
         ))
         Self.report(String(
+            format: "📏 RC-a release categories after the upgrade: backfill until complete %.0fms footprint %.1f→peak %.1fMB | "
+                + "albums=%d mismatched=%d | byCategory(album) %.1fms keys=%d sameKeys=%@ | fullReleaseAlbumArtists %.1fms "
+                + "kept=%d sameArtists=%@",
+            upgradeMs, Self.megabytes(upgradeFootprint), Self.megabytes(upgradeSampler.peak), releaseCheck.albums,
+            releaseCheck.mismatched, releaseCheck.categoryMs, releaseCheck.categoryKeys, releaseCheck.sameKeys ? "yes" : "no",
+            releaseCheck.artistsMs, releaseCheck.keptArtists, releaseCheck.sameArtists ? "yes" : "no"
+        ))
+        Self.report(String(
             format: "📏 CK-b identity candidates while released (%d members): exact ids prepare=%.1fms ready=%.1fms (%@) | "
                 + "by title prepare=%.1fms ready=%.1fms rows=%d (%@)",
             exactIdentities.count, exactPrepareMs, exactReadyMs, exactReady ? "answered" : "held",
             titlePrepareMs, titleReadyMs, titleResolution?.candidateCount ?? -1, titleReady ? "answered" : "held"
         ))
         await library.stopCatalogMirror()
+        // RC-a:同一个目录再当一次「刚升上来」,镜像停着,单独量补算一遍要多久、其间的峰值(启动时它在镜像空闲时跑,
+        // 上面那一次已经在加载期间跑完了,时间见日志里的 `releaseCategories stage=done`)。
+        let catalogPath = directory.appendingPathComponent("library-catalog.sqlite").path
+        let backfill = try await Task.detached(priority: .utility) { () -> (ms: Double, peak: UInt64, before: UInt64) in
+            let catalog = try LibraryCatalog(path: catalogPath)
+            try catalog.simulateReleaseCategoryUpgradeForTesting()
+            let before = MusicLibrary.residencyFootprintBytes() ?? 0
+            let sampler = PeakSampler(before)
+            let sampling = Task.detached(priority: .high) {
+                while !Task.isCancelled {
+                    sampler.note(MusicLibrary.residencyFootprintBytes() ?? 0)
+                    try? await Task.sleep(for: .milliseconds(5))
+                }
+            }
+            let started = ContinuousClock.now
+            let done = try catalog.backfillReleaseCategories()
+            let ms = Double((ContinuousClock.now - started) / .microseconds(1)) / 1_000
+            sampling.cancel()
+            sampler.note(MusicLibrary.residencyFootprintBytes() ?? 0)
+            let complete = try catalog.releaseCategoriesAreComplete()
+            precondition(done && complete, "the isolated backfill completed")
+            return (ms, sampler.peak, before)
+        }.value
+        Self.report(String(
+            format: "📏 RC-a isolated backfill (mirror stopped, model released) ms=%.0f footprint %.1f→peak %.1fMB",
+            backfill.ms, Self.megabytes(backfill.before), Self.megabytes(backfill.peak)
+        ))
     }
 
     /// 步骤 6e: 不装歌曲模型的启动。构造(准备中)到能用(只装小状态、目录接上读得了)要多久、能用时占多少;

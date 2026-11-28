@@ -147,6 +147,8 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         var lastShadowReport: LibraryCatalogShadowReport?
         var mirroredRevision: Int64?
         var worker: Task<Void, Never>?
+        /// 专辑的发行类别在目录里算齐了没有;nil:还没看过。齐了不会再变回去(之后写的专辑都连同发行类别一起写)。
+        var releaseCategoriesComplete: Bool?
     }
 
     let environment: LibraryCatalogMirrorEnvironment
@@ -252,6 +254,12 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     /// 是 nil,按 id 读照内存模型还没装好的答法(答不出)。
     var caughtUpCatalog: LibraryCatalog? {
         lock.withLock { state.readable && !state.poisoned ? state.frozenView ?? state.catalog : nil }
+    }
+
+    /// 专辑的发行类别在目录里算齐了(从 v3 升上来、后台还没补完时为 false):专辑页的发行类别筛选、艺术家页
+    /// 「不列只有单曲、EP 的人」据此决定问目录还是照旧用内存模型。
+    var releaseCategoriesComplete: Bool {
+        lock.withLock { state.releaseCategoriesComplete == true }
     }
 
     /// 进后台、收到内存警告:放掉目录各连接的页缓存与列表缓存(都能重读,PLAN §4.1)。
@@ -557,6 +565,9 @@ final class LibraryCatalogMirror: @unchecked Sendable {
                     try await perform { [self] in try self.runResync(catalog: catalog, scanner: scanner) }
                     continue
                 }
+                if lock.withLock({ state.releaseCategoriesComplete != true }) {
+                    await performNonThrowing { [self] in self.noteReleaseCategoryState(catalog) }
+                }
                 // 不变量(按 id 读目录的前提,见 `caughtUpCatalog`):走到这里,目录已经是旧库此刻的样子 ——
                 // 导入做完,分组不欠重建,打开时落后的修订号按流水追上了或者整库对过账。在这之前目录对
                 // 谁都不可读,按 id 读照内存模型没装好的答法;这之后旧库的每一次写都先进待写登记再排进来。
@@ -578,6 +589,12 @@ final class LibraryCatalogMirror: @unchecked Sendable {
                     if lock.withLock({ state.ownerReady }),
                        try await perform({ try catalog.hasPendingSortIndexes() }),
                        try await perform({ [self] in try self.runPendingSortIndexes(catalog: catalog) }) {
+                        continue
+                    }
+                    // 从 v3 升上来时已经在的专辑补算发行类别(可续;滑动、转场、来了增量就停在两批之间)。
+                    if lock.withLock({ state.ownerReady }),
+                       try await perform({ try catalog.hasPendingReleaseCategoryBackfill() }),
+                       try await perform({ [self] in try self.runReleaseCategoryBackfill(catalog: catalog) }) {
                         continue
                     }
                     await waitForWork()
@@ -921,6 +938,32 @@ final class LibraryCatalogMirror: @unchecked Sendable {
             (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
         ))
         return done
+    }
+
+    /// 补算升级之前就在的专辑的发行类别。补完返回 true(并记下「算齐了」、通知读者),停下返回 false。
+    private func runReleaseCategoryBackfill(catalog: LibraryCatalog) throws -> Bool {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        environment.log("📚 catalog releaseCategories stage=begin")
+        let done = try catalog.backfillReleaseCategories(isCancelled: { [self] in bulkWorkShouldYield() })
+        environment.log(String(
+            format: "📚 catalog releaseCategories stage=%@ ms=%.0f", done ? "done" : "paused",
+            (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+        ))
+        if done { noteReleaseCategoryState(catalog) }
+        return done
+    }
+
+    /// 工作线程上:看一眼目录的发行类别算齐了没有。第一次看只记下;之后由「没齐」变成「齐了」时通知读者一次,
+    /// 读它的界面改问目录。
+    private func noteReleaseCategoryState(_ catalog: LibraryCatalog) {
+        let complete = (try? catalog.releaseCategoriesAreComplete()) ?? false
+        let became = lock.withLock { () -> Bool in
+            let previous = state.releaseCategoriesComplete
+            guard previous != true else { return false }
+            state.releaseCategoriesComplete = complete
+            return previous == false && complete
+        }
+        if became { events(.invalidatedAll(reason: "release categories")) }
     }
 
     // MARK: - Early start (before the owner publishes)
