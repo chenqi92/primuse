@@ -168,14 +168,15 @@ class LibraryReleasedTwinTestCase: XCTestCase {
 
     /// 放掉歌曲模型;影子校验还在跑时放不了(那是放掉自己的一条空闲条件),等它跑完再试,最多等 15 秒。
     /// 机器忙的时候定时的那一轮校验会正好落在测试要放的这一刻。别的拒绝理由原样返回。
+    /// 测试里所有直接的放掉都走这里(期望放掉的,也期望某一条别的拒绝理由的)。
     func releaseOnceShadowVerificationIsDone(
-        _ library: MusicLibrary, trigger: String
+        _ library: MusicLibrary, trigger: String, returningFreedMemory: Bool = true
     ) async -> MusicLibrary.SongModelReleaseOutcome {
         let deadline = ContinuousClock.now + .seconds(15)
-        var outcome = await library.releaseSongModelIfIdle(trigger: trigger)
+        var outcome = await library.releaseSongModelIfIdle(trigger: trigger, returningFreedMemory: returningFreedMemory)
         while outcome == .skipped("catalog shadow verification in flight"), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(100))
-            outcome = await library.releaseSongModelIfIdle(trigger: trigger)
+            outcome = await library.releaseSongModelIfIdle(trigger: trigger, returningFreedMemory: returningFreedMemory)
         }
         return outcome
     }

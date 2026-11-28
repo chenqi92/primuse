@@ -3178,13 +3178,13 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(library.songCount(forPlaylist: playlist.id), 2, "the member in the disabled source is not counted")
 
         // 总开关关着:不放。
-        let refused = await library.releaseSongModelIfIdle(trigger: "test")
+        let refused = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         XCTAssertEqual(refused, .skipped("residency is off"))
         library.songModelResidencyEnabled = true
         let log = ResidencyEventLog()
         library.songModelResidencyObserver = { log.events.append($0) }
 
-        let outcome = await library.releaseSongModelIfIdle(trigger: "test")
+        let outcome = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         guard case .released(let releasedSongs, _) = outcome else { return XCTFail("not released: \(outcome)") }
         XCTAssertEqual(releasedSongs, songs.count)
         XCTAssertFalse(library.isReady)
@@ -3253,7 +3253,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         await assertShadowMatches(library, "after the load")
 
         // 占着就不放;放手之后才放。
-        let whileHeld = await library.releaseSongModelIfIdle(trigger: "test")
+        let whileHeld = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         XCTAssertEqual(whileHeld, .skipped("hold(legacyPage)"))
         hold.end()
         hold.end()
@@ -3294,7 +3294,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
             XCTAssertEqual(library.songs.count, songs.count, reason.rawValue)
             XCTAssertEqual(library.songModelHoldReasons, [reason])
             XCTAssertEqual(library.songModelResidencyStatistics.lastLoadReason, "hold \(reason.rawValue)")
-            let whileHeld = await library.releaseSongModelIfIdle(trigger: "test")
+            let whileHeld = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
             XCTAssertEqual(whileHeld, .skipped("hold(\(reason.rawValue))"))
             hold.end()
             XCTAssertEqual(library.songModelHoldReasons, [])
@@ -3302,7 +3302,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         guard await released(library, "before withSongModel") else { return }
         let counted = await library.withSongModel(.export) { () -> Int in
             XCTAssertEqual(library.songModelHoldReasons, [.export])
-            let whileHeld = await library.releaseSongModelIfIdle(trigger: "test")
+            let whileHeld = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
             XCTAssertEqual(whileHeld, .skipped("hold(export)"))
             return library.songs.count
         }
@@ -3333,10 +3333,10 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
             log.events.append(event)
             guard event == .holdsEnded, let library else { return }
             requests.tasks.append(Task { @MainActor in
-                await library.releaseSongModelIfIdle(trigger: "holds ended", returningFreedMemory: false)
+                await self.releaseOnceShadowVerificationIsDone(library, trigger: "holds ended", returningFreedMemory: false)
             })
         }
-        let first = await library.releaseSongModelIfIdle(trigger: "background playback", returningFreedMemory: false)
+        let first = await releaseOnceShadowVerificationIsDone(library, trigger: "background playback", returningFreedMemory: false)
         guard case .released = first else { return XCTFail("not released: \(first)") }
         await library.songModelReleaseDidReclaimMemory()
 
@@ -3473,7 +3473,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         library.applySongModelResidencySettings(.off)
         library.setSongModelForegroundHold(true)
         XCTAssertEqual(library.songModelHoldReasons, [])
-        let off = await library.releaseSongModelIfIdle(trigger: "test")
+        let off = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         XCTAssertEqual(off, .skipped("residency is off"))
 
         library.applySongModelResidencySettings(.init(isEnabled: true, foregroundHold: true, playbackBlocksRelease: true))
@@ -3481,7 +3481,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         library.setSongModelForegroundHold(true)
         library.setSongModelForegroundHold(true)
         XCTAssertEqual(library.songModelHoldReasons, [.foreground], "one hold however often the scene becomes active")
-        let held = await library.releaseSongModelIfIdle(trigger: "test")
+        let held = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         XCTAssertEqual(held, .skipped("hold(foreground)"))
         // 退到后台:放手,之后放得掉。
         library.setSongModelForegroundHold(false)
@@ -3834,7 +3834,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         let library = try makeTwin("idle", songs: songs).library
         await assertShadowMatches(library, "fixture")
         func expectSkip(_ expected: String, of target: MusicLibrary? = nil, line: UInt = #line) async {
-            let outcome = await (target ?? library).releaseSongModelIfIdle(trigger: "test")
+            let outcome = await releaseOnceShadowVerificationIsDone(target ?? library, trigger: "test")
             XCTAssertEqual(outcome, .skipped(expected), line: line)
         }
         await expectSkip("residency is off")
@@ -4197,6 +4197,148 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(library.songs.count, songs.count)
         XCTAssertEqual(library.songModelResidencyStatistics.arrayReadsWhileUnloaded, afterLoad)
         hold.end()
+    }
+
+    /// S8:放掉时一起换成空的、以前读了不记的那几份(三份分类数组、播客预览、两张分书表、节目数、收藏的艺人候选、
+    /// 两份查找快照、按源的歌、首选封面表与封面回退),放掉之后每读一次记一笔;模型在内存里时不记。
+    func testReadsOfTheOtherDroppedTablesWhileReleasedAreCounted() async throws {
+        let songs = Self.fixture(prefix: "silent")
+        let library = try makeLaunchedTwin("silent", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        let albumID = try XCTUnwrap(library.visibleAlbums.first?.id)
+        let artistID = try XCTUnwrap(library.visibleArtists.first?.id)
+        let reads: [(String, @MainActor () -> Void)] = [
+            ("ambientSongs", { _ = library.ambientSongs }),
+            ("musicVideoSongs", { _ = library.musicVideoSongs }),
+            ("localPodcastSongs", { _ = library.localPodcastSongs }),
+            ("localPodcastPreviewSongs", { _ = library.localPodcastPreviewSongs }),
+            ("localPodcastBookIDs", { _ = library.localPodcastBookIDs }),
+            ("spokenWordBookIDs", { _ = library.spokenWordBookIDs }),
+            ("localPodcastShowCount", { _ = library.localPodcastShowCount }),
+            ("favoriteArtistCandidates", { _ = library.favoriteArtistCandidates }),
+            ("visibleSongLookup()", { _ = library.visibleSongLookup() }),
+            ("historySongLookup()", { _ = library.historySongLookup() }),
+            ("visibleSongs(forSourceID:)", { _ = library.visibleSongs(forSourceID: Self.sourceA) }),
+            ("playableSongs(forSourceID:)", { _ = library.playableSongs(forSourceID: Self.sourceA) }),
+            ("preferredArtworkSong(forAlbumID:)", { _ = library.preferredArtworkSong(forAlbumID: albumID) }),
+            ("preferredArtworkSong(forArtistID:)", { _ = library.preferredArtworkSong(forArtistID: artistID) }),
+            ("scopedPreferredArtworkSong(forAlbumID:)", { _ = library.scopedPreferredArtworkSong(forAlbumID: albumID) }),
+            ("scopedPreferredArtworkSong(forArtistID:)", { _ = library.scopedPreferredArtworkSong(forArtistID: artistID) }),
+            ("scopedAlternateArtworkSong(forAlbumID:)", {
+                _ = library.scopedAlternateArtworkSong(forAlbumID: albumID, excludingSongIDs: [], excludingReferences: [])
+            }),
+            ("scopedAlternateArtworkSong(forArtistID:)", {
+                _ = library.scopedAlternateArtworkSong(forArtistID: artistID, excludingSongIDs: [], excludingReferences: [])
+            }),
+        ]
+        let whileLoaded = library.songModelResidencyStatistics.arrayReadsWhileUnloaded
+        for (_, read) in reads { read() }
+        XCTAssertEqual(library.songModelResidencyStatistics.arrayReadsWhileUnloaded, whileLoaded, "nothing counted while loaded")
+
+        let before = try await releaseForReal(library)
+        for (name, read) in reads {
+            let count = library.songModelResidencyStatistics.arrayReadsWhileUnloaded
+            read()
+            XCTAssertEqual(library.songModelResidencyStatistics.arrayReadsWhileUnloaded, count + 1, "\(name) is counted once")
+        }
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads)
+    }
+
+    /// S8:几个读法在模型放掉之后改从目录答,与模型在内存里时逐项相同(同一个库,放掉前后各问一遍):
+    /// 最近播放、喜欢的本地播客、「我喜欢」本身、歌单卡片的摘要、艺人卡片的艺人值、「专辑艺术家」里的每一位、
+    /// 流派的专辑、按名字找专辑与艺人(歌上的第二位、后面几位艺人也找得到)。
+    /// 放掉之后问的这些都不装模型、不读整库数组。
+    func testFacadeAnswersWhileReleasedMatchTheLoadedLibrary() async throws {
+        let songs = Self.fixture(prefix: "facade")
+        // 夹具里的播客在停用的源 B 里;另放两集到源 A,喜欢的本地播客才有可见的。
+        let podcasts = songs.filter { $0.id.contains("-pod-") }.map { episode -> Song in
+            var copy = episode
+            copy.id += "-a"
+            copy.sourceID = Self.sourceA
+            copy.filePath = "/Music/Podcasts/Weekly/\(copy.title).mp3"
+            return copy
+        }
+        // 一张合辑:专辑艺人「Various Artists」没有自己唱的歌,只在「专辑艺术家」里。
+        let compilation = (1...2).map { track in
+            Song(
+                id: "facade-va-\(track)", title: "VA \(track)", albumTitle: "Hits", artistName: "Solo \(track)",
+                albumArtistName: "Various Artists", trackNumber: track, discNumber: 1, duration: 200 + Double(track),
+                fileFormat: .flac, filePath: "/Music/Hits/\(track).flac", sourceID: Self.sourceA, genre: "Pop", year: 2002
+            )
+        }
+        let library = try makeLaunchedTwin("facade", songs: songs, extra: podcasts + compilation).library
+        func id(_ suffix: String) -> String { "facade-\(suffix)" }
+        for liked in [podcasts[1].id, id("blue-1"), podcasts[0].id, id("book-1")] {
+            library.setLiked(songID: liked, isLiked: true, propagatesServerMutation: false)
+        }
+        for played in [id("comp-1"), id("book-2"), id("rain"), id("blueb-1"), podcasts[0].id, id("blue-3"), id("cue-1"),
+                       id("loose"), id("blue-2"), id("comp-3")] {
+            library.recordPlayback(of: played)
+        }
+        let playlist = library.createPlaylist(
+            name: "Browse", songIDs: [id("blue-1"), id("blueb-2"), id("comp-2"), id("cue-2"), id("blue-4"), id("rain")]
+        )
+        await assertShadowMatches(library, "fixture")
+        let genreIDs = library.visibleGenres.map(\.id) + ["no-such-genre"]
+        let artistIDs = library.visibleArtists.map(\.id) + ["no-such-artist"]
+        let albumArtistIDs = library.visibleAlbumArtists.map(\.id) + ["no-such-album-artist"]
+        XCTAssertTrue(
+            library.visibleAlbumArtists.contains { library.visibleArtist(id: $0.id) == nil },
+            "the fixture has an artist who is only an album artist"
+        )
+        let albumNames: [(String, String)] = [
+            ("Blue Room", "Ada"), ("blue room", "ADA"), ("Blue Room", ""), ("Mixtape", ""), ("Mixtape", "Nobody"),
+            ("Live Set", "dj"), ("Sleep", ""), ("Long Story", "Narrator"), ("Hits", "various artists"), ("No Such Album", ""),
+        ]
+        // 「Ben」只是「Blue 2」的第二位艺人(「Ada、Ben」)。
+        let artistNames = ["Ada", "ada", "Ben", "BEN", "ADA、BEN", "Artist 2", "Solo 2", "Various Artists", "DJ", "Narrator",
+                           "Host", "Nobody"]
+
+        func answers() -> [String] {
+            var lines: [String] = []
+            for limit in [3, 6, 20] {
+                lines.append("recent \(limit): " + library.recentlyPlayedSongs(limit: limit).map(\.id).joined(separator: ","))
+            }
+            lines.append("liked podcasts: " + library.likedLocalPodcastSongs().map(\.id).joined(separator: ","))
+            // 「我喜欢」本身只列音乐,播客单集分开列(放掉之后也要分得开)。
+            lines.append("liked: " + library.songIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID).joined(separator: ","))
+            for limit in [0, 2, 10] {
+                let summary = library.playlistBrowseSummary(forPlaylist: playlist.id, artworkCandidateLimit: limit)
+                lines.append("browse \(limit): \(summary.count) " + summary.artworkCandidates.map(\.id).joined(separator: ","))
+            }
+            for artistID in artistIDs {
+                let artist = library.scopedVisibleArtist(id: artistID)
+                lines.append("artist \(artistID): \(artist.map { "\($0.name) \($0.songCount)" } ?? "nil")")
+            }
+            for albumArtistID in albumArtistIDs {
+                let artist = library.visibleAlbumArtist(id: albumArtistID)
+                lines.append("album artist \(albumArtistID): "
+                             + (artist.map { "\($0.name) \($0.albumCount) \($0.songCount)" } ?? "nil"))
+            }
+            for genreID in genreIDs {
+                let albums = library.albums(forGenre: genreID)
+                lines.append("genre \(genreID): " + albums.map { "\($0.id)/\($0.songCount)" }.joined(separator: ","))
+            }
+            for (title, artist) in albumNames {
+                let album = library.visibleAlbum(titled: title, artistName: artist)
+                lines.append("album \(title)|\(artist): \(album.map { "\($0.id) \($0.title) \($0.songCount)" } ?? "nil")")
+            }
+            for name in artistNames {
+                let artist = library.visibleArtist(named: name)
+                lines.append("artist named \(name): \(artist.map { "\($0.id) \($0.name)" } ?? "nil")")
+            }
+            return lines
+        }
+        let loaded = answers()
+        XCTAssertTrue(loaded.contains { $0.hasPrefix("liked podcasts: facade-pod-") }, "the fixture has a liked visible podcast")
+        XCTAssertTrue(loaded.contains { $0.hasPrefix("album Blue Room|Ada: ") && !$0.hasSuffix("nil") })
+        XCTAssertTrue(loaded.contains { $0.hasPrefix("artist named Ben: ") && !$0.hasSuffix("nil") }, "a second artist is found")
+
+        let before = try await releaseForReal(library)
+        let released = answers()
+        XCTAssertEqual(released.count, loaded.count)
+        for (lhs, rhs) in zip(released, loaded) { XCTAssertEqual(lhs, rhs) }
+        assertNoLoadAndNoArrayRead(library, since: before, "the answers while released")
     }
 
     /// 放掉歌曲模型之后:「随机时连播」的相邻关系还在(放掉缓存之后从目录重算也一样);别的源里的另一份照样找得到;
@@ -4725,7 +4867,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(handled.count, 11, "both handlers ran at the load")
         XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1)
-        let again = await library.releaseSongModelIfIdle(trigger: "test")
+        let again = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         if case .skipped(let why) = again {
             XCTAssertFalse(why.hasPrefix("hold("), "the requesting hold has ended: \(why)")
         }
@@ -4755,7 +4897,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         let deadline = Date().addingTimeInterval(10)
         while await connector.listings == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertTrue(songModelHolds(of: library).contains(.scan))
-        let refused = await library.releaseSongModelIfIdle(trigger: "test")
+        let refused = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         XCTAssertEqual(refused, .skipped("hold(scan)"), "the running scan holds the model")
         XCTAssertTrue(library.isReady)
 
@@ -4763,10 +4905,10 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         while scan.scanStates[source.id]?.isScanning == true, Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        var outcome = await library.releaseSongModelIfIdle(trigger: "test")
+        var outcome = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         while case .skipped(let why) = outcome, why.hasPrefix("hold("), Date() < deadline {
             try await Task.sleep(for: .milliseconds(50))
-            outcome = await library.releaseSongModelIfIdle(trigger: "test")
+            outcome = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         }
         if case .skipped(let why) = outcome {
             XCTAssertFalse(why.hasPrefix("hold("), "the scan and its follow-up let go: \(why)")

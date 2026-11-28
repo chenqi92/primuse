@@ -40,7 +40,7 @@ legacy-library-api	Primuse/Services/Library/ListeningIntentService.swift	4
 legacy-library-api	Primuse/Services/Library/ListeningWidgetPublisher.swift	1
 legacy-library-api	Primuse/Services/Library/LyricsTextBackfillService.swift	1
 legacy-library-api	Primuse/Services/Library/MetadataBackfillService.swift	37
-legacy-library-api	Primuse/Services/Library/MusicLibrary.swift	160
+legacy-library-api	Primuse/Services/Library/MusicLibrary.swift	147
 legacy-library-api	Primuse/Services/Library/PlayHistoryStore.swift	1
 legacy-library-api	Primuse/Services/Library/ScanService.swift	12
 legacy-library-api	Primuse/Services/Library/ServerPlaylistMirror.swift	9

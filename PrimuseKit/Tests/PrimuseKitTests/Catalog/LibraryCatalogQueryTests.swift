@@ -333,6 +333,32 @@ struct LibraryCatalogQueryTests {
             }
             #expect(try catalog.visibleAlbum(id: "no-such-album") == nil)
             #expect(try catalog.visibleArtist(id: "no-such-artist") == nil)
+            // 按 id 取一批:给的先后,不可见的、没有的、重复的不给。
+            let hidden = try catalog.albums(keys: catalog.albumKeys(visibleOnly: false).keys, visibleCounts: false)
+                .map(\.id).filter { !visibleAlbumIDs.contains($0) }
+            let requested = albums.reversed().map(\.id) + hidden + ["no-such-album"] + albums.prefix(1).map(\.id)
+            #expect(try catalog.albums(visibleIDs: requested) == Array(albums.reversed()))
+            // 按名字圈候选:不分大小写、多了首尾空白都圈得到;圈到的都可见,按专辑墙 / 艺人列表的先后。
+            for album in albums {
+                let candidates = try catalog.visibleAlbumCandidates(titled: " \(album.title.uppercased()) ")
+                #expect(candidates.contains(album))
+                #expect(candidates == albums.filter { candidates.contains($0) })
+            }
+            for artist in artists {
+                let candidates = try catalog.visibleArtistCandidates(named: artist.name.lowercased())
+                #expect(candidates.contains(artist))
+                #expect(candidates == artists.filter { candidates.contains($0) })
+            }
+            #expect(try catalog.visibleAlbumCandidates(titled: "No Such Album").isEmpty)
+            // 「专辑艺术家」按 id:与参照实现(整份专辑艺人索引)里的那一项相同。
+            let albumArtists = try catalog.albumArtistIndexForReference().artists
+            #expect(!albumArtists.isEmpty)
+            for artist in albumArtists { #expect(try catalog.visibleAlbumArtist(id: artist.id) == artist) }
+            #expect(try catalog.visibleAlbumArtist(id: "no-such-artist") == nil)
+            // 一页行号的专辑 id,与解码出来的歌一致。
+            let rowids = try catalog.rowids(forIDs: songs.map(\.id)).compactMap { $0 }
+            let decoded = try catalog.songs(rowids: rowids[...])
+            #expect(try catalog.albumIDs(atRowids: rowids) == decoded.map(\.albumID))
         }
         // 只有音乐、没有停用的源:可见的就是整库。
         try catalog.apply(upserts: songs.filter { $0.genre == "Pop" })

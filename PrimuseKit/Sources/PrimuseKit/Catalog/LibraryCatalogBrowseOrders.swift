@@ -209,6 +209,27 @@ extension LibraryCatalog {
         return rowids.map { byRowid[$0] }
     }
 
+    /// 一页行号对应的歌曲的专辑 id(歌曲行上记的原样),与输入一一对应;已删掉的行、没有专辑的为 nil。
+    /// 只读一列,不解码整首歌(按流派列专辑用)。
+    public func albumIDs(atRowids rowids: [Int32]) throws -> [String?] {
+        guard !rowids.isEmpty else { return [] }
+        var byRowid: [Int32: String] = [:]
+        byRowid.reserveCapacity(rowids.count)
+        try reader.read { db in
+            for chunk in Self.chunks(of: rowids) {
+                let rows = try Row.fetchCursor(
+                    db,
+                    sql: "SELECT rowid, albumID FROM song WHERE rowid IN (\(Self.placeholders(chunk.count))) AND albumID IS NOT NULL",
+                    arguments: StatementArguments(chunk.map(Int64.init))
+                )
+                while let row = try rows.next() {
+                    byRowid[try Self.rowid32(row[0])] = row[1]
+                }
+            }
+        }
+        return rowids.map { byRowid[$0] }
+    }
+
     // MARK: - CarPlay lists
 
     /// 车机歌曲列表:按标题(Foundation 的 `localizedCaseInsensitiveCompare`)排的前 `limit` 首,

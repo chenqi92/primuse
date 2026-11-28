@@ -72,6 +72,49 @@ extension LibraryCatalog {
         }
     }
 
+    /// 可见专辑里按 id 取一批(`visibleAlbum(id:)` 的批量形式):保持给的先后,没有的、没有可见音乐的不给。
+    /// 至多 `LibraryScale.maxMaterializedRows` 个 id。
+    public func albums(visibleIDs ids: some Collection<String>) throws -> [Album] {
+        let requested = Array(ids.prefix(LibraryScaleGuard.admitMaterialization(count: ids.count)))
+        guard !requested.isEmpty else { return [] }
+        return try reader.read { db in
+            let splits = try Self.visibleSplitsLibrary(in: db)
+            let filter = splits
+                ? " AND key IN (SELECT albumKey FROM albumSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
+                : ""
+            var keyByID: [String: Int32] = [:]
+            for chunk in Self.chunks(of: Array(Set(requested))) {
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT id, key FROM album WHERE id IN (\(Self.placeholders(chunk.count)))\(filter)
+                    """, arguments: StatementArguments(Array(chunk)))
+                for row in rows { keyByID[row[0]] = try Self.rowid32(row[1]) }
+            }
+            var seen = Set<String>()
+            let keys = requested.compactMap { id in seen.insert(id).inserted ? keyByID[id] : nil }
+            return try Self.fetchAlbums(keys: keys, splits: splits, in: db)
+        }
+    }
+
+    /// 标题可能与 `title` 相同(不分大小写、去掉首尾空白)的可见专辑,按专辑墙的先后(`albumKeys`)。
+    /// 用排序键 `titleKey` 圈候选:不分大小写相同的两个标题排序键也相同(键再宽一些,不分变音、全半角,
+    /// 只看前 24 个码位),所以这里给的是一个超集,调用方再按自己的规则逐个比。整张专辑表比一列二进制,
+    /// 不回调 Swift。
+    public func visibleAlbumCandidates(titled title: String) throws -> [Album] {
+        let key = LibraryCatalogDerivedFields.keyData(LibraryCollationPolicy.key(for: title))
+        return try reader.read { db in
+            let splits = try Self.visibleSplitsLibrary(in: db)
+            let filter = splits
+                ? " AND key IN (SELECT albumKey FROM albumSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
+                : ""
+            let keys = try Int64.fetchAll(db, sql: """
+                SELECT key FROM album WHERE titleKey = ?\(filter)
+                ORDER BY title COLLATE \(LibraryCatalogSchema.localizedCollation), firstRowid
+                """, arguments: [key])
+            let admitted = keys.prefix(LibraryScaleGuard.admitMaterialization(count: keys.count))
+            return try Self.fetchAlbums(keys: try admitted.map(Self.rowid32), splits: splits, in: db)
+        }
+    }
+
     private static func fetchAlbums(keys admitted: [Int32], splits: Bool, in db: Database) throws -> [Album] {
         var byKey: [Int32: Album] = [:]
         for chunk in Self.chunks(of: admitted) {
@@ -168,6 +211,94 @@ extension LibraryCatalog {
                 SELECT key FROM artist WHERE key = (SELECT ref FROM artistRef WHERE id = ?)\(filter)
                 """, arguments: [id]) else { return nil }
             return try Self.fetchArtists(keys: [try Self.rowid32(key)], splits: splits, in: db).first
+        }
+    }
+
+    /// 「专辑艺术家」列表里的一位,与 `albumArtistIndexForReference()` 里这个 id 的那一项相同(不在列表里时 nil):
+    /// 同是可见曲目艺人时是那位曲目艺人、专辑数换成署名给他的可见专辑数;只当过专辑艺人的(「群星」)
+    /// 名字取专辑墙上第一张署名给他、带名字的专辑上的写法,歌曲数是这些专辑的可见歌曲数之和。
+    /// 署名按 `AlbumArtistCreditPolicy.resolvedCredits` 现算(与参照实现同一条规则),候选专辑是专辑艺人就是他的、
+    /// 存着的署名里有他的,以及名字里带「 • 」的(那一支要看各段是不是可见曲目艺人),结果与这几张专辑同阶。
+    public func visibleAlbumArtist(id: String) throws -> Artist? {
+        try reader.read { db in
+            guard let ref = try Int64.fetchOne(db, sql: "SELECT ref FROM artistRef WHERE id = ?", arguments: [id]) else {
+                return nil
+            }
+            let splits = try Self.visibleSplitsLibrary(in: db)
+            let albumFilter = splits
+                ? " AND key IN (SELECT albumKey FROM albumSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
+                : ""
+            let keys = try Int64.fetchAll(db, sql: """
+                SELECT key FROM album
+                WHERE (artistRef = ?1 OR key IN (SELECT albumKey FROM albumArtistCredit WHERE artistRef = ?1)
+                       OR artistName LIKE '% • %')\(albumFilter)
+                ORDER BY title COLLATE \(LibraryCatalogSchema.localizedCollation), firstRowid
+                """, arguments: [ref])
+            let albums = try Self.fetchAlbums(keys: try keys.map(Self.rowid32), splits: splits, in: db)
+            var trackArtists: [String: Artist?] = [:]
+            func trackArtist(_ artistID: String) throws -> Artist? {
+                if let known = trackArtists[artistID] { return known }
+                let artist = try Self.visibleTrackArtist(id: artistID, splits: splits, in: db)
+                trackArtists[artistID] = .some(artist)
+                return artist
+            }
+            let configuration = groupingConfiguration.artistNames.normalized()
+            var albumCount = 0
+            var songCount = 0
+            var albumOnlyName: String?
+            var lookupError: Error?
+            for album in albums {
+                let credits = AlbumArtistCreditPolicy.resolvedCredits(
+                    for: album,
+                    configuration: configuration,
+                    isKnownTrackArtist: { candidate in
+                        do { return try trackArtist(candidate) != nil } catch { lookupError = error; return false }
+                    },
+                    knownTrackArtistName: { candidate in (try? trackArtist(candidate))?.name },
+                    artistID: { LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey($0)) }
+                )
+                if let lookupError { throw lookupError }
+                guard let credit = credits.first(where: { $0.id == id }) else { continue }
+                albumCount += 1
+                songCount += album.songCount
+                if albumOnlyName == nil, let name = credit.name { albumOnlyName = name }
+            }
+            guard albumCount > 0 else { return nil }
+            if var shared = try trackArtist(id) {
+                shared.albumCount = albumCount
+                return shared
+            }
+            guard let albumOnlyName else { return nil }
+            return Artist(id: id, name: albumOnlyName, albumCount: albumCount, songCount: songCount)
+        }
+    }
+
+    /// 可见曲目艺人里的这一位(`visibleArtist(id:)` 在同一个读里)。
+    private static func visibleTrackArtist(id: String, splits: Bool, in db: Database) throws -> Artist? {
+        let filter = splits
+            ? " AND key IN (SELECT artistRef FROM artistSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
+            : ""
+        guard let key = try Int64.fetchOne(db, sql: """
+            SELECT key FROM artist WHERE key = (SELECT ref FROM artistRef WHERE id = ?)\(filter)
+            """, arguments: [id]) else { return nil }
+        return try fetchArtists(keys: [try rowid32(key)], splits: splits, in: db).first
+    }
+
+    /// 名字可能与 `name` 相同(不分大小写)的可见艺人,按艺人列表的先后(`artistKeys`)。同
+    /// `visibleAlbumCandidates(titled:)`:按排序键 `nameKey` 圈出的超集,调用方再逐个比。
+    public func visibleArtistCandidates(named name: String) throws -> [Artist] {
+        let key = LibraryCatalogDerivedFields.keyData(LibraryCollationPolicy.key(for: name))
+        return try reader.read { db in
+            let splits = try Self.visibleSplitsLibrary(in: db)
+            let filter = splits
+                ? " AND key IN (SELECT artistRef FROM artistSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
+                : ""
+            let keys = try Int64.fetchAll(db, sql: """
+                SELECT key FROM artist WHERE nameKey = ?\(filter)
+                ORDER BY name COLLATE \(LibraryCatalogSchema.localizedCollation), firstRowid, firstOrdinal
+                """, arguments: [key])
+            let admitted = keys.prefix(LibraryScaleGuard.admitMaterialization(count: keys.count))
+            return try Self.fetchArtists(keys: try admitted.map(Self.rowid32), splits: splits, in: db)
         }
     }
 

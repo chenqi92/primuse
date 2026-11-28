@@ -43,7 +43,8 @@ struct PodcastResumeItem {
     ) -> [Self] {
         guard limit > 0 else { return [] }
         _ = library.localPodcastContentRevision
-        var showIDs = library.localPodcastBookIDs
+        // 书架表只在模型在内存里时有内容;放掉时不读它(读到的是空的,还会记一笔数组读),下面从曲库目录查。
+        var showIDs = library.isReady ? library.localPodcastBookIDs : [:]
         var showTitles: [String: String] = [:]
         // 6c: 歌曲模型放掉时 `localPodcastBookIDs` 是空的,本机播客会从「接着听」里消失:听过的那些 id 在哪个节目、
         // 节目叫什么,从曲库目录一批查出来(按 id,只查有进度的)。
@@ -68,7 +69,8 @@ struct PodcastResumeItem {
             if let showID = showIDs[id] {
                 guard !progress.isArchived(bookID: showID),
                       let song = library.unobservedVisibleSong(id: id), song.isPlayable else { continue }
-                let title = library.localPodcastShowTitle(forSongID: id) ?? showTitles[id] ?? song.albumTitle ?? song.title
+                let title = (library.isReady ? library.localPodcastShowTitle(forSongID: id) : nil)
+                    ?? showTitles[id] ?? song.albumTitle ?? song.title
                 items.append(Self(source: .library(song, showID: showID, showTitle: title), position: stored))
             } else if let (episode, show) = subscription(id) {
                 var position = stored

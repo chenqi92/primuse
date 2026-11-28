@@ -3838,9 +3838,18 @@ final class AppServices {
 
         bridge.shuffleLibrary = { [self] in
             await awaitLibraryForIntent()
-            // 整库的歌曲 id 来自整份音乐数组:歌曲模型不在内存里时此刻答不了(不装)。
+            // 歌曲模型不在内存里:整库的 id 在曲库目录里拼、在主线程外打乱(同首页「随机播放全部」),不装模型。
+            // 目录也答不了时此刻答不了。
             guard library.isReady else {
-                plog("🎙️ Siri shuffle library: the song model is released; cannot answer now")
+                let request = CatalogLibraryQueueRequest(
+                    order: .shuffled, kinds: [.music], excludedIDs: library.dislikedSongIDs
+                )
+                let outcome = await playerService.queueLibraryFromCatalog(request, caller: "AppIntent") {
+                    playerService.shuffleEnabled = true
+                }
+                if outcome == .unavailable {
+                    plog("🎙️ Siri shuffle library: the song model is released and the catalog cannot answer; cannot answer now")
+                }
                 return
             }
             // 整库随机是替人挑歌, 不挑不喜欢的歌(#193)。

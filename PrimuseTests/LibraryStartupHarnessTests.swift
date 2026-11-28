@@ -1148,7 +1148,11 @@ final class LibraryStartupHarnessTests: XCTestCase {
 
         // 放掉之后删歌:一首没有歌单引用的(只数按源剩余),一首歌单里有的(另外按标题找另一份)。
         let playlist = library.createPlaylist(name: "Scale harness", songIDs: [samples[0].id])
-        let second = await library.releaseSongModelIfIdle(trigger: "scale harness delete")
+        var second = await library.releaseSongModelIfIdle(trigger: "scale harness delete")
+        for _ in 0..<120 where second == .skipped("catalog shadow verification in flight") {
+            try await Task.sleep(for: .seconds(1))
+            second = await library.releaseSongModelIfIdle(trigger: "scale harness delete")
+        }
         guard case .released = second else { return XCTFail("not released again: \(second)") }
         await library.songModelReleaseDidReclaimMemory()
         // 删歌那条路在主线程上读目录的两下,单独量:按源剩余数(整表 GROUP BY),同名的另一份(整表标题一列)。

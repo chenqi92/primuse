@@ -31,7 +31,7 @@ final class SongModelPageHoldTests: LibraryReleasedTwinTestCase {
         XCTAssertTrue(library.isReady, "the page hold loaded the model")
         XCTAssertTrue(holdsLegacyPage())
         XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1)
-        let refused = await library.releaseSongModelIfIdle(trigger: "test")
+        let refused = await releaseOnceShadowVerificationIsDone(library, trigger: "test")
         XCTAssertEqual(refused, .skipped("hold(legacyPage)"), "a visible page keeps the model")
 
         // 进后台:放手,模型放得掉。

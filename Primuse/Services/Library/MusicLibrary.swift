@@ -4114,11 +4114,11 @@ final class MusicLibrary {
     private(set) var spokenWordClassificationRevision = 0
 
     /// 环境音(白噪音、雨声这类),在 `visibleSongs` 里的先后。不进 `musicSongs`,
-    /// 也不上书架;环境音页、搜索、目录和歌单里到得了。
-    private(set) var ambientSongs: [Song] = [] {
+    /// 也不上书架;环境音页、搜索、目录和歌单里到得了。读它走 `ambientSongs`(模型放掉时记一笔数组读)。
+    private var ambientSongsStorage: [Song] = [] {
         didSet {
             ambientContentRevision &+= 1
-            if hasAmbientContent == ambientSongs.isEmpty { hasAmbientContent = !ambientSongs.isEmpty }
+            if hasAmbientContent == ambientSongsStorage.isEmpty { hasAmbientContent = !ambientSongsStorage.isEmpty }
         }
     }
     private(set) var ambientContentRevision: UInt64 = 0
@@ -4139,11 +4139,11 @@ final class MusicLibrary {
     @ObservationIgnored private var nonMusicSongIDsCache: Set<String>?
 
     /// 有 MV 的音乐(独立 MV 与带同名 MV 的歌),在 `musicSongs` 里的先后。仍算音乐,
-    /// 歌曲列表里照样有;资料库「MV」分类只列它们。
-    private(set) var musicVideoSongs: [Song] = [] {
+    /// 歌曲列表里照样有;资料库「MV」分类只列它们。读它走 `musicVideoSongs`。
+    private var musicVideoSongsStorage: [Song] = [] {
         didSet {
             musicVideoContentRevision &+= 1
-            if hasMusicVideoContent == musicVideoSongs.isEmpty { hasMusicVideoContent = !musicVideoSongs.isEmpty }
+            if hasMusicVideoContent == musicVideoSongsStorage.isEmpty { hasMusicVideoContent = !musicVideoSongsStorage.isEmpty }
         }
     }
     private(set) var musicVideoContentRevision: UInt64 = 0
@@ -4152,18 +4152,18 @@ final class MusicLibrary {
 
     /// The listener's own podcast files — downloaded episodes in a music
     /// source, marked or tagged as podcasts. Played the spoken-word way, kept
-    /// off the book shelf, shown with the podcasts.
-    private(set) var localPodcastSongs: [Song] = [] {
+    /// off the book shelf, shown with the podcasts. Read through `localPodcastSongs`.
+    private var localPodcastSongsStorage: [Song] = [] {
         didSet { localPodcastContentRevision &+= 1 }
     }
     private(set) var localPodcastContentRevision: UInt64 = 0
-    private(set) var localPodcastPreviewSongs: [Song] = []
+    private var localPodcastPreviewSongsStorage: [Song] = []
     /// Local podcast item id → the show it is grouped into, the way
-    /// `spokenWordBookIDs` does it for books.
-    @ObservationIgnored private(set) var localPodcastBookIDs: [String: String] = [:]
+    /// `spokenWordBookIDs` does it for books. Read through `localPodcastBookIDs`.
+    @ObservationIgnored private var localPodcastBookIDsStorage: [String: String] = [:]
     @ObservationIgnored private var localPodcastShowTitles: [String: String] = [:]
-    /// Spoken-word item id → the id of the book the shelf puts it in.
-    @ObservationIgnored private(set) var spokenWordBookIDs: [String: String] = [:]
+    /// Spoken-word item id → the id of the book the shelf puts it in. Read through `spokenWordBookIDs`.
+    @ObservationIgnored private var spokenWordBookIDsStorage: [String: String] = [:]
     /// Spoken-word item id → the chapter title the shelf shows for a file
     /// renamed after tagging (its name says 第1集, its tag 第4969集). Lists
     /// read it through `displayTitle(for:)`, so a folder and the shelf agree.
@@ -4724,6 +4724,8 @@ final class MusicLibrary {
     /// 歌单页一次重绘要问十几遍成员表; 成员与置顶都没变就用上次排好的。
     @ObservationIgnored private var pinnedFirstMemberIDs:
         [String: (membership: UInt64, podcast: UInt64, pinned: [String], ids: [String])] = [:]
+    /// 模型不在内存里时「我喜欢」里的本地播客单集 id(目录按类别答),按目录修订号与成员修订号记住。
+    @ObservationIgnored private var likedPodcastIDsOutsideTheModelMemo: (catalog: Int64, membership: UInt64, ids: Set<String>)?
 
     /// `SmartPlaylistEngine` 按输入版本记下的匹配结果, 跟着这个库实例走。
     @ObservationIgnored var smartPlaylistMatchCache: [String: SmartPlaylistEngine.CacheEntry] = [:]
@@ -5264,6 +5266,51 @@ extension MusicLibrary {
         }
     }
 
+    // 下面几份也随歌曲模型放掉(`swapSongModelForEmpty`)。从外面读走这里:放掉之后读的人拿到的是空的,
+    // 数组读的诊断记一笔(同上面几份数组)。曲库自己做维护时读存储,不记。
+    private(set) var ambientSongs: [Song] {
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("ambientSongs") }
+            return ambientSongsStorage
+        }
+        set { ambientSongsStorage = newValue }
+    }
+    private(set) var musicVideoSongs: [Song] {
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("musicVideoSongs") }
+            return musicVideoSongsStorage
+        }
+        set { musicVideoSongsStorage = newValue }
+    }
+    private(set) var localPodcastSongs: [Song] {
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("localPodcastSongs") }
+            return localPodcastSongsStorage
+        }
+        set { localPodcastSongsStorage = newValue }
+    }
+    private(set) var localPodcastPreviewSongs: [Song] {
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("localPodcastPreviewSongs") }
+            return localPodcastPreviewSongsStorage
+        }
+        set { localPodcastPreviewSongsStorage = newValue }
+    }
+    private(set) var localPodcastBookIDs: [String: String] {
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("localPodcastBookIDs") }
+            return localPodcastBookIDsStorage
+        }
+        set { localPodcastBookIDsStorage = newValue }
+    }
+    private(set) var spokenWordBookIDs: [String: String] {
+        get {
+            if songModelReleased { noteArrayReadWhileUnloaded("spokenWordBookIDs") }
+            return spokenWordBookIDsStorage
+        }
+        set { spokenWordBookIDsStorage = newValue }
+    }
+
     /// 不算音乐的曲目:有声书、本机播客文件与环境音。只想把它们挡在音乐列表、推荐、统计外面的地方读它;
     /// 要的是「按有声的方式播」时读 `spokenWordSongIDs`。没有环境音时就是 `spokenWordSongIDs` 本身。
     var nonMusicSongIDs: Set<String> {
@@ -5275,6 +5322,7 @@ extension MusicLibrary {
     }
     var localPodcastShowCount: Int {
         _ = localPodcastContentRevision
+        if songModelReleased { noteArrayReadWhileUnloaded("localPodcastBookIDSet") }
         return localPodcastBookIDSet.count
     }
 
@@ -5377,6 +5425,7 @@ extension MusicLibrary {
     }
 
     var favoriteArtistCandidates: [Artist] {
+        if songModelReleased { noteArrayReadWhileUnloaded("favoriteArtistCandidates") }
         let artists = visibleArtistsReference
         let albumArtists = visibleAlbumArtistsReference
         if let cache = favoriteArtistCandidatesCache,
@@ -6208,7 +6257,7 @@ extension MusicLibrary {
         // 网盘目录一变(每次扫描收尾)只影响分书;一本书都没有时不必整库重建可见集。
         var sameButFolders = next
         sameButFolders.itemFoldersRevision = visibleContentClassification.itemFoldersRevision
-        if sameButFolders == visibleContentClassification, spokenWordSongs.isEmpty, localPodcastSongs.isEmpty {
+        if sameButFolders == visibleContentClassification, spokenWordSongs.isEmpty, localPodcastSongsStorage.isEmpty {
             visibleContentClassification = next
             return
         }
@@ -6249,7 +6298,7 @@ extension MusicLibrary {
             guard visibleContentClassification != classification else { return }
             var sameButFolders = classification
             sameButFolders.itemFoldersRevision = visibleContentClassification.itemFoldersRevision
-            if sameButFolders == visibleContentClassification, spokenWordSongs.isEmpty, localPodcastSongs.isEmpty {
+            if sameButFolders == visibleContentClassification, spokenWordSongs.isEmpty, localPodcastSongsStorage.isEmpty {
                 visibleContentClassification = classification
                 return
             }
@@ -6476,7 +6525,7 @@ extension MusicLibrary {
                 || (spokenWordSongs.isEmpty && prepared.spokenWordSongs.isEmpty)
         if !spokenWordSongsUnchanged {
             spokenWordSongs = prepared.spokenWordSongs
-        } else if spokenWordBookIDs != prepared.spokenWordBookIDs
+        } else if spokenWordBookIDsStorage != prepared.spokenWordBookIDs
                     || spokenWordDisplayTitles != prepared.spokenWordDisplayTitles {
             // 章节一首没变、分书变了(目录标签、分类规则): 按修订号缓存分组的书架照样要重分。
             spokenWordContentRevision &+= 1
@@ -6484,33 +6533,33 @@ extension MusicLibrary {
         spokenWordSongIDs = prepared.spokenWordSongIDs
         ambientSongIDs = prepared.ambientSongIDs
         // 扫描时每批都发布一次,没变就不写,环境音页不必跟着重画。
-        if ambientSongs != prepared.ambientSongs {
-            ambientSongs = prepared.ambientSongs
+        if ambientSongsStorage != prepared.ambientSongs {
+            ambientSongsStorage = prepared.ambientSongs
         }
-        if musicVideoSongs != prepared.musicVideoSongs {
-            musicVideoSongs = prepared.musicVideoSongs
+        if musicVideoSongsStorage != prepared.musicVideoSongs {
+            musicVideoSongsStorage = prepared.musicVideoSongs
         }
         // 有书或节目这次分组里没了:多半是换了 id(读出第一集的专辑,按目录成书改按专辑成书),
         // 按章节找出接手的书,把按书 id 记的设置带过去。
-        let previousBookIDs = spokenWordBookIDs
-        let previousShowIDs = localPodcastBookIDs
+        let previousBookIDs = spokenWordBookIDsStorage
+        let previousShowIDs = localPodcastBookIDsStorage
         let booksWentAway = !spokenWordBookIDSet.isSubset(of: prepared.spokenWordBookIDSet)
         let showsWentAway = !localPodcastBookIDSet.isSubset(of: prepared.podcastBookIDSet)
         // 扫描时每批都发布一次,没变就不写,播客页不必跟着重画。
-        if localPodcastSongs != prepared.podcastSongs {
-            localPodcastSongs = prepared.podcastSongs
+        if localPodcastSongsStorage != prepared.podcastSongs {
+            localPodcastSongsStorage = prepared.podcastSongs
         } else if previousShowIDs != prepared.podcastPlacement.bookIDs
                     || localPodcastShowTitles != prepared.podcastPlacement.groupTitles {
             localPodcastContentRevision &+= 1
         }
-        localPodcastBookIDs = prepared.podcastPlacement.bookIDs
+        localPodcastBookIDsStorage = prepared.podcastPlacement.bookIDs
         localPodcastShowTitles = prepared.podcastPlacement.groupTitles
-        spokenWordBookIDs = prepared.spokenWordBookIDs
+        spokenWordBookIDsStorage = prepared.spokenWordBookIDs
         spokenWordDisplayTitles = prepared.spokenWordDisplayTitles
         spokenWordBookIDSet = prepared.spokenWordBookIDSet
         localPodcastBookIDSet = prepared.podcastBookIDSet
-        if localPodcastPreviewSongs != prepared.podcastPreviewSongs {
-            localPodcastPreviewSongs = prepared.podcastPreviewSongs
+        if localPodcastPreviewSongsStorage != prepared.podcastPreviewSongs {
+            localPodcastPreviewSongsStorage = prepared.podcastPreviewSongs
         }
         if spokenWordBookCount != prepared.spokenWordBookIDSet.count {
             spokenWordBookCount = prepared.spokenWordBookIDSet.count
@@ -8197,8 +8246,8 @@ extension MusicLibrary {
         visibleSongs = nextVisibleSongs
         visibleSongIndexByID = rebuiltIndexByID
         visibleLookupGeneration &+= 1
-        if musicVideoSongs.contains(where: { removedVisibleIDs.contains($0.id) }) {
-            musicVideoSongs.removeAll { removedVisibleIDs.contains($0.id) }
+        if musicVideoSongsStorage.contains(where: { removedVisibleIDs.contains($0.id) }) {
+            musicVideoSongsStorage.removeAll { removedVisibleIDs.contains($0.id) }
         }
         // 下标整体前移, 按源的位置表跟着重排一遍 (与上面的数组重建同为 O(可见行))。
         rebuildSourcePositions()
@@ -8960,7 +9009,10 @@ extension MusicLibrary {
     /// 「专辑艺术家」列表里的那一项；只当过专辑艺人的人（「群星」）只在这里有。
     func visibleAlbumArtist(id: String) -> Artist? {
         _ = visibleAlbumArtistsReference
-        return visibleAlbumArtistByID[id]
+        if let artist = visibleAlbumArtistByID[id] { return artist }
+        // 专辑艺人那一层不在内存里(模型放掉了)时问目录,同 `visibleArtist(id:)`。
+        guard visibleAlbumArtistByID.isEmpty else { return nil }
+        return visibleAlbumArtistOutsideTheModel(id) ?? nil
     }
 
     /// O(1) album lookup. 快捷收藏这类"按 id 取回少量条目"的视图不该对整个
@@ -8983,16 +9035,10 @@ extension MusicLibrary {
     /// 下一次发布专辑表为止。传进来的两个名字由调用方先去掉首尾空白。
     func visibleAlbum(titled title: String, artistName: String) -> Album? {
         _ = visibleAlbumsReference
+        if let answer = albumNamedOutsideTheModel(title: title, artistName: artistName) { return answer }
         let key = AlbumNameLookupKey(title: title, artistName: artistName)
         if let cached = albumNameLookupCache[key] { return cached.album }
-        let album = visibleAlbums.first {
-            let titleMatches = $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                .localizedCaseInsensitiveCompare(title) == .orderedSame
-            let albumArtist = $0.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let artistMatches = artistName.isEmpty || albumArtist.isEmpty
-                || albumArtist.localizedCaseInsensitiveCompare(artistName) == .orderedSame
-            return titleMatches && artistMatches
-        }
+        let album = visibleAlbums.first { Self.album($0, matchesTitle: title, artistName: artistName) }
         if albumNameLookupCache.count >= Self.nameLookupCacheLimit {
             albumNameLookupCache.removeAll(keepingCapacity: true)
         }
@@ -9003,15 +9049,29 @@ extension MusicLibrary {
     /// 按名字找艺人(忽略大小写)，同上，记到下一次发布艺人表为止。
     func visibleArtist(named name: String) -> Artist? {
         _ = visibleArtistsReference
+        if let answer = artistNamedOutsideTheModel(name) { return answer }
         if let cached = artistNameLookupCache[name] { return cached.artist }
-        let artist = visibleArtists.first {
-            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-        }
+        let artist = visibleArtists.first { Self.artist($0, matchesName: name) }
         if artistNameLookupCache.count >= Self.nameLookupCacheLimit {
             artistNameLookupCache.removeAll(keepingCapacity: true)
         }
         artistNameLookupCache[name] = ArtistNameLookupEntry(artist: artist)
         return artist
+    }
+
+    /// 按名字找专辑的那条规则(内存与目录两条路共用):标题相同(忽略大小写与首尾空白),
+    /// 艺人相同或有一边没写艺人。
+    private nonisolated static func album(_ album: Album, matchesTitle title: String, artistName: String) -> Bool {
+        let titleMatches = album.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            .localizedCaseInsensitiveCompare(title) == .orderedSame
+        let albumArtist = album.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let artistMatches = artistName.isEmpty || albumArtist.isEmpty
+            || albumArtist.localizedCaseInsensitiveCompare(artistName) == .orderedSame
+        return titleMatches && artistMatches
+    }
+
+    private nonisolated static func artist(_ artist: Artist, matchesName name: String) -> Bool {
+        artist.name.localizedCaseInsensitiveCompare(name) == .orderedSame
     }
 
     private struct AlbumNameLookupKey: Hashable {
@@ -9059,7 +9119,8 @@ extension MusicLibrary {
     /// actor (preparing a whole-library queue). Copy-on-write: taking it costs
     /// nothing, and later library changes don't affect it.
     func visibleSongLookup() -> VisibleSongLookup {
-        VisibleSongLookup(indexByID: visibleSongIndexByID, songs: visibleSongsLookupReference.value)
+        if songModelReleased { noteArrayReadWhileUnloaded("visibleSongLookup()") }
+        return VisibleSongLookup(indexByID: visibleSongIndexByID, songs: visibleSongsLookupReference.value)
     }
 
     func searchSongSnapshot(musicOnly: Bool = true, startupSourceIDs: Set<String>? = nil) -> LibrarySearchSongSnapshot {
@@ -9102,7 +9163,8 @@ extension MusicLibrary {
 
     /// 历史分类也要能读取停用来源中的文件；取快照不复制整库。
     func historySongLookup() -> VisibleSongLookup {
-        VisibleSongLookup(indexByID: songIndexByID, songs: songsReference.value)
+        if songModelReleased { noteArrayReadWhileUnloaded("historySongLookup()") }
+        return VisibleSongLookup(indexByID: songIndexByID, songs: songsReference.value)
     }
 
     /// O(1) membership check for UI observers that must distinguish the
@@ -9122,6 +9184,7 @@ extension MusicLibrary {
     /// The source's playable songs, in library order.
     func playableSongs(forSourceID sourceID: String) -> [Song] {
         _ = visibleSongsReference
+        if songModelReleased { noteArrayReadWhileUnloaded("playableSongs(forSourceID:)") }
         let songs = sourceSongs(sourceID)
         return sourceIDsWithUnplayableSongs.contains(sourceID) ? songs.filter(\.isPlayable) : songs
     }
@@ -9142,6 +9205,7 @@ extension MusicLibrary {
     /// The source's visible songs, in library order.
     func visibleSongs(forSourceID sourceID: String) -> [Song] {
         _ = visibleSongsReference
+        if songModelReleased { noteArrayReadWhileUnloaded("visibleSongs(forSourceID:)") }
         return sourceSongs(sourceID)
     }
 
@@ -9190,12 +9254,12 @@ extension MusicLibrary {
     private func patchMusicVideoSongs(songIDs: [String]) {
         guard !songIDs.isEmpty else { return }
         let updated = songIDs.compactMap { lookupVisibleSong($0) }
-        guard !musicVideoSongs.isEmpty || updated.contains(where: \.hasMusicVideo) else { return }
+        guard !musicVideoSongsStorage.isEmpty || updated.contains(where: \.hasMusicVideo) else { return }
         var positions: [String: Int] = [:]
-        positions.reserveCapacity(musicVideoSongs.count)
-        for (index, song) in musicVideoSongs.enumerated() { positions[song.id] = index }
+        positions.reserveCapacity(musicVideoSongsStorage.count)
+        for (index, song) in musicVideoSongsStorage.enumerated() { positions[song.id] = index }
         let nonMusic = nonMusicSongIDs
-        var next = musicVideoSongs
+        var next = musicVideoSongsStorage
         var removedIDs: Set<String> = []
         var changed = false
         for song in updated {
@@ -9207,7 +9271,7 @@ extension MusicLibrary {
                     changed = true
                 }
             } else if song.hasMusicVideo, !nonMusic.contains(song.id) {
-                musicVideoSongs = visibleSongs.filter { $0.hasMusicVideo && !nonMusic.contains($0.id) }
+                musicVideoSongsStorage = visibleSongs.filter { $0.hasMusicVideo && !nonMusic.contains($0.id) }
                 return
             }
         }
@@ -9215,7 +9279,7 @@ extension MusicLibrary {
             next.removeAll { removedIDs.contains($0.id) }
             changed = true
         }
-        if changed { musicVideoSongs = next }
+        if changed { musicVideoSongsStorage = next }
     }
 
     /// After in-place replacements, invalidate each affected source list
@@ -9879,6 +9943,7 @@ extension MusicLibrary {
     func preferredArtworkSong(forAlbumID albumID: String) -> Song? {
         _ = albumArtworkLookupRevision
         _ = songReplacementToken
+        if songModelReleased { noteArrayReadWhileUnloaded("preferredArtworkSongIDByAlbumID") }
         guard let songID = preferredArtworkSongIDByAlbumID[albumID] else { return nil }
         return lookupVisibleSong(songID)
     }
@@ -9886,6 +9951,7 @@ extension MusicLibrary {
     func preferredArtworkSong(forArtistID artistID: String) -> Song? {
         _ = albumArtworkLookupRevision
         _ = songReplacementToken
+        if songModelReleased { noteArrayReadWhileUnloaded("preferredArtworkSongIDByArtistID") }
         guard let songID = preferredArtworkSongID(forArtistID: artistID) else { return nil }
         return lookupVisibleSong(songID)
     }
@@ -9918,6 +9984,7 @@ extension MusicLibrary {
     /// 专辑卡片用: 只在这张专辑的首选封面歌曲或它的封面引用变了时失效。
     func scopedPreferredArtworkSong(forAlbumID albumID: String) -> Song? {
         _ = artworkLookupToken(for: .album(albumID)).revision
+        if songModelReleased { noteArrayReadWhileUnloaded("preferredArtworkSongIDByAlbumID") }
         guard let songID = preferredArtworkSongIDByAlbumID[albumID] else { return nil }
         return lookupVisibleSong(songID)
     }
@@ -9925,6 +9992,7 @@ extension MusicLibrary {
     /// 艺人卡片用: 同上, 另外跟着这个艺人自己的名字和封面引用。
     func scopedPreferredArtworkSong(forArtistID artistID: String) -> Song? {
         _ = artworkLookupToken(for: .artist(artistID)).revision
+        if songModelReleased { noteArrayReadWhileUnloaded("preferredArtworkSongIDByArtistID") }
         guard let songID = preferredArtworkSongID(forArtistID: artistID) else { return nil }
         return lookupVisibleSong(songID)
     }
@@ -9938,6 +10006,7 @@ extension MusicLibrary {
         excludingReferences: Set<String>
     ) -> Song? {
         _ = artworkLookupToken(for: .album(albumID)).revision
+        if songModelReleased { noteArrayReadWhileUnloaded("scopedAlternateArtworkSong(forAlbumID:)") }
         let visible = visibleSongsLookupReference.value
         var best: Song?
         for position in albumSongPositions()[albumID] ?? [] where visible.indices.contains(position) {
@@ -9958,6 +10027,7 @@ extension MusicLibrary {
         excludingReferences: Set<String>
     ) -> Song? {
         _ = artworkLookupToken(for: .artist(artistID)).revision
+        if songModelReleased { noteArrayReadWhileUnloaded("scopedAlternateArtworkSong(forArtistID:)") }
         let songIDs = visibleTrackSongIDs(forArtist: artistID) ?? albumOnlyArtistSongIDs(artistID)
         var best: Song?
         for songID in songIDs {
@@ -9985,7 +10055,10 @@ extension MusicLibrary {
     /// `visibleArtist(id:)` 读的是整份艺人数组, 扫描时每次入库都会让它失效。
     func scopedVisibleArtist(id artistID: String) -> Artist? {
         _ = artworkLookupToken(for: .artist(artistID)).revision
-        return visibleArtistByID[artistID]
+        if let artist = visibleArtistByID[artistID] { return artist }
+        // 艺人那一层不在内存里(模型放掉了)时问目录,同 `visibleArtist(id:)`。
+        guard visibleArtistByID.isEmpty else { return nil }
+        return visibleArtistOutsideTheModel(artistID, onlyWhileUnloaded: true) ?? nil
     }
 
     private func artworkLookupToken(for key: ArtworkLookupKey) -> LibraryArtworkLookupToken {
@@ -10734,6 +10807,7 @@ extension MusicLibrary {
 
     func albums(forGenre genreID: String) -> [Album] {
         _ = visibleAlbumsReference
+        if let answer = genreAlbumsOutsideTheModel(genreID) { return answer }
         if let songIDs = catalogGenreSongIDs(genreID) {
             // 同 `LibraryGenreIndexBuilder`:按歌在库里的先后,专辑 id(去首尾空白)第一次出现时记一次。
             var seen = Set<String>()
@@ -10982,6 +11056,10 @@ extension MusicLibrary {
         if let excluded = mirrorSongExclusions[playlistID] { return ids.filter { !excluded.contains($0) } }
         guard playlistID == Self.likedSongsPlaylistID else { return ids }
         _ = localPodcastContentRevision
+        // 模型不在内存里:哪些是本地播客单集问目录(书架表这时是空的,不然「我喜欢」会连播客一起列)。
+        if let podcastIDs = likedPodcastIDsOutsideTheModel() {
+            return podcastIDs.isEmpty ? ids : LikedSongsPodcastSplitPolicy.music(ids) { podcastIDs.contains($0) }
+        }
         guard !localPodcastBookIDs.isEmpty else { return ids }
         let podcastShowIDs = localPodcastBookIDs
         return LikedSongsPodcastSplitPolicy.music(ids) { podcastShowIDs[$0] != nil }
@@ -11008,6 +11086,7 @@ extension MusicLibrary {
         _ = visibleSongsReference
         _ = playlistSongIDs
         _ = localPodcastContentRevision
+        if let answer = likedLocalPodcastSongsOutsideTheModel() { return answer }
         guard !localPodcastBookIDs.isEmpty else { return [] }
         let podcastShowIDs = localPodcastBookIDs
         return LikedSongsPodcastSplitPolicy.podcastsNewestFirst(
@@ -11114,6 +11193,10 @@ extension MusicLibrary {
             playlistID: playlistID,
             limit: artworkCandidateLimit
         )
+        if let lookup = lookupOutsideTheModel,
+           considerVisibleMembersOutsideTheModel(playlistMemberIDs(playlistID), lookup: lookup, into: &accumulator) {
+            return (accumulator.artworkCandidates, accumulator.visibleCount)
+        }
         for songID in playlistMemberIDs(playlistID) {
             guard let song = lookupVisibleSong(songID) else { continue }
             accumulator.consider(song)
@@ -11135,6 +11218,7 @@ extension MusicLibrary {
     func recentlyPlayedSongs(limit: Int = 6) -> [Song] {
         _ = visibleSongsReference
         _ = musicSongsReference
+        if let answer = recentlyPlayedSongsOutsideTheModel(limit: limit) { return answer }
         var result: [Song] = []
         let nonMusic = nonMusicSongIDs
         for songID in recentPlaybackSongIDs where !nonMusic.contains(songID) {
@@ -20385,13 +20469,42 @@ private struct CatalogCollectionLookups {
     private var artistRevision: UInt64?
     private var albums: [String: Album?] = [:]
     private var artists: [String: Artist?] = [:]
+    /// 按名字找的(`visibleAlbum(titled:artistName:)`、`visibleArtist(named:)`),键见调用方。
+    private var albumsByName: [String: Album?] = [:]
+    private var artistsByName: [String: Artist?] = [:]
+    /// 「专辑艺术家」按 id(随专辑与艺人两边变)。
+    private var albumArtists: [String: Artist?] = [:]
+
+    private mutating func syncAlbums(_ revision: UInt64) {
+        guard albumRevision != revision else { return }
+        albumRevision = revision
+        albums.removeAll(keepingCapacity: true)
+        albumsByName.removeAll(keepingCapacity: true)
+        albumArtists.removeAll(keepingCapacity: true)
+    }
+
+    private mutating func syncArtists(_ revision: UInt64) {
+        guard artistRevision != revision else { return }
+        artistRevision = revision
+        artists.removeAll(keepingCapacity: true)
+        artistsByName.removeAll(keepingCapacity: true)
+        albumArtists.removeAll(keepingCapacity: true)
+    }
+
+    mutating func albumArtist(_ id: String, albumRevision: UInt64, artistRevision: UInt64) -> Artist?? {
+        syncAlbums(albumRevision)
+        syncArtists(artistRevision)
+        return albumArtists[id]
+    }
+
+    mutating func remember(albumArtist: Artist?, id: String) {
+        if albumArtists.count >= Self.limit { albumArtists.removeAll(keepingCapacity: true) }
+        albumArtists[id] = .some(albumArtist)
+    }
 
     /// 外层 nil:没记过。
     mutating func album(_ id: String, revision: UInt64) -> Album?? {
-        if albumRevision != revision {
-            albumRevision = revision
-            albums.removeAll(keepingCapacity: true)
-        }
+        syncAlbums(revision)
         return albums[id]
     }
 
@@ -20400,17 +20513,34 @@ private struct CatalogCollectionLookups {
         albums[id] = .some(album)
     }
 
+    mutating func album(named key: String, revision: UInt64) -> Album?? {
+        syncAlbums(revision)
+        return albumsByName[key]
+    }
+
+    mutating func remember(album: Album?, named key: String) {
+        if albumsByName.count >= Self.limit { albumsByName.removeAll(keepingCapacity: true) }
+        albumsByName[key] = .some(album)
+    }
+
     mutating func artist(_ id: String, revision: UInt64) -> Artist?? {
-        if artistRevision != revision {
-            artistRevision = revision
-            artists.removeAll(keepingCapacity: true)
-        }
+        syncArtists(revision)
         return artists[id]
     }
 
     mutating func remember(artist: Artist?, id: String) {
         if artists.count >= Self.limit { artists.removeAll(keepingCapacity: true) }
         artists[id] = .some(artist)
+    }
+
+    mutating func artist(named name: String, revision: UInt64) -> Artist?? {
+        syncArtists(revision)
+        return artistsByName[name]
+    }
+
+    mutating func remember(artist: Artist?, named name: String) {
+        if artistsByName.count >= Self.limit { artistsByName.removeAll(keepingCapacity: true) }
+        artistsByName[name] = .some(artist)
     }
 }
 
@@ -21263,6 +21393,182 @@ extension MusicLibrary {
         }
     }
 
+    /// 模型不在内存里时按名字找专辑(`visibleAlbum(titled:artistName:)`):目录按排序键圈出候选,按专辑墙的先后
+    /// 用同一条规则比,取第一张。外层 nil:模型在内存里,或者目录此刻答不了。
+    fileprivate func albumNamedOutsideTheModel(title: String, artistName: String) -> Album?? {
+        guard songModelIsUnloaded, let host = catalogHost, host.pendingWrites.answersLikeMemory,
+              let catalog = host.mirror.caughtUpCatalog else { return nil }
+        _ = host.revisions.isReadable
+        let key = title + "\u{1F}" + artistName
+        if let cached = catalogCollectionLookups.album(named: key, revision: host.revisions.albums) { return .some(cached) }
+        do {
+            let album = try catalog.visibleAlbumCandidates(titled: title)
+                .first { Self.album($0, matchesTitle: title, artistName: artistName) }
+            catalogCollectionLookups.remember(album: album, named: key)
+            return .some(album)
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 「专辑艺术家」里的这一位(`visibleAlbumArtist(id:)`),模型不在内存里时从目录按同一条署名规则算。
+    /// 外层 nil:模型在内存里,或者目录此刻答不了。
+    fileprivate func visibleAlbumArtistOutsideTheModel(_ id: String) -> Artist?? {
+        guard songModelIsUnloaded, let host = catalogHost, host.pendingWrites.answersLikeMemory,
+              let catalog = host.mirror.caughtUpCatalog else { return nil }
+        _ = host.revisions.isReadable
+        if let cached = catalogCollectionLookups.albumArtist(
+            id, albumRevision: host.revisions.albums, artistRevision: host.revisions.artists
+        ) { return .some(cached) }
+        do {
+            let artist = try catalog.visibleAlbumArtist(id: id)
+            catalogCollectionLookups.remember(albumArtist: artist, id: id)
+            return .some(artist)
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 同上,按名字找艺人(`visibleArtist(named:)`)。
+    fileprivate func artistNamedOutsideTheModel(_ name: String) -> Artist?? {
+        guard songModelIsUnloaded, let host = catalogHost, host.pendingWrites.answersLikeMemory,
+              let catalog = host.mirror.caughtUpCatalog else { return nil }
+        _ = host.revisions.isReadable
+        if let cached = catalogCollectionLookups.artist(named: name, revision: host.revisions.artists) { return .some(cached) }
+        do {
+            let artist = try catalog.visibleArtistCandidates(named: name).first { Self.artist($0, matchesName: name) }
+            catalogCollectionLookups.remember(artist: artist, named: name)
+            return .some(artist)
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 模型不在内存里时某流派的专辑(`albums(forGenre:)`):流派里可见音乐的行号按库内顺序,各行的专辑 id
+    /// (去首尾空白)第一次出现时记一次,专辑按 id 从目录分批取。nil:模型在内存里,或者目录此刻答不了。
+    fileprivate func genreAlbumsOutsideTheModel(_ genreID: String) -> [Album]? {
+        guard songModelIsUnloaded, let host = catalogHost, host.revisions.isReadable,
+              host.pendingWrites.answersLikeMemory, let catalog = host.mirror.caughtUpCatalog else { return nil }
+        _ = host.revisions.songs
+        _ = host.revisions.membership
+        _ = host.revisions.everything
+        _ = host.revisions.albums
+        let page = LibraryScale.maxMaterializedRows
+        do {
+            let rowids = Array(try catalog.genreSongRowList(genreID: genreID).rowids)
+            var seen = Set<String>()
+            var albumIDs: [String] = []
+            for start in stride(from: 0, to: rowids.count, by: page) {
+                for raw in try catalog.albumIDs(atRowids: Array(rowids[start..<min(rowids.count, start + page)])) {
+                    guard let albumID = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !albumID.isEmpty, seen.insert(albumID).inserted else { continue }
+                    albumIDs.append(albumID)
+                }
+            }
+            var albums: [Album] = []
+            for start in stride(from: 0, to: albumIDs.count, by: page) {
+                albums += try catalog.albums(visibleIDs: albumIDs[start..<min(albumIDs.count, start + page)])
+            }
+            return albums
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
+    /// 播放记录里不算音乐的那几类(有声、播客、环境音)以外的,同 `nonMusicSongIDs` 的补集。目录这条路按它看类别:
+    /// 不装模型启动时内存里没有有声、环境音的 id 表。
+    nonisolated static let recentlyPlayedKinds: Set<LibraryCatalogContentKind> = [.music, .collectionOnly]
+
+    /// 模型不在内存里时的最近播放(`recentlyPlayedSongs(limit:)`):按播放记录的先后分批按 id 从目录取,
+    /// 去掉不是音乐的,凑够 `limit` 首为止。nil:模型在内存里,或者目录此刻答不了。
+    fileprivate func recentlyPlayedSongsOutsideTheModel(limit: Int) -> [Song]? {
+        guard limit > 0, let lookup = lookupOutsideTheModel else { return nil }
+        let ids = recentPlaybackSongIDs
+        let chunkSize = max(limit * 2, 32)
+        var result: [Song] = []
+        var start = 0
+        do {
+            while result.count < limit, start < ids.count {
+                let chunk = Array(ids[start..<min(ids.count, start + chunkSize)])
+                start += chunk.count
+                let music = Set(try lookup.catalog.songs(
+                    ids: chunk, scope: LibrarySongScope(kinds: Self.recentlyPlayedKinds)
+                ).map(\.id))
+                let candidates = chunk.filter { music.contains($0) }
+                guard !candidates.isEmpty else { continue }
+                guard let songs = visibleSongsOutsideTheModel(ids: candidates, lookup: lookup) else { return nil }
+                result.append(contentsOf: songs.prefix(limit - result.count))
+            }
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+        return result
+    }
+
+    /// 模型不在内存里时喜欢的本地播客单集(`likedLocalPodcastSongs()`):喜欢的歌里目录记作播客的那些,
+    /// 按同一条先后规则排,再按 id 取可见的。nil:模型在内存里,或者目录此刻答不了。
+    fileprivate func likedLocalPodcastSongsOutsideTheModel() -> [Song]? {
+        guard let podcastIDs = likedPodcastIDsOutsideTheModel(), let lookup = lookupOutsideTheModel else { return nil }
+        guard !podcastIDs.isEmpty else { return [] }
+        let liked = playlistSongIDs[Self.likedSongsPlaylistID] ?? []
+        let ordered = LikedSongsPodcastSplitPolicy.podcastsNewestFirst(liked) { podcastIDs.contains($0) }
+        return visibleSongsOutsideTheModel(ids: ordered, lookup: lookup)
+    }
+
+    /// 模型不在内存里时「我喜欢」里的本地播客单集:喜欢的歌里目录记作播客的那些(按类别筛,只解码播客那几行;
+    /// 同书架表的口径,只算可见的)。按目录修订号与成员修订号记住。nil:模型在内存里,或者目录此刻答不了
+    /// (调用方照内存的书架表答)。
+    fileprivate func likedPodcastIDsOutsideTheModel() -> Set<String>? {
+        guard let lookup = lookupOutsideTheModel, let revisions = catalogHost?.revisions else { return nil }
+        let catalogRevision = revisions.catalogRevision
+        if let memo = likedPodcastIDsOutsideTheModelMemo, memo.catalog == catalogRevision,
+           memo.membership == playlistMembershipRevision {
+            return memo.ids
+        }
+        let liked = playlistSongIDs[Self.likedSongsPlaylistID] ?? []
+        let page = LibraryScale.maxMaterializedRows
+        var ids = Set<String>()
+        do {
+            for start in stride(from: 0, to: liked.count, by: page) {
+                let chunk = Array(liked[start..<min(liked.count, start + page)])
+                ids.formUnion(try lookup.catalog.songs(ids: chunk, scope: LibrarySongScope(kinds: [.podcast])).map(\.id))
+            }
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+        likedPodcastIDsOutsideTheModelMemo = (catalogRevision, playlistMembershipRevision, ids)
+        return ids
+    }
+
+    /// 书架上这首归哪本书(或哪个本地播客节目),只看内存里的两张表。模型放掉时它们是空的:给 nil、不记数组读,
+    /// 调用方接着问目录(`AudioPlayerService.spokenWordBookID(for:)`)。
+    func shelfBookIDInMemory(forSongID songID: String) -> String? {
+        spokenWordBookIDsStorage[songID] ?? localPodcastBookIDsStorage[songID]
+    }
+
+    /// 模型不在内存里时把歌单成员里可见的逐首交给 `accumulator`(`playlistBrowseSummary`),按 id 分批从目录取。
+    /// false:途中目录答不了,调用方照旧答。
+    fileprivate func considerVisibleMembersOutsideTheModel(
+        _ ids: [String], lookup: LibraryCatalogSongLookup, into accumulator: inout PlaylistBrowseArtworkAccumulator
+    ) -> Bool {
+        let page = LibraryScale.maxMaterializedRows
+        var considered = accumulator
+        for start in stride(from: 0, to: ids.count, by: page) {
+            guard let songs = visibleSongsOutsideTheModel(ids: Array(ids[start..<min(ids.count, start + page)]), lookup: lookup) else {
+                return false
+            }
+            for song in songs { considered.consider(song) }
+        }
+        accumulator = considered
+        return true
+    }
+
     #if DEBUG
     /// 真实使用中的抽样比对:内存答的按 id 读每隔 `interval` 次记下一个 id,稍后把这些 id 按目录这条路
     /// 再读一遍(主线程外读,不让主线程等读连接),与内存里存着的那一行按旧库的精度比;不同就记一行
@@ -21593,8 +21899,8 @@ extension MusicLibrary: LibraryCatalogOwner {
                     : Self.makeArtistSongIndex(visibleSongsLookupReference.value, configuration: artistNameConfiguration),
                 spokenWordSongIDs: spokenWordSongIDs,
                 ambientSongIDs: ambientSongIDs,
-                podcastSongIDs: Set(localPodcastSongs.map(\.id)),
-                bookIDBySongID: spokenWordBookIDs.merging(localPodcastBookIDs) { first, _ in first }
+                podcastSongIDs: Set(localPodcastSongsStorage.map(\.id)),
+                bookIDBySongID: spokenWordBookIDsStorage.merging(localPodcastBookIDsStorage) { first, _ in first }
             )
             : nil
         return LibraryCatalogShadowMemorySnapshot(
@@ -21602,7 +21908,7 @@ extension MusicLibrary: LibraryCatalogOwner {
             visibleCount: visibleSongs.count,
             musicCount: musicSongs.count,
             spokenWordCount: spokenWordSongIDs.count,
-            podcastCount: localPodcastSongs.count,
+            podcastCount: localPodcastSongsStorage.count,
             ambientCount: ambientSongIDs.count,
             albumCount: albums.count,
             visibleAlbumCount: visibleAlbums.count,
@@ -22181,10 +22487,10 @@ extension MusicLibrary {
         songModelReleased = true
         var displaced: [any Sendable] = [
             songsReference, visibleSongsReference, visibleSongsLookupReference, musicSongsReference,
-            spokenWordSongsReference, localPodcastPreviewSongs,
+            spokenWordSongsReference, localPodcastPreviewSongsStorage,
             songIndexByID, visibleSongIndexByID, visibleSongPositionsBySourceID, visibleSongIDsByArtistID,
             visibleSongIDsByGenreID, visibleAlbumIDsByGenreID,
-            spokenWordBookIDs, spokenWordDisplayTitles, localPodcastBookIDs, localPodcastShowTitles,
+            spokenWordBookIDsStorage, spokenWordDisplayTitles, localPodcastBookIDsStorage, localPodcastShowTitles,
         ]
         songsReference = LibraryArrayReference()
         visibleSongsReference = LibraryArrayReference()
@@ -22194,7 +22500,7 @@ extension MusicLibrary {
         musicSongsSharesVisibleSongs = false
         musicSongsPublishedVisibleReference = nil
         spokenWordSongsReference = LibraryArrayReference()
-        localPodcastPreviewSongs = []
+        localPodcastPreviewSongsStorage = []
         songIndexByID = [:]
         visibleSongIndexByID = [:]
         visibleSongPositionsBySourceID = [:]
@@ -22204,10 +22510,9 @@ extension MusicLibrary {
         if forResidency {
             let hadAmbientContent = hasAmbientContent
             let hadMusicVideoContent = hasMusicVideoContent
-            // crash-pattern: allow legacy-library-api 放掉歌曲模型:这三份数组本身就是要放掉的东西,不是读它们
-            displaced += [ambientSongs, musicVideoSongs, localPodcastSongs]
-            // crash-pattern: allow legacy-library-api 同上,换成空的
-            (ambientSongs, musicVideoSongs, localPodcastSongs) = ([], [], [])
+            // 放掉歌曲模型:这三份数组本身就是要放掉的东西,不是读它们(走存储,不记数组读)。
+            displaced += [ambientSongsStorage, musicVideoSongsStorage, localPodcastSongsStorage]
+            (ambientSongsStorage, musicVideoSongsStorage, localPodcastSongsStorage) = ([], [], [])
             if hasAmbientContent != hadAmbientContent { hasAmbientContent = hadAmbientContent }
             if hasMusicVideoContent != hadMusicVideoContent { hasMusicVideoContent = hadMusicVideoContent }
             materializedPlaylistEntries.removeAll()
@@ -22219,9 +22524,9 @@ extension MusicLibrary {
             ambientSongIDs = []
         }
         nonMusicSongIDsCache = nil
-        spokenWordBookIDs = [:]
+        spokenWordBookIDsStorage = [:]
         spokenWordDisplayTitles = [:]
-        localPodcastBookIDs = [:]
+        localPodcastBookIDsStorage = [:]
         localPodcastShowTitles = [:]
         spokenWordBookIDSet = []
         localPodcastBookIDSet = []
@@ -22505,11 +22810,9 @@ extension MusicLibrary {
         let spokenWord = spokenWordSongsReference.value
         if hasSpokenWordContent == spokenWord.isEmpty { hasSpokenWordContent = !spokenWord.isEmpty }
         if spokenWordSongCount != spokenWord.count { spokenWordSongCount = spokenWord.count }
-        // crash-pattern: allow legacy-library-api 只看装回来的这份空不空,不遍历
-        let hasAmbient = !ambientSongs.isEmpty
+        let hasAmbient = !ambientSongsStorage.isEmpty
         if hasAmbientContent != hasAmbient { hasAmbientContent = hasAmbient }
-        // crash-pattern: allow legacy-library-api 同上
-        let hasMusicVideos = !musicVideoSongs.isEmpty
+        let hasMusicVideos = !musicVideoSongsStorage.isEmpty
         if hasMusicVideoContent != hasMusicVideos { hasMusicVideoContent = hasMusicVideos }
     }
 

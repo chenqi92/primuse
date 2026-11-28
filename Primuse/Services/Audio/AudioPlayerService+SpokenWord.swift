@@ -857,7 +857,7 @@ extension AudioPlayerService {
     /// that is playing. The library groups books once per change; an item it
     /// does not hold falls back to what its own tags and path say.
     func spokenWordBookID(for song: Song) -> String {
-        if let bookID = library?.spokenWordBookIDs[song.id] ?? library?.localPodcastBookIDs[song.id] { return bookID }
+        if let bookID = library?.shelfBookIDInMemory(forSongID: song.id) { return bookID }
         // 歌曲模型不在内存里时那两张表是空的:归书从曲库目录按 id 问,给的是表里的同一个 id
         // (否则按文件夹归书的书会退回只看自己标签的 id,这本书的倍速、片头片尾就对不上了)。
         if let placement = catalogBookPlacement(of: song) { return placement.bookID }
