@@ -584,6 +584,24 @@ public struct LibraryCatalogVersionRead {
         return rowids
     }
 
+    /// 一个范围的整首歌逐首交给 `body`,按库内顺序,一条语句流式读(内存里只有当前这一首);`body` 返回 false 停下。
+    public func forEachSong(_ scope: LibrarySongScope, _ body: (_ rowid: Int32, _ song: Song) throws -> Bool) throws {
+        let (whereSQL, arguments) = try scope.whereClause(in: db)
+        let rows = try Row.fetchCursor(
+            db,
+            sql: """
+                SELECT \(LibraryCatalogSongCodec.selectColumns.replacingOccurrences(of: "song.", with: "s."))
+                FROM song s JOIN source ON source.key = s.sourceKey
+                WHERE \(whereSQL) ORDER BY s.rowid
+                """,
+            arguments: arguments
+        )
+        while let row = try rows.next() {
+            let rowid: Int64 = row[LibraryCatalogSongCodec.Column.rowid]
+            guard try body(try LibraryCatalog.rowid32(rowid), try LibraryCatalogSongCodec.decode(row)) else { return }
+        }
+    }
+
     /// 按行号批量取,保持输入顺序;这个版本里没有的行跳过。一次最多 `LibraryScale.maxMaterializedRows` 个。
     public func songs(
         rowids: some Collection<Int32>,

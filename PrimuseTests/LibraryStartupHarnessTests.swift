@@ -687,6 +687,33 @@ final class LibraryStartupHarnessTests: XCTestCase {
         var peak: UInt64 { lock.withLock { value } }
     }
 
+    /// 续播挑一次,主线程外每 5 ms 量一次 phys_footprint 记峰值。
+    private static func continuationWithPeak(
+        _ work: @MainActor () async -> [String]
+    ) async -> (ids: [String], ms: Double, before: UInt64, peak: UInt64) {
+        let before = residentFootprint().current
+        let sampler = PeakSampler(before)
+        let sampling = Task.detached(priority: .high) {
+            while !Task.isCancelled {
+                sampler.note(MusicLibrary.residencyFootprintBytes() ?? 0)
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
+        let started = ContinuousClock.now
+        let ids = await work()
+        let ms = Double((ContinuousClock.now - started) / .microseconds(1)) / 1_000
+        sampling.cancel()
+        sampler.note(residentFootprint().current)
+        return (ids, ms, before, sampler.peak)
+    }
+
+    private final class ContinuationScanBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: MusicDiscoveryEngine.ContinuationCatalogScan?
+        func set(_ scan: MusicDiscoveryEngine.ContinuationCatalogScan) { lock.withLock { stored = scan } }
+        var value: MusicDiscoveryEngine.ContinuationCatalogScan? { lock.withLock { stored } }
+    }
+
     private struct ExportMeasurement {
         let summary: String
         /// 导出的字节逐字节比用的指纹(整份留着会把下一次量的「之前」抬高)。
@@ -1191,6 +1218,34 @@ final class LibraryStartupHarnessTests: XCTestCase {
         _ = try await settle()
         let loadedWholeExport = await Self.exportWithPeak(library, byteLimit: wholeLimit)
         _ = try await settle()
+        // 7f 续播:装着模型时在整份音乐列表上挑(特征表冷建一次、再热算一次),放掉之后在目录里流式扫,比结果、耗时、峰值。
+        let continuationSeeds: [Song] = {
+            let music = library.musicSongs
+            return [music.count / 3, music.count / 2, music.count * 2 / 3].compactMap { music.indices.contains($0) ? music[$0] : nil }
+        }()
+        let continuationExcluded = Set(continuationSeeds.map(\.id))
+        let loadedContinuationCold = await Self.continuationWithPeak {
+            let songs = library.musicSongs
+            let revision = library.musicSongsRevision
+            return await Task.detached(priority: .userInitiated) {
+                MusicDiscoveryEngine.continuationSongIDs(
+                    seeds: continuationSeeds, songs: songs, revision: revision, recentIDs: [],
+                    excluding: continuationExcluded, limit: QueueContinuationPolicy.batchSize
+                )
+            }.value
+        }
+        let loadedContinuationWarm = await Self.continuationWithPeak {
+            let songs = library.musicSongs
+            let revision = library.musicSongsRevision
+            return await Task.detached(priority: .userInitiated) {
+                MusicDiscoveryEngine.continuationSongIDs(
+                    seeds: continuationSeeds, songs: songs, revision: revision, recentIDs: [],
+                    excluding: continuationExcluded, limit: QueueContinuationPolicy.batchSize
+                )
+            }.value
+        }
+        MusicDiscoveryEngine.releaseFeatureIndex()
+        _ = try await settle()
         library.applySongModelResidencySettings(.init(isEnabled: true, foregroundHold: false, playbackBlocksRelease: true))
 
         // 启动后排的影子校验(开发构建里 10 万首以内是深的那种,拿着整份数组)做完之前放不掉:等它。
@@ -1220,6 +1275,23 @@ final class LibraryStartupHarnessTests: XCTestCase {
         XCTAssertEqual(releasedWholeExport.summary, loadedWholeExport.summary, "the same whole export outcome")
         XCTAssertEqual(releasedWholeExport.content, loadedWholeExport.content, "the same whole bytes")
         XCTAssertEqual(library.songModelResidencyStatistics.loads, 0, "no load for the export")
+        _ = try await settle()
+        let continuationCatalog = await library.continuationCatalogOutsideTheModel()
+        XCTAssertNotNil(continuationCatalog, "released: the continuation reads the catalog")
+        let scanBox = ContinuationScanBox()
+        let releasedContinuation = await Self.continuationWithPeak {
+            guard let catalog = continuationCatalog else { return [] }
+            return await Task.detached(priority: .userInitiated) {
+                (try? catalog.readingOneVersion { read in
+                    try MusicDiscoveryEngine.continuationSongIDsFromTheCatalog(
+                        seeds: continuationSeeds, read: read, recentIDs: [], excluding: continuationExcluded,
+                        limit: QueueContinuationPolicy.batchSize, scan: { scanBox.set($0) }
+                    )
+                }.value) ?? []
+            }.value
+        }
+        XCTAssertEqual(releasedContinuation.ids, loadedContinuationWarm.ids, "the continuation from the catalog equals the loaded one")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, 0, "no load for the continuation")
         _ = try await settle()
 
         started = ContinuousClock.now
@@ -1326,6 +1398,16 @@ final class LibraryStartupHarnessTests: XCTestCase {
         ))
         Self.report(Self.exportLine("64 MiB transfer limit", loaded: loadedExport, released: releasedExport))
         Self.report(Self.exportLine("2 GiB limit, whole library encoded", loaded: loadedWholeExport, released: releasedWholeExport))
+        let scan = scanBox.value
+        Self.report(String(
+            format: "📏 7f continuation (3 seeds, %d songs) loaded cold: ms=%.0f before=%.1fMB peak=%.1fMB | warm: ms=%.0f | "
+                + "released from the catalog: ms=%.0f before=%.1fMB peak=%.1fMB rows=%d scoredAboveZero=%@ | sameIDs=%@",
+            loadedContinuationWarm.ids.count, loadedContinuationCold.ms, Self.megabytes(loadedContinuationCold.before),
+            Self.megabytes(loadedContinuationCold.peak), loadedContinuationWarm.ms, releasedContinuation.ms,
+            Self.megabytes(releasedContinuation.before), Self.megabytes(releasedContinuation.peak), scan?.rows ?? -1,
+            (scan?.positiveBySeed ?? []).map(String.init).joined(separator: "/"),
+            releasedContinuation.ids == loadedContinuationWarm.ids && loadedContinuationCold.ids == loadedContinuationWarm.ids ? "yes" : "no"
+        ))
         Self.report(String(
             format: "📏 CK-b identity candidates while released (%d members): exact ids prepare=%.1fms ready=%.1fms (%@) | "
                 + "by title prepare=%.1fms ready=%.1fms rows=%d (%@)",

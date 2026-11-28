@@ -5245,6 +5245,175 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(restartedExport, loaded, "the kept attempt is the picture after the change, as the loaded export")
     }
 
+    // MARK: 7f — the auto-continuation candidates and album-only artists from the catalog
+
+    /// 一个装好、落了盘、目录停下的库(歌加 `extra`),给「启动」拷贝用。
+    private func persistedLaunchFixture(_ name: String, songs: [Song], extra: [Song]) async throws -> URL {
+        let (library, storage) = try makeLaunchedTwin(name, songs: songs, extra: extra)
+        await assertShadowMatches(library, "\(name) fixture")
+        library.markPortableSnapshotDirtyForTesting()
+        guard case .success = await library.persistNowAndWait(materializePortableSnapshot: true) else {
+            throw XCTSkip("the fixture did not persist")
+        }
+        await library.waitForCatalogMirror()
+        await library.stopCatalogMirror()
+        return storage
+    }
+
+    /// 够续播挑的一份音乐:十二位艺人、三十张专辑、六种流派(一种带重音符号),年份与时长各异。
+    private func continuationFixture(_ prefix: String) -> [Song] {
+        let genres = ["Rock", "Jazz", "Pop", "Folk", "Électro", "Hip-Hop"]
+        return (0..<180).map { n in
+            let artist = n % 12
+            let album = n % 30
+            var song = Song(
+                id: "\(prefix)-c\(n)", title: "Track \(n)", albumTitle: "Album \(album)", artistName: "Artist \(artist)",
+                trackNumber: n / 30 + 1, duration: 150 + Double((n * 37) % 240), fileFormat: .flac,
+                filePath: "Music/Artist \(artist)/Album \(album)/\(n).flac", sourceID: Self.sourceA
+            )
+            song.genre = genres[n % genres.count]
+            song.year = 1980 + (n * 7) % 40
+            song.dateAdded = Date(timeIntervalSince1970: 1_700_300_000 + Double(n))
+            return song
+        }
+    }
+
+    /// 7f:续播在歌曲模型不在内存里时从目录的一个版本流式扫(不占用、不装模型),挑出来的与装着模型时对同一份
+    /// 音乐列表、同样的种子与输入挑的逐个相同、先后相同(不在库里的种子、最近放过的、要跳过的、按专辑与艺人
+    /// 限量都在里面);真放掉之后、从没装过模型的启动都一样。模型在内存里时照旧走内存那条路。
+    func testAutoContinuationFromTheCatalogEqualsTheLoadedLibrary() async throws {
+        let songs = Self.fixture(prefix: "acn")
+        let extra = continuationFixture("acn")
+        let library = try makeLaunchedTwin("acn", songs: songs, extra: extra).library
+        await assertShadowMatches(library, "fixture")
+        var outsider = extra[8]
+        outsider.id = "acn-outsider"
+        outsider.artistName = "Somebody Else"
+        outsider.filePath = "Elsewhere/outsider.flac"
+        let seedSets: [[Song]] = [[extra[3]], [extra[17], extra[40], extra[5]], [outsider, extra[90]], [songs[0]]]
+        let recent: Set<String> = [extra[4].id, extra[19].id, extra[61].id]
+        let limit = QueueContinuationPolicy.batchSize
+        func excluded(_ seeds: [Song]) -> Set<String> { Set(seeds.map(\.id)).union([extra[6].id, extra[29].id]) }
+        func fromMemory(_ library: MusicLibrary, _ seeds: [Song]) -> [String] {
+            MusicDiscoveryEngine.continuationSongIDs(
+                seeds: seeds, songs: library.musicSongs, revision: library.musicSongsRevision,
+                recentIDs: recent, excluding: excluded(seeds), limit: limit
+            )
+        }
+        func fromCatalog(_ catalog: LibraryCatalog, _ seeds: [Song]) throws -> [String] {
+            try catalog.readingOneVersion { read in
+                try MusicDiscoveryEngine.continuationSongIDsFromTheCatalog(
+                    seeds: seeds, read: read, recentIDs: recent, excluding: excluded(seeds), limit: limit
+                )
+            }.value
+        }
+        let expected = seedSets.map { fromMemory(library, $0) }
+        XCTAssertTrue(expected.allSatisfy { $0.count == limit }, "a full batch from the rankings, no random fill")
+        let musicIDs = library.musicSongs.map(\.id)
+        let catalogWhileLoaded = await library.continuationCatalogOutsideTheModel()
+        XCTAssertNil(catalogWhileLoaded, "with the model in memory the continuation keeps the in-memory path")
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(library)
+
+        let releasedCatalog = await library.continuationCatalogOutsideTheModel()
+        let catalog = try XCTUnwrap(releasedCatalog)
+        let visibleMusic = try catalog.songIDs(atRowids: Array(catalog.rowList(.visibleMusic).rowids)).compactMap { $0 }
+        XCTAssertEqual(visibleMusic, musicIDs, "the catalog's music list is the in-memory music list, in order")
+        for (index, seeds) in seedSets.enumerated() {
+            XCTAssertEqual(try fromCatalog(catalog, seeds), expected[index], "released, seeds #\(index)")
+        }
+        XCTAssertEqual(songModelHolds(of: library), [], "no hold")
+        assertNoLoadAndNoArrayRead(library, since: before, "continuation while released")
+
+        // 从没装过模型的启动与照今天装法启动的那一次(同一份落了盘的库):同一份列表、同一个结果。
+        let launchStorage = try await persistedLaunchFixture("acn-launch", songs: songs, extra: extra)
+        let neverLoaded = await launch(try copyOfDirectory(launchStorage, "acn-never"), unloaded: true)
+        let launchedLoaded = await launch(try copyOfDirectory(launchStorage, "acn-loaded"), unloaded: false)
+        try await waitUntilUsable(neverLoaded)
+        let neverBefore = neverLoaded.songModelResidencyStatistics
+        let neverLoadedCatalog = await neverLoaded.continuationCatalogOutsideTheModel()
+        let neverCatalog = try XCTUnwrap(neverLoadedCatalog)
+        for (index, seeds) in seedSets.enumerated() {
+            XCTAssertEqual(try fromCatalog(neverCatalog, seeds), fromMemory(launchedLoaded, seeds), "never loaded, seeds #\(index)")
+        }
+        assertNoLoadAndNoArrayRead(neverLoaded, since: neverBefore, "continuation in a launch that never loaded")
+    }
+
+    /// 7f,播放器那一层:一首歌的队列放到最后时,歌曲模型真放掉了也不占用、不装,从目录挑出来接上的与装着模型时
+    /// 接上的是同样的歌、同样的先后(仍标作自动续播)。
+    func testThePlayerContinuesFromTheCatalogWhileReleased() async throws {
+        let songs = Self.fixture(prefix: "acp")
+        // 条数与上面那个测试不同:特征表的缓存按音乐列表的修订号与条数认,同一个测试进程里两个新建的库会撞上。
+        let extra = Array(continuationFixture("acp").prefix(170))
+        let library = try makeLaunchedTwin("acp", songs: songs, extra: extra).library
+        await assertShadowMatches(library, "fixture")
+        let suite = "acp-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let player = AudioPlayerService(
+            library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("acp-session.json")),
+            activateAudioSession: { _ in XCTFail("queue tests must not start audio") }
+        )
+        player.shuffleEnabled = false
+        player.repeatMode = .off
+        let seed = try XCTUnwrap(library.unobservedVisibleSong(id: extra[3].id))
+        func continued() async -> [String] {
+            player.setQueue([seed], startAt: 0)
+            XCTAssertEqual(player.autoContinuationDecision, .similarSongs)
+            player.scheduleAutoContinuationIfNeeded()
+            await player.autoContinuationTask?.value
+            let added = Array(player.queueEntries.dropFirst())
+            XCTAssertTrue(added.allSatisfy { player.isAutoContinuationEntry($0) })
+            return added.map(\.song.id)
+        }
+        let loaded = await continued()
+        XCTAssertEqual(loaded.count, QueueContinuationPolicy.batchSize)
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(library)
+        let released = await continued()
+        XCTAssertEqual(released, loaded, "the same songs in the same order")
+        XCTAssertEqual(songModelHolds(of: library), [], "no hold")
+        assertNoLoadAndNoArrayRead(library, since: before, "the player's continuation while released")
+        player.resetAutoContinuation()
+    }
+
+    /// 7f 第 2 项:只当过专辑艺人的人(「群星」)在歌曲模型不在内存里时照样取得到歌 —— 名下专辑从目录的署名来,
+    /// 各张专辑的歌按专辑曲序,与装着模型时 `songs(forArtist:)` 给的逐首相同、先后相同;真放掉、从没装过都一样。
+    func testAlbumOnlyArtistSongsWhileTheModelIsOut() async throws {
+        let songs = Self.fixture(prefix: "aoa")
+        let compilation = (0..<8).map { n -> Song in
+            var song = Song(
+                id: "aoa-va\(n)", title: "Hit \(n)", albumTitle: n < 5 ? "Now Volume 1" : "Now Volume 2",
+                artistName: "Singer \(n)", albumArtistName: "Various Artists", trackNumber: 8 - n,
+                duration: 200, fileFormat: .flac, filePath: "Music/Compilations/\(n < 5 ? 1 : 2)/\(n).flac",
+                sourceID: Self.sourceA
+            )
+            song.dateAdded = Date(timeIntervalSince1970: 1_700_400_000 + Double(n))
+            return song
+        }
+        let library = try makeLaunchedTwin("aoa", songs: songs, extra: compilation).library
+        await assertShadowMatches(library, "fixture")
+        let various = try XCTUnwrap(library.visibleAlbumArtists.first { $0.name == "Various Artists" }, "an album-only artist")
+        let expected = library.songs(forArtist: various.id).map(\.id)
+        XCTAssertEqual(Set(expected), Set(compilation.map(\.id)))
+        XCTAssertEqual(library.songs(forArtist: various.id).map(\.id), expected)
+        let before = try await releaseForReal(library)
+        XCTAssertEqual(library.songs(forArtist: various.id).map(\.id), expected, "released: the same songs, in the same order")
+        assertNoLoadAndNoArrayRead(library, since: before, "an album-only artist while released")
+
+        let launchStorage = try await persistedLaunchFixture("aoa-launch", songs: songs, extra: compilation)
+        let neverLoaded = await launch(try copyOfDirectory(launchStorage, "aoa-never"), unloaded: true)
+        try await waitUntilUsable(neverLoaded)
+        let neverBefore = neverLoaded.songModelResidencyStatistics
+        await neverLoaded.waitForCatalogFollowForTesting()
+        XCTAssertEqual(neverLoaded.songs(forArtist: various.id).map(\.id), expected, "never loaded")
+        assertNoLoadAndNoArrayRead(neverLoaded, since: neverBefore, "an album-only artist in a launch that never loaded")
+    }
+
     /// CK-a 第 2 项:模型不在内存里时补读不拿空的歌曲表去比剩余数(以前在这里读一次 `songs`、记一笔数组读;
     /// 拿空表算出的「0 条」会把队列当成做完),队列状态原样留着。
     func testBackfillDoesNotCountFromAnEmptyLibraryWhileTheModelIsReleased() async throws {
@@ -6118,9 +6287,9 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         }
     }
 
-    /// 2a 的真放掉测试:歌曲模型放掉之后队列放到最后一首,相似续播占用一次、把模型装回来,占用拿到之后照常把相似的歌接上,
-    /// 不把这一首记成死胡同。
-    func testAutoContinuationAfterARealReleaseLoadsTheModelOnceAndAppends() async throws {
+    /// 2a 的真放掉测试(7f 起的规则):歌曲模型放掉之后队列放到最后一首,相似续播从曲库目录挑 —— 不占用、不装模型,
+    /// 照常把相似的歌接上,不把这一首记成死胡同。目录答不了时才占用、把模型装回来(`AutoContinuationPlayerTests`)。
+    func testAutoContinuationAfterARealReleaseAppendsFromTheCatalog() async throws {
         let songs = Self.fixture(prefix: "continuation")
         let (library, _) = try makeLaunchedTwin("continuation", songs: songs)
         await assertShadowMatches(library, "fixture")
@@ -6135,15 +6304,18 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         )
         player.shuffleEnabled = false
         player.repeatMode = .off
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
         let before = try await releaseForReal(library)
 
         player.setQueue([songs[0]], startAt: 0)
         XCTAssertEqual(player.autoContinuationDecision, .similarSongs)
         if player.autoContinuationTask == nil { player.scheduleAutoContinuationIfNeeded() }
         await player.autoContinuationTask?.value
-        XCTAssertTrue(library.isReady, "the continuation's hold loaded the model")
-        XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1)
-        XCTAssertGreaterThan(player.queueCount, 1, "similar songs appended after the hold returned")
+        XCTAssertFalse(library.isReady, "the continuation read the catalog, no load")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads)
+        XCTAssertEqual(songModelHolds(of: library), [], "no hold")
+        XCTAssertGreaterThan(player.queueCount, 1, "similar songs appended from the catalog")
         XCTAssertNil(player.autoContinuationDeadEndEntryID)
         player.resetAutoContinuation()
     }

@@ -2672,34 +2672,19 @@ enum MusicDiscoveryEngine {
         for seed in seeds {
             guard !isCancelled() else { return [] }
             let seedFeature = index.feature(for: seed)
-            // Ties are common (same genre, similar length); a per-seed salt
-            // breaks them differently each time instead of by library order.
-            let salt = UInt64(truncatingIfNeeded: seed.id.hashValue)
-            var top: [(score: Double, position: Int)] = []
-            top.reserveCapacity(keep + 1)
+            var ranking = QueueContinuationPolicy.SeedRanking(seedID: seed.id, keep: keep)
             for position in index.ids.indices where index.playable[position] {
                 if position.isMultiple(of: 4_096), isCancelled() { return [] }
                 let match = similarity(between: seedFeature, and: position, in: index)
                 guard match.score > 0 else { continue }
-                var mixed = (UInt64(position) &+ salt) &* 0x9E37_79B9_7F4A_7C15
-                mixed ^= mixed >> 29
-                let jitter = Double(mixed % 1_000) / 1_000
-                // Only songs that can still make the list pay for the string lookups.
-                if top.count == keep, match.score + 4 + jitter <= top[keep - 1].score { continue }
-                let id = index.ids[position]
-                guard id != seed.id, !excluded.contains(id) else { continue }
-                let score = match.score + (recentIDs.contains(id) ? 0 : 4) + jitter
-                if top.count == keep, score <= top[keep - 1].score { continue }
-                var low = 0
-                var high = top.count
-                while low < high {
-                    let middle = (low + high) / 2
-                    if top[middle].score >= score { low = middle + 1 } else { high = middle }
-                }
-                top.insert((score, position), at: low)
-                if top.count > keep { top.removeLast() }
+                let jitter = ranking.jitter(at: position)
+                guard ranking.mayEnter(matchScore: match.score, jitter: jitter) else { continue }
+                ranking.offer(
+                    id: index.ids[position], matchScore: match.score, jitter: jitter, position: position,
+                    recentIDs: recentIDs, excluded: excluded
+                )
             }
-            rankings.append(top.map { entry in
+            rankings.append(ranking.entries.map { entry in
                 let id = index.ids[entry.position]
                 positionByID[id] = entry.position
                 return id
@@ -2725,6 +2710,97 @@ enum MusicDiscoveryEngine {
                 guard index.playable[position] else { continue }
                 let id = index.ids[position]
                 if taken.insert(id).inserted { merged.append(id) }
+            }
+        }
+        return merged
+    }
+
+    /// 目录那一遍扫的规模:扫过的音乐行数,各种子打分大于零(进得了候选)的行数。
+    struct ContinuationCatalogScan: Sendable {
+        var rows = 0
+        var positiveBySeed: [Int] = []
+    }
+
+    /// 同 `continuationSongIDs`,歌曲模型不在内存里时用:不建整库特征表,在目录的一个版本(`read`)里按音乐列表的
+    /// 先后一遍流式扫过去 —— 逐首折叠成同一套键(`DiscoveryFeatureInterner`,与建表同一个先后)、同一条打分规则、
+    /// 同一个榜(`QueueContinuationPolicy.SeedRanking`;位置就是在音乐列表里的下标,抖动相同),再同样按专辑、
+    /// 艺人限量合并。目录的 `.visibleMusic` 按行号就是 `musicSongs` 的先后,所以结果与装着模型时算出的相同。
+    /// 内存里只有各种子的榜、折叠的缓存与每首一个行号(兜底随机挑要按位置取行)。整库没有相像的时同样在整个
+    /// 列表里均匀随机挑。
+    static func continuationSongIDsFromTheCatalog(
+        seeds: [Song],
+        read: LibraryCatalogVersionRead,
+        recentIDs: Set<String>,
+        excluding excluded: Set<String>,
+        limit: Int,
+        scan: ((ContinuationCatalogScan) -> Void)? = nil,
+        isCancelled: () -> Bool = { false }
+    ) throws -> [String] {
+        guard limit > 0, !seeds.isEmpty else { return [] }
+        var interner = DiscoveryFeatureInterner()
+        let seedFeatures = seeds.map { interner.seedFeature(for: $0) }
+        var rankings = seeds.map { QueueContinuationPolicy.SeedRanking(seedID: $0.id, keep: limit * 3) }
+        var statistics = ContinuationCatalogScan(positiveBySeed: Array(repeating: 0, count: seeds.count))
+        // 进过榜(或差一点进)的行:id 与专辑、艺人归属,合并限量时用。
+        var candidates: [Int: (id: String, album: Int64, artist: Int64)] = [:]
+        var rowids = ContiguousArray<Int32>()
+        var cancelled = false
+        try read.forEachSong(.visibleMusic) { rowid, song in
+            let position = rowids.count
+            rowids.append(rowid)
+            if position.isMultiple(of: 4_096), isCancelled() {
+                cancelled = true
+                return false
+            }
+            let row = interner.row(song, position: position)
+            guard song.isPlayable else { return true }
+            for index in seeds.indices {
+                let match = DiscoveryFeatureTable.similarity(between: seedFeatures[index], and: row.feature)
+                guard match.score > 0 else { continue }
+                statistics.positiveBySeed[index] += 1
+                let jitter = rankings[index].jitter(at: position)
+                guard rankings[index].mayEnter(matchScore: match.score, jitter: jitter) else { continue }
+                if candidates[position] == nil {
+                    candidates[position] = (song.id, row.albumIdentity, row.artistIdentity)
+                }
+                rankings[index].offer(
+                    id: song.id, matchScore: match.score, jitter: jitter, position: position,
+                    recentIDs: recentIDs, excluded: excluded
+                )
+            }
+            return true
+        }
+        guard !cancelled else { return [] }
+        statistics.rows = rowids.count
+        scan?(statistics)
+        var groupsByID: [String: (album: Int64, artist: Int64)] = [:]
+        let ranked: [[String]] = rankings.map { ranking in
+            ranking.entries.compactMap { entry in
+                guard let candidate = candidates[entry.position] else { return nil }
+                groupsByID[candidate.id] = (candidate.album, candidate.artist)
+                return candidate.id
+            }
+        }
+        candidates = [:]
+        var merged = QueueContinuationPolicy.merge(
+            rankedBySeed: ranked,
+            excluding: excluded,
+            limit: limit,
+            groupLimits: [
+                .init(maximum: 3, key: { id in groupsByID[id].map { String($0.album) } }),
+                .init(maximum: 5, key: { id in groupsByID[id].map { String($0.artist) } }),
+            ]
+        )
+        // A library with nothing alike (no tags at all) still keeps playing.
+        if merged.count < limit {
+            var taken = excluded.union(merged)
+            for seed in seeds { taken.insert(seed.id) }
+            var attempts = 0
+            while merged.count < limit, attempts < limit * 20, !rowids.isEmpty {
+                attempts += 1
+                let position = Int.random(in: rowids.indices)
+                guard let song = try read.songs(rowids: [rowids[position]]).first, song.isPlayable else { continue }
+                if taken.insert(song.id).inserted { merged.append(song.id) }
             }
         }
         return merged
@@ -18611,6 +18687,19 @@ extension MusicLibrary {
     /// 歌曲模型不在内存里时能不能导出整库快照(iCloud 整库上传、给 Apple TV / 局域网的传输、给对端的种子都经它):
     /// 放掉了(或者从没装过)、目录答得了、小状态是发布过的那一份、快照没有损坏,也没有排着等模型的改动(那些改动
     /// 装着时已经在库里了,导出会缺它们:等装回来做完再导)。自动上传据此不再因为模型不在而跳过。
+    /// 续播(#166)要在整份音乐列表上挑相似的歌:歌曲模型不在内存里、目录答得了(路上的写都确认了,目录就是内存
+    /// 模型的样子)时给目录,调用方在目录的一个版本里流式扫一遍(`continuationSongIDsFromTheCatalog`),不占用、
+    /// 不装模型。模型在内存里、或者目录此刻答不了时 nil(调用方照旧占住模型)。
+    func continuationCatalogOutsideTheModel() async -> LibraryCatalog? {
+        guard !songModelAnswersFromMemory, let lookup = lookupOutsideTheModel else { return nil }
+        let writes = lookup.pendingWrites
+        if writes.pendingCount > 0 || !writes.answersLikeMemory {
+            guard await writes.waitUntilAcknowledged(through: writes.lastSequence, timeout: .seconds(2)),
+                  !songModelAnswersFromMemory, lookupOutsideTheModel != nil else { return nil }
+        }
+        return lookup.catalog
+    }
+
     var exportsWithoutTheSongModel: Bool {
         songModelReleased && !songModelAnswersFromMemory && !persistenceBlockedByCorruption
             && catalogAttached && lookupOutsideTheModel != nil && !hasQueuedMutations && queuedSongFieldEdits.isEmpty
@@ -22196,9 +22285,13 @@ extension MusicLibrary {
             if !rowids.isEmpty {
                 return try currentSongs(atRowids: rowids, lookup: lookup) { self.song($0, includesArtistID: artistID) }.songs
             }
-            // 名下专辑表属于专辑、艺人那一层:它在内存里时按它逐张取,不在时(整个模型都没装)答不出这些人的歌。
+            // 只当过专辑艺人的人(「群星」)取名下各张专辑的歌。名下专辑表属于专辑、艺人那一层:它在内存里时按它
+            // 逐张取;不在时(放掉了、从没装过)问目录 —— 同一条署名规则、专辑墙的先后(`albumOnlyArtistAlbumIDs`)。
+            let albumIDs = albumIDsByAlbumOnlyArtistID.isEmpty
+                ? try lookup.catalog.albumOnlyArtistAlbumIDs(id: artistID)
+                : albumIDsByAlbumOnlyArtistID[artistID] ?? []
             var songs: [Song] = []
-            for albumID in albumIDsByAlbumOnlyArtistID[artistID] ?? [] where songs.count < LibraryScale.maxMaterializedRows {
+            for albumID in albumIDs where songs.count < LibraryScale.maxMaterializedRows {
                 songs.append(contentsOf: try albumSongsOutsideTheModel(albumID, lookup: lookup))
             }
             return Array(songs.prefix(LibraryScale.maxMaterializedRows))

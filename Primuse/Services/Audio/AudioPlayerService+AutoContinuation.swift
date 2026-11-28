@@ -86,8 +86,38 @@ extension AudioPlayerService {
                     return
                 }
             }
-            // 相似歌要在整库的音乐上算。歌曲模型不在内存里时先占住它(等它装回来):空数组不是「找不到相似的」,
-            // 不能凭它把这一首记成死胡同。只有队列放到最后一首才走到这里;模型在内存里时不挂起。
+            guard !Task.isCancelled else { return }
+            // 歌曲模型不在内存里而曲库目录答得了:在目录的一个版本里按音乐列表流式扫一遍(与装着模型时对同一份
+            // 音乐列表算出的相同),不占用、不装模型。目录读不了时才照旧占住模型等它装回来。
+            if let catalog = await library.continuationCatalogOutsideTheModel() {
+                let worker = Task.detached(priority: .userInitiated) { () -> [String]? in
+                    try? catalog.readingOneVersion { read in
+                        try MusicDiscoveryEngine.continuationSongIDsFromTheCatalog(
+                            seeds: seeds,
+                            read: read,
+                            recentIDs: recentIDs,
+                            excluding: excluded,
+                            limit: QueueContinuationPolicy.batchSize,
+                            isCancelled: { Task.isCancelled }
+                        )
+                    }.value
+                }
+                let fromCatalog = await withTaskCancellationHandler {
+                    await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                guard let self, !Task.isCancelled else { return }
+                if let ids = fromCatalog {
+                    self.finishAutoContinuation(
+                        ids, token: token, lastEntryID: lastEntryID, seedCount: seeds.count, startedAt: startedAt,
+                        origin: "from the catalog"
+                    )
+                    return
+                }
+            }
+            // 相似歌要在整库的音乐上算。歌曲模型不在内存里(目录也答不了)时先占住它(等它装回来):空数组不是
+            // 「找不到相似的」,不能凭它把这一首记成死胡同。只有队列放到最后一首才走到这里;模型在内存里时不挂起。
             // 已经被新队列顶掉的这一次不再去要模型。
             guard !Task.isCancelled else { return }
             let hold = await library.holdSongModel(.playbackContinuation)
@@ -120,19 +150,29 @@ extension AudioPlayerService {
             }
             // A cancelled top-up was already replaced by `resetAutoContinuation`.
             guard !Task.isCancelled else { return }
-            self.autoContinuationTask = nil
-            // The queue moved on while the worker ran: a new request landed,
-            // the listener added songs, or a setting changed.
-            guard self.queueRequestToken == token,
-                  self.queueEntries.last?.id == lastEntryID,
-                  self.autoContinuationDecision == .similarSongs else { return }
-            let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
-            if !self.appendAutoContinuation(ids) {
-                self.autoContinuationDeadEndEntryID = lastEntryID
-                plog("♾️ Auto continuation found nothing after \(seeds.count) seeds (\(elapsed)ms)")
-            } else {
-                plog("♾️ Auto continuation appended \(ids.count) similar songs seeds=\(seeds.count) (\(elapsed)ms)")
-            }
+            self.finishAutoContinuation(
+                ids, token: token, lastEntryID: lastEntryID, seedCount: seeds.count, startedAt: startedAt, origin: ""
+            )
+        }
+    }
+
+    /// The worker's result lands: unless the queue moved on while it ran (a
+    /// new request, songs the listener added, a setting), append the songs or
+    /// remember the dead end.
+    private func finishAutoContinuation(
+        _ ids: [String], token: UInt64, lastEntryID: UUID, seedCount: Int, startedAt: TimeInterval, origin: String
+    ) {
+        autoContinuationTask = nil
+        guard queueRequestToken == token,
+              queueEntries.last?.id == lastEntryID,
+              autoContinuationDecision == .similarSongs else { return }
+        let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
+        let suffix = origin.isEmpty ? "" : " " + origin
+        if !appendAutoContinuation(ids) {
+            autoContinuationDeadEndEntryID = lastEntryID
+            plog("♾️ Auto continuation found nothing after \(seedCount) seeds (\(elapsed)ms)\(suffix)")
+        } else {
+            plog("♾️ Auto continuation appended \(ids.count) similar songs seeds=\(seedCount) (\(elapsed)ms)\(suffix)")
         }
     }
 

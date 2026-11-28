@@ -221,56 +221,80 @@ extension LibraryCatalog {
     /// 存着的署名里有他的,以及名字里带「 • 」的(那一支要看各段是不是可见曲目艺人),结果与这几张专辑同阶。
     public func visibleAlbumArtist(id: String) throws -> Artist? {
         try reader.read { db in
-            guard let ref = try Int64.fetchOne(db, sql: "SELECT ref FROM artistRef WHERE id = ?", arguments: [id]) else {
-                return nil
-            }
-            let splits = try Self.visibleSplitsLibrary(in: db)
-            let albumFilter = splits
-                ? " AND key IN (SELECT albumKey FROM albumSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
-                : ""
-            let keys = try Int64.fetchAll(db, sql: """
-                SELECT key FROM album
-                WHERE (artistRef = ?1 OR key IN (SELECT albumKey FROM albumArtistCredit WHERE artistRef = ?1)
-                       OR artistName LIKE '% • %')\(albumFilter)
-                ORDER BY title COLLATE \(LibraryCatalogSchema.localizedCollation), firstRowid
-                """, arguments: [ref])
-            let albums = try Self.fetchAlbums(keys: try keys.map(Self.rowid32), splits: splits, in: db)
-            var trackArtists: [String: Artist?] = [:]
-            func trackArtist(_ artistID: String) throws -> Artist? {
-                if let known = trackArtists[artistID] { return known }
-                let artist = try Self.visibleTrackArtist(id: artistID, splits: splits, in: db)
-                trackArtists[artistID] = .some(artist)
-                return artist
-            }
-            let configuration = groupingConfiguration.artistNames.normalized()
+            guard let credited = try albumArtistCredits(id: id, in: db) else { return nil }
             var albumCount = 0
             var songCount = 0
             var albumOnlyName: String?
-            var lookupError: Error?
-            for album in albums {
-                let credits = AlbumArtistCreditPolicy.resolvedCredits(
-                    for: album,
-                    configuration: configuration,
-                    isKnownTrackArtist: { candidate in
-                        do { return try trackArtist(candidate) != nil } catch { lookupError = error; return false }
-                    },
-                    knownTrackArtistName: { candidate in (try? trackArtist(candidate))?.name },
-                    artistID: { LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey($0)) }
-                )
-                if let lookupError { throw lookupError }
-                guard let credit = credits.first(where: { $0.id == id }) else { continue }
+            for (album, name) in credited.albums {
                 albumCount += 1
                 songCount += album.songCount
-                if albumOnlyName == nil, let name = credit.name { albumOnlyName = name }
+                if albumOnlyName == nil, let name { albumOnlyName = name }
             }
             guard albumCount > 0 else { return nil }
-            if var shared = try trackArtist(id) {
+            if var shared = credited.trackArtist {
                 shared.albumCount = albumCount
                 return shared
             }
             guard let albumOnlyName else { return nil }
             return Artist(id: id, name: albumOnlyName, albumCount: albumCount, songCount: songCount)
         }
+    }
+
+    /// 只当过专辑艺人的这一位(「群星」)名下的可见专辑 id,专辑墙的先后 —— 同 `AlbumArtistIndex.albumIDsByAlbumOnlyArtistID`
+    /// 里这个 id 的那一项(同一条署名规则);这位同时是可见曲目艺人、或者没有一张带名字的署名时为空。
+    public func albumOnlyArtistAlbumIDs(id: String) throws -> [String] {
+        try reader.read { db in
+            guard let credited = try albumArtistCredits(id: id, in: db), credited.trackArtist == nil,
+                  credited.albums.contains(where: { $0.name != nil }) else { return [] }
+            return credited.albums.map { $0.album.id }
+        }
+    }
+
+    /// 署名给这位艺人的可见专辑(专辑墙的先后,连同署名上的写法),以及他是不是可见曲目艺人(是的话那一位)。
+    /// 署名按 `AlbumArtistCreditPolicy.resolvedCredits` 现算(与参照实现同一条规则),候选专辑是专辑艺人就是他的、
+    /// 存着的署名里有他的,以及名字里带「 • 」的(那一支要看各段是不是可见曲目艺人)。目录里没有这个 id 时 nil。
+    private func albumArtistCredits(
+        id: String, in db: Database
+    ) throws -> (albums: [(album: Album, name: String?)], trackArtist: Artist?)? {
+        guard let ref = try Int64.fetchOne(db, sql: "SELECT ref FROM artistRef WHERE id = ?", arguments: [id]) else {
+            return nil
+        }
+        let splits = try Self.visibleSplitsLibrary(in: db)
+        let albumFilter = splits
+            ? " AND key IN (SELECT albumKey FROM albumSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
+            : ""
+        let keys = try Int64.fetchAll(db, sql: """
+            SELECT key FROM album
+            WHERE (artistRef = ?1 OR key IN (SELECT albumKey FROM albumArtistCredit WHERE artistRef = ?1)
+                   OR artistName LIKE '% • %')\(albumFilter)
+            ORDER BY title COLLATE \(LibraryCatalogSchema.localizedCollation), firstRowid
+            """, arguments: [ref])
+        let albums = try Self.fetchAlbums(keys: try keys.map(Self.rowid32), splits: splits, in: db)
+        var trackArtists: [String: Artist?] = [:]
+        func trackArtist(_ artistID: String) throws -> Artist? {
+            if let known = trackArtists[artistID] { return known }
+            let artist = try Self.visibleTrackArtist(id: artistID, splits: splits, in: db)
+            trackArtists[artistID] = .some(artist)
+            return artist
+        }
+        let configuration = groupingConfiguration.artistNames.normalized()
+        var credited: [(album: Album, name: String?)] = []
+        var lookupError: Error?
+        for album in albums {
+            let credits = AlbumArtistCreditPolicy.resolvedCredits(
+                for: album,
+                configuration: configuration,
+                isKnownTrackArtist: { candidate in
+                    do { return try trackArtist(candidate) != nil } catch { lookupError = error; return false }
+                },
+                knownTrackArtistName: { candidate in (try? trackArtist(candidate))?.name },
+                artistID: { LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey($0)) }
+            )
+            if let lookupError { throw lookupError }
+            guard let credit = credits.first(where: { $0.id == id }) else { continue }
+            credited.append((album, credit.name))
+        }
+        return (credited, try trackArtist(id))
     }
 
     /// 可见曲目艺人里的这一位(`visibleArtist(id:)` 在同一个读里)。

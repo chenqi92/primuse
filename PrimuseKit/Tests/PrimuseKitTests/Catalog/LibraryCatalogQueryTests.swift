@@ -166,6 +166,13 @@ struct LibraryCatalogQueryTests {
             committed.wait()
             titles += try read.songs(rowids: rowids.dropFirst(3)).map(\.title)
             #expect(try read.rowids(.everything).count == 6, "the row added meanwhile is not in this version")
+            var streamed: [String] = []
+            try read.forEachSong(.everything) { rowid, song in
+                #expect(rowids.contains(rowid))
+                streamed.append(song.title)
+                return true
+            }
+            #expect(streamed == songs.map(\.title), "the streamed rows are the same version")
             return titles
         }
         #expect(titles == songs.map(\.title), "the second half is the same version as the first")

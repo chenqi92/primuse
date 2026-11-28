@@ -181,27 +181,46 @@ public final class DiscoveryFeatureTable: @unchecked Sendable {
     /// Scoring over interned features; identical rules and weights to the
     /// string comparison it replaces (folded, non-empty equality).
     public func similarity(between seed: DiscoveryFeature, at position: Int) -> DiscoverySimilarity {
+        Self.similarity(
+            between: seed, albumID: albumID[position], albumTitle: albumTitle[position], artistID: artistID[position],
+            artistName: artistName[position], genre: genre[position], year: year[position], duration: duration[position],
+            source: source[position], folder: folder[position]
+        )
+    }
+
+    /// 同上,候选的特征直接给(目录一遍扫时没有表;键出自同一个 `DiscoveryFeatureInterner`)。
+    public static func similarity(between seed: DiscoveryFeature, and candidate: DiscoveryFeature) -> DiscoverySimilarity {
+        similarity(
+            between: seed, albumID: candidate.albumID, albumTitle: candidate.albumTitle, artistID: candidate.artistID,
+            artistName: candidate.artistName, genre: candidate.genre, year: candidate.year, duration: candidate.duration,
+            source: candidate.source, folder: candidate.folder
+        )
+    }
+
+    @inline(__always)
+    private static func similarity(
+        between seed: DiscoveryFeature, albumID: Int32, albumTitle: Int32, artistID: Int32, artistName: Int32,
+        genre: Int32, year: Int?, duration candidateDuration: TimeInterval, source: Int32, folder: Int32
+    ) -> DiscoverySimilarity {
         var score: Double = 0
         var reasons = DiscoverySimilarityReasons()
 
-        if Self.keysMatch(seed.albumID, albumID[position])
-            || Self.keysMatch(seed.albumTitle, albumTitle[position]) {
+        if keysMatch(seed.albumID, albumID) || keysMatch(seed.albumTitle, albumTitle) {
             score += 46
             reasons.insert(.sameAlbum)
         }
 
-        if Self.keysMatch(seed.artistID, artistID[position])
-            || Self.keysMatch(seed.artistName, artistName[position]) {
+        if keysMatch(seed.artistID, artistID) || keysMatch(seed.artistName, artistName) {
             score += 40
             reasons.insert(.sameArtist)
         }
 
-        if Self.keysMatch(seed.genre, genre[position]) {
+        if keysMatch(seed.genre, genre) {
             score += 30
             reasons.insert(.sameGenre)
         }
 
-        if let seedYear = seed.year, let candidateYear = year[position] {
+        if let seedYear = seed.year, let candidateYear = year {
             let delta = abs(seedYear - candidateYear)
             if delta <= 2 {
                 score += 10
@@ -212,7 +231,6 @@ public final class DiscoveryFeatureTable: @unchecked Sendable {
             }
         }
 
-        let candidateDuration = duration[position]
         if seed.duration > 30, candidateDuration > 30 {
             let delta = abs(seed.duration - candidateDuration)
             let ratio = delta / max(seed.duration, candidateDuration)
@@ -224,8 +242,7 @@ public final class DiscoveryFeatureTable: @unchecked Sendable {
             }
         }
 
-        if seed.source == source[position],
-           Self.keysMatch(seed.folder, folder[position]) {
+        if seed.source == source, keysMatch(seed.folder, folder) {
             score += 12
             reasons.insert(.sameFolder)
         }
@@ -293,104 +310,95 @@ public enum DiscoveryFeatureText {
 
 // MARK: - Building the columns
 
-/// 建表时的各列(一份歌曲列表的特征,按列存)。建好后写成映射文件或一块内存就放掉。
-public struct DiscoveryFeatureColumns {
-    var ids: [String] = []
-    var titles: [String] = []
-    var dateAdded: [Date] = []
-    var playable: [Bool] = []
-    var hasCoverArt: [Bool] = []
-    var albumID: [Int32] = []
-    var albumTitle: [Int32] = []
-    var artistID: [Int32] = []
-    var artistName: [Int32] = []
-    var genre: [Int32] = []
-    var folder: [Int32] = []
-    var source: [Int32] = []
-    var year: [Int?] = []
-    var duration: [TimeInterval] = []
-    var artistIdentity: [Int64] = []
-    var albumIdentity: [Int64] = []
-    var textKeys: [String: Int32] = [:]
-    var sourceKeys: [String: Int32] = [:]
+/// 特征表与流式打分(目录一遍扫,不建表)共用的折叠与键:同一段文本按 `DiscoveryFeatureText` 折叠后同一个键,
+/// 空的是 `noKey`;同一首歌在列表第 `position` 位时的特征与艺人、专辑归属(`row`)。按同一个先后喂进来的歌,
+/// 两边得到的键与归属逐个相同。
+public struct DiscoveryFeatureInterner {
+    public private(set) var textKeys: [String: Int32] = [:]
+    public private(set) var sourceKeys: [String: Int32] = [:]
     /// Raw text → key while building. A library repeats the same album,
     /// artist and genre strings across every track, and folding each one
     /// again was most of the build (a million songs: tens of seconds).
     private var rawTextKeys: [String: Int32] = [:]
     private var folderKeys: [String: Int32] = [:]
-
-    public var count: Int { ids.count }
+    private var albumTitleIdentityKeys: [AlbumTitleIdentity: Int64] = [:]
 
     private struct AlbumTitleIdentity: Hashable {
         let artist: Int64
         let title: Int32
     }
 
-    public init?(songs: some Collection<Song>, isCancelled: () -> Bool = { false }) {
-        let count = songs.count
-        ids.reserveCapacity(count)
-        titles.reserveCapacity(count)
-        dateAdded.reserveCapacity(count)
-        playable.reserveCapacity(count)
-        hasCoverArt.reserveCapacity(count)
-        albumID.reserveCapacity(count)
-        albumTitle.reserveCapacity(count)
-        artistID.reserveCapacity(count)
-        artistName.reserveCapacity(count)
-        genre.reserveCapacity(count)
-        folder.reserveCapacity(count)
-        source.reserveCapacity(count)
-        year.reserveCapacity(count)
-        duration.reserveCapacity(count)
-        artistIdentity.reserveCapacity(count)
-        albumIdentity.reserveCapacity(count)
-        var albumTitleIdentityKeys: [AlbumTitleIdentity: Int64] = [:]
+    public init() {}
 
-        for (position, song) in songs.enumerated() {
-            if position.isMultiple(of: 512), isCancelled() { return nil }
-            ids.append(song.id)
-            titles.append(song.title)
-            dateAdded.append(song.dateAdded)
-            playable.append(song.isPlayable)
-            hasCoverArt.append(song.coverArtFileName?.isEmpty == false)
-            let albumIDKey = intern(song.albumID)
-            let albumTitleKey = intern(song.albumTitle)
-            let artistIDKey = intern(song.artistID)
-            let artistNameKey = intern(song.artistName)
-            albumID.append(albumIDKey)
-            albumTitle.append(albumTitleKey)
-            artistID.append(artistIDKey)
-            artistName.append(artistNameKey)
-            genre.append(intern(GenreTagValues.primary(in: song.genre)))
-            folder.append(internFolder(of: song.filePath))
-            source.append(internSource(song.sourceID))
-            year.append(song.year)
-            duration.append(song.duration)
+    /// 列表里一首歌的特征与归属。
+    public struct Row {
+        public let feature: DiscoveryFeature
+        public let artistIdentity: Int64
+        public let albumIdentity: Int64
+    }
 
-            // Same precedence as `artistIdentity(_:)` / `albumIdentity(_:artistKey:)`:
-            // id, then name/title, then the song itself.
-            let artistKey: Int64
-            if artistIDKey != DiscoveryFeatureTable.noKey {
-                artistKey = Int64(artistIDKey)
-            } else if artistNameKey != DiscoveryFeatureTable.noKey {
-                artistKey = (1 << 32) | Int64(artistNameKey)
-            } else {
-                artistKey = (2 << 32) | Int64(position)
-            }
-            artistIdentity.append(artistKey)
-            if albumIDKey != DiscoveryFeatureTable.noKey {
-                albumIdentity.append(Int64(albumIDKey))
-            } else if albumTitleKey != DiscoveryFeatureTable.noKey {
-                let pair = AlbumTitleIdentity(artist: artistKey, title: albumTitleKey)
-                let next = (1 << 40) | Int64(albumTitleIdentityKeys.count)
-                albumIdentity.append(albumTitleIdentityKeys[pair, default: next])
-                if albumTitleIdentityKeys[pair] == nil { albumTitleIdentityKeys[pair] = next }
-            } else {
-                albumIdentity.append((2 << 40) | Int64(position))
-            }
+    public mutating func row(_ song: Song, position: Int) -> Row {
+        let albumIDKey = intern(song.albumID)
+        let albumTitleKey = intern(song.albumTitle)
+        let artistIDKey = intern(song.artistID)
+        let artistNameKey = intern(song.artistName)
+        let feature = DiscoveryFeature(
+            id: song.id,
+            albumID: albumIDKey,
+            albumTitle: albumTitleKey,
+            artistID: artistIDKey,
+            artistName: artistNameKey,
+            genre: intern(GenreTagValues.primary(in: song.genre)),
+            folder: internFolder(of: song.filePath),
+            source: internSource(song.sourceID),
+            year: song.year,
+            duration: song.duration
+        )
+        // Same precedence as `artistIdentity(_:)` / `albumIdentity(_:artistKey:)`:
+        // id, then name/title, then the song itself.
+        let artistKey: Int64
+        if artistIDKey != DiscoveryFeatureTable.noKey {
+            artistKey = Int64(artistIDKey)
+        } else if artistNameKey != DiscoveryFeatureTable.noKey {
+            artistKey = (1 << 32) | Int64(artistNameKey)
+        } else {
+            artistKey = (2 << 32) | Int64(position)
         }
+        let albumKey: Int64
+        if albumIDKey != DiscoveryFeatureTable.noKey {
+            albumKey = Int64(albumIDKey)
+        } else if albumTitleKey != DiscoveryFeatureTable.noKey {
+            let pair = AlbumTitleIdentity(artist: artistKey, title: albumTitleKey)
+            let next = (1 << 40) | Int64(albumTitleIdentityKeys.count)
+            albumKey = albumTitleIdentityKeys[pair, default: next]
+            if albumTitleIdentityKeys[pair] == nil { albumTitleIdentityKeys[pair] = next }
+        } else {
+            albumKey = (2 << 40) | Int64(position)
+        }
+        return Row(feature: feature, artistIdentity: artistKey, albumIdentity: albumKey)
+    }
+
+    /// 不在列表里的一首(续播、电台的种子)的特征,键在同一套里:列表里有同样文本的歌就与它相等。
+    public mutating func seedFeature(for song: Song) -> DiscoveryFeature {
+        DiscoveryFeature(
+            id: song.id,
+            albumID: intern(song.albumID),
+            albumTitle: intern(song.albumTitle),
+            artistID: intern(song.artistID),
+            artistName: intern(song.artistName),
+            genre: intern(GenreTagValues.primary(in: song.genre)),
+            folder: internFolder(of: song.filePath),
+            source: internSource(song.sourceID),
+            year: song.year,
+            duration: song.duration
+        )
+    }
+
+    /// 建完不再要的查找缓存。
+    public mutating func dropBuildCaches() {
         rawTextKeys = [:]
         folderKeys = [:]
+        albumTitleIdentityKeys = [:]
     }
 
     private mutating func intern(_ text: String?) -> Int32 {
@@ -422,6 +430,75 @@ public struct DiscoveryFeatureColumns {
         let key = Int32(sourceKeys.count)
         sourceKeys[sourceID] = key
         return key
+    }
+}
+
+/// 建表时的各列(一份歌曲列表的特征,按列存)。建好后写成映射文件或一块内存就放掉。
+public struct DiscoveryFeatureColumns {
+    var ids: [String] = []
+    var titles: [String] = []
+    var dateAdded: [Date] = []
+    var playable: [Bool] = []
+    var hasCoverArt: [Bool] = []
+    var albumID: [Int32] = []
+    var albumTitle: [Int32] = []
+    var artistID: [Int32] = []
+    var artistName: [Int32] = []
+    var genre: [Int32] = []
+    var folder: [Int32] = []
+    var source: [Int32] = []
+    var year: [Int?] = []
+    var duration: [TimeInterval] = []
+    var artistIdentity: [Int64] = []
+    var albumIdentity: [Int64] = []
+    var textKeys: [String: Int32] = [:]
+    var sourceKeys: [String: Int32] = [:]
+
+    public var count: Int { ids.count }
+
+    public init?(songs: some Collection<Song>, isCancelled: () -> Bool = { false }) {
+        let count = songs.count
+        ids.reserveCapacity(count)
+        titles.reserveCapacity(count)
+        dateAdded.reserveCapacity(count)
+        playable.reserveCapacity(count)
+        hasCoverArt.reserveCapacity(count)
+        albumID.reserveCapacity(count)
+        albumTitle.reserveCapacity(count)
+        artistID.reserveCapacity(count)
+        artistName.reserveCapacity(count)
+        genre.reserveCapacity(count)
+        folder.reserveCapacity(count)
+        source.reserveCapacity(count)
+        year.reserveCapacity(count)
+        duration.reserveCapacity(count)
+        artistIdentity.reserveCapacity(count)
+        albumIdentity.reserveCapacity(count)
+        var interner = DiscoveryFeatureInterner()
+
+        for (position, song) in songs.enumerated() {
+            if position.isMultiple(of: 512), isCancelled() { return nil }
+            ids.append(song.id)
+            titles.append(song.title)
+            dateAdded.append(song.dateAdded)
+            playable.append(song.isPlayable)
+            hasCoverArt.append(song.coverArtFileName?.isEmpty == false)
+            let row = interner.row(song, position: position)
+            albumID.append(row.feature.albumID)
+            albumTitle.append(row.feature.albumTitle)
+            artistID.append(row.feature.artistID)
+            artistName.append(row.feature.artistName)
+            genre.append(row.feature.genre)
+            folder.append(row.feature.folder)
+            source.append(row.feature.source)
+            year.append(song.year)
+            duration.append(song.duration)
+            artistIdentity.append(row.artistIdentity)
+            albumIdentity.append(row.albumIdentity)
+        }
+        interner.dropBuildCaches()
+        textKeys = interner.textKeys
+        sourceKeys = interner.sourceKeys
     }
 
     // MARK: Serialization

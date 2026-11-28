@@ -73,6 +73,62 @@ public enum QueueContinuationPolicy {
         return seeds
     }
 
+    /// One seed's best `keep` candidates while the library is scanned in list
+    /// order (position = index in the music list). Ties are common (same genre,
+    /// similar length); a per-seed salt breaks them differently each time
+    /// instead of by library order. The whole-table scan and the catalog stream
+    /// both rank through this, so the same rows in the same order give the same
+    /// list.
+    public struct SeedRanking: Sendable {
+        public let seedID: String
+        public let keep: Int
+        private let salt: UInt64
+        public private(set) var entries: [Entry] = []
+
+        public struct Entry: Sendable {
+            public let score: Double
+            public let position: Int
+        }
+
+        public init(seedID: String, keep: Int) {
+            self.seedID = seedID
+            self.keep = keep
+            salt = UInt64(truncatingIfNeeded: seedID.hashValue)
+            entries.reserveCapacity(keep + 1)
+        }
+
+        public func jitter(at position: Int) -> Double {
+            var mixed = (UInt64(position) &+ salt) &* 0x9E37_79B9_7F4A_7C15
+            mixed ^= mixed >> 29
+            return Double(mixed % 1_000) / 1_000
+        }
+
+        /// Only songs that can still make the list pay for the string lookups.
+        public func mayEnter(matchScore: Double, jitter: Double) -> Bool {
+            !(entries.count == keep && matchScore + 4 + jitter <= entries[keep - 1].score)
+        }
+
+        /// Scores the candidate (`matchScore` > 0, playable) and keeps it when it
+        /// ranks among the best `keep`. The seed itself and `excluded` never enter;
+        /// not having played recently is worth 4.
+        public mutating func offer(
+            id: String, matchScore: Double, jitter: Double, position: Int,
+            recentIDs: Set<String>, excluded: Set<String>
+        ) {
+            guard keep > 0, id != seedID, !excluded.contains(id) else { return }
+            let score = matchScore + (recentIDs.contains(id) ? 0 : 4) + jitter
+            if entries.count == keep, score <= entries[keep - 1].score { return }
+            var low = 0
+            var high = entries.count
+            while low < high {
+                let middle = (low + high) / 2
+                if entries[middle].score >= score { low = middle + 1 } else { high = middle }
+            }
+            entries.insert(Entry(score: score, position: position), at: low)
+            if entries.count > keep { entries.removeLast() }
+        }
+    }
+
     /// At most `maximum` songs per group (album, artist) in one top-up, so the
     /// songs after a single track are not just the rest of its album.
     public struct GroupLimit {
