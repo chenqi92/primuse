@@ -65,7 +65,6 @@ legacy-library-api	Primuse/Views/Components/SongRowView.swift	3
 legacy-library-api	Primuse/Views/Components/StoredCoverArtView.swift	4
 legacy-library-api	Primuse/Views/ContentView.swift	11
 legacy-library-api	Primuse/Views/Home/HomeDiscoveryModel.swift	3
-legacy-library-api	Primuse/Views/Home/HomeFoldersSection.swift	3
 legacy-library-api	Primuse/Views/Home/HomeHeroRecommendations.swift	4
 legacy-library-api	Primuse/Views/Home/HomeListeningRankingSection.swift	1
 legacy-library-api	Primuse/Views/Home/HomeMusicVideoSection.swift	1

@@ -133,8 +133,22 @@ public struct FolderOfflineDownloadRequest: Identifiable, Sendable {
         cloudBackedLocalSourceIDs: Set<String> = [],
         songForID: (String) -> Song?
     ) {
+        self.init(
+            nodeID: nodeID, songIDs: index.songIDs(in: nodeID, scope: .descendants), source: source,
+            cloudBackedLocalSourceIDs: cloudBackedLocalSourceIDs, songForID: songForID
+        )
+    }
+
+    /// 同上,文件夹里的歌(整棵子树,索引里的先后)由调用方给:歌曲模型不在内存里时从曲库目录读出来的那份(6c 单元 4 U9a)。
+    public init?(
+        nodeID: LibraryFolderNodeID,
+        songIDs: [String],
+        source: MusicSource?,
+        cloudBackedLocalSourceIDs: Set<String> = [],
+        songForID: (String) -> Song?
+    ) {
         var seen = Set<String>()
-        let songs = index.songIDs(in: nodeID, scope: .descendants).compactMap { id -> Song? in
+        let songs = songIDs.compactMap { id -> Song? in
             guard seen.insert(id).inserted,
                   let song = songForID(id), song.sourceID == nodeID.sourceID,
                   OfflineDownloadActionPolicy.allowsDownload(

@@ -501,6 +501,8 @@ final class ArtistListNavigationPerformanceTests: XCTestCase {
         let intelligence = MusicIntelligenceService(settingsStore: AISettingsStore(defaults: defaults),
                                                      recommendationReuseDefaults: defaults)
         let radio = RadioStationsStore(storeURL: directory.appendingPathComponent("radio.json"))
+        // 资料库入口与有声书卡片要读源的列表(`SourcesStore`);没给时整个页面在首次求值就断言失败。
+        let sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"))
         let probe = ArtistNavigationProbe()
         var builtIDs = Set<String>()
         var labelBuilds = 0
@@ -513,7 +515,7 @@ final class ArtistListNavigationPerformanceTests: XCTestCase {
         window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         let host = UIHostingController(rootView: ArtistNavigationHarness(probe: probe)
             .environment(library).environment(player).environment(manager).environment(intelligence)
-            .environment(radio).environment(ThemeService())
+            .environment(radio).environment(sources).environment(ThemeService())
             .environment(\.appNavigationMode, .standard)
             .environment(\.locale, Locale(identifier: "zh-Hans"))
             .defaultAppStorage(defaults))

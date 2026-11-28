@@ -526,43 +526,22 @@ struct HomeFolderBrowser: View {
         return model.index?.sourceNodes ?? []
     }
 
-    /// The folder's own songs in the chosen order, as IDs, worked out off the main
-    /// actor once per folder and index revision. Sorting them inside `body`
-    /// re-sorted a whole source's songs on every refresh — a source root with
-    /// a few hundred thousand unfoldered songs held the main thread for
-    /// seconds each time the playing song changed.
-    @State private var directSongs: (nodeID: LibraryFolderNodeID?, ids: [String]) = (nil, [])
+    /// 打开的文件夹自己的歌(先后在主线程外排,模型不在内存里时从曲库目录排、行按页取):`HomeFolderSongList`。
+    @State private var songList = HomeFolderSongList()
 
-    /// Empty until the open folder's own list is ready, never the previous one's.
-    private var directSongIDs: [String] {
-        directSongs.nodeID == currentNodeID ? directSongs.ids : []
-    }
+    private var directSongIDs: [String] { songList.ids(for: currentNodeID) }
 
-    private struct DirectSongsKey: Equatable {
-        let nodeID: LibraryFolderNodeID?
-        let revision: Int
-        let order: HomeFolderSongOrder
+    private var directSongsKey: HomeFolderSongList.Key {
+        HomeFolderSongList.key(nodeID: currentNodeID, order: songOrder, model: model, library: library)
     }
 
     /// A `List` registers every row up front; past this many the page shows
     /// the first ones and links to a lazily built page with all of them.
     private static let inlineSongLimit = 300
 
-    private func refreshDirectSongIDs() async {
-        guard let nodeID = currentNodeID, let index = model.index else {
-            directSongs = (currentNodeID, [])
-            return
-        }
-        let ids = LibraryFolderBrowsePolicy.displayedSongIDs(in: index, of: nodeID)
-        let lookup = library.visibleSongLookup()
-        let order = songOrder
-        let spokenWordSongIDs = model.spokenWordSongIDs
-        let ordered = await Task.detached(priority: .userInitiated) {
-            LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }, order: order,
-                                                  spokenWordSongIDs: spokenWordSongIDs).map(\.id)
-        }.value
+    private func refreshDirectSongIDs(_ key: HomeFolderSongList.Key) async {
+        await songList.refresh(key, model: model, library: library)
         guard !Task.isCancelled else { return }
-        directSongs = (nodeID, ordered)
         resolvePendingSongLocation()
     }
 
@@ -636,8 +615,8 @@ struct HomeFolderBrowser: View {
         .onChange(of: model.revision) { _, _ in
             refreshMacSearchContext()
         }
-        .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision, order: songOrder)) {
-            await refreshDirectSongIDs()
+        .task(id: directSongsKey) { [key = directSongsKey] in
+            await refreshDirectSongIDs(key)
         }
         .sheet(item: $albumMetadataSelection) { batch in
             AlbumMetadataView(songs: batch.songs)
@@ -645,8 +624,8 @@ struct HomeFolderBrowser: View {
         #else
         folderList
             .songLocationReader(songLocation, revision: directSongIDs)
-            .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision, order: songOrder)) {
-                await refreshDirectSongIDs()
+            .task(id: directSongsKey) { [key = directSongsKey] in
+                await refreshDirectSongIDs(key)
             }
             .sheet(item: $albumMetadataSelection) { batch in
                 AlbumMetadataView(songs: batch.songs)
@@ -689,7 +668,7 @@ struct HomeFolderBrowser: View {
 
     private func resolvePendingSongLocation() {
         guard let request = pendingSongLocation,
-              directSongs.nodeID == currentNodeID,
+              songList.nodeID == currentNodeID,
               let offset = directSongIDs.firstIndex(of: request.songID) else { return }
         pendingSongLocation = nil
         #if os(iOS)
@@ -798,7 +777,7 @@ struct HomeFolderBrowser: View {
                 if !ids.isEmpty {
                     Section("tab_songs") {
                         ForEach(Array(ids.prefix(Self.inlineSongLimit).enumerated()), id: \.element) { index, songID in
-                            if let song = library.unobservedVisibleSong(id: songID) {
+                            if let song = songList.song(at: index, id: songID, library: library) {
                                 // A fixed row container prevents List from expanding
                                 // SongRowView's conditional menu tree for every song.
                                 HStack(spacing: 0) {
@@ -829,7 +808,7 @@ struct HomeFolderBrowser: View {
             }
         }
         .overlay {
-            if model.index == nil {
+            if model.index == nil || (children.isEmpty && songList.isPending(nodeID)) {
                 ProgressView()
             } else if children.isEmpty && (node?.descendantSongCount ?? 0) == 0 {
                 ContentUnavailableView(
@@ -1108,7 +1087,8 @@ struct HomeFolderBrowser: View {
                     .frame(width: width, alignment: .leading)
             } else {
                 let songID = songIDs[position - songStart]
-                MacHomeFolderSongRow(songID: songID, orderedSongIDs: songIDs, position: position - songStart + 1, columns: columns) { song, action in
+                MacHomeFolderSongRow(songID: songID, orderedSongIDs: songIDs, songs: songList, position: position - songStart + 1,
+                                     columns: columns) { song, action in
                     macSongAction = SongRowActionRequest(song: song, action: action)
                 }
                     .frame(width: width, alignment: .leading)
@@ -1125,7 +1105,7 @@ struct HomeFolderBrowser: View {
             viewportHeight: macListViewportHeight
         ))
         .overlay {
-            if model.index == nil {
+            if model.index == nil || (folders.isEmpty && songList.isPending(nodeID)) {
                 ProgressView()
             } else if folders.isEmpty && songIDs.isEmpty {
                 ContentUnavailableView(
@@ -1532,10 +1512,8 @@ struct HomeFolderBrowser: View {
 
     private func albumMetadataButton(_ node: LibraryFolderNode) -> some View {
         Button("album_metadata_search", systemImage: "square.stack") {
-            let ids = model.index?.songIDs(in: node.id, scope: .descendants) ?? []
-            albumMetadataSelection = BatchSongSelection(
-                songs: ids.compactMap { library.unobservedVisibleSong(id: $0) }
-            )
+            // 模型不在内存里时歌从曲库目录分段取(主线程外),答不了就不打开(`HomeFolderSongs.selectBatch`)。
+            HomeFolderSongs.selectBatch(in: node.id, index: model.index, library: library) { albumMetadataSelection = $0 }
         }
         .disabled(node.descendantSongCount == 0)
         .accessibilityIdentifier("folder.albumMetadata")
@@ -1558,21 +1536,16 @@ private final class HomeFolderCacheAction {
         cloudBackedLocalSourceIDs: Set<String>
     ) {
         cancelPreparation()
-        let lookup = library.visibleSongLookup()
         preparingNodeID = node.id
         preparation = Task {
-            let prepared = await Task.detached(priority: .userInitiated) {
-                FolderOfflineDownloadRequest(
-                    nodeID: node.id,
-                    index: index,
-                    source: source,
-                    cloudBackedLocalSourceIDs: cloudBackedLocalSourceIDs,
-                    songForID: lookup.song
-                )
-            }.value
+            // 模型不在内存里时歌从曲库目录取;答不了(外层 nil)就不弹确认、什么都不下载,不当成文件夹里没有歌。
+            let prepared = await HomeFolderSongs.offlineRequest(
+                node: node, index: index, library: library, source: source,
+                cloudBackedLocalSourceIDs: cloudBackedLocalSourceIDs
+            )
             guard !Task.isCancelled else { return }
             folderTitle = HomeDiscoveryText.folderTitle(node)
-            request = prepared
+            if let prepared { request = prepared }
             preparingNodeID = nil
             preparation = nil
         }
@@ -2075,6 +2048,7 @@ private struct MacFolderScrollReset: ViewModifier {
 private struct MacHomeFolderSongRow: View {
     let songID: String
     let orderedSongIDs: [String]
+    let songs: HomeFolderSongList
     let position: Int
     let columns: MacFolderSongColumns
     let performAction: (Song, SongRowActionRequest.Action) -> Void
@@ -2084,7 +2058,7 @@ private struct MacHomeFolderSongRow: View {
 
     var body: some View {
         // Observe replacements only for rows inside the scroll window.
-        if let song = library.visibleSong(id: songID) {
+        if let song = songs.song(at: position - 1, id: songID, library: library, observed: true) {
             let isCurrent = player.currentSong?.id == songID
             Button {
                 if song.isPlayable {
@@ -2283,15 +2257,15 @@ enum HomeDiscoveryPlayback {
             play(ids: ids, shuffle: true, library: library, player: player)
             return
         }
-        let lookup = library.visibleSongLookup()
         let order = HomeFolderSongOrderPreference.load()
         let spokenWordSongIDs = model.spokenWordSongIDs
         Task {
-            let ordered = await Task.detached(priority: .userInitiated) {
-                LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }, order: order,
-                                                      spokenWordSongIDs: spokenWordSongIDs).map(\.id)
-            }.value
-            play(ids: ordered, library: library, player: player)
+            // 模型不在内存里时在曲库目录上排(与内存里排的相同);答不了就不播(`HomeFolderSongs.ordered`)。
+            guard let ordered = await HomeFolderSongs.ordered(
+                in: id, scope: .descendants, index: index, order: order, spokenWordSongIDs: spokenWordSongIDs,
+                library: library, wait: .action
+            ) else { return }
+            play(ids: ordered.ids, library: library, player: player)
         }
     }
 

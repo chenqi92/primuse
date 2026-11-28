@@ -82,7 +82,7 @@ Primuse/Views/Components/SongPlaybackRangeEditor.swift	1147
 Primuse/Views/Components/SongRowView.swift	2809
 Primuse/Views/Components/StoredCoverArtView.swift	2315
 Primuse/Views/ContentView.swift	4635
-Primuse/Views/Home/HomeFoldersSection.swift	2436
+Primuse/Views/Home/HomeFoldersSection.swift	2431
 Primuse/Views/Home/HomeForYouSection.swift	1097
 Primuse/Views/Home/HomeHeroCarousel.swift	1071
 Primuse/Views/Home/HomeHeroRecommendations.swift	1090
@@ -101,7 +101,7 @@ Primuse/Views/Library/PlaylistDetailView.swift	3374
 Primuse/Views/Library/PlaylistListView.swift	1836
 Primuse/Views/Library/SmartPlaylistDetailView.swift	1165
 Primuse/Views/Library/SmartPlaylistEditorView.swift	1344
-Primuse/Views/Library/SongListView.swift	8040
+Primuse/Views/Library/SongListView.swift	8039
 Primuse/Views/Library/SpokenWordLibraryView.swift	3272
 Primuse/Views/Library/TagEditorView.swift	2756
 Primuse/Views/Mac/DesktopLyricsIslandView.swift	1161

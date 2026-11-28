@@ -4349,10 +4349,10 @@ struct SongListView: View {
                 Self.releaseOffMain(LibraryFolderIndexReuseCache.shared.store(prepared, for: reuseKey))
             }
             if selection.isActive, !selection.isEmpty, library.isReady {
-                let validIDs = listCache.isEmpty
-                    ? Set(songs.lazy.map(\.id))
-                    : Set(listCache.orderedSongIDs)
-                selection.prune(to: validIDs)
+                selection.prune(to: listCache.isEmpty ? Set(songs.lazy.map(\.id)) : Set(listCache.orderedSongIDs))
+            } else if selection.isActive, !selection.isEmpty, let catalogReader {
+                // 模型不在内存里:按曲库目录里这一页范围内还在的歌修剪(U9a);答不了就不修剪。
+                SongSelectionCatalogPrune.prune(selection, scope: catalogScope.songScope, reader: catalogReader)
             }
         }
     }
@@ -5743,9 +5743,8 @@ private struct LibraryFolderNodeBranch: View {
         // The menu must outlive the navigation-to-selection content change.
         .contextMenu {
             Button("album_metadata_search", systemImage: "square.stack") {
-                albumMetadataSelection = BatchSongSelection(
-                    songs: actionSongIDs().compactMap { library.unobservedVisibleSong(id: $0) }
-                )
+                // 模型不在内存里时歌从曲库目录分段取,答不了就不打开(U9a,`HomeFolderSongs.selectBatch`)。
+                HomeFolderSongs.selectBatch(ids: actionSongIDs(), library: library) { albumMetadataSelection = $0 }
             }
             .disabled(node.descendantSongCount == 0)
             Button {
