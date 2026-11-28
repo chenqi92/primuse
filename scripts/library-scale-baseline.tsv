@@ -6,7 +6,7 @@ legacy-library-api	Primuse/App/CarPlaySceneDelegate.swift	17
 legacy-library-api	Primuse/App/DebugAccessibilityScript.swift	5
 legacy-library-api	Primuse/App/HomeScreenQuickActions.swift	2
 legacy-library-api	Primuse/App/PlayMediaIntentHandler.swift	7
-legacy-library-api	Primuse/App/PrimuseApp.swift	12
+legacy-library-api	Primuse/App/PrimuseApp.swift	11
 legacy-library-api	Primuse/Services/AI/LibraryInsightBatchFill.swift	2
 legacy-library-api	Primuse/Services/AppleMusic/AppleMusicLibraryService.swift	1
 legacy-library-api	Primuse/Services/Audio/AudioCacheSyncService.swift	2
@@ -189,7 +189,7 @@ library-array-property	Primuse/Views/Library/AlbumDetailView.swift	1
 library-array-property	Primuse/Views/Library/AmbientSoundsView.swift	1
 library-array-property	Primuse/Views/Library/ArtistDetailView.swift	2
 library-array-property	Primuse/Views/Library/FavoriteCollectionView.swift	1
-library-array-property	Primuse/Views/Library/LibraryView.swift	2
+library-array-property	Primuse/Views/Library/LibraryView.swift	1
 library-array-property	Primuse/Views/Library/MusicVideoLibraryView.swift	1
 library-array-property	Primuse/Views/Library/PlaylistDetailView.swift	3
 library-array-property	Primuse/Views/Library/PlaylistPendingEntryRow.swift	1

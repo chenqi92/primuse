@@ -561,6 +561,37 @@ extension LibraryCatalog {
         }
     }
 
+    /// 有声书有几本、几章(同内存里的 `spokenWordBookCount` / `spokenWordChapterCount`):本数是可见有声条目分到的书
+    /// id 有几个,章数按 `SpokenWordChapterTally`(带内嵌章节的文件按章节数,其余一个文件一章)。
+    public func spokenWordTotals() throws -> (books: Int, chapters: Int) {
+        try reader.read { db in
+            let (sql, arguments) = try LibrarySongScope(kinds: [.spokenWord]).whereClause(in: db)
+            let books = try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT count(DISTINCT b.bookID) FROM song s JOIN songBook b ON b.songRowid = s.rowid
+                    WHERE \(sql) AND b.kind = \(LibraryCatalogContentKind.spokenWord.rawValue) AND b.bookID IS NOT NULL
+                    """,
+                arguments: arguments
+            ) ?? 0
+            var chapters = 0
+            let rows = try Row.fetchCursor(db, sql: "SELECT s.extra FROM song s WHERE \(sql)", arguments: arguments)
+            while let row = try rows.next() {
+                var embedded: Int?
+                if let blob = row.dataNoCopy(atIndex: 0) {
+                    var extra = ExtraReader(blob)
+                    var strings: [Int: String] = [:]
+                    var doubles: [Int: UInt64] = [:]
+                    var rare = LibraryCatalogSongCodec.RareFields()
+                    try LibraryCatalogSongCodec.decodeRareFields(&extra, into: &rare, strings: &strings, doubles: &doubles)
+                    embedded = rare.contentMetadata?.embeddedChapterCount
+                }
+                chapters += SpokenWordChapterTally.chapters(embeddedChapterCount: embedded)
+            }
+            return (books, chapters)
+        }
+    }
+
     /// 一个范围里按库内顺序的头几首的 id(资料库入口上 MV、有声书、环境音那几张小封面,同数组的 `prefix`)。
     public func firstSongIDs(_ scope: LibrarySongScope, limit: Int) throws -> [String] {
         guard limit > 0 else { return [] }
@@ -673,5 +704,86 @@ public struct LibraryCatalogShowPlacement: Sendable, Equatable {
     public init(showID: String, title: String?) {
         self.showID = showID
         self.title = title
+    }
+}
+
+/// 资料库入口挑封面预览时一首歌要的几样(Q2,6c 单元 4 U3b),按 `decode(_:)` 的规则读(extra 的覆盖值优先)。
+public struct LibraryArtworkPreviewSongRow: Sendable, Equatable {
+    public let id: String
+    public let sourceID: String
+    public let albumID: String?
+    public let artistID: String?
+    public let coverArtFileName: String?
+    public let filePath: String
+}
+
+extension LibraryCatalog {
+    /// 范围里的歌按库内顺序逐首交出预览挑选要的几样,不整首解码(资料库入口在歌曲模型不在内存里时挑封面用)。
+    public func forEachArtworkPreviewSong(
+        _ scope: LibrarySongScope, _ body: (LibraryArtworkPreviewSongRow) throws -> Void
+    ) throws {
+        try reader.read { db in
+            let (sql, arguments) = try scope.whereClause(in: db)
+            let rows = try Row.fetchCursor(
+                db,
+                sql: """
+                    SELECT s.id, source.id, s.albumID, s.artistID, s.coverArtFileName, s.filePath, s.extra
+                    FROM song s JOIN source ON source.key = s.sourceKey
+                    WHERE \(sql) ORDER BY s.rowid
+                    """,
+                arguments: arguments
+            )
+            while let row = try rows.next() {
+                var strings: [Int: String] = [:]
+                if let blob = row.dataNoCopy(atIndex: 6) {
+                    var extra = ExtraReader(blob)
+                    var doubles: [Int: UInt64] = [:]
+                    var rare = LibraryCatalogSongCodec.RareFields()
+                    try LibraryCatalogSongCodec.decodeRareFields(&extra, into: &rare, strings: &strings, doubles: &doubles)
+                }
+                guard let id = strings[LibraryCatalogSongCodec.Column.id] ?? (row[0] as String?),
+                      let filePath = strings[LibraryCatalogSongCodec.Column.filePath] ?? (row[5] as String?) else { continue }
+                try body(LibraryArtworkPreviewSongRow(
+                    id: id, sourceID: row[1],
+                    albumID: strings[LibraryCatalogSongCodec.Column.albumID] ?? row[2],
+                    artistID: strings[LibraryCatalogSongCodec.Column.artistID] ?? row[3],
+                    coverArtFileName: strings[LibraryCatalogSongCodec.Column.coverArtFileName] ?? row[4],
+                    filePath: filePath
+                ))
+            }
+        }
+    }
+
+    /// 这些专辑键对应的专辑 id(保持顺序,跳过不在的)。
+    public func albumIDs(keys: some Collection<Int32>) throws -> [(key: Int32, id: String)] {
+        try keyedRows(table: "album", extraColumn: nil, keys: keys).map { (key: $0.key, id: $0.id) }
+    }
+
+    /// 这些艺人键对应的艺人 id 与头像路径(保持顺序,跳过不在的)。
+    public func artistIDsAndThumbnails(keys: some Collection<Int32>) throws -> [(key: Int32, id: String, thumbnailPath: String?)] {
+        try keyedRows(table: "artist", extraColumn: "thumbnailPath", keys: keys)
+    }
+
+    private func keyedRows(
+        table: String, extraColumn: String?, keys: some Collection<Int32>
+    ) throws -> [(key: Int32, id: String, thumbnailPath: String?)] {
+        let ordered = Array(keys)
+        guard !ordered.isEmpty else { return [] }
+        return try reader.read { db in
+            var byKey: [Int32: (String, String?)] = [:]
+            byKey.reserveCapacity(ordered.count)
+            for chunk in Self.chunks(of: ordered) {
+                let rows = try Row.fetchCursor(
+                    db,
+                    sql: "SELECT key, id, \(extraColumn ?? "NULL") FROM \(table) WHERE key IN (\(Self.placeholders(chunk.count)))",
+                    arguments: StatementArguments(chunk.map(Int64.init))
+                )
+                while let row = try rows.next() {
+                    let key: Int64 = row[0]
+                    byKey[Int32(truncatingIfNeeded: key)] = (row[1], row[2])
+                }
+            }
+            return ordered.compactMap { key in byKey[key].map { (key: key, id: $0.0, thumbnailPath: $0.1) } }
+        }
     }
 }

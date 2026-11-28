@@ -599,19 +599,6 @@ enum LibraryPinStorage {
     }
 }
 
-private struct LibraryArtworkPreviewSelection: Sendable {
-    var revision = ""
-    /// 挑这一份时的用户改动部分(快捷访问、手选封面)。只有它变了才立刻重挑。
-    var userRevision = ""
-    var songs: [Song] = []
-    var albums: [Album] = []
-    var artists: [Artist] = []
-    var playlists: [Playlist] = []
-    var radioStations: [RadioStation] = []
-    var albumFallbackSongs: [String: [Song]] = [:]
-    var artistFallbackSongs: [String: [Song]] = [:]
-}
-
 private enum LibraryPodcastCover: Identifiable {
     case subscription(PodcastShow)
     case libraryEpisode(Song)
@@ -714,80 +701,6 @@ private final class LibraryArtworkPreviewSessionStore {
     }
 }
 
-private enum LibraryArtworkPreviewBuilder {
-    static func hasReference(_ value: String?) -> Bool {
-        guard let value else { return false }
-        return autoreleasepool {
-            !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-    }
-
-    static func songHasArtworkHint(_ song: Song) -> Bool {
-        hasReference(song.coverArtFileName)
-            || (song.sourceID == AppleMusicLibraryIdentity.sourceID && !song.filePath.isEmpty)
-    }
-
-    static func select<Item>(
-        _ items: [Item],
-        maximumCount: Int = 3,
-        randomSeed: String,
-        id: (Item) -> String,
-        hasArtworkHint: (Item) -> Bool
-    ) -> [Item] {
-        guard maximumCount > 0, !items.isEmpty else { return [] }
-        typealias RankedItem = (id: String, item: Item, hasArtworkHint: Bool, rank: UInt64)
-        func precedes(_ lhs: RankedItem, _ rhs: RankedItem) -> Bool {
-            if lhs.hasArtworkHint != rhs.hasArtworkHint {
-                return lhs.hasArtworkHint
-            }
-            if lhs.rank != rhs.rank {
-                return lhs.rank < rhs.rank
-            }
-            return lhs.id < rhs.id
-        }
-
-        var seedHash: UInt64 = 14_695_981_039_346_656_037
-        for byte in randomSeed.utf8 {
-            seedHash ^= UInt64(byte)
-            seedHash = seedHash &* 1_099_511_628_211
-        }
-        seedHash ^= 0
-        seedHash = seedHash &* 1_099_511_628_211
-
-        var selected: [RankedItem] = []
-        selected.reserveCapacity(min(maximumCount, items.count))
-        for item in items {
-            let itemID = id(item)
-            guard !itemID.isEmpty else { continue }
-            let hint = autoreleasepool { hasArtworkHint(item) }
-            var rank = seedHash
-            for byte in itemID.utf8 {
-                rank ^= UInt64(byte)
-                rank = rank &* 1_099_511_628_211
-            }
-            let candidate: RankedItem = (id: itemID, item: item, hasArtworkHint: hint, rank: rank)
-            if let existingIndex = selected.firstIndex(where: { $0.id == itemID }) {
-                guard precedes(candidate, selected[existingIndex]) else { continue }
-                selected.remove(at: existingIndex)
-            } else if selected.count == maximumCount,
-                      let worst = selected.last,
-                      !precedes(candidate, worst) {
-                continue
-            }
-            let insertionIndex = selected.firstIndex { precedes(candidate, $0) } ?? selected.endIndex
-            if insertionIndex < maximumCount {
-                selected.insert(candidate, at: insertionIndex)
-                if selected.count > maximumCount {
-                    selected.removeLast()
-                }
-            } else if selected.count < maximumCount {
-                selected.append(candidate)
-            }
-        }
-        return selected.map(\.item)
-    }
-}
-
 /// 资料库浏览区的一段: 要么是整幅的「快速访问」货架, 要么是一串等高的分类入口。
 private struct LibraryBrowseRun: Identifiable {
     let id: String
@@ -853,6 +766,8 @@ struct LibraryView: View {
     @State private var startupCoverSongs: [String: Song] = [:]
     /// 歌曲模型不在内存里时 MV、有声书、环境音入口上的头三首(从曲库目录读,见 `LibraryHubReleased`)。
     @State private var releasedTileSongs: [LibrarySection: [Song]] = [:]
+    /// 模型在内存里时最后一次算好的收藏货架(放掉之后照它摆,见 `shelfPins`)。
+    @State private var lastHubPins: [LibraryPinReference]?
     @AppStorage(LibraryHubStartupPreview.storageKey) private var hubPreviewData: Data?
 
     private var hubScope: LibraryHubStartupPreview.Scope {
@@ -931,6 +846,21 @@ struct LibraryView: View {
         return FavoriteCollectionStore.shared.references(library: library).filter(pinExists)
     }
     /// 资料库首页的收藏货架只摆前面这些，其余在「查看全部」里。
+    /// 收藏货架上摆的那几个:模型在内存里时现算;放掉之后用最后一次算好的(6c U3b:收藏的成员要整库的专辑、艺人)。
+    private var shelfPins: [LibraryPinReference] {
+        library.isReady ? hubPins : (lastHubPins ?? [])
+    }
+    /// 放掉之后货架还要整库(书、目录的收藏要整份有声条目或目录索引;一次都没算过时也要):入口占用模型直到它回来。
+    private var shelfNeedsTheSongModel: Bool {
+        guard !library.isReady, visibleLibrarySections.contains(.favorites) else { return false }
+        guard let pins = lastHubPins else { return true }
+        return pins.contains { $0.kind == .book || ($0.kind == .folder && favoriteFolderModel.index == nil) }
+    }
+    /// 「专辑艺术家」列法的人数与头像要 U4b 的目录查询;那之前放掉时入口占用模型。
+    private var artistTileNeedsTheSongModel: Bool {
+        !library.isReady && visibleLibrarySections.contains(.artists)
+            && ArtistBrowseMode.resolved(artistBrowseModeRaw) != .allArtists
+    }
     private var hubPins: [LibraryPinReference] {
         Array(visiblePins.prefix(usesMinimalSectionControls ? 12 : 20))
     }
@@ -1339,6 +1269,10 @@ struct LibraryView: View {
             .padding(.bottom, 32)
         }
         .pmExtendsUnderVerticalBar()
+        .songModelPage(needsArrays: shelfNeedsTheSongModel || artistTileNeedsTheSongModel)
+        .onChange(of: library.isReady ? hubPins.map(\.id) : nil, initial: true) { _, ids in
+            if ids != nil { lastHubPins = hubPins }
+        }
         .background {
             if library.isReady && hasFolderFavorites {
                 HomeDiscoveryObserver(model: favoriteFolderModel)
@@ -1358,6 +1292,7 @@ struct LibraryView: View {
                    !Task.isCancelled {
                     releasedTileSongs = tiles
                 }
+                if hubIsLive, !Task.isCancelled { await refreshArtworkPreviews(for: previewRevision) }
             }
         }
         .serverCatalogPullToRefresh(alsoRefresh: {
@@ -1417,7 +1352,7 @@ struct LibraryView: View {
 
     private var quickAccessItems: some View {
         Group {
-            ForEach(hubPins) { @Sendable pin in
+            ForEach(shelfPins) { @Sendable pin in
                 LazyItemCell {
                     pinnedItemCard(pin)
                 }
@@ -1502,7 +1437,7 @@ struct LibraryView: View {
 
         for section in visibleLibrarySections {
             if section == .favorites {
-                guard library.isReady else { continue }
+                guard library.isReady || (hubIsLive && lastHubPins != nil) else { continue }
                 flushPending()
                 runs.append(LibraryBrowseRun(
                     id: "quickAccess",
@@ -1931,7 +1866,8 @@ struct LibraryView: View {
     }
 
     private var previewGenreSongs: [Song] {
-        genres.prefix(3).compactMap { genre in
+        guard library.isReady else { return releasedTileSongs[.genres] ?? [] }
+        return genres.prefix(3).compactMap { genre in
             genre.representativeSongIDs.lazy.compactMap { library.visibleSong(id: $0) }.first
         }
     }
@@ -2112,8 +2048,9 @@ struct LibraryView: View {
     private func cachedHubCovers(for section: LibrarySection) -> [Song]? {
         guard let saved = startupPreview, saved.scope == hubScope,
               let ids = saved.coverSongIDs[section.rawValue] else { return nil }
+        // 这一刻的挑选已经有了(装着,或者放掉之后从曲库目录挑的):用它,不用存下的那份。
+        guard !hasCurrentArtworkPreviewSelection else { return nil }
         if library.isReady {
-            guard !hasCurrentArtworkPreviewSelection else { return nil }
             return ids.prefix(3).compactMap { library.unobservedVisibleSong(id: $0) }
         }
         return ids.prefix(3).compactMap { startupCoverSongs[$0] }
@@ -2161,7 +2098,9 @@ struct LibraryView: View {
 
     @MainActor
     private func refreshArtworkPreviews(for revision: String) async {
-        guard library.isReady else { return }
+        // 6c U3b: 模型放掉了时从曲库目录挑(全部艺术家;专辑艺术家的列表要 U4b 的目录查询,那时入口占用模型)。
+        let released = !library.isReady
+        guard !released || (hubIsLive && ArtistBrowseMode.resolved(artistBrowseModeRaw) == .allArtists) else { return }
         if artworkPreviewSelection.revision == revision {
             await saveHubPreview(artworkPreviewSelection, revision: revision)
             return
@@ -2190,18 +2129,19 @@ struct LibraryView: View {
             return
         }
         guard !Task.isCancelled, artworkPreviewRevision == revision else { return }
-        await library.prepareArtworkIdentityResolutions()
+        if !released { await library.prepareArtworkIdentityResolutions() }
         guard !Task.isCancelled, artworkPreviewRevision == revision else { return }
-        let songsSnapshot = songs
-        let albumsSnapshot = albums
-        let artistsSnapshot = artists
+        let songsSnapshot = released ? [] : songs
+        let albumsSnapshot = released ? [] : albums
+        let artistsSnapshot = released ? [] : artists
+        let releasedCatalog = released ? library.catalogHost?.mirror.readableCatalog : nil
         let playlistsSnapshot = regularPlaylists
         let radioSnapshot = radioStationsStore.stations
         // 收藏货架上摆出来的那几张才要备用封面。
-        let pinnedAlbumIDs = Set(hubPins.compactMap { pin in
+        let pinnedAlbumIDs = Set(shelfPins.compactMap { pin in
             pin.kind == .album ? pin.itemID : nil
         })
-        let pinnedArtistIDs = Set(hubPins.compactMap { pin in
+        let pinnedArtistIDs = Set(shelfPins.compactMap { pin in
             pin.kind == .artist ? pin.itemID : nil
         })
 
@@ -2233,106 +2173,22 @@ struct LibraryView: View {
         let selection = await LibraryArtworkPreviewSessionStore.shared.selection(
             for: revision
         ) { randomSeed in
-            // 只要几组 id, 不复制一份整库歌曲数组。
-            let allPlaylistMemberIDs = playlistMemberIDs.isEmpty
-                ? Set<String>()
-                : Set(playlistMemberIDs.values.joined())
-            var albumIDsWithSongArtworkHint = Set<String>()
-            var artistIDsWithSongArtworkHint = Set<String>()
-            var playlistSongIDsWithArtworkHint = Set<String>()
-            for song in songsSnapshot where LibraryArtworkPreviewBuilder.songHasArtworkHint(song) {
-                if !allPlaylistMemberIDs.isEmpty, allPlaylistMemberIDs.contains(song.id) {
-                    playlistSongIDsWithArtworkHint.insert(song.id)
-                }
-                if let albumID = song.albumID { albumIDsWithSongArtworkHint.insert(albumID) }
-                if let artistID = song.artistID { artistIDsWithSongArtworkHint.insert(artistID) }
+            if let releasedCatalog {
+                return (try? LibraryArtworkPreviewBuilder.catalogSelection(
+                    catalog: releasedCatalog, randomSeed: randomSeed, revision: revision, userRevision: userRevision,
+                    playlists: playlistsSnapshot, playlistMemberIDs: playlistMemberIDs, radioStations: radioSnapshot,
+                    albumOverrideIDs: albumOverrideIDs, artistOverrideIDs: artistOverrideIDs,
+                    playlistOverrideIDs: playlistOverrideIDs,
+                    pinnedAlbumIDs: pinnedAlbumIDs, pinnedArtistIDs: pinnedArtistIDs
+                )) ?? LibraryArtworkPreviewSelection()
             }
-            let playlistIDsWithMemberArtworkHint = Set(playlistMemberIDs.compactMap { entry in
-                entry.value.contains(where: playlistSongIDsWithArtworkHint.contains) ? entry.key : nil
-            })
-
-            let selectedSongs = LibraryArtworkPreviewBuilder.select(
-                songsSnapshot,
-                randomSeed: "\(randomSeed)#songs",
-                id: \Song.id,
-                hasArtworkHint: LibraryArtworkPreviewBuilder.songHasArtworkHint
-            )
-            let selectedAlbums = LibraryArtworkPreviewBuilder.select(
-                albumsSnapshot,
-                randomSeed: "\(randomSeed)#albums",
-                id: \Album.id
-            ) { album in
-                albumOverrideIDs.contains(album.id)
-                    || albumIDsWithSongArtworkHint.contains(album.id)
-                    || MetadataAssetStore.shared.hasAlbumCover(forAlbumID: album.id)
-            }
-            let selectedArtists = LibraryArtworkPreviewBuilder.select(
-                artistsSnapshot,
-                randomSeed: "\(randomSeed)#artists",
-                id: \Artist.id
-            ) { artist in
-                artistOverrideIDs.contains(artist.id)
-                    || LibraryArtworkPreviewBuilder.hasReference(artist.thumbnailPath)
-                    || artistIDsWithSongArtworkHint.contains(artist.id)
-                    || MetadataAssetStore.shared.hasArtistImage(forArtistID: artist.id)
-            }
-            let selectedPlaylists = LibraryArtworkPreviewBuilder.select(
-                playlistsSnapshot,
-                randomSeed: "\(randomSeed)#playlists",
-                id: \Playlist.id
-            ) { playlist in
-                playlistOverrideIDs.contains(playlist.id)
-                    || (
-                        playlist.hasDedicatedCoverArt
-                            && LibraryArtworkPreviewBuilder.hasReference(playlist.coverArtPath)
-                    )
-                    || playlistIDsWithMemberArtworkHint.contains(playlist.id)
-            }
-            let selectedRadioStations = LibraryArtworkPreviewBuilder.select(
-                radioSnapshot,
-                randomSeed: "\(randomSeed)#radio",
-                id: \RadioStation.id
-            ) { station in
-                station.logoData.map(ArtworkImageCompatibility.isCompleteImage) == true
-                    || LibraryArtworkPreviewBuilder.hasReference(station.logoFileName)
-            }
-
-            let fallbackAlbumIDs = pinnedAlbumIDs.union(selectedAlbums.map(\.id))
-            let albumGroups = Dictionary(grouping: songsSnapshot.filter { song in
-                song.albumID.map(fallbackAlbumIDs.contains) == true
-            }) { $0.albumID ?? "" }
-            let albumFallbackSongs = albumGroups.mapValues { albumSongs in
-                LibraryArtworkPreviewBuilder.select(
-                    albumSongs,
-                    randomSeed: "\(randomSeed)#album#\(albumSongs.first?.albumID ?? "")",
-                    id: \Song.id,
-                    hasArtworkHint: LibraryArtworkPreviewBuilder.songHasArtworkHint
-                )
-            }
-
-            let fallbackArtistIDs = pinnedArtistIDs.union(selectedArtists.map(\.id))
-            let artistGroups = Dictionary(grouping: songsSnapshot.filter { song in
-                song.artistID.map(fallbackArtistIDs.contains) == true
-            }) { $0.artistID ?? "" }
-            let artistFallbackSongs = artistGroups.mapValues { artistSongs in
-                LibraryArtworkPreviewBuilder.select(
-                    artistSongs,
-                    randomSeed: "\(randomSeed)#artist#\(artistSongs.first?.artistID ?? "")",
-                    id: \Song.id,
-                    hasArtworkHint: LibraryArtworkPreviewBuilder.songHasArtworkHint
-                )
-            }
-
-            return LibraryArtworkPreviewSelection(
-                revision: revision,
-                userRevision: userRevision,
-                songs: selectedSongs,
-                albums: selectedAlbums,
-                artists: selectedArtists,
-                playlists: selectedPlaylists,
-                radioStations: selectedRadioStations,
-                albumFallbackSongs: albumFallbackSongs,
-                artistFallbackSongs: artistFallbackSongs
+            return LibraryArtworkPreviewBuilder.memorySelection(
+                songs: songsSnapshot, albums: albumsSnapshot, artists: artistsSnapshot,
+                randomSeed: randomSeed, revision: revision, userRevision: userRevision,
+                playlists: playlistsSnapshot, playlistMemberIDs: playlistMemberIDs, radioStations: radioSnapshot,
+                albumOverrideIDs: albumOverrideIDs, artistOverrideIDs: artistOverrideIDs,
+                playlistOverrideIDs: playlistOverrideIDs,
+                pinnedAlbumIDs: pinnedAlbumIDs, pinnedArtistIDs: pinnedArtistIDs
             )
         }
 
@@ -2369,8 +2225,11 @@ struct LibraryView: View {
             // 有声书按书和章节计,不是「几首歌曲」。带内嵌章节的文件按章节数算,其余一个文件一章。
             let totals: (books: Int, chapters: Int)
             // 书与章节的数放掉模型时照旧留着(19a)。
-            if library.isReady || (hubIsLive && library.spokenWordBookCount > 0) {
+            if library.isReady {
                 totals = (library.spokenWordBookCount, library.spokenWordChapterCount)
+            } else if hubIsLive, let counts = catalogHubCounts {
+                // 6c U3b: 放掉之后(连从没装过模型的启动)从曲库目录数本数、章数。
+                totals = (counts.spokenWordBooks, counts.spokenWordChapters)
             } else if let cached = currentStartupPreview, let books = cached.counts[section.rawValue] {
                 totals = (books, cached.chapters)
             } else { return "—" }

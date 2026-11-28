@@ -3566,17 +3566,20 @@ private struct DebugLaunchAutomation: ViewModifier {
             .task {
                 let env = ProcessInfo.processInfo.environment
                 guard let needle = env["PRIMUSE_AUTOPLAY_SONG"]?.lowercased(), !needle.isEmpty else { return }
+                let library = AppServices.shared.musicLibrary
+                if let delay = DebugAutoplayLookup.delayAfterUsable {
+                    await library.whenUsable()
+                    try? await Task.sleep(for: delay)
+                }
                 for _ in 0..<150 {
                     try? await Task.sleep(for: .seconds(2))
                     guard !Task.isCancelled else { return }
-                    let songs = AppServices.shared.musicLibrary.songs
-                    guard let song = songs.first(where: { $0.title.lowercased().contains(needle) }) else { continue }
-                    plog("🧪 DebugLaunchAutomation: autoplay '\(song.title)'")
+                    // 模型不在内存里时从曲库目录找(见 `DebugAutoplayLookup`)。
+                    guard let song = await DebugAutoplayLookup.song(titleContaining: needle, library: library) else { continue }
+                    plog("🧪 DebugLaunchAutomation: autoplay '\(song.title)' songModelLoaded=\(library.isReady)")
                     let player = AppServices.shared.playerService
                     if env["PRIMUSE_AUTOPLAY_QUEUE"] == "album", let albumTitle = song.albumTitle {
-                        let album = songs
-                            .filter { $0.albumTitle == albumTitle }
-                            .sorted { ($0.trackNumber ?? 0, $0.title) < ($1.trackNumber ?? 0, $1.title) }
+                        let album = await DebugAutoplayLookup.albumQueue(albumTitle: albumTitle, library: library)
                         await player.play(queue: album, startingAt: album.firstIndex { $0.id == song.id } ?? 0)
                     } else if env["PRIMUSE_AUTOPLAY_QUEUE"] == "single" {
                         await player.play(queue: [song], startingAt: 0)

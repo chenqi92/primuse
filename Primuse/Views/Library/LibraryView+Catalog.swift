@@ -21,6 +21,9 @@ struct LibraryHubCatalogCounts: Sendable, Equatable {
     var podcast = 0
     /// 本机播客有几档节目(`localPodcastShowCount`)。
     var podcastShows = 0
+    /// 有声书几本、几章(`spokenWordBookCount` / `spokenWordChapterCount`)。
+    var spokenWordBooks = 0
+    var spokenWordChapters = 0
     var musicVideos = 0
     var visibleBySource: [String: Int] = [:]
     /// `visibleSongs.contains(where: \.isPlayable)`
@@ -109,6 +112,7 @@ final class LibraryHubCatalogCountsModel {
                 counts.ambient = try catalog.songCount(LibrarySongScope(kinds: [.ambient]))
                 counts.podcast = try catalog.songCount(LibrarySongScope(kinds: [.podcast]))
                 counts.podcastShows = try catalog.podcastShowCount()
+                (counts.spokenWordBooks, counts.spokenWordChapters) = try catalog.spokenWordTotals()
                 counts.musicVideos = try catalog.musicVideoSongCount()
                 counts.visibleBySource = try catalog.songCountsBySource(.visible)
                 counts.hasPlayableVisibleSong = try catalog.containsSongs(LibrarySongScope(playableOnly: true))
