@@ -545,18 +545,31 @@ extension ListeningStatsView {
 
         let key = SnapshotKey(corpus: corpusKey, presentation: trigger.presentation)
         guard model.snapshotKey != key || model.snapshot == nil else { return }
+        let resolvedCandidates = if let library {
+            await PlayHistoryStore.resolveMissingSongIDs(for: corpus.music, in: library) ?? [:]
+        } else {
+            [String: [String]]()
+        }
+        guard !Task.isCancelled, trigger == refreshTrigger else { return }
         let traits: [String: ListeningRecapSongTraits]
-        if let library, let catalogTraits = await Self.catalogSongTraits(for: corpus.music, library: library) {
+        if let library, let catalogTraits = await Self.catalogSongTraits(
+            for: corpus.music, library: library, resolvedCandidates: resolvedCandidates
+        ) {
             traits = catalogTraits
         } else {
-            traits = library.map { YearlyReportAnalyzer.songTraits(for: corpus.music, library: $0) } ?? [:]
+            traits = library.map {
+                YearlyReportAnalyzer.songTraits(for: corpus.music, library: $0, resolvedCandidates: resolvedCandidates)
+            } ?? [:]
         }
         guard !Task.isCancelled, trigger == refreshTrigger else { return }
         let calendar = statsCalendar
         let now = Date()
         let requestedYear = trigger.presentation.year
         var snapshot = await Task.detached(priority: .userInitiated) {
-            Self.makeSnapshot(corpus: corpus, traits: traits, requestedYear: requestedYear, now: now, calendar: calendar)
+            Self.makeSnapshot(
+                corpus: corpus, traits: traits, requestedYear: requestedYear,
+                now: now, calendar: calendar, resolvedCandidates: resolvedCandidates
+            )
         }.value
         guard !Task.isCancelled, trigger == refreshTrigger else { return }
         if var report = snapshot.report {
@@ -626,14 +639,23 @@ extension ListeningStatsView {
     @MainActor
     private static func catalogSongTraits(
         for entries: [PlayHistoryStore.Entry],
-        library: MusicLibrary
+        library: MusicLibrary,
+        resolvedCandidates: [String: [String]] = [:]
     ) async -> [String: ListeningRecapSongTraits]? {
         guard let reader = P2cCatalogAccess.reader(for: library) else { return nil }
         do {
-            let songs = try await reader.songsChunked(ids: Array(Set(entries.map(\.songID))), scope: .everything)
+            var requestedIDs = Set(entries.map(\.songID))
+            for ids in resolvedCandidates.values {
+                if let first = ids.first { requestedIDs.insert(first) }
+            }
+            let songs = try await reader.songsChunked(ids: Array(requestedIDs), scope: .everything)
+            let byID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             var traits: [String: ListeningRecapSongTraits] = [:]
-            for song in songs {
-                traits[song.id] = ListeningRecapSongTraits(
+            for songID in Set(entries.map(\.songID)) {
+                let song = byID[songID]
+                    ?? resolvedCandidates[songID]?.lazy.compactMap { byID[$0] }.first
+                guard let song else { continue }
+                traits[songID] = ListeningRecapSongTraits(
                     genre: song.genre, year: song.year, duration: song.duration, format: song.fileFormat
                 )
             }
@@ -651,7 +673,8 @@ extension ListeningStatsView {
         traits: [String: ListeningRecapSongTraits],
         requestedYear: Int?,
         now: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        resolvedCandidates: [String: [String]] = [:]
     ) -> Snapshot {
         var playsByYear: [Int: Int] = [:]
         for entry in corpus.music {
@@ -665,7 +688,10 @@ extension ListeningStatsView {
         )
         let year = requestedYear.flatMap { years?.years.contains($0) == true ? $0 : nil } ?? years?.initial
         let report = year.flatMap {
-            YearlyReportAnalyzer.compute(year: $0, music: corpus.music, traits: traits, now: now, calendar: calendar)
+            YearlyReportAnalyzer.compute(
+                year: $0, music: corpus.music, traits: traits, now: now, calendar: calendar,
+                resolvedCandidates: resolvedCandidates
+            )
         }
         let spokenWordSeconds = report.map { report in
             corpus.spokenWord

@@ -4,6 +4,7 @@ import PrimuseKit
 struct ListeningHistoryView: View {
     typealias Timeline = ListeningHistoryTimeline<PlayHistoryStore.Entry>
 
+    @Environment(MusicLibrary.self) private var library: MusicLibrary?
     @State private var model: Model
     @State private var calendar = ListeningCalendar.current
     @State private var today = ListeningCalendar.current.startOfDay(for: Date())
@@ -19,6 +20,8 @@ struct ListeningHistoryView: View {
         private(set) var visibleDays: [Timeline.Day] = []
         private(set) var visibleLimit = 100
         private(set) var paginationTriggerID: String?
+        // crash-pattern: allow song-id-collection-property 仅存历史记录里按原 ID 找不到的条目映射，规模以播放历史不重复缺失曲目为界
+        private(set) var resolvedSongIDs: [String: String] = [:]
         fileprivate var loaded: Request?
 
         func setTimeline(_ timeline: Timeline) {
@@ -50,6 +53,22 @@ struct ListeningHistoryView: View {
         Request(history: store.snapshotRevision, clearedAt: store.clearedAt, calendar: calendar)
     }
 
+    /// 时间线出来以后才认按原 ID 找不到的歌:认的时候要扫一遍曲库歌名,时间线不等它。
+    /// 曲库进了歌、删了歌才重认;这页开着时新记下的播放是本机的歌,不为它重认。
+    private struct ResolutionRequest: Equatable {
+        let hasTimeline: Bool
+        let libraryCollection: Int
+        let catalogMembership: UInt64
+    }
+
+    private var resolutionRequest: ResolutionRequest {
+        ResolutionRequest(
+            hasTimeline: model.timeline != nil,
+            libraryCollection: library?.visibleSongCollectionRevision ?? 0,
+            catalogMembership: library?.catalogHost?.revisions.membership ?? 0
+        )
+    }
+
     var body: some View {
         Group {
             if let timeline = model.timeline {
@@ -66,6 +85,7 @@ struct ListeningHistoryView: View {
         .pmExtendsUnderVerticalBar()
         .navigationTitle("stats_title")
         .task(id: request) { await refresh(request) }
+        .task(id: resolutionRequest) { await resolveMissingSongs(resolutionRequest) }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             today = calendar.startOfDay(for: Date())
         }
@@ -82,7 +102,7 @@ struct ListeningHistoryView: View {
             ForEach(model.visibleDays) { day in
                 Section {
                     ForEach(day.entries) { entry in
-                        ListeningHistoryRow(entry: entry)
+                        ListeningHistoryRow(entry: entry, resolvedSongID: model.resolvedSongIDs[entry.songID])
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -168,21 +188,46 @@ struct ListeningHistoryView: View {
         model.setTimeline(timeline)
         model.loaded = request
     }
+
+    private func resolveMissingSongs(_ request: ResolutionRequest) async {
+        guard let library, request.hasTimeline else { return }
+        // 曲库连着变几次(扫描进歌)时只认最后一次。
+        do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+        guard let entries = model.timeline?.days.flatMap(\.entries),
+              let candidates = await PlayHistoryStore.resolveMissingSongIDs(for: entries, in: library),
+              !Task.isCancelled, request == resolutionRequest else { return }
+        var resolved: [String: String] = [:]
+        for (historyID, ids) in candidates {
+            if let match = ids.first(where: { library.unobservedVisibleSong(id: $0)?.isPlayable == true })
+                ?? ids.first(where: { library.unobservedVisibleSong(id: $0) != nil }) {
+                resolved[historyID] = match
+            }
+        }
+        model.applyResolution(resolved)
+    }
+}
+
+private extension ListeningHistoryView.Model {
+    func applyResolution(_ resolvedSongIDs: [String: String]) {
+        guard self.resolvedSongIDs != resolvedSongIDs else { return }
+        self.resolvedSongIDs = resolvedSongIDs
+    }
 }
 
 private struct ListeningHistoryRow: View {
     let entry: PlayHistoryStore.Entry
+    var resolvedSongID: String? = nil
     @Environment(MusicLibrary.self) private var library: MusicLibrary?
     @Environment(AudioPlayerService.self) private var player: AudioPlayerService?
     @Environment(SourcesStore.self) private var sourcesStore
 
     var body: some View {
-        let song = library?.visibleSong(id: entry.songID)
+        let song = resolvedSong
         let canPlay = song?.isPlayable == true && player != nil
         return HStack(spacing: 0) {
             if canPlay {
                 Button {
-                    guard let song = library?.visibleSong(id: entry.songID), song.isPlayable, let player else { return }
+                    guard let song = resolvedSong, song.isPlayable, let player else { return }
                     Task { await player.play(queue: [song], startingAt: 0) }
                 } label: {
                     historyRowLabel(entry, song: song)
@@ -202,6 +247,11 @@ private struct ListeningHistoryRow: View {
         }
     }
 
+    private var resolvedSong: Song? {
+        if let song = library?.visibleSong(id: resolvedSongID ?? entry.songID) { return song }
+        return PlayHistoryStore.shared.resolvedSong(for: entry, in: library)
+    }
+
     private func historyRowLabel(_ entry: PlayHistoryStore.Entry, song: Song?) -> some View {
         HStack(alignment: .center, spacing: 12) {
             ListeningRankArtwork(song: song, size: 44, cornerRadius: 7)
@@ -215,8 +265,8 @@ private struct ListeningHistoryRow: View {
                         .font(.subheadline)
                         .lineLimit(1)
                 }
-                if !details(entry).isEmpty {
-                    Text(details(entry))
+                if !details(entry, song: song).isEmpty {
+                    Text(details(entry, song: song))
                         .font(.caption)
                         .lineLimit(1)
                 }
@@ -237,8 +287,8 @@ private struct ListeningHistoryRow: View {
         .contentShape(Rectangle())
     }
 
-    private func details(_ entry: PlayHistoryStore.Entry) -> String {
-        [entry.albumTitle, sourcesStore.source(id: entry.sourceID)?.name ?? ""]
+    private func details(_ entry: PlayHistoryStore.Entry, song: Song?) -> String {
+        [entry.albumTitle, sourcesStore.source(id: song?.sourceID ?? entry.sourceID)?.name ?? ""]
             .filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }

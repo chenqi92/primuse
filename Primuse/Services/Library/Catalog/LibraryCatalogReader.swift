@@ -126,14 +126,17 @@ final class LibraryCatalogReader: Sendable {
 
     var isAvailable: Bool { provider() != nil }
 
-    /// 在主线程外对目录执行一段同步查询。
-    func read<T: Sendable>(_ body: @escaping @Sendable (LibraryCatalog) throws -> T) async throws -> T {
+    /// 在主线程外对目录执行一段同步查询。`qos`:不等人看的整库扫描(播放记录补认)给低一档。
+    func read<T: Sendable>(
+        qos: DispatchQoS.QoSClass = .userInitiated,
+        _ body: @escaping @Sendable (LibraryCatalog) throws -> T
+    ) async throws -> T {
         if LibraryCatalogBackgroundReadWatch.isActive {
             LibraryCatalogBackgroundReadWatch.note(Thread.callStackReturnAddresses.dropFirst(1).prefix(5).map(\.uintValue))
         }
         guard let catalog = provider() else { throw LibraryCatalogReaderError.unavailable }
         return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: qos).async {
                 continuation.resume(with: Result { try body(catalog) })
             }
         }

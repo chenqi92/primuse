@@ -1380,7 +1380,7 @@ struct RecentPlaybackSection: View {
         // Existing listening history supplies singles and recently heard albums
         // on upgrade; playlist/artist identity comes only from explicit entrances.
         for entry in PlayHistoryStore.shared.entries.prefix(100) {
-            guard let song = library.visibleSong(id: entry.songID), song.isPlayable,
+            guard let song = PlayHistoryStore.shared.resolvedSong(for: entry, in: library), song.isPlayable,
                   player.listeningSpace(of: song) == .music else { continue }
             items.append(.init(kind: .song, entityID: song.id, playedAt: entry.playedAt))
             if let albumID = song.albumID {

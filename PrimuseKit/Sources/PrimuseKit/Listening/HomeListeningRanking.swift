@@ -135,11 +135,16 @@ public struct HomeListeningEvent: Sendable {
     /// 这首歌的长度（不是这次听了多久）。认「同一首歌」时用来防误并；播放记录里没有，
     /// 调用方从曲库查到了才填，`ranks` 的 `songs` 里有这首歌时也不必填。
     public let songDuration: TimeInterval?
+    /// 播放时记录的音乐源 ID，用于跨设备同源路径回查与优先匹配同源副本。
+    public let sourceID: String?
+    /// 播放时记录的源内文件路径，用于同源不同歌曲 ID 的精确回查。
+    public let filePath: String?
 
     public init(
         songID: String, playedAt: Date, listenedSeconds: TimeInterval,
         songTitle: String? = nil, artistName: String? = nil, albumTitle: String? = nil,
-        songDuration: TimeInterval? = nil
+        songDuration: TimeInterval? = nil,
+        sourceID: String? = nil, filePath: String? = nil
     ) {
         self.songID = songID
         self.playedAt = playedAt
@@ -148,6 +153,8 @@ public struct HomeListeningEvent: Sendable {
         self.artistName = artistName
         self.albumTitle = albumTitle
         self.songDuration = songDuration
+        self.sourceID = sourceID
+        self.filePath = filePath
     }
 }
 
@@ -417,18 +424,42 @@ public enum HomeListeningRanking {
         now: Date, calendar: Calendar, songKeys: [String: String]?,
         artistNameConfiguration: ArtistNameConfiguration
     ) -> [HomeListeningRank] where Candidates.Element == Song {
+        let currentInterval = period.interval(now: now, calendar: calendar)
+        let previousInterval = period.previousInterval(now: now, calendar: calendar)
+        let resolved: ListeningSongIdentity.ResolvedLibraryCandidates?
+        if !candidateSongs.isEmpty {
+            let scopeStart = (previousInterval?.start ?? currentInterval.start).timeIntervalSinceReferenceDate
+            let scopeEnd = currentInterval.end.timeIntervalSinceReferenceDate
+            let missingEvents = events.filter {
+                songs[$0.songID] == nil
+                    && $0.playedAt.timeIntervalSinceReferenceDate >= scopeStart
+                    && $0.playedAt.timeIntervalSinceReferenceDate <= scopeEnd
+            }
+            resolved = missingEvents.isEmpty
+                ? nil
+                : ListeningSongIdentity.resolveLibraryCandidates(events: missingEvents, songs: candidateSongs)
+        } else {
+            resolved = nil
+        }
         // 整段记录一起认，本期和上期用的是同一套分组，名次升降才对得上。
         let songKeys = category == .folders
             ? [:]
-            : songKeys ?? ListeningSongIdentity.groupKeys(events: events, songs: songs)
+            : songKeys ?? ListeningSongIdentity.groupKeys(
+                events: events,
+                songs: songs,
+                fallbackDurations: resolved?.durationsByHistoryID ?? [:]
+            )
+        let folderSubstitutions = category == .folders ? (resolved?.sameSourceIDByHistoryID ?? [:]) : [:]
         var current = aggregate(
-            events: events, songs: songs, songKeys: songKeys, folders: folders, category: category,
-            interval: period.interval(now: now, calendar: calendar), includesEnd: true,
+            events: events, songs: songs, songKeys: songKeys, folders: folders,
+            folderSongSubstitutions: folderSubstitutions, category: category,
+            interval: currentInterval, includesEnd: true,
             artistNameConfiguration: artistNameConfiguration
         )
-        if let interval = period.previousInterval(now: now, calendar: calendar) {
+        if let interval = previousInterval {
             let previous = aggregate(
-                events: events, songs: songs, songKeys: songKeys, folders: folders, category: category,
+                events: events, songs: songs, songKeys: songKeys, folders: folders,
+                folderSongSubstitutions: folderSubstitutions, category: category,
                 interval: interval, includesEnd: false, artistNameConfiguration: artistNameConfiguration
             )
             let positions = Dictionary(uniqueKeysWithValues: previous.enumerated().map { ($1.id, $0) })
@@ -442,28 +473,10 @@ public enum HomeListeningRanking {
                 return value
             }
         }
-        guard category != .folders, !candidateSongs.isEmpty else { return current }
-        let missingIDs = Set(current.flatMap(\.songIDs).filter { songs[$0] == nil })
-        guard !missingIDs.isEmpty else { return current }
-        let candidates = ListeningSongIdentity.libraryCandidates(
-            events: events.filter { missingIDs.contains($0.songID) }, songs: candidateSongs
-        )
-        guard !candidates.isEmpty else { return current }
-        return current.map { rank in
-            let groups = rank.songGroups.map { ids in
-                let available = ids.flatMap { candidates[$0] ?? [] }
-                return ids + Set(available).subtracting(ids).sorted()
-            }
-            var resolved = HomeListeningRank(
-                id: rank.id, title: rank.title, subtitle: rank.subtitle,
-                songIDs: Set(groups.flatMap { $0 }).sorted(), songGroups: groups,
-                artworkSongID: rank.artworkSongID, folderID: rank.folderID,
-                playCount: rank.playCount, listenedSeconds: rank.listenedSeconds,
-                positionsGained: rank.positionsGained
-            )
-            resolved.isNewEntry = rank.isNewEntry
-            return resolved
+        guard category != .folders, let candidates = resolved?.candidatesByHistoryID else {
+            return current
         }
+        return attachingCandidates(candidates, to: current)
     }
 
     private struct ArtistCredit: Hashable {
@@ -473,7 +486,8 @@ public enum HomeListeningRanking {
 
     private static func aggregate(
         events: [HomeListeningEvent], songs: [String: Song], songKeys: [String: String],
-        folders: LibraryFolderIndex?, category: HomeListeningCategory, interval: DateInterval, includesEnd: Bool,
+        folders: LibraryFolderIndex?, folderSongSubstitutions: [String: String] = [:],
+        category: HomeListeningCategory, interval: DateInterval, includesEnd: Bool,
         artistNameConfiguration: ArtistNameConfiguration
     ) -> [HomeListeningRank] {
         var groups: [GroupKey: Accumulator] = [:]
@@ -481,7 +495,7 @@ public enum HomeListeningRanking {
         let configuration = artistNameConfiguration.normalized()
         // 目录版文件夹索引按 id 找节点要查目录:所有播放记录一次查完,不逐条查。
         let folderNodes = category == .folders
-            ? folders?.nodeIDs(containingSongIDs: Set(events.map(\.songID))) ?? [:]
+            ? folders?.nodeIDs(containingSongIDs: Set(events.map { folderSongSubstitutions[$0.songID] ?? $0.songID })) ?? [:]
             : [:]
         for event in events {
             guard event.playedAt.timeIntervalSinceReferenceDate >= interval.start.timeIntervalSinceReferenceDate,
@@ -532,7 +546,8 @@ public enum HomeListeningRanking {
             case .folders:
                 // One play belongs to its containing directory, not every
                 // ancestor. This keeps nested-folder totals comparable.
-                guard let folders, let id = folderNodes[event.songID],
+                let lookupID = folderSongSubstitutions[event.songID] ?? event.songID
+                guard let folders, let id = folderNodes[lookupID],
                       let node = folders.node(withID: id),
                       node.kind == .folder || node.kind == .scanRoot else { continue }
                 components = [id.sourceID, id.kind.rawValue, id.normalizedRelativePath]
@@ -871,25 +886,7 @@ public enum HomeListeningRanking {
                 )
             }
         let candidates = ListeningSongIdentity.libraryCandidates(events: proxyEvents, songs: candidateSongs)
-        guard !candidates.isEmpty else { return current }
-        return current.map { rank in
-            let groups = rank.songGroups.map { ids in
-                let available = ids.flatMap { candidates[$0] ?? [] }
-                return ids + Set(available).subtracting(ids).sorted()
-            }
-            return HomeListeningRank(
-                id: rank.id,
-                title: rank.title,
-                subtitle: rank.subtitle,
-                songIDs: Set(groups.flatMap { $0 }).sorted(),
-                songGroups: groups,
-                artworkSongID: rank.artworkSongID,
-                folderID: rank.folderID,
-                playCount: rank.playCount,
-                listenedSeconds: rank.listenedSeconds,
-                positionsGained: nil
-            )
-        }
+        return attachingCandidates(candidates, to: current)
     }
 }
 
@@ -1032,53 +1029,30 @@ public enum ListeningSongIdentity {
 
     /// 首页排行用的播放记录。歌名、歌手按记录里最近一次的写法（与榜单上显示的一致），记录里没写的
     /// 用曲库里的；时长记录里没有，用事件带的或曲库里的。
-    public static func groupKeys(events: [HomeListeningEvent], songs: [String: Song]) -> [String: String] {
+    public static func groupKeys(
+        events: [HomeListeningEvent],
+        songs: [String: Song],
+        fallbackDurations: [String: TimeInterval] = [:]
+    ) -> [String: String] {
         groupKeys(plays: events.map {
-            Play(songID: $0.songID, playedAt: $0.playedAt, title: $0.songTitle, artist: $0.artistName, duration: $0.songDuration)
+            Play(
+                songID: $0.songID, playedAt: $0.playedAt,
+                title: $0.songTitle, artist: $0.artistName,
+                duration: $0.songDuration ?? fallbackDurations[$0.songID]
+            )
         }, songs: songs)
     }
 
-    /// 只给已失效的历史 ID 补当前曲库候选，不改历史归组、次数或名次。
-    static func libraryCandidates<Songs: Sequence>(events: [HomeListeningEvent], songs: Songs) -> [String: [String]] where Songs.Element == Song {
-        guard !events.isEmpty else { return [:] }
-        var latest: [String: HomeListeningEvent] = [:]
-        for event in events {
-            if let known = latest[event.songID], known.playedAt.timeIntervalSinceReferenceDate >= event.playedAt.timeIntervalSinceReferenceDate { continue }
-            latest[event.songID] = event
-        }
-        let keys = latest.mapValues { event in
-            NormalizationCache.shared.key(for: Member(
-                songID: event.songID, title: event.songTitle ?? "",
-                artists: nonEmpty(event.artistName).map { [$0] } ?? [], duration: event.songDuration
-            ))
-        }.filter { $0.value.isMatchable && !$0.value.artistTokens.isEmpty }
-        guard !keys.isEmpty else { return [:] }
-        let titles = Set(keys.values.map(\.coreTitle))
-        var buckets: [String: [(song: Song, key: ExternalTrackMatchPolicy.Key)]] = [:]
-        for (position, song) in songs.enumerated() {
-            if position.isMultiple(of: 256), withUnsafeCurrentTask(body: { $0?.isCancelled == true }) { return [:] }
-            let key = NormalizationCache.shared.key(for: Member(
-                songID: song.id, title: song.title,
-                artists: ExternalTrackMatchPolicy.artists(of: song), duration: song.duration
-            ))
-            if titles.contains(key.coreTitle) { buckets[key.coreTitle, default: []].append((song, key)) }
-        }
-        var result: [String: [String]] = [:]
-        for (id, key) in keys {
-            let album = nonEmpty(latest[id]?.albumTitle)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let matches = (buckets[key.coreTitle] ?? []).filter { candidate in
-                guard ExternalTrackMatchPolicy.verdict(key, candidate.key) == .confident else { return false }
-                guard let album else { return true }
-                return candidate.song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .localizedCaseInsensitiveCompare(album) == .orderedSame
-            }
-            // 历史缺时长且曲库有多个互不相容的版本时，不能凭同名猜一个。
-            guard matches.allSatisfy({ lhs in
-                matches.allSatisfy { ExternalTrackMatchPolicy.verdict(lhs.key, $0.key) == .confident }
-            }) else { continue }
-            if !matches.isEmpty { result[id] = matches.map { $0.song.id }.sorted() }
-        }
-        return result
+    static func cachedKey(
+        songID: String, title: String, artists: [String], duration: TimeInterval?
+    ) -> ExternalTrackMatchPolicy.Key {
+        NormalizationCache.shared.key(for: Member(
+            songID: songID, title: title, artists: artists, duration: duration
+        ))
+    }
+
+    static func cachedCoreTitle(_ title: String) -> String {
+        NormalizationCache.shared.coreTitle(title)
     }
 
     /// 听歌回顾用的播放记录；时长从 `traits` 查。
@@ -1147,6 +1121,10 @@ public enum ListeningSongIdentity {
                 coreTitle: title.core, versionMarkers: title.markers,
                 artistTokens: tokens, duration: member.duration
             )
+        }
+
+        func coreTitle(_ title: String) -> String {
+            titleParts(title).core
         }
 
         private func titleParts(_ title: String) -> TitleParts {

@@ -608,7 +608,7 @@ struct ListeningStatsRankList: View {
                     ListeningRankArtwork(
                         song: song(for: item), size: size,
                         isArtist: isArtistRanking, cornerRadius: place == 0 ? 12 : 10,
-                        candidateSongIDs: item.songIDs, isAlbum: isAlbumRanking, album: album(for: item)
+                        candidateSongIDs: item.artworkCandidateSongIDs, isAlbum: isAlbumRanking, album: album(for: item)
                     )
                 }
             }
@@ -628,7 +628,7 @@ struct ListeningStatsRankList: View {
             ) {
                 ListeningRankArtwork(
                     song: song(for: item), size: 40, isArtist: isArtistRanking, cornerRadius: 7,
-                    candidateSongIDs: item.songIDs, isAlbum: isAlbumRanking, album: album(for: item)
+                    candidateSongIDs: item.artworkCandidateSongIDs, isAlbum: isAlbumRanking, album: album(for: item)
                 )
             }
         }

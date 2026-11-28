@@ -165,7 +165,7 @@ PrimuseKit/Sources/PrimuseKit/Interface/Immersive/ImmersiveTheaterConductor.swif
 PrimuseKit/Sources/PrimuseKit/Interface/Immersive/ImmersiveTheaterPerformer.swift	1004
 PrimuseKit/Sources/PrimuseKit/Library/LibraryFolderIndex.swift	2660
 PrimuseKit/Sources/PrimuseKit/Library/SongListSnapshot.swift	1285
-PrimuseKit/Sources/PrimuseKit/Listening/HomeListeningRanking.swift	1193
+PrimuseKit/Sources/PrimuseKit/Listening/HomeListeningRanking.swift	1171
 PrimuseKit/Sources/PrimuseKit/Listening/ListeningIntent.swift	1129
 PrimuseKit/Sources/PrimuseKit/Lyrics/AudioWordTimingAligner.swift	1067
 PrimuseKit/Sources/PrimuseKit/Lyrics/LyricRowFrameBatchPolicy.swift	1209

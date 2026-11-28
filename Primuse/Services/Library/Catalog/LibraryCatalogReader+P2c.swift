@@ -27,12 +27,13 @@ final class LibraryCatalogScanCancellation: @unchecked Sendable {
 extension LibraryCatalogReader {
     /// `read`,但调用方的 Task 被取消时 `body` 能看到(每批检查一次 `cancellation`)。
     func readCancellable<T: Sendable>(
+        qos: DispatchQoS.QoSClass = .userInitiated,
         _ body: @escaping @Sendable (LibraryCatalog, LibraryCatalogScanCancellation) throws -> T
     ) async throws -> T {
         let cancellation = LibraryCatalogScanCancellation()
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
-            return try await read { catalog in try body(catalog, cancellation) }
+            return try await read(qos: qos) { catalog in try body(catalog, cancellation) }
         } onCancel: {
             cancellation.cancel()
         }
@@ -132,6 +133,157 @@ extension LibraryCatalogReader {
             try cancellation.check()
             return result
         }
+    }
+
+    /// 播放记录里按当前曲库 ID 找不到的条目，从目录里只挑出可能对应的歌曲供 `ListeningSongIdentity` 核对。
+    /// 路径走 `pathHash` 索引，Subsonic 规范 ID 只扫对应源的身份投影，歌名只扫 `(rowid, title)` 两列再物化命中的少量行。
+    /// 物化的总行数不超过 `LibraryScale.maxMaterializedRows`:路径与规范 ID 命中的先收,歌名命中的按歌名成组、
+    /// 命中少的先收,放不下的那几个歌名整组不收(「Intro」这类常见歌名)。不收的记录这一轮答不了,结果里没有它们 ——
+    /// 这份候选只用来给找不到的记录多指一首能播的歌,不用来删改任何东西。
+    /// 整库扫描不等人看,在低一档的队列上读。
+    func historyCandidateSongs(
+        for requirements: ListeningSongIdentity.CandidateFilterRequirements,
+        disabledSourceIDs: Set<String> = [],
+        scope: LibrarySongScope = .visible
+    ) async throws -> [Song] {
+        let filtered = scope.includesDisabledSources
+            ? requirements
+            : requirements.filteringDisabledSources(disabledSourceIDs)
+        guard !filtered.isEmpty else { return [] }
+        let subsonicKeysBySource = Dictionary(grouping: filtered.subsonicCanonicalKeys, by: \.sourceID)
+            .mapValues(Set.init)
+        let budget = LibraryScale.maxMaterializedRows
+        return try await readCancellable(qos: .utility) { catalog, cancellation in
+            var rowids: [Int32] = []
+            var seen = Set<Int32>()
+            var pathRowids = Set<Int32>()
+
+            for target in filtered.sourcePaths {
+                try cancellation.check()
+                let list = try catalog.rowList(sourceID: target.sourceID, filePath: target.filePath)
+                // 一个文件(CUE 分轨)的几行要么都收,要么都不收。
+                guard rowids.count + list.rowids.count <= budget else { continue }
+                for rowid in list.rowids {
+                    if seen.insert(rowid).inserted { rowids.append(rowid) }
+                    pathRowids.insert(rowid)
+                }
+            }
+
+            if !subsonicKeysBySource.isEmpty {
+                var visited = 0
+                for (sourceID, wantedKeys) in subsonicKeysBySource {
+                    let sourceScope = LibrarySongScope(
+                        sourceID: sourceID,
+                        includesDisabledSources: scope.includesDisabledSources
+                    )
+                    try catalog.forEachSongIdentity(sourceScope) { rowid, _, filePath in
+                        visited += 1
+                        if visited.isMultiple(of: 1_024), cancellation.isCancelled { return false }
+                        if rowids.count < budget,
+                           let key = ListeningSongIdentity.subsonicCanonicalKey(sourceID: sourceID, filePath: filePath),
+                           wantedKeys.contains(key),
+                           seen.insert(rowid).inserted {
+                            rowids.append(rowid)
+                        }
+                        return true
+                    }
+                    try cancellation.check()
+                }
+            }
+
+            if !filtered.coreTitles.isEmpty, rowids.count < budget {
+                // 每个歌名至多记到超出预算的那一行:再多也一样放不下。
+                var rowidsByTitle: [String: [Int32]] = [:]
+                var visited = 0
+                try catalog.forEachSongTitle(scope) { rowid, title in
+                    visited += 1
+                    if visited.isMultiple(of: 1_024), cancellation.isCancelled { return false }
+                    let core = autoreleasepool { ExternalTrackMatchPolicy.normalizedCoreTitle(title) }
+                    guard filtered.coreTitles.contains(core), !seen.contains(rowid) else { return true }
+                    if (rowidsByTitle[core]?.count ?? 0) <= budget {
+                        rowidsByTitle[core, default: []].append(rowid)
+                    }
+                    return true
+                }
+                try cancellation.check()
+                let groups = rowidsByTitle.sorted { lhs, rhs in
+                    lhs.value.count != rhs.value.count ? lhs.value.count < rhs.value.count : lhs.key < rhs.key
+                }
+                for (_, titleRowids) in groups {
+                    guard rowids.count + titleRowids.count <= budget else { break }
+                    for rowid in titleRowids where seen.insert(rowid).inserted {
+                        rowids.append(rowid)
+                    }
+                }
+            }
+
+            guard !rowids.isEmpty else { return [] }
+            rowids.sort()
+            var result: [Song] = []
+            result.reserveCapacity(rowids.count)
+            var start = 0
+            while start < rowids.count {
+                try cancellation.check()
+                let end = min(rowids.count, start + LibraryScale.maxMaterializedRows)
+                result.append(contentsOf: try catalog.songs(rowids: rowids[start..<end]))
+                start = end
+            }
+            if !scope.includesDisabledSources, !pathRowids.isEmpty {
+                if !disabledSourceIDs.isEmpty {
+                    result.removeAll { disabledSourceIDs.contains($0.sourceID) }
+                } else {
+                    var visibleIDs = Set<String>()
+                    var chunkStart = 0
+                    while chunkStart < result.count {
+                        try cancellation.check()
+                        let chunkEnd = min(result.count, chunkStart + LibraryScale.maxMaterializedRows)
+                        let ids = result[chunkStart..<chunkEnd].map(\.id)
+                        for song in try catalog.songs(ids: ids, scope: scope) {
+                            visibleIDs.insert(song.id)
+                        }
+                        chunkStart = chunkEnd
+                    }
+                    result.removeAll { !visibleIDs.contains($0.id) }
+                }
+            }
+            return result
+        }
+    }
+
+    /// 一批播放记录里歌曲 ID 在目录可见范围里找不到的,补上本机可见的候选(`ListeningSongIdentity.libraryCandidates`)。
+    /// 先按 id 问目录哪些还在(只读 id 与所在的源两列,不物化),只给不在的挑候选;歌曲模型不在内存里时照样答。
+    func resolveMissingHistorySongIDs(
+        events: [HomeListeningEvent],
+        disabledSourceIDs: Set<String> = []
+    ) async throws -> [String: [String]] {
+        let ids = Array(Set(events.map(\.songID)))
+        guard !ids.isEmpty else { return [:] }
+        let present: Set<String> = try await readCancellable(qos: .utility) { catalog, cancellation in
+            var present = Set<String>()
+            var start = 0
+            while start < ids.count {
+                try cancellation.check()
+                let end = min(ids.count, start + LibraryScale.maxMaterializedRows)
+                for (id, sourceID) in try catalog.sourceIDs(forIDs: Array(ids[start..<end]))
+                where !disabledSourceIDs.contains(sourceID) {
+                    present.insert(id)
+                }
+                start = end
+            }
+            return present
+        }
+        let missingEvents = events.filter { !present.contains($0.songID) }
+        let requirements = ListeningSongIdentity.candidateFilterRequirements(for: missingEvents)
+        guard !requirements.isEmpty else { return [:] }
+        let candidateSongs = try await historyCandidateSongs(
+            for: requirements,
+            disabledSourceIDs: disabledSourceIDs,
+            scope: .visible
+        )
+        try Task.checkCancellation()
+        return await Task.detached(priority: .utility) {
+            ListeningSongIdentity.libraryCandidates(events: missingEvents, songs: candidateSongs)
+        }.value
     }
 
     /// 某个源里按路径算出的键(服务端条目 id 等)→ 第一首这样的歌的 id,只收 `wanted` 里的;

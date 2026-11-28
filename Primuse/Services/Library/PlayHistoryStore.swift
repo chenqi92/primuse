@@ -33,6 +33,7 @@ final class PlayHistoryStore {
     /// 曲库此刻认成环境音的歌,同样由 `MusicLibrary` 交来;环境音也不进音乐的排行与统计。
     var ambientSongIDs: Set<String> = []
     private(set) var classificationRevision = 0
+    private(set) var resolutionRevision = 0
     @ObservationIgnored private weak var library: MusicLibrary?
     @ObservationIgnored private var classificationInputs: SpokenWordClassificationInputs?
     @ObservationIgnored private var classificationLegacyIDs: Set<String> = []
@@ -42,6 +43,21 @@ final class PlayHistoryStore {
     @ObservationIgnored private var classificationObserver: NSObjectProtocol?
     @ObservationIgnored private var archiveClassificationTask: Task<Void, Never>?
     @ObservationIgnored private var classificationRecoveryTask: Task<Void, Never>?
+    // crash-pattern: allow song-id-collection-property 仅存历史窗口内按原 ID 找不到的歌曲映射，上界为 maxRetainedEntries (5000)
+    @ObservationIgnored private var resolvedSongIDsByHistoryID: [String: [String]] = [:]
+    /// 在 `songResolutionBasis` 下已经认过的历史歌曲 ID(在曲库里的与找不到的都算),上界为 maxRetainedEntries (5000)。
+    @ObservationIgnored private var songResolutionCheckedIDs: Set<String> = []
+    @ObservationIgnored private var songResolutionBasis: SongResolutionBasis?
+    /// 正在等或正在跑的那一轮补认;同样的一轮再排一次不重来。
+    @ObservationIgnored private var songResolutionWork: SongResolutionWork?
+    @ObservationIgnored private var songResolutionTask: Task<Void, Never>?
+    @ObservationIgnored private var songResolutionLastFullRun: ContinuousClock.Instant?
+    /// 真正去目录(或内存)认过几轮,测试据此确认没有白扫。
+    @ObservationIgnored private(set) var songResolutionRuns = 0
+    /// 排一轮补认之前等这么久:一次合并、一次发布连着来时只认一次。
+    @ObservationIgnored var songResolutionDebounce: Duration = .seconds(2)
+    /// 依据变了的整份重认,两轮之间至少隔这么久(扫描进歌时每一批都会动成员修订号)。
+    @ObservationIgnored var songResolutionMinimumFullInterval: Duration = .seconds(60)
     private let spokenWordStore: SpokenWordStore
     private let updatesArchives: Bool
     /// 单调递增, `entries` 每变一次就 +1。云同步用它判断预先编码好的
@@ -131,10 +147,14 @@ extension PlayHistoryStore {
         var listeningEvent: HomeListeningEvent { event(songDuration: nil) }
 
         func event(songDuration: TimeInterval?) -> HomeListeningEvent {
-            HomeListeningEvent(
+            let resolvedDuration = songDuration ?? content?.duration
+            let resolvedSourceID = content?.sourceID ?? (sourceID.isEmpty ? nil : sourceID)
+            return HomeListeningEvent(
                 songID: songID, playedAt: playedAt, listenedSeconds: listenedSec,
                 songTitle: songTitle, artistName: artistName, albumTitle: albumTitle,
-                songDuration: songDuration
+                songDuration: resolvedDuration,
+                sourceID: resolvedSourceID,
+                filePath: content?.filePath
             )
         }
 
@@ -150,6 +170,7 @@ extension PlayHistoryStore {
         var genre: String?
         var serverLibraryID: String?
         var sourceID: String?
+        var duration: TimeInterval? = nil
     }
 
     struct Classification: Sendable {
@@ -185,11 +206,15 @@ extension PlayHistoryStore {
             var entry = entry
             let kind = space(for: entry)
             if let song = library?.song(id: entry.songID) {
+                let songDuration: TimeInterval? = song.duration.isFinite && song.duration > 0
+                    ? song.duration : entry.content?.duration
                 entry.content = Content(kind: kind, filePath: song.filePath,
-                                        genre: song.genre, serverLibraryID: song.serverLibraryID, sourceID: song.sourceID)
+                                        genre: song.genre, serverLibraryID: song.serverLibraryID,
+                                        sourceID: song.sourceID, duration: songDuration)
             } else if entry.content != nil || recoveredContent[entry.songID] != nil || kind != .music || inputs.overrides[entry.songID] != nil {
                 var content = recoveredContent[entry.songID] ?? entry.content ?? Content(kind: kind)
                 content.kind = kind
+                if content.duration == nil { content.duration = entry.content?.duration }
                 entry.content = content
             }
             // 没有任何证据的旧记录保持未知，不能把暂未装载的曲库判定固化成音乐。
@@ -268,7 +293,10 @@ extension PlayHistoryStore {
     /// 记录按它自己存下的内容认,同曲库还没装好时;也不为一张空表去跑旧记录的找回。
     /// 电视端的曲库一直常驻,重装快照期间旧数组也还在,照旧取。
     private var loadedLibrarySongLookup: VisibleSongLookup? {
-        guard let library else { return nil }
+        library.flatMap(Self.loadedSongLookup(for:))
+    }
+
+    static func loadedSongLookup(for library: MusicLibrary) -> VisibleSongLookup? {
         #if !os(tvOS)
         guard library.isReady else { return nil }
         #endif
@@ -293,8 +321,31 @@ extension PlayHistoryStore {
         return SnapshotRevision(history: revision, classification: classificationRevision)
     }
 
+    func expandingResolvedSongIDs(_ ids: [String]) -> [String] {
+        _ = resolutionRevision
+        return ListeningSongIdentity.expandingCandidateIDs(ids, candidates: resolvedSongIDsByHistoryID)
+    }
+
+    /// 补认出的整份映射(历史歌曲 ID → 本机候选),给在主线程外排榜的地方带走;至多 maxRetainedEntries 项。
+    var resolvedHistoryCandidates: [String: [String]] {
+        _ = resolutionRevision
+        return resolvedSongIDsByHistoryID
+    }
+
+    func resolvedSong(for entry: Entry, in library: MusicLibrary?) -> Song? {
+        _ = resolutionRevision
+        guard let library else { return nil }
+        if let direct = library.visibleSong(id: entry.songID) { return direct }
+        return resolvedSongIDsByHistoryID[entry.songID]?.lazy.compactMap { library.visibleSong(id: $0) }.first
+    }
+
+    func waitForMissingSongResolution() async {
+        await songResolutionTask?.value
+    }
+
     func refreshClassification(library: MusicLibrary? = nil) {
         if let library { self.library = library }
+        defer { scheduleMissingSongResolution() }
         let context = classification
         let generation = self.library?.songMutationGenerationForMaintenance
         let libraryID = self.library.map(ObjectIdentifier.init)
@@ -356,6 +407,62 @@ extension PlayHistoryStore {
 
     func waitForClassificationRecovery() async {
         await classificationRecoveryTask?.value
+    }
+
+    /// 后台给按原 ID 在当前曲库里找不到的历史条目补上本机可见副本映射（跨设备同源但 songID 不同）。
+    /// 每次发布、每首歌播完都会来问一次:依据(`SongResolutionBasis`)没变时只认新出现的历史 ID,
+    /// 一个新的也没有就什么都不做。歌曲模型不在内存里时照样从目录认。
+    private func scheduleMissingSongResolution() {
+        guard let library, let basis = Self.songResolutionBasis(for: library) else { return }
+        let historyIDs = Set(entries.map(\.songID))
+        let isFull = songResolutionBasis != basis
+        let wanted = isFull ? historyIDs : historyIDs.subtracting(songResolutionCheckedIDs)
+        if !isFull { keepResolvedSongIDs(for: historyIDs) }
+        guard !wanted.isEmpty else { return }
+        let work = SongResolutionWork(basis: basis, historyIDs: wanted, isFull: isFull)
+        guard songResolutionWork != work else { return }
+        songResolutionTask?.cancel()
+        songResolutionWork = work
+        let snapshot = entries.filter { wanted.contains($0.songID) }
+        var delay = songResolutionDebounce
+        if isFull, let last = songResolutionLastFullRun {
+            delay = max(delay, songResolutionMinimumFullInterval - last.duration(to: .now))
+        }
+        songResolutionTask = Task(priority: .utility) { [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self, let library = self.library, ObjectIdentifier(library) == basis.libraryID else { return }
+            let resolved = await Self.resolveMissingSongIDs(for: snapshot, in: library)
+            guard !Task.isCancelled, self.songResolutionWork == work else { return }
+            self.songResolutionWork = nil
+            // 此刻答不了(目录读不了、歌曲模型也不在内存里):不记成认过,下次再来。
+            guard let resolved else { return }
+            self.songResolutionRuns &+= 1
+            let keep = Set(self.entries.map(\.songID))
+            var next = work.isFull ? [:] : self.resolvedSongIDsByHistoryID.filter { !wanted.contains($0.key) }
+            for (id, candidates) in resolved { next[id] = candidates }
+            next = next.filter { keep.contains($0.key) }
+            if work.isFull {
+                self.songResolutionCheckedIDs = wanted.intersection(keep)
+                self.songResolutionLastFullRun = .now
+            } else {
+                self.songResolutionCheckedIDs.formUnion(wanted)
+                self.songResolutionCheckedIDs.formIntersection(keep)
+            }
+            self.songResolutionBasis = basis
+            if self.resolvedSongIDsByHistoryID != next {
+                self.resolvedSongIDsByHistoryID = next
+                self.resolutionRevision &+= 1
+            }
+        }
+    }
+
+    /// 历史变短(滚出窗口、清空)时补认结果跟着去掉不在的那些。
+    private func keepResolvedSongIDs(for historyIDs: Set<String>) {
+        songResolutionCheckedIDs.formIntersection(historyIDs)
+        let kept = resolvedSongIDsByHistoryID.filter { historyIDs.contains($0.key) }
+        guard kept.count != resolvedSongIDsByHistoryID.count else { return }
+        resolvedSongIDsByHistoryID = kept
+        resolutionRevision &+= 1
     }
 
     /// The plays that were music.
@@ -448,19 +555,25 @@ extension PlayHistoryStore {
         )
         let kind = spokenWordStore.kind(for: song)
         let identity = ListeningHistorySpacePolicy.space(songID: song.id, sourceID: song.sourceID, spokenWordSongIDs: [])
+        let rawDuration = song.duration.isFinite && song.duration > 0
+            ? song.duration : (library?.storedSong(id: song.id)?.duration ?? 0)
+        let songDuration: TimeInterval? = rawDuration.isFinite && rawDuration > 0 ? rawDuration : nil
         entry.content = Content(kind: identity != .music ? identity : ListeningHistorySpacePolicy.space(of: kind),
-                                filePath: song.filePath, genre: song.genre, serverLibraryID: song.serverLibraryID, sourceID: song.sourceID)
+                                filePath: song.filePath, genre: song.genre, serverLibraryID: song.serverLibraryID,
+                                sourceID: song.sourceID, duration: songDuration)
         entries.insert(entry, at: 0)
         if entries.count > Self.maxRetainedEntries {
             entries.removeLast(entries.count - Self.maxRetainedEntries)
         }
         scheduleSave()
         notifyChanged()
+        scheduleMissingSongResolution()
     }
     private static let clearedAtDefaultsKey = "primuse.listeningStats.clearedAt"
 
     func clearAll() {
         entries.removeAll()
+        clearSongResolutionCache()
         try? FileManager.default.removeItem(at: storeURL)
         clearedAt = Date()
         notifyChanged()
@@ -485,7 +598,14 @@ extension PlayHistoryStore {
         )
         let context = classification
         for var entry in survivingRemote {
-            entry.content = entry.content ?? mergedByID[entry.id]?.content
+            let localContent = mergedByID[entry.id]?.content
+            if var remoteContent = entry.content {
+                // 旧版本的设备同步来的那份不带时长,本机记过的留着。
+                if remoteContent.duration == nil { remoteContent.duration = localContent?.duration }
+                entry.content = remoteContent
+            } else {
+                entry.content = localContent
+            }
             entry = context.enriching(entry)
             mergedByID[entry.id] = entry
         }
@@ -495,13 +615,27 @@ extension PlayHistoryStore {
         scheduleSave()
         notifyChanged(origin: "remote")
         scheduleLegacyClassificationRecovery(context)
+        scheduleMissingSongResolution()
     }
 
     func clearFromRemote() {
         guard !entries.isEmpty else { return }
         entries.removeAll()
+        clearSongResolutionCache()
         try? FileManager.default.removeItem(at: storeURL)
         notifyChanged(origin: "remote")
+    }
+
+    private func clearSongResolutionCache() {
+        songResolutionTask?.cancel()
+        songResolutionTask = nil
+        songResolutionWork = nil
+        songResolutionBasis = nil
+        songResolutionCheckedIDs = []
+        if !resolvedSongIDsByHistoryID.isEmpty {
+            resolvedSongIDsByHistoryID = [:]
+            resolutionRevision &+= 1
+        }
     }
 
     /// CloudKit 游标马上要落盘: 攒着的那次两秒写现在就写, 免得进程在这两秒里
@@ -601,7 +735,12 @@ extension PlayHistoryStore {
         @MainActor func artworkSong(in library: MusicLibrary?) -> Song? {
             guard let library else { return nil }
             if let id = artworkSongID, let song = library.unobservedVisibleSong(id: id) { return song }
-            return songIDs.lazy.compactMap { library.unobservedVisibleSong(id: $0) }.first
+            return artworkCandidateSongIDs.lazy.compactMap { library.unobservedVisibleSong(id: $0) }.first
+        }
+
+        @MainActor var artworkCandidateSongIDs: [String] {
+            let base = artworkSongID.map { [$0] + songIDs } ?? songIDs
+            return PlayHistoryStore.shared.expandingResolvedSongIDs(base)
         }
     }
 
@@ -632,14 +771,18 @@ extension PlayHistoryStore {
     nonisolated static func rankedItems(
         from entries: [Entry], category: HomeListeningCategory, limit: Int,
         durations: [String: TimeInterval] = [:], songKeys: [String: String]? = nil,
-        artistNameConfiguration: ArtistNameConfiguration = .defaultValue
+        artistNameConfiguration: ArtistNameConfiguration = .defaultValue,
+        resolvedCandidates: [String: [String]] = [:]
     ) -> [RankedItem] {
         HomeListeningRanking.ranks(
             events: entries.map { $0.event(songDuration: durations[$0.songID]) }, songs: [:], folders: nil,
             period: .all, category: category, songKeys: songKeys ?? (category == .songs ? nil : [:]),
             artistNameConfiguration: artistNameConfiguration
         ).prefix(limit).map { rank in
-            RankedItem(
+            let expandedIDs = ListeningSongIdentity.expandingCandidateIDs(
+                rank.songGroups.flatMap { $0 }, candidates: resolvedCandidates
+            )
+            return RankedItem(
                 // 歌曲榜一项就是一首歌：用听得最多的那份。
                 id: category == .songs ? (rank.songGroups.first?.first ?? rank.id) : rank.id,
                 title: rank.title,
@@ -649,7 +792,7 @@ extension PlayHistoryStore {
                 playCount: rank.playCount,
                 totalSec: rank.listenedSeconds,
                 artworkSongID: rank.artworkSongID,
-                songIDs: rank.songGroups.flatMap { $0 }
+                songIDs: expandedIDs
             )
         }
     }
@@ -738,6 +881,7 @@ extension PlayHistoryStore {
         }
         flush()
         notifyChanged()
+        scheduleMissingSongResolution()
     }
 
     private func load() {
@@ -785,7 +929,7 @@ extension Notification.Name {
 /// 一条解不出整批记录都会丢,所以环境音照它们认得的音乐写,另加一个它们会忽略的 `ambient` 标记。
 extension PlayHistoryStore.Content: Codable {
     private enum CodingKeys: String, CodingKey {
-        case kind, filePath, genre, serverLibraryID, sourceID, ambient
+        case kind, filePath, genre, serverLibraryID, sourceID, ambient, duration
     }
 
     init(from decoder: Decoder) throws {
@@ -797,6 +941,8 @@ extension PlayHistoryStore.Content: Codable {
         genre = try container.decodeIfPresent(String.self, forKey: .genre)
         serverLibraryID = try container.decodeIfPresent(String.self, forKey: .serverLibraryID)
         sourceID = try container.decodeIfPresent(String.self, forKey: .sourceID)
+        let decodedDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration)
+        duration = decodedDuration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -807,6 +953,7 @@ extension PlayHistoryStore.Content: Codable {
         try container.encodeIfPresent(serverLibraryID, forKey: .serverLibraryID)
         try container.encodeIfPresent(sourceID, forKey: .sourceID)
         if kind == .ambient { try container.encode(true, forKey: .ambient) }
+        if let duration, duration.isFinite, duration > 0 { try container.encode(duration, forKey: .duration) }
     }
 }
 

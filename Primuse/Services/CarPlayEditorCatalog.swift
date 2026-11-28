@@ -139,6 +139,8 @@ extension CarPlayEditorCatalog {
         var stations: [CarPlayHomeItem]
         var artistNames: ArtistNameConfiguration
         var history: [HomeListeningEvent] = []
+        /// 播放记录里本机找不到的歌认出的本机候选(`PlayHistoryStore.resolvedHistoryCandidates`),至多 5000 项。
+        var historyCandidates: [String: [String]] = [:]
         var artists: [Artist] = []
         /// Kept out of "recently added": one scanned-in audiobook would fill
         /// the whole block with its chapters.
@@ -188,6 +190,7 @@ extension CarPlayEditorCatalog {
             _ = library.artistNameConfiguration
             _ = AppServices.shared.radioStationsStore.stations
             _ = PlayHistoryStore.shared.entries
+            _ = PlayHistoryStore.shared.resolutionRevision
             let wanted = Self.wantedLiveKinds()
             if wanted.contains(.forYou) {
                 _ = HomeForYouAIFeed.shared.resultKey
@@ -222,7 +225,7 @@ extension CarPlayEditorCatalog {
             recentIDs.joined(separator: ","),
             intents.map { $0.id + "/" + ($0.subtitle ?? "") }.joined(separator: ","),
         ].joined(separator: "#")
-        let version = "\(library.visibleSongCollectionRevision):\(library.searchRevision):\(library.playlistCollectionRevision):\(PlayHistoryStore.shared.revision):\(radioVersion):\(liveVersion)"
+        let version = "\(library.visibleSongCollectionRevision):\(library.searchRevision):\(library.playlistCollectionRevision):\(PlayHistoryStore.shared.revision):\(PlayHistoryStore.shared.resolutionRevision):\(radioVersion):\(liveVersion)"
         guard version != cachedVersion else { return }
         let playlists = library.playlists
         let musicEntries = PlayHistoryStore.shared.musicEntries
@@ -230,7 +233,8 @@ extension CarPlayEditorCatalog {
             playlists: playlists, memberships: Dictionary(uniqueKeysWithValues: playlists.map { ($0.id, library.rawSongIDs(forPlaylist: $0.id)) }),
             stations: AppServices.shared.radioStationsStore.stations.map {
                 CarPlayHomeItem(id: $0.id, title: $0.name, subtitle: $0.playbackSubtitle, symbol: "radio", target: .radio($0.id))
-            }, artistNames: library.artistNameConfiguration, history: musicEntries.map(\.listeningEvent), artists: library.visibleArtists,
+            }, artistNames: library.artistNameConfiguration, history: musicEntries.map(\.listeningEvent),
+            historyCandidates: PlayHistoryStore.shared.resolvedHistoryCandidates, artists: library.visibleArtists,
             // 有声与环境音都不进「最近添加」。
             spokenWordSongIDs: library.nonMusicSongIDs,
             // 与手机首页同一套输入,同一天里两边推荐的是同一批歌。
@@ -372,8 +376,12 @@ extension CarPlayEditorCatalog {
         result.startListening = input.listeningIntents
         guard !Task.isCancelled else { return result }
         let ranked = HomeListeningRanking.ranks(events: input.history, songs: [:], folders: nil, period: .all, category: .songs)
-        // 同一首歌在几个源里各有一份时取库里还在的那份。
-        let rankedQueue = ranked.compactMap { $0.songGroups.first?.first(where: valid.contains) }
+        // 同一首歌在几个源里各有一份时取库里还在的那份;别的设备上播的、本机 ID 不同的,取认出来的本机那首。
+        let rankedQueue = ranked.compactMap { rank in
+            rank.songGroups.first.flatMap {
+                ListeningSongIdentity.expandingCandidateIDs($0, candidates: input.historyCandidates).first(where: valid.contains)
+            }
+        }
         result.ranking = rankedQueue.prefix(60).compactMap { id in
             guard let entry = result.lookup[.song]?[id] else { return nil }
             return CarPlayHomeItem(id: entry.id, title: entry.title, subtitle: entry.subtitle,

@@ -12,10 +12,16 @@ enum YearlyReportAnalyzer {
     /// 播放记录里没有风格和年份，按 id 去曲库查（O(1)），只查记录里出现过的歌 ——
     /// 几十万首的库不必为了一份报告整库过一遍。
     @MainActor
-    static func songTraits(for entries: [PlayHistoryStore.Entry], library: MusicLibrary) -> [String: ListeningRecapSongTraits] {
+    static func songTraits(
+        for entries: [PlayHistoryStore.Entry],
+        library: MusicLibrary,
+        resolvedCandidates: [String: [String]] = [:]
+    ) -> [String: ListeningRecapSongTraits] {
         var traits: [String: ListeningRecapSongTraits] = [:]
         for songID in Set(entries.map(\.songID)) {
-            guard let song = library.song(id: songID) else { continue }
+            let song = library.song(id: songID)
+                ?? resolvedCandidates[songID]?.lazy.compactMap { library.song(id: $0) }.first
+            guard let song else { continue }
             traits[songID] = ListeningRecapSongTraits(
                 genre: song.genre, year: song.year, duration: song.duration, format: song.fileFormat
             )
@@ -31,7 +37,8 @@ enum YearlyReportAnalyzer {
         music: [PlayHistoryStore.Entry],
         traits: [String: ListeningRecapSongTraits],
         now: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        resolvedCandidates: [String: [String]] = [:]
     ) -> YearlyReportData? {
         guard let interval = ListeningYearReportPolicy.interval(year: year, now: now, calendar: calendar) else { return nil }
         let events = music.map {
@@ -68,9 +75,18 @@ enum YearlyReportAnalyzer {
             isInProgress: ListeningYearReportPolicy.isInProgress(interval, year: year, calendar: calendar),
             recap: recap,
             highlights: ListeningYearHighlights.build(events: events, interval: interval, calendar: calendar),
-            songs: PlayHistoryStore.rankedItems(from: scoped, category: .songs, limit: rankingLimit, songKeys: songKeys),
-            artists: PlayHistoryStore.rankedItems(from: scoped, category: .artists, limit: rankingLimit, songKeys: songKeys),
-            albums: PlayHistoryStore.rankedItems(from: scoped, category: .albums, limit: rankingLimit, songKeys: songKeys),
+            songs: PlayHistoryStore.rankedItems(
+                from: scoped, category: .songs, limit: rankingLimit, songKeys: songKeys,
+                resolvedCandidates: resolvedCandidates
+            ),
+            artists: PlayHistoryStore.rankedItems(
+                from: scoped, category: .artists, limit: rankingLimit, songKeys: songKeys,
+                resolvedCandidates: resolvedCandidates
+            ),
+            albums: PlayHistoryStore.rankedItems(
+                from: scoped, category: .albums, limit: rankingLimit, songKeys: songKeys,
+                resolvedCandidates: resolvedCandidates
+            ),
             sources: sources
                 .map { .init(sourceID: $0.key, plays: $0.value.plays, seconds: $0.value.seconds) }
                 .sorted { $0.seconds > $1.seconds }
