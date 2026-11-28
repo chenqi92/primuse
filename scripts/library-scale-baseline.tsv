@@ -72,7 +72,6 @@ legacy-library-api	Primuse/Views/Home/HomeListeningRankingSection.swift	1
 legacy-library-api	Primuse/Views/Home/HomeMusicVideoSection.swift	1
 legacy-library-api	Primuse/Views/Home/HomeView.swift	26
 legacy-library-api	Primuse/Views/Library/AIPlaylistEditorView.swift	2
-legacy-library-api	Primuse/Views/Library/AIRecommendationLibraryView.swift	1
 legacy-library-api	Primuse/Views/Library/AISongDiscoveryView.swift	2
 legacy-library-api	Primuse/Views/Library/AlbumDetailView.swift	1
 legacy-library-api	Primuse/Views/Library/AlbumGridView.swift	6
@@ -84,7 +83,6 @@ legacy-library-api	Primuse/Views/Library/LibraryDetailEvidence.swift	6
 legacy-library-api	Primuse/Views/Library/LibraryOrganizationViews.swift	5
 legacy-library-api	Primuse/Views/Library/LibraryView+Catalog.swift	3
 legacy-library-api	Primuse/Views/Library/LibraryView.swift	14
-legacy-library-api	Primuse/Views/Library/MusicVideoLibraryView.swift	2
 legacy-library-api	Primuse/Views/Library/PlaylistDetailView.swift	2
 legacy-library-api	Primuse/Views/Library/PlaylistListView.swift	5
 legacy-library-api	Primuse/Views/Library/PlaylistPendingEntryRow.swift	1

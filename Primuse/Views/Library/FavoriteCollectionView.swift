@@ -78,8 +78,13 @@ enum FavoriteCollectionResolver {
 
     /// 书架上 id 为 `id` 的那本书。只拿这本书的条目来排章节，不整架重分；分书改了 id
     /// （标签或目录变了）就对不上，和归档、首页挑的书一样。
+    /// 歌曲模型不在内存里(曲库可用)时从曲库目录问(`FavoriteBookCatalog`,U8b),还在问时 nil。
     static func book(id: String, library: MusicLibrary) -> FavoriteBook? {
-        let songs = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == id }
+        if !library.isReady, library.isUsable { return FavoriteBookCatalog.shared.book(id: id, library: library) }
+        return favoriteBook(id: id, songs: library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == id })
+    }
+
+    static func favoriteBook(id: String, songs: [Song]) -> FavoriteBook? {
         guard !songs.isEmpty else { return nil }
         let store = SpokenWordStore.shared
         let books = SpokenWordBookGrouping.books(
@@ -343,7 +348,9 @@ struct FavoriteCollectionView: View {
                         // iPhone Duo 竖栏：静止时就在竖排状态栏旁边，筛选胶囊停在竖栏前。
                         .pmPinnedRowStopsAtVerticalBar()
                 }
-                if all.isEmpty, folderModel.index != nil || !hasFolderFavorites {
+                if all.isEmpty, FavoriteCollectionResolver.isWaitingForTheCatalog(references, library: library) {
+                    ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
+                } else if all.isEmpty, folderModel.index != nil || !hasFolderFavorites {
                     emptyState
                 } else if shown.isEmpty, findQuery != nil {
                     ContentUnavailableView.search(text: findText)
@@ -703,6 +710,7 @@ struct FavoriteCollectionEditor: View {
         [
             String(library.searchRevision),
             String(library.playlistCollectionRevision),
+            String(library.isReady),
             selectionKey,
             searchText,
         ].joined(separator: "\u{1F}")
@@ -830,12 +838,15 @@ struct FavoriteCollectionEditor: View {
         .task(id: rebuildKey) {
             await rebuildContent()
         }
+        .songModelPage()
     }
 
     /// 整库筛选。专辑与艺术家来自资料库已经排好序的集合，歌单来自用户排定的
     /// 顺序 —— 这里一律保持原顺序，既省掉一次 localizedCompare 全表排序，也不会
     /// 把用户排好的歌单顺序又打乱一次。
     private func rebuildContent() async {
+        // U8b:候选要整份专辑、艺人。模型不在内存里时这一页替自己占用(`.songModelPage`),装回来再列,先显示加载。
+        guard library.isReady else { isBuilding = true; return }
         let query = searchText
         let currentPins = selection.pins
         let albumsSnapshot = library.visibleAlbums

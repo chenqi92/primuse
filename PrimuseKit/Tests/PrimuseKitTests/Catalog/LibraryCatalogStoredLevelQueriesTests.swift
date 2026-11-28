@@ -72,6 +72,30 @@ struct LibraryCatalogStoredLevelQueriesTests {
         #expect(candidates.map(\.dateAdded) == [Date(timeIntervalSinceReferenceDate: 100), Date(timeIntervalSinceReferenceDate: 300)])
     }
 
+    @Test("Lists the music-video rows in library order")
+    func listsMusicVideoRowsInLibraryOrder() throws {
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        func video(_ id: String, mv: String?) -> Song {
+            var song = song(id, album: nil)
+            song.mvPath = mv
+            return song
+        }
+        #expect(try catalog.musicVideoRowList().isEmpty)
+        try catalog.apply(upserts: [
+            video("one", mv: "/Videos/one.mp4"),
+            video("two", mv: nil),
+            video("three", mv: "/Videos/three.mp4"),
+            video("four", mv: "/Videos/four.mp4"),
+        ])
+        let rows = try catalog.musicVideoRowList()
+        #expect(try catalog.songs(rowids: rows.rowids).map(\.id) == ["one", "three", "four"])
+        #expect(rows.count == (try catalog.musicVideoSongCount()))
+        #expect(rows.count == (try catalog.musicVideoCandidates().count))
+        try catalog.apply(upserts: [video("three", mv: nil)], deletingIDs: ["one"])
+        #expect(try catalog.songs(rowids: catalog.musicVideoRowList().rowids).map(\.id) == ["four"])
+    }
+
     @Test("Tells which albums still have a song")
     func tellsWhichAlbumsStillHaveASong() throws {
         let temporary = try TemporaryCatalog()

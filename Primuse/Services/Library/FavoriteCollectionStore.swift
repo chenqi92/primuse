@@ -36,6 +36,9 @@ final class FavoriteCollectionStore {
         var folderIDs: Set<LibraryFolderNodeID> = []
         /// 收藏着的专辑、艺人（最近收藏的在前）与目录（置顶顺序），用来补上还没排进顺序的。
         var collected: [QuickAccessPinReference] = []
+        /// 歌曲模型不在内存里、专辑与艺人的喜欢还没从曲库目录对出来时为假:那时这两类先空着,
+        /// 写收藏顺序的地方不拿它当准(U8b)。
+        var isComplete = true
     }
 
     private struct MembershipKey: Equatable {
@@ -44,10 +47,14 @@ final class FavoriteCollectionStore {
         let albumCount: Int
         let artistCount: Int
         let folders: String
+        /// 从曲库目录对的那一份(`FavoriteCatalogLikes.Answer.generation`);模型在内存里时是 0。
+        var catalogGeneration: UInt64 = 0
     }
 
     private let defaults: UserDefaults
     private let favorites: LibraryFavoritesStore
+    /// 歌曲模型不在内存里时,收藏的专辑、艺人从曲库目录对(U8b)。
+    let catalogLikes = FavoriteCatalogLikes()
     private weak var library: MusicLibrary?
     private var membershipCache: (key: MembershipKey, value: Membership)?
     /// 合好的显示顺序。资料库页一次刷新会来要好几遍。
@@ -229,6 +236,11 @@ final class FavoriteCollectionStore {
         return value
     }
 
+    /// 收藏的专辑、艺人此刻答得全不全:歌曲模型不在内存里、还没从曲库目录对出来时为假(U8b)。
+    func answersAlbumsAndArtists(library: MusicLibrary) -> Bool {
+        membership(library: library).isComplete
+    }
+
     func isCollected(_ pin: QuickAccessPinReference, library: MusicLibrary) -> Bool {
         switch pin.kind {
         case .playlist, .book:
@@ -251,6 +263,20 @@ final class FavoriteCollectionStore {
 
     private func membership(library: MusicLibrary) -> Membership {
         let folders = folderRawValue
+        // U8b:歌曲模型不在内存里时专辑、艺人的整份列表是空的,喜欢从曲库目录对;还没对出来时这两类先空着。
+        if !library.isReady, library.isUsable {
+            let liked = catalogLikes.current(library: library, favorites: favorites)
+            let key = MembershipKey(
+                favoritesRevision: favorites.revision, libraryRevision: -1, albumCount: -1, artistCount: -1,
+                folders: folders, catalogGeneration: liked?.generation ?? 0
+            )
+            if let membershipCache, membershipCache.key == key { return membershipCache.value }
+            let value = makeMembership(
+                albums: liked?.albums ?? [], artists: liked?.artists ?? [], folders: folders, isComplete: liked != nil
+            )
+            membershipCache = (key, value)
+            return value
+        }
         let key = MembershipKey(
             favoritesRevision: favorites.revision,
             libraryRevision: library.searchRevision,
@@ -262,6 +288,12 @@ final class FavoriteCollectionStore {
 
         let albums = favorites.likedAlbums(in: library.visibleAlbums)
         let artists = favorites.hasLikedArtists ? favorites.likedArtists(in: library.favoriteArtistCandidates) : []
+        let value = makeMembership(albums: albums, artists: artists, folders: folders)
+        membershipCache = (key, value)
+        return value
+    }
+
+    private func makeMembership(albums: [Album], artists: [Artist], folders: String, isComplete: Bool = true) -> Membership {
         var dated: [(pin: QuickAccessPinReference, likedAt: Date)] = []
         dated.reserveCapacity(albums.count + artists.count)
         for album in albums {
@@ -282,14 +314,13 @@ final class FavoriteCollectionStore {
             .map(\.element.pin)
         let folderIDs = Self.collectedFolderIDs(in: folders)
 
-        let value = Membership(
+        return Membership(
             albumIDs: Set(albums.map(\.id)),
             artistIDs: Set(artists.map(\.id)),
             folderIDs: Set(folderIDs),
-            collected: liked + folderIDs.map(QuickAccessPinReference.folder)
+            collected: liked + folderIDs.map(QuickAccessPinReference.folder),
+            isComplete: isComplete
         )
-        membershipCache = (key, value)
-        return value
     }
 
     // MARK: - Editing
@@ -382,7 +413,9 @@ final class FavoriteCollectionStore {
 
     private func moveToFront(_ pins: [QuickAccessPinReference], library: MusicLibrary) {
         // 先把显示顺序写实：还没排进顺序的（别的设备收藏的）原本就排在最前，新收藏的要排到它们前面。
-        store(FavoriteCollectionOrderPolicy.inserting(pins, into: references(library: library), anchor: Self.anchor))
+        // 专辑、艺人还没从曲库目录对出来(U8b)时照存着的顺序插:缺了这两类的显示顺序写回去会把它们的位置丢掉。
+        let base = membership(library: library).isComplete ? references(library: library) : storedPins
+        store(FavoriteCollectionOrderPolicy.inserting(pins, into: base, anchor: Self.anchor))
     }
 
     // MARK: - Following likes
@@ -416,7 +449,8 @@ final class FavoriteCollectionStore {
         }
     }
 
-    private func followLikeChanges() {
+    /// `answered`:歌曲模型不在内存里时从曲库目录对出来的、包含这一批的那一份(U8b)。
+    private func followLikeChanges(answered: FavoriteCatalogLikes.Answer? = nil) {
         let changed = pendingLikeChanges
         pendingLikeChanges = []
         var added: Set<String> = []
@@ -433,13 +467,21 @@ final class FavoriteCollectionStore {
             }
         }
         guard let library, !added.isEmpty || !removed.isEmpty else { return }
-        // 6c: 歌曲模型不在内存里时专辑、艺人的整份列表是空的,这一批会被当成对不上而丢掉:先不消化,
-        // 退回等着的里,模型装好时再挪(收藏区只在前台显示,那时模型在内存里)。
-        guard library.isReady else {
+        let likedAlbums: [Album]
+        let likedArtists: [Artist]
+        if library.isReady {
+            likedAlbums = favorites.likedAlbums(in: library.visibleAlbums)
+            likedArtists = favorites.likedArtists(in: library.favoriteArtistCandidates)
+        } else if let answered, answered.key.favoritesRevision == favorites.revision {
+            likedAlbums = answered.albums
+            likedArtists = answered.artists
+        } else {
+            // 6c: 歌曲模型不在内存里时专辑、艺人的整份列表是空的,这一批会被当成对不上而丢掉:先不消化,退回等着的里。
+            // U8b:曲库可用时从目录对出包含这一批的那一份再挪,不等模型装回来;目录答不了时照旧等装好再挪。
             for id in added { likedSnapshot.remove(id) }
             for id in removed { likedSnapshot.insert(id) }
             pendingLikeChanges.formUnion(added.union(removed))
-            library.onReady { [weak self] in self?.followLikeChanges() }
+            deferLikeChanges(library: library, asUserEdit: isUserEdit)
             return
         }
 
@@ -454,18 +496,39 @@ final class FavoriteCollectionStore {
         guard !added.isEmpty else { return }
 
         var dated: [(pin: QuickAccessPinReference, likedAt: Date)] = []
-        for album in favorites.likedAlbums(in: library.visibleAlbums) {
+        for album in likedAlbums {
             let key = favorites.favoriteID(for: album)
             guard added.contains(key) else { continue }
             dated.append((QuickAccessPinReference(kind: .album, itemID: album.id), favorites.entry(id: key)?.likedAt ?? .distantPast))
         }
-        for artist in favorites.likedArtists(in: library.favoriteArtistCandidates) {
+        for artist in likedArtists {
             let key = favorites.favoriteID(for: artist)
             guard added.contains(key) else { continue }
             dated.append((QuickAccessPinReference(kind: .artist, itemID: artist.id), favorites.entry(id: key)?.likedAt ?? .distantPast))
         }
         guard !dated.isEmpty else { return }
         moveToFront(dated.sorted { $0.likedAt > $1.likedAt }.map(\.pin), library: library)
+    }
+
+    /// 跟着喜欢挪顺序要整份专辑、艺人:可用时等曲库目录对出这一刻的那一份,答不了时等模型装好。
+    /// 这台设备上点的喜欢挪完照旧算这台设备排的(`userEdit`)。
+    private func deferLikeChanges(library: MusicLibrary, asUserEdit: Bool) {
+        guard library.isUsable else {
+            library.onReady { [weak self] in self?.followLikeChanges() }
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let answer = await self.catalogLikes.fresh(library: library, favorites: self.favorites) else {
+                library.onReady { [weak self] in self?.followLikeChanges() }
+                return
+            }
+            if asUserEdit {
+                self.userEdit { self.followLikeChanges(answered: answer) }
+            } else {
+                self.followLikeChanges(answered: answer)
+            }
+        }
     }
 
     private func favoriteKey(for pin: QuickAccessPinReference, library: MusicLibrary) -> String? {

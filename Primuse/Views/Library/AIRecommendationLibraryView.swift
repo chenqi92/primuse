@@ -291,8 +291,8 @@ struct AIRecommendationLibraryView: View {
         // iPhone Duo 竖栏：推荐卡片和按钮停在竖栏左侧。
         .pmExtendsUnderVerticalBar()
         .task(id: videoRequest) {
-            let next = await videoRequest.picks(from: library.musicVideoSongs, now: Date())
-            guard !Task.isCancelled else { return }
+            // 模型不在内存里时候选从曲库目录读(同首页那一排,U8b);答不了时留着这一排。
+            guard let next = await HomeMusicVideoPicks.picks(for: videoRequest, library: library, now: Date()), !Task.isCancelled else { return }
             musicVideoPicks = next
         }
         .task(id: mixCardSongs.map(\.id)) { tintProvider.prepare(mixCardSongs) }

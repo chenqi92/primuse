@@ -6072,16 +6072,16 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         let migrated = FavoriteCollectionStore(defaults: migratedDefaults, favorites: likes,
                                                cloud: CloudKVSSync(store: nil, defaults: migratedDefaults, observing: nil))
         migrated.start(library: library)
-        // 模型不在时点上的喜欢:不消化,等装回来。
-        likes.setLiked(true, album: album)
-        try await Task.sleep(for: .milliseconds(700))
-        assertNoLoadAndNoArrayRead(library, since: before, "books, a migrated collection and a like while released")
-        XCTAssertFalse(songModelHolds(of: library).contains(.migration))
         let albumPin = QuickAccessPinReference(kind: .album, itemID: album.id)
         func pins(_ defaults: UserDefaults) -> [QuickAccessPinReference] {
             LibraryPinStorage.decode(defaults.string(forKey: LibraryPinStorage.defaultsKey) ?? "")
         }
-        XCTAssertFalse(pins(migratedDefaults).contains(albumPin), "the like waits for the model")
+        // 模型不在时点上的喜欢:从曲库目录对出包含它的那一份再挪到最前,不等模型装回来(U8b)。
+        likes.setLiked(true, album: album)
+        for _ in 0..<500 where !pins(migratedDefaults).contains(albumPin) { try await Task.sleep(for: .milliseconds(20)) }
+        assertNoLoadAndNoArrayRead(library, since: before, "books, a migrated collection and a like while released")
+        XCTAssertFalse(songModelHolds(of: library).contains(.migration))
+        XCTAssertTrue(pins(migratedDefaults).contains(albumPin), "the like is placed from the catalog")
 
         let freshDefaults = try makeDefaults("fresh")
         let fresh = FavoriteCollectionStore(
@@ -6100,7 +6100,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         while !pins(migratedDefaults).contains(albumPin), Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        XCTAssertTrue(pins(migratedDefaults).contains(albumPin), "the waiting like is placed once the model is back")
+        XCTAssertTrue(pins(migratedDefaults).contains(albumPin), "the like stays placed once the model is back")
     }
 
     /// 本机导入续扫前的时长检查(6c 单元 3b-2):模型在内存里时逐首看整库,真放掉之后问目录(按源,含停用源),答案相同,

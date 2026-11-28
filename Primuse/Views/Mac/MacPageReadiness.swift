@@ -65,8 +65,10 @@ extension MacPageKind {
         case .playlists, .albums:
             // 专辑页(`AlbumGridView`)读曲库目录,还读整库数组的那几种(按发行类别筛)自己占用(6c 单元 4 U4a)。
             .catalog
-        case .songs, .artists, .genres, .folders, .favorites, .releaseDate, .recommendations,
-             .statistics, .ambient, .musicVideos:
+        case .musicVideos, .favorites:
+            // MV 页、收藏页从目录读,答不了时(MV 太多、编辑收藏要挑整库专辑)自己占用(U8b)。
+            .catalog
+        case .songs, .artists, .genres, .folders, .releaseDate, .recommendations, .statistics, .ambient:
             .legacy
         }
     }

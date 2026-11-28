@@ -11,6 +11,8 @@ struct MusicVideoLibraryView: View {
     @Environment(AudioPlayerService.self) private var player
     @AppStorage(MusicVideoLibrarySort.storageKey) private var sortRawValue = MusicVideoLibrarySort.recentlyAdded.rawValue
     @State private var playlistSong: Song?
+    /// 歌曲模型不在内存里时从曲库目录读的那份 MV(U8b)。
+    @State private var catalogVideos: MusicVideoCatalogSource.Answer?
     #if os(iOS)
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -22,7 +24,8 @@ struct MusicVideoLibraryView: View {
     }
 
     var body: some View {
-        let songs = sort.sorted(library.musicVideoSongs)
+        let source = MusicVideoCatalogSource.songs(in: library, catalog: catalogVideos)
+        let songs = sort.sorted(source)
         ScrollView {
             #if os(macOS)
             MacLibraryHeader(
@@ -41,7 +44,7 @@ struct MusicVideoLibraryView: View {
                 .padding(.bottom, 32)
             #else
             VStack(alignment: .leading, spacing: 22) {
-                let featured = Self.featuredSong(in: library.musicVideoSongs)
+                let featured = Self.featuredSong(in: source)
                 if let featured {
                     MusicVideoFeatureCard(
                         song: featured,
@@ -63,7 +66,9 @@ struct MusicVideoLibraryView: View {
             #endif
         }
         .overlay {
-            if songs.isEmpty {
+            if songs.isEmpty, MusicVideoCatalogSource.isWaiting(in: library, catalog: catalogVideos) {
+                ProgressView()
+            } else if songs.isEmpty {
                 ContentUnavailableView(
                     "library_music_videos_title",
                     systemImage: "play.rectangle",
@@ -74,6 +79,8 @@ struct MusicVideoLibraryView: View {
         .sheet(item: $playlistSong) { song in
             AddToPlaylistSheet(song: song)
         }
+        .musicVideoCatalogSource($catalogVideos)
+        .songModelPage(needsArrays: MusicVideoCatalogSource.needsTheSongModel(in: library, catalog: catalogVideos))
         #if os(macOS)
         .background(PMColor.bg.ignoresSafeArea())
         #endif

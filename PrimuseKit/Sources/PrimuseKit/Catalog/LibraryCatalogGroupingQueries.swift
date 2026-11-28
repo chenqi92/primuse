@@ -654,6 +654,15 @@ extension LibraryCatalog {
         }
     }
 
+    /// 可见音乐里带 MV 的歌的行号,按库内顺序 —— 同内存里 `musicVideoSongs` 的那些与先后(S5b,MV 页)。
+    /// 读 `flags` 里的 MV 位,不逐首解码;调用方在一次物化的上限内取歌,再照页面的排序排。
+    public func musicVideoRowList() throws -> LibraryRowList {
+        try rowList { db in
+            let (sql, arguments) = try LibrarySongScope.visibleMusic.whereClause(in: db)
+            return ("\(sql) AND (s.flags & \(LibraryCatalogSongFlags.hasMusicVideo)) != 0", arguments)
+        }
+    }
+
     /// 打着「用户编辑」标记(`userMetadataEditedAt` 不为空)的歌的 id,含停用源、所有类别,
     /// 同 `songs.filter { $0.userMetadataEditedAt != nil }` 的那些 id。读 `flags` 里的标记位,不逐首解码。
     public func userEditedSongIDs() throws -> Set<String> {
