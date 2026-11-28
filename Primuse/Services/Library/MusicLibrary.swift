@@ -4389,6 +4389,8 @@ final class MusicLibrary {
     @ObservationIgnored var songModelFallbackPersistFailsForTesting = false
     /// 测试:放掉之前各项都落定之后、最后一次核对之前停一下。
     @ObservationIgnored var songModelReleaseDidSettleForTesting: (@MainActor () async -> Void)?
+    /// 测试:「交来的歌没改」从目录读完、核对状态之前停一下(这时别处的写落下来,要从头再比)。
+    @ObservationIgnored var unchangedIncomingReadDidFinishForTesting: (@MainActor () async -> Void)?
     #endif
     /// 这一轮进程里扫描索引已经给过专辑艺人目录(之前目录里留着上一轮的,不先清掉)。
     @ObservationIgnored private var catalogAlbumArtistFoldersReceived = false
@@ -4458,6 +4460,8 @@ final class MusicLibrary {
     /// `.preparing` 期间排队的整行替换里已经改过的字段(歌曲 id → 字段名 → 值,清掉的字段记 `NSNull`),
     /// 见 `queuingRowEdits`。这期间按 id 从目录读出来的行叠上它;重放完清空。
     @ObservationIgnored private var queuedSongFieldEdits: [String: [String: Any]] = [:]
+    /// AM-a:上一次「交来的歌没改」给不出凭据(或落地时核对不上)的原因,nil = 上一次给了、核对上了。
+    @ObservationIgnored private(set) var unchangedIncomingRefusal: String?
     /// CK-b:正在落地的这一批 iCloud 记录认成员身份用的、事先从曲库目录读好的候选(`resolvingRemoteIdentities`),
     /// 只在那一次同步落地期间有值。
     @ObservationIgnored private var activeCatalogIdentityResolution: CatalogIdentityResolution?
@@ -8080,102 +8084,201 @@ extension MusicLibrary {
     /// 交来的派生字段按模型在内存里时的规则取(名字规则与自动艺人图没变就用后台算好的那份)。
     ///
     /// nil:有改动,或者此刻不能这样比(模型在内存里、小状态落不了盘、目录答不了、路上的改动等不到确认、
-    /// 还有排着的整行改动,或者比的途中曲库变了)—— 调用方照旧调 `addSongs`。
+    /// 还有排着的整行改动,或者比的途中曲库一直在变)—— 调用方照旧调 `addSongs`。每次给 nil 都记一行原因
+    /// (哪一条条件、哪一行哪个字段),`unchangedIncomingRefusal` 留着最后一次的。比的途中别处的写落下来时
+    /// 等它们确认后从头再比,最多三次。
     func prepareUnchangedIncomingSongs(
         _ prepared: PreparedIncomingSongs,
         affectedSourceIDs: Set<String>,
         pruneMissingSongs: Bool,
         mergeServerCatalogRows: Bool
     ) async -> UnchangedIncomingSongs? {
-        guard !songModelAnswersFromMemory, smallStateWritesWithoutTheModel != nil, queuedSongFieldEdits.isEmpty,
-              !affectedSourceIDs.isEmpty, let lookup = lookupOutsideTheModel else { return nil }
-        let writes = lookup.pendingWrites
-        if writes.pendingCount > 0 {
-            guard await writes.waitUntilAcknowledged(through: writes.lastSequence, timeout: .seconds(2)),
-                  !songModelAnswersFromMemory, smallStateWritesWithoutTheModel != nil, queuedSongFieldEdits.isEmpty
-            else { return nil }
+        // 每一次不给凭据都记一行为什么(手机上分得清是哪一条),测试读最后一次的。
+        func refuse(_ why: String) -> UnchangedIncomingSongs? {
+            unchangedIncomingRefusal = why
+            plog("🧠 AM-a: incoming songs not judged unchanged (\(why)) sources=\(affectedSourceIDs.count) songs=\(prepared.original.count)")
+            return nil
         }
-        guard writes.pendingCount == 0, writes.answersLikeMemory else { return nil }
-        let state = UnchangedIncomingSongs.State(
-            pendingWrites: ObjectIdentifier(writes), sequence: writes.lastSequence,
-            exclusions: deviceLocalExclusionRevision, tombstones: deletedSongIdentitiesRevision,
-            artistNames: artistNameConfiguration, artwork: automaticArtistArtworkCatalogRevision
-        )
-        let derivationIsCurrent = !mergeServerCatalogRows
-            && prepared.artistNameConfiguration == artistNameConfiguration
-            && prepared.automaticArtworkCatalogRevision == automaticArtistArtworkCatalogRevision
-        let incoming = derivationIsCurrent ? prepared.derived : prepared.original
-        let incomingIDs = Set(incoming.map(\.id))
-        // 剪枝会丢掉这几个源里本机保留着、这次没交来的行(`discardRetainedSongs`):有就算改。
-        if pruneMissingSongs, deviceLocalExcludedSongsByID.values.contains(where: {
-            affectedSourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id)
-        }) { return nil }
-        // 准入:墓碑与本机移除挡下的行不入库;挡下而可能被撤销、让路的(那时会改)算改。
-        var blockedIDs: Set<String> = []
-        if LibrarySongAdmissionPolicy.hasAdmissionFilters(
-            tombstones: deletedSongIdentities, deviceExclusions: deviceLocalExcludedSongIdentities
-        ) {
-            var prefixes: [String: String] = [:]
-            for sourceID in Set(incoming.map(\.sourceID)) { prefixes[sourceID] = sourceIdentityResolver?(sourceID) }
-            let canRevokeTombstones = deviceLocalFilePresenceProbe != nil || !deletedSongIdentityDetails.isEmpty
-            for song in incoming {
-                switch admissionVerdict(song, prefixes: prefixes) {
-                case .admitted:
-                    continue
-                case .blockedByTombstone:
-                    if canRevokeTombstones { return nil }
-                case .blockedByDeviceExclusion:
-                    if deviceExclusionsYieldToReplacedFiles,
-                       LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
-                           retained: retainedSongForExclusion(of: song), scanned: song
-                       ) { return nil }
-                }
-                blockedIDs.insert(song.id)
-            }
-        }
-        let admittedIDs = incomingIDs.subtracting(blockedIDs)
+        unchangedIncomingRefusal = nil
+        guard !affectedSourceIDs.isEmpty else { return refuse("no source") }
         let started = ContinuousClock.now
-        guard let read = await Task.detached(priority: .utility, operation: {
-            try? UnchangedIncomingRead(
-                ids: Array(admittedIDs), sourceIDs: pruneMissingSongs ? affectedSourceIDs : [], lookup: lookup
-            )
-        }).value, incomingSongsCheckState() == state else { return nil }
-        let excludes = !deviceLocalExcludedSongIdentities.isEmpty
-        func admitted(_ song: Song?) -> Song? { excludes ? admittedOutsideTheModel(song) : song }
-        // 逐首过 `addSongs` 那一步;库里的那一行按落地时的先后跟着变(同一首交来两次时第二次对着第一次的结果)。
-        var current: [String: Song] = [:]
-        let memo = DerivedIDMemo()
-        for song in incoming where !blockedIDs.contains(song.id) {
-            guard let existing = current[song.id] ?? admitted(read.stored[song.id]) else { return nil }
-            let merge = mergeIncomingRow(
-                song, existing: existing, mergeServerCatalogRows: mergeServerCatalogRows,
-                derivedFieldsArePrepared: derivationIsCurrent, memo: memo
-            )
-            guard !merge.changesTheRow, !merge.movesFile, !merge.presentationChanged, !merge.serverReplacedArtwork else {
-                return nil
+        var attempt = 0
+        while true {
+            attempt += 1
+            if let why = await unchangedIncomingCheckRefusalAfterSettling() { return refuse(why) }
+            guard let lookup = lookupOutsideTheModel, let state = incomingSongsCheckState() else {
+                return refuse(incomingSongsCheckRefusal() ?? "the catalog cannot answer")
             }
-            current[song.id] = existing
-        }
-        if pruneMissingSongs {
-            // 这几个源里存着、这次没交来的(按本机移除表筛过之后还在的)要删。
-            let missing = read.sourceSongIDs.subtracting(admittedIDs)
-            if !missing.isEmpty {
-                guard excludes else { return nil }
-                guard let rows = storedSongsOutsideTheModel(Array(missing), lookup: lookup, observed: false) else {
-                    return nil
+            let derivationIsCurrent = !mergeServerCatalogRows
+                && prepared.artistNameConfiguration == artistNameConfiguration
+                && prepared.automaticArtworkCatalogRevision == automaticArtistArtworkCatalogRevision
+            let incoming = derivationIsCurrent ? prepared.derived : prepared.original
+            let incomingIDs = Set(incoming.map(\.id))
+            // 剪枝会丢掉这几个源里本机保留着、这次没交来的行(`discardRetainedSongs`):有就算改。
+            if pruneMissingSongs {
+                let dropped = deviceLocalExcludedSongsByID.values.filter {
+                    affectedSourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id)
                 }
-                if rows.contains(where: { $0 != nil }) { return nil }
+                if let first = dropped.first { return refuse("pruning drops \(dropped.count) retained rows, first \(first.id)") }
             }
+            // 准入:墓碑与本机移除挡下的行不入库;挡下而可能被撤销、让路的(那时会改)算改。
+            var blockedIDs: Set<String> = []
+            if LibrarySongAdmissionPolicy.hasAdmissionFilters(
+                tombstones: deletedSongIdentities, deviceExclusions: deviceLocalExcludedSongIdentities
+            ) {
+                var prefixes: [String: String] = [:]
+                for sourceID in Set(incoming.map(\.sourceID)) { prefixes[sourceID] = sourceIdentityResolver?(sourceID) }
+                let canRevokeTombstones = deviceLocalFilePresenceProbe != nil || !deletedSongIdentityDetails.isEmpty
+                for song in incoming {
+                    switch admissionVerdict(song, prefixes: prefixes) {
+                    case .admitted:
+                        continue
+                    case .blockedByTombstone:
+                        if canRevokeTombstones { return refuse("a tombstoned row may be revoked: \(song.id)") }
+                    case .blockedByDeviceExclusion:
+                        if deviceExclusionsYieldToReplacedFiles,
+                           LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
+                               retained: retainedSongForExclusion(of: song), scanned: song
+                           ) { return refuse("a device exclusion yields to a replaced file: \(song.id)") }
+                    }
+                    blockedIDs.insert(song.id)
+                }
+            }
+            let admittedIDs = incomingIDs.subtracting(blockedIDs)
+            guard let read = await Task.detached(priority: .utility, operation: {
+                try? UnchangedIncomingRead(
+                    ids: Array(admittedIDs), sourceIDs: pruneMissingSongs ? affectedSourceIDs : [], lookup: lookup
+                )
+            }).value else { return refuse("catalog not readable") }
+            #if DEBUG
+            if let pause = unchangedIncomingReadDidFinishForTesting { await pause() }
+            #endif
+            let after = incomingSongsCheckState()
+            guard after == state else {
+                let why = "changed during the read: " + Self.unchangedIncomingDifference(state, after) {
+                    self.incomingSongsCheckRefusal()
+                }
+                // 别处的写(补读、封面补丁、iCloud 收到的墓碑……)正好落在读的这几十毫秒里:不放弃,等路上的写确认了
+                // 从头再比一次(条件、准入、派生都按那一刻重算),最多三次。
+                if attempt < 3 { continue }
+                return refuse(why + " (\(attempt) attempts)")
+            }
+            let excludes = !deviceLocalExcludedSongIdentities.isEmpty
+            func admitted(_ song: Song?) -> Song? { excludes ? admittedOutsideTheModel(song) : song }
+            // 逐首过 `addSongs` 那一步;库里的那一行按落地时的先后跟着变(同一首交来两次时第二次对着第一次的结果)。
+            var current: [String: Song] = [:]
+            let memo = DerivedIDMemo()
+            for song in incoming where !blockedIDs.contains(song.id) {
+                guard let existing = current[song.id] ?? admitted(read.stored[song.id]) else { return refuse("new row \(song.id)") }
+                let merge = mergeIncomingRow(
+                    song, existing: existing, mergeServerCatalogRows: mergeServerCatalogRows,
+                    derivedFieldsArePrepared: derivationIsCurrent, memo: memo
+                )
+                guard !merge.changesTheRow, !merge.movesFile, !merge.presentationChanged, !merge.serverReplacedArtwork else {
+                    return refuse("row differs \(song.id): " + Self.incomingRowDifference(merge, existing: existing))
+                }
+                current[song.id] = existing
+            }
+            if pruneMissingSongs {
+                // 这几个源里存着、这次没交来的(按本机移除表筛过之后还在的)要删。
+                let missing = read.sourceSongIDs.subtracting(admittedIDs)
+                if !missing.isEmpty {
+                    guard excludes else { return refuse("\(missing.count) stored rows missing from the batch, first \(missing.min() ?? "")") }
+                    guard let rows = storedSongsOutsideTheModel(Array(missing), lookup: lookup, observed: false) else {
+                        return refuse("catalog not readable (missing rows)")
+                    }
+                    if let stored = rows.lazy.compactMap({ $0 }).first {
+                        return refuse("stored rows missing from the batch, first \(stored.id)")
+                    }
+                }
+            }
+            let elapsed = Int((ContinuousClock.now - started) / .milliseconds(1))
+            plog("🧠 AM-a: incoming songs unchanged sources=\(affectedSourceIDs.count) songs=\(incoming.count) ms=\(elapsed)"
+                 + (attempt > 1 ? " attempts=\(attempt)" : ""))
+            return UnchangedIncomingSongs(state: state)
         }
-        let elapsed = Int((ContinuousClock.now - started) / .milliseconds(1))
-        plog("🧠 AM-a: incoming songs unchanged sources=\(affectedSourceIDs.count) songs=\(incoming.count) ms=\(elapsed)")
-        return UnchangedIncomingSongs(state: state)
     }
 
     /// 紧接着落地之前(同一轮主线程里):凭据还作数吗(比的那一刻之后曲库没有一点改动,名字规则、自动艺人图、
     /// 墓碑、本机移除都没变,模型还不在内存里,小状态落得了盘)。
     func incomingSongsAreUnchanged(_ unchanged: UnchangedIncomingSongs) -> Bool {
-        incomingSongsCheckState() == unchanged.state
+        let now = incomingSongsCheckState()
+        if now == unchanged.state { return true }
+        let why = Self.unchangedIncomingDifference(unchanged.state, now) { self.incomingSongsCheckRefusal() }
+        unchangedIncomingRefusal = "at commit: " + why
+        plog("🧠 AM-a: unchanged incoming songs no longer hold at commit (\(why))")
+        return false
+    }
+
+    /// 不靠模型比交来的歌此刻差哪一条(与 `incomingSongsCheckState` 的条件一一对应,给日志用);nil = 都齐。
+    /// 只读:不经 `lookupOutsideTheModel`(目录答不了时它会排一次装载)。`ignoringCatalogWrites`:路上还没确认的
+    /// 目录写、还没镜像到的整份替换不算(它们过一会儿就确认,调用方先等)。
+    private func incomingSongsCheckRefusal(ignoringCatalogWrites: Bool = false) -> String? {
+        if songModelAnswersFromMemory { return "the song model is in memory" }
+        guard portableSnapshotIsSongless else { return "the snapshot carries the songs" }
+        guard songModelReleased else { return "the song model is not released" }
+        guard songModelLoadTask == nil else { return "a load is running" }
+        guard catalogAttached, let host = catalogHost else { return "no catalog attached" }
+        guard songStore != nil else { return "no song store" }
+        guard !persistenceBlockedByCorruption else { return "persistence blocked" }
+        guard !sourceRemovalInProgress else { return "source removal in progress" }
+        guard deferredMutations.isEmpty else { return "\(deferredMutations.count) mutations queued for the model" }
+        guard queuedSongFieldEdits.isEmpty else { return "\(queuedSongFieldEdits.count) row edits queued for the model" }
+        guard visibleSongIndexByID.isEmpty, readiness == .preparing else { return "the song model is being published" }
+        guard host.mirror.caughtUpCatalog != nil else { return "the catalog is not readable" }
+        if ignoringCatalogWrites { return nil }
+        let writes = host.pendingWrites
+        guard writes.answersLikeMemory else {
+            return "the catalog does not answer like memory (a whole replacement not mirrored yet, or following stopped)"
+        }
+        guard writes.pendingCount == 0 else { return "\(writes.pendingCount) catalog writes not acknowledged" }
+        return nil
+    }
+
+    /// 开始比之前:条件齐不齐;只差路上的目录写(整份替换也算)没确认时,等它们确认(最多 2 秒)再看,不当场放弃。
+    private func unchangedIncomingCheckRefusalAfterSettling() async -> String? {
+        if let why = incomingSongsCheckRefusal(ignoringCatalogWrites: true) { return why }
+        guard let writes = catalogHost?.pendingWrites else { return "no catalog attached" }
+        if writes.pendingCount > 0 || !writes.answersLikeMemory {
+            let pending = writes.pendingCount
+            guard await writes.waitUntilAcknowledged(through: writes.lastSequence, timeout: .seconds(2)) else {
+                return "catalog writes not acknowledged within 2 s (\(pending) pending"
+                    + (writes.answersLikeMemory ? ")" : ", a whole replacement not mirrored or following stopped)")
+            }
+        }
+        return incomingSongsCheckRefusal()
+    }
+
+    private static func unchangedIncomingDifference(
+        _ before: UnchangedIncomingSongs.State, _ after: UnchangedIncomingSongs.State?, refusal: () -> String?
+    ) -> String {
+        guard let after else { return refusal() ?? "the check cannot run" }
+        var changed: [String] = []
+        if after.pendingWrites != before.pendingWrites { changed.append("catalog following restarted") }
+        if after.sequence != before.sequence { changed.append("catalog writes \(before.sequence)→\(after.sequence)") }
+        if after.exclusions != before.exclusions { changed.append("device exclusions") }
+        if after.tombstones != before.tombstones { changed.append("tombstones") }
+        if after.artistNames != before.artistNames { changed.append("artist-name rules") }
+        if after.artwork != before.artwork { changed.append("automatic artist artwork") }
+        return changed.joined(separator: ", ")
+    }
+
+    /// 交来的这一首落地会怎样改库里那一行:哪一种改动、前几个不同的字段(按名字排)。
+    fileprivate static func incomingRowDifference(_ merge: IncomingRowMerge, existing: Song) -> String {
+        var parts: [String] = []
+        switch merge.change {
+        case .appended: parts.append("appended")
+        case .contentChanged: parts.append("content changed")
+        case .keptMetadata(let changed): if changed { parts.append("kept metadata, changed") }
+        case .replaced(let changed): if changed { parts.append("replaced") }
+        }
+        if let fields = fieldEdits(from: existing, to: merge.row), !fields.isEmpty {
+            parts.append("fields " + fields.keys.sorted().prefix(4).joined(separator: ","))
+        }
+        if merge.movesFile { parts.append("moves the file") }
+        if merge.presentationChanged { parts.append("presentation") }
+        if merge.serverReplacedArtwork { parts.append("server artwork") }
+        return parts.joined(separator: "; ")
     }
 
     /// `addSongs` 对着一首不改的整源会做、而又不要整库数组的那几步:剪枝的通知(播放队列按它对账),

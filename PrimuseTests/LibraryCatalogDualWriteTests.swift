@@ -4796,6 +4796,80 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         assertNoLoadAndNoArrayRead(library, since: before, "a changed user mirror")
     }
 
+    /// AM-a 之后手机上的那一次:不装模型启动,模型被别的事装回来一次再真放掉,下一次原样的 Apple Music 刷新照样判
+    /// 不改 —— 不写行、不排队、不装;放掉之后紧接着、目录写还在路上时来的那一次也一样(等写确认,不放弃)。
+    func testAnUnchangedAppleMusicRefreshAfterALoadAndAReleaseQueuesNothing() async throws {
+        let songs = Self.fixture(prefix: "amz")
+        let (stored, fetched) = appleMusicFixture("amz")
+        let source = AppleMusicLibraryService.systemSourceID
+        let (fixture, storage) = try makeLaunchedTwin("amz", songs: songs, extra: stored)
+        fixture.ensurePlaylist(id: AppleMusicLibraryService.systemPlaylistID, name: "Apple Music")
+        fixture.replaceMirrorPlaylistSongs(
+            playlistID: AppleMusicLibraryService.systemPlaylistID, songIDs: fetched.map(\.id), coverArtPath: nil
+        )
+        await assertShadowMatches(fixture, "fixture")
+        fixture.markPortableSnapshotDirtyForTesting()
+        guard case .success = await fixture.persistNowAndWait(materializePortableSnapshot: true) else {
+            return XCTFail("the fixture did not persist")
+        }
+        await fixture.waitForCatalogMirror()
+        await fixture.stopCatalogMirror()
+        let library = await launch(try copyOfDirectory(storage, "amz-launch"), unloaded: true)
+        try await waitUntilUsable(library)
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+
+        func refresh(_ step: String) async throws {
+            let before = library.songModelResidencyStatistics
+            library.persistedSongChangeSetsForTesting = []
+            let prepared = await library.prepareIncomingSongsOffMain(fetched)
+            let judged = await library.prepareUnchangedIncomingSongs(
+                prepared, affectedSourceIDs: [source], pruneMissingSongs: true, mergeServerCatalogRows: false
+            )
+            let refusal = library.unchangedIncomingRefusal ?? "-"
+            let unchanged = try XCTUnwrap(judged, "\(step): judged unchanged (refused: \(refusal))")
+            XCTAssertTrue(library.incomingSongsAreUnchanged(unchanged), "\(step): \(library.unchangedIncomingRefusal ?? "-")")
+            library.noteUnchangedIncomingSongs(affectedSourceIDs: [source], notifyRemovals: true, pruneMissingSongs: true)
+            library.ensurePlaylist(id: AppleMusicLibraryService.systemPlaylistID, name: "Apple Music")
+            library.replaceMirrorPlaylistSongs(
+                playlistID: AppleMusicLibraryService.systemPlaylistID, songIDs: fetched.map(\.id), coverArtPath: nil
+            )
+            XCTAssertEqual(library.deferredMutationCountForTesting, 0, "\(step): nothing queued")
+            assertNoLoadAndNoArrayRead(library, since: before, step)
+            let written = (library.persistedSongChangeSetsForTesting ?? []).flatMap { $0.upserts.map(\.id) + $0.deletingIDs }
+            XCTAssertFalse(written.contains { fetched.map(\.id).contains($0) }, "\(step): no Apple Music row written")
+        }
+        try await refresh("the never-loaded launch")
+
+        // 别的事(手机上是 Siri 的建议查询)把模型装回来、用完;之后真放掉。
+        let hold = await library.holdSongModel(.userAction)
+        XCTAssertTrue(library.isReady)
+        hold.end()
+        _ = try await releaseForReal(library)
+        await library.releaseDatabaseMemoryAndWait()
+        try await refresh("after a load and a release")
+
+        // 再装一次、放掉,紧接着一笔不靠模型的行写(还没被目录确认)之后马上来刷新。
+        let again = await library.holdSongModel(.userAction)
+        again.end()
+        _ = try await releaseForReal(library)
+        library.updateLyricsText([songs[3].id: "words written right after the release"])
+        try await refresh("right after the release, a catalog write in flight")
+        XCTAssertEqual(library.storedSong(id: songs[3].id)?.lyricsText, "words written right after the release")
+
+        // 别处的一笔写正好落在从目录读的那几十毫秒里(手机上回到前台时补读、封面补丁一直在写):等它确认后从头再比,
+        // 照样判不改。
+        library.unchangedIncomingReadDidFinishForTesting = { [weak library] in
+            guard let library else { return }
+            library.unchangedIncomingReadDidFinishForTesting = nil
+            library.updateLyricsText([songs[5].id: "words written during the read"])
+        }
+        defer { library.unchangedIncomingReadDidFinishForTesting = nil }
+        try await refresh("a catalog write during the read")
+        XCTAssertNil(library.unchangedIncomingReadDidFinishForTesting, "the write landed during the read")
+        XCTAssertEqual(library.storedSong(id: songs[5].id)?.lyricsText, "words written during the read")
+    }
+
     /// AM-a:服务器歌单镜像在模型放掉之后由目录对照、走小状态落地:同一份快照什么都不写、不排队、不装;
     /// 换了先后又多了一张歌单的快照落下来,与模型在内存里的那一台相同,也不装。
     func testServerPlaylistMirrorAppliesFromTheCatalogWhileReleased() async throws {
