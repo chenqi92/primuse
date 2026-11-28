@@ -145,6 +145,35 @@ struct LibraryCatalogSortParityTests {
         try Self.check(fixture, seed: seed)
     }
 
+    /// 「来源」排序两种排名:按源名对 Mac 的排序值(带源名),按源 id 对 iOS 的排序值(空的,比源 id)。
+    /// 分节字母跟着同一种名字。两种排名在这份夹具上给出不同的顺序。
+    @Test("Source order ranks by name for the Mac sort values and by id for the empty iOS ones")
+    func sourceRankings() throws {
+        let fixture = try Self.makeFixture(seed: 4_242, count: 600)
+        let catalog = fixture.temporary.catalog
+        var idByRowid: [Int32: String] = [:]
+        for (song, rowid) in zip(fixture.songs, try catalog.rowids(forIDs: fixture.songs.map(\.id))) {
+            idByRowid[try #require(rowid)] = song.id
+        }
+        var ascendingByRanking: [LibrarySongSourceRanking: [String]] = [:]
+        for (ranking, sortValues) in [(LibrarySongSourceRanking.name, fixture.sortValues), (.id, SongListSortValues())] {
+            let ascending = SongListSnapshotBuilder.build(songs: fixture.songs, order: .source, sortValues: sortValues)
+            let descending = SongListSnapshotBuilder.build(songs: fixture.songs, order: .sourceDescending, sortValues: sortValues)
+            let up = try catalog.songRowList(order: .source, scope: .everything, sourceRanking: ranking)
+            let down = try catalog.songRowList(order: .sourceDescending, scope: .everything, sourceRanking: ranking)
+            // 写入按 id 的先后,升序逐行一致;降序是升序整体倒过来(键完全相等的组内连行号一起倒,见 `check`)。
+            #expect(up.rowids.map { idByRowid[$0] ?? "?" } == ascending.orderedSongIDs, "\(ranking)")
+            #expect(down.rowids.map { idByRowid[$0] ?? "?" } == Array(ascending.orderedSongIDs.reversed()), "\(ranking)")
+            #expect(up.sections == ascending.sectionIndexEntries, "\(ranking)")
+            #expect(down.sections == descending.sectionIndexEntries, "\(ranking)")
+            ascendingByRanking[ranking] = ascending.orderedSongIDs
+        }
+        #expect(ascendingByRanking[.name] != ascendingByRanking[.id], "the two rankings differ on this fixture")
+        // 别的排序不看排名:同一份结果。
+        let format = try catalog.songRowList(order: .format, scope: .everything)
+        #expect(try catalog.songRowList(order: .format, scope: .everything, sourceRanking: .id) == format)
+    }
+
     @Test("Parity holds after incremental edits and deletes")
     func parityAfterEdits() throws {
         let seed: UInt64 = 4_242

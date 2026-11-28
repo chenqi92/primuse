@@ -16,7 +16,7 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(MacPageKind.playlistDetail.readiness, .catalog)
         XCTAssertEqual(MacPageKind.section(.playlists).readiness, .catalog)
         XCTAssertEqual(MacPageKind.section(.albums).readiness, .catalog)
-        for section in [LibrarySection.albums, .musicVideos, .favorites] {
+        for section in [LibrarySection.albums, .songs, .musicVideos, .favorites] {
             XCTAssertEqual(MacPageKind.section(section).readiness, .catalog, "\(section)")
             XCTAssertEqual(MacPageKind.section(section).readiness, LibraryReadyContent<EmptyView>.readiness(for: section),
                            "same as the iPhone library section")
@@ -29,7 +29,7 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
                            "same as the iPhone library section")
         }
         let legacySections: [LibrarySection] = [
-            .songs, .artists, .genres, .folders, .releaseDate, .recommendations, .statistics, .ambient,
+            .artists, .genres, .folders, .releaseDate, .recommendations, .statistics, .ambient,
         ]
         for section in legacySections {
             XCTAssertEqual(MacPageKind.section(section).readiness, .legacy, "\(section)")
@@ -54,8 +54,8 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         }
     }
 
-    /// 模型真放掉之后:首页、歌单这些读目录的页直接画,不占用、不装、不读整库数组;歌曲页显示加载并占用
-    /// `.legacyPage`,装回来就画,页面消失就放手。
+    /// 模型真放掉之后:首页、歌单、歌曲这些读目录的页直接画,不占用、不装、不读整库数组;还读数组的页
+    /// (这里拿流派页)显示加载并占用 `.legacyPage`,装回来就画,页面消失就放手。
     func testPagesAfterTheSongModelWasReleased() async throws {
         let (library, _) = try makeLaunchedTwin("mac-pages-released", songs: Self.fixture(prefix: "mac-pages-released"))
         await assertShadowMatches(library, "fixture")
@@ -108,7 +108,7 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         _ library: MusicLibrary, before: MusicLibrary.SongModelResidencyStatistics, _ state: String,
         file: StaticString = #filePath, line: UInt = #line
     ) async throws {
-        for kind in [MacPageKind.home, .playlist, .section(.playlists), .section(.radio)] {
+        for kind in [MacPageKind.home, .playlist, .section(.playlists), .section(.songs), .section(.radio)] {
             XCTAssertTrue(MacPageKind.showsContent(kind.readiness, isUsable: library.isUsable, isReady: library.isReady),
                           "\(state): \(kind) shows at once", file: file, line: line)
             let page = SongModelPageHold()
@@ -118,15 +118,15 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         try await Task.sleep(for: .milliseconds(100))
         assertNoLoadAndNoArrayRead(library, since: before, "\(state): converted pages", file: file, line: line)
 
-        let songs = MacPageKind.section(.songs)
-        XCTAssertFalse(MacPageKind.showsContent(songs.readiness, isUsable: library.isUsable, isReady: library.isReady),
-                       "\(state): the songs page shows loading", file: file, line: line)
+        let legacy = MacPageKind.section(.genres)
+        XCTAssertFalse(MacPageKind.showsContent(legacy.readiness, isUsable: library.isUsable, isReady: library.isReady),
+                       "\(state): the genres page shows loading", file: file, line: line)
         let page = SongModelPageHold()
-        page.update(library: library, needsArrays: songs.readiness == .legacy, isVisible: true, isActive: true)
-        XCTAssertTrue(page.isHolding, "\(state): the songs page holds", file: file, line: line)
+        page.update(library: library, needsArrays: legacy.readiness == .legacy, isVisible: true, isActive: true)
+        XCTAssertTrue(page.isHolding, "\(state): the genres page holds", file: file, line: line)
         try await waitUntilReady(library)
         XCTAssertTrue(library.isReady, "\(state): the hold brought the model", file: file, line: line)
-        XCTAssertTrue(MacPageKind.showsContent(songs.readiness, isUsable: library.isUsable, isReady: library.isReady),
+        XCTAssertTrue(MacPageKind.showsContent(legacy.readiness, isUsable: library.isUsable, isReady: library.isReady),
                       file: file, line: line)
         XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1, file: file, line: line)
         page.update(library: library, needsArrays: true, isVisible: false, isActive: true)

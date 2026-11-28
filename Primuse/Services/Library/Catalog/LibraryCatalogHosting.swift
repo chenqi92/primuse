@@ -114,8 +114,16 @@ final class LibraryCatalogHost {
     }
 
     /// 一个绑在这个目录上的歌曲列表模型。
-    func songList(_ content: LibrarySongListQuery.Content) -> LibraryListModel<LibrarySongListQuery> {
-        LibraryListModel(query: LibrarySongListQuery(content), reader: reader, revisions: revisions)
+    func songList(
+        _ content: LibrarySongListQuery.Content,
+        find: LibraryFindPolicy.Query? = nil,
+        sourceRanking: LibrarySongSourceRanking = .name
+    ) -> LibraryListModel<LibrarySongListQuery> {
+        LibraryListModel(
+            query: LibrarySongListQuery(content, find: find, sourceRanking: sourceRanking),
+            reader: reader,
+            revisions: revisions
+        )
     }
 
     func albumList(visibleOnly: Bool = true) -> LibraryListModel<LibraryAlbumListQuery> {

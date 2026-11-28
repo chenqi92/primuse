@@ -42,6 +42,20 @@ extension SongListCatalogList {
         let scope: LibrarySongScope
         /// 整页的范围:页头的歌曲数、可播放数、总时长与来源筛选条上的计数按它算。
         let baseScope: LibrarySongScope
+        /// 「播放次数」排序用的计数;别的排序为 nil。
+        var playCounts: LibrarySongPlayCounts?
+        /// 页内查找的词;没在查找时为 nil。
+        var find: LibraryFindPolicy.Query?
+
+        /// 列表模型的数据来源。播放次数排序总按页面给的计数排(没给就是都没播过:id 的先后,与内存排序一致),
+        /// 不走目录里没人写的 `songStat`。
+        var content: LibrarySongListQuery.Content {
+            if order.criterion == .playCount {
+                let counts = playCounts ?? LibrarySongPlayCounts(revision: nil, counts: [:])
+                return .playCounts(counts, ascending: order.isAscending, scope)
+            }
+            return .sorted(order, scope)
+        }
     }
 
     struct Summary: Equatable, Sendable {
@@ -70,8 +84,21 @@ extension SongListCatalogList {
     var baseCount: Int? { summary?.base.count }
     var basePlayableCount: Int { summary?.base.playableCount ?? 0 }
     var baseTotalDuration: TimeInterval { summary?.base.totalDuration ?? 0 }
-    var listPlayableCount: Int { summary?.list.playableCount ?? 0 }
+    /// 眼前这份列表的可播放数。查找结果按列表模型给的汇总(范围的汇总不知道哪些匹配)。
+    var listPlayableCount: Int {
+        if let entry = current, entry.key.find != nil { return entry.model.aggregates?.playableCount ?? 0 }
+        return summary?.list.playableCount ?? 0
+    }
     var coverSong: Song? { summary?.coverSong }
+    /// 眼前这份列表换过、或有新的一页物化好了就变(Mac「已下载」一列据此重问眼前那几页)。
+    var materializedRevision: UInt64 {
+        UInt64(truncatingIfNeeded: swapRevision) &* 1_048_576 &+ (current?.model.loadedGeneration ?? 0)
+    }
+
+    /// 物化着的那几页的歌(可见区上下各一百多行),顺序不定。
+    func materializedSongs() -> [Song] {
+        current?.model.materializedItems ?? []
+    }
 
     func songCount(forSourceID sourceID: String) -> Int {
         summary?.countsBySource[sourceID] ?? 0
@@ -101,8 +128,19 @@ extension SongListCatalogList {
         attach(host)
         if current?.key == key { return true }
         if pending?.key != key {
+            #if os(macOS)
+            // Mac 的查找框每敲一个字就变(iOS 那边页面已经等停手才换词):停一小会儿再扫目录。
+            if key.find != nil {
+                do {
+                    try await Task.sleep(for: .milliseconds(150))
+                } catch {
+                    return false
+                }
+                if current?.key == key { return true }
+            }
+            #endif
             pending?.model.deactivate()
-            let model = host.songList(.sorted(key.order, key.scope))
+            let model = host.songList(key.content, find: key.find, sourceRanking: SongListCatalogPolicy.sourceRanking)
             model.activate()
             pending = Entry(key: key, model: model)
         }
@@ -275,21 +313,33 @@ extension SongListCatalogList {
 
 /// 歌曲页在目录上能给出与内存路径一模一样结果的排序。
 enum SongListCatalogPolicy {
-    /// - 播放次数、已下载:目录还没有这两张设备状态表的数据(`songStat`、`songOffline` 没人写),走内存。
-    /// - 来源(iOS):iOS 的内存排序不带源名、按源 id 比,目录按源名比,走内存;Mac 两边都按源名。
+    /// - 播放次数:页面把本机的计数交给目录(`LibrarySongPlayCounts`),目录按 (次数, id) 排。
+    /// - 来源:与内存排序同一种排名(`sourceRanking`)。
+    /// - 已下载:目录的离线状态表补全以后才给(`SongListView.catalogSupports`),这里不算。
     static func supports(_ order: LibrarySongSortOrder) -> Bool {
         switch order.criterion {
         case .title, .fileName, .artist, .album, .dateAdded, .sourceDate, .format, .duration,
-                .serverPlayCount, .year, .bitRate, .bitDepth:
+                .playCount, .serverPlayCount, .source, .year, .bitRate, .bitDepth:
             return true
-        case .source:
-            #if os(macOS)
-            return true
-            #else
-            return false
-            #endif
-        case .playCount, .downloaded:
+        case .downloaded:
             return false
         }
     }
+
+    /// 「来源」排序的排名:Mac 的内存排序带着源名,按源名;iOS 的内存排序值是空的(`songListSortValues`),
+    /// 比的是源 id,目录也按源 id,存下来的来源排序在 iOS 上两条路给出同一份列表。
+    static var sourceRanking: LibrarySongSourceRanking {
+        #if os(macOS)
+        .name
+        #else
+        .id
+        #endif
+    }
+}
+
+/// Mac 目录列表「已下载」一列什么时候重问:列表换了或物化了新的一页、离线状态变了。
+struct CatalogDownloadedColumnProbe: Equatable {
+    let needed: Bool
+    let rows: UInt64
+    let offline: Int
 }

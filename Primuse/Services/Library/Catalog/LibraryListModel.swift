@@ -9,8 +9,19 @@ struct LibraryListRows: Sendable, Equatable {
     var revision: Int64
     /// 专辑墙、艺人墙的分段(首字母或年代),与 `ids` 一一对应。
     var browseSections: [LibraryBrowseSection] = []
+    /// 查找结果的汇总(歌曲页页头的可播放数);其余列表为 nil。不算进「行号换没换」。
+    var aggregates: LibraryRowList.Aggregates?
 
     static let empty = LibraryListRows(ids: [], sections: [], revision: 0)
+}
+
+/// 歌曲页「播放次数」排序用的计数(歌曲 id → 本机播放次数,播放记录折出来的)。
+/// 比较只看修订号:计数一换,页面给的修订号就换,不必逐项比字典。
+struct LibrarySongPlayCounts: Sendable, Equatable {
+    let revision: UUID?
+    let counts: [String: Int]
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.revision == rhs.revision }
 }
 
 /// 列表模型的数据来源:怎么取整列的行号、怎么按行号物化、哪些变化要重查。
@@ -31,16 +42,29 @@ struct LibrarySongListQuery: LibraryListQuery {
         case book(String)
         case folder(sourceID: String, path: String, recursive: Bool)
         case rows(LibraryRowList)
+        /// 按本机播放次数排(次数在播放记录里,不在目录里)。
+        case playCounts(LibrarySongPlayCounts, ascending: Bool, LibrarySongScope)
     }
 
     let content: Content
+    /// 页内查找:只留匹配的行(顺序不变)。
+    let find: LibraryFindPolicy.Query?
+    /// 「来源」排序给源排名用源名还是源 id(与页面的内存排序一致,见 `LibrarySongSourceRanking`)。
+    let sourceRanking: LibrarySongSourceRanking
 
-    init(_ content: Content) { self.content = content }
+    init(_ content: Content, find: LibraryFindPolicy.Query? = nil, sourceRanking: LibrarySongSourceRanking = .name) {
+        self.content = content
+        self.find = find
+        self.sourceRanking = sourceRanking
+    }
 
     func fetchRows(_ catalog: LibraryCatalog) throws -> LibraryListRows {
-        let list: LibraryRowList
+        var list: LibraryRowList
         switch content {
-        case .sorted(let order, let scope): list = try catalog.songRowList(order: order, scope: scope)
+        case .sorted(let order, let scope):
+            list = try catalog.songRowList(order: order, scope: scope, sourceRanking: sourceRanking)
+        case .playCounts(let counts, let ascending, let scope):
+            list = try catalog.songRowList(playCounts: counts.counts, ascending: ascending, scope: scope)
         case .scope(let scope): list = try catalog.rowList(scope)
         case .album(let albumID): list = try catalog.albumSongRowList(albumID: albumID)
         case .artist(let artistID): list = try catalog.artistSongRowList(artistID: artistID)
@@ -49,7 +73,8 @@ struct LibrarySongListQuery: LibraryListQuery {
             list = try catalog.rowList(sourceID: sourceID, directory: path, recursive: recursive)
         case .rows(let rows): list = rows
         }
-        return LibraryListRows(ids: list.rowids, sections: list.sections, revision: list.revision)
+        if let find { list = try catalog.songRowList(list, matching: find) }
+        return LibraryListRows(ids: list.rowids, sections: list.sections, revision: list.revision, aggregates: list.aggregates)
     }
 
     func materialize(_ ids: [Int32], catalog: LibraryCatalog, rowCache: LibraryRowCache) throws -> [Int32: Song] {
@@ -64,7 +89,7 @@ struct LibrarySongListQuery: LibraryListQuery {
         if change.invalidatesEverything || change.changesMembership { return true }
         // 只改了内容:排序可能变,范围限定在源上时只看这个源。
         switch content {
-        case .sorted(_, let scope), .scope(let scope):
+        case .sorted(_, let scope), .scope(let scope), .playCounts(_, _, let scope):
             if let sourceID = scope.sourceID, let touched = change.touchedSourceIDs { return touched.contains(sourceID) }
             return !change.updatedRowids.isEmpty
         default:
@@ -142,6 +167,8 @@ final class LibraryListModel<Query: LibraryListQuery> {
     private(set) var sections: [SongListSectionIndexEntry] = []
     /// 专辑墙、艺人墙的分段(见 `LibraryListRows.browseSections`)。
     private(set) var browseSections: [LibraryBrowseSection] = []
+    /// 查找结果的汇总(见 `LibraryListRows.aggregates`)。
+    private(set) var aggregates: LibraryRowList.Aggregates?
     /// 第一次取行号还没回来。
     private(set) var isLoading = true
     /// 行号整体换过就加一(滚动位置、选择据此对账)。
@@ -250,6 +277,9 @@ extension LibraryListModel {
     /// 物化着的行数(窗口之外的都放掉了)。
     var materializedCount: Int { loaded.count }
 
+    /// 物化着的那几页的内容(可见区上下各 `prefetchDistance` 行),顺序不定。
+    var materializedItems: [Query.Item] { Array(loaded.values) }
+
     // MARK: - Private
 
     private func catalogDidChange(_ change: LibraryCatalogChange) {
@@ -298,8 +328,11 @@ extension LibraryListModel {
     }
 
     private func apply(_ next: LibraryListRows) {
-        let changed = next != rows
+        var sameAggregates = next
+        sameAggregates.aggregates = rows.aggregates
+        let changed = sameAggregates != rows
         rows = next
+        if aggregates != next.aggregates { aggregates = next.aggregates }
         if changed {
             let present = Set(next.ids)
             loaded = loaded.filter { present.contains($0.key) }

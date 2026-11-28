@@ -119,6 +119,14 @@ enum LibraryCatalogSongSort {
     )
 }
 
+/// 「来源」排序给各个源排名用的名字(与内存排序的 `SongListSortValues.sourceNamesByID` 对应):
+/// `name` 用源名(没有就是 id),Mac 的内存排序带着源名;`id` 直接用源 id,iOS 的内存排序值是空的,
+/// 比的就是源 id。分节字母跟着用同一个名字。
+public enum LibrarySongSourceRanking: Sendable, Hashable {
+    case name
+    case id
+}
+
 /// 没有索引的排序结果按 (排序, 范围, 修订号) 缓存,总行数有上限,超出按最久未用淘汰。
 final class LibrarySongListCache: @unchecked Sendable {
     struct Key: Hashable {
@@ -126,6 +134,7 @@ final class LibrarySongListCache: @unchecked Sendable {
         let scope: LibrarySongScope
         let revision: Int64
         let includesAggregates: Bool
+        var sourceRanking: LibrarySongSourceRanking = .name
     }
 
     /// 全局行号预算(PLAN §4.3,400 万行)里给歌曲列表缓存的部分。
@@ -168,23 +177,29 @@ final class LibrarySongListCache: @unchecked Sendable {
 extension LibraryCatalog {
     /// 歌曲列表:范围内按 `order` 排好的行号、分节索引与(可选的)汇总。
     /// 在调用线程上同步执行 SQL,调用方放在主线程外。没有索引的排序结果缓存到下一次修订。
+    /// `sourceRanking` 只影响「来源」排序(见 `LibrarySongSourceRanking`)。
     public func songRowList(
         order: LibrarySongSortOrder,
         scope: LibrarySongScope = .visibleMusic,
-        includeAggregates: Bool = false
+        includeAggregates: Bool = false,
+        sourceRanking: LibrarySongSourceRanking = .name
     ) throws -> LibraryRowList {
+        // 别的排序与源名无关:都按 `name` 记缓存键,不为同一份结果存两份。
+        let ranking: LibrarySongSourceRanking = order.criterion == .source ? sourceRanking : .name
         // 有索引的排序直接扫索引,不缓存;迁移后排序索引还在后台补建时,这几种也要整表排序,先缓存。
         var indexed = LibraryCatalogSongSort.indexedCriteria.contains(order.criterion)
         if indexed, LibraryCatalogSongSort.backgroundIndexedCriteria.contains(order.criterion), try hasPendingSortIndexes() {
             indexed = false
         }
         guard !indexed else {
-            return try buildSongRowList(order: order, scope: scope, includeAggregates: includeAggregates)
+            return try buildSongRowList(order: order, scope: scope, includeAggregates: includeAggregates, sourceRanking: ranking)
         }
         let revision = try self.revision()
-        let key = LibrarySongListCache.Key(order: order, scope: scope, revision: revision, includesAggregates: includeAggregates)
+        let key = LibrarySongListCache.Key(
+            order: order, scope: scope, revision: revision, includesAggregates: includeAggregates, sourceRanking: ranking
+        )
         if let cached = songListCache.value(for: key) { return cached }
-        let list = try buildSongRowList(order: order, scope: scope, includeAggregates: includeAggregates)
+        let list = try buildSongRowList(order: order, scope: scope, includeAggregates: includeAggregates, sourceRanking: ranking)
         if list.revision == revision { songListCache.store(list, for: key) }
         return list
     }
@@ -192,12 +207,15 @@ extension LibraryCatalog {
     private func buildSongRowList(
         order: LibrarySongSortOrder,
         scope: LibrarySongScope,
-        includeAggregates: Bool
+        includeAggregates: Bool,
+        sourceRanking: LibrarySongSourceRanking
     ) throws -> LibraryRowList {
         try reader.read { db in
             let revision = try Self.revision(in: db)
-            let sources = try Row.fetchAll(db, sql: "SELECT key, id, name FROM source").map { row in
-                (key: row[0] as Int64, label: (row[2] as String?) ?? (row[1] as String))
+            let sources = try Row.fetchAll(db, sql: "SELECT key, id, name FROM source").map { row -> (key: Int64, label: String) in
+                let id: String = row[1]
+                let label = sourceRanking == .name ? (row[2] as String?) ?? id : id
+                return (key: row[0] as Int64, label: label)
             }
             let (whereSQL, arguments) = try scope.whereClause(in: db)
             var rowids = ContiguousArray<Int32>()

@@ -1281,6 +1281,9 @@ struct SongListView: View {
     @State private var macFolderPath: [LibraryFolderNodeID] = []
     /// 当前选中的数据源过滤 (nil = 全部)。设计稿 SourceFilterChips 是可点切换的。
     @State private var selectedSourceID: String? = nil
+    /// 目录列表时「已下载」一列的答案:只含眼前物化着的那几页里已下载的歌。
+    // crash-pattern: allow song-id-collection-property 以物化窗口为界(可见区上下各 150 行),不随曲库变大
+    @State private var catalogDownloadedSongIDs: Set<String> = []
     @State private var showViewOptions = false
     @State private var showAddVisibleToPlaylist = false
     // Bind context-menu sheets to the selected value itself.  A separate
@@ -1402,114 +1405,6 @@ struct SongListView: View {
         #if os(iOS)
         _presentedBrowseMode = State(initialValue: initialBrowseMode)
         #endif
-    }
-
-    enum SongSortOrder: String, CaseIterable, Sendable {
-        case title, titleDescending
-        case fileName, fileNameDescending
-        case artist, artistDescending
-        case album, albumDescending
-        case dateAdded, dateAddedOldest
-        case sourceDate, sourceDateOldest
-        case format, formatDescending
-        case duration, durationDescending
-        case playCount, playCountDescending
-        case serverPlayCount, serverPlayCountDescending
-        case source, sourceDescending
-        case year, yearDescending
-        case bitRate, bitRateDescending
-        case bitDepth, bitDepthDescending
-        case downloaded, downloadedFirst
-
-        var libraryOrder: LibrarySongSortOrder {
-            switch self {
-            case .title: return .title
-            case .titleDescending: return .titleDescending
-            case .fileName: return .fileName
-            case .fileNameDescending: return .fileNameDescending
-            case .artist: return .artist
-            case .artistDescending: return .artistDescending
-            case .album: return .album
-            case .albumDescending: return .albumDescending
-            case .dateAdded: return .dateAdded
-            case .dateAddedOldest: return .dateAddedOldest
-            case .sourceDate: return .sourceDate
-            case .sourceDateOldest: return .sourceDateOldest
-            case .format: return .format
-            case .formatDescending: return .formatDescending
-            case .duration: return .duration
-            case .durationDescending: return .durationDescending
-            case .playCount: return .playCount
-            case .playCountDescending: return .playCountDescending
-            case .serverPlayCount: return .serverPlayCount
-            case .serverPlayCountDescending: return .serverPlayCountDescending
-            case .source: return .source
-            case .sourceDescending: return .sourceDescending
-            case .year: return .year
-            case .yearDescending: return .yearDescending
-            case .bitRate: return .bitRate
-            case .bitRateDescending: return .bitRateDescending
-            case .bitDepth: return .bitDepth
-            case .bitDepthDescending: return .bitDepthDescending
-            case .downloaded: return .downloaded
-            case .downloadedFirst: return .downloadedFirst
-            }
-        }
-
-        init(libraryOrder: LibrarySongSortOrder) {
-            switch libraryOrder {
-            case .title: self = .title
-            case .titleDescending: self = .titleDescending
-            case .fileName: self = .fileName
-            case .fileNameDescending: self = .fileNameDescending
-            case .artist: self = .artist
-            case .artistDescending: self = .artistDescending
-            case .album: self = .album
-            case .albumDescending: self = .albumDescending
-            case .dateAdded: self = .dateAdded
-            case .dateAddedOldest: self = .dateAddedOldest
-            case .sourceDate: self = .sourceDate
-            case .sourceDateOldest: self = .sourceDateOldest
-            case .format: self = .format
-            case .formatDescending: self = .formatDescending
-            case .duration: self = .duration
-            case .durationDescending: self = .durationDescending
-            case .playCount: self = .playCount
-            case .playCountDescending: self = .playCountDescending
-            case .serverPlayCount: self = .serverPlayCount
-            case .serverPlayCountDescending: self = .serverPlayCountDescending
-            case .source: self = .source
-            case .sourceDescending: self = .sourceDescending
-            case .year: self = .year
-            case .yearDescending: self = .yearDescending
-            case .bitRate: self = .bitRate
-            case .bitRateDescending: self = .bitRateDescending
-            case .bitDepth: self = .bitDepth
-            case .bitDepthDescending: self = .bitDepthDescending
-            case .downloaded: self = .downloaded
-            case .downloadedFirst: self = .downloadedFirst
-            }
-        }
-
-        var criterion: LibrarySongSortCriterion { libraryOrder.criterion }
-
-        var isAscending: Bool { libraryOrder.isAscending }
-
-        var directionIcon: String { isAscending ? "arrow.up" : "arrow.down" }
-
-        var directionLabel: String { String(localized: directionKey) }
-
-        func selecting(_ criterion: LibrarySongSortCriterion) -> SongSortOrder {
-            SongSortOrder(libraryOrder: libraryOrder.selecting(criterion))
-        }
-
-        var label: String {
-            criterion.label
-        }
-
-        private var directionKey: String.LocalizationValue {
-            isAscending ? "smart_sort_ascending" : "smart_sort_descending"
-        }
     }
 
     #if os(macOS)
@@ -1667,9 +1562,12 @@ struct SongListView: View {
             }
             #if os(macOS)
             .onChange(of: tableLayout.visibleColumns) { _, columns in
-                if columns.contains(.downloaded) {
+                if columns.contains(.downloaded), requiresDownloadedSongSnapshot {
                     scheduleDownloadedFilterRefresh()
                 }
+            }
+            .onChange(of: requiresDownloadedSongSnapshot) { _, required in
+                if required { scheduleDownloadedFilterRefresh() }
             }
             .onChange(of: sourceSortSignature) { _, _ in
                 sortValuesVersion.invalidate(.source)
@@ -1927,13 +1825,12 @@ struct SongListView: View {
 
     // MARK: Catalog-backed flat list (P2a)
 
-    /// 目录给得出这一页、而且眼前是平铺的整份列表(不在目录版式、没有「已下载」、没有页内查找)。
-    /// 排序是否支持另算(`usesCatalogList`)。
+    /// 目录给得出这一页:平铺列表(不在目录版式),没有「仅离线可用」,「已下载」要等离线状态补全。
+    /// 页内查找由目录按同一套规则筛(`LibraryFindPolicy`)。排序是否支持另算(`usesCatalogList`)。
     private var catalogEligibleIgnoringOrder: Bool {
         library.catalogHost?.revisions.isReadable == true
             && !showsFolderBrowser
             && (effectiveSongFilter == .all || (effectiveSongFilter == .downloaded && catalogOfflineIsCurrent))
-            && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// 目录给得出与内存路径一样结果的排序:P2a 的那些,外加离线状态补全后的「已下载」。
@@ -1980,8 +1877,8 @@ struct SongListView: View {
         catalogOfflineIsCurrent = current
     }
 
-    /// 平铺列表直接从曲库目录按页取,不在内存里排整库。查找、「已下载」、目录版式,以及目录
-    /// 还给不出一样结果的排序(`SongListCatalogPolicy`)照旧走内存;目录读失败的那个键也走内存。
+    /// 平铺列表直接从曲库目录按页取,不在内存里排整库。目录版式、「仅离线可用」、离线状态补全前的
+    /// 「已下载」照旧走内存;目录读失败的那个键也走内存。
     private var usesCatalogList: Bool {
         guard catalogEligibleIgnoringOrder, catalogSupports(sortOrder.libraryOrder) else { return false }
         return catalogList.failedKey != catalogListKeyIgnoringFailure
@@ -2000,7 +1897,18 @@ struct SongListView: View {
         #endif
         // 「已下载」只筛列表;整页的计数(空状态、来源筛选条)仍按整页。
         listScope.downloadedOnly = effectiveSongFilter == .downloaded
-        return SongListCatalogList.Key(order: sortOrder.libraryOrder, scope: listScope, baseScope: base)
+        var key = SongListCatalogList.Key(order: sortOrder.libraryOrder, scope: listScope, baseScope: base)
+        if sortOrder.criterion == .playCount {
+            // 与内存排序同一份计数(iOS 的内存排序不带计数,两边都是空的)。
+            #if os(macOS)
+            let counts = playCountsBySongID
+            #else
+            let counts: [String: Int] = [:]
+            #endif
+            key.playCounts = LibrarySongPlayCounts(revision: sortValuesVersion.revision(for: .playCount), counts: counts)
+        }
+        key.find = LibraryFindPolicy.query(projectionQuery)
+        return key
     }
 
     /// 与 `Scope.songs(in:sources:)` 同一个范围:整库是可见音乐;单个源是这个源的可见歌曲去掉
@@ -2126,7 +2034,8 @@ struct SongListView: View {
     private var requiresDownloadedSongSnapshot: Bool {
         #if os(macOS)
         (isLocalOnlySongFilter && !catalogServesDownloadedState)
-            || tableLayout.visibleColumns.contains(.downloaded)
+            // 目录列表的「已下载」一列只问眼前物化着的那几页(`refreshCatalogDownloadedColumn`)。
+            || (tableLayout.visibleColumns.contains(.downloaded) && !usesCatalogList)
             || (sortOrder.criterion == .downloaded && !catalogServesDownloadedState)
         #else
         isLocalOnlySongFilter && !catalogServesDownloadedState
@@ -2334,6 +2243,9 @@ struct SongListView: View {
                         sortOrder: $sortOrder,
                         showsListeningIntents: showsListeningIntentShelf
                     )
+                } else if showsCatalogList, !projectionQuery.isEmpty, usesCatalogList,
+                          catalogList.currentKey == catalogListKey, catalogList.count == 0 {
+                    ContentUnavailableView.search(text: projectionQuery)
                 } else if showsCatalogList, effectiveSongFilter == .downloaded, usesCatalogList,
                           catalogList.currentKey == catalogListKey, catalogList.count == 0 {
                     ContentUnavailableView(
@@ -2613,6 +2525,11 @@ struct SongListView: View {
             guard !Task.isCancelled else { return }
             catalogLocatedRow = position.map { SongListCatalogLocatedRow(key: catalogLocateKey, position: $0) }
         }
+        .task(id: CatalogDownloadedColumnProbe(
+            needed: showsCatalogList && tableLayout.visibleColumns.contains(.downloaded),
+            rows: catalogList.materializedRevision,
+            offline: sourceManager.offlineAudioSnapshotRevision
+        )) { await refreshCatalogDownloadedColumn() }
         .onAppear { rebuildPlayCounts() }
         .onChange(of: selectedSourceID) { _, _ in
             pruneSelection()
@@ -3307,13 +3224,24 @@ struct SongListView: View {
         guard dict != playCountsBySongID else { return }
         playCountsBySongID = dict
         sortValuesVersion.invalidate(.playCount)
-        if sortOrder.criterion == .playCount {
+        // 目录列表的键带着计数的修订号,换了就重取那一份。
+        if sortOrder.criterion == .playCount, !usesCatalogList {
             scheduleSortedRecompute(
                 delay: .milliseconds(40),
                 pruneRowModels: false,
                 isExplicitSort: activeSortIsExplicit
             )
         }
+    }
+
+    /// 目录列表的「已下载」一列:只问眼前物化着的那几页(与内存路径同一个判断,不为整页取一遍歌)。
+    private func refreshCatalogDownloadedColumn() async {
+        guard showsCatalogList, tableLayout.visibleColumns.contains(.downloaded) else { return }
+        try? await Task.sleep(for: .milliseconds(60))
+        guard !Task.isCancelled else { return }
+        let ids = await sourceManager.downloadedSongIDs(in: catalogList.materializedSongs())
+        guard !Task.isCancelled, ids != catalogDownloadedSongIDs else { return }
+        catalogDownloadedSongIDs = ids
     }
 
     private func songTableRow(
@@ -3339,7 +3267,7 @@ struct SongListView: View {
                 liked: playlistContains(song),
                 plays: playCountsBySongID[song.id] ?? 0,
                 artistName: columns.contains(.artist) ? library.artistDisplayName(for: song) : nil,
-                isDownloaded: downloadedSongIDs.contains(song.id),
+                isDownloaded: (showsCatalogList ? catalogDownloadedSongIDs : downloadedSongIDs).contains(song.id),
                 sourceName: source.map {
                     $0.name.components(separatedBy: "·").first?
                         .trimmingCharacters(in: .whitespaces) ?? $0.name
@@ -3981,14 +3909,20 @@ struct SongListView: View {
         selection.prune(to: Set(batchOrderedSongIDs))
     }
 
-    /// 目录列表里这首在不在眼前(Mac 选了来源筛选时只看那个源)。
+    /// 目录列表里这首在不在眼前(Mac 选了来源筛选时只看那个源;在查找时还要对得上查找词)。
     private func catalogListShows(_ songID: String) -> Bool {
+        let find = LibraryFindPolicy.query(projectionQuery)
         #if os(macOS)
-        if let selectedSourceID {
-            return library.unobservedVisibleSong(id: songID)?.sourceID == selectedSourceID
-        }
+        let filtersSource = selectedSourceID != nil
+        #else
+        let filtersSource = false
         #endif
-        return true
+        guard filtersSource || find != nil else { return true }
+        guard let song = library.unobservedVisibleSong(id: songID) else { return false }
+        #if os(macOS)
+        if let selectedSourceID, song.sourceID != selectedSourceID { return false }
+        #endif
+        return find.map { LibraryFindPolicy.matches($0, song: song) } ?? true
     }
 
     /// Normal browsing returns worker-built arrays by reference. A source/search
@@ -4050,7 +3984,7 @@ struct SongListView: View {
             if isLocalOnlySongFilter {
                 pruneSelection()
             }
-            if changed, sortOrder.criterion == .downloaded {
+            if changed, sortOrder.criterion == .downloaded, !usesCatalogList {
                 scheduleSortedRecompute(
                     delay: .milliseconds(40),
                     pruneRowModels: false,
@@ -6859,41 +6793,6 @@ private struct SongListToolbarPrincipal: View {
             SongListSortProgressIndicator(progress: progress)
         }
     }
-}
-
-// 歌单详情页也要按同一套维度名给排序菜单打标签,所以这里不再是 private。
-extension LibrarySongSortCriterion {
-    var label: String {
-        switch self {
-        case .title: return String(localized: "sort_title")
-        case .fileName: return String(localized: "sort_file_name")
-        case .artist: return String(localized: "sort_artist")
-        case .album: return String(localized: "sort_album")
-        case .dateAdded: return String(localized: "sort_date_added")
-        case .sourceDate: return String(localized: "sort_source_date")
-        case .format: return String(localized: "sort_format")
-        case .duration: return String(localized: "duration_label")
-        case .playCount: return String(localized: "stats_play_count")
-        case .serverPlayCount: return String(localized: "server_play_count_label")
-        case .source: return String(localized: "source_label")
-        case .year: return String(localized: "year_label")
-        case .bitRate: return String(localized: "songs_column_bitrate")
-        case .bitDepth: return String(localized: "bit_depth_label")
-        case .downloaded: return String(localized: "filter_downloaded")
-        }
-    }
-
-    /// Compact/mobile sort menus keep their established choices. Additional
-    /// technical and device-state criteria are exposed by the macOS headers.
-    #if os(macOS)
-    static let menuCases: [LibrarySongSortCriterion] = [
-        .title, .fileName, .artist, .album, .dateAdded, .sourceDate, .format,
-    ]
-    #else
-    static let menuCases: [LibrarySongSortCriterion] = [
-        .title, .artist, .album, .dateAdded, .sourceDate, .format,
-    ]
-    #endif
 }
 
 /// 只剩 macOS 列表头的排序按钮在用: 那里的菜单跟着一排工具条控件, 六个维度平铺
