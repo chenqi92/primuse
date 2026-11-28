@@ -2967,9 +2967,7 @@ struct PrimuseApp: App {
                             musicLibrary.persistNow()
                             if playerService.isPlaybackActive {
                                 metadataBackfill.setExecutionMode(.backgroundDuringPlayback)
-                                if metadataBackfill.hasPendingWork {
-                                    musicLibrary.onReady(holding: .backfill) { metadataBackfill.start() }
-                                }
+                                metadataBackfill.startForSceneTransition()
                                 // Audio keeps the process alive, so scanning
                                 // continues on the reduced playback profile
                                 // (no UIKit assertion, background priority,
@@ -3048,10 +3046,8 @@ struct PrimuseApp: App {
                                 guard scraperService.hasPendingBackgroundContinuation else { return }
                                 scraperService.resumeBackgroundContinuation(in: musicLibrary)
                             }
-                            // 补读要整座曲库:歌曲模型被放掉了就先请它装回来,装回来时开工(同 `start()` 自己的等待)。
-                            if metadataBackfill.hasPendingWork {
-                                musicLibrary.onReady(holding: .backfill) { metadataBackfill.start() }
-                            }
+                            // 补读要整座曲库:模型不在内存里时不为场景切换装它(规则见 `startForSceneTransition`)。
+                            metadataBackfill.startForSceneTransition()
                             AppServices.shared.lyricsTextBackfill.startIfNeeded()
                             BackgroundLibraryMaintenanceCoordinator.shared
                                 .sceneDidEnterBackground(library: musicLibrary)
@@ -3239,9 +3235,7 @@ struct PrimuseApp: App {
                                 library: musicLibrary
                             )
                         }
-                        if metadataBackfill.hasPendingWork, !metadataBackfill.isRunning {
-                            musicLibrary.onReady(holding: .backfill) { metadataBackfill.start() }
-                        }
+                        metadataBackfill.startForSceneTransition()
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
                             backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivityFromCachedCounts,

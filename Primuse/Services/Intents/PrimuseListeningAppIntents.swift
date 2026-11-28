@@ -115,13 +115,13 @@ struct PrimusePodcastShowEntity: AppEntity, Identifiable, Hashable {
 
 struct PrimusePodcastShowQuery: EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [PrimusePodcastShowEntity] {
-        let shows = await AppServices.shared.siriPodcastCatalogWhenReady(identifiers: identifiers)
+        let shows = await AppServices.shared.siriPodcastCatalogAnswering()
         let byID = Dictionary(shows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return identifiers.compactMap { byID[$0].map(PrimusePodcastShowEntity.init) }
     }
 
     func entities(matching string: String) async throws -> [PrimusePodcastShowEntity] {
-        let shows = await AppServices.shared.siriPodcastCatalogWhenReady(query: string)
+        let shows = await AppServices.shared.siriPodcastCatalogAnswering()
         guard let result = SiriNamedMediaResolver.resolve(
             query: string,
             namespace: "podcastshow",
@@ -131,12 +131,9 @@ struct PrimusePodcastShowQuery: EntityStringQuery {
         return result.candidates.compactMap { byID[$0.id].map(PrimusePodcastShowEntity.init) }
     }
 
-    /// The values of "用 Primuse 播放播客<节目>".
+    /// The values of "用 Primuse 播放播客<节目>". 系统每次启动都来要(快捷指令的参数):不装模型。
     func suggestedEntities() async throws -> [PrimusePodcastShowEntity] {
-        await AppServices.shared.waitForSiriPodcastCatalog(suggestsShows: true)
-        return await MainActor.run {
-            AppServices.shared.siriShortcutPodcastShows.map(PrimusePodcastShowEntity.init)
-        }
+        await AppServices.shared.siriShortcutPodcastShowsAnswering().map(PrimusePodcastShowEntity.init)
     }
 }
 
@@ -154,7 +151,9 @@ struct PrimusePlayPodcastIntent: AudioPlaybackIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let services = AppServices.shared
-        let shows = await services.siriPodcastCatalogWhenReady(identifiers: show.map { [$0.id] } ?? [])
+        // 起播的计划(本机播客的单集)还读整库数组:要用到本机播客时先等模型(有界,与以前相同)。
+        await services.waitForSiriPodcastCatalog(identifiers: show.map { [$0.id] } ?? [], suggestsShows: true)
+        let shows = await services.siriPodcastCatalogAnswering()
         plog("🎙️ AppIntent podcast named=\(show != nil) shows=\(shows.count)")
         guard !shows.isEmpty else {
             return .result(dialog: IntentDialog("intent_podcast_none_subscribed"))
@@ -295,9 +294,24 @@ extension AppServices {
     ///
     /// 6c: 等「可用」(有界,不装模型)。歌曲模型不在内存里时从曲库目录流式取出全部有声书章节,照书架的分书组成书。
     func siriSpokenWordBooksWhenReady() async -> [SpokenWordBook] {
-        _ = await musicLibrary.whenUsable(timeout: .seconds(8))
-        if musicLibrary.isReady { return siriSpokenWordBooks }
-        return await Self.siriSpokenWordBooksOutsideTheModel(library: musicLibrary) ?? []
+        await Self.siriSpokenWordBooksAnswering(library: musicLibrary)
+    }
+
+    static func siriSpokenWordBooksAnswering(library: MusicLibrary) async -> [SpokenWordBook] {
+        let deadline = ContinuousClock.now + .seconds(8)
+        _ = await library.whenUsable(timeout: .seconds(8))
+        if library.isReady { return siriSpokenWordBooks(in: library) }
+        await waitForReadableCatalog(library, until: deadline)
+        if library.isReady { return siriSpokenWordBooks(in: library) }
+        return await siriSpokenWordBooksOutsideTheModel(library: library) ?? []
+    }
+
+    /// 曲库目录读得了(或到点)才返回。不装歌曲模型的启动里「可用」先到,目录要稍后才读得了;系统一启动就来问
+    /// Siri 的建议,这时要等它,否则答出来的少了本机的书和节目。没有目录时不等。
+    static func waitForReadableCatalog(_ library: MusicLibrary, until deadline: ContinuousClock.Instant) async {
+        while library.readableCatalogReader == nil, library.catalogHost != nil, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
     }
 
     /// 全部有声书(书架的分书),章节从曲库目录流式取(可见的有声书,库内顺序,与 `spokenWordSongs` 同一份)。
@@ -632,8 +646,11 @@ extension AppServices {
     }
 
     func siriPodcastCatalog(subscriptions: [PodcastShow], limit: Int = .max) -> [SiriPodcastShow] {
-        let library = musicLibrary
-        return SiriPodcastShow.catalog(
+        Self.siriPodcastCatalog(subscriptions: subscriptions, limit: limit, library: musicLibrary)
+    }
+
+    static func siriPodcastCatalog(subscriptions: [PodcastShow], limit: Int = .max, library: MusicLibrary) -> [SiriPodcastShow] {
+        SiriPodcastShow.catalog(
             subscriptions: subscriptions, libraryEpisodes: library.localPodcastSongs,
             libraryShowCount: library.localPodcastShowCount, limit: limit
         ) { id in
@@ -643,6 +660,45 @@ extension AppServices {
         }
     }
 
+    /// 交给 Siri 的播客清单(订阅 + 本机播客),Siri 问名字、给建议时用,不装模型。歌曲模型在内存里时现算
+    /// (与以前相同);不在时等「可用」与目录读得了(有界),本机播客从曲库目录取(`siriPodcastCatalogOutsideTheModel`),
+    /// 与模型在内存里时同一份。目录答不了时只有订阅(与以前等不到模型时相同)。
+    static func siriPodcastCatalogAnswering(
+        subscriptions: [PodcastShow], limit: Int = .max, library: MusicLibrary
+    ) async -> [SiriPodcastShow] {
+        if library.isReady { return siriPodcastCatalog(subscriptions: subscriptions, limit: limit, library: library) }
+        let deadline = ContinuousClock.now + .seconds(8)
+        _ = await library.whenUsable(timeout: .seconds(8))
+        await waitForReadableCatalog(library, until: deadline)
+        if library.isReady { return siriPodcastCatalog(subscriptions: subscriptions, limit: limit, library: library) }
+        if let answer = await siriPodcastCatalogOutsideTheModel(subscriptions: subscriptions, limit: limit, library: library) {
+            return answer.shows
+        }
+        return SiriPodcastShow.catalog(subscriptions: subscriptions, libraryEpisodes: [], libraryShowCount: 0, limit: limit) { _ in
+            nil
+        }
+    }
+
+    /// 全部订阅加本机播客(问名字、按 id 取、意图里看有没有播客)。
+    func siriPodcastCatalogAnswering() async -> [SiriPodcastShow] {
+        _ = await siriPodcastShowsWhenLoaded()
+        return await Self.siriPodcastCatalogAnswering(subscriptions: PodcastStore.shared.shows, library: musicLibrary)
+    }
+
+    /// 快捷指令的播客参数:最近在听的订阅在前,名额 `podcastShowLimit`。
+    func siriShortcutPodcastShowsAnswering() async -> [SiriPodcastShow] {
+        _ = await siriPodcastShowsWhenLoaded()
+        let store = PodcastStore.shared
+        let subscriptions = SiriListeningCatalog.shortcutShows(
+            store.shows, recentShowIDs: store.inProgressEpisodes(limit: 50).map { $0.show.id }
+        )
+        return await Self.siriPodcastCatalogAnswering(
+            subscriptions: subscriptions, limit: SiriListeningCatalog.podcastShowLimit, library: musicLibrary
+        )
+    }
+
+    /// 起播之前用:计划里要用到本机播客(点名的是本机节目、没点名而本机播客可能更近)时等歌曲模型装好(有界)。
+    /// 起播计划(`podcastPlanForIntent`、`podcastPlanForInProgressEpisode`)还读整库数组;清单与建议不经这里。
     func waitForSiriPodcastCatalog(query: String? = nil, identifiers: [String] = [], suggestsShows: Bool = false) async {
         let rss = await siriPodcastShowsWhenLoaded()
         guard !musicLibrary.isReady else { return }
@@ -657,19 +713,6 @@ extension AppServices {
                                         needsUnnamedLookup: needsUnnamedLookup()) {
             _ = await musicLibrary.whenReady(timeout: .seconds(3))
         }
-    }
-
-    func siriPodcastCatalogWhenReady(query: String? = nil, identifiers: [String] = []) async -> [SiriPodcastShow] {
-        await waitForSiriPodcastCatalog(query: query, identifiers: identifiers, suggestsShows: true)
-        return siriPodcastCatalog(subscriptions: PodcastStore.shared.shows)
-    }
-
-    var siriShortcutPodcastShows: [SiriPodcastShow] {
-        let store = PodcastStore.shared
-        let subscriptions = SiriListeningCatalog.shortcutShows(
-            store.shows, recentShowIDs: store.inProgressEpisodes(limit: 50).map { $0.show.id }
-        )
-        return siriPodcastCatalog(subscriptions: subscriptions, limit: SiriListeningCatalog.podcastShowLimit)
     }
 
     /// The episode the show page's play button would start, and what follows.

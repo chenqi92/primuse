@@ -383,7 +383,7 @@ final class PlayMediaIntentHandler: NSObject,
                     completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
                     return
                 }
-                let catalog = await AppServices.shared.siriPodcastCatalogWhenReady(query: query.mediaName, identifiers: identifiers)
+                let catalog = await AppServices.shared.siriPodcastCatalogAnswering() // 只比名字,不装模型
                 let shows = SiriPodcastShow.namedItems(catalog, query: query.mediaName, identifiers: identifiers)
                 if !SiriRequestNeeds.allRadio(identifiers),
                    SiriNamedMediaResolver.resolve(
