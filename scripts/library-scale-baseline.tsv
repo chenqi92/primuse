@@ -61,10 +61,9 @@ legacy-library-api	Primuse/Services/Playlist/ServerRatingSyncService.swift	5
 legacy-library-api	Primuse/Services/Relay/PhoneRelayServer.swift	1
 legacy-library-api	Primuse/Services/Sources/SourceManager.swift	1
 legacy-library-api	Primuse/Views/Components/BatchSelection/BatchTagEditorView.swift	1
-legacy-library-api	Primuse/Views/Components/BatchSelection/SongBatchRemovalFeedback.swift	1
 legacy-library-api	Primuse/Views/Components/CachedArtworkView.swift	1
 legacy-library-api	Primuse/Views/Components/MediaDetailActionBar.swift	1
-legacy-library-api	Primuse/Views/Components/SongRowView.swift	4
+legacy-library-api	Primuse/Views/Components/SongRowView.swift	3
 legacy-library-api	Primuse/Views/Components/StoredCoverArtView.swift	4
 legacy-library-api	Primuse/Views/ContentView.swift	11
 legacy-library-api	Primuse/Views/Home/HomeDiscoveryModel.swift	3
@@ -103,7 +102,6 @@ legacy-library-api	Primuse/Views/Mac/PMTitleBar.swift	1
 legacy-library-api	Primuse/Views/Mac/PlayerMoreMenu.swift	1
 legacy-library-api	Primuse/Views/NowPlaying/ImmersivePlayerView.swift	1
 legacy-library-api	Primuse/Views/NowPlaying/NowPlayingCarouselExploreFace.swift	3
-legacy-library-api	Primuse/Views/NowPlaying/NowPlayingView.swift	1
 legacy-library-api	Primuse/Views/Podcast/PodcastLibraryView.swift	2
 legacy-library-api	Primuse/Views/Search/LibrarySearchCatalog.swift	3
 legacy-library-api	Primuse/Views/Search/SearchView.swift	16

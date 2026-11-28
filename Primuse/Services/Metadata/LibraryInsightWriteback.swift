@@ -102,7 +102,7 @@ enum LibraryInsightWriteback {
         report: inout Report
     ) async {
         guard let first = songs.first else { return }
-        guard let folder = folder(for: subject, songs: songs, source: source, library: library) else {
+        guard let folder = await folder(for: subject, songs: songs, source: source, library: library) else {
             // 不写的原因写进诊断日志:文件夹判断不了时界面上不提示。
             plog("ℹ️ Library insight: no \(subject.kind.rawValue) folder for nfo source=\(source.type.rawValue) songs=\(songs.count)")
             return
@@ -231,7 +231,7 @@ enum LibraryInsightWriteback {
                     if !summary.isEmpty { found = (summary, [], source.name) }
                 }
                 if found == nil,
-                   let folder = folder(for: subject, songs: sourceSongs, source: source, library: library),
+                   let folder = await folder(for: subject, songs: sourceSongs, source: source, library: library),
                    let connector = try? await sourceManager.auxiliaryConnector(for: first) {
                     let path = LibraryInsightFolderPolicy.filePath(in: folder, kind: subject.kind)
                     if let existing = try? await readText(at: path, in: folder, using: connector),
@@ -279,7 +279,7 @@ enum LibraryInsightWriteback {
         songs: [Song],
         source: MusicSource,
         library: MusicLibrary
-    ) -> String? {
+    ) async -> String? {
         switch subject.kind {
         case .album:
             let paths = songs.map(\.filePath)
@@ -287,11 +287,15 @@ enum LibraryInsightWriteback {
                   let sourceID = songs.first?.sourceID else { return nil }
             let albumIDs = Set(songs.compactMap(\.albumID))
             let prefix = candidate.hasSuffix("/") ? candidate : candidate + "/"
-            let others = library.visibleSongs.lazy
-                .filter { $0.sourceID == sourceID && $0.filePath.hasPrefix(prefix) }
-                .filter { song in song.albumID.map { !albumIDs.contains($0) } ?? true }
-                .map(\.filePath)
-            return LibraryInsightFolderPolicy.albumFolder(trackPaths: paths, otherAlbumTrackPaths: Array(others))
+            // 同一文件夹里有没有别的专辑要看整库:歌曲模型放掉了先装回来;答不了时不定文件夹(不写 nfo),
+            // 不拿空数组把一个混着几张专辑的文件夹当成这一张独占的。
+            guard let others = await SongModelArrayRead.read(library, {
+                Array(library.visibleSongs.lazy
+                    .filter { $0.sourceID == sourceID && $0.filePath.hasPrefix(prefix) }
+                    .filter { song in song.albumID.map { !albumIDs.contains($0) } ?? true }
+                    .map(\.filePath))
+            }) else { return nil }
+            return LibraryInsightFolderPolicy.albumFolder(trackPaths: paths, otherAlbumTrackPaths: others)
         case .artist:
             let albumFolders = Dictionary(grouping: songs, by: { $0.albumID ?? $0.albumTitle ?? "" })
                 .values
@@ -533,6 +537,9 @@ final class LibraryFolderMarksService {
             savePending()
             return false
         }
+        // 落到哪个专辑文件夹要拿整库的歌来定:歌曲模型放掉了先装回来;答不了时这一轮不写,
+        // 待写记录原样留着(返回「没写成」,按重试的间隔再来),不拿空数组把红心时间清掉。
+        guard let snapshot = await SongModelArrayRead.read(library, { library.visibleSongs }) else { return true }
         let songIDs = dirtySongIDs
         let albumIDs = dirtyAlbumIDs
         dirtySongIDs = []
@@ -552,7 +559,6 @@ final class LibraryFolderMarksService {
         let sourceIDs = Set(sourcesStore.sources.filter {
             $0.isEnabled && LibraryFolderMarksPolicy.supports($0.type)
         }.map(\.id))
-        let snapshot = library.visibleSongs
         let targets = await Task.detached(priority: .utility) {
             MusicLibrary.folderMarkTargets(songs: snapshot, wanted: wanted, albumIDs: albumIDs, sourceIDs: sourceIDs)
         }.value

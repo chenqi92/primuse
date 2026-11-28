@@ -120,13 +120,33 @@ extension SourceFileDeletionPolicy.WholeFileWarning {
     @MainActor
     func message(for songs: [Song], in library: MusicLibrary) -> String {
         let hidden = library.locallyRemovedEntries().map(\.song)
-        let count = SourceFileDeletionPolicy.affectedSongs(deleting: songs, in: library.songs + hidden).count
+        let count = SourceFileDeletionPolicy.affectedSongs(
+            deleting: songs, in: Self.tracksSharingFiles(of: songs, in: library) + hidden
+        ).count
         switch self {
         case .file(let name):
             return String(format: String(localized: "delete_segment_file_count_message_format"), name, Int64(count))
         case .selectionIncludesSegments:
             return String(format: String(localized: "batch_delete_segment_files_count_format"), Int64(count))
         }
+    }
+
+    /// 曲库里与这些分轨同一文件的歌(确认框里说「有 N 首用这个文件」)。歌曲模型在内存里时同原来从整库数组找;
+    /// 放掉了时按文件问曲库目录(每个文件一次按路径的查询),不拿空数组把数说少。目录也答不了时只算选中的。
+    @MainActor
+    static func tracksSharingFiles(of songs: [Song], in library: MusicLibrary) -> [Song] {
+        // crash-pattern: allow legacy-library-api 模型在内存里时同原来;放掉了改问目录
+        if library.isReady { return library.songs }
+        guard let catalog = library.catalogHost?.mirror.readableCatalog else { return songs }
+        var seen = Set<SourceFileDeletionPolicy.FileKey>()
+        var tracks: [Song] = []
+        for song in songs where SourceFileDeletionPolicy.isFileSegment(song)
+            && seen.insert(SourceFileDeletionPolicy.FileKey(song)).inserted {
+            guard let rows = try? catalog.rowList(sourceID: song.sourceID, filePath: song.filePath),
+                  let shared = try? catalog.songs(rowids: rows.rowids) else { return songs }
+            tracks += shared
+        }
+        return tracks
     }
 }
 

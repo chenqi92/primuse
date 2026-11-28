@@ -305,11 +305,17 @@ struct ArtistMergeView: View {
         canonicalName = selected.sorted().first ?? ""
         isReviewing = true
         isPreparing = true
-        let songs = library.visibleSongs
         let names = selected
         let configuration = library.artistNameConfiguration
         preparationTask?.cancel()
         preparationTask = Task {
+            // 要改的歌从整库里找:歌曲模型放掉了先装回来;答不了时退回选择,不给出「没有要改的歌」。
+            guard let songs = await SongModelArrayRead.read(library, { library.visibleSongs }) else {
+                isPreparing = false
+                isReviewing = false
+                preparationTask = nil
+                return
+            }
             let ids = await Task.detached(priority: .utility) {
                 let keys = Set(names.map(ArtistIdentityPolicy.groupingKey))
                 return songs.filter { song in
@@ -407,7 +413,10 @@ struct ArtistMergeSuggestionsView: View {
         .navigationTitle("artist_merge_suggestions")
         #endif
         .task(id: library.visibleSongsVersion) {
-            let names = (library.visibleArtists + library.visibleAlbumArtists).map(\.name)
+            // 建议要整库的艺人名:歌曲模型放掉了先装回来;答不了时不把「没有建议」当成结果。
+            guard let names = await SongModelArrayRead.read(library, {
+                (library.visibleArtists + library.visibleAlbumArtists).map(\.name)
+            }) else { return }
             let dismissed = (try? JSONDecoder().decode(Set<String>.self, from: dismissedData)) ?? []
             let found = await Task.detached(priority: .userInitiated) {
                 ArtistMergePolicy.suggestions(names: names, dismissed: dismissed)

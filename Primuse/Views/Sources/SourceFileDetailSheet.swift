@@ -399,12 +399,13 @@ struct SourceFileDetailSheet: View {
                     await player.next()
                 }
                 let primary = current[0]
-                let retained = library.songs.filter {
-                    $0.sourceID != primary.sourceID || $0.filePath != primary.filePath
+                // 同一文件之外还有歌用着的旁挂文件不删:歌曲模型放掉了先装回来再判断,答不了时不删。
+                let retained = await SongModelArrayRead.read(library) {
+                    library.songs.filter { $0.sourceID != primary.sourceID || $0.filePath != primary.filePath }
                 }
                 let result = await sourceManager.deleteSourceFilesAndCaches(
                     for: primary,
-                    deleteSidecars: sourceManager.shouldDeleteSidecars(for: primary, retaining: retained)
+                    deleteSidecars: retained.map { sourceManager.shouldDeleteSidecars(for: primary, retaining: $0) } ?? false
                 )
                 guard result.shouldRemoveLibraryRecord else {
                     let detail = result.failedPaths.first?.message

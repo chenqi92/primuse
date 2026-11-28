@@ -60,6 +60,8 @@ final class SongBatchRemovalService {
     private let player: AudioPlayerService
 
     private var activeTask: Task<Void, Never>?
+    /// 删源文件时等歌曲模型装回来的上限(测试调短)。
+    @ObservationIgnored var songModelTimeout: Duration = SongModelArrayRead.defaultTimeout
     /// 由界面在发起 `.deviceLocal` 跟进时带上的原因与服务端报错原文。
     private var pendingLocalRemovalReason: SongLocalRemovalReason?
     private var pendingLocalRemovalDetails: [String: String] = [:]
@@ -109,7 +111,12 @@ final class SongBatchRemovalService {
                 await self.player.prepareQueueForRemovingSongs(withIDs: Set(songs.map(\.id)))
                 self.commit(removable: songs, failed: [], mode: mode, skipped: skipped)
             case .sourceFiles:
-                await self.deleteSourceFiles(songs, skipped: skipped)
+                // 受牵连的分轨、共用的旁挂文件要拿整库来判断,删完的补算与提交也一样:从头到尾占着歌曲模型
+                // (放掉了先装回来)。装不回来就一首都不删,按删除失败告诉用户。
+                let done = await SongModelArrayRead.holding(self.library, timeout: self.songModelTimeout) {
+                    await self.deleteSourceFiles(songs, skipped: skipped)
+                }
+                if done == nil { self.refuseSourceDeletion(songs, skipped: skipped) }
             }
             let total = self.progress?.total ?? songs.count
             self.progress = Progress(done: total, total: total, mode: mode)
@@ -319,4 +326,16 @@ final class SongBatchRemovalService {
         return removed
     }
 
+}
+
+extension SongBatchRemovalService {
+    /// 曲库答不了(歌曲模型装不回来):一个文件都不删,选中的歌按删除失败交回(结果提示里是「N 首删除失败」)。
+    private func refuseSourceDeletion(_ requested: [Song], skipped: Int) {
+        let types = Dictionary(sourcesStore.allSources.map { ($0.id, $0.type) }, uniquingKeysWith: { first, _ in first })
+        let eligible = Self.partitionForSourceDeletion(
+            requested, sourceTypesByID: types, collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs
+        )
+        plog("⚠️ Batch removal deleted nothing: the song model did not come back (\(eligible.deletable.count) songs kept)")
+        commit(removable: [], failed: eligible.deletable, mode: .sourceFiles, skipped: skipped + eligible.skipped.count)
+    }
 }

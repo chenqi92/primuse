@@ -1904,7 +1904,7 @@ struct MetadataScrapingView: View {
             Section {
                 HStack(spacing: 6) {
                     Button {
-                        libraryTidySongs = .wholeLibraryForTidy(library)
+                        Task { libraryTidySongs = await .wholeLibraryForTidy(library) }
                     } label: {
                         Label("tag_tidy_library_action", systemImage: "wand.and.sparkles")
                     }

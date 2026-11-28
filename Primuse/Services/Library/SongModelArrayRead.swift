@@ -15,6 +15,25 @@ enum SongModelArrayRead {
         _ body: @MainActor () -> T
     ) async -> T? {
         if library.isReady { return body() }
+        guard let hold = await acquire(library, timeout: timeout) else { return nil }
+        defer { hold.end() }
+        return body()
+    }
+
+    /// 占着歌曲模型做完 `body`:删文件、提交这类从头到尾都要整库数组的操作(UA)。模型在内存里时也登记占用,
+    /// 做到一半(网盘上逐个删可能要很久)不会在后台被放掉;放掉了先装回来。`timeout` 内装不回来时不做,nil。
+    static func holding<T>(
+        _ library: MusicLibrary,
+        timeout: Duration = defaultTimeout,
+        _ body: @MainActor () async -> T
+    ) async -> T? {
+        guard let hold = await acquire(library, timeout: timeout) else { return nil }
+        defer { hold.end() }
+        return await body()
+    }
+
+    /// 拿一个 `.legacyPage` 占用,等模型在内存里;`timeout` 内没等到(或任务取消)时撤掉占用,nil。
+    private static func acquire(_ library: MusicLibrary, timeout: Duration) async -> MusicLibrary.SongModelHold? {
         // 占用放在自己的任务里,超时就取消它:`holdSongModel` 被取消时撤掉这次占用、不再等。
         let acquisition = Task { @MainActor in await library.holdSongModel(.legacyPage) }
         let timer = Task { @MainActor in
@@ -24,12 +43,12 @@ enum SongModelArrayRead {
         }
         let hold = await acquisition.value
         timer.cancel()
-        defer { hold.end() }
         guard library.isReady else {
+            hold.end()
             plog("🧠 residency array read gave up: the song model did not come back within \(timeout)")
             return nil
         }
-        return body()
+        return hold
     }
 
     /// 删一首歌的源文件时,同目录里与它共用的旁挂文件(歌词、封面)删不删:曲库里还有别的歌用着就不删。

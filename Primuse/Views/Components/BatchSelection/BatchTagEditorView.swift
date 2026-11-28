@@ -17,11 +17,11 @@ struct BatchSongSelection: Identifiable {
 }
 
 extension BatchSongSelection {
-    /// Every song of the library. Songs whose source cannot take the tags
-    /// (Apple Music's library among them) keep the tidied tags in Primuse.
+    /// Every song of the library (Apple Music's keep the tidied tags in Primuse). 歌曲模型放掉了先装回来;
+    /// 答不了时 nil —— 不拿空数组当成「没有要整理的」。
     @MainActor
-    static func wholeLibraryForTidy(_ library: MusicLibrary) -> BatchSongSelection {
-        BatchSongSelection(songs: library.songs)
+    static func wholeLibraryForTidy(_ library: MusicLibrary) async -> BatchSongSelection? {
+        await SongModelArrayRead.read(library) { BatchSongSelection(songs: library.songs) }
     }
 }
 

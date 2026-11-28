@@ -10573,8 +10573,8 @@ struct NowPlayingView: View {
                 let anchorIndex = remainingQueue.firstIndex { $0.id == newSongID } ?? 0
                 player.setQueue(remainingQueue, startAt: anchorIndex, keepsContinuation: true)
             }
-            let retainedSongs = library.songs.filter { $0.id != song.id }
-            let deleteSidecars = sourceManager.shouldDeleteSidecars(for: song, retaining: retainedSongs)
+            // 别的歌还用着的旁挂文件不删:歌曲模型放掉了先装回来再判断,答不了时不删(`SongModelArrayRead`)。
+            let deleteSidecars = await SongModelArrayRead.deletesSidecars(for: song, in: library)
             let result = await sourceManager.deleteSourceFilesAndCaches(
                 for: song,
                 deleteSidecars: deleteSidecars

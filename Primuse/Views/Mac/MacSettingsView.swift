@@ -4712,7 +4712,7 @@ private struct MacSTScrapingView: View {
                 }
                 MacSTRow(String(localized: "tag_tidy_library_action"), hint: String(localized: "tag_tidy_library_footer")) {
                     MacSTButton(title: String(localized: "tag_tidy_library_button"), systemImage: "wand.and.sparkles") {
-                        libraryTidySongs = .wholeLibraryForTidy(library)
+                        Task { libraryTidySongs = await .wholeLibraryForTidy(library) }
                     }
                 }
                 .settingsAnchor("scraping.tidyLibrary")

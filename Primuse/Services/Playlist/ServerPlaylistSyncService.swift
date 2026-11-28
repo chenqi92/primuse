@@ -392,13 +392,13 @@ enum ServerPlaylistCopyService {
         }
         let targetID = target.id
         let keyCache = library.playlistEntryMatchKeyCache
-        let targetSongs: [Song]
-        if let reader = P2cCatalogAccess.reader(for: library),
-           let candidates = await Self.catalogTargetCandidates(inputs, targetID: targetID, reader: reader) {
-            targetSongs = candidates
-        } else {
-            targetSongs = library.visibleSongs.filter { $0.sourceID == targetID }
+        var candidates: [Song]? = nil
+        if let reader = P2cCatalogAccess.reader(for: library) {
+            candidates = await Self.catalogTargetCandidates(inputs, targetID: targetID, reader: reader)
         }
+        // 目录读不了才读整库(放掉了先装回来);都答不了就不给方案,不拿空的目标曲库去配成「全都对不上」。
+        if candidates == nil { candidates = await SongModelArrayRead.read(library, { library.visibleSongs.filter { $0.sourceID == targetID } }) }
+        guard let targetSongs = candidates else { return [] }
         return await Task.detached(priority: .userInitiated) {
             Self.makePlans(inputs, targetID: targetID, targetSongs: targetSongs, keyCache: keyCache)
         }.value
