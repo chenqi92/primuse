@@ -518,4 +518,127 @@ final class MiniPlayerLyricsRenderingTests: XCTestCase {
         let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
         XCTAssertEqual(text.contains(lyric), expected, "\(name): visible text = \(text)")
     }
+
+    func testKaraokeLinePreservesDescendersBeyondTypographicBounds() throws {
+        func rgba(of image: CGImage) throws -> (w: Int, h: Int, bytes: [UInt8]) {
+            let w = image.width, h = image.height
+            var bytes = [UInt8](repeating: 0, count: w * h * 4)
+            let ctx = try XCTUnwrap(CGContext(
+                data: &bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return (w, h, bytes)
+        }
+        let typeface = LyricsTypeface(family: .imported(postScriptName: "HiraginoSans-W7"), isAvailable: true, weightSelection: .bold)
+        let line = LyricLine(timestamp: 0, text: "through you", syllables: [
+            .init(text: "through ", start: 0, end: 1.0),
+            .init(text: "you", start: 1.0, end: 2.0),
+        ])
+        // 下沉笔画该到哪儿,按同一行还没唱时(只有暗色底层,不经遮罩)量:同一个视图、同样的排版与换行。
+        func unsungMaxY(_ line: LyricLine, width: CGFloat, columns: (Int) -> Range<Int>) throws -> Int {
+            let view = KaraokeLineView(
+                line: line, isDuet: false, fontSize: 32, weight: .bold,
+                activeColor: .red, inactiveColor: .blue, timeAt: { _ in -1 }, fixedTime: -1,
+                isPlaybackActive: false, isAnimationEnabled: true, animatesSyllableBounce: false,
+                isolatesAnimatedProgressFromLayout: false, glowsSungSyllables: false
+            ).environment(\.lyricsTypeface, typeface).padding(20).frame(width: width, height: 120, alignment: .topLeading)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let image = try rgba(of: XCTUnwrap(renderer.uiImage?.cgImage))
+            var maxY = 0
+            for y in 0..<image.h {
+                for x in columns(image.w) {
+                    let i = (y * image.w + x) * 4
+                    let r = Int(image.bytes[i]), b = Int(image.bytes[i + 2]), a = Int(image.bytes[i + 3])
+                    if a > 40 && b - r > 40 { maxY = max(maxY, y) }
+                }
+            }
+            return maxY
+        }
+        let refMaxY = try unsungMaxY(line, width: 260) { 0..<$0 }
+        XCTAssertGreaterThan(refMaxY, 0)
+        let midLine = LyricLine(timestamp: 0, text: "you", syllables: [.init(text: "you", start: 0, end: 1.0)])
+        let midRefMaxY = try unsungMaxY(midLine, width: 180) { 0..<($0 / 3) }
+        XCTAssertGreaterThan(midRefMaxY, 0)
+
+        for isolated in [false, true] {
+            for glow in [false, true] {
+                // 全唱完时 g / y 底部下沉笔画必须完全着色，不能露出一截暗色底层。
+                let fullView = KaraokeLineView(
+                    line: line, isDuet: false, fontSize: 32, weight: .bold,
+                    activeColor: .red, inactiveColor: .blue, timeAt: { _ in 3.0 }, fixedTime: 3.0,
+                    isPlaybackActive: false, isAnimationEnabled: true, animatesSyllableBounce: false,
+                    isolatesAnimatedProgressFromLayout: isolated, glowsSungSyllables: glow
+                ).environment(\.lyricsTypeface, typeface).padding(20).frame(width: 260, height: 120, alignment: .topLeading)
+                let fullRenderer = ImageRenderer(content: fullView)
+                fullRenderer.scale = 2
+                let full = try rgba(of: XCTUnwrap(fullRenderer.uiImage?.cgImage))
+                var exposedBlue = 0, maxRedY = 0
+                for y in 0..<full.h {
+                    for x in 0..<full.w {
+                        let i = (y * full.w + x) * 4
+                        let r = Int(full.bytes[i]), b = Int(full.bytes[i + 2]), a = Int(full.bytes[i + 3])
+                        if a > 40 && b - r > 40 { exposedBlue += 1 }
+                        // 笔画尖上是半透明的(遮罩那一层的抗锯齿更淡):按「有没有一点红」量。被裁掉的地方一点红都没有。
+                        if a > 8 && r > 8 { maxRedY = max(maxRedY, y) }
+                    }
+                }
+                XCTAssertEqual(exposedBlue, 0, "iso=\(isolated) glow=\(glow) exposed inactive descender pixels")
+                XCTAssertGreaterThanOrEqual(maxRedY, refMaxY - 1, "iso=\(isolated) glow=\(glow) clipped active descender")
+            }
+
+            // 扫到 "you" 中途时，已经扫过的 y 下沉笔画也必须完整上色。
+            let midView = KaraokeLineView(
+                line: midLine, isDuet: false, fontSize: 32, weight: .bold,
+                activeColor: .red, inactiveColor: .blue, timeAt: { _ in 0.45 }, fixedTime: 0.45,
+                isPlaybackActive: false, isAnimationEnabled: true, animatesSyllableBounce: false,
+                isolatesAnimatedProgressFromLayout: isolated, glowsSungSyllables: false
+            ).environment(\.lyricsTypeface, typeface).padding(20).frame(width: 180, height: 120, alignment: .topLeading)
+            let midRenderer = ImageRenderer(content: midView)
+            midRenderer.scale = 2
+            let mid = try rgba(of: XCTUnwrap(midRenderer.uiImage?.cgImage))
+            var midMaxRedY = 0, midGlyphMaxY = 0, leftBlue = 0
+            for y in 0..<mid.h {
+                for x in 0..<(mid.w / 3) {
+                    let i = (y * mid.w + x) * 4
+                    let r = Int(mid.bytes[i]), b = Int(mid.bytes[i + 2]), a = Int(mid.bytes[i + 3])
+                    if a > 8 { midGlyphMaxY = max(midGlyphMaxY, y) }
+                    if a > 8 && r > 8 { midMaxRedY = max(midMaxRedY, y) }
+                    if a > 40 && b - r > 40 { leftBlue += 1 }
+                }
+            }
+            XCTAssertEqual(leftBlue, 0, "iso=\(isolated) exposed inactive descender on swept y")
+            // 正在唱的字两层一起略微上浮(非隔离模式),整个字形比没唱时高一两个像素:亮色那层要盖到这一帧里字形的最底下,
+            // 字形本身也要到得了没唱时下沉笔画的位置(容上浮的 2 点)。
+            XCTAssertGreaterThanOrEqual(midMaxRedY, midGlyphMaxY - 1, "iso=\(isolated) clipped swept y descender")
+            XCTAssertGreaterThanOrEqual(midGlyphMaxY, midRefMaxY - 4, "iso=\(isolated) swept y lost its descender")
+        }
+
+        // 换行且第二行未唱时，第一行下沉出血不能串染到第二行顶部。
+        let wrapped = LyricLine(timestamp: 0, text: "through fire", syllables: [
+            .init(text: "through ", start: 0, end: 1.0),
+            .init(text: "fire", start: 5.0, end: 6.0),
+        ])
+        let wrapView = KaraokeLineView(
+            line: wrapped, isDuet: false, fontSize: 32, weight: .bold,
+            activeColor: .red, inactiveColor: .blue, timeAt: { _ in 1.5 }, fixedTime: 1.5,
+            isPlaybackActive: false, isAnimationEnabled: true, animatesSyllableBounce: false,
+            isolatesAnimatedProgressFromLayout: true, glowsSungSyllables: false
+        ).environment(\.lyricsTypeface, typeface).padding(20).frame(width: 180, height: 180, alignment: .topLeading)
+        let wrapRenderer = ImageRenderer(content: wrapView)
+        wrapRenderer.scale = 2
+        let wrap = try rgba(of: XCTUnwrap(wrapRenderer.uiImage?.cgImage))
+        var topBlue = 0, bottomRed = 0
+        for y in 0..<wrap.h {
+            for x in 0..<wrap.w {
+                let i = (y * wrap.w + x) * 4
+                let r = Int(wrap.bytes[i]), b = Int(wrap.bytes[i + 2]), a = Int(wrap.bytes[i + 3])
+                if y < 105 && a > 40 && b - r > 40 { topBlue += 1 }
+                if y > 130 && a > 40 && r - b > 40 { bottomRed += 1 }
+            }
+        }
+        XCTAssertEqual(topBlue, 0, "first line descender must stay fully colored")
+        XCTAssertEqual(bottomRed, 0, "first line bleed must not leak onto unsung second line")
+    }
 }

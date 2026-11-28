@@ -203,13 +203,19 @@ struct KaraokeLineView: View {
         glowsSungSyllables && animatesSyllableBounce && !reduceMotion
     }
 
-    /// 柔光与上浮都会画到行框外面，扫光那层要比行框大一圈才不会被裁掉。只随参数变，
+    /// 字形下沉（g/y/j/p/q）、上伸与斜体出框会超出 Text 排版框，遮罩和外层染色矩形都按此留出血。
+    private var glyphMaskBleed: CGFloat {
+        (fontSize * 0.5).rounded(.up)
+    }
+
+    /// 柔光、上浮和字形出框都会画到行框外面，扫光那层要比行框大一圈才不会被裁掉。只随参数变，
     /// 暂停/继续不改它，渐变色歌词的色带位置也就不会跟着跳。
     private var activeLayerOverhang: CGFloat {
         let extent = LyricSyllableEmphasisPolicy.raisedLiftRatio
             + LyricSyllableEmphasisPolicy.sustainedLiftRatio + LyricSyllableEmphasisPolicy.sustainedStretch
         let lift = (fontSize * extent).rounded(.up) + 1
-        return glowsSungSyllables ? max(lift, (fontSize * Self.glowRadiusRatio * 2).rounded(.up)) : lift
+        let base = max(lift, glyphMaskBleed)
+        return glowsSungSyllables ? max(base, (fontSize * Self.glowRadiusRatio * 2).rounded(.up)) : base
     }
 
 
@@ -381,38 +387,27 @@ struct KaraokeLineView: View {
         _ syllables: [LyricSyllable],
         plan: KaraokeTimelineUpdatePlan
     ) -> some View {
-        Rectangle()
+        let bleed = glyphMaskBleed
+        return Rectangle()
             .fill(activeStyle)
-            .mask {
-                LyricsFlowLayout(
-                    measurementKey: flowMeasurementKey,
-                    layoutDirection: lyricLayoutDirection,
-                    textAlignment: textAlignment
-                ) {
-                    ForEach(syllables.indices, id: \.self) { index in
-                        lyricText(syllables[index].text)
-                            .foregroundStyle(.white)
-                            .fixedSize()
-                            .environment(\.layoutDirection, lyricLayoutDirection)
-                    }
-                }
-                .environment(\.layoutDirection, .leftToRight)
-            }
             .mask {
                 if plan.runsTimeline {
                     TimelineView(.animation(minimumInterval: progressInterval(plan))) { context in
                         isolatedProgressMask(
                             syllables,
+                            bleed: bleed,
                             at: timeAt(context.date)
                         )
                     }
                 } else {
                     isolatedProgressMask(
                         syllables,
+                        bleed: bleed,
                         at: fixedTime ?? timeAt(Date())
                     )
                 }
             }
+            .padding(-bleed)
             .accessibilityHidden(true)
             .allowsHitTesting(false)
     }
@@ -424,37 +419,34 @@ struct KaraokeLineView: View {
 
     private func isolatedProgressMask(
         _ syllables: [LyricSyllable],
+        bleed: CGFloat,
         at now: TimeInterval
     ) -> some View {
-        Canvas { context, size in
+        let isRTL = lyricLayoutDirection == .rightToLeft
+        return Canvas { context, size in
             guard deactivationTime.map({ now < $0 }) ?? true else { return }
 
             let resolvedSymbols = syllables.indices.map { index in
                 context.resolveSymbol(id: index)
             }
+            let contentWidth = max(0, size.width - bleed * 2)
             let placements = LyricFlowPlacementPolicy.placements(
                 itemSizes: resolvedSymbols.map { symbol in
                     guard let symbol else { return LyricFlowItemSize(width: 0, height: 0) }
                     return LyricFlowItemSize(
-                        width: Double(symbol.size.width),
-                        height: Double(symbol.size.height)
+                        width: max(0, Double(symbol.size.width - bleed * 2)),
+                        height: max(0, Double(symbol.size.height - bleed * 2))
                     )
                 },
-                containerWidth: Double(size.width),
+                containerWidth: Double(contentWidth),
                 spacing: 0,
-                isRightToLeft: lyricLayoutDirection == .rightToLeft,
+                isRightToLeft: isRTL,
                 alignment: flowAlignment
             )
 
             for placement in placements {
                 let index = placement.itemIndex
                 guard let symbol = resolvedSymbols[index] else { continue }
-                let frame = CGRect(
-                    x: CGFloat(placement.x),
-                    y: CGFloat(placement.y),
-                    width: symbol.size.width,
-                    height: symbol.size.height
-                )
                 let nextStart = syllables.indices.contains(index + 1)
                     ? syllables[index + 1].start
                     : nil
@@ -465,12 +457,13 @@ struct KaraokeLineView: View {
                 )
                 guard progress > 0 else { continue }
 
-                let path = Path(frame)
+                let origin = CGPoint(x: CGFloat(placement.x), y: CGFloat(placement.y))
                 if progress >= 1 {
-                    context.fill(path, with: .color(.white))
+                    context.draw(symbol, at: origin, anchor: .topLeading)
                     continue
                 }
 
+                let textWidth = max(0, symbol.size.width - bleed * 2)
                 let half = Self.maskEdgeWidth / 2
                 let leadingEnd = max(0, progress - half)
                 let trailingStart = min(1, progress + half)
@@ -480,26 +473,44 @@ struct KaraokeLineView: View {
                     .init(color: .clear, location: trailingStart),
                     .init(color: .clear, location: 1),
                 ])
-                let startPoint = lyricLayoutDirection == .rightToLeft
-                    ? CGPoint(x: frame.maxX, y: frame.midY)
-                    : CGPoint(x: frame.minX, y: frame.midY)
-                let endPoint = lyricLayoutDirection == .rightToLeft
-                    ? CGPoint(x: frame.minX, y: frame.midY)
-                    : CGPoint(x: frame.maxX, y: frame.midY)
-                context.fill(
-                    path,
-                    with: .linearGradient(
-                        gradient,
-                        startPoint: startPoint,
-                        endPoint: endPoint
-                    )
+                let sweepRect = CGRect(
+                    x: origin.x + bleed,
+                    y: origin.y,
+                    width: textWidth,
+                    height: symbol.size.height
                 )
+                let leadingBleedRect = CGRect(
+                    x: isRTL ? sweepRect.maxX : origin.x,
+                    y: origin.y,
+                    width: bleed,
+                    height: symbol.size.height
+                )
+                let startPoint = isRTL
+                    ? CGPoint(x: sweepRect.maxX, y: sweepRect.midY)
+                    : CGPoint(x: sweepRect.minX, y: sweepRect.midY)
+                let endPoint = isRTL
+                    ? CGPoint(x: sweepRect.minX, y: sweepRect.midY)
+                    : CGPoint(x: sweepRect.maxX, y: sweepRect.midY)
+                context.drawLayer { layerContext in
+                    layerContext.draw(symbol, at: origin, anchor: .topLeading)
+                    layerContext.blendMode = .sourceIn
+                    layerContext.fill(Path(leadingBleedRect), with: .color(.white))
+                    layerContext.fill(
+                        Path(sweepRect),
+                        with: .linearGradient(
+                            gradient,
+                            startPoint: startPoint,
+                            endPoint: endPoint
+                        )
+                    )
+                }
             }
         } symbols: {
             ForEach(syllables.indices, id: \.self) { index in
                 lyricText(syllables[index].text)
                     .foregroundStyle(.white)
                     .fixedSize()
+                    .padding(bleed)
                     .environment(\.layoutDirection, lyricLayoutDirection)
                     .tag(index)
             }
@@ -615,7 +626,14 @@ struct KaraokeLineView: View {
         // 柔光画在遮罩里：白色光晕的透明度透出上面那层歌词色，光就是歌词本身的颜色。
         return lyricText(syllable.text)
             .foregroundStyle(.white)
-            .mask(sweepMask(progress: sweepProgress))
+            .modifier(
+                SyllableSweepMask(
+                    progress: sweepProgress,
+                    edgeWidth: Self.maskEdgeWidth,
+                    bleed: glyphMaskBleed,
+                    isRightToLeft: lyricLayoutDirection == .rightToLeft
+                )
+            )
             .modifier(SyllableGlow(intensity: glow * Self.glowOpacity, radius: fontSize * Self.glowRadiusRatio))
             .modifier(SyllableRaise(amount: raise, sustainedAmount: emphasis * raise * raise, fontSize: fontSize))
             .fixedSize()
@@ -634,38 +652,6 @@ struct KaraokeLineView: View {
             nextSyllableStart: nextSyllableStart,
             at: now
         ) * lineHold
-    }
-
-    /// 「扫光」mask: 沿文档书写方向推进；只改变字内的视觉填充方向，
-    /// syllable 的存储顺序与时间轴保持不变。
-    @ViewBuilder
-    private func sweepMask(progress: Double) -> some View {
-        let clampedProgress = max(0, min(1, progress))
-        if clampedProgress <= 0 {
-            Color.clear
-        } else if clampedProgress >= 1 {
-            Color.black
-        } else {
-            let half = Self.maskEdgeWidth / 2
-            let leftEnd = max(0, clampedProgress - half)
-            let rightStart = min(1, clampedProgress + half)
-            let startPoint = lyricLayoutDirection == .rightToLeft
-                ? UnitPoint.trailing
-                : UnitPoint.leading
-            let endPoint = lyricLayoutDirection == .rightToLeft
-                ? UnitPoint.leading
-                : UnitPoint.trailing
-            LinearGradient(
-                stops: [
-                    .init(color: .black, location: 0),
-                    .init(color: .black, location: leftEnd),
-                    .init(color: .clear, location: rightStart),
-                    .init(color: .clear, location: 1),
-                ],
-                startPoint: startPoint,
-                endPoint: endPoint
-            )
-        }
     }
 
     /// 扫光 progress 0..1: 可以提前预热, 让唱到该字时亮度已经跟上。
@@ -689,6 +675,48 @@ struct KaraokeLineView: View {
     private func easeOut(_ t: Double) -> Double {
         let c = max(0, min(1, t))
         return 1 - (1 - c) * (1 - c)
+    }
+}
+
+/// 扫光遮罩：已唱完的字不裁切，扫光中途按 bleed 扩出遮罩范围，保住超出排版框的下沉笔画（g/y/j/p/q）和斜体出框。
+private struct SyllableSweepMask: ViewModifier {
+    let progress: Double
+    let edgeWidth: Double
+    let bleed: CGFloat
+    let isRightToLeft: Bool
+
+    func body(content: Content) -> some View {
+        let clamped = max(0, min(1, progress))
+        if clamped <= 0 {
+            content.opacity(0)
+        } else if clamped >= 1 {
+            content
+        } else {
+            let half = edgeWidth / 2
+            let leadingEnd = max(0, clamped - half)
+            let trailingStart = min(1, clamped + half)
+            let gradient = LinearGradient(
+                stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .black, location: leadingEnd),
+                    .init(color: .clear, location: trailingStart),
+                    .init(color: .clear, location: 1),
+                ],
+                startPoint: isRightToLeft ? .trailing : .leading,
+                endPoint: isRightToLeft ? .leading : .trailing
+            )
+            content
+                .padding(bleed)
+                .mask {
+                    HStack(spacing: 0) {
+                        (isRightToLeft ? Color.clear : Color.black).frame(width: bleed)
+                        gradient
+                        (isRightToLeft ? Color.black : Color.clear).frame(width: bleed)
+                    }
+                    .environment(\.layoutDirection, .leftToRight)
+                }
+                .padding(-bleed)
+        }
     }
 }
 
