@@ -8271,3 +8271,6 @@
 "mini_player_collapse" = "طي الكلمات وقائمة الانتظار";
 "audio_output_system_default" = "افتراضي النظام · Core Audio";
 "a11y_clear_search" = "مسح البحث";
+"lyrics_track_language" = "اللغة";
+"lyrics_track_original" = "الأصلي";
+"lyrics_track_off" = "إيقاف";

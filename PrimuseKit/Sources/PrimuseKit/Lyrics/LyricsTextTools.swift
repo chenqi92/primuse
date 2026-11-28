@@ -374,9 +374,22 @@ private struct LyricsFingerprintWriter {
         // A romanization is document content: an edit that only adds or
         // removes one must still read as a changed document.
         append(line.romanization)
+        if let romanLanguage = line.romanizationLanguageCode {
+            append("romanizationLanguageCode")
+            append(romanLanguage)
+        }
         if let cues = line.romanizationSyllables, !cues.isEmpty {
             append("romanizationSyllables")
             appendSyllables(cues)
+        }
+        if !line.alternateRomanizations.isEmpty {
+            append("alternateRomanizations")
+            appendCount(line.alternateRomanizations.count)
+            for item in line.alternateRomanizations {
+                append(item.text)
+                append(item.languageCode)
+                appendSyllables(item.syllables)
+            }
         }
     }
 
@@ -405,6 +418,10 @@ private struct LyricsFingerprintWriter {
         append(value.text)
         append(value.languageCode)
         append(value.source.rawValue)
+        if value.kind != .subtitle {
+            append("kind")
+            append(value.kind.rawValue)
+        }
         if let cues = value.syllables, !cues.isEmpty {
             append("translationSyllables")
             appendSyllables(cues)

@@ -186,15 +186,15 @@ struct ExternalDisplayNowPlayingView: View {
                 let line = lyrics[realIndex]
                 let current = realIndex == index || concurrentLyricRows?.contains(realIndex) == true
                 let distance = abs(realIndex - index)
-                let isTrailing = LyricDuetLayoutPolicy.side(for: line.voice, preferred: .leading, isDuet: isDuet) == .trailing
-                VStack(alignment: isTrailing ? .trailing : .leading, spacing: 6) {
+                let side = LyricDuetLayoutPolicy.side(for: line.voice, preferred: .leading, isDuet: isDuet)
+                VStack(alignment: side.horizontalAlignment, spacing: 6) {
                     lyricsTypeface.text(line.text, size: current ? 42 : 28, weight: current ? .bold : .semibold)
                         .currentLyricColor(
                             current ? Color.white : Color.white.opacity(max(0.18, 0.58 - Double(distance) * 0.14)),
                             isActive: current
                         )
                         .lineLimit(2)
-                        .multilineTextAlignment(isTrailing ? .trailing : .leading)
+                        .multilineTextAlignment(side.textAlignment)
                         .minimumScaleFactor(0.74)
                         .shadow(color: current ? theme.accentColor.opacity(0.42) : .clear, radius: 18)
 
@@ -208,11 +208,11 @@ struct ExternalDisplayNowPlayingView: View {
                                 Color.white.opacity(isBackgroundActive ? 0.82 : 0.38)
                             )
                             .lineLimit(2)
-                            .multilineTextAlignment(isTrailing ? .trailing : .leading)
+                            .multilineTextAlignment(side.textAlignment)
                             .minimumScaleFactor(0.74)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: isTrailing ? .trailing : .leading)
+                .frame(maxWidth: .infinity, alignment: side.frameAlignment)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

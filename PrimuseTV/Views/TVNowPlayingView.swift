@@ -1520,10 +1520,10 @@ struct TVNowPlayingView: View {
                                     .accessibilityIdentifier("simulatedWordLyricsBadge")
                             }
                             if !store.currentItemIsSpokenWord {
+                                let catalog = TVLyricsTranslationController.shared.availableTrackCatalog(for: store.currentSongID)
                                 LyricsCompanionTrackButtons(
-                                    tracks: TVLyricsTranslationController.shared.availableCompanionTracks(for: store.currentSongID),
-                                    foreground: .white, fill: .white.opacity(0.1),
-                                    onInteraction: registerInteraction
+                                    tracks: catalog.tracks, catalog: catalog, songID: store.currentSongID,
+                                    foreground: .white, fill: .white.opacity(0.1), onInteraction: registerInteraction
                                 )
                             }
                         }
@@ -1708,7 +1708,7 @@ struct TVNowPlayingView: View {
         voice: LyricVoice,
         isDuet: Bool
     ) -> some View {
-        let isTrailing = LyricDuetLayoutPolicy.side(for: voice, preferred: .leading, isDuet: isDuet) == .trailing
+        let side = LyricDuetLayoutPolicy.side(for: voice, preferred: .leading, isDuet: isDuet)
         let size = TVLyricsFontLevel.resolved(lyricsFontLevelRawValue).pointSize
         let markerHeight = (size * 0.92).rounded()
         let spacing = Self.lyricsRowSpacing
@@ -1728,7 +1728,7 @@ struct TVNowPlayingView: View {
             dotSize: (size * 0.31).rounded(),
             spacing: (size * 0.27).rounded()
         )
-        .frame(maxWidth: .infinity, alignment: isTrailing ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: side.frameAlignment)
         .frame(height: markerHeight)
         // 展开时自带上面那份行间距,和歌词行一样。
         .padding(.top, spacing)
@@ -1762,9 +1762,8 @@ struct TVNowPlayingView: View {
             window: showsSimulatedWordTiming ? simulatedWordWindows[source.id] : nil,
             overlay: alignmentOverlay
         )
-        let isTrailing = LyricDuetLayoutPolicy.side(for: ln.voice, preferred: .leading, isDuet: isDuet) == .trailing
-        let textAlignment: TextAlignment = isTrailing ? .trailing : .leading
-        let flowAlignment: LyricFlowHorizontalAlignment = isTrailing ? .trailing : .leading
+        let side = LyricDuetLayoutPolicy.side(for: ln.voice, preferred: .leading, isDuet: isDuet)
+        let textAlignment = side.textAlignment, flowAlignment = side.flowAlignment
         // 下一句开唱时这一行让位，唱过的字要在那之前落回原大小。对唱时另一声部开口不算接走。
         let nextLineTime = store.lyricHandoverTime(afterLine: i)
         let isCur = !interludeActive && (cur == i || concurrent?.contains(i) == true)
@@ -1775,7 +1774,7 @@ struct TVNowPlayingView: View {
         let size = TVLyricsFontLevel.resolved(lyricsFontLevelRawValue).pointSize
         // 注音、译文跟着主歌词同比例放大缩小。
         let companionSize = TVLyricsFontLevel.companionPointSize(for: size)
-        VStack(alignment: isTrailing ? .trailing : .leading, spacing: 6) {
+        VStack(alignment: side.horizontalAlignment, spacing: 6) {
             if isCur, !ln.syllables.isEmpty {
                 // 逐字扫光必须按帧推进:直接读 `store.currentTime` 时一秒只有 4 个
                 // 台阶(AVPlayer 周期回调的频率),扫光会四格一跳、而且平均慢半拍。
@@ -1845,7 +1844,7 @@ struct TVNowPlayingView: View {
                 handoverTime: nextLineTime
             )
         }
-        .scaleEffect(scale, anchor: isTrailing ? .trailing : .leading)
+        .scaleEffect(scale, anchor: side.scaleAnchor)
         .opacity(opacity)
         .blur(radius: LyricDepthEffectPolicy.blurRadius(
             forRow: i, activeRow: cur ?? -1,
@@ -1855,7 +1854,7 @@ struct TVNowPlayingView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.5, extraBounce: 0), value: interludeActive)
         .animation(reduceMotion ? nil : .smooth(duration: 0.5, extraBounce: 0), value: cur)
         .animation(reduceMotion ? nil : .smooth(duration: 0.5, extraBounce: 0), value: concurrent)
-        .frame(maxWidth: .infinity, alignment: isTrailing ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: side.frameAlignment)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(ln.text))
         .accessibilityValue(Text(isCur ? PMString("playback") : ""))

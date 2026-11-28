@@ -8365,3 +8365,6 @@
 "mini_player_collapse" = "Liedtext und Warteliste ausblenden";
 "audio_output_system_default" = "Systemstandard · Core Audio";
 "a11y_clear_search" = "Suche löschen";
+"lyrics_track_language" = "Sprache";
+"lyrics_track_original" = "Original";
+"lyrics_track_off" = "Aus";

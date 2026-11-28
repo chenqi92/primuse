@@ -8366,3 +8366,6 @@
 "mini_player_collapse" = "歌詞とキューを折りたたむ";
 "audio_output_system_default" = "システムデフォルト・Core Audio";
 "a11y_clear_search" = "検索をクリア";
+"lyrics_track_language" = "言語";
+"lyrics_track_original" = "オリジナル";
+"lyrics_track_off" = "オフ";

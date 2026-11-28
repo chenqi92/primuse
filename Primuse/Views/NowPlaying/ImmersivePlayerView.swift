@@ -11,7 +11,7 @@ struct ImmersivePlayerView: View {
     @Binding var effect: FullscreenPlayerEffect
     let lyrics: [LyricLine]
     var showsSimulatedWordTiming = false
-    var companionTracks: LyricBundledTranslationPolicy.Tracks = []
+    var companionTracks: LyricBundledTranslationPolicy.Tracks = []; var trackCatalog: LyricTrackCatalog = .empty
     /// Resolved by the player, which is the only place that knows whether a
     /// translation exists for the current target language.
     let lyricCompanions: (LyricLine) -> [ImmersiveStageCompanion]
@@ -286,10 +286,10 @@ struct ImmersivePlayerView: View {
                 // 顶上那排圆钮下面:译文 / 音译开关(随控件出现);没有实时频谱、临时降档时写明原因。
                 // 「模拟逐字」在圆钮那一排里(`topChrome`)。
                 VStack(spacing: 8) {
-                    let tracks = showsChrome && !presentsOnExternalDisplay ? companionTracks : []
-                    if !tracks.isEmpty && !isAmbientRest && !showsEffectPicker {
+                    let showsTracks = showsChrome && !presentsOnExternalDisplay && (!companionTracks.isEmpty || !trackCatalog.isEmpty)
+                    if showsTracks && !isAmbientRest && !showsEffectPicker {
                         LyricsCompanionTrackButtons(
-                            tracks: tracks,
+                            tracks: companionTracks, catalog: trackCatalog, songID: player.currentSong?.id,
                             foreground: presentationEffect.prefersLightContent ? pillInk.opacity(0.8) : .white.opacity(0.8),
                             fill: presentationEffect.prefersLightContent ? .white.opacity(0.45) : .black.opacity(0.25),
                             onInteraction: { registerInteraction(revealControls: true) }

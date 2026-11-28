@@ -17,6 +17,7 @@ final class TVLyricsTranslationController {
     /// The song the activity belongs to.
     private(set) var activitySongID: String?
     private(set) var sourceCompanionTracks: LyricBundledTranslationPolicy.Tracks = []
+    private(set) var sourceTrackCatalog: LyricTrackCatalog = .empty
 
     /// Set by the app at launch; smart translation needs it.
     @ObservationIgnored weak var intelligence: MusicIntelligenceService?
@@ -29,6 +30,13 @@ final class TVLyricsTranslationController {
     private init() {
         observers.append(NotificationCenter.default.addObserver(
             forName: .lyricsTranslationSettingsChanged,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { TVLyricsTranslationController.shared.retranslateCurrentLyrics() }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .lyricsTrackSelectionChanged,
             object: nil,
             queue: .main
         ) { _ in
@@ -79,34 +87,55 @@ extension TVLyricsTranslationController {
     }
 
     func availableCompanionTracks(for songID: String?) -> LyricBundledTranslationPolicy.Tracks {
-        guard let songID, activitySongID == songID else { return [] }
+        availableTrackCatalog(for: songID).tracks
+    }
+
+    func availableTrackCatalog(for songID: String?) -> LyricTrackCatalog {
+        guard let songID, activitySongID == songID else { return .empty }
         let readings = TVLyricsRomanizationController.shared
-        if readings.songID == songID && !readings.generated.isEmpty { return sourceCompanionTracks.union(.romanization) }
-        return sourceCompanionTracks
+        let hasGenerated = readings.songID == songID && !readings.generated.isEmpty
+        return sourceTrackCatalog.withGeneratedTransliteration(hasGenerated)
     }
 
     /// One provider request takes up to 80 lines; ten rounds cover any lyrics
     /// without retrying forever when the service keeps failing.
     private static let maximumIntelligentRounds = 10
 
-    /// The lyrics as the screen shows them: with "show built-in translations"
-    /// off, the translations written in the file are left out (readings stay)
-    /// and machine translation then covers every line. `lyricsDidLoad` keeps the
-    /// file's own document so the switch can bring them back.
-    static func presentation(_ lines: [LyricLine]) -> LyricBundledTranslationPolicy.Presentation {
+    /// The lyrics as the screen shows them: applies per-song primary language
+    /// replacements, subtitle language selection, transliteration track
+    /// selection, and built-in translation visibility. `lyricsDidLoad` keeps the
+    /// file's own document so switching tracks never loses source data.
+    static func presentation(
+        _ lines: [LyricLine],
+        songID: String? = nil
+    ) -> LyricTrackSelectionPolicy.Presentation {
         let settings = LyricsTranslationSettingsStore.shared
-        return presentation(lines, showsBundledTranslations: settings.showsBundledTranslations,
-                            targetLanguageCode: settings.targetLanguageCode)
+        let selection = LyricsTrackSelectionStore.shared.selection(forSongID: songID)
+        return presentation(
+            lines,
+            showsBundledTranslations: settings.showsBundledTranslations,
+            targetLanguageCode: settings.targetLanguageCode,
+            selection: selection
+        )
     }
 
-    static func presentation(_ lines: [LyricLine], showsBundledTranslations: Bool,
-                             targetLanguageCode: String) -> LyricBundledTranslationPolicy.Presentation {
-        var presented = LyricBundledTranslationPolicy.presentation(
-            of: lines,
-            showsBundledTranslations: showsBundledTranslations
+    static func presentation(
+        _ lines: [LyricLine],
+        showsBundledTranslations: Bool,
+        targetLanguageCode: String,
+        selection: LyricTrackSelection = .automatic
+    ) -> LyricTrackSelectionPolicy.Presentation {
+        var presented = LyricTrackSelectionPolicy.presenting(
+            lines,
+            selection: selection,
+            showsBundledTranslations: showsBundledTranslations,
+            targetLanguageCode: targetLanguageCode,
+            preferredLanguages: Locale.preferredLanguages
         )
         let readingIDs = presented.readingTranslationIDs
-        let target = LyricsTranslationSettingsStore.normalizedLanguageCode(targetLanguageCode)
+        let target = LyricsTranslationSettingsStore.normalizedLanguageCode(
+            presented.activeSubtitleLanguageCode ?? targetLanguageCode
+        )
         func selectLanguage(_ line: LyricLine) -> LyricLine {
             var result = line
             if result.manualTranslation != nil || !line.alternateManualTranslations.isEmpty {
@@ -116,7 +145,7 @@ extension TVLyricsTranslationController {
                     result.romanization = reading.text
                     result.romanizationSyllables = reading.syllables
                 }
-                let translations = readingIDs.isEmpty ? manual : manual.filter { !readingIDs.contains($0.id) }
+                let translations = readingIDs.isEmpty ? line.subtitleTranslations : line.subtitleTranslations.filter { !readingIDs.contains($0.id) }
                 let preferred = translations.first { translation in
                     translation.languageCode.map { LyricTranslationGroupingPolicy.representsSameTranslationLanguage($0, target) } == true
                 } ?? translations.first
@@ -132,21 +161,22 @@ extension TVLyricsTranslationController {
 
     /// Called whenever lyrics were put on screen for `songID`.
     func lyricsDidLoad(_ lines: [LyricLine], forSongID songID: String, store: TVStore,
-                       presentation: LyricBundledTranslationPolicy.Presentation? = nil) {
+                       presentation: LyricTrackSelectionPolicy.Presentation? = nil) {
         self.store = store
         lastLoaded = (songID, lines)
-        start(presentation ?? Self.presentation(lines))
+        start(presentation ?? Self.presentation(lines, songID: songID))
     }
 
     /// Re-runs for the lyrics on screen, after a setting changed, the model
     /// was downloaded or removed, or smart translation became usable.
     func retranslateCurrentLyrics() {
         guard let store, let lastLoaded, store.currentSongID == lastLoaded.songID else { return }
-        let document = Self.presentation(lastLoaded.lines)
+        let document = Self.presentation(lastLoaded.lines, songID: lastLoaded.songID)
         store.applyLyrics(
             TVPlaybackCoordinator.toTVLyrics(document.lines, duration: 0),
             forSongID: lastLoaded.songID
         )
+        TVLyricsRomanizationController.shared.lyricsDidLoad(document.lines, forSongID: lastLoaded.songID)
         start(document)
     }
 
@@ -165,7 +195,7 @@ extension TVLyricsTranslationController {
         return lastLoaded.songID == songID && !lastLoaded.lines.isEmpty
     }
 
-    private func start(_ document: LyricBundledTranslationPolicy.Presentation) {
+    private func start(_ document: LyricTrackSelectionPolicy.Presentation) {
         task?.cancel()
         generation &+= 1
         let generation = generation
@@ -173,8 +203,13 @@ extension TVLyricsTranslationController {
         intelligentIssue = nil
         activitySongID = lastLoaded?.songID
         sourceCompanionTracks = document.tracks
+        sourceTrackCatalog = document.catalog
         let settings = LyricsTranslationSettingsStore.shared
         guard settings.isEnabled, let store, let loaded = lastLoaded, !loaded.lines.isEmpty else { return }
+        if LyricTrackSelectionPolicy.pinnedSubtitleLanguageCode(in: document.lines) != nil {
+            activity = .notNeeded
+            return
+        }
         let songID = loaded.songID
         let lines = document.lines
         let song = store.song(songID)

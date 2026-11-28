@@ -8365,3 +8365,6 @@
 "mini_player_collapse" = "Masquer les paroles et la file d'attente";
 "audio_output_system_default" = "Défaut système · Core Audio";
 "a11y_clear_search" = "Effacer la recherche";
+"lyrics_track_language" = "Langue";
+"lyrics_track_original" = "Original";
+"lyrics_track_off" = "Désactivé";

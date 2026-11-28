@@ -24,10 +24,13 @@ public struct LyricLineCommentAnchor: Codable, Hashable, Sendable, Identifiable 
         func append(_ line: LyricLine) {
             let text = normalized(line.text)
             guard !text.isEmpty else { return }
-            let key = "\(line.voice.rawValue):\(text)"
+            // 合唱行按主声部定位：旧版本把 v1000 读成主声部，那时写下的评论照旧挂在原句上；
+            // 同步出去的评论也不带旧版本解不出来的声部。
+            let voice: LyricVoice = line.voice == .group ? .primary : line.voice
+            let key = "\(voice.rawValue):\(text)"
             let occurrence = counts[key, default: 0]
             counts[key] = occurrence + 1
-            anchors[line.id] = Self(text: line.text, occurrence: occurrence, voice: line.voice, timestamp: line.timestamp)
+            anchors[line.id] = Self(text: line.text, occurrence: occurrence, voice: voice, timestamp: line.timestamp)
         }
         for line in lines {
             append(line)

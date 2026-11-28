@@ -8271,3 +8271,6 @@
 "mini_player_collapse" = "बोल और कतार समेटें";
 "audio_output_system_default" = "सिस्टम डिफ़ॉल्ट · Core Audio";
 "a11y_clear_search" = "खोज साफ़ करें";
+"lyrics_track_language" = "भाषा";
+"lyrics_track_original" = "मूल";
+"lyrics_track_off" = "बंद";

@@ -8271,3 +8271,6 @@
 "mini_player_collapse" = "Zwiń tekst i kolejkę";
 "audio_output_system_default" = "Domyślne systemu · Core Audio";
 "a11y_clear_search" = "Wyczyść wyszukiwanie";
+"lyrics_track_language" = "Język";
+"lyrics_track_original" = "Oryginał";
+"lyrics_track_off" = "Wył.";

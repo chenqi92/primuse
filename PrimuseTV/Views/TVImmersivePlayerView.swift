@@ -419,14 +419,12 @@ struct TVImmersivePlayerView: View {
                                     .allowsHitTesting(false)
                             }
                             if showsChrome && !chromeYieldsFocus && !showsDiscPosition && !showsQueue && !store.currentItemIsSpokenWord {
+                                let catalog = TVLyricsTranslationController.shared.availableTrackCatalog(for: store.currentSongID)
                                 LyricsCompanionTrackButtons(
-                                    tracks: TVLyricsTranslationController.shared.availableCompanionTracks(for: store.currentSongID),
+                                    tracks: catalog.tracks, catalog: catalog, songID: store.currentSongID,
                                     foreground: presentationEffect.prefersLightContent ? ImmersiveWatercolorInk.ink : .white,
                                     fill: presentationEffect.prefersLightContent ? .white.opacity(0.45) : .black.opacity(0.25),
-                                    onInteraction: {
-                                        scheduleChromeHide()
-                                        scheduleLowPower()
-                                    }
+                                    onInteraction: { scheduleChromeHide(); scheduleLowPower() }
                                 )
                             }
                         }

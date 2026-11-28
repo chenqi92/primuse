@@ -4,6 +4,7 @@ import Foundation
 public enum OpenSubsonicLyricsConverter {
     public struct Track: Decodable, Sendable {
         public let kind: String?
+        public let type: String?
         public let lang: String?
         public let synced: Bool?
         public let offset: Double?
@@ -127,7 +128,7 @@ public enum OpenSubsonicLyricsConverter {
             language = track.lang.flatMap(LyricLanguageCodePolicy.canonicalIdentifier)
             switch normalizedKind(track.kind) {
             case "translation":
-                kind = .translation
+                kind = .translation(LyricManualTranslationKind.fromTrackType(track.type))
                 priority = 0
             case "pronunciation":
                 kind = .romanization
@@ -165,10 +166,14 @@ public enum OpenSubsonicLyricsConverter {
                 let lineStart = start.map { Double($0) / 1000 }
                 let onset = [lineStart, syllables?.first?.start].compactMap { $0 }.min()
                 let agent = layer.agentId.flatMap { agents[$0] }
+                let voice = LyricVoiceResolutionPolicy.resolveOpenSubsonicVoice(
+                    agentID: agent?.id ?? layer.agentId,
+                    role: agent?.role
+                )
                 let line = LyricLine(
                     timestamp: onset ?? 0, text: value, isSynchronized: onset != nil, syllables: syllables,
                     endTimestamp: end.map { Double($0) / 1000 } ?? syllables?.last?.end,
-                    voice: agent?.role == "voice" || agent?.role == "bg" ? .secondary : .primary,
+                    voice: voice,
                     isBackingVocal: agent?.role == "bg"
                 )
                 result.append(Row(parentIndex: index, agent: agent, line: LyricTextEntityPolicy.decoded(line)))

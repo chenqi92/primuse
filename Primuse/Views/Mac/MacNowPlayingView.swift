@@ -51,11 +51,13 @@ struct MacNowPlayingView: View {
     /// 读到的原文档，开关变化时从它重新得出 `lyrics`。
     @State private var loadedLyrics: [LyricLine] = []
     @State private var sourceCompanionTracks: LyricBundledTranslationPolicy.Tracks = []
+    @State private var sourceTrackCatalog: LyricTrackCatalog = .empty
     @State private var sourceReadingIDs: Set<String> = []
-    private var availableCompanionTracks: LyricBundledTranslationPolicy.Tracks {
-        guard !isSpokenWord, !loadedLyrics.isEmpty else { return [] }
-        return lyricRomanizationOverlay.generatedTextByLineID.isEmpty ? sourceCompanionTracks : sourceCompanionTracks.union(.romanization)
+    private var availableTrackCatalog: LyricTrackCatalog {
+        guard !isSpokenWord, !loadedLyrics.isEmpty else { return .empty }
+        return sourceTrackCatalog.withGeneratedTransliteration(!lyricRomanizationOverlay.generatedTextByLineID.isEmpty)
     }
+    private var availableCompanionTracks: LyricBundledTranslationPolicy.Tracks { availableTrackCatalog.tracks }
     @State private var commentSongID: String?
     @State private var commentAnchors: [String: LyricLineCommentAnchor] = [:]
     @State private var commentPresentation: LyricCommentPresentation?
@@ -339,6 +341,7 @@ struct MacNowPlayingView: View {
                     lyrics: romanizedLyrics,
                     showsSimulatedWordTiming: usesSimulatedWordTiming,
                     companionTracks: availableCompanionTracks,
+                    trackCatalog: availableTrackCatalog,
                     translatedTextByLineID: lyricTranslationsByLineID,
                     // 安全区由这棵树的宿主决定,沉浸层不能自己再忽略一次。
                     ignoresWindowSafeArea: false,
@@ -485,9 +488,9 @@ struct MacNowPlayingView: View {
         .onChange(of: lyricsTranslationFontScale) { _, _ in
             CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsTranslationFontScale)
         }
-        .onChange(of: LyricsTranslationSettingsStore.shared.showsBundledTranslations) { _, _ in
-            installLyrics(loadedLyrics)
-        }
+        .onChange(of: LyricsTranslationSettingsStore.shared.showsBundledTranslations) { _, _ in installLyrics(loadedLyrics) }
+        .onChange(of: LyricsTranslationSettingsStore.shared.targetLanguageCode) { _, _ in installLyrics(loadedLyrics) }
+        .onChange(of: LyricsTrackSelectionStore.shared.selectionRevision) { _, _ in installLyrics(loadedLyrics) }
         .onChange(of: simulatesWordLyrics) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: isSpokenWord) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: lyricRomanizationOverlay) { _, _ in refreshRomanizedLyrics() }
@@ -1412,9 +1415,8 @@ struct MacNowPlayingView: View {
             if !availableCompanionTracks.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
                     LyricsCompanionTrackButtons(
-                        tracks: availableCompanionTracks,
-                        foreground: playerSecondaryColor,
-                        fill: playerGlassFill
+                        tracks: availableCompanionTracks, catalog: availableTrackCatalog, songID: player.currentSong?.id,
+                        foreground: playerSecondaryColor, fill: playerGlassFill
                     )
                     Spacer(minLength: 8)
                     lyricsTranslationStatus
@@ -1629,11 +1631,7 @@ struct MacNowPlayingView: View {
         voice: LyricVoice,
         isDuet: Bool
     ) -> some View {
-        let isTrailing = LyricDuetLayoutPolicy.side(
-            for: voice,
-            preferred: .leading,
-            isDuet: isDuet
-        ) == .trailing
+        let side = LyricDuetLayoutPolicy.side(for: voice, preferred: .leading, isDuet: isDuet)
         let scaledSize = lyricLayoutFontSize * CGFloat(lyricsFontScale)
         let lookahead = lyricsLookahead
         let markerHeight = (scaledSize * 0.92).rounded()
@@ -1653,7 +1651,7 @@ struct MacNowPlayingView: View {
             dotSize: (scaledSize * 0.31).rounded(),
             spacing: (scaledSize * 0.27).rounded()
         )
-        .frame(maxWidth: .infinity, alignment: isTrailing ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: side.frameAlignment)
         .frame(height: markerHeight)
         // 展开时自带上面那份行间距,和歌词行一样。
         .padding(.top, spacing)
@@ -1672,15 +1670,9 @@ struct MacNowPlayingView: View {
         isDuet: Bool
     ) -> some View {
         let scaledSize = fontSize * CGFloat(lyricsFontScale)
-        // 对唱时对唱声部的行摆到另一侧（与 iPhone 歌词页同一规则）。
-        let isTrailing = LyricDuetLayoutPolicy.side(
-            for: line.voice,
-            preferred: .leading,
-            isDuet: isDuet
-        ) == .trailing
-        let horizontal: HorizontalAlignment = isTrailing ? .trailing : .leading
-        let frameAlignment: Alignment = isTrailing ? .trailing : .leading
-        let textAlignment: TextAlignment = isTrailing ? .trailing : .leading
+        // 对唱分左右、合唱居中（与 iPhone 歌词页同一规则）。
+        let side = LyricDuetLayoutPolicy.side(for: line.voice, preferred: .leading, isDuet: isDuet)
+        let horizontal = side.horizontalAlignment, frameAlignment = side.frameAlignment, textAlignment = side.textAlignment
         // Keep weight/layout stable and express activity through render-layer
         // scale + opacity, mirroring the iOS word-level lyrics treatment.
         let weight: Font.Weight = .semibold
@@ -1774,7 +1766,7 @@ struct MacNowPlayingView: View {
             isSynchronized: line.isSynchronized, interludeActive: activeInterludeAnchor != nil
         ))
         .frame(minHeight: scaledSize * 1.3, alignment: frameAlignment)
-        .scaleEffect(visualScale, anchor: isTrailing ? .trailing : .leading)
+        .scaleEffect(visualScale, anchor: side.scaleAnchor)
         .animation(
             .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
             value: concurrentLyricRows ?? .single(currentIndex)
@@ -2427,11 +2419,14 @@ struct MacNowPlayingView: View {
             lyricRomanizationOverlay = .empty
         }
         loadedLyrics = loaded
-        let presentation = LyricBundledTranslationPolicy.presentation(
-            of: loaded,
-            showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
+        let translationSettings = LyricsTranslationSettingsStore.shared
+        let presentation = LyricTrackSelectionPolicy.presenting(
+            loaded, selection: LyricsTrackSelectionStore.shared.selection(forSongID: player.currentSong?.id),
+            showsBundledTranslations: translationSettings.showsBundledTranslations,
+            targetLanguageCode: translationSettings.targetLanguageCode, preferredLanguages: Locale.preferredLanguages
         )
         sourceCompanionTracks = presentation.tracks
+        sourceTrackCatalog = presentation.catalog
         sourceReadingIDs = presentation.readingTranslationIDs
         // 文稿按这一集 / 这本书的偏移平移时间轴(#320);音乐原样。
         let newLyrics = SpokenWordTranscriptOffsetStore.shared.presenting(

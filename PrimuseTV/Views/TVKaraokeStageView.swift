@@ -541,8 +541,12 @@ struct TVKaraokeLyrics: View {
         let line = row.line
         let sung = window.voice == .secondary
             ? Color(red: 1.0, green: 0.62, blue: 0.80) : .white
-        let mine = !snapshot.hasDuetParts || part == .all
-            || (part == .primary) == (window.voice == .primary)
+        let mine = !snapshot.hasDuetParts || part.includes(window.voice)
+        let alignment = LyricDuetLayoutPolicy.side(
+            for: window.voice,
+            preferred: .center,
+            isDuet: snapshot.hasDuetParts
+        ).textAlignment
         return VStack(spacing: 10) {
             if snapshot.hasDuetParts, part != .all {
                 Text(String(localized: mine ? "karaoke_you" : "karaoke_partner"))
@@ -551,7 +555,7 @@ struct TVKaraokeLyrics: View {
             }
             KaraokeLineView(line: line, isDuet: snapshot.hasDuetParts, fontSize: 58, weight: .bold,
                             activeStyle: AnyShapeStyle(sung), inactiveColor: .white.opacity(0.42),
-                            textAlignment: snapshot.hasDuetParts ? (window.voice == .secondary ? .trailing : .leading) : .center,
+                            textAlignment: alignment,
                             timeAt: { _ in time }, fixedTime: time,
                             isPlaybackActive: isPlaying,
                             animatesSyllableBounce: isPlaying)

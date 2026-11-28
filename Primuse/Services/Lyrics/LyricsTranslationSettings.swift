@@ -523,10 +523,12 @@ actor LyricsTranslationPreparer {
         let contentLines = LyricTranslationContentPolicy.contentLines(in: translationLines, song: songContext)
         // 罗马音 / 拼音这类读音行按整篇判一次，逐行选译文时把它们排除掉。
         let readingIDs = LyricRomanizedReadingPolicy.readingIDs(in: translationLines)
+        let pinnedSubtitleLanguage = LyricTrackSelectionPolicy.pinnedSubtitleLanguageCode(in: lyrics)
+        let manualTargetLanguage = pinnedSubtitleLanguage ?? targetLanguageCode
         let manualTranslations = translationLines.reduce(into: [String: String]()) { result, line in
             guard let manualTranslation = LyricManualTranslationPolicy.preferredTranslation(
                 for: line,
-                targetLanguageCode: targetLanguageCode,
+                targetLanguageCode: manualTargetLanguage,
                 readingIDs: readingIDs
             ) else { return }
             let text = manualTranslation.text
@@ -534,12 +536,12 @@ actor LyricsTranslationPreparer {
             result[line.id] = text
         }
 
-        guard enabled, !contentLines.isEmpty else {
+        guard enabled, !contentLines.isEmpty, pinnedSubtitleLanguage == nil else {
             return Prepared(manualTranslations: manualTranslations, groups: [])
         }
         if LyricManualTranslationPolicy.hasCompleteCoverage(
             in: contentLines,
-            targetLanguageCode: targetLanguageCode,
+            targetLanguageCode: manualTargetLanguage,
             readingIDs: readingIDs
         ) {
             return Prepared(manualTranslations: manualTranslations, groups: [])

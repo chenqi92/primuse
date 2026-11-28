@@ -28,6 +28,8 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         didSet { if romanization != oldValue { romanizationSyllables = nil } }
     }
     public var romanizationSyllables: [LyricSyllable]?
+    public var romanizationLanguageCode: String?
+    public var alternateRomanizations: [LyricTransliteration]
 
     public init(
         id: UUID = UUID(),
@@ -42,7 +44,9 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         manualTranslation: LyricManualTranslation? = nil,
         alternateManualTranslations: [LyricManualTranslation] = [],
         romanization: String? = nil,
-        romanizationSyllables: [LyricSyllable]? = nil
+        romanizationSyllables: [LyricSyllable]? = nil,
+        romanizationLanguageCode: String? = nil,
+        alternateRomanizations: [LyricTransliteration] = []
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -57,6 +61,8 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         self.alternateManualTranslations = alternateManualTranslations
         self.romanization = romanization
         self.romanizationSyllables = romanizationSyllables
+        self.romanizationLanguageCode = romanizationLanguageCode
+        self.alternateRomanizations = alternateRomanizations
     }
 
     public var isStamped: Bool { timestamp != nil }
@@ -75,6 +81,7 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
     public var canClearStamp: Bool {
         manualTranslation == nil
             && romanization == nil
+            && alternateRomanizations.isEmpty
             && alternateManualTranslations.isEmpty
             && endTimestamp == nil
             && voice == .primary
@@ -85,6 +92,8 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
     var hasProtectedSupplementalFields: Bool {
         manualTranslation != nil
             || romanization != nil
+            || !alternateRomanizations.isEmpty
+            || romanizationLanguageCode != nil
             || !alternateManualTranslations.isEmpty
             || endTimestamp != nil
             || voice != .primary
@@ -99,7 +108,8 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         let syllableStart = syllables?.map(\.start).min()
         let backgroundStart = background?.compactMap(Self.earliestTime(in:)).min()
         let annotationStart = Self.earliestAnnotationTime(
-            romanizationSyllables, primary: manualTranslation, alternates: alternateManualTranslations
+            romanizationSyllables, alternateReadings: alternateRomanizations,
+            primary: manualTranslation, alternates: alternateManualTranslations
         )
         return ([timestamp, endTimestamp, syllableStart, backgroundStart, annotationStart]
             .compactMap { $0 }).min()
@@ -150,6 +160,7 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         endTimestamp = endTimestamp.map { max(0, $0 + delta) }
         syllables = syllables?.map { Self.shifted($0, by: delta) }
         romanizationSyllables = romanizationSyllables?.map { Self.shifted($0, by: delta) }
+        alternateRomanizations = alternateRomanizations.map { Self.shifted($0, by: delta) }
         manualTranslation = manualTranslation.map { Self.shifted($0, by: delta) }
         alternateManualTranslations = alternateManualTranslations.map { Self.shifted($0, by: delta) }
         background = background?.map { Self.shifted($0, by: delta) }
@@ -171,6 +182,12 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         return result
     }
 
+    private static func shifted(_ transliteration: LyricTransliteration, by delta: TimeInterval) -> LyricTransliteration {
+        var result = transliteration
+        result.syllables = transliteration.syllables?.map { shifted($0, by: delta) }
+        return result
+    }
+
     private static func shifted(_ line: LyricLine, by delta: TimeInterval) -> LyricLine {
         var result = line
         if line.isSynchronized {
@@ -179,6 +196,7 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         result.endTimestamp = line.endTimestamp.map { max(0, $0 + delta) }
         result.syllables = line.syllables?.map { shifted($0, by: delta) }
         result.romanizationSyllables = line.romanizationSyllables?.map { shifted($0, by: delta) }
+        result.alternateRomanizations = line.alternateRomanizations.map { shifted($0, by: delta) }
         result.manualTranslation = line.manualTranslation.map { shifted($0, by: delta) }
         result.alternateManualTranslations = line.alternateManualTranslations.map { shifted($0, by: delta) }
         result.background = line.background?.map { shifted($0, by: delta) }
@@ -190,7 +208,8 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         if line.isSynchronized { candidates.append(line.timestamp) }
         candidates.append(contentsOf: line.syllables?.map(\.start) ?? [])
         if let annotationStart = earliestAnnotationTime(
-            line.romanizationSyllables, primary: line.manualTranslation, alternates: line.alternateManualTranslations
+            line.romanizationSyllables, alternateReadings: line.alternateRomanizations,
+            primary: line.manualTranslation, alternates: line.alternateManualTranslations
         ) {
             candidates.append(annotationStart)
         }
@@ -199,9 +218,10 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
     }
 
     private static func earliestAnnotationTime(
-        _ reading: [LyricSyllable]?, primary: LyricManualTranslation?, alternates: [LyricManualTranslation]
+        _ reading: [LyricSyllable]?, alternateReadings: [LyricTransliteration],
+        primary: LyricManualTranslation?, alternates: [LyricManualTranslation]
     ) -> TimeInterval? {
-        let tracks = [reading, primary?.syllables] + alternates.map(\.syllables)
+        let tracks = [reading, primary?.syllables] + alternateReadings.map(\.syllables) + alternates.map(\.syllables)
         return tracks.compactMap { $0?.map(\.start).min() }.min()
     }
 }
@@ -226,7 +246,9 @@ public enum LyricsStructuredPersistencePolicy {
             && syllables.map(\.text).joined() != line.text
         return line.endTimestamp != nil
             || line.romanization != nil
-            || line.allManualTranslations.contains(where: { $0.syllables?.isEmpty == false })
+            || line.romanizationLanguageCode != nil
+            || !line.alternateRomanizations.isEmpty
+            || line.allManualTranslations.contains(where: { $0.syllables?.isEmpty == false || $0.kind != .subtitle })
             || line.voice != .primary
             || line.background?.isEmpty == false
             || line.languageCode != nil
@@ -272,7 +294,9 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                 manualTranslation: $0.manualTranslation,
                 alternateManualTranslations: $0.alternateManualTranslations,
                 romanization: $0.romanization,
-                romanizationSyllables: $0.romanizationSyllables
+                romanizationSyllables: $0.romanizationSyllables,
+                romanizationLanguageCode: $0.romanizationLanguageCode,
+                alternateRomanizations: $0.alternateRomanizations
             )
         }
     }
@@ -327,7 +351,9 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                     manualTranslation: $0.manualTranslation,
                     alternateManualTranslations: $0.alternateManualTranslations,
                     romanization: $0.romanization,
-                    romanizationSyllables: $0.romanizationSyllables
+                    romanizationSyllables: $0.romanizationSyllables,
+                    romanizationLanguageCode: $0.romanizationLanguageCode,
+                    alternateRomanizations: $0.alternateRomanizations
                 )
             })
             timedBlock.removeAll(keepingCapacity: true)
@@ -407,7 +433,9 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                 manualTranslation: line.manualTranslation,
                 alternateManualTranslations: line.alternateManualTranslations,
                 romanization: line.romanization,
-                romanizationSyllables: line.romanizationSyllables
+                romanizationSyllables: line.romanizationSyllables,
+                romanizationLanguageCode: line.romanizationLanguageCode,
+                alternateRomanizations: line.alternateRomanizations
             )
         }
         if !result.isEmpty, !metadataLines.isEmpty {

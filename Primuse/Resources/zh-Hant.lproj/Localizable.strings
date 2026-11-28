@@ -8342,3 +8342,6 @@
 "mini_player_collapse" = "收合歌詞與佇列";
 "audio_output_system_default" = "系統預設 · Core Audio";
 "a11y_clear_search" = "清除搜尋";
+"lyrics_track_language" = "語言";
+"lyrics_track_original" = "原文";
+"lyrics_track_off" = "關閉";

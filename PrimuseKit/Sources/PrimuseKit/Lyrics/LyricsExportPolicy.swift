@@ -103,7 +103,7 @@ public enum LyricsExportPolicy {
            seen.insert(romanization).inserted {
             rows.append(romanization)
         }
-        for translation in line.allManualTranslations {
+        for translation in line.subtitleTranslations {
             let text = singleLine(translation.text)
             if !text.isEmpty, seen.insert(text).inserted {
                 rows.append(text)

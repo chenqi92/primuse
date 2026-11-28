@@ -2444,12 +2444,14 @@ struct NowPlayingView: View {
     @State private var commentAnchors: [String: LyricLineCommentAnchor] = [:]
     /// 原文档里有没有能隐藏的自带译文;没有时「更多 › 歌词翻译」里不给那个开关。
     @State private var sourceCompanionTracks: LyricBundledTranslationPolicy.Tracks = []
+    @State private var sourceTrackCatalog: LyricTrackCatalog = .empty
     @State private var sourceReadingIDs: Set<String> = []
     private var lyricsHaveBundledTranslations: Bool { sourceCompanionTracks.contains(.translation) }
-    private var availableCompanionTracks: LyricBundledTranslationPolicy.Tracks {
-        guard !player.currentItemIsSpokenWord, !lyrics.isEmpty else { return [] }
-        return lyricRomanizationOverlay.generatedTextByLineID.isEmpty ? sourceCompanionTracks : sourceCompanionTracks.union(.romanization)
+    private var availableTrackCatalog: LyricTrackCatalog {
+        guard !player.currentItemIsSpokenWord, !lyrics.isEmpty else { return .empty }
+        return sourceTrackCatalog.withGeneratedTransliteration(!lyricRomanizationOverlay.generatedTextByLineID.isEmpty)
     }
+    private var availableCompanionTracks: LyricBundledTranslationPolicy.Tracks { availableTrackCatalog.tracks }
     /// `lyrics` 是哪一首的读取结果。播放页刚挂载、还没读过时是 nil。
     @State private var lyricsSongID: String?
     /// 收进休眠时看着的那一首,见 `lyricTaskSubject`。
@@ -5344,6 +5346,7 @@ struct NowPlayingView: View {
                         lyrics: romanizedLyricsDocument.lines,
                         showsSimulatedWordTiming: usesSimulatedWordTiming,
                         companionTracks: availableCompanionTracks,
+                        trackCatalog: availableTrackCatalog,
                         lyricCompanions: {
                             ImmersiveStageCompanion.items(
                                 for: $0,
@@ -5595,6 +5598,14 @@ struct NowPlayingView: View {
         // 换上新歌词,或问源结束(没问到也算结论):记下这一条有没有文字。
         .onChange(of: lyricsRevision) { _, _ in rememberSpokenWordTextPresence() }
         .onChange(of: LyricsTranslationSettingsStore.shared.showsBundledTranslations) { _, _ in
+            presentBundledTranslationVisibility()
+            lyricsRevision &+= 1
+        }
+        .onChange(of: LyricsTrackSelectionStore.shared.selectionRevision) { _, _ in
+            presentBundledTranslationVisibility()
+            lyricsRevision &+= 1
+        }
+        .onChange(of: LyricsTranslationSettingsStore.shared.targetLanguageCode) { _, _ in
             presentBundledTranslationVisibility()
             lyricsRevision &+= 1
         }
@@ -11277,6 +11288,7 @@ struct NowPlayingView: View {
             document: romanizedLyricsDocument,
             showsSimulatedWordTiming: usesSimulatedWordTiming,
             companionTracks: availableCompanionTracks,
+            trackCatalog: availableTrackCatalog,
             lyricsWritingDirection: romanizedLyricsWritingDirection,
             lyricsRevision: lyricsRevision,
             isResolvingLyrics: isResolvingLyrics,
@@ -13778,9 +13790,13 @@ struct NowPlayingView: View {
 
     private func presentBundledTranslationVisibility() {
         commentAnchors = LyricLineCommentAnchor.index(lyrics)
-        let presentation = LyricBundledTranslationPolicy.presentation(
-            of: lyrics,
-            showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
+        let translationSettings = LyricsTranslationSettingsStore.shared
+        let presentation = LyricTrackSelectionPolicy.presenting(
+            lyrics,
+            selection: LyricsTrackSelectionStore.shared.selection(forSongID: player.currentSong?.id),
+            showsBundledTranslations: translationSettings.showsBundledTranslations,
+            targetLanguageCode: translationSettings.targetLanguageCode,
+            preferredLanguages: Locale.preferredLanguages
         )
         // 文字稿按这一集 / 这本书的偏移平移时间轴(#320);音乐按这一首在「歌词时间」里挪的。
         presentedLyrics = SpokenWordTranscriptOffsetStore.shared.presenting(
@@ -13788,6 +13804,7 @@ struct NowPlayingView: View {
             for: player.currentSong
         )
         sourceCompanionTracks = presentation.tracks
+        sourceTrackCatalog = presentation.catalog
         sourceReadingIDs = presentation.readingTranslationIDs
         refreshRomanizedLyrics()
     }
@@ -19370,6 +19387,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
             && lhs.offersLyricsRecoveryActions == rhs.offersLyricsRecoveryActions
             && lhs.showsSimulatedWordTiming == rhs.showsSimulatedWordTiming
             && lhs.companionTracks == rhs.companionTracks
+            && lhs.trackCatalog == rhs.trackCatalog
             && lhs.lyricsWritingDirection == rhs.lyricsWritingDirection
             && lhs.commentSongID == rhs.commentSongID
             && lhs.isScrapingCurrentSong == rhs.isScrapingCurrentSong
@@ -19389,6 +19407,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
     private var lyrics: [LyricLine] { document.lines }
     var showsSimulatedWordTiming = false
     var companionTracks: LyricBundledTranslationPolicy.Tracks = []
+    var trackCatalog: LyricTrackCatalog = .empty
     let lyricsWritingDirection: LyricWritingDirection
     let lyricsRevision: UInt
     /// 歌词结果还没回来。空歌词此时是"还不知道", 不是"没有"。
@@ -19748,6 +19767,8 @@ struct LyricsScrollView: View, @MainActor Equatable {
                 // 和来源这些说明都在歌词开头那一排（`lyricsInfoBadges`），跟着歌词滚走。
                 LyricsCompanionTrackButtons(
                     tracks: companionTracks,
+                    catalog: trackCatalog,
+                    songID: songID,
                     foreground: appearance.secondary,
                     fill: appearance.primary.opacity(0.10),
                     onInteraction: { lastLyricRowTapAt = Date() }
@@ -22838,113 +22859,6 @@ struct PlayerGrabberVisibility: ViewModifier {
 extension View {
     func playerGrabberVisibility() -> some View {
         modifier(PlayerGrabberVisibility())
-    }
-}
-
-// MARK: - Lyrics info badges
-
-/// 歌词最上面那一排小标签(iOS 与 Mac 播放页共用):逐字歌词标「逐字」,知道来源时再标来源(#357)。
-struct LyricsInfoBadges: View {
-    let showsWordLevel: Bool
-    var showsSimulatedWordTiming = false
-    let source: LyricsSourceBadge?
-    let foreground: Color
-    let fill: Color
-    var companionTracks: LyricBundledTranslationPolicy.Tracks = []
-    var onInteraction: (() -> Void)? = nil
-
-    var body: some View {
-        if companionTracks.isEmpty {
-            badges
-        } else if !showsWordLevel && !showsSimulatedWordTiming && source == nil {
-            buttons
-        } else {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 6) {
-                    badges
-                    buttons
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                VStack(alignment: .leading, spacing: 4) {
-                    badges
-                    buttons
-                }
-            }
-        }
-    }
-
-    private var buttons: some View {
-        LyricsCompanionTrackButtons(tracks: companionTracks, foreground: foreground, fill: fill, onInteraction: onInteraction)
-    }
-
-    private var badges: some View {
-        HStack(spacing: 6) {
-            if showsSimulatedWordTiming {
-                capsule(symbol: "waveform", text: Text("lyrics_simulated_word_badge"))
-                    .accessibilityIdentifier("simulatedWordLyricsBadge")
-            } else if showsWordLevel {
-                capsule(symbol: "waveform", text: Text("lyrics_word_level_badge"))
-            }
-            if let source {
-                let title = source.displayTitle
-                capsule(symbol: source.symbolName, text: Text(verbatim: title))
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text(verbatim: String(
-                        format: String(localized: "lyrics_source_badge_a11y_format"),
-                        title
-                    )))
-            }
-        }
-    }
-
-    private func capsule(symbol: String, text: Text) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: symbol)
-                .font(.caption2)
-            text
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-        }
-        .foregroundStyle(foreground)
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill(fill))
-    }
-}
-
-extension LyricsSourceBadge {
-    /// 标签上写的字。服务器写它的类型,在线歌词源写源的名字;自定义源删掉了就用取到时记下的名字。
-    var displayTitle: String {
-        switch self {
-        case .localEdit:
-            return String(localized: "lyrics_source_badge_local_edit")
-        case .file(let format?):
-            return String(format: String(localized: "lyrics_source_badge_file_format"), format)
-        case .file(.none):
-            return String(localized: "lyrics_source_badge_file")
-        case .embedded:
-            return String(localized: "lyrics_source_badge_embedded")
-        case .server(let sourceType):
-            return MusicSourceType(rawValue: sourceType)?.displayName ?? sourceType
-        case .online(let identifier, let name):
-            let type = MusicScraperType(rawValue: identifier)
-            if case .custom(let configID) = type, ScraperConfigStore.shared.config(for: configID) == nil {
-                return name.isEmpty ? configID : name
-            }
-            return type.displayName
-        case .appleMusic:
-            return "Apple Music"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .localEdit: "pencil"
-        case .file: "doc.text"
-        case .embedded: "tag"
-        case .server: "server.rack"
-        case .online: "globe"
-        case .appleMusic: "music.note"
-        }
     }
 }
 

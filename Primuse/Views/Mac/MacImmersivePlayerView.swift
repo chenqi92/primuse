@@ -11,7 +11,7 @@ struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
     let lyrics: [LyricLine]
     var showsSimulatedWordTiming = false
-    var companionTracks: LyricBundledTranslationPolicy.Tracks = []
+    var companionTracks: LyricBundledTranslationPolicy.Tracks = []; var trackCatalog: LyricTrackCatalog = .empty
     /// 翻译任务给出的译文（按行 id），和常规播放页同一份。
     var translatedTextByLineID: [String: String] = [:]
     /// 是否由这层自己忽略窗口安全区。
@@ -249,10 +249,10 @@ struct MacImmersivePlayerView: View {
                 // 顶栏那排按钮下面:没有实时频谱、临时降档时写明原因。
                 VStack(spacing: 8) {
                     // 「模拟逐字」在顶栏那一排里(`chrome`),跟控件一起出现、一起收起。
-                    let tracks = showsChrome && isRenderingActive ? companionTracks : []
-                    if !tracks.isEmpty && !isLowPower && !showsEffectPicker && !showsKaraoke {
+                    let showsTracks = showsChrome && isRenderingActive && (!companionTracks.isEmpty || !trackCatalog.isEmpty)
+                    if showsTracks && !isLowPower && !showsEffectPicker && !showsKaraoke {
                         LyricsCompanionTrackButtons(
-                            tracks: tracks,
+                            tracks: companionTracks, catalog: trackCatalog, songID: player.currentSong?.id,
                             foreground: presentationEffect.prefersLightContent ? chromeInk.opacity(0.8) : .white.opacity(0.8),
                             fill: presentationEffect.prefersLightContent ? .white.opacity(0.45) : .black.opacity(0.25),
                             onInteraction: revealChrome

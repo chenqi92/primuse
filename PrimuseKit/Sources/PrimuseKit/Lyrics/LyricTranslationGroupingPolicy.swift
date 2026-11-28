@@ -561,7 +561,7 @@ public enum LyricManualTranslationPolicy {
             if field.role == .romanization {
                 LyricAnnotationKind.romanization.attach(annotation, language: field.languageCode, to: &line)
             } else {
-                LyricAnnotationKind.translation.attach(annotation, language: field.languageCode, to: &line)
+                LyricAnnotationKind.translation(.subtitle).attach(annotation, language: field.languageCode, to: &line)
                 if !makePreferred, original.manualTranslation == nil, let first = line.manualTranslation {
                     line.alternateManualTranslations.insert(first, at: 0)
                     line.manualTranslation = nil
@@ -654,7 +654,7 @@ public enum LyricManualTranslationPolicy {
         targetLanguageCode: String,
         readingIDs: Set<String> = []
     ) -> LyricManualTranslation? {
-        let candidates = line.allManualTranslations.filter {
+        let candidates = line.subtitleTranslations.filter {
             !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         guard !candidates.isEmpty else { return nil }
@@ -1513,7 +1513,7 @@ public enum LyricCompanionTextPolicy {
                 languageCode: nil
             ))
         }
-        for translation in line.allManualTranslations where translation.source == .bilingualLRC {
+        for translation in line.subtitleTranslations where translation.source == .bilingualLRC {
             if let text = normalized(translation.text) {
                 companions.append(LyricCompanionItem(
                     kind: .translation,
@@ -1523,12 +1523,12 @@ public enum LyricCompanionTextPolicy {
                 ))
             }
         }
-        guard let translated = normalized(translatedText) ?? normalized(line.manualTranslation?.text),
+        guard let translated = normalized(translatedText) ?? normalized(line.subtitleTranslations.first?.text),
               translated != normalized(line.text),
               !companions.contains(where: { $0.text == translated }) else {
             return companions
         }
-        let matchingAuthored = line.allManualTranslations.first { normalized($0.text) == translated }
+        let matchingAuthored = line.subtitleTranslations.first { normalized($0.text) == translated }
         companions.append(LyricCompanionItem(
             kind: .translation,
             text: translated,
@@ -1574,7 +1574,7 @@ public enum LyricCompanionTextPolicy {
         if let translated = normalized(translatedText), translated != original {
             return translated
         }
-        for translation in line.allManualTranslations where !readingIDs.contains(translation.id) {
+        for translation in line.subtitleTranslations where !readingIDs.contains(translation.id) {
             if let text = normalized(translation.text), text != original { return text }
         }
         return nil
@@ -1604,8 +1604,7 @@ public enum LyricBundledTranslationPolicy {
     public struct Tracks: OptionSet, Sendable, Hashable {
         public let rawValue: UInt8
         public init(rawValue: UInt8) { self.rawValue = rawValue }
-        public static let translation = Self(rawValue: 1)
-        public static let romanization = Self(rawValue: 2)
+        public static let translation = Self(rawValue: 1), romanization = Self(rawValue: 2), replacement = Self(rawValue: 4)
     }
 
     public struct Presentation: Sendable {
@@ -1628,15 +1627,15 @@ public enum LyricBundledTranslationPolicy {
             tracks.insert(.romanization)
         }
         if hasManual && flattened.contains(where: { line in
-            line.allManualTranslations.contains { !readingIDs.contains($0.id) && $0.text.contains(where: { !$0.isWhitespace }) }
-        }) {
-            tracks.insert(.translation)
-        }
+            line.subtitleTranslations.contains { !readingIDs.contains($0.id) && $0.text.contains(where: { !$0.isWhitespace }) }
+        }) { tracks.insert(.translation) }
+        if hasManual && flattened.contains(where: { line in
+            line.replacementTracks.contains { $0.text.contains(where: { !$0.isWhitespace }) }
+        }) { tracks.insert(.replacement) }
         return Presentation(
             lines: !showsBundledTranslations && tracks.contains(.translation)
                 ? lines.map { keepingReadings(of: $0, readingIDs: readingIDs) } : lines,
-            tracks: tracks,
-            readingTranslationIDs: readingIDs
+            tracks: tracks, readingTranslationIDs: readingIDs
         )
     }
 

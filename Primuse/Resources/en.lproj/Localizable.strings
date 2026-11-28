@@ -8127,3 +8127,6 @@
 "mini_player_collapse" = "Collapse lyrics and queue";
 "audio_output_system_default" = "System Default · Core Audio";
 "a11y_clear_search" = "Clear Search";
+"lyrics_track_language" = "Language";
+"lyrics_track_original" = "Original";
+"lyrics_track_off" = "Off";

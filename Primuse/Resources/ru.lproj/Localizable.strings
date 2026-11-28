@@ -8271,3 +8271,6 @@
 "mini_player_collapse" = "Свернуть текст и очередь";
 "audio_output_system_default" = "По умолчанию · Core Audio";
 "a11y_clear_search" = "Очистить поиск";
+"lyrics_track_language" = "Язык";
+"lyrics_track_original" = "Оригинал";
+"lyrics_track_off" = "Выкл.";

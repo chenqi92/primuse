@@ -8458,3 +8458,6 @@
 "mini_player_collapse" = "收起歌词与队列";
 "audio_output_system_default" = "系统默认 · Core Audio";
 "a11y_clear_search" = "清除搜索";
+"lyrics_track_language" = "语言";
+"lyrics_track_original" = "原文";
+"lyrics_track_off" = "关闭";

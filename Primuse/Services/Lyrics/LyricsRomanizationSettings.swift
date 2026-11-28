@@ -219,3 +219,116 @@ extension LyricsAITranslationReadiness {
         }
     }
 }
+
+/// Per-song track selection for multi-track TTML / OpenSubsonic lyrics
+/// (primary replacement language, subtitle translation language, and
+/// transliteration track). Kept bounded in memory and shared across iOS,
+/// macOS, and tvOS player screens.
+@MainActor
+@Observable
+final class LyricsTrackSelectionStore {
+    private(set) var selectionRevision: UInt = 0
+    @ObservationIgnored private var recentEntries: [Entry] = [] // bounded: 64 recent songs
+    @ObservationIgnored private var defaultSelection = LyricTrackSelection.automatic
+
+    init() {}
+}
+
+extension LyricsTrackSelectionStore {
+    static let shared = LyricsTrackSelectionStore()
+    static let maximumEntryCount = 64
+
+    struct Entry: Equatable, Sendable {
+        var songID: String
+        var selection: LyricTrackSelection
+    }
+
+    func selection(forSongID songID: String?) -> LyricTrackSelection {
+        _ = selectionRevision
+        guard let songID, !songID.isEmpty else { return defaultSelection }
+        return recentEntries.first(where: { $0.songID == songID })?.selection ?? .automatic
+    }
+
+    func selectReplacement(_ trackID: String?, forSongID songID: String?) {
+        mutateSelection(forSongID: songID) { $0.replacementTrackID = trackID }
+        // Primary language selection and romanization-only primary mode are mutually exclusive.
+        let romanization = LyricsRomanizationSettingsStore.shared
+        if romanization.displayMode == .romanizationOnly {
+            romanization.displayMode = .hidden
+        }
+    }
+
+    func selectRomanizationAsPrimary(forSongID songID: String?) {
+        LyricsRomanizationSettingsStore.shared.displayMode = .romanizationOnly
+        bumpAndNotify(songID: songID)
+    }
+
+    func selectSubtitle(_ trackID: String?, forSongID songID: String?) {
+        let translation = LyricsTranslationSettingsStore.shared
+        guard let trackID else {
+            translation.showsBundledTranslations = false
+            bumpAndNotify(songID: songID)
+            return
+        }
+        mutateSelection(forSongID: songID) { $0.subtitleTrackID = trackID }
+        if !translation.showsBundledTranslations {
+            translation.showsBundledTranslations = true
+        }
+    }
+
+    func selectTransliteration(_ trackID: String?, forSongID songID: String?) {
+        mutateSelection(forSongID: songID) { $0.transliterationTrackID = trackID }
+        let romanization = LyricsRomanizationSettingsStore.shared
+        if romanization.displayMode == .hidden {
+            romanization.displayMode = .belowOriginal
+        }
+    }
+
+    func selectTransliterationMode(_ mode: LyricRomanizationDisplayMode, forSongID songID: String?) {
+        LyricsRomanizationSettingsStore.shared.displayMode = mode
+        bumpAndNotify(songID: songID)
+    }
+
+    func reset(forSongID songID: String? = nil) {
+        if let songID, !songID.isEmpty {
+            recentEntries.removeAll { $0.songID == songID }
+        } else {
+            recentEntries.removeAll()
+            defaultSelection = .automatic
+        }
+        bumpAndNotify(songID: songID)
+    }
+
+    private func mutateSelection(
+        forSongID songID: String?,
+        _ update: (inout LyricTrackSelection) -> Void
+    ) {
+        if let songID, !songID.isEmpty {
+            var current: LyricTrackSelection
+            if let index = recentEntries.firstIndex(where: { $0.songID == songID }) {
+                current = recentEntries.remove(at: index).selection
+            } else {
+                current = .automatic
+            }
+            update(&current)
+            if !current.isAutomatic {
+                recentEntries.append(Entry(songID: songID, selection: current))
+                if recentEntries.count > Self.maximumEntryCount {
+                    recentEntries.removeFirst(recentEntries.count - Self.maximumEntryCount)
+                }
+            }
+        } else {
+            update(&defaultSelection)
+        }
+        bumpAndNotify(songID: songID)
+    }
+
+    private func bumpAndNotify(songID: String?) {
+        selectionRevision &+= 1
+        NotificationCenter.default.post(name: .lyricsTrackSelectionChanged, object: songID)
+    }
+}
+
+extension Notification.Name {
+    static let lyricsTrackSelectionChanged = Notification.Name("primuse.lyrics.trackSelection.changed")
+}

@@ -8271,3 +8271,6 @@
 "mini_player_collapse" = "Şarkı sözlerini ve sırayı daralt";
 "audio_output_system_default" = "Sistem Varsayılanı · Core Audio";
 "a11y_clear_search" = "Aramayı Temizle";
+"lyrics_track_language" = "Dil";
+"lyrics_track_original" = "Orijinal";
+"lyrics_track_off" = "Kapalı";

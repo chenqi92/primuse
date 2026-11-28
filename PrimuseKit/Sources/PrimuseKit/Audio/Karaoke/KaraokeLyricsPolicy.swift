@@ -9,11 +9,11 @@ public enum KaraokePart: String, Codable, CaseIterable, Sendable {
     /// The duet partner; the main voice keeps the original vocal.
     case secondary
 
-    func includes(_ voice: LyricVoice) -> Bool {
+    public func includes(_ voice: LyricVoice) -> Bool {
         switch self {
         case .all: true
-        case .primary: voice == .primary
-        case .secondary: voice == .secondary
+        case .primary: voice == .primary || voice == .group
+        case .secondary: voice == .secondary || voice == .group
         }
     }
 }
@@ -249,6 +249,7 @@ public enum KaraokeDuetGatePolicy {
             switch line.voice {
             case .primary: sawPrimary = true
             case .secondary: sawSecondary = true
+            case .group: break
             }
             if sawPrimary && sawSecondary { return true }
         }

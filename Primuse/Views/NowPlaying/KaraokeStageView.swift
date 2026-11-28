@@ -373,10 +373,8 @@ struct KaraokeLyricsStage: View {
     }
 
     private static func side(isDuet: Bool, voice: LyricVoice) -> Side {
-        guard isDuet else { return Side(text: .center, horizontal: .center, frame: .center) }
-        return voice == .secondary
-            ? Side(text: .trailing, horizontal: .trailing, frame: .trailing)
-            : Side(text: .leading, horizontal: .leading, frame: .leading)
+        let resolved = LyricDuetLayoutPolicy.side(for: voice, preferred: .center, isDuet: isDuet)
+        return Side(text: resolved.textAlignment, horizontal: resolved.horizontalAlignment, frame: resolved.frameAlignment)
     }
 
     @ViewBuilder
@@ -385,8 +383,7 @@ struct KaraokeLyricsStage: View {
         let line = row.line
         let isDuet = snapshot.hasDuetParts
         let voiceColor = window.voice == .secondary ? Self.secondaryColor : Self.primaryColor
-        let isMine = !isDuet || part == .all
-            || (part == .primary) == (window.voice == .primary)
+        let isMine = !isDuet || part.includes(window.voice)
         let side = Self.side(isDuet: isDuet, voice: window.voice)
         let baseSize: CGFloat = switch role {
         case .current, .upcoming: heightClass.value(34, compact: 26)

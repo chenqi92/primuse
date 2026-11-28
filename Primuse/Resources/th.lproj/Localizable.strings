@@ -8271,3 +8271,6 @@
 "mini_player_collapse" = "ย่อเนื้อเพลงและคิว";
 "audio_output_system_default" = "ค่าเริ่มต้นระบบ · Core Audio";
 "a11y_clear_search" = "ล้างการค้นหา";
+"lyrics_track_language" = "ภาษา";
+"lyrics_track_original" = "ต้นฉบับ";
+"lyrics_track_off" = "ปิด";

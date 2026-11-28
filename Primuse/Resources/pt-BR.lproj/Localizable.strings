@@ -8271,3 +8271,6 @@
 "mini_player_collapse" = "Recolher letras e fila";
 "audio_output_system_default" = "Padrão do sistema · Core Audio";
 "a11y_clear_search" = "Limpar busca";
+"lyrics_track_language" = "Idioma";
+"lyrics_track_original" = "Original";
+"lyrics_track_off" = "Desativado";
