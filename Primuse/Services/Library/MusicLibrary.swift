@@ -4391,6 +4391,8 @@ final class MusicLibrary {
     @ObservationIgnored var songModelReleaseDidSettleForTesting: (@MainActor () async -> Void)?
     /// 测试:「交来的歌没改」从目录读完、核对状态之前停一下(这时别处的写落下来,要从头再比)。
     @ObservationIgnored var unchangedIncomingReadDidFinishForTesting: (@MainActor () async -> Void)?
+    /// 测试:整库快照从目录导出时在导出的线程上调:读事务开始之前以 0 调一次,之后每编完一页(读事务里)以页号调一次。
+    @ObservationIgnored var catalogExportPageDidEncodeForTesting: (@Sendable (Int) -> Void)?
     #endif
     /// 这一轮进程里扫描索引已经给过专辑艺人目录(之前目录里留着上一轮的,不先清掉)。
     @ObservationIgnored private var catalogAlbumArtistFoldersReceived = false
@@ -18519,8 +18521,17 @@ extension MusicLibrary {
     }
 
     private func makeSnapshot(includingSongs: Bool, retained: [Song]) -> Snapshot {
-        var snapshot = Snapshot(
+        makeSnapshot(
             songs: !includingSongs ? retained : (retained.isEmpty ? songs : songs + retained),
+            separateSongStore: !includingSongs
+        )
+    }
+
+    /// 快照里歌以外的那些(小状态),`songs` 由调用方给。整库导出在歌曲模型不在内存里时给空的,歌从目录
+    /// 一页一页接在后面(`portableSnapshotFromTheCatalog`)。
+    private func makeSnapshot(songs: [Song], separateSongStore: Bool) -> Snapshot {
+        var snapshot = Snapshot(
+            songs: songs,
             playlists: allPlaylists,
             artworkOverrides: allArtworkOverrides.isEmpty ? nil : allArtworkOverrides,
             libraryReviews: allLibraryReviews.isEmpty ? nil : allLibraryReviews,
@@ -18544,7 +18555,7 @@ extension MusicLibrary {
             pendingHistoryIdentities: pendingHistoryIdentities.isEmpty ? nil : pendingHistoryIdentities,
             playlistPendingEntries: playlistPendingEntries.isEmpty ? nil : playlistPendingEntries
         )
-        if !includingSongs { snapshot.separateSongStore = true }
+        if separateSongStore { snapshot.separateSongStore = true }
         return snapshot
     }
 
@@ -18555,11 +18566,13 @@ extension MusicLibrary {
     }
 
     /// 带歌的整库快照, 供 iCloud 整库上传与 Apple TV 直传按需导出: 写盘的快照不带歌
-    /// (`separateSongStore`), 这里从内存里的曲库编出与原先带歌写盘同形的那份。先抽样
-    /// 估算, 明显放不进 `byteLimit` 就不编整库。曲库还没装载成功时不导出, 免得把空曲库
-    /// 发出去。
+    /// (`separateSongStore`), 这里编出与原先带歌写盘同形的那份。先抽样估算, 明显放不进
+    /// `byteLimit` 就不编整库。歌曲模型不在内存里(放掉了、或者从没装过)时歌从曲库目录一页一页
+    /// 编进去, 不装模型(`portableSnapshotFromTheCatalog`, 与装好时编出的同一份字节); 目录也答
+    /// 不了时不导出, 免得把空曲库发出去。
     func portableSnapshotIncludingSongs(byteLimit: Int) async -> PortableSnapshotExport {
-        guard isReady, !persistenceBlockedByCorruption else { return .unavailable }
+        guard !persistenceBlockedByCorruption else { return .unavailable }
+        guard isReady else { return await portableSnapshotFromTheCatalog(byteLimit: byteLimit) }
         let snapshot = makeSnapshot(includingSongs: true)
         return await Task.detached(priority: .userInitiated) {
             Self.encodePortableSnapshot(snapshot, byteLimit: byteLimit)
@@ -18591,6 +18604,197 @@ extension MusicLibrary {
         }
         guard let data = try? encodeSnapshotForDisk(snapshot) else { return .unavailable }
         return data.count <= byteLimit ? .snapshot(data) : .tooLarge(songCount: songs.count)
+    }
+
+    // MARK: Whole-library export without the song model (streaming from the catalog)
+
+    /// 歌曲模型不在内存里时能不能导出整库快照(iCloud 整库上传、给 Apple TV / 局域网的传输、给对端的种子都经它):
+    /// 放掉了(或者从没装过)、目录答得了、小状态是发布过的那一份、快照没有损坏,也没有排着等模型的改动(那些改动
+    /// 装着时已经在库里了,导出会缺它们:等装回来做完再导)。自动上传据此不再因为模型不在而跳过。
+    var exportsWithoutTheSongModel: Bool {
+        songModelReleased && !songModelAnswersFromMemory && !persistenceBlockedByCorruption
+            && catalogAttached && lookupOutsideTheModel != nil && !hasQueuedMutations && queuedSongFieldEdits.isEmpty
+    }
+
+    /// `portableSnapshotIncludingSongs` 在歌曲模型不在内存里时的做法:小状态照装好时那样编(`makeSnapshot`,歌留空),
+    /// 歌按库内顺序从目录一页一页取出来编进去(装好时的 `songs` 就是目录的库内顺序),后面接本机移除后保留着的
+    /// 那几行(与装好时同一个排法)。字节与装好时编出的相同:同一个编码器、同一种「最后一个键接数组」的写法,
+    /// 先按同一批抽样估大小、同一个上限判「太大」。内存里只有一页歌(1000 首)和编好的字节(不超过上限)。
+    ///
+    /// 一致:导出的是开始那一刻(T0)的样子 —— 小状态是 T0 编的那一份;歌是目录的同一个版本(一个读事务里读完,
+    /// 其间提交的写看不见,`readingOneVersion`),而且必须就是 T0 时目录的那个版本(T0 时路上的写都已确认,目录就是
+    /// 内存模型的样子)。编的途中曲库变了(扫描的一批、补读的歌词先于读事务落进目录):这一份不要,从头再导,
+    /// 最多三次,每次记一行。小状态在途中变了(点了喜欢)不影响:那是 T0 之后的事,与装好时编快照那一刻之后的改动一样。
+    ///
+    /// `.unavailable`:此刻答不了(目录读不了、路上的改动等不到确认、还有排着等模型的改动、三次都撞上改动),
+    /// 不导出 —— 与装好之前不导出一样,不把缺歌或前后不一的快照发出去。
+    private func portableSnapshotFromTheCatalog(byteLimit: Int) async -> PortableSnapshotExport {
+        let started = ContinuousClock.now
+        for attempt in 1...3 {
+            // 这期间模型装回来了:照装好时那样从内存导。
+            if isReady { return await portableSnapshotIncludingSongs(byteLimit: byteLimit) }
+            guard exportsWithoutTheSongModel, let lookup = lookupOutsideTheModel else { return .unavailable }
+            let writes = lookup.pendingWrites
+            if writes.pendingCount > 0 || !writes.answersLikeMemory {
+                guard await writes.waitUntilAcknowledged(through: writes.lastSequence, timeout: .seconds(5)) else {
+                    plog("☁️ whole-library export from the catalog unavailable: catalog writes not acknowledged within 5 s")
+                    return .unavailable
+                }
+                if isReady { return await portableSnapshotIncludingSongs(byteLimit: byteLimit) }
+            }
+            // T0:从这里到发出读事务之间不让出主线程,小状态、保留的行、目录版本是同一刻的。
+            guard exportsWithoutTheSongModel, writes.pendingCount == 0, writes.answersLikeMemory,
+                  let retained = retainedSongsForSnapshotOutsideTheModel(),
+                  let revisionAtStart = try? lookup.catalog.revision() else { return .unavailable }
+            let head = makeSnapshot(songs: [], separateSongStore: false)
+            // 目录里的行不该有本机移除的(移除时就从旧库删了);万一有,说明此刻目录与模型对不上,不导出。
+            let exclusions = deviceLocalExcludedSongIdentities
+            var prefixes: [String: String] = [:]
+            if !exclusions.isEmpty, let counts = try? lookup.catalog.songCountsBySource(.everything) {
+                for sourceID in counts.keys { prefixes[sourceID] = sourceIdentityResolver?(sourceID) }
+            }
+            let catalog = lookup.catalog
+            let isExcluded = Self.deviceExclusionCheck(exclusions: exclusions, prefixes: prefixes)
+            #if DEBUG
+            let pageHook = catalogExportPageDidEncodeForTesting
+            #else
+            let pageHook: (@Sendable (Int) -> Void)? = nil
+            #endif
+            let outcome = await Task.detached(priority: .userInitiated) {
+                Self.exportFromTheCatalog(
+                    head: head, catalog: catalog, retained: retained, byteLimit: byteLimit, isExcluded: isExcluded,
+                    pageHook: pageHook
+                )
+            }.value
+            guard let outcome else { return .unavailable }
+            guard outcome.revision == revisionAtStart else {
+                plog("☁️ whole-library export from the catalog started over: the catalog moved from revision "
+                     + "\(revisionAtStart) to \(outcome.revision) before it was read attempt=\(attempt)")
+                continue
+            }
+            let elapsed = Int((ContinuousClock.now - started) / .milliseconds(1))
+            let attempts = attempt > 1 ? " attempts=\(attempt)" : ""
+            switch outcome.export {
+            case .snapshot(let data):
+                plog("☁️ whole-library snapshot exported from the catalog bytes=\(data.count) revision=\(outcome.revision) ms=\(elapsed)\(attempts)")
+            case .tooLarge(let count):
+                plog("☁️ whole-library snapshot from the catalog too large songs=\(count) ms=\(elapsed)\(attempts)")
+            case .unavailable: break
+            }
+            return outcome.export
+        }
+        plog("☁️ whole-library export from the catalog unavailable: the catalog kept changing (3 attempts)")
+        return .unavailable
+    }
+
+    private enum CatalogExportError: Error { case rowsChanged, unexpectedHead, excludedRow }
+
+    private nonisolated static func deviceExclusionCheck(
+        exclusions: Set<String>, prefixes: [String: String]
+    ) -> (@Sendable (Song) -> Bool)? {
+        guard !exclusions.isEmpty else { return nil }
+        return { @Sendable song in
+            let verdict = LibrarySongAdmissionPolicy.verdict(
+                for: song, prefix: prefixes[song.sourceID], tombstones: [], deviceExclusions: exclusions
+            )
+            return verdict == .blockedByDeviceExclusion
+        }
+    }
+
+    /// 在目录的一个版本里编完(`readingOneVersion`),连同那个版本的修订号;读失败为 nil。
+    private nonisolated static func exportFromTheCatalog(
+        head: Snapshot, catalog: LibraryCatalog, retained: [Song], byteLimit: Int, isExcluded: (@Sendable (Song) -> Bool)?,
+        pageHook: (@Sendable (Int) -> Void)?
+    ) -> (export: PortableSnapshotExport, revision: Int64)? {
+        // 第 0 页:读事务开始之前(测试在这里插一笔先于读事务落进目录的写)。
+        pageHook?(0)
+        do {
+            let (export, revision) = try catalog.readingOneVersion { read in
+                try encodePortableSnapshotFromTheCatalog(
+                    head: head, read: read, retained: retained, byteLimit: byteLimit, isExcluded: isExcluded,
+                    pageHook: pageHook
+                )
+            }
+            return (export, revision)
+        } catch {
+            plog("☁️ export from the catalog failed: \(error)")
+            return nil
+        }
+    }
+
+    /// 同 `encodePortableSnapshot`(抽样估大小,再 `encodeSnapshotForDisk` 的「最后一个键接数组」),只是歌不在一个
+    /// 数组里:按目录(同一个版本)的行号列表一页一页取。抽样的下标与装好时相同(歌的总数相同、同一个步长)。
+    private nonisolated static func encodePortableSnapshotFromTheCatalog(
+        head: Snapshot,
+        read: LibraryCatalogVersionRead,
+        retained: [Song],
+        byteLimit: Int,
+        isExcluded: (@Sendable (Song) -> Bool)?,
+        pageHook: (@Sendable (Int) -> Void)?,
+        pageSize: Int = 1_000
+    ) throws -> PortableSnapshotExport {
+        let rowids = try read.rowids(.everything)
+        let count = rowids.count + retained.count
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        func rows(_ page: some Collection<Int32>) throws -> [Song] {
+            let fetched = try read.songs(rowids: page)
+            guard fetched.count == page.count else { throw CatalogExportError.rowsChanged }
+            if let isExcluded, fetched.contains(where: isExcluded) { throw CatalogExportError.excludedRow }
+            return fetched
+        }
+        if count > 0 {
+            let step = max(1, count / 512)
+            let sampled = Array(stride(from: 0, to: count, by: step))
+            let catalogPositions = sampled.filter { $0 < rowids.count }
+            let sampledRowids = catalogPositions.map { rowids[$0] }
+            let sampledSongs = try rows(sampledRowids)
+            var sampledRows: [Int32: Song] = [:]
+            for (rowid, song) in zip(sampledRowids, sampledSongs) { sampledRows[rowid] = song }
+            var sampledBytes = 0
+            for index in sampled {
+                let song = index < rowids.count ? sampledRows[rowids[index]] : retained[index - rowids.count]
+                guard let song else { throw CatalogExportError.rowsChanged }
+                sampledBytes += try encoder.encode(song).count + 1
+            }
+            let estimatedBytes = Double(sampledBytes) / Double(sampled.count) * Double(count)
+            if estimatedBytes > Double(byteLimit) * 1.1 { return .tooLarge(songCount: count) }
+        }
+        let emptyArrayObject = try encoder.encode(head)
+        let suffix = Data("\"songs\":[]}".utf8)
+        guard emptyArrayObject.count > suffix.count, emptyArrayObject.suffix(suffix.count).elementsEqual(suffix),
+              [UInt8(ascii: "{"), UInt8(ascii: ",")].contains(emptyArrayObject[emptyArrayObject.endIndex - suffix.count - 1])
+        else { throw CatalogExportError.unexpectedHead }
+        var output = Data(emptyArrayObject[..<(emptyArrayObject.endIndex - 2)])
+        var isFirst = true
+        func append(_ songs: [Song]) throws -> Bool {
+            guard !songs.isEmpty else { return true }
+            let batch = try encoder.encode(songs)
+            if !isFirst { output.append(UInt8(ascii: ",")) }
+            output.append(batch[(batch.startIndex + 1)..<(batch.endIndex - 1)])
+            isFirst = false
+            return output.count <= byteLimit
+        }
+        var start = 0
+        var page = 0
+        while start < rowids.count {
+            let end = min(start + pageSize, rowids.count)
+            guard try autoreleasepool(invoking: { try append(rows(rowids[start..<end])) }) else {
+                return .tooLarge(songCount: count)
+            }
+            page += 1
+            pageHook?(page)
+            start = end
+        }
+        var retainedStart = 0
+        while retainedStart < retained.count {
+            let end = min(retainedStart + pageSize, retained.count)
+            guard try append(Array(retained[retainedStart..<end])) else { return .tooLarge(songCount: count) }
+            retainedStart = end
+        }
+        output.append(contentsOf: Array("]}".utf8))
+        return output.count <= byteLimit ? .snapshot(output) : .tooLarge(songCount: count)
     }
 
     private var writesSongsIntoPortableSnapshot: Bool {

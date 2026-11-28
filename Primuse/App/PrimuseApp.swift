@@ -1266,11 +1266,12 @@ private final class LifecycleSnapshotUploadCoordinator {
         }
     }
 
-    /// 6c(15g-8 的过渡做法):歌曲模型不在内存里时不自动上传整座曲库 —— 导出要整份歌曲,而为它占用模型就是
-    /// 每小时在后台装一次整库。等模型为别的事装回来,下一次场景切换再传。不占用模型。
+    /// 自动上传整座曲库要不要做:模型装着,或者模型不在内存里但整库快照能从曲库目录一页一页导出
+    /// (`exportsWithoutTheSongModel`,与装着时导出的同一份字节)。两样都不行(目录也答不了)时跳过,
+    /// 下一次场景切换再看;从不为上传占用或装回模型。
     static func songModelAllowsAutomaticUpload(_ library: MusicLibrary) -> Bool {
-        guard library.isReady else {
-            plog("☁️ Automatic library upload skipped: the song model is not loaded")
+        guard library.isReady || library.exportsWithoutTheSongModel else {
+            plog("☁️ Automatic library upload skipped: the song model is not loaded and the catalog cannot export")
             return false
         }
         return true

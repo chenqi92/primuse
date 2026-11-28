@@ -123,22 +123,25 @@ extension LibraryCatalog {
     /// 行缓存用:调用方已经过了上限检查。
     func songsByRowid(_ rowids: [Int32]) throws -> [Int32: Song] {
         guard !rowids.isEmpty else { return [:] }
+        return try reader.read { db in try Self.songsByRowid(rowids, in: db) }
+    }
+
+    static func songsByRowid(_ rowids: [Int32], in db: Database) throws -> [Int32: Song] {
+        guard !rowids.isEmpty else { return [:] }
         var result: [Int32: Song] = [:]
         result.reserveCapacity(rowids.count)
-        try reader.read { db in
-            for chunk in Self.chunks(of: Array(Set(rowids))) {
-                let rows = try Row.fetchCursor(
-                    db,
-                    sql: """
-                        SELECT \(LibraryCatalogSongCodec.selectColumns) \(LibraryCatalogSongCodec.selectFrom)
-                        WHERE song.rowid IN (\(Self.placeholders(chunk.count)))
-                        """,
-                    arguments: StatementArguments(chunk.map(Int64.init))
-                )
-                while let row = try rows.next() {
-                    let rowid: Int64 = row[LibraryCatalogSongCodec.Column.rowid]
-                    result[try Self.rowid32(rowid)] = try LibraryCatalogSongCodec.decode(row)
-                }
+        for chunk in chunks(of: Array(Set(rowids))) {
+            let rows = try Row.fetchCursor(
+                db,
+                sql: """
+                    SELECT \(LibraryCatalogSongCodec.selectColumns) \(LibraryCatalogSongCodec.selectFrom)
+                    WHERE song.rowid IN (\(placeholders(chunk.count)))
+                    """,
+                arguments: StatementArguments(chunk.map(Int64.init))
+            )
+            while let row = try rows.next() {
+                let rowid: Int64 = row[LibraryCatalogSongCodec.Column.rowid]
+                result[try rowid32(rowid)] = try LibraryCatalogSongCodec.decode(row)
             }
         }
         return result
@@ -453,6 +456,19 @@ extension LibraryCatalog {
         }
     }
 
+    /// 整库导出这类长读:`body` 在一个读事务里做完,从头到尾看到的是目录的同一个版本 —— 其间别处提交的写
+    /// (扫描的一批、补读的歌词)看不见,不会前半旧、后半新。返回 `body` 的结果与这个版本的修订号。
+    /// `body` 拿到的读法只在这一次调用里用,不要留到外面。
+    public func readingOneVersion<T>(
+        _ body: (LibraryCatalogVersionRead) throws -> T
+    ) throws -> (value: T, revision: Int64) {
+        try reader.read { db in
+            // 先读一次修订号:读事务的快照在第一条查询时定下,之后各页都在它上面。
+            let revision = try Self.revision(in: db)
+            return (try body(LibraryCatalogVersionRead(db: db)), revision)
+        }
+    }
+
     /// 流式遍历一个范围的整首歌,按库内顺序,每批 `LibraryScale.importBatchSize` 首。
     public func forEachSong(
         _ scope: LibrarySongScope,
@@ -549,6 +565,35 @@ extension LibraryCatalog {
 
     static func chunks<T>(of values: [T], size: Int = 900) -> [ArraySlice<T>] {
         stride(from: 0, to: values.count, by: size).map { values[$0..<min($0 + size, values.count)] }
+    }
+}
+
+/// `LibraryCatalog.readingOneVersion` 交给调用方的读法:同一个读事务(目录的同一个版本)里列范围内的行号、
+/// 按行号取整首歌。只在那一次调用里有效。
+public struct LibraryCatalogVersionRead {
+    let db: Database
+
+    /// 范围内的行号,按库内顺序。
+    public func rowids(_ scope: LibrarySongScope) throws -> ContiguousArray<Int32> {
+        let (whereSQL, arguments) = try scope.whereClause(in: db)
+        var rowids = ContiguousArray<Int32>()
+        let cursor = try Int64.fetchCursor(
+            db, sql: "SELECT s.rowid FROM song s WHERE \(whereSQL) ORDER BY s.rowid", arguments: arguments
+        )
+        while let rowid = try cursor.next() { rowids.append(try LibraryCatalog.rowid32(rowid)) }
+        return rowids
+    }
+
+    /// 按行号批量取,保持输入顺序;这个版本里没有的行跳过。一次最多 `LibraryScale.maxMaterializedRows` 个。
+    public func songs(
+        rowids: some Collection<Int32>,
+        file: StaticString = #fileID,
+        line: UInt = #line
+    ) throws -> [Song] {
+        let admitted = LibraryScaleGuard.admitMaterialization(count: rowids.count, file: file, line: line)
+        let requested = Array(rowids.prefix(admitted))
+        let byRowid = try LibraryCatalog.songsByRowid(requested, in: db)
+        return requested.compactMap { byRowid[$0] }
     }
 }
 

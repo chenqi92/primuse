@@ -503,8 +503,8 @@ final class PeerScanSeedCoordinator {
         uploadTask = Task(priority: .utility) { [weak library] in
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
             guard let library else { return }
-            // 6c:歌曲模型不在内存里时不自动上传整座曲库(导出要整份歌曲),不为它占用模型;装回来之后再传。
-            guard library.isReady else {
+            // 歌曲模型不在内存里时整库快照从曲库目录导出,不为它占用模型;目录也导不了时才等装回来之后再传。
+            guard library.isReady || library.exportsWithoutTheSongModel else {
                 plog("☁️ Automatic library upload after reading progress skipped: the song model is not loaded")
                 return
             }

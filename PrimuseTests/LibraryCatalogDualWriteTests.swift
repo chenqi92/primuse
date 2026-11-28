@@ -866,6 +866,9 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
             let fallback = try bytes(storage, MusicLibrary.songFallbackFileName)
             let albumCount = library.albums.count
             XCTAssertGreaterThan(albumCount, 0)
+            guard case .snapshot(let loadedExport) = await library.portableSnapshotIncludingSongs(byteLimit: .max) else {
+                return XCTFail("loaded: the whole-library snapshot")
+            }
 
             library.dropSongModelForMeasurement(includingCollections: true)
             XCTAssertTrue(library.songs.isEmpty)
@@ -877,10 +880,12 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
             let object = try XCTUnwrap(JSONSerialization.jsonObject(with: loaded) as? [String: Any])
             XCTAssertEqual(object["separateSongStore"] as? Bool, true)
             XCTAssertEqual((object["songs"] as? [[String: Any]])?.compactMap { $0["id"] as? String }, [songs[8].id])
-            // 带歌的整库导出(iCloud、Apple TV)要模型:放掉时不导出,不会把空曲库发出去。
-            guard case .unavailable = await library.portableSnapshotIncludingSongs(byteLimit: .max) else {
-                return XCTFail("a library without its song model must not export a whole-library snapshot")
+            // 带歌的整库导出(iCloud、Apple TV)放掉时从曲库目录编:与装着时逐字节相同(停用的源、本机移除后保留的那行都在),
+            // 不是空曲库。
+            guard case .snapshot(let releasedExport) = await library.portableSnapshotIncludingSongs(byteLimit: .max) else {
+                return XCTFail("released: the whole-library snapshot exports from the catalog")
             }
+            XCTAssertEqual(releasedExport, loadedExport, "released: the same whole-library bytes as loaded")
             // 这次写的启动缓存不带专辑、艺人:从同一个目录再装一次,歌和专辑都齐。
             let reopened = MusicLibrary(
                 disabledSourceIDs: [Self.sourceB], storageDirectory: storage, artistNameConfiguration: .defaultValue,
@@ -5088,6 +5093,158 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         assertNoLoadAndNoArrayRead(neverLoaded, since: neverBefore, "the never-loaded launch following the catalog")
     }
 
+    // MARK: Whole-library export from the catalog
+
+    /// 解出来比:JSON 对象逐键相同;墓碑那一列本机存的是集合,编出来的先后跟着集合走,排一下再比。
+    private func exportContent(_ data: Data) throws -> NSDictionary {
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        if let tombstones = object["deletedSongIdentities"] as? [String] { object["deletedSongIdentities"] = tombstones.sorted() }
+        return object as NSDictionary
+    }
+
+    private func exportedData(_ export: MusicLibrary.PortableSnapshotExport, _ step: String) throws -> Data {
+        guard case .snapshot(let data) = export else {
+            XCTFail("\(step): not exported: \(export)")
+            throw CancellationError()
+        }
+        return data
+    }
+
+    private func exportSummary(_ export: MusicLibrary.PortableSnapshotExport) -> String {
+        switch export {
+        case .snapshot(let data): "snapshot \(data.count)"
+        case .tooLarge(let count): "tooLarge \(count)"
+        case .unavailable: "unavailable"
+        }
+    }
+
+    /// 整库快照(iCloud 整库上传、Apple TV / 局域网传输、给对端的种子都导这一份)在歌曲模型真放掉之后从曲库目录
+    /// 一页一页导出:与同一个库装着模型时导出的逐字节相同(歌、先后、每个字段、小状态,含本机移除后保留着的那几行);
+    /// 「太大」的判定也相同(先估就超的、编完才超的);不占用、不装、不读整库数组。有排着等模型的改动时不导出,装回
+    /// 做完之后导出的带着它、再放掉导出的与之相同。从没装过模型的启动导出的与照今天装法启动的那一次解出来相同
+    /// (墓碑那一列按集合比)。
+    func testTheWholeLibrarySnapshotExportsFromTheCatalogLikeTheLoadedLibrary() async throws {
+        let songs = Self.fixture(prefix: "exp")
+        let library = try makeLaunchedTwin("exp", songs: songs).library
+        let playlist = library.createPlaylist(name: "Kept", songIDs: [songs[0].id, songs[4].id])
+        library.setLiked(songID: songs[1].id, isLiked: true, propagatesServerMutation: false)
+        library.recordPlayback(of: songs[2].id)
+        _ = library.deleteSongs([songs[9]])
+        try library.removeSongsFromThisDevice([songs[6]])
+        await assertShadowMatches(library, "fixture")
+        let limit = 64 * 1024 * 1024
+        let loaded = try exportedData(await library.portableSnapshotIncludingSongs(byteLimit: limit), "loaded")
+        let loadedTight = exportSummary(await library.portableSnapshotIncludingSongs(byteLimit: loaded.count - 1))
+        let loadedHalf = exportSummary(await library.portableSnapshotIncludingSongs(byteLimit: loaded.count / 2))
+        XCTAssertTrue(loadedTight.hasPrefix("tooLarge"))
+        XCTAssertTrue(loadedHalf.hasPrefix("tooLarge"))
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(library)
+
+        XCTAssertTrue(library.exportsWithoutTheSongModel)
+        let released = try exportedData(await library.portableSnapshotIncludingSongs(byteLimit: limit), "released")
+        XCTAssertEqual(released, loaded, "released: the same bytes")
+        let releasedTight = exportSummary(await library.portableSnapshotIncludingSongs(byteLimit: loaded.count - 1))
+        let releasedHalf = exportSummary(await library.portableSnapshotIncludingSongs(byteLimit: loaded.count / 2))
+        XCTAssertEqual(releasedTight, loadedTight, "too large once encoded")
+        XCTAssertEqual(releasedHalf, loadedHalf, "too large by the estimate")
+        let content = try exportContent(released)
+        XCTAssertEqual((content["songs"] as? [Any])?.count, songs.count - 1, "the library's rows and the retained one")
+        XCTAssertEqual((content["playlistSongIDs"] as? [String: [String]])?[playlist.id], [songs[0].id, songs[4].id])
+        XCTAssertEqual(songModelHolds(of: library), [], "no hold")
+        assertNoLoadAndNoArrayRead(library, since: before, "exporting while released")
+
+        // 排着等模型的改动(放掉时恢复本机移除的歌:排队、要求装回)装着时已经在库里了:做完之前不导出(导出会缺它);
+        // 装回做完之后导出带着它,再放掉从目录导出的与之逐字节相同。
+        _ = try library.restoreSongsRemovedFromThisDevice([songs[6].id])
+        XCTAssertFalse(library.exportsWithoutTheSongModel, "a change waits for the model")
+        let whileQueued = exportSummary(await library.portableSnapshotIncludingSongs(byteLimit: limit))
+        XCTAssertEqual(whileQueued, "unavailable", "no export that misses the queued change")
+        try await waitUntilReady(library)
+        await assertShadowMatches(library, "after the queued restore")
+        let reloaded = try exportedData(await library.portableSnapshotIncludingSongs(byteLimit: limit), "loaded after the restore")
+        XCTAssertNotEqual(reloaded, loaded, "the restore is in the export")
+        _ = try await releaseForReal(library)
+        let releasedAgain = try exportedData(await library.portableSnapshotIncludingSongs(byteLimit: limit), "released again")
+        XCTAssertEqual(releasedAgain, reloaded, "released again: the same bytes")
+
+        let (_, storage) = try await launchFixture("exp-launch", songs: songs)
+        let neverLoaded = await launch(try copyOfDirectory(storage, "exp-never"), unloaded: true)
+        let launchedLoaded = await launch(try copyOfDirectory(storage, "exp-loaded"), unloaded: false)
+        try await waitUntilUsable(neverLoaded)
+        let neverBefore = neverLoaded.songModelResidencyStatistics
+        let fromLoadedLaunch = try exportedData(await launchedLoaded.portableSnapshotIncludingSongs(byteLimit: limit), "loaded launch")
+        let fromNeverLoaded = try exportedData(await neverLoaded.portableSnapshotIncludingSongs(byteLimit: limit), "never loaded")
+        XCTAssertEqual(try exportContent(fromNeverLoaded), try exportContent(fromLoadedLaunch), "never loaded: the same content")
+        assertNoLoadAndNoArrayRead(neverLoaded, since: neverBefore, "exporting in a launch that never loaded")
+    }
+
+    /// 整库快照从目录导出时曲库在变(删一首、补一句歌词、点一个喜欢):导出的是开始那一刻的样子,或者从头再导,
+    /// 从不前后混着。读事务开始之后才提交的改动看不见:只导一次,与改动之前导出的逐字节相同。读事务开始之前已经
+    /// 落进目录的改动(小状态是改动之前编的):这一次不要,从头再导,第二次带着改动,与装回模型之后导出的逐字节相同。
+    func testTheWholeLibraryExportFromTheCatalogIsOnePictureWhileTheLibraryChanges() async throws {
+        let songs = Self.fixture(prefix: "exc")
+        let library = try makeLaunchedTwin("exc", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        let released = try await releaseForReal(library)
+        let catalog = try XCTUnwrap(library.catalogHost?.mirror.readableCatalog)
+        let limit = 64 * 1024 * 1024
+        let before = try exportedData(await library.portableSnapshotIncludingSongs(byteLimit: limit), "before")
+        // 在导出的线程上调:到主线程做一笔改动,再等它落进目录。修订号换一个线程读(导出的线程可能正开着读事务)。
+        @Sendable func change(_ work: @escaping @MainActor @Sendable () -> Void) {
+            DispatchQueue.global().sync {
+                let start = (try? catalog.revision()) ?? 0
+                DispatchQueue.main.sync { MainActor.assumeIsolated { work() } }
+                let deadline = Date().addingTimeInterval(5)
+                while ((try? catalog.revision()) ?? 0) == start, Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+            }
+        }
+
+        // 1. 编完第一页时(读事务里)提交的改动:看不见。
+        let during = CatalogExportPages()
+        library.catalogExportPageDidEncodeForTesting = { page in
+            guard during.note(page) == 1, page == 1 else { return }
+            change {
+                _ = library.deleteSongs([songs[5]])
+                library.updateLyricsText([songs[3].id: "committed during the stream"])
+                library.setLiked(songID: songs[4].id, isLiked: true, propagatesServerMutation: false)
+            }
+        }
+        let duringExport = try exportedData(await library.portableSnapshotIncludingSongs(byteLimit: limit), "during the stream")
+        XCTAssertEqual(during.all, [0, 1], "one attempt")
+        XCTAssertEqual(duringExport, before, "the picture of the moment it started, nothing of what was committed meanwhile")
+        library.catalogExportPageDidEncodeForTesting = nil
+        let after = try exportedData(await library.portableSnapshotIncludingSongs(byteLimit: limit), "after")
+        let afterContent = try exportContent(after)
+        let afterSongs = (afterContent["songs"] as? [[String: Any]]) ?? []
+        XCTAssertFalse(afterSongs.contains { $0["id"] as? String == songs[5].id }, "the next export: the deleted song is gone")
+        XCTAssertEqual(afterSongs.first { $0["id"] as? String == songs[3].id }?["lyricsText"] as? String, "committed during the stream")
+
+        // 2. 读事务开始之前已经落进目录的改动:从头再导。
+        let restarted = CatalogExportPages()
+        library.catalogExportPageDidEncodeForTesting = { page in
+            guard restarted.note(page) == 1, page == 0 else { return }
+            change {
+                _ = library.deleteSongs([songs[6]])
+                library.updateLyricsText([songs[7].id: "committed before the read"])
+            }
+        }
+        let restartedExport = try exportedData(await library.portableSnapshotIncludingSongs(byteLimit: limit), "started over")
+        library.catalogExportPageDidEncodeForTesting = nil
+        XCTAssertEqual(restarted.all, [0, 1, 0, 1], "the first attempt is thrown away, the second one is kept")
+        let restartedSongs = ((try exportContent(restartedExport))["songs"] as? [[String: Any]]) ?? []
+        XCTAssertFalse(restartedSongs.contains { $0["id"] as? String == songs[6].id })
+        XCTAssertEqual(
+            restartedSongs.first { $0["id"] as? String == songs[7].id }?["lyricsText"] as? String, "committed before the read"
+        )
+        assertNoLoadAndNoArrayRead(library, since: released, "exporting while the library changes")
+        let hold = await library.holdSongModel(.userAction)
+        let loaded = try exportedData(await library.portableSnapshotIncludingSongs(byteLimit: limit), "loaded")
+        hold.end()
+        XCTAssertEqual(restartedExport, loaded, "the kept attempt is the picture after the change, as the loaded export")
+    }
+
     /// CK-a 第 2 项:模型不在内存里时补读不拿空的歌曲表去比剩余数(以前在这里读一次 `songs`、记一笔数组读;
     /// 拿空表算出的「0 条」会把队列当成做完),队列状态原样留着。
     func testBackfillDoesNotCountFromAnEmptyLibraryWhileTheModelIsReleased() async throws {
@@ -6321,5 +6478,25 @@ private final class RemovedSongIDsRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return recorded
+    }
+}
+
+/// 整库快照从目录导出时各页的回调(在导出的线程上调)。
+private final class CatalogExportPages: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pages: [Int] = []
+
+    /// 记下这一页,返回这个页号是第几次出现(从 1 起)。
+    func note(_ page: Int) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        pages.append(page)
+        return pages.filter { $0 == page }.count
+    }
+
+    var all: [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return pages
     }
 }

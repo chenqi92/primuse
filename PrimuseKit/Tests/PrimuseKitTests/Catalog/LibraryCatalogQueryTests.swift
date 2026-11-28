@@ -144,6 +144,36 @@ struct LibraryCatalogQueryTests {
         #expect(all == songs.map(\.id))
     }
 
+    @Test("Pages read in one version do not see a write committed while they are read")
+    func oneVersionRead() throws {
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        let songs = (1...6).map { Self.song("v\($0)", source: "A", path: "Music/\($0).flac", title: "Old \($0)") }
+        try catalog.apply(upserts: songs)
+        let before = try catalog.rowList(.everything).revision
+        let (titles, revision) = try catalog.readingOneVersion { read -> [String] in
+            let rowids = try read.rowids(.everything)
+            var titles = try read.songs(rowids: rowids.prefix(3)).map(\.title)
+            // 读到一半,另一个线程提交一批改动(改一行的标题、加一行),等它提交完再读后半。
+            let committed = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                try? catalog.apply(upserts: [
+                    Self.song("v5", source: "A", path: "Music/5.flac", title: "New 5"),
+                    Self.song("v7", source: "A", path: "Music/7.flac", title: "New 7"),
+                ])
+                committed.signal()
+            }
+            committed.wait()
+            titles += try read.songs(rowids: rowids.dropFirst(3)).map(\.title)
+            #expect(try read.rowids(.everything).count == 6, "the row added meanwhile is not in this version")
+            return titles
+        }
+        #expect(titles == songs.map(\.title), "the second half is the same version as the first")
+        #expect(revision == before)
+        #expect(try catalog.songs(ids: ["v5"]).first?.title == "New 5")
+        #expect(try catalog.rowList(.everything).revision > before)
+    }
+
     @Test("Prefix upper bounds cover exactly the strings that start with the prefix")
     func prefixBounds() {
         #expect(LibraryCatalogPath.upperBound(forPrefix: "a/b/") == "a/b0")

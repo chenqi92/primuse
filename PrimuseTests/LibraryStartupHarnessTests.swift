@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import PrimuseKit
 import XCTest
@@ -678,6 +679,72 @@ final class LibraryStartupHarnessTests: XCTestCase {
 
     private static func megabytes(_ bytes: UInt64) -> Double { Double(bytes) / 1_048_576 }
 
+    private final class PeakSampler: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: UInt64
+        init(_ value: UInt64) { self.value = value }
+        func note(_ bytes: UInt64) { lock.withLock { value = max(value, bytes) } }
+        var peak: UInt64 { lock.withLock { value } }
+    }
+
+    private struct ExportMeasurement {
+        let summary: String
+        /// 导出的字节逐字节比用的指纹(整份留着会把下一次量的「之前」抬高)。
+        let content: Data?
+        let bytes: Int
+        let ms: Double
+        let before: UInt64
+        let peak: UInt64
+        /// 峰值减去之前、再减去导出的那份字节本身:编的过程另外占了多少。
+        var workingMB: Double { max(0, (Double(peak) - Double(before) - Double(bytes)) / 1_048_576) }
+    }
+
+    /// 整库快照导出一次(64 MiB 是 iCloud / Apple TV 传输的上限;放大上限时整库都编出来),主线程外每 5 ms 量一次
+    /// phys_footprint 记峰值。
+    private static func exportWithPeak(_ library: MusicLibrary, byteLimit: Int) async -> ExportMeasurement {
+        let before = residentFootprint().current
+        let sampler = PeakSampler(before)
+        let sampling = Task.detached(priority: .high) {
+            while !Task.isCancelled {
+                sampler.note(MusicLibrary.residencyFootprintBytes() ?? 0)
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
+        let started = ContinuousClock.now
+        let export = await library.portableSnapshotIncludingSongs(byteLimit: byteLimit)
+        let ms = Double((ContinuousClock.now - started) / .microseconds(1)) / 1_000
+        sampling.cancel()
+        sampler.note(residentFootprint().current)
+        switch export {
+        case .snapshot(let data):
+            return ExportMeasurement(
+                summary: "snapshot \(data.count)", content: contentFingerprint(data), bytes: data.count, ms: ms,
+                before: before, peak: sampler.peak
+            )
+        case .tooLarge(let count):
+            return ExportMeasurement(summary: "tooLarge \(count)", content: nil, bytes: 0, ms: ms, before: before, peak: sampler.peak)
+        case .unavailable:
+            return ExportMeasurement(summary: "unavailable", content: nil, bytes: 0, ms: ms, before: before, peak: sampler.peak)
+        }
+    }
+
+    /// 长度加 SHA-256:用来比两次导出是否逐字节相同。
+    private static func contentFingerprint(_ data: Data) -> Data {
+        var fingerprint = withUnsafeBytes(of: UInt64(data.count).littleEndian) { Data($0) }
+        fingerprint.append(contentsOf: SHA256.hash(data: data))
+        return fingerprint
+    }
+
+    private static func exportLine(_ title: String, loaded: ExportMeasurement, released: ExportMeasurement) -> String {
+        String(
+            format: "📏 export (%@) loaded: %@ ms=%.0f before=%.1fMB peak=%.1fMB working=%.1fMB | released: %@ ms=%.0f "
+                + "before=%.1fMB peak=%.1fMB working=%.1fMB | sameBytes=%@",
+            title, loaded.summary, loaded.ms, megabytes(loaded.before), megabytes(loaded.peak), loaded.workingMB,
+            released.summary, released.ms, megabytes(released.before), megabytes(released.peak), released.workingMB,
+            released.content == loaded.content ? "yes" : "no"
+        )
+    }
+
     func testBuildScaleFixture() async throws {
         guard let directory = Self.scaleDirectory,
               let raw = ProcessInfo.processInfo.environment["PRIMUSE_SCALE_SONGS"],
@@ -1116,6 +1183,14 @@ final class LibraryStartupHarnessTests: XCTestCase {
         _ = PlaylistEntryMatcher(songs: library.visibleSongs, keyCache: library.playlistEntryMatchKeyCache)
         let keyCacheLoaded = library.playlistEntryMatchKeyCache.count
         let loaded = try await settle()
+        // 整库快照导出:装着模型时导一次,放掉之后从目录再导一次,比字节、耗时与导出期间的峰值。64 MiB 是传输的上限
+        // (大曲库先估就超,只走抽样);再放大上限各导一次,整库真编出来。
+        let transferLimit = 64 * 1024 * 1024
+        let wholeLimit = 2 * 1024 * 1024 * 1024
+        let loadedExport = await Self.exportWithPeak(library, byteLimit: transferLimit)
+        _ = try await settle()
+        let loadedWholeExport = await Self.exportWithPeak(library, byteLimit: wholeLimit)
+        _ = try await settle()
         library.applySongModelResidencySettings(.init(isEnabled: true, foregroundHold: false, playbackBlocksRelease: true))
 
         // 启动后排的影子校验(开发构建里 10 万首以内是深的那种,拿着整份数组)做完之前放不掉:等它。
@@ -1137,6 +1212,15 @@ final class LibraryStartupHarnessTests: XCTestCase {
         host.reader.rowCache.removeAll()
         let catalogReleased = try await settle()
         XCTAssertEqual(library.storedSong(id: samples[0].id)?.id, samples[0].id, "by-id reads answer from the catalog")
+        let releasedExport = await Self.exportWithPeak(library, byteLimit: transferLimit)
+        _ = try await settle()
+        let releasedWholeExport = await Self.exportWithPeak(library, byteLimit: wholeLimit)
+        XCTAssertEqual(releasedExport.summary, loadedExport.summary, "the same export outcome")
+        XCTAssertEqual(releasedExport.content, loadedExport.content, "the same bytes")
+        XCTAssertEqual(releasedWholeExport.summary, loadedWholeExport.summary, "the same whole export outcome")
+        XCTAssertEqual(releasedWholeExport.content, loadedWholeExport.content, "the same whole bytes")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, 0, "no load for the export")
+        _ = try await settle()
 
         started = ContinuousClock.now
         let hold = await library.holdSongModel(.legacyPage)
@@ -1240,6 +1324,8 @@ final class LibraryStartupHarnessTests: XCTestCase {
             titleCandidates, plainDelete / 1_000, plainQueued, referencedDelete / 1_000, referencedQueued,
             loadAfterDelete ? "yes" : "no"
         ))
+        Self.report(Self.exportLine("64 MiB transfer limit", loaded: loadedExport, released: releasedExport))
+        Self.report(Self.exportLine("2 GiB limit, whole library encoded", loaded: loadedWholeExport, released: releasedWholeExport))
         Self.report(String(
             format: "📏 CK-b identity candidates while released (%d members): exact ids prepare=%.1fms ready=%.1fms (%@) | "
                 + "by title prepare=%.1fms ready=%.1fms rows=%d (%@)",
