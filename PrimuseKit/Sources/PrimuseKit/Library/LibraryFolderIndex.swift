@@ -1066,6 +1066,43 @@ public final class LibraryFolderIndex: Sendable {
     /// 目录版找封面时每次从目录换多少个 id。
     static let catalogLookupChunk = 64
 
+    /// 同 `firstSongIDs(in:limit:where:)` 的先后,条件是「曲库目录里这首有封面」(同内存里的 `coverArtFileName != nil`),
+    /// 一段一条查询(`LibraryCatalog.coverSongIDs`):目录版分区按行号,内存版分区(Apple Music 虚拟集合)按 id。
+    /// 段从 32 首起每次翻倍、至多 1,024 首:封面多的文件夹一条查询就挑满,一张封面都没有的大文件夹也只按段走完,
+    /// 不逐首查。歌曲模型不在内存里时文件夹卡片挑封面用;目录读失败时抛出(调用方当答不了,不当没有封面)。
+    public func firstSongIDsWithCover(
+        in id: LibraryFolderNodeID,
+        limit: Int,
+        catalog: LibraryCatalog,
+        isCancelled: () -> Bool = { false }
+    ) throws -> [String] {
+        guard limit > 0, let partition = partitions[id.sourceID], partition.nodes[id] != nil else { return [] }
+        var result: [String] = []
+        var chunk = 32
+        // 一个节点的直接歌曲按段问;挑满或被取消时为真。
+        func scan<Values: RandomAccessCollection>(
+            _ values: Values, _ covered: (Values.SubSequence) throws -> [String]
+        ) throws -> Bool where Values.Index == Int {
+            var start = values.startIndex
+            while start < values.endIndex {
+                if isCancelled() { return true }
+                let end = min(start + chunk, values.endIndex)
+                result.append(contentsOf: try covered(values[start..<end]).prefix(limit - result.count))
+                if result.count == limit { return true }
+                start = end
+                chunk = min(chunk * 2, 1_024)
+            }
+            return false
+        }
+        for nodeID in partition.subtree(of: id) {
+            let done = try partition.catalogMembers.map { members in
+                try scan(members.direct[nodeID] ?? []) { try members.catalog.coverSongIDs(rowids: $0) }
+            } ?? scan(partition.directSongIDs[nodeID] ?? []) { try catalog.coverSongIDs(ids: $0) }
+            if done { return result }
+        }
+        return result
+    }
+
     /// Applies the active flat-list sort to one lazily requested folder scope.
     /// This is intended for play queues and folder actions, not row rendering.
     public func orderedSongIDs(
@@ -2493,44 +2530,6 @@ enum LibraryFolderCatalogLog {
 
     static func failure(_ operation: String, _ error: any Error) {
         logger.error("📁 folder catalog \(operation, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-    }
-}
-
-/// 文件夹页「重新扫描此文件夹」把节点交还给扫描服务的方式：挑文件夹里的一首歌当锚点，
-/// 再数出从这首歌所在的文件夹往上几层是这个节点。扫描服务按这两个数在自己的索引里
-/// 找到连接器认的原始目录（见 `SourceSyncSubtreePolicy`），不必反解归一化路径。
-public struct LibraryFolderRescanAnchor: Hashable, Sendable {
-    public let songID: String
-    public let levelsAbove: Int
-
-    public init(songID: String, levelsAbove: Int) {
-        self.songID = songID
-        self.levelsAbove = levelsAbove
-    }
-
-    /// 只有真实目录（扫描根和它下面的文件夹）有锚点；虚拟分组、「未分类」都没有。
-    public static func make(
-        for nodeID: LibraryFolderNodeID,
-        in index: LibraryFolderIndex
-    ) -> LibraryFolderRescanAnchor? {
-        guard nodeID.kind == .folder || nodeID.kind == .scanRoot,
-              index.node(withID: nodeID) != nil else { return nil }
-        if let direct = index.directSongIDs(in: nodeID).first {
-            return LibraryFolderRescanAnchor(songID: direct, levelsAbove: 0)
-        }
-        for songID in index.songIDs(in: nodeID, scope: .descendants).prefix(8) {
-            guard var current = index.nodeID(containingSongID: songID) else { continue }
-            var levels = 0
-            while current != nodeID, levels < 256,
-                  let parent = index.node(withID: current)?.parentID {
-                current = parent
-                levels += 1
-            }
-            if current == nodeID {
-                return LibraryFolderRescanAnchor(songID: songID, levelsAbove: levels)
-            }
-        }
-        return nil
     }
 }
 

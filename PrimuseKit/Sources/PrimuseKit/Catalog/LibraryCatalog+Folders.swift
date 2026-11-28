@@ -128,6 +128,54 @@ extension LibraryCatalog {
         return ordered.compactMap { byRowid[$0] }
     }
 
+    /// 这些行里有封面的歌的 id,保持输入顺序;已删掉的行不在结果里。「有封面」同内存里的 `coverArtFileName != nil`:
+    /// 原值含 NUL 时列里存的是替换过的串(原值另记在 `extra`),列照样不是 NULL,所以只看列,不解 `extra`。
+    /// 文件夹卡片在歌曲模型不在内存里时挑封面用(`LibraryFolderIndex.firstSongIDsWithCover`),调用方按段传。
+    func coverSongIDs(rowids: some Collection<Int32>) throws -> [String] {
+        guard !rowids.isEmpty else { return [] }
+        let ordered = Array(rowids)
+        var byRowid: [Int32: String] = [:]
+        try reader.read { db in
+            for chunk in Self.chunks(of: ordered) {
+                let rows = try Row.fetchCursor(
+                    db,
+                    sql: """
+                        SELECT rowid, id FROM song
+                        WHERE rowid IN (\(Self.placeholders(chunk.count))) AND coverArtFileName IS NOT NULL
+                        """,
+                    arguments: StatementArguments(chunk.map(Int64.init))
+                )
+                while let row = try rows.next() {
+                    byRowid[try Self.rowid32(row[0])] = row[1]
+                }
+            }
+        }
+        return ordered.compactMap { byRowid[$0] }
+    }
+
+    /// 同上,按 id(文件夹索引里内存版的分区:Apple Music 虚拟集合的歌)。保持输入顺序,不在目录里的跳过。
+    func coverSongIDs(ids: some Collection<String>) throws -> [String] {
+        guard !ids.isEmpty else { return [] }
+        let ordered = Array(ids)
+        var covered = Set<String>()
+        try reader.read { db in
+            for chunk in Self.chunks(of: Array(Set(ordered))) {
+                let rows = try Row.fetchCursor(
+                    db,
+                    sql: """
+                        SELECT id FROM song
+                        WHERE id IN (\(Self.placeholders(chunk.count))) AND coverArtFileName IS NOT NULL
+                        """,
+                    arguments: StatementArguments(chunk)
+                )
+                while let row = try rows.next() {
+                    covered.insert(row[0])
+                }
+            }
+        }
+        return ordered.filter(covered.contains)
+    }
+
     /// id → (行号, 源 id, 内容类别);不在目录里的 id 不在结果里。结果与输入同阶。
     func folderLookups(ids: some Collection<String>) throws -> [String: LibraryCatalogFolderLookup] {
         guard !ids.isEmpty else { return [:] }

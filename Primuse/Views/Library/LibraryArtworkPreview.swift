@@ -113,11 +113,13 @@ extension LibraryArtworkPreviewBuilder {
     /// 资料库入口的封面预览,歌曲模型不在内存里时从曲库目录挑(Q2,6c 单元 4 U3b)。与 `LibraryView.refreshArtworkPreviews`
     /// 里按内存数组挑的那一份同一套挑法、同一份输入,同一个种子挑出同一份:
     /// - 第一趟按库内顺序走可见的歌:挑三首,记下有封面线索的歌所在的专辑、艺人,以及歌单里有线索的成员;
-    /// - 专辑、艺人(全部艺术家)按目录的可见列表取 id(与头像路径),挑三个;
+    /// - 专辑、艺人按目录的可见列表取 id(与头像路径),挑三个;`albumArtists` 时艺人是「专辑艺术家」列表(U4b 的
+    ///   `albumArtistBrowse`,6c 单元 4 U3c,同内存里的 `browsableArtists(.albumArtists)`;只当过专辑艺人的没有头像路径,同内存);
     /// - 第二趟只看备用封面要的那几张专辑、那几个艺人(收藏货架上的与挑中的),各挑三首。
     /// 挑中的歌、专辑、艺人最后按 id / 键物化。歌单、电台是小状态,照内存那一份挑。
     static func catalogSelection(
         catalog: LibraryCatalog,
+        albumArtists: Bool = false,
         randomSeed: String, revision: String, userRevision: String,
         playlists: [Playlist], playlistMemberIDs: [String: [String]], radioStations: [RadioStation],
         albumOverrideIDs: Set<String>, artistOverrideIDs: Set<String>, playlistOverrideIDs: Set<String>,
@@ -161,10 +163,19 @@ extension LibraryArtworkPreviewBuilder {
         }
         var artists = LibraryArtworkPreviewAccumulator<Int32>(randomSeed: "\(randomSeed)#artists")
         var artistIDByKey: [Int32: String] = [:]
-        let artistKeys = Array(try catalog.artistKeys(visibleOnly: true).keys)
+        // 专辑艺术家列表里曲目艺人的键大于 0(艺人表),只当过专辑艺人的是 -(序号 + 1)(列表里整项留着)。
+        let browse = albumArtists ? try catalog.albumArtistBrowse() : nil
+        let artistKeys = try browse.map { Array($0.keys) } ?? Array(catalog.artistKeys(visibleOnly: true).keys)
         for start in stride(from: 0, to: artistKeys.count, by: LibraryScale.maxMaterializedRows) {
             let chunk = artistKeys[start..<min(artistKeys.count, start + LibraryScale.maxMaterializedRows)]
-            for artist in try catalog.artistIDsAndThumbnails(keys: chunk) {
+            var rows = try catalog.artistIDsAndThumbnails(keys: chunk.filter { $0 > 0 })
+            if let browse {
+                rows += chunk.filter { $0 < 0 && browse.albumOnly.indices.contains(Int(-$0) - 1) }.map { key -> (key: Int32, id: String, thumbnailPath: String?) in
+                    let artist = browse.albumOnly[Int(-key) - 1]
+                    return (key: key, id: artist.id, thumbnailPath: artist.thumbnailPath)
+                }
+            }
+            for artist in rows {
                 let hasHint = artistOverrideIDs.contains(artist.id)
                     || hasReference(artist.thumbnailPath)
                     || artistIDsWithSongArtworkHint.contains(artist.id)
@@ -214,7 +225,10 @@ extension LibraryArtworkPreviewBuilder {
             userRevision: userRevision,
             songs: songs.items.compactMap { songsByID[$0] },
             albums: try catalog.albums(keys: albums.items, visibleCounts: true),
-            artists: try catalog.artists(keys: artists.items, visibleCounts: true),
+            artists: try browse.map { browse in
+                let byKey = try catalog.albumArtists(keys: artists.items, in: browse)
+                return artists.items.compactMap { byKey[$0] }
+            } ?? catalog.artists(keys: artists.items, visibleCounts: true),
             playlists: selectedPlaylists,
             radioStations: selectedRadioStations,
             albumFallbackSongs: albumGroups.mapValues { $0.items.compactMap { songsByID[$0] } },

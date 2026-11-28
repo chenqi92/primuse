@@ -2000,7 +2000,7 @@ struct HomeView: View {
                 onPlaylistRevisionChange: refreshHomeSnapshotForPlaylistChange,
                 onScanningChange: updateLibraryScanning
             )
-            if library.isReady, showsMusicHomeSnapshot, !playerCoversContent,
+            if library.isReady || library.readableCatalogReader != nil, showsMusicHomeSnapshot, !playerCoversContent,
                showFolders || showListeningRanking {
                 HomeDiscoveryObserver(model: model.discovery)
             }

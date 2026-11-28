@@ -94,7 +94,7 @@ Primuse/Views/Library/AlbumDetailView.swift	1763
 Primuse/Views/Library/AlbumGridView.swift	1164
 Primuse/Views/Library/ArtistDetailView.swift	1383
 Primuse/Views/Library/LibraryInsightCard.swift	1054
-Primuse/Views/Library/LibraryView.swift	2495
+Primuse/Views/Library/LibraryView.swift	2489
 Primuse/Views/Library/LyricsEditorView.swift	3952
 Primuse/Views/Library/LyricsSourcesView.swift	1070
 Primuse/Views/Library/PlaylistDetailView.swift	3374
@@ -163,7 +163,7 @@ PrimuseKit/Sources/PrimuseKit/Interface/HomeSectionLayout.swift	1004
 PrimuseKit/Sources/PrimuseKit/Interface/Immersive/ImmersiveKineticDirectionPolicy.swift	1082
 PrimuseKit/Sources/PrimuseKit/Interface/Immersive/ImmersiveTheaterConductor.swift	1080
 PrimuseKit/Sources/PrimuseKit/Interface/Immersive/ImmersiveTheaterPerformer.swift	1004
-PrimuseKit/Sources/PrimuseKit/Library/LibraryFolderIndex.swift	2660
+PrimuseKit/Sources/PrimuseKit/Library/LibraryFolderIndex.swift	2659
 PrimuseKit/Sources/PrimuseKit/Library/SongListSnapshot.swift	1285
 PrimuseKit/Sources/PrimuseKit/Listening/HomeListeningRanking.swift	1171
 PrimuseKit/Sources/PrimuseKit/Listening/ListeningIntent.swift	1129

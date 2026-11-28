@@ -767,8 +767,8 @@ struct LibraryView: View {
     @State private var startupCoverSongs: [String: Song] = [:]
     /// 歌曲模型不在内存里时 MV、有声书、环境音入口上的头三首(从曲库目录读,见 `LibraryHubReleased`)。
     @State private var releasedTileSongs: [LibrarySection: [Song]] = [:]
-    /// 模型在内存里时最后一次算好的收藏货架(放掉之后照它摆,见 `shelfPins`)。
-    @State private var lastHubPins: [LibraryPinReference]?
+    /// 最后一次答出的收藏区显示顺序(模型在内存里现算,不在时从曲库目录对;此刻答不了时照它摆,见 `shownPins`)。
+    @State private var lastVisiblePins: [LibraryPinReference]?
     @AppStorage(LibraryHubStartupPreview.storageKey) private var hubPreviewData: Data?
 
     private var hubScope: LibraryHubStartupPreview.Scope {
@@ -796,7 +796,9 @@ struct LibraryView: View {
         case .songs: return counts.music
         case .albums: return counts.albums
         case .artists:
-            return ArtistBrowseMode.resolved(artistBrowseModeRaw) == .allArtists ? counts.artists : nil
+            // 「专辑艺术家」按 U4b 的目录列表数(U3c);只看完整专辑的那一种要发行类别,目录还没有,答不了。
+            if ArtistBrowseMode.resolved(artistBrowseModeRaw) == .allArtists { return counts.artists }
+            return hidesSingleOnlyAlbumArtists ? nil : AlbumArtistCatalogCount.current(in: library)
         case .genres: return counts.genres
         case .playlists: return regularPlaylists.count + library.smartPlaylists.count
         case .ambient: return counts.ambient
@@ -823,11 +825,13 @@ struct LibraryView: View {
     private var visibleSongCount: Int { catalogHubCounts?.visibleSongs ?? songs.count }
     private var musicSongCount: Int { catalogHubCounts?.music ?? library.musicSongs.count }
     private var albumCount: Int { catalogHubCounts?.albums ?? albums.count }
-    /// 目录只有「全部艺术家」的个数;「专辑艺术家」列法照旧数内存模型。
+    /// 目录只有「全部艺术家」的个数;「专辑艺术家」列法模型在内存里时照旧数内存模型,不在时从目录数(还没数出来当 0:
+    /// 专辑艺人都来自可见专辑,专辑数不为 0 时「有没有内容」在它之前就答了)。
     private var artistCount: Int {
         if ArtistBrowseMode.resolved(artistBrowseModeRaw) == .allArtists, let counts = catalogHubCounts {
             return counts.artists
         }
+        if !library.isReady { return releasedCount(.artists) ?? 0 }
         return artists.count
     }
     private var genreCount: Int { catalogHubCounts?.genres ?? genres.count }
@@ -840,30 +844,33 @@ struct LibraryView: View {
             || !library.smartPlaylists.isEmpty
             || !radioStationsStore.stations.isEmpty
     }
-    /// 收藏区的显示顺序（见 `FavoriteCollectionStore`），已经去掉对不上的。
-    private var visiblePins: [LibraryPinReference] {
+    /// 收藏区的显示顺序（见 `FavoriteCollectionStore`），已经去掉对不上的。模型不在内存里时从曲库目录对(U3c,
+    /// `LibraryHubPins`),有一项此刻答不了时为 nil。
+    private var visiblePins: [LibraryPinReference]? {
         _ = quickAccessRawValue
         _ = folderPinsRawValue
-        return FavoriteCollectionStore.shared.references(library: library).filter(pinExists)
+        return LibraryHubPins.visible(library: library, playlists: regularPlaylists, folderIndex: favoriteFolderModel.index)
+    }
+    /// 收藏区此刻按哪一份摆:答得出就用此刻的(模型在内存里现算,不在时从曲库目录对,U3c),答不了时用最后一次答出的。
+    private var shownPins: [LibraryPinReference]? {
+        visiblePins ?? lastVisiblePins
     }
     /// 资料库首页的收藏货架只摆前面这些，其余在「查看全部」里。
-    /// 收藏货架上摆的那几个:模型在内存里时现算;放掉之后用最后一次算好的(6c U3b:收藏的成员要整库的专辑、艺人)。
     private var shelfPins: [LibraryPinReference] {
-        library.isReady ? hubPins : (lastHubPins ?? [])
+        Array((shownPins ?? []).prefix(usesMinimalSectionControls ? 12 : 20))
     }
-    /// 放掉之后货架还要整库(书的收藏、目录读不了时目录的收藏、一次都没算过时):入口占用模型直到它回来(目录索引按目录建,U6b)。
+    /// 放掉之后曲库目录读不了而货架还要整库(书的收藏、没有目录索引时目录的收藏、一次都没答出过时):入口占用模型直到它回来。
     private var shelfNeedsTheSongModel: Bool {
-        guard !library.isReady, visibleLibrarySections.contains(.favorites) else { return false }
-        guard let pins = lastHubPins else { return true }
-        return pins.contains { $0.kind == .book || ($0.kind == .folder && favoriteFolderModel.index == nil && library.readableCatalogReader == nil) }
+        guard !library.isReady, visibleLibrarySections.contains(.favorites), library.readableCatalogReader == nil else { return false }
+        guard let pins = lastVisiblePins else { return true }
+        return pins.contains { $0.kind == .book || ($0.kind == .folder && favoriteFolderModel.index == nil) }
     }
-    /// 「专辑艺术家」列法的人数与头像要 U4b 的目录查询;那之前放掉时入口占用模型。
+    /// 「专辑艺术家」列法放掉之后按 U4b 的目录列表数人、挑头像(U3c);只看完整专辑的那一种要发行类别,目录还没有,
+    /// 目录读不了时也一样:入口占用模型。
     private var artistTileNeedsTheSongModel: Bool {
         !library.isReady && visibleLibrarySections.contains(.artists)
             && ArtistBrowseMode.resolved(artistBrowseModeRaw) != .allArtists
-    }
-    private var hubPins: [LibraryPinReference] {
-        Array(visiblePins.prefix(usesMinimalSectionControls ? 12 : 20))
+            && (hidesSingleOnlyAlbumArtists || library.readableCatalogReader == nil)
     }
     private var hasFolderFavorites: Bool {
         !FavoriteCollectionStore.collectedFolderIDs(in: folderPinsRawValue).isEmpty
@@ -883,7 +890,7 @@ struct LibraryView: View {
         // 「有声内容」只在真的有的时候出现: 绝大多数曲库一本有声书也没有,
         // 给它们摆一个永远空着的入口是噪音。
         .filter { $0 != .spokenWord || LibraryStartupNavigationHint.showsSpokenWord(
-            isReady: library.isReady, hasSpokenWord: library.hasSpokenWordContent,
+            isReady: hubIsLive, hasSpokenWord: library.hasSpokenWordContent,
             enabledSourceIDs: Set(startupSourcesStore.sources.filter(\.isEnabled).map(\.id))
         ) }
         // 「环境音」同样只在真有环境音时出现。
@@ -943,7 +950,7 @@ struct LibraryView: View {
                 sectionDestination(section)
             }
             .navigationDestination(for: Album.self) { album in
-                readyContent {
+                readyContent(readiness: LibraryStackDetail.album.readiness) {
                     AlbumDetailView(album: album)
                         .mediaZoomDestination(.album, id: album.id)
                 }
@@ -952,7 +959,7 @@ struct LibraryView: View {
                 }
             }
             .navigationDestination(for: Artist.self) { artist in
-                readyContent {
+                readyContent(readiness: LibraryStackDetail.artist.readiness) {
                     ArtistDetailView(artist: artist)
                         .mediaZoomDestination(.artist, id: artist.id)
                 }
@@ -961,7 +968,7 @@ struct LibraryView: View {
                 }
             }
             .navigationDestination(for: Playlist.self) { playlist in
-                readyContent {
+                readyContent(readiness: LibraryStackDetail.playlist.readiness) {
                     PlaylistDetailView(playlist: playlist)
                         .mediaZoomDestination(.playlist, id: playlist.id)
                 }
@@ -1039,10 +1046,11 @@ struct LibraryView: View {
     @ViewBuilder
     private func readyContent<Content: View>(
         section: LibrarySection? = nil,
+        readiness: LibraryPageReadiness? = nil,
         @ViewBuilder _ content: @escaping () -> Content
     ) -> some View {
         #if os(iOS)
-        LibraryReadyContent(startupSection: section, content: content)
+        LibraryReadyContent(startupSection: section, readiness: readiness, content: content)
         #else
         content()
         #endif
@@ -1271,11 +1279,11 @@ struct LibraryView: View {
         }
         .pmExtendsUnderVerticalBar()
         .songModelPage(needsArrays: shelfNeedsTheSongModel || artistTileNeedsTheSongModel)
-        .onChange(of: library.isReady ? hubPins.map(\.id) : nil, initial: true) { _, ids in
-            if ids != nil { lastHubPins = hubPins }
+        .onChange(of: visiblePins?.map(\.id), initial: true) { _, ids in
+            if ids != nil { lastVisiblePins = visiblePins }
         }
         .background {
-            if library.isReady && hasFolderFavorites {
+            if (library.isReady || library.readableCatalogReader != nil) && hasFolderFavorites {
                 HomeDiscoveryObserver(model: favoriteFolderModel)
             }
         }
@@ -1313,7 +1321,7 @@ struct LibraryView: View {
     private var quickAccessSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("library_quick_access") {
-                if !visiblePins.isEmpty {
+                if !(shownPins ?? []).isEmpty {
                     NavigationLink(value: LibrarySection.favorites) {
                         HStack(spacing: 5) {
                             Text("see_all")
@@ -1438,7 +1446,7 @@ struct LibraryView: View {
 
         for section in visibleLibrarySections {
             if section == .favorites {
-                guard library.isReady || (hubIsLive && lastHubPins != nil) else { continue }
+                guard library.isReady || hubIsLive, shownPins != nil else { continue }
                 flushPending()
                 runs.append(LibraryBrowseRun(
                     id: "quickAccess",
@@ -1524,7 +1532,7 @@ struct LibraryView: View {
     private var addQuickAccessLabel: some View {
         quickAccessLabel(
             title: String(localized: "library_add_quick_access"),
-            subtitle: String(format: String(localized: "favorites_count_format"), visiblePins.count)
+            subtitle: String(format: String(localized: "favorites_count_format"), (shownPins ?? []).count)
         ) { size in
             ZStack {
                 RoundedRectangle(cornerRadius: quickAccessCoverStyle == .circle ? size / 2 : 16, style: .continuous)
@@ -2099,9 +2107,10 @@ struct LibraryView: View {
 
     @MainActor
     private func refreshArtworkPreviews(for revision: String) async {
-        // 6c U3b: 模型放掉了时从曲库目录挑(全部艺术家;专辑艺术家的列表要 U4b 的目录查询,那时入口占用模型)。
+        // 6c U3b: 模型放掉了时从曲库目录挑;「专辑艺术家」按 U4b 的目录列表挑头像(U3c),只看完整专辑的那一种入口占用模型。
         let released = !library.isReady
-        guard !released || (hubIsLive && ArtistBrowseMode.resolved(artistBrowseModeRaw) == .allArtists) else { return }
+        let albumArtists = ArtistBrowseMode.resolved(artistBrowseModeRaw) == .albumArtists
+        guard !released || (hubIsLive && !(albumArtists && hidesSingleOnlyAlbumArtists)) else { return }
         if artworkPreviewSelection.revision == revision {
             await saveHubPreview(artworkPreviewSelection, revision: revision)
             return
@@ -2176,7 +2185,8 @@ struct LibraryView: View {
         ) { randomSeed in
             if let releasedCatalog {
                 return (try? LibraryArtworkPreviewBuilder.catalogSelection(
-                    catalog: releasedCatalog, randomSeed: randomSeed, revision: revision, userRevision: userRevision,
+                    catalog: releasedCatalog, albumArtists: albumArtists,
+                    randomSeed: randomSeed, revision: revision, userRevision: userRevision,
                     playlists: playlistsSnapshot, playlistMemberIDs: playlistMemberIDs, radioStations: radioSnapshot,
                     albumOverrideIDs: albumOverrideIDs, artistOverrideIDs: artistOverrideIDs,
                     playlistOverrideIDs: playlistOverrideIDs,
@@ -2367,22 +2377,6 @@ struct LibraryView: View {
             manageSourcesLabel
         }
         #endif
-    }
-
-    private func pinExists(_ pin: LibraryPinReference) -> Bool {
-        switch pin.kind {
-        case .album:
-            return library.visibleAlbum(id: pin.itemID) != nil
-        case .artist:
-            return library.favoriteArtist(id: pin.itemID) != nil
-        case .playlist:
-            if pin.itemID == MusicLibrary.likedSongsPlaylistID { return true }
-            return regularPlaylists.contains { $0.id == pin.itemID }
-        case .folder:
-            return pin.folderNodeID.flatMap { favoriteFolderModel.index?.node(withID: $0) } != nil
-        case .book:
-            return library.spokenWordBookIDs.values.contains(pin.itemID)
-        }
     }
 
     private func applyDeepLink(_ link: LibraryDeepLink?) {

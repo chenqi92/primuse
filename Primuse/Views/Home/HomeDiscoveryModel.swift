@@ -218,6 +218,8 @@ final class HomeDiscoveryModel {
     @ObservationIgnored private(set) var folderCoverSongIDs: [LibraryFolderNodeID: [String]] = [:]
     @ObservationIgnored private(set) var lastPlayedByFolder: [LibraryFolderNodeID: Date] = [:]
     @ObservationIgnored private weak var boundLibrary: MusicLibrary?
+    /// 模型不在内存里时没预挑过的文件夹在后台按段挑封面(见 `coverSongs(for:)`)。
+    @ObservationIgnored let catalogCovers = HomeFolderCatalogCoverQueue()
     @ObservationIgnored private var pinnedCoverNodeIDs: Set<LibraryFolderNodeID> = []
     @ObservationIgnored private var preparedRequest: Request?
     @ObservationIgnored var handledMetadataToken: UUID?
@@ -309,6 +311,11 @@ extension HomeDiscoveryModel {
             return cachedIDs.compactMap { songsByID[$0] ?? boundLibrary?.unobservedVisibleSong(id: $0) }
         }
         guard let index, let library = boundLibrary else { return [] }
+        // 歌曲模型不在内存里(U3c):不在主线程上逐首读目录,交给后台按段挑,挑好重画;这一刻先画文件夹图标。
+        guard library.isReady else {
+            catalogCovers.request(nodeID, in: index, library: library, model: self)
+            return []
+        }
         // 没预挑过的文件夹（不在根目录前几个、也没钉住）在这里补：挑满四张就停。
         let resolvedSongs = index.firstSongIDs(in: nodeID, limit: 4) { songID in
             library.unobservedVisibleSong(id: songID)?.coverArtFileName != nil
@@ -323,6 +330,20 @@ extension HomeDiscoveryModel {
             coverSongIDSet.insert(song.id)
         }
         return resolvedSongs
+    }
+
+    /// 后台从曲库目录挑好的封面(`HomeFolderCatalogCoverQueue`);索引换过了的不收,已经有的不覆盖。
+    func adoptCatalogCovers(_ picked: [LibraryFolderNodeID: [Song]], for index: LibraryFolderIndex) {
+        guard self.index === index, !picked.isEmpty else { return }
+        if folderCoverSongIDs.count >= Self.maximumCachedCoverFolders { trimCoverCacheToPinnedNodes() }
+        for (nodeID, songs) in picked where folderCoverSongIDs[nodeID] == nil {
+            folderCoverSongIDs[nodeID] = songs.map(\.id)
+            for song in songs {
+                songsByID[song.id] = song
+                coverSongIDSet.insert(song.id)
+            }
+        }
+        revision &+= 1
     }
 
     private func trimCoverCacheToPinnedNodes() {
@@ -629,11 +650,12 @@ struct HomeDiscoveryObserver: View {
         let spokenWordSongIDs = library.spokenWordSongIDs
         let sharesLibraryIndex = library.nonMusicSongIDs.isEmpty
         let reuseKey = folderIndexReuseKey(replacementToken: metadataToken, request: request)
-        // 6c U6b:歌曲模型不在内存里时不读整库数组:索引按目录建,卡片封面在显示时逐个补(`coverSongs(for:)`)。
+        // 6c U6b:歌曲模型不在内存里时不读整库数组:索引按目录建;卡片封面从曲库目录预挑(U3c,挑法同 `lookup`)。
         let released = !library.isReady
         let songs = released ? [] : library.visibleSongs
         let lookup = released ? nil : library.visibleSongLookup()
-        let pins = Self.coverPins()
+        let coverCatalog = released ? library.catalogHost?.mirror.readableCatalog : nil
+        let pins = HomeFolderCoverPrewarm.Pins.current()
         let collectionSnapshot = library.appleMusicFolderSnapshot()
         let descriptors = request.sources
         let appleMusicName = String(localized: "apple_music_library_section")
@@ -649,7 +671,7 @@ struct HomeDiscoveryObserver: View {
         }
         let catalogReader = library.readableCatalogReader
         let task = Task.detached(priority: .utility) {
-            [descriptors, providers, spokenWordSongIDs, catalogReader] () async -> (LibraryFolderIndex, PrewarmedCovers)? in
+            [descriptors, providers, spokenWordSongIDs, catalogReader] () async -> (LibraryFolderIndex, HomeFolderCoverPrewarm.Covers)? in
             guard !Task.isCancelled else { return nil }
             // Apple Music 虚拟集合只看那个源的歌(库内顺序):模型不在内存里时从目录取;目录答不出来这一轮不发布。
             guard let collectionSongs = released
@@ -693,7 +715,9 @@ struct HomeDiscoveryObserver: View {
                         )
                     }
                     guard !Task.isCancelled else { return nil }
-                    let prewarmed = Self.prewarmedCovers(for: index, lookup: lookup, pins: pins) { Task.isCancelled }
+                    let prewarmed = HomeFolderCoverPrewarm.covers(
+                        for: index, lookup: lookup, catalog: coverCatalog, pins: pins
+                    ) { Task.isCancelled }
                     return (index, prewarmed)
                 } catch is CancellationError {
                     return nil
@@ -739,7 +763,7 @@ struct HomeDiscoveryObserver: View {
                 spokenWordSongIDs: spokenWordSongIDs
             )
             guard !Task.isCancelled else { return nil }
-            let prewarmed = Self.prewarmedCovers(for: index, lookup: lookup, pins: pins) { Task.isCancelled }
+            let prewarmed = HomeFolderCoverPrewarm.covers(for: index, lookup: lookup, catalog: nil, pins: pins) { Task.isCancelled }
             return (index, prewarmed)
         }
         let built = await withTaskCancellationHandler {
@@ -781,9 +805,10 @@ struct HomeDiscoveryObserver: View {
         ) else { return false }
         pendingMetadataIDs.removeAll()
         let lookup = library.isReady ? library.visibleSongLookup() : nil
-        let pins = Self.coverPins()
+        let coverCatalog = library.isReady ? nil : library.catalogHost?.mirror.readableCatalog
+        let pins = HomeFolderCoverPrewarm.Pins.current()
         let task = Task.detached(priority: .utility) {
-            Self.prewarmedCovers(for: cachedIndex, lookup: lookup, pins: pins) { Task.isCancelled }
+            HomeFolderCoverPrewarm.covers(for: cachedIndex, lookup: lookup, catalog: coverCatalog, pins: pins) { Task.isCancelled }
         }
         let prewarmed = await withTaskCancellationHandler {
             await task.value
@@ -821,7 +846,7 @@ struct HomeDiscoveryObserver: View {
     /// 发布之后把等待期间到的标签替换补上。
     private func publish(
         _ index: LibraryFolderIndex,
-        prewarmed: PrewarmedCovers,
+        prewarmed: HomeFolderCoverPrewarm.Covers,
         request: HomeDiscoveryModel.Request,
         metadataToken: UUID,
         directoryNames: [String: [String: String]],
@@ -843,61 +868,5 @@ struct HomeDiscoveryObserver: View {
         }
         model.handledMetadataToken = patchedMetadataToken
         pendingMetadataIDs.removeAll()
-    }
-
-    private struct CoverPins: Sendable {
-        let raw: String
-        let displayCount: Int
-    }
-
-    private struct PrewarmedCovers: Sendable {
-        let songsByID: [String: Song]
-        let covers: [LibraryFolderNodeID: [String]]
-        let pinnedNodeIDs: Set<LibraryFolderNodeID>
-    }
-
-    private static func coverPins() -> CoverPins {
-        CoverPins(
-            raw: UserDefaults.standard.string(forKey: HomeFolderPinStorage.key) ?? "",
-            displayCount: UserDefaults.standard.object(forKey: HomeFolderPinStorage.displayCountKey) as? Int
-                ?? HomeFolderPinStorage.defaultDisplayCount
-        )
-    }
-
-    /// 首页会摆出来的那几个文件夹（钉住的、各源根目录和它们前几个子目录）先挑好封面。
-    /// 在主线程外做：源的根目录就是整个源，挑满四张就停，不先展开整棵子树。
-    /// `lookup` 为 nil(歌曲模型不在内存里):不预挑,卡片显示时按 id 逐个补。
-    private nonisolated static func prewarmedCovers(
-        for index: LibraryFolderIndex,
-        lookup: VisibleSongLookup?,
-        pins: CoverPins,
-        isCancelled: () -> Bool
-    ) -> PrewarmedCovers {
-        guard let lookup else { return PrewarmedCovers(songsByID: [:], covers: [:], pinnedNodeIDs: []) }
-        var candidateNodeIDs = Set(
-            HomeFolderPinStorage.resolvedPins(pins.raw, index: index, defaultCount: pins.displayCount)
-        )
-        for rootNode in LibraryFolderBrowsePolicy.rootNodes(in: index, sourceID: nil) {
-            candidateNodeIDs.insert(rootNode.id)
-            for child in LibraryFolderBrowsePolicy.displayedChildren(in: index, of: rootNode.id).prefix(16) {
-                candidateNodeIDs.insert(child.id)
-            }
-        }
-        var songsByID: [String: Song] = [:]
-        var covers: [LibraryFolderNodeID: [String]] = [:]
-        for nodeID in candidateNodeIDs {
-            if isCancelled() { break }
-            let ids = index.firstSongIDs(
-                in: nodeID,
-                limit: 4,
-                where: { lookup.song(id: $0)?.coverArtFileName != nil },
-                isCancelled: isCancelled
-            )
-            for songID in ids where songsByID[songID] == nil {
-                songsByID[songID] = lookup.song(id: songID)
-            }
-            covers[nodeID] = ids
-        }
-        return PrewarmedCovers(songsByID: songsByID, covers: covers, pinnedNodeIDs: candidateNodeIDs)
     }
 }
