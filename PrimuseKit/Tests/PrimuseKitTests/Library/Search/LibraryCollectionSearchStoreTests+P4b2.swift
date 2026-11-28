@@ -64,6 +64,43 @@ struct LibraryCollectionSearchStoreTests {
         }
     }
 
+    @Test("Rows from the catalog give the same ids in the same order as the arrays", arguments: Array(UInt64(1)...UInt64(8)))
+    func rowsMatchArrays(seed: UInt64) throws {
+        var rng = CatalogTestRandom(seed: seed &+ 100)
+        let arrays = try LibraryCollectionSearchStore.temporary()
+        let rows = try LibraryCollectionSearchStore.temporary()
+        var albums = Self.albums(&rng, count: rng.int(0...40), round: 0)
+        var artists = Self.artists(&rng, count: rng.int(0...25), round: 0)
+        var generation: Int64 = 0
+        func chunks<T>(_ values: [T], _ make: @escaping (T) -> LibraryCollectionSearchStore.CollectionRow)
+            -> (Int) -> [LibraryCollectionSearchStore.CollectionRow] {
+            { chunk in Array(values.dropFirst(chunk * 7).prefix(7)).map(make) }
+        }
+        for step in 0..<120 {
+            if rng.chance(12) { albums = Self.albums(&rng, count: rng.int(0...60), round: step); generation += 1 }
+            if rng.chance(10) { artists = Self.artists(&rng, count: rng.int(0...40), round: step); generation += 1 }
+            let query = rng.pick(Self.queries)
+            let includePinyin = rng.chance(60)
+            let semantic = rng.chance(30)
+            let related: [Album] = rng.chance(30)
+                ? (0..<rng.int(0...5)).map { _ in
+                    rng.chance(50) && !albums.isEmpty ? rng.pick(albums) : Album(id: "gone-\(rng.int(0...3))", title: "Gone")
+                }
+                : []
+            let expected = try arrays.search(query: query, albums: albums, artists: artists, relatedAlbums: related,
+                                             semanticArtists: semantic, includePinyin: includePinyin)
+            let actual = try rows.searchRows(
+                query: query, generation: generation,
+                albumRows: chunks(albums) { .init(id: $0.id, text: $0.title, secondary: $0.artistName ?? "") },
+                artistRows: chunks(artists) { .init(id: $0.id, text: $0.name) },
+                relatedAlbumIDs: related.map(\.id), semanticArtists: semantic, includePinyin: includePinyin
+            )
+            let context = "seed \(seed) step \(step) query \(query) pinyin \(includePinyin)"
+            #expect(actual.albumIDs == expected.albums.map(\.id), "\(context): albums")
+            #expect(actual.artistIDs == expected.artists.map(\.id), "\(context): artists")
+        }
+    }
+
     @Test("The text memo is trimmed the same way when many titles come and go")
     func trimmingMatches() throws {
         var rng = CatalogTestRandom(seed: 4_242)

@@ -59,8 +59,10 @@ extension MacPageKind {
         case .listeningStats:
             // 统计页:历史 + 曲库目录(归属、特征表);目录读不了时页面自己装回模型(6c U6b)。
             .catalog
-        case .sources, .source, .search, .searchCollection,
-             .tool, .recommendationsPanel, .smartPlaylistEditor:
+        case .search, .searchCollection:
+            // 搜索的歌、专辑、艺人、有声与环境音从目录答;智能搜索、超大范围的搜索自己占用(U7)。
+            .catalog
+        case .sources, .source, .tool, .recommendationsPanel, .smartPlaylistEditor:
             .legacy
         }
     }

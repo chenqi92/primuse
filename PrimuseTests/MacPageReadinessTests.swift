@@ -25,6 +25,8 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(MacPageKind.spokenWordBook.readiness, .catalog, "U8a: the book's chapters come with the shelf")
         XCTAssertEqual(MacPageKind.albumDetail.readiness, .catalog, "detail pages")
         XCTAssertEqual(MacPageKind.artistDetail.readiness, .catalog, "detail pages")
+        XCTAssertEqual(MacPageKind.search.readiness, .catalog, "U7")
+        XCTAssertEqual(MacPageKind.searchCollection.readiness, .catalog, "U7")
         for section in [LibrarySection.radio, .podcasts, .spokenWord] {
             XCTAssertEqual(MacPageKind.section(section).readiness, .always, "\(section)")
             XCTAssertEqual(MacPageKind.section(section).readiness, LibraryReadyContent<EmptyView>.readiness(for: section),
@@ -43,8 +45,7 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
             XCTAssertEqual(MacPageKind.section(section).readiness, .legacy, "\(section)")
         }
         let legacyPages: [MacPageKind] = [
-            .sources, .source, .search,
-            .searchCollection, .tool, .recommendationsPanel, .smartPlaylistEditor,
+            .sources, .source, .tool, .recommendationsPanel, .smartPlaylistEditor,
         ]
         for page in legacyPages {
             XCTAssertEqual(page.readiness, .legacy, "\(page)")

@@ -30,6 +30,9 @@ public final class LibraryCollectionSearchStore: @unchecked Sendable {
     private var albums: [Album] = []
     private var artists: [Artist] = []
     private var albumIncludesPinyin = false
+    /// 按行准备(`searchRows`,曲库目录来的专辑、艺人)时,行是按哪一代目录、带不带拼音排的。
+    private var rowsGeneration: Int64?
+    private var rowsAlbumPinyin = false
     public private(set) var preparationCount = 0
     public private(set) var lastAlbumCandidateCount = 0
 
@@ -52,6 +55,12 @@ public final class LibraryCollectionSearchStore: @unchecked Sendable {
             for table in ["collectionSearchAlbum", "collectionSearchArtist", "collectionSearchMemo",
                           "collectionSearchPosting", "collectionSearchTextVersion"] {
                 try db.execute(sql: "DELETE FROM \(table) WHERE space = ?", arguments: [space])
+            }
+        }
+        // 按行准备时才建的那张表(老的搜索库里可能没有):单独删,没有这张表也不影响上面几张。
+        try? writer.write { db in
+            if try db.tableExists(Self.rowTextTable) {
+                try db.execute(sql: "DELETE FROM \(Self.rowTextTable) WHERE space = ?", arguments: [space])
             }
         }
     }
@@ -99,6 +108,25 @@ public final class LibraryCollectionSearchStore: @unchecked Sendable {
                 PRIMARY KEY (space, ordinal)
             ) WITHOUT ROWID;
             """)
+        try createRowTextTable(in: db)
+    }
+
+    static let rowTextTable = "collectionSearchRowText"
+
+    /// 按行准备时(`searchRows`)每一行的 id 与原文(kind 0 专辑名,1 艺人名):同分时按原文比先后,与按数组时
+    /// 比 `Album.title` / `Artist.name` 一样(备忘里的 `raw` 是规范等价写法里先来的那一种,不能拿来比)。
+    /// 老的搜索库里没有这张表:按行准备时现建。
+    static func createRowTextTable(in db: Database) throws {
+        try db.execute(sql: """
+            CREATE TABLE IF NOT EXISTS \(rowTextTable) (
+                space TEXT NOT NULL,
+                kind INTEGER NOT NULL,
+                ordinal INTEGER NOT NULL,
+                rowID TEXT NOT NULL,
+                text TEXT NOT NULL,
+                PRIMARY KEY (space, kind, ordinal)
+            ) WITHOUT ROWID;
+            """)
     }
 
     /// 上一次运行留下的(每次运行的实例都换新的 `space`):打开搜索库时清掉。
@@ -107,6 +135,7 @@ public final class LibraryCollectionSearchStore: @unchecked Sendable {
                       "collectionSearchPosting", "collectionSearchTextVersion"] {
             try db.execute(sql: "DELETE FROM \(table)")
         }
+        if try db.tableExists(rowTextTable) { try db.execute(sql: "DELETE FROM \(rowTextTable)") }
     }
 
     // MARK: - Search
@@ -320,6 +349,238 @@ public final class LibraryCollectionSearchStore: @unchecked Sendable {
             DELETE FROM collectionSearchPosting WHERE space = ?1
               AND version NOT IN (SELECT id FROM collectionSearchTextVersion WHERE space = ?1)
             """, arguments: [space])
+    }
+
+    // MARK: - Rows (albums and artists from the library catalog)
+
+    /// 专辑、艺人一行:id 与参与预处理的文本(专辑名、专辑艺人;艺人名)。
+    public struct CollectionRow: Sendable {
+        public let id: String
+        public let text: String
+        /// 专辑的专辑艺人(没有时空串);艺人行不用。
+        public let secondary: String
+
+        public init(id: String, text: String, secondary: String = "") {
+            self.id = id
+            self.text = text
+            self.secondary = secondary
+        }
+    }
+
+    /// `searchRows` 的结果:专辑、艺人的 id,先后与 `search` 给的那份相同。`relatedAlbumIDs` 里排上的那几张
+    /// 在 `relatedAlbumIDs` 里列出(调用方手里有那几张专辑本身)。
+    public struct RowsOutput: Sendable, Equatable {
+        public let albumIDs: [String]
+        public let artistIDs: [String]
+    }
+
+    /// 同 `search(query:albums:artists:...)`,只是专辑、艺人不从内存里的数组来、也不留数组(6c 单元 4 U7):
+    /// `albumRows` / `artistRows` 按块给出可见专辑(专辑墙的先后)与可见艺人(艺人列表的先后),块号从 0 起,
+    /// 空块表示完了;`generation` 变了(曲库目录变了)或要拼音而上次没备拼音时重排,规则与按数组时逐条相同。
+    /// 打分、同分时的先后(专辑名本地化比较,再按专辑墙的先后;艺人名标准比较,再按艺人列表的先后)也相同。
+    /// 一个实例只用这一种准备法。
+    public func searchRows(
+        query: String,
+        generation: Int64,
+        albumRows: (Int) throws -> [CollectionRow],
+        artistRows: (Int) throws -> [CollectionRow],
+        relatedAlbumIDs: [String] = [],
+        semanticArtists: Bool = false,
+        includePinyin: Bool = true,
+        isCancelled: () -> Bool = { false }
+    ) throws -> RowsOutput {
+        let empty = RowsOutput(albumIDs: [], artistIDs: [])
+        let matcher = LibrarySearchTextMatcher(query: query)
+        guard !matcher.rawQuery.isEmpty, !isCancelled(),
+              try prepareRows(
+                generation: generation, albumRows: albumRows, artistRows: artistRows,
+                includesPinyin: includePinyin && matcher.requiresPinyinCandidates, isCancelled: isCancelled
+              ) else { return empty }
+
+        let space = space
+        let albumScalars = Self.scalars(matcher.normalizedQuery, alphanumericOnly: true)
+        let semanticQuery = ListeningSpaceSearchPolicy.normalized(query)
+        let artistScalars = Self.scalars(semanticQuery, alphanumericOnly: false)
+        typealias Prepared = LibrarySearchTextMatcher.PreparedText
+        let rowText = Self.rowTextTable
+        let (albumRows, relatedIDs, artistRows) = try writer.read { db
+            -> ([(id: String, name: String, title: Prepared, artist: Prepared)], Set<String>,
+                [(id: String, name: String, text: Prepared)]) in
+            var albums: [(id: String, name: String, title: Prepared, artist: Prepared)] = []
+            if !albumScalars.isEmpty {
+                var sql = """
+                    SELECT a.albumID, o.text, t.raw, t.original, t.latin, t.initials, t.semantic, t.pinyin,
+                           r.raw, r.original, r.latin, r.initials, r.semantic, r.pinyin
+                    FROM collectionSearchAlbum a
+                    JOIN \(rowText) o ON o.space = a.space AND o.kind = 0 AND o.ordinal = a.ordinal
+                    JOIN collectionSearchTextVersion t ON t.id = a.titleVersion
+                    JOIN collectionSearchTextVersion r ON r.id = a.artistVersion
+                    WHERE a.space = ?
+                    """
+                var arguments: StatementArguments = [space]
+                for scalar in albumScalars {
+                    sql += """
+                         AND EXISTS (SELECT 1 FROM collectionSearchPosting p
+                            WHERE p.space = ? AND p.scalar = ? AND p.version IN (a.titleVersion, a.artistVersion))
+                        """
+                    arguments += [space, Int64(scalar.value)]
+                }
+                sql += " ORDER BY a.ordinal"
+                let rows = try Row.fetchCursor(db, sql: sql, arguments: arguments)
+                while let row = try rows.next() {
+                    albums.append((id: row[0], name: row[1], title: Self.prepared(row, from: 2),
+                                   artist: Self.prepared(row, from: 8)))
+                }
+            }
+            var related = Set<String>()
+            for id in relatedAlbumIDs where !related.contains(id) {
+                if try Bool.fetchOne(db, sql: """
+                    SELECT EXISTS (SELECT 1 FROM collectionSearchAlbum WHERE space = ? AND albumID = ?)
+                    """, arguments: [space, id]) == true {
+                    related.insert(id)
+                }
+            }
+            var artists: [(id: String, name: String, text: Prepared)] = []
+            if !artistScalars.isEmpty {
+                var sql = """
+                    SELECT o.rowID, o.text, t.raw, t.original, t.latin, t.initials, t.semantic, t.pinyin
+                    FROM collectionSearchArtist a
+                    JOIN \(rowText) o ON o.space = a.space AND o.kind = 1 AND o.ordinal = a.ordinal
+                    JOIN collectionSearchTextVersion t ON t.id = a.version
+                    WHERE a.space = ?
+                    """
+                var arguments: StatementArguments = [space]
+                for scalar in artistScalars {
+                    sql += """
+                         AND EXISTS (SELECT 1 FROM collectionSearchPosting p
+                            WHERE p.space = ? AND p.scalar = ? AND p.version = a.version)
+                        """
+                    arguments += [space, Int64(scalar.value)]
+                }
+                sql += " ORDER BY a.ordinal"
+                let rows = try Row.fetchCursor(db, sql: sql, arguments: arguments)
+                while let row = try rows.next() {
+                    artists.append((id: row[0], name: row[1], text: Self.prepared(row, from: 2)))
+                }
+            }
+            return (albums, related, artists)
+        }
+
+        lastAlbumCandidateCount = albumRows.count
+        var ranked: [(id: String, title: String, score: Int)] = []
+        for row in albumRows {
+            guard !isCancelled() else { return empty }
+            let titleScore = matcher.score(prepared: row.title).map { $0 + 20 } ?? 0
+            let artistScore = matcher.score(prepared: row.artist).map { $0 + 10 } ?? 0
+            let score = max(titleScore, artistScore)
+            if score > 0 { ranked.append((row.id, row.name, score)) }
+        }
+        var albumIDs = ranked.sorted {
+            if $0.score != $1.score { return $0.score > $1.score }
+            return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }.map(\.id)
+        var seen = Set(albumIDs)
+        albumIDs += relatedAlbumIDs.filter { relatedIDs.contains($0) && seen.insert($0).inserted }
+        let words = semanticQuery.split(separator: " ")
+        let artistIDs = artistRows.compactMap { row -> (id: String, name: String)? in
+            let text = row.text
+            let matches = semanticArtists
+                ? text.semantic.contains(semanticQuery) || (words.count > 1 && words.allSatisfy { text.semantic.contains($0) })
+                : text.raw.localizedCaseInsensitiveContains(matcher.rawQuery)
+            return matches ? (row.id, row.name) : nil
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map(\.id)
+        return RowsOutput(albumIDs: albumIDs, artistIDs: artistIDs)
+    }
+
+    private func prepareRows(
+        generation: Int64,
+        albumRows: (Int) throws -> [CollectionRow],
+        artistRows: (Int) throws -> [CollectionRow],
+        includesPinyin: Bool,
+        isCancelled: () -> Bool
+    ) throws -> Bool {
+        let space = space
+        let regroups = rowsGeneration != generation
+        var albumCount = 0
+        var artistCount = 0
+        do {
+            if regroups || (includesPinyin && !rowsAlbumPinyin) {
+                try writer.write { db in
+                    try Self.createRowTextTable(in: db)
+                    // 别的实例按行准备时留下的(每次运行换新的 space,同一时刻只有一个这样的实例)。
+                    try db.execute(sql: "DELETE FROM \(Self.rowTextTable) WHERE space != ?", arguments: [space])
+                    let memo = MemoContext(db: db, space: space)
+                    try db.execute(sql: "DELETE FROM collectionSearchAlbum WHERE space = ?", arguments: [space])
+                    try db.execute(sql: "DELETE FROM \(Self.rowTextTable) WHERE space = ? AND kind = 0", arguments: [space])
+                    let insert = try db.makeStatement(sql: """
+                        INSERT INTO collectionSearchAlbum (space, ordinal, albumID, titleVersion, artistVersion)
+                        VALUES (?, ?, ?, ?, ?)
+                        """)
+                    let insertText = try db.makeStatement(sql: """
+                        INSERT INTO \(Self.rowTextTable) (space, kind, ordinal, rowID, text) VALUES (?, 0, ?, ?, ?)
+                        """)
+                    var chunk = 0
+                    while true {
+                        let rows = try albumRows(chunk)
+                        guard !rows.isEmpty else { break }
+                        for row in rows {
+                            guard !isCancelled() else { throw CancellationError() }
+                            let title = try autoreleasepool { try memo.prepared(row.text, includesPinyin: includesPinyin) }
+                            let artist = try autoreleasepool { try memo.prepared(row.secondary, includesPinyin: includesPinyin) }
+                            try insert.execute(arguments: [space, albumCount, row.id, title, artist])
+                            try insertText.execute(arguments: [space, albumCount, row.id, row.text])
+                            albumCount += 1
+                        }
+                        chunk += 1
+                    }
+                }
+                rowsAlbumPinyin = includesPinyin
+                preparationCount += 1
+            }
+            if regroups {
+                try writer.write { db in
+                    let memo = MemoContext(db: db, space: space)
+                    try db.execute(sql: "DELETE FROM collectionSearchArtist WHERE space = ?", arguments: [space])
+                    try db.execute(sql: "DELETE FROM \(Self.rowTextTable) WHERE space = ? AND kind = 1", arguments: [space])
+                    let insert = try db.makeStatement(sql: """
+                        INSERT INTO collectionSearchArtist (space, ordinal, version) VALUES (?, ?, ?)
+                        """)
+                    let insertText = try db.makeStatement(sql: """
+                        INSERT INTO \(Self.rowTextTable) (space, kind, ordinal, rowID, text) VALUES (?, 1, ?, ?, ?)
+                        """)
+                    var chunk = 0
+                    while true {
+                        let rows = try artistRows(chunk)
+                        guard !rows.isEmpty else { break }
+                        for row in rows {
+                            guard !isCancelled() else { throw CancellationError() }
+                            let version = try autoreleasepool { try memo.prepared(row.text, includesPinyin: false) }
+                            try insert.execute(arguments: [space, artistCount, version])
+                            try insertText.execute(arguments: [space, artistCount, row.id, row.text])
+                            artistCount += 1
+                        }
+                        chunk += 1
+                    }
+                }
+                rowsGeneration = generation
+                preparationCount += 1
+            }
+        } catch is CancellationError {
+            // 没排完不换(专辑排完了、艺人没排完时下一次整代重排)。
+            if regroups { rowsGeneration = nil }
+            return false
+        }
+        if regroups {
+            try writer.write { db in
+                let memoCount = try Int.fetchOne(
+                    db, sql: "SELECT count(*) FROM collectionSearchMemo WHERE space = ?", arguments: [space]
+                ) ?? 0
+                if memoCount > max(1_024, 2 * (albumCount * 2 + artistCount)) {
+                    try Self.trim(space: space, in: db)
+                }
+            }
+        }
+        return true
     }
 
     /// 写事务里的文本备忘:原先的 `prepared(_:includesPinyin:)`,返回指向的版本。

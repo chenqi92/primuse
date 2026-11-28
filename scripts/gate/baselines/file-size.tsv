@@ -134,7 +134,7 @@ Primuse/Views/Podcast/PodcastComponents.swift	1396
 Primuse/Views/Podcast/PodcastLibraryView.swift	1935
 Primuse/Views/Radio/RadioStationsView.swift	2201
 Primuse/Views/Radio/RadioSubscriptionsView.swift	1162
-Primuse/Views/Search/SearchView.swift	5755
+Primuse/Views/Search/SearchView.swift	5695
 Primuse/Views/Settings/AISettingsView.swift	2597
 Primuse/Views/Settings/DuplicateSongsView.swift	1790
 Primuse/Views/Settings/ListeningStatsChartsView.swift	1649

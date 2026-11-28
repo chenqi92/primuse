@@ -99,7 +99,7 @@ legacy-library-api	Primuse/Views/Mac/PlayerMoreMenu.swift	1
 legacy-library-api	Primuse/Views/NowPlaying/ImmersivePlayerView.swift	1
 legacy-library-api	Primuse/Views/NowPlaying/NowPlayingCarouselExploreFace.swift	3
 legacy-library-api	Primuse/Views/Search/LibrarySearchCatalog.swift	3
-legacy-library-api	Primuse/Views/Search/SearchView.swift	16
+legacy-library-api	Primuse/Views/Search/SearchView.swift	12
 legacy-library-api	Primuse/Views/Settings/CarPlayEditorCanvas.swift	2
 legacy-library-api	Primuse/Views/Settings/DuplicateSongsView.swift	1
 legacy-library-api	Primuse/Views/Settings/ListeningStatsView.swift	1

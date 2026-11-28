@@ -537,33 +537,6 @@ private struct SearchLibraryRevisionObserver: View {
     }
 }
 
-@MainActor
-enum SearchHistoryStore {
-    static let key = CloudKVSKey.recentSearches
-    static let didChangeNotification = Notification.Name("primuse.searchHistory.didChange")
-    private static let limit = 12
-
-    static func load() -> [String] {
-        UserDefaults.standard.stringArray(forKey: key) ?? []
-    }
-
-    static func record(_ query: String) {
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty else { return }
-
-        var queries = load()
-        queries.removeAll { $0.caseInsensitiveCompare(trimmedQuery) == .orderedSame }
-        queries.insert(trimmedQuery, at: 0)
-        save(Array(queries.prefix(limit)))
-    }
-
-    static func save(_ queries: [String]) {
-        UserDefaults.standard.set(queries, forKey: key)
-        CloudKVSSync.shared.markChanged(key: key)
-        NotificationCenter.default.post(name: didChangeNotification, object: nil)
-    }
-}
-
 /// 搜索里对 Apple Music 目录歌做完一件事后,底部浮起的那条提示。
 private struct AppleMusicActionFeedback: Equatable {
     enum Kind: Equatable { case progress, success, failure }
@@ -1004,15 +977,17 @@ struct SearchView: View {
     private func refreshBookHits(query: String) {
         workCoordinator.cancelBookSearch()
         // 本机下载的播客节目也在这里搜得到:它们原本就在书架上,挪到播客以后不该从搜索里消失。
-        let spokenSongs = showsSpace(.spokenWord) ? library.spokenWordSongs + library.localPodcastSongs : []
-        guard !spokenSongs.isEmpty else {
+        // 模型不在内存里时这两类从曲库目录读(U7),分好的书按目录的归书修订号留着。
+        let fromCatalog = showsSpace(.spokenWord) && SearchCatalogSupport.answersFromCatalog(library)
+        let spokenSongs = showsSpace(.spokenWord) && !fromCatalog ? library.spokenWordSongs + library.localPodcastSongs : []
+        guard !spokenSongs.isEmpty || fromCatalog else {
             if !bookHits.isEmpty { bookHits = [] }
             return
         }
         let store = SpokenWordStore.shared
         let inputs = SearchGroupedBooks.Inputs(
-            bookRevision: library.spokenWordContentRevision,
-            podcastRevision: library.localPodcastContentRevision,
+            bookRevision: fromCatalog ? SearchCatalogSupport.catalogBookRevision(library) : library.spokenWordContentRevision,
+            podcastRevision: fromCatalog ? .max : library.localPodcastContentRevision,
             storeRevision: store.revision
         )
         let cached = workCoordinator.groupedBooks.flatMap { $0.inputs == inputs ? $0 : nil }
@@ -1020,6 +995,12 @@ struct SearchView: View {
         let finishedAt = store.finishedAt
         let coordinator = workCoordinator
         coordinator.bookSearchTask = Task {
+            var spokenSongs = spokenSongs
+            if fromCatalog, cached == nil {
+                // 目录答不出来不等于没有书:这一轮不发布、不留缓存(留了会一直搜不到,直到归书修订号变),沿用上一份。
+                guard let answered = await SearchCatalogSupport.catalogSpokenSongs(library) else { return }
+                spokenSongs = answered
+            }
             let worker = Task.detached(priority: .userInitiated) { () throws -> (SearchGroupedBooks, [BookSearchHit]) in
                 let grouped: SearchGroupedBooks
                 if let cached {
@@ -1084,7 +1065,15 @@ struct SearchView: View {
     }
 
     private func refreshAmbientHits(query: String) {
-        let sounds = showsSpace(.ambient) ? library.ambientSongs : []
+        // 模型不在内存里时从曲库目录读那几段环境音,读到再按同样的规则对(U7)。
+        if showsSpace(.ambient), SearchCatalogSupport.answersFromCatalog(library) {
+            Task { if let sounds = await SearchCatalogSupport.catalogAmbientSongs(library), renderedQuery == query { applyAmbientHits(query: query, sounds: sounds) } }
+            return
+        }
+        applyAmbientHits(query: query, sounds: showsSpace(.ambient) ? library.ambientSongs : [])
+    }
+
+    private func applyAmbientHits(query: String, sounds: [PrimuseKit.Song]) {
         guard !sounds.isEmpty else {
             if !ambientHits.isEmpty { ambientHits = [] }
             return
@@ -1104,9 +1093,9 @@ struct SearchView: View {
             player.togglePlayPause()
             return
         }
-        let group = AmbientSoundGrouping.groups(for: library.ambientSongs)
-            .first { $0.songIDs.contains(song.id) }
-        let queue = group?.songIDs.compactMap { id in library.ambientSongs.first { $0.id == id } } ?? [song]
+        let ambient = SearchCatalogSupport.ambientSongsForPlayback(library)
+        let group = AmbientSoundGrouping.groups(for: ambient).first { $0.songIDs.contains(song.id) }
+        let queue = group?.songIDs.compactMap { id in ambient.first { $0.id == id } } ?? [song]
         AmbientSoundPlayback.play(song, among: queue, player: player, timerMinutes: nil)
     }
 
@@ -1474,6 +1463,9 @@ struct SearchView: View {
         .onChange(of: intelligence.isSemanticSearchConfigured) { _, _ in
             performSearch(query: searchText)
         }
+        // 模型不在内存里时还要整库数组的两支(智能搜索、超出一次物化上限的范围搜索)替这一页占用(U7)。
+        .songModelPage(needsArrays: SearchCatalogSupport.needsTheSongModel(library, query: searchText, scope: scope,
+                                                                           intelligent: resultLayout.shows(.intelligent) && intelligence.isSemanticSearchConfigured))
         .onChange(of: library.playlistCollectionRevision) { _, _ in
             performSearch(query: searchText)
         }
@@ -1564,13 +1556,13 @@ struct SearchView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, heightClass.value(10, compact: 4))
             }
-            if library.isReady, resultDisplayMode == .tabs, !searchText.isEmpty, !resultTabLayout.sections.isEmpty {
+            if library.isUsable, resultDisplayMode == .tabs, !searchText.isEmpty, !resultTabLayout.sections.isEmpty {
                 resultTabs
             }
             #endif
             Group {
                 #if os(iOS)
-                LibraryReadyContent(startupSearch: startupSearch) {
+                LibraryReadyContent(startupSearch: startupSearch, readiness: .catalog) {
                     iosSearchResults
                 }
                 #else
@@ -1715,7 +1707,7 @@ struct SearchView: View {
         // 两棵子树不并存。搜索中占位 ⇄ 结果表每敲一键就翻一次, 保持硬切。
         Group {
             if searchText.isEmpty {
-                if library.visibleSongs.isEmpty && radioStore.stations.isEmpty && !serverSearchActive {
+                if SearchCatalogSupport.libraryIsEmpty(library) && radioStore.stations.isEmpty && !serverSearchActive {
                     EmptyStateView(
                         titleKey: "search_empty_library",
                         descriptionKey: "search_empty_library_desc",
@@ -1882,7 +1874,7 @@ struct SearchView: View {
     private var macSearchContent: some View {
         // 与 iOS 同构: 只给不随击键翻转的几支补淡入, 搜索中占位 ⇄ 结果保持硬切。
         if searchText.isEmpty {
-            if library.visibleSongs.isEmpty && radioStore.stations.isEmpty && !serverSearchActive {
+            if SearchCatalogSupport.libraryIsEmpty(library) && radioStore.stations.isEmpty && !serverSearchActive {
                 EmptyStateView(
                     titleKey: "search_empty_library",
                     descriptionKey: "search_empty_library_desc",
@@ -1937,9 +1929,9 @@ struct SearchView: View {
                 }
 
                 HStack(spacing: 14) {
-                    macSummaryTile(value: "\(library.musicSongs.count)", label: "tab_songs", icon: "music.note")
-                    macSummaryTile(value: "\(library.visibleAlbums.count)", label: "tab_albums", icon: "square.stack")
-                    macSummaryTile(value: "\(library.visibleArtists.count)", label: "tab_artists", icon: "music.mic")
+                    macSummaryTile(value: SearchCatalogSupport.countText(.music, library), label: "tab_songs", icon: "music.note")
+                    macSummaryTile(value: SearchCatalogSupport.countText(.albums, library), label: "tab_albums", icon: "square.stack")
+                    macSummaryTile(value: SearchCatalogSupport.countText(.artists, library), label: "tab_artists", icon: "music.mic")
                 }
             }
             .padding(.horizontal, PMSpace.xxxl)
@@ -3857,12 +3849,12 @@ struct SearchView: View {
                 HStack {
                     Image(systemName: "music.note.list")
                         .foregroundStyle(.secondary)
-                    Text("\(scope?.songIDs.count ?? library.musicSongs.count) \(String(localized: "tab_songs"))")
+                    Text("\(scope.map { "\($0.songIDs.count)" } ?? SearchCatalogSupport.countText(.music, library)) \(String(localized: "tab_songs"))")
                     if scope == nil {
                         Spacer()
-                        Text("\(library.visibleAlbums.count) \(String(localized: "tab_albums"))")
+                        Text("\(SearchCatalogSupport.countText(.albums, library)) \(String(localized: "tab_albums"))")
                         Text("·")
-                        Text("\(library.visibleArtists.count) \(String(localized: "tab_artists"))")
+                        Text("\(SearchCatalogSupport.countText(.artists, library)) \(String(localized: "tab_artists"))")
                     }
                 }
                 .font(.caption)
@@ -4837,7 +4829,7 @@ struct SearchView: View {
         // 全局搜索只在音乐里找歌: 有声条目按书列在自己那一组, 不混进歌曲结果。
         // 在某个歌单 / 文件夹范围里搜时, 范围里有什么就找什么。
         #if os(iOS)
-        let startupSourceIDs = library.isReady || scopedSearch ? nil : Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
+        let startupSourceIDs = library.isUsable || scopedSearch ? nil : Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
         #else
         let startupSourceIDs: Set<String>? = nil
         #endif
@@ -4852,8 +4844,11 @@ struct SearchView: View {
             : nil
         let visibleLookup = scopedSearch && !scopeFromCatalog ? library.visibleSongLookup() : nil
         let sourceTypes = memorySnapshot?.sourceTypes ?? library.searchSources?.typesByID ?? [:]
-        let albumsSnapshot = scopedSearch || !layout.shows(.albums) ? [] : library.visibleAlbums
-        let artistsSnapshot = scopedSearch || !layout.shows(.artists) ? [] : library.visibleArtists
+        // 模型不在内存里时不交那份空数组:专辑、艺人的命中从目录准备(`collectionCatalog`,U7)。
+        let albumsSnapshot = scopedSearch || !layout.shows(.albums) || !library.isReady ? [] : library.visibleAlbums
+        let artistsSnapshot = scopedSearch || !layout.shows(.artists) || !library.isReady ? [] : library.visibleArtists
+        let collectionCatalog = SearchCatalogSupport.collectionScope(
+            library, albums: !scopedSearch && layout.shows(.albums), artists: !scopedSearch && layout.shows(.artists))
         let cacheSnapshot = workCoordinator.lyricsCache
         let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
 
@@ -4994,9 +4989,9 @@ struct SearchView: View {
             renderedQuery = query
             if startupSourceIDs != nil { return }
             let songsFinishedAt = ProcessInfo.processInfo.systemUptime
-            let catalog = await workCoordinator.catalogIndex.search(
-                query: query, albums: albumsSnapshot, artists: artistsSnapshot,
-                relatedAlbums: output.albumResults, includePinyin: false
+            let catalog = await SearchCatalogSupport.collections(
+                index: workCoordinator.catalogIndex, query: query, albums: albumsSnapshot, artists: artistsSnapshot,
+                relatedAlbums: output.albumResults, includePinyin: false, catalog: collectionCatalog
             )
             guard !Task.isCancelled, myGen == workCoordinator.generation else { return }
             searchResults = output.songResults
@@ -5016,9 +5011,9 @@ struct SearchView: View {
             isSearching = false
             // Publish literal matches before a cold catalogue builds its pinyin
             // postings. Cancelling this search also cancels that preparation.
-            let expandedCatalog = await workCoordinator.catalogIndex.search(
-                query: query, albums: albumsSnapshot, artists: artistsSnapshot,
-                relatedAlbums: output.albumResults
+            let expandedCatalog = await SearchCatalogSupport.collections(
+                index: workCoordinator.catalogIndex, query: query, albums: albumsSnapshot, artists: artistsSnapshot,
+                relatedAlbums: output.albumResults, catalog: collectionCatalog
             )
             guard !Task.isCancelled, myGen == workCoordinator.generation else { return }
             keywordAlbums = expandedCatalog.albums
@@ -5359,7 +5354,7 @@ struct SearchView: View {
         )
         if key != workCoordinator.folderKey || workCoordinator.folderTask == nil {
             workCoordinator.folderTask?.cancel()
-            let songs = library.musicSongs
+            let songs = library.isReady ? library.musicSongs : []
             let providers = sources.map { source in
                 SearchFolderProviderInput(
                     descriptor: LibraryFolderSourceDescriptor(source: source),
@@ -5698,58 +5693,3 @@ private extension View {
         #endif
     }
 }
-
-#if os(macOS)
-struct MacSearchFlowLayout: Layout {
-    var spacing: CGFloat = 8
-    var rowSpacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? 480
-        let rows = rows(in: maxWidth, subviews: subviews)
-        return CGSize(width: maxWidth, height: rows.height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX
-        var y = bounds.minY
-        var lineHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > bounds.minX, x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += lineHeight + rowSpacing
-                lineHeight = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-        }
-    }
-
-    private func rows(in maxWidth: CGFloat, subviews: Subviews) -> (height: CGFloat, count: Int) {
-        guard subviews.isEmpty == false else { return (0, 0) }
-
-        var x: CGFloat = 0
-        var height: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var count = 1
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > maxWidth {
-                height += lineHeight + rowSpacing
-                x = 0
-                lineHeight = 0
-                count += 1
-            }
-            x += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-        }
-
-        height += lineHeight
-        return (height, count)
-    }
-}
-#endif
