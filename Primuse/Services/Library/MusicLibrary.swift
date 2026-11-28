@@ -7021,16 +7021,16 @@ extension MusicLibrary {
 
     /// 前序索引工作完成后才捕获整库与代际。退出后台时取消的等待任务不应
     /// 持有旧歌曲数组，否则几次前后台切换就会留下数份整库的写时复制缓冲。
-    func prepareSearchIndexIfNeeded() async {
+    func prepareSearchIndexIfNeeded(timer: BackgroundMaintenanceTimer? = nil) async {
         // S3: 全量准备会把这份快照当成索引的全部内容, 并在结束时把 pending
         // 标记置为已完成。`.preparing` 期间 songs 还是空的, 那一次就会永久地
         // 把搜索索引标成"已经准备好的空索引"。标记留着, 下一次机会再跑。
         guard isReady else {
             // 歌曲模型放掉了(或者启动时没装):没有欠着的准备就什么都不做;欠着(上次准备到一半被杀)才拿占用装回来做。
-            guard songModelLoadsOnDemand, LibrarySearchIndex.hasPendingPreparation(defaults: searchIndexDefaults) else { return }
-            let hold = await holdSongModel(.launchMaintenance)
+            // DL5:进后台排上的计时挂起之后才到点时先等场景切换,占用之前记一行(`MusicLibrary+LaunchMaintenance`)。
+            guard songModelLoadsOnDemand,
+                  let hold = await holdSongModelForOwedSearchIndexPreparation(timer: timer, defaults: searchIndexDefaults) else { return }
             defer { hold.end() }
-            guard isReady, !Task.isCancelled else { return }
             await prepareSearchIndexIfNeeded()
             return
         }
@@ -15051,27 +15051,25 @@ extension MusicLibrary {
         // 先于本机扫描到达时靠的就是这一步。每条只查一次表,不扫整库;以前要等切到后台才点亮。
         let exactIDOnly = !allowsPendingIdentityFlush
         pendingIdentityFlushTask?.cancel()
-        pendingIdentityFlushTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: delay)
-            } catch {
-                return
-            }
-            guard let self, !Task.isCancelled else { return }
+        pendingIdentityFlushTask = Task { @MainActor [weak self, timer = BackgroundMaintenanceTimer(delay: delay)] in
+            guard (try? await Task.sleep(for: timer.delay)) != nil, let self, !Task.isCancelled else { return }
             self.pendingIdentityFlushTask = nil
             if self.isDeferringSceneTransitionPublications {
                 self.schedulePendingIdentityFlush(after: .seconds(10))
                 return
             }
             // 歌曲模型不在内存里:匹配要整库的表,只在还有待认领的身份时拿占用把模型装回来。
+            // DL5:候选先问曲库目录,答得了就不装;要装而计时挂起之后才到点时过一会儿再判(`MusicLibrary+LaunchMaintenance`)。
             var hold: SongModelHold?
             if !self.isReady, self.songModelLoadsOnDemand {
                 guard self.hasPendingIdentityResolution else { return }
-                hold = await self.holdSongModel(.launchMaintenance)
-                guard !Task.isCancelled, self.isReady else {
-                    hold?.end()
-                    return
-                }
+                hold = await self.flushPendingIdentitiesOutsideTheModel(
+                    exactIDOnly: exactIDOnly && !self.allowsPendingIdentityFlush, timer: timer,
+                    identities: { self.pendingHistoryIdentities.map(\.identity) + self.pendingPlaylistIdentities.values.joined().map(\.identity) },
+                    flush: { if self.flushPendingIdentities(exactIDOnly: $0) { self.persistSnapshot() } },
+                    reschedule: { if self.allowsPendingIdentityFlush { self.schedulePendingIdentityFlush(after: $0) } }
+                )
+                guard hold != nil else { return }
             }
             defer { hold?.end() }
             if self.flushPendingIdentities(exactIDOnly: exactIDOnly && !self.allowsPendingIdentityFlush) {

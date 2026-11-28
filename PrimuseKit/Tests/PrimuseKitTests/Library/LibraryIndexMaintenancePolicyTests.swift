@@ -168,6 +168,24 @@ struct LibraryIndexMaintenancePolicyTests {
         ))
     }
 
+    @Test("a background maintenance timer counts as suspended only when it fires seconds late")
+    func suspendedTimerFiresLate() {
+        let armed = ContinuousClock.now
+        let delay: Duration = .seconds(8)
+        func fired(after elapsed: Duration) -> Bool {
+            LibraryIndexMaintenancePolicy.timerFiredAfterSuspension(armedAt: armed, delay: delay, now: armed + elapsed)
+        }
+        // On time, or delayed by a busy main actor.
+        #expect(!fired(after: .seconds(8)))
+        #expect(!fired(after: .milliseconds(8_400)))
+        #expect(!fired(after: delay + LibraryIndexMaintenancePolicy.suspendedTimerLateness))
+        // Past the lateness: the process was frozen in between (device run 6 resumed after about 150 s).
+        #expect(fired(after: delay + LibraryIndexMaintenancePolicy.suspendedTimerLateness + .milliseconds(1)))
+        #expect(fired(after: .seconds(150)))
+        // The grace outlasts the scene transition that follows a resume (39 ms on the device).
+        #expect(LibraryIndexMaintenancePolicy.suspendedTimerResumeGrace > .milliseconds(500))
+    }
+
     @Test("preparation generations advance by one and wrap past Int.max")
     func preparationGenerationWrapsAtIntMax() {
         #expect(LibraryIndexMaintenancePolicy.nextPreparationGeneration(current: 0) == 1)

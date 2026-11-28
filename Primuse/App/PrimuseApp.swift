@@ -1322,14 +1322,14 @@ final class BackgroundLibraryMaintenanceCoordinator {
     func sceneDidEnterBackground(library: MusicLibrary) {
         cancelMaintenance()
         if LibrarySearchIndex.hasPendingPreparation {
-            searchIndexTask = Task(priority: .utility) { @MainActor [weak library] in
+            searchIndexTask = Task(priority: .utility) { @MainActor [weak library, timer = MusicLibrary.BackgroundMaintenanceTimer(delay: .seconds(3))] in
                 do {
-                    try await Task.sleep(for: .seconds(3))
+                    try await Task.sleep(for: timer.delay)
                 } catch {
                     return
                 }
                 guard !Task.isCancelled, let library else { return }
-                await library.prepareSearchIndexIfNeeded()
+                await library.prepareSearchIndexIfNeeded(timer: timer)
             }
         }
         if ScheduledFileMaintenance.isDue() {

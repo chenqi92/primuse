@@ -100,6 +100,31 @@ public enum LibraryIndexMaintenancePolicy {
         if completedGeneration == .max { return firstPendingGeneration == 1 }
         return firstPendingGeneration == completedGeneration + 1
     }
+
+    /// Maintenance armed when the scene enters the background runs a few
+    /// seconds after the scene settles. When iOS suspends the process before
+    /// that, the timer is already overdue when the process resumes and fires
+    /// first — usually because the user is returning, tens of milliseconds
+    /// before the scene transition could cancel it. A timer this much later
+    /// than its delay was suspended in between; an idle or busy main actor
+    /// delays a timer by milliseconds, not seconds.
+    public static let suspendedTimerLateness: Duration = .seconds(2)
+
+    /// How long work that would load a whole-library model waits after such a
+    /// late fire. A return to the foreground delivers the scene transition
+    /// (and its cancellation) well within it — 39 ms after the resume on the
+    /// device; a background wake has nobody to cancel, so the work proceeds.
+    public static let suspendedTimerResumeGrace: Duration = .seconds(3)
+
+    /// Whether a timer armed at `armedAt` for `delay` fired after the process
+    /// had been suspended in between.
+    public static func timerFiredAfterSuspension(
+        armedAt: ContinuousClock.Instant,
+        delay: Duration,
+        now: ContinuousClock.Instant
+    ) -> Bool {
+        now - armedAt > delay + suspendedTimerLateness
+    }
 }
 
 /// Serial, restartable work which must not extend a catalogue scan's lifetime.

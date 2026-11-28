@@ -328,6 +328,7 @@ final class SongTagEditStore {
             plog("🏷️ tag edits: nothing to record or apply at launch; the song model stays released")
             return .nothingToDo
         }
+        MusicLibrary.noteLaunchMaintenanceHold(.tagEdits, reason: "edited rows to record or apply at launch")
         let hold = await library.holdSongModel(.launchMaintenance)
         defer { hold.end() }
         guard library.isReady else { return .deferred }
