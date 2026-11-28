@@ -20,7 +20,8 @@ enum ServerPlaylistSyncService {
         source: MusicSource,
         sourceManager: SourceManager,
         library: MusicLibrary,
-        applyFence: ServerMirrorApplyFence = { true }
+        applyFence: ServerMirrorApplyFence = { true },
+        songModel: ServerMirrorSongModelAccess? = nil
     ) async -> SyncResult {
         var result = SyncResult()
         guard source.type.isServerLibrary else { return result }
@@ -59,7 +60,7 @@ enum ServerPlaylistSyncService {
             return result
         }
         // 对照在主线程外算; 算的这一会儿源可能被停用或被新一轮扫描接手, 回来再过一次闸。
-        let prepared = await ServerPlaylistMirror.prepareOffMain(
+        var prepared = await ServerPlaylistMirror.prepareOffMain(
             snapshot: snapshot,
             source: source,
             library: library
@@ -72,7 +73,21 @@ enum ServerPlaylistSyncService {
         }
         // 对照是对着曲库算的,落地也要对着曲库改:算的时候、落的这一刻曲库都得在内存里(或者目录读得了)。
         // 不在就不落 —— 落下去是把歌单成员换成占位、把镜像歌单删掉。下一轮同步再来。
-        guard prepared.isMatched, library.isReady else {
+        // AM-a: 歌曲模型放掉之后对照由目录算,落地走小状态那条路(一模一样的一份什么都不写、不装模型);
+        // 小状态此刻落不了(前面排着要模型的突变等)时才占用模型,装好之后对着它重算对照再落。
+        if !library.isReady, !library.appliesSmallStateWithoutTheModel, let songModel {
+            await songModel.acquire()
+            guard !Task.isCancelled, applyFence(), library.isReady else {
+                plog("\(context) stage=apply result=skipped reason=library-not-ready")
+                return result
+            }
+            prepared = await ServerPlaylistMirror.prepareOffMain(snapshot: snapshot, source: source, library: library)
+            guard !Task.isCancelled, applyFence() else {
+                plog("\(context) stage=apply result=skipped reason=stale-scan")
+                return result
+            }
+        }
+        guard prepared.isMatched, library.isReady || library.appliesSmallStateWithoutTheModel else {
             plog("\(context) stage=apply result=skipped reason=library-not-ready")
             return result
         }
@@ -538,6 +553,11 @@ protocol ServerFavoriteLibraryManaging: AnyObject {
     var songs: [Song] { get }
     /// `songs` 与「喜欢」此刻是不是整座曲库的样子(歌曲模型在内存里)。不是的时候两者都是空的。
     var isLibraryLoaded: Bool { get }
+    /// 歌曲模型不在内存里,而对照与落地都能走曲库目录与小状态那条路(AM-a):对照读目录,「喜欢」的成员在哪个源上
+    /// 由目录答,只动小状态的落地当场做,要 `addSongs` 的照旧排队等模型。
+    var reconcilesFavoritesWithoutTheSongModel: Bool { get }
+    /// 曲库排着要模型的突变(落地途中排进去了的话,后面那几步要等模型)。
+    var hasQueuedMutations: Bool { get }
     func isLiked(songID: String) -> Bool
     func likedSongIDs(fromSourceID sourceID: String) -> [String]
     func setLiked(songID: String, isLiked: Bool, propagatesServerMutation: Bool)
@@ -549,6 +569,8 @@ protocol ServerFavoriteLibraryManaging: AnyObject {
 
 extension ServerFavoriteLibraryManaging {
     var isLibraryLoaded: Bool { true }
+    var reconcilesFavoritesWithoutTheSongModel: Bool { false }
+    var hasQueuedMutations: Bool { false }
     func likedSongIDs(fromSourceID sourceID: String) -> [String] {
         Array(songs.lazy.filter { $0.sourceID == sourceID && self.isLiked(songID: $0.id) }.map(\.id))
     }
@@ -558,6 +580,9 @@ extension ServerFavoriteLibraryManaging {
 
 extension MusicLibrary: ServerFavoriteLibraryManaging {
     var isLibraryLoaded: Bool { isReady }
+    var reconcilesFavoritesWithoutTheSongModel: Bool {
+        !isReady && appliesSmallStateWithoutTheModel && P2cCatalogAccess.reader(for: self) != nil
+    }
 }
 
 @MainActor
@@ -677,7 +702,8 @@ final class ServerFavoriteSyncService {
 
     func refresh(
         source: MusicSource,
-        applyFence: ServerMirrorApplyFence = { true }
+        applyFence: ServerMirrorApplyFence = { true },
+        songModel: ServerMirrorSongModelAccess? = nil
     ) async {
         guard ServerFavoriteWritebackPolicy.supports(source.type),
               source.isEnabled, !source.isDeleted else { return }
@@ -697,7 +723,7 @@ final class ServerFavoriteSyncService {
                       expectedFingerprint: sourceScopeFingerprint
                   ),
                   mutationRevisions[source.id, default: 0] == mutationRevision else { return }
-            guard await reconcile(snapshot, sourceID: source.id, sourceType: source.type, applyFence: {
+            guard await reconcile(snapshot, sourceID: source.id, sourceType: source.type, songModel: songModel, applyFence: {
                 applyFence() && self.mutationTasks[source.id] == nil
                     && self.sourceScopeIsCurrent(sourceID: source.id, expectedFingerprint: sourceScopeFingerprint)
                     && self.mutationRevisions[source.id, default: 0] == mutationRevision
@@ -892,10 +918,15 @@ final class ServerFavoriteSyncService {
         _ snapshot: ServerFavoriteSnapshot,
         sourceID: String,
         sourceType: MusicSourceType,
+        songModel: ServerMirrorSongModelAccess? = nil,
         applyFence: () -> Bool
     ) async -> Bool {
         // 曲库没装好时服务器的收藏一首都对不上本机的歌,对出来的「空」不能当成「都取消了」。
-        guard library.isLibraryLoaded else { return false }
+        // AM-a: 歌曲模型放掉之后对照读目录、落地走小状态,不装模型;那条路此刻走不通时才占用模型(网络已经读完)。
+        if !library.isLibraryLoaded, !library.reconcilesFavoritesWithoutTheSongModel {
+            await songModel?.acquire()
+        }
+        guard library.isLibraryLoaded || library.reconcilesFavoritesWithoutTheSongModel else { return false }
         // 曲库里没有的收藏(插件的在线收藏)先作为仅歌单的歌入库, 下面才对得上号。
         let admitted = snapshot.itemIDs.compactMap { snapshot.playableSongs[$0] }
         library.admitCollectionOnlySongs(
@@ -903,6 +934,11 @@ final class ServerFavoriteSyncService {
             sourceID: sourceID,
             indexMaintenance: .immediate
         )
+        // 模型不在内存里而刚才有新歌要入库(排了队):后面「这个源喜欢了哪些」要对着装好的库答,先占用模型。
+        if !library.isLibraryLoaded, library.hasQueuedMutations {
+            await songModel?.acquire()
+            guard library.isLibraryLoaded else { return false }
+        }
         if let musicLibrary = library as? MusicLibrary, let reader = P2cCatalogAccess.reader(for: musicLibrary) {
             // 曲库目录可读时(P2c)只读这个源的身份投影。刚入库的仅歌单歌目录可能还没跟上,
             // 它们排在库尾,按同一规则补在目录结果后面(先到的算数不变)。
@@ -950,7 +986,8 @@ final class ServerFavoriteSyncService {
 
     private func applyReconciled(_ snapshot: ServerFavoriteSnapshot, sourceID: String, serverLikes: [String]) -> Bool {
         // 曲库没装好时「这个源现在喜欢了哪些」读出来是空的:照着落地,排队重放时就是把这个源的喜欢清掉。
-        guard library.isLibraryLoaded else { return false }
+        // 歌曲模型放掉之后(AM-a)由目录答,小状态当场写。
+        guard library.isLibraryLoaded || library.reconcilesFavoritesWithoutTheSongModel else { return false }
         let currentLikes = library.likedSongIDs(fromSourceID: sourceID)
         let likedBefore = Set(currentLikes)
         // 清单不完整时只加不撤：被跳过的那几条里可能就有本机已喜欢的歌。
@@ -1091,6 +1128,29 @@ final class ServerFavoriteSyncService {
     }
 }
 
+/// 一轮服务端镜像刷新用到歌曲模型时才占用(AM-a):网络先读,落地要整库数组、而模型不在内存里、目录这条路又
+/// 落不了时才装回来;一轮里最多占用一次,这一轮做完放手。以前一有到期的源就先占用,网络读的那十几秒模型都在内存里。
+@MainActor
+final class ServerMirrorSongModelAccess {
+    private weak var library: MusicLibrary?
+    private var hold: MusicLibrary.SongModelHold?
+
+    init(library: MusicLibrary?) {
+        self.library = library
+    }
+
+    /// 已经占着、或者模型本来就在内存里时什么都不做。
+    func acquire() async {
+        guard hold == nil, let library, !library.isReady else { return }
+        hold = await library.holdSongModel(.scan)
+    }
+
+    func end() {
+        hold?.end()
+        hold = nil
+    }
+}
+
 /// 把服务端镜像(歌单 /「喜欢」/ 电台)的刷新从曲库扫描里拆出来。
 ///
 /// 这三样原本只在 `ScanService` 的扫描收尾里跑, 而扫描只在曲库真的变了、目录探针
@@ -1111,7 +1171,7 @@ final class ServerMirrorRefreshCoordinator {
     private let sourceManager: SourceManager
     private let library: MusicLibrary
     private let scanService: ScanService
-    private let refreshMirrors: (MusicSource, ServerMirrorApplyFence) async -> Void
+    private let refreshMirrors: (MusicSource, @escaping ServerMirrorApplyFence, ServerMirrorSongModelAccess) async -> Void
 
     /// 发起时间, 不是成功时间: 连不上的服务器也要按冷却退避, 否则每次切回前台
     /// 都要在超时上等一轮。
@@ -1125,7 +1185,7 @@ final class ServerMirrorRefreshCoordinator {
         library: MusicLibrary,
         scanService: ScanService,
         launchDelay: Duration = .seconds(6),
-        refreshMirrors: @escaping (MusicSource, ServerMirrorApplyFence) async -> Void
+        refreshMirrors: @escaping (MusicSource, @escaping ServerMirrorApplyFence, ServerMirrorSongModelAccess) async -> Void
     ) {
         self.sourcesStore = sourcesStore
         self.sourceManager = sourceManager
@@ -1158,16 +1218,17 @@ final class ServerMirrorRefreshCoordinator {
             defer { self.runningTask = nil }
             guard !Task.isCancelled else { return }
             // 库还在准备时 `library.songs` 是空的, 服务端歌单会被整份判成
-            // "一首都对不上"而不建 —— 等发布完再对。6c: 有到期的源才占用歌曲模型(被放掉了就请它装回来),
-            // 对完放手;一个到期的都没有就不为它装模型。
+            // "一首都对不上"而不建 —— 等发布完再对。AM-a: 歌曲模型不在内存里时不先占用:各步读完网络、
+            // 落地真要整库数组时才经 `songModel` 占用(被放掉了就装回来),这一轮做完放手。
             guard self.sourcesStore.sources.contains(where: { self.isDue($0, now: Date()) }) else { return }
-            let hold = await self.library.holdSongModel(.scan)
-            defer { hold.end() }
-            await self.refreshDueSources()
+            if !self.library.isUsable { await self.library.whenUsable() }
+            let songModel = ServerMirrorSongModelAccess(library: self.library)
+            defer { songModel.end() }
+            await self.refreshDueSources(songModel: songModel)
         }
     }
 
-    private func refreshDueSources() async {
+    private func refreshDueSources(songModel: ServerMirrorSongModelAccess) async {
         for source in sourcesStore.sources {
             guard !Task.isCancelled else { return }
             guard isDue(source, now: Date()) else { continue }
@@ -1192,7 +1253,7 @@ final class ServerMirrorRefreshCoordinator {
                 return true
             }
             guard applyFence() else { continue }
-            await refreshMirrors(source, applyFence)
+            await refreshMirrors(source, applyFence, songModel)
         }
     }
 

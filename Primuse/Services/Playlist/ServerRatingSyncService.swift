@@ -331,6 +331,12 @@ final class ServerRatingSyncService {
         if changed { persist() }
     }
 
+    /// `resume(sourceID:)` 此刻有没有要做的(AM-a):还没迁移过本机原有的评分,或者这个源有记着的评分条目。
+    /// 没有时 `resume` 什么都不改,刷新那一轮不为它占用歌曲模型。
+    func hasWorkToResume(sourceID: String) -> Bool {
+        !migratedExistingRatings || entries.values.contains { $0.target.sourceID == sourceID }
+    }
+
     func resume(sourceID: String? = nil) {
         guard library.readiness == .ready, !library.isExternalSnapshotWriteOwned else { return }
         // Acknowledgement can precede the debounced library snapshot. Keep

@@ -1768,21 +1768,29 @@ final class AppServices {
                 [weak manager, weak library, weak favoriteSync, weak ratingSync, weak radioStore, weak collectionFavoriteSync,
                  weak bookFavoriteSync]
                 source,
-                applyFence in
+                applyFence,
+                songModel in
                 guard let manager, let library else { return }
+                // AM-a: 歌曲模型不在内存里时各步先读网络;落地真要整库数组时才经 `songModel` 占用(一轮最多一次)。
                 await ServerPlaylistSyncService.sync(
                     source: source,
                     sourceManager: manager,
                     library: library,
-                    applyFence: applyFence
+                    applyFence: applyFence,
+                    songModel: songModel
                 )
                 guard applyFence() else { return }
-                await favoriteSync?.refresh(source: source, applyFence: applyFence)
+                await favoriteSync?.refresh(source: source, applyFence: applyFence, songModel: songModel)
                 guard applyFence() else { return }
+                // 专辑 / 艺人收藏与有声书收藏的对照还读整库数组:支持它们的源照旧先占用。
+                if source.type.supportsServerCollectionFavorites { await songModel.acquire() }
                 await collectionFavoriteSync?.refresh(source: source, applyFence: applyFence)
                 guard applyFence() else { return }
+                if ServerBookFavoriteSyncService.supports(source.type) { await songModel.acquire() }
                 await bookFavoriteSync?.refresh(source: source, applyFence: applyFence)
                 guard applyFence() else { return }
+                // 评分的续传要发布后的曲库;有要续的才占用。
+                if ratingSync?.hasWorkToResume(sourceID: source.id) == true { await songModel.acquire() }
                 ratingSync?.resume(sourceID: source.id)
                 guard let radioStore, applyFence() else { return }
                 await ServerRadioSyncService.sync(

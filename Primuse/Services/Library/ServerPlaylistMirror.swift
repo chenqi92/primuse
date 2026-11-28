@@ -270,9 +270,10 @@ enum ServerPlaylistMirror {
         readRevision: UInt64? = nil
     ) -> SyncResult {
         var result = SyncResult()
-        // 落地对着曲库改歌单:歌曲模型不在内存里时不落。这时的对照是对着空的歌曲表算的(成员全是占位),
-        // 没出现在快照里的镜像歌单还会被删;发布之前这些改动是排着队的,装好之后照样重放。
-        guard library.isReady, prepared.isMatched else { return result }
+        // 落地对着曲库改歌单:歌曲模型不在内存里、小状态也落不了时不落。对照是对着空的歌曲表算的时候(成员全是占位)
+        // `isMatched` 为 false,不落;放掉之后对照由目录算,落地经的那几个入口都走小状态那条路(AM-a),
+        // 要 `addSongs` 的(新的仅歌单歌曲)照旧排队等模型,后面的跟着排,先后不变。
+        guard library.isReady || library.appliesSmallStateWithoutTheModel, prepared.isMatched else { return result }
         let context = logContext(sourceID: source.id, sourceType: source.type)
         let prefix = ServerPlaylistIdentity.playlistIDPrefix(sourceID: source.id)
         let previousIDs = Set(library.allPlaylists.filter { $0.id.hasPrefix(prefix) }.map(\.id))

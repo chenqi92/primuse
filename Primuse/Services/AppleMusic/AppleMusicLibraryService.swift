@@ -1843,7 +1843,17 @@ extension AppleMusicLibraryService {
             // 先在后台算好, 上万首的资料库同步时主线程上只剩合并。
             let prepared = await library.prepareIncomingSongsOffMain(songs + playlistOnlySongs)
             guard syncGeneration == generation, !Task.isCancelled else { return }
-            commitLibrarySongs(prepared, librarySongIDs: songs.map(\.id), syncMode: fetchResult.syncMode)
+            // AM-a: 歌曲模型不在内存里时先与曲库目录比, 一首都没变就不交给 `addSongs`(它会排队、把模型装回来)。
+            let unchanged = await library.prepareUnchangedIncomingSongs(
+                prepared,
+                affectedSourceIDs: [Self.systemSourceID],
+                pruneMissingSongs: fetchResult.syncMode.shouldPruneMissingSongs,
+                mergeServerCatalogRows: false
+            )
+            guard syncGeneration == generation, !Task.isCancelled else { return }
+            commitLibrarySongs(
+                prepared, librarySongIDs: songs.map(\.id), syncMode: fetchResult.syncMode, unchanged: unchanged
+            )
             if let restrictions {
                 applyPlaybackRestrictions(restrictions, librarySongIDs: librarySongIDs)
             }
@@ -1892,19 +1902,30 @@ extension AppleMusicLibraryService {
         }
     }
 
+    /// `unchanged`:歌曲模型不在内存里时比过、一首都没变的凭据(`prepareUnchangedIncomingSongs`)。落地这一刻
+    /// 还作数就不调 `addSongs`,只做它对一首不改的整源也会做的那几步;不作数(或没有)照旧 `addSongs`。
     func commitLibrarySongs(
         _ prepared: MusicLibrary.PreparedIncomingSongs,
         librarySongIDs: [String],
-        syncMode: AppleMusicLibrarySyncMode
+        syncMode: AppleMusicLibrarySyncMode,
+        unchanged: MusicLibrary.UnchangedIncomingSongs? = nil
     ) {
-        library.addSongs(
-            prepared,
-            affectedSourceIDs: [Self.systemSourceID],
-            notifyRemovals: syncMode.shouldPruneMissingSongs,
-            pruneMissingSongs: syncMode.shouldPruneMissingSongs,
-            mergeServerCatalogRows: false,
-            indexMaintenance: .immediate
-        )
+        if let unchanged, library.incomingSongsAreUnchanged(unchanged) {
+            library.noteUnchangedIncomingSongs(
+                affectedSourceIDs: [Self.systemSourceID],
+                notifyRemovals: syncMode.shouldPruneMissingSongs,
+                pruneMissingSongs: syncMode.shouldPruneMissingSongs
+            )
+        } else {
+            library.addSongs(
+                prepared,
+                affectedSourceIDs: [Self.systemSourceID],
+                notifyRemovals: syncMode.shouldPruneMissingSongs,
+                pruneMissingSongs: syncMode.shouldPruneMissingSongs,
+                mergeServerCatalogRows: false,
+                indexMaintenance: .immediate
+            )
+        }
         library.ensurePlaylist(
             id: Self.systemPlaylistID,
             name: String(localized: "apple_music_library_playlist_name")

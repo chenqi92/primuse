@@ -111,7 +111,7 @@ final class LibraryStartupHarnessTests: XCTestCase {
         let coordinator = ServerMirrorRefreshCoordinator(
             sourcesStore: store, sourceManager: manager, library: library, scanService: scanner,
             launchDelay: .zero
-        ) { _, fence in
+        ) { _, fence, _ in
             attempts += 1
             completedFence = fence()
         }

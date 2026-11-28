@@ -4680,6 +4680,211 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         assertNoLoadAndNoArrayRead(released, since: again, "the same tag edit again")
     }
 
+    // MARK: AM-a — launch writers without a load when nothing changes
+
+    /// Apple Music 资料库里的歌(一首有补读来的歌词,一首用户改过标题)。
+    private func appleMusicFixture(_ prefix: String) -> (stored: [Song], fetched: [Song]) {
+        let source = AppleMusicLibraryService.systemSourceID
+        let fetched = (1...6).map { n -> Song in
+            var song = Song(
+                id: "\(prefix)-am-\(n)", title: "AM \(n)", albumTitle: "AM Album", artistName: "AM Artist",
+                trackNumber: n, duration: 200 + Double(n), fileFormat: .aac, filePath: "\(prefix)-item-\(n)",
+                sourceID: source
+            )
+            song.dateAdded = Date(timeIntervalSince1970: 1_700_100_000 + Double(n))
+            return song
+        }
+        var stored = fetched
+        stored[1].lyricsText = "la la la"
+        stored[2].title = "Edited by me"
+        stored[2].userMetadataEditedAt = Date(timeIntervalSince1970: 1_700_200_000)
+        return (stored, fetched)
+    }
+
+    /// AM-a:模型不在内存里时「这一整源交来的歌改不改东西」与模型在内存里时 `addSongs` 落地的结果逐个情形相同:
+    /// 原样的一份(补读来的歌词、用户改过的标题都按 `addSongs` 的规则留着)判不改;改了标题、少了一首、多了一首判改。
+    /// 判的时候不装模型、不读整库数组。
+    func testUnchangedIncomingSongsAreJudgedLikeAddSongs() async throws {
+        let songs = Self.fixture(prefix: "ama")
+        let (stored, fetched) = appleMusicFixture("ama")
+        let source = AppleMusicLibraryService.systemSourceID
+        let released = try makeLaunchedTwin("ama-released", songs: songs, extra: stored).library
+        await assertShadowMatches(released, "released")
+        let before = try await releaseForReal(released)
+        var retitled = fetched
+        retitled[3].title = "AM 4 (remastered)"
+        var extra = fetched[5]
+        extra.id = "ama-am-7"
+        extra.filePath = "ama-item-7"
+        let cases: [(String, [Song])] = [
+            ("same", fetched), ("retitled", retitled), ("missing", Array(fetched.dropLast())), ("new", fetched + [extra]),
+        ]
+        for (name, incoming) in cases {
+            let prepared = await released.prepareIncomingSongsOffMain(incoming)
+            let unchanged = await released.prepareUnchangedIncomingSongs(
+                prepared, affectedSourceIDs: [source], pruneMissingSongs: true, mergeServerCatalogRows: false
+            )
+            let loaded = try makeLaunchedTwin("ama-loaded-\(name)", songs: songs, extra: stored).library
+            await assertShadowMatches(loaded, "loaded \(name)")
+            loaded.persistedSongChangeSetsForTesting = []
+            loaded.addSongs(
+                await loaded.prepareIncomingSongsOffMain(incoming), affectedSourceIDs: [source], notifyRemovals: true,
+                pruneMissingSongs: true, mergeServerCatalogRows: false, indexMaintenance: .immediate
+            )
+            let loadedChanged = !(loaded.persistedSongChangeSetsForTesting ?? []).isEmpty
+            XCTAssertEqual(unchanged == nil, loadedChanged, "\(name): judged as addSongs lands it")
+            XCTAssertEqual(loadedChanged, name != "same", name)
+            if let unchanged { XCTAssertTrue(released.incomingSongsAreUnchanged(unchanged), name) }
+        }
+        assertNoLoadAndNoArrayRead(released, since: before, "judging the batches")
+    }
+
+    /// AM-a:模型不在内存里收到一次原样的 Apple Music 刷新(与这一次启动在手机上的那八次写同一串:资料库全集、
+    /// 两个用户歌单镜像、按前缀清歌单):一次也不排队、不占用、不装、不读整库数组,镜像与曲库都没动。
+    func testAnUnchangedAppleMusicRefreshWhileReleasedQueuesNothing() async throws {
+        let songs = Self.fixture(prefix: "amr")
+        let (stored, fetched) = appleMusicFixture("amr")
+        let source = AppleMusicLibraryService.systemSourceID
+        let library = try makeLaunchedTwin("amr", songs: songs, extra: stored).library
+        let userA = AppleMusicLibraryService.userPlaylistIDPrefix + "a"
+        let userB = AppleMusicLibraryService.userPlaylistIDPrefix + "b"
+        let staleUser = AppleMusicLibraryService.userPlaylistIDPrefix + "gone"
+        func writeMirrors(_ library: MusicLibrary) {
+            library.ensurePlaylist(id: AppleMusicLibraryService.systemPlaylistID, name: "Apple Music")
+            library.replaceMirrorPlaylistSongs(
+                playlistID: AppleMusicLibraryService.systemPlaylistID, songIDs: fetched.map(\.id), coverArtPath: nil
+            )
+            library.ensurePlaylist(id: userA, name: "Loved")
+            library.replaceMirrorPlaylistSongs(playlistID: userA, songIDs: [fetched[0].id, fetched[2].id], coverArtPath: "cover-a")
+            library.ensurePlaylist(id: userB, name: "Road")
+            library.replaceMirrorPlaylistSongs(playlistID: userB, songIDs: [fetched[4].id], coverArtPath: nil)
+            library.prunePlaylists(withIDPrefix: AppleMusicLibraryService.userPlaylistIDPrefix, keepingIDs: [userA, userB])
+        }
+        library.ensurePlaylist(id: staleUser, name: "Gone")
+        writeMirrors(library)
+        XCTAssertNil(library.playlist(id: staleUser), "the stale user mirror is pruned while loaded")
+        await assertShadowMatches(library, "fixture")
+        func mirrors() -> [String] {
+            [AppleMusicLibraryService.systemPlaylistID, userA, userB].map { id in
+                "\(id) \(library.playlist(id: id)?.name ?? "-") \(library.rawSongIDs(forPlaylist: id))"
+            }
+        }
+        let mirrorsBefore = mirrors()
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(library)
+        library.persistedSongChangeSetsForTesting = []
+
+        let prepared = await library.prepareIncomingSongsOffMain(fetched)
+        let judged = await library.prepareUnchangedIncomingSongs(
+            prepared, affectedSourceIDs: [source], pruneMissingSongs: true, mergeServerCatalogRows: false
+        )
+        let unchanged = try XCTUnwrap(judged, "the same library: unchanged")
+        XCTAssertTrue(library.incomingSongsAreUnchanged(unchanged))
+        library.noteUnchangedIncomingSongs(affectedSourceIDs: [source], notifyRemovals: true, pruneMissingSongs: true)
+        writeMirrors(library)
+        XCTAssertEqual(library.deferredMutationCountForTesting, 0, "nothing queued")
+        XCTAssertEqual(songModelHolds(of: library), [], "no hold")
+        assertNoLoadAndNoArrayRead(library, since: before, "an unchanged Apple Music refresh")
+        XCTAssertTrue((library.persistedSongChangeSetsForTesting ?? []).isEmpty, "no row written")
+        XCTAssertEqual(mirrors(), mirrorsBefore, "the mirrors are as they were")
+
+        // 镜像真的变了(用户歌单换了一首):走小状态那条路当场改,仍不装模型;与模型在内存里的结果相同。
+        library.replaceMirrorPlaylistSongs(playlistID: userB, songIDs: [fetched[4].id, fetched[5].id], coverArtPath: nil)
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: userB), [fetched[4].id, fetched[5].id])
+        XCTAssertEqual(library.deferredMutationCountForTesting, 0)
+        assertNoLoadAndNoArrayRead(library, since: before, "a changed user mirror")
+    }
+
+    /// AM-a:服务器歌单镜像在模型放掉之后由目录对照、走小状态落地:同一份快照什么都不写、不排队、不装;
+    /// 换了先后又多了一张歌单的快照落下来,与模型在内存里的那一台相同,也不装。
+    func testServerPlaylistMirrorAppliesFromTheCatalogWhileReleased() async throws {
+        let songs = Self.fixture(prefix: "amm")
+        let source = MusicSource(id: "amm-fn", name: "Feiniu", type: .fnMusic)
+        let server = ["one", "two", "three"].map {
+            Song(id: "amm-\($0)", title: $0.capitalized, duration: 200, fileFormat: .flac,
+                 filePath: "/fnmusic/tracks/\($0).flac", sourceID: source.id)
+        }
+        let loaded = try makeLaunchedTwin("amm-loaded", songs: songs, extra: server).library
+        let released = try makeLaunchedTwin("amm-released", songs: songs, extra: server).library
+        let first = ServerPlaylistSnapshot(playlists: [
+            ServerPlaylist(id: "mix", name: "Mix", trackIDs: ["one", "two"], reportedTrackCount: 2),
+        ])
+        let second = ServerPlaylistSnapshot(playlists: [
+            ServerPlaylist(id: "mix", name: "Mix", trackIDs: ["two", "one", "three"], reportedTrackCount: 3),
+            ServerPlaylist(id: "new", name: "New", trackIDs: ["three"], reportedTrackCount: 1),
+        ])
+        for library in [loaded, released] {
+            _ = ServerPlaylistMirror.apply(snapshot: first, source: source, library: library)
+        }
+        await assertShadowMatches(loaded, "loaded")
+        await assertShadowMatches(released, "released")
+        func mirrors(_ library: MusicLibrary) -> [String] {
+            ["mix", "new"].map { id in
+                let localID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: id)
+                return "\(id) \(library.playlist(id: localID)?.name ?? "-") \(library.rawSongIDs(forPlaylist: localID))"
+            }
+        }
+        let mirrorsBefore = mirrors(released)
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(released)
+
+        let same = await ServerPlaylistMirror.prepareOffMain(snapshot: first, source: source, library: released)
+        _ = ServerPlaylistMirror.apply(same, snapshot: first, source: source, library: released)
+        XCTAssertEqual(mirrors(released), mirrorsBefore, "the same snapshot changes nothing")
+        XCTAssertEqual(released.deferredMutationCountForTesting, 0, "nothing queued")
+        assertNoLoadAndNoArrayRead(released, since: before, "the same server playlists")
+
+        _ = ServerPlaylistMirror.apply(snapshot: second, source: source, library: loaded)
+        let changed = await ServerPlaylistMirror.prepareOffMain(snapshot: second, source: source, library: released)
+        _ = ServerPlaylistMirror.apply(changed, snapshot: second, source: source, library: released)
+        XCTAssertEqual(mirrors(released), mirrors(loaded), "a changed snapshot lands as on the loaded twin")
+        XCTAssertEqual(mirrors(loaded)[0], "mix Mix \(["amm-two", "amm-one", "amm-three"])")
+        XCTAssertEqual(released.deferredMutationCountForTesting, 0)
+        XCTAssertEqual(songModelHolds(of: released), [])
+        assertNoLoadAndNoArrayRead(released, since: before, "changed server playlists")
+    }
+
+    /// AM-a:服务器那边的收藏与歌单镜像在模型放掉之后对照与落地:「这个源喜欢了哪些」由目录答、与模型在内存里相同;
+    /// 整份替换「喜欢」里这个源的成员、只入库已经在曲库里的仅歌单歌曲、没有要放掉的仅歌单歌曲,都不排队、不装。
+    /// 有新的仅歌单歌曲要入库时照旧排队等模型。
+    func testServerFavoritesApplyFromTheCatalogWhileReleased() async throws {
+        let songs = Self.fixture(prefix: "amf")
+        let loaded = try makeLaunchedTwin("amf-loaded", songs: songs).library
+        let released = try makeLaunchedTwin("amf-released", songs: songs).library
+        for library in [loaded, released] {
+            library.setLiked(songID: songs[0].id, isLiked: true, propagatesServerMutation: false)
+            library.setLiked(songID: songs[7].id, isLiked: true, propagatesServerMutation: false)
+        }
+        await assertShadowMatches(loaded, "loaded")
+        await assertShadowMatches(released, "released")
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(released)
+
+        XCTAssertEqual(released.likedSongIDs(fromSourceID: Self.sourceA), loaded.likedSongIDs(fromSourceID: Self.sourceA))
+        XCTAssertEqual(released.likedSongIDs(fromSourceID: Self.sourceB), loaded.likedSongIDs(fromSourceID: Self.sourceB))
+        let serverLikes = [songs[3].id, songs[0].id, songs[7].id]
+        for library in [loaded, released] {
+            library.replaceLikedSongs(fromSourceID: Self.sourceA, with: serverLikes)
+            library.admitCollectionOnlySongs([songs[1]], sourceID: Self.sourceA, indexMaintenance: .immediate)
+            library.releaseUnreferencedCollectionOnlySongs(sourceID: Self.sourceA)
+        }
+        XCTAssertEqual(released.rawSongIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID),
+                       loaded.rawSongIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID), "the same liked members")
+        XCTAssertEqual(released.likedSongIDs(fromSourceID: Self.sourceA), loaded.likedSongIDs(fromSourceID: Self.sourceA))
+        XCTAssertEqual(released.deferredMutationCountForTesting, 0, "nothing queued")
+        XCTAssertEqual(songModelHolds(of: released), [])
+        assertNoLoadAndNoArrayRead(released, since: before, "favorites from the catalog")
+
+        var fresh = songs[1]
+        fresh.id = "amf-playlist-only"
+        fresh.filePath = "/Music/Online/only.mp3"
+        released.admitCollectionOnlySongs([fresh], sourceID: Self.sourceA, indexMaintenance: .immediate)
+        XCTAssertEqual(released.deferredMutationCountForTesting, 1, "a new playlist-only song still waits for the model")
+    }
+
     /// CK-a 第 2 项:模型不在内存里时补读不拿空的歌曲表去比剩余数(以前在这里读一次 `songs`、记一笔数组读;
     /// 拿空表算出的「0 条」会把队列当成做完),队列状态原样留着。
     func testBackfillDoesNotCountFromAnEmptyLibraryWhileTheModelIsReleased() async throws {

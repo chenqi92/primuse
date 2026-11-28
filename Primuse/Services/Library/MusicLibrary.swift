@@ -4461,6 +4461,8 @@ final class MusicLibrary {
     /// CK-b:正在落地的这一批 iCloud 记录认成员身份用的、事先从曲库目录读好的候选(`resolvingRemoteIdentities`),
     /// 只在那一次同步落地期间有值。
     @ObservationIgnored private var activeCatalogIdentityResolution: CatalogIdentityResolution?
+    /// 歌曲模型不在内存里时排过队的突变入口(每个只记一次日志,AM-a)。
+    @ObservationIgnored private var queuedMutationEntryPointsLogged: Set<String> = []
     /// S2 例外 1: `.preparing` 期间记录下来的配置最新值, 发布后对账用。
     @ObservationIgnored private var preparingDisabledSourceIDs: Set<String>?
     @ObservationIgnored private var preparingArtistNameConfiguration: ArtistNameConfiguration?
@@ -6030,7 +6032,13 @@ extension MusicLibrary {
         guard isPreparing || sourceRemovalInProgress else { return false }
         deferredMutations.append(work)
         // 歌曲模型放掉了:排了队的突变要模型,现在就开始装回来。
-        if songModelLoadsOnDemand { requestSongModelLoad(reason: "queued \(caller)") }
+        if songModelLoadsOnDemand {
+            // 每个入口这一轮进程只记一行:装载那一行只写得出第一个排队的,后面跟着排的看这里。
+            if queuedMutationEntryPointsLogged.insert("\(caller)").inserted {
+                plog("🧠 residency queued entry=\(caller) queued=\(deferredMutations.count)")
+            }
+            requestSongModelLoad(reason: "queued \(caller)")
+        }
         return true
     }
 
@@ -7740,148 +7748,62 @@ extension MusicLibrary {
 
         let derivedIDMemo = DerivedIDMemo()
         for song in newSongs where !blockedIDs.contains(song.id) {
-            var newSong = song
-            if newSong.sourceID == AppleMusicLibraryIdentity.sourceID,
-               let index = existingIndexByID[newSong.id] {
-                let existing = mergedSongs[index]
-                newSong = SongUserMetadataPolicy.preservingUserEdits(from: existing, in: newSong)
-                newSong.lyricsFileName = existing.lyricsFileName ?? newSong.lyricsFileName
-                newSong.lyricsText = existing.lyricsText ?? newSong.lyricsText
+            let existingIndex = existingIndexByID[song.id]
+            var merge = mergeIncomingRow(
+                song,
+                existing: existingIndex.map { mergedSongs[$0] },
+                mergeServerCatalogRows: mergeServerCatalogRows,
+                derivedFieldsArePrepared: derivedFieldsArePrepared,
+                memo: derivedIDMemo
+            )
+            if merge.serverReplacedArtwork {
+                // Covers read the song-ID mirror before the reference, so
+                // it has to go before the new reference is published.
+                MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: merge.row.id)
             }
-            if mergeServerCatalogRows,
-               let idx = existingIndexByID[newSong.id] {
-                let existing = mergedSongs[idx]
-                newSong = ServerSongCatalogMergePolicy.merged(
-                    existing: existing,
-                    incoming: newSong
-                )
-                if Self.serverReplacedArtwork(from: existing, to: newSong) {
-                    // Covers read the song-ID mirror before the reference, so
-                    // it has to go before the new reference is published.
-                    MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: newSong.id)
+            guard let idx = existingIndex else {
+                incomingSongInterner.intern(&merge.row)
+                mergedSongs.append(merge.row)
+                existingIndexByID[merge.row.id] = mergedSongs.count - 1
+                recordPersistence(merge.row)
+                continue
+            }
+            let existing = mergedSongs[idx]
+            if merge.movesFile {
+                previousLocationsByID[merge.row.id] = existing
+            }
+            switch merge.change {
+            case .appended:
+                break
+            case .contentChanged:
+                incomingSongInterner.intern(&merge.row)
+                mergedSongs[idx] = merge.row
+                contentChanged.append(merge.row)
+                replacementIDs.insert(merge.row.id)
+                if existing.sourceID != merge.row.sourceID
+                    || existing.isPlayable != merge.row.isPlayable {
+                    songListSnapshotChanged = true
+                }
+                recordPersistence(merge.row)
+                continue
+            case .keptMetadata(let changed):
+                if changed {
+                    mergedSongs[idx] = merge.row
+                    recordPersistence(merge.row)
+                }
+            case .replaced(let changed):
+                if changed {
+                    incomingSongInterner.intern(&merge.row)
+                    mergedSongs[idx] = merge.row
+                    recordPersistence(merge.row)
                 }
             }
-            // 扫描入库仍旧走逐首口径: 整批的目录兄弟关系由随后的整库重建
-            // 通过 `albumIDCorrections` 纠正。
-            if let index = existingIndexByID[newSong.id],
-               Self.sharesGroupingInputs(mergedSongs[index], newSong) {
-                newSong.albumID = mergedSongs[index].albumID
-                newSong.artistID = mergedSongs[index].artistID
-                if !derivedFieldsArePrepared { applyAutomaticArtistArtwork(to: &newSong) }
-            } else if !derivedFieldsArePrepared {
-                MusicLibrary.fillDerivedIDs(
-                    &newSong,
-                    configuration: artistNameConfiguration,
-                    memo: derivedIDMemo
-                )
-                applyAutomaticArtistArtwork(to: &newSong)
-            }
-            if let idx = existingIndexByID[newSong.id] {
-                let existing = mergedSongs[idx]
-                if !newSong.filePath.isEmpty, newSong.filePath != existing.filePath {
-                    previousLocationsByID[newSong.id] = existing
+            if merge.presentationChanged {
+                replacementIDs.insert(merge.row.id)
+                if existing.sourceID != merge.row.sourceID
+                    || existing.isPlayable != merge.row.isPlayable {
+                    songListSnapshotChanged = true
                 }
-                // Use the same replacement predicate as server-catalogue
-                // merging. Format and CUE-boundary changes must invalidate
-                // cached bytes and metadata just like size, mtime or revision
-                // changes; otherwise the bare-row preservation path below can
-                // silently restore stale technical fields.
-                if ServerSongCatalogMergePolicy.contentChanged(
-                    existing: existing,
-                    incoming: newSong
-                ) {
-                    incomingSongInterner.intern(&newSong)
-                    mergedSongs[idx] = newSong
-                    contentChanged.append(newSong)
-                    replacementIDs.insert(newSong.id)
-                    if existing.sourceID != newSong.sourceID
-                        || existing.isPlayable != newSong.isPlayable {
-                        songListSnapshotChanged = true
-                    }
-                    recordPersistence(newSong)
-                    continue
-                }
-                // "Bare incoming" matches `MetadataBackfillService.isBareSong` —
-                // a Phase A scan that found no metadata. If the existing
-                // entry has any metadata at all, prefer it.
-                let incomingHasTechnicalMetadata = newSong.duration > 0 || newSong.bitRate != nil
-                let incomingHasCatalogMetadata = newSong.artistID != nil
-                    || newSong.albumID != nil
-                    || newSong.year != nil
-                    || newSong.genre != nil
-                let incomingIsBare = !incomingHasTechnicalMetadata && !incomingHasCatalogMetadata
-                let existingHasTechnicalMetadata = existing.duration > 0 || existing.bitRate != nil
-                let existingHasCatalogMetadata = existing.artistID != nil
-                    || existing.albumID != nil
-                    || existing.year != nil
-                    || existing.genre != nil
-                let existingHasMetadata = existingHasTechnicalMetadata || existingHasCatalogMetadata
-                if incomingIsBare && existingHasMetadata {
-                    var merged = existing
-                    // A stable provider identity can survive a remote rename
-                    // or move. The fresh scan is authoritative for location
-                    // even when its metadata payload is otherwise bare.
-                    if !newSong.filePath.isEmpty {
-                        merged.filePath = newSong.filePath
-                    }
-                    merged.fileSize = newSong.fileSize
-                    merged.lastModified = newSong.lastModified
-                    if newSong.dateAdded < merged.dateAdded {
-                        merged.dateAdded = newSong.dateAdded
-                    }
-                    merged.serverPlayCount = newSong.serverPlayCount
-                    if mergeServerCatalogRows {
-                        merged.serverFilePath = newSong.serverFilePath
-                    } else if let serverFilePath = newSong.serverFilePath {
-                        merged.serverFilePath = serverFilePath
-                    }
-                    if let libraryID = newSong.serverLibraryID { merged.serverLibraryID = libraryID }
-                    // Always refresh revision — when the connector starts
-                    // surfacing a fingerprint that wasn't there before
-                    // (e.g. user upgraded to a build that reads md5), we
-                    // want existing songs to pick it up so the next scan
-                    // can detect overwrites.
-                    if newSong.revision != nil { merged.revision = newSong.revision }
-                    // Sidecar from a fresh scan (sibling listing) wins over
-                    // backfill's embedded-art reference; if the scan didn't
-                    // find any, keep what backfill stored.
-                    if let cover = newSong.coverArtFileName { merged.coverArtFileName = cover }
-                    if let artistArtwork = newSong.artistArtworkFileName {
-                        merged.artistArtworkFileName = artistArtwork
-                    }
-                    if let lyrics = newSong.lyricsFileName { merged.lyricsFileName = lyrics }
-                    if let mvPath = newSong.referencedMusicVideoPath { merged.mvPath = mvPath }
-                    if let tracks = newSong.embeddedMediaTracks { merged.embeddedMediaTracks = tracks }
-                    if merged != existing {
-                        mergedSongs[idx] = merged
-                        recordPersistence(merged)
-                    }
-                    if Self.songPresentationChanged(from: existing, to: merged) {
-                        replacementIDs.insert(newSong.id)
-                        if existing.sourceID != merged.sourceID
-                            || existing.isPlayable != merged.isPlayable {
-                            songListSnapshotChanged = true
-                        }
-                    }
-                } else {
-                    if newSong != existing {
-                        incomingSongInterner.intern(&newSong)
-                        mergedSongs[idx] = newSong
-                        recordPersistence(newSong)
-                    }
-                    if Self.songPresentationChanged(from: existing, to: newSong) {
-                        replacementIDs.insert(newSong.id)
-                        if existing.sourceID != newSong.sourceID
-                            || existing.isPlayable != newSong.isPlayable {
-                            songListSnapshotChanged = true
-                        }
-                    }
-                }
-            } else {
-                incomingSongInterner.intern(&newSong)
-                mergedSongs.append(newSong)
-                existingIndexByID[newSong.id] = mergedSongs.count - 1
-                recordPersistence(newSong)
             }
         }
 
@@ -7984,6 +7906,319 @@ extension MusicLibrary {
                 object: self,
                 userInfo: ["sourceIDs": sourceIDs]
             )
+        }
+    }
+
+    /// `addSongs` 逐首的那一步:交来的这一首与库里那一行(没有时 nil)合并成要存的样子,以及与那一行比算哪一种改动。
+    /// 只读不写(封面缓存的失效由调用方按 `serverReplacedArtwork` 做)。歌曲模型不在内存里时判「这一批改不改东西」
+    /// (`prepareUnchangedIncomingSongs`)用的也是它,所以两边对「改了」的口径是同一份。
+    fileprivate struct IncomingRowMerge {
+        enum Change {
+            case appended
+            case contentChanged
+            /// 交来的是没读到元数据的「光秃」一行而库里那一行有:留库里的元数据,只换扫描说了算的那几项。
+            case keptMetadata(changed: Bool)
+            case replaced(changed: Bool)
+        }
+        var row: Song
+        var change: Change
+        var serverReplacedArtwork = false
+        /// 路径变了(交来的路径非空且与库里那一行不同)。
+        var movesFile = false
+        var presentationChanged = false
+
+        /// 落地之后库里那一行会不会变。
+        var changesTheRow: Bool {
+            switch change {
+            case .appended, .contentChanged: true
+            case .keptMetadata(let changed), .replaced(let changed): changed
+            }
+        }
+    }
+
+    fileprivate func mergeIncomingRow(
+        _ song: Song,
+        existing: Song?,
+        mergeServerCatalogRows: Bool,
+        derivedFieldsArePrepared: Bool,
+        memo: DerivedIDMemo
+    ) -> IncomingRowMerge {
+        var newSong = song
+        if newSong.sourceID == AppleMusicLibraryIdentity.sourceID, let existing {
+            newSong = SongUserMetadataPolicy.preservingUserEdits(from: existing, in: newSong)
+            newSong.lyricsFileName = existing.lyricsFileName ?? newSong.lyricsFileName
+            newSong.lyricsText = existing.lyricsText ?? newSong.lyricsText
+        }
+        var serverReplacedArtwork = false
+        if mergeServerCatalogRows, let existing {
+            newSong = ServerSongCatalogMergePolicy.merged(
+                existing: existing,
+                incoming: newSong
+            )
+            serverReplacedArtwork = Self.serverReplacedArtwork(from: existing, to: newSong)
+        }
+        // 扫描入库仍旧走逐首口径: 整批的目录兄弟关系由随后的整库重建
+        // 通过 `albumIDCorrections` 纠正。
+        if let existing, Self.sharesGroupingInputs(existing, newSong) {
+            newSong.albumID = existing.albumID
+            newSong.artistID = existing.artistID
+            if !derivedFieldsArePrepared { applyAutomaticArtistArtwork(to: &newSong) }
+        } else if !derivedFieldsArePrepared {
+            MusicLibrary.fillDerivedIDs(
+                &newSong,
+                configuration: artistNameConfiguration,
+                memo: memo
+            )
+            applyAutomaticArtistArtwork(to: &newSong)
+        }
+        guard let existing else {
+            return IncomingRowMerge(row: newSong, change: .appended, serverReplacedArtwork: serverReplacedArtwork)
+        }
+        let movesFile = !newSong.filePath.isEmpty && newSong.filePath != existing.filePath
+        // Use the same replacement predicate as server-catalogue
+        // merging. Format and CUE-boundary changes must invalidate
+        // cached bytes and metadata just like size, mtime or revision
+        // changes; otherwise the bare-row preservation path below can
+        // silently restore stale technical fields.
+        if ServerSongCatalogMergePolicy.contentChanged(
+            existing: existing,
+            incoming: newSong
+        ) {
+            return IncomingRowMerge(
+                row: newSong, change: .contentChanged, serverReplacedArtwork: serverReplacedArtwork, movesFile: movesFile
+            )
+        }
+        // "Bare incoming" matches `MetadataBackfillService.isBareSong` —
+        // a Phase A scan that found no metadata. If the existing
+        // entry has any metadata at all, prefer it.
+        let incomingHasTechnicalMetadata = newSong.duration > 0 || newSong.bitRate != nil
+        let incomingHasCatalogMetadata = newSong.artistID != nil
+            || newSong.albumID != nil
+            || newSong.year != nil
+            || newSong.genre != nil
+        let incomingIsBare = !incomingHasTechnicalMetadata && !incomingHasCatalogMetadata
+        let existingHasTechnicalMetadata = existing.duration > 0 || existing.bitRate != nil
+        let existingHasCatalogMetadata = existing.artistID != nil
+            || existing.albumID != nil
+            || existing.year != nil
+            || existing.genre != nil
+        let existingHasMetadata = existingHasTechnicalMetadata || existingHasCatalogMetadata
+        if incomingIsBare && existingHasMetadata {
+            var merged = existing
+            // A stable provider identity can survive a remote rename
+            // or move. The fresh scan is authoritative for location
+            // even when its metadata payload is otherwise bare.
+            if !newSong.filePath.isEmpty {
+                merged.filePath = newSong.filePath
+            }
+            merged.fileSize = newSong.fileSize
+            merged.lastModified = newSong.lastModified
+            if newSong.dateAdded < merged.dateAdded {
+                merged.dateAdded = newSong.dateAdded
+            }
+            merged.serverPlayCount = newSong.serverPlayCount
+            if mergeServerCatalogRows {
+                merged.serverFilePath = newSong.serverFilePath
+            } else if let serverFilePath = newSong.serverFilePath {
+                merged.serverFilePath = serverFilePath
+            }
+            if let libraryID = newSong.serverLibraryID { merged.serverLibraryID = libraryID }
+            // Always refresh revision — when the connector starts
+            // surfacing a fingerprint that wasn't there before
+            // (e.g. user upgraded to a build that reads md5), we
+            // want existing songs to pick it up so the next scan
+            // can detect overwrites.
+            if newSong.revision != nil { merged.revision = newSong.revision }
+            // Sidecar from a fresh scan (sibling listing) wins over
+            // backfill's embedded-art reference; if the scan didn't
+            // find any, keep what backfill stored.
+            if let cover = newSong.coverArtFileName { merged.coverArtFileName = cover }
+            if let artistArtwork = newSong.artistArtworkFileName {
+                merged.artistArtworkFileName = artistArtwork
+            }
+            if let lyrics = newSong.lyricsFileName { merged.lyricsFileName = lyrics }
+            if let mvPath = newSong.referencedMusicVideoPath { merged.mvPath = mvPath }
+            if let tracks = newSong.embeddedMediaTracks { merged.embeddedMediaTracks = tracks }
+            return IncomingRowMerge(
+                row: merged, change: .keptMetadata(changed: merged != existing),
+                serverReplacedArtwork: serverReplacedArtwork, movesFile: movesFile,
+                presentationChanged: Self.songPresentationChanged(from: existing, to: merged)
+            )
+        }
+        return IncomingRowMerge(
+            row: newSong, change: .replaced(changed: newSong != existing),
+            serverReplacedArtwork: serverReplacedArtwork, movesFile: movesFile,
+            presentationChanged: Self.songPresentationChanged(from: existing, to: newSong)
+        )
+    }
+
+    // MARK: Unchanged incoming songs without the song model (AM-a)
+
+    /// AM-a:歌曲模型不在内存里时,一整源交来的歌(Apple Music 资料库每次刷新整份交来)先与曲库目录比:
+    /// 一首都不新、不改、不少时给一张「不改」的凭据。调用方落地之前核对它(`incomingSongsAreUnchanged`),
+    /// 核对得上就不调 `addSongs`(它在模型不在时排队、请求装载),改调 `noteUnchangedIncomingSongs`。
+    ///
+    /// 「改」的口径就是 `addSongs` 的:每一首过同一个 `mergeIncomingRow`(Apple Music 行保留用户改过的字段与歌词、
+    /// 分组输入没变时沿用库里的专辑 / 艺人 id、自动艺人图,内容变了、光秃的一行留库里的元数据、别的整行比),
+    /// 与目录里那一行比(按本机移除表筛过,与按 id 读的答案相同);库里没有的是新行;剪枝时这个源在目录里而这次
+    /// 没交来的是要删的;墓碑或本机移除挡下、而又可能被撤销或让路的,算改;剪枝要丢掉本机保留着的行的,算改。
+    /// 交来的派生字段按模型在内存里时的规则取(名字规则与自动艺人图没变就用后台算好的那份)。
+    ///
+    /// nil:有改动,或者此刻不能这样比(模型在内存里、小状态落不了盘、目录答不了、路上的改动等不到确认、
+    /// 还有排着的整行改动,或者比的途中曲库变了)—— 调用方照旧调 `addSongs`。
+    func prepareUnchangedIncomingSongs(
+        _ prepared: PreparedIncomingSongs,
+        affectedSourceIDs: Set<String>,
+        pruneMissingSongs: Bool,
+        mergeServerCatalogRows: Bool
+    ) async -> UnchangedIncomingSongs? {
+        guard !songModelAnswersFromMemory, smallStateWritesWithoutTheModel != nil, queuedSongFieldEdits.isEmpty,
+              !affectedSourceIDs.isEmpty, let lookup = lookupOutsideTheModel else { return nil }
+        let writes = lookup.pendingWrites
+        if writes.pendingCount > 0 {
+            guard await writes.waitUntilAcknowledged(through: writes.lastSequence, timeout: .seconds(2)),
+                  !songModelAnswersFromMemory, smallStateWritesWithoutTheModel != nil, queuedSongFieldEdits.isEmpty
+            else { return nil }
+        }
+        guard writes.pendingCount == 0, writes.answersLikeMemory else { return nil }
+        let state = UnchangedIncomingSongs.State(
+            pendingWrites: ObjectIdentifier(writes), sequence: writes.lastSequence,
+            exclusions: deviceLocalExclusionRevision, tombstones: deletedSongIdentitiesRevision,
+            artistNames: artistNameConfiguration, artwork: automaticArtistArtworkCatalogRevision
+        )
+        let derivationIsCurrent = !mergeServerCatalogRows
+            && prepared.artistNameConfiguration == artistNameConfiguration
+            && prepared.automaticArtworkCatalogRevision == automaticArtistArtworkCatalogRevision
+        let incoming = derivationIsCurrent ? prepared.derived : prepared.original
+        let incomingIDs = Set(incoming.map(\.id))
+        // 剪枝会丢掉这几个源里本机保留着、这次没交来的行(`discardRetainedSongs`):有就算改。
+        if pruneMissingSongs, deviceLocalExcludedSongsByID.values.contains(where: {
+            affectedSourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id)
+        }) { return nil }
+        // 准入:墓碑与本机移除挡下的行不入库;挡下而可能被撤销、让路的(那时会改)算改。
+        var blockedIDs: Set<String> = []
+        if LibrarySongAdmissionPolicy.hasAdmissionFilters(
+            tombstones: deletedSongIdentities, deviceExclusions: deviceLocalExcludedSongIdentities
+        ) {
+            var prefixes: [String: String] = [:]
+            for sourceID in Set(incoming.map(\.sourceID)) { prefixes[sourceID] = sourceIdentityResolver?(sourceID) }
+            let canRevokeTombstones = deviceLocalFilePresenceProbe != nil || !deletedSongIdentityDetails.isEmpty
+            for song in incoming {
+                switch admissionVerdict(song, prefixes: prefixes) {
+                case .admitted:
+                    continue
+                case .blockedByTombstone:
+                    if canRevokeTombstones { return nil }
+                case .blockedByDeviceExclusion:
+                    if deviceExclusionsYieldToReplacedFiles,
+                       LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
+                           retained: retainedSongForExclusion(of: song), scanned: song
+                       ) { return nil }
+                }
+                blockedIDs.insert(song.id)
+            }
+        }
+        let admittedIDs = incomingIDs.subtracting(blockedIDs)
+        let started = ContinuousClock.now
+        guard let read = await Task.detached(priority: .utility, operation: {
+            try? UnchangedIncomingRead(
+                ids: Array(admittedIDs), sourceIDs: pruneMissingSongs ? affectedSourceIDs : [], lookup: lookup
+            )
+        }).value, incomingSongsCheckState() == state else { return nil }
+        let excludes = !deviceLocalExcludedSongIdentities.isEmpty
+        func admitted(_ song: Song?) -> Song? { excludes ? admittedOutsideTheModel(song) : song }
+        // 逐首过 `addSongs` 那一步;库里的那一行按落地时的先后跟着变(同一首交来两次时第二次对着第一次的结果)。
+        var current: [String: Song] = [:]
+        let memo = DerivedIDMemo()
+        for song in incoming where !blockedIDs.contains(song.id) {
+            guard let existing = current[song.id] ?? admitted(read.stored[song.id]) else { return nil }
+            let merge = mergeIncomingRow(
+                song, existing: existing, mergeServerCatalogRows: mergeServerCatalogRows,
+                derivedFieldsArePrepared: derivationIsCurrent, memo: memo
+            )
+            guard !merge.changesTheRow, !merge.movesFile, !merge.presentationChanged, !merge.serverReplacedArtwork else {
+                return nil
+            }
+            current[song.id] = existing
+        }
+        if pruneMissingSongs {
+            // 这几个源里存着、这次没交来的(按本机移除表筛过之后还在的)要删。
+            let missing = read.sourceSongIDs.subtracting(admittedIDs)
+            if !missing.isEmpty {
+                guard excludes else { return nil }
+                guard let rows = storedSongsOutsideTheModel(Array(missing), lookup: lookup, observed: false) else {
+                    return nil
+                }
+                if rows.contains(where: { $0 != nil }) { return nil }
+            }
+        }
+        let elapsed = Int((ContinuousClock.now - started) / .milliseconds(1))
+        plog("🧠 AM-a: incoming songs unchanged sources=\(affectedSourceIDs.count) songs=\(incoming.count) ms=\(elapsed)")
+        return UnchangedIncomingSongs(state: state)
+    }
+
+    /// 紧接着落地之前(同一轮主线程里):凭据还作数吗(比的那一刻之后曲库没有一点改动,名字规则、自动艺人图、
+    /// 墓碑、本机移除都没变,模型还不在内存里,小状态落得了盘)。
+    func incomingSongsAreUnchanged(_ unchanged: UnchangedIncomingSongs) -> Bool {
+        incomingSongsCheckState() == unchanged.state
+    }
+
+    /// `addSongs` 对着一首不改的整源会做、而又不要整库数组的那几步:剪枝的通知(播放队列按它对账),
+    /// 歌单成员与最近播放的清理(核对过就跳过,与那条路相同),有清掉的就落盘。不做的:整库重建(没有改动)、
+    /// 待认领身份的重试(没有新歌,认得出的不会变)。
+    func noteUnchangedIncomingSongs(affectedSourceIDs: Set<String>, notifyRemovals: Bool, pruneMissingSongs: Bool) {
+        let membersBefore = playlistSongIDs
+        let historyBefore = recentPlaybackSongIDs
+        cleanPlaylistEntries()
+        cleanPlaybackHistoryEntries()
+        if playlistSongIDs != membersBefore || recentPlaybackSongIDs != historyBefore { persistSnapshot() }
+        if notifyRemovals && pruneMissingSongs && !affectedSourceIDs.isEmpty {
+            NotificationCenter.default.post(
+                name: .primuseSourceCatalogPruned,
+                object: self,
+                userInfo: ["sourceIDs": affectedSourceIDs]
+            )
+        }
+    }
+
+    private func incomingSongsCheckState() -> UnchangedIncomingSongs.State? {
+        guard !songModelAnswersFromMemory, smallStateWritesWithoutTheModel != nil, queuedSongFieldEdits.isEmpty,
+              let writes = lookupOutsideTheModel?.pendingWrites,
+              writes.pendingCount == 0, writes.answersLikeMemory else { return nil }
+        return UnchangedIncomingSongs.State(
+            pendingWrites: ObjectIdentifier(writes), sequence: writes.lastSequence,
+            exclusions: deviceLocalExclusionRevision, tombstones: deletedSongIdentitiesRevision,
+            artistNames: artistNameConfiguration, artwork: automaticArtistArtworkCatalogRevision
+        )
+    }
+
+    /// `prepareUnchangedIncomingSongs` 的凭据:比的那一刻曲库的样子。
+    struct UnchangedIncomingSongs {
+        fileprivate struct State: Equatable {
+            let pendingWrites: ObjectIdentifier
+            let sequence: UInt64
+            let exclusions: UInt64
+            let tombstones: UInt64
+            let artistNames: ArtistNameConfiguration
+            let artwork: UInt64
+        }
+        fileprivate let state: State
+    }
+
+    /// 在主线程外从目录读的那一份:交来的 id 在目录里存着的行,剪枝时这几个源在目录里的全部 id。
+    fileprivate struct UnchangedIncomingRead: Sendable {
+        // crash-pattern: allow library-array-property 一次交来的那么多行(一个源的一次刷新),比完就丢
+        let stored: [String: Song]
+        // crash-pattern: allow song-id-collection-property 剪枝时这几个源的 id(与 `addSongs` 剪枝那一遍同规模),比完就丢
+        let sourceSongIDs: Set<String>
+
+        init(ids: [String], sourceIDs: Set<String>, lookup: LibraryCatalogSongLookup) throws {
+            var stored: [String: Song] = [:]
+            for case let song? in try lookup.songs(ids: ids) { stored[song.id] = song }
+            var sourceSongIDs: Set<String> = []
+            for sourceID in sourceIDs { sourceSongIDs.formUnion(try lookup.catalog.songIDSet(.source(sourceID))) }
+            self.stored = stored
+            self.sourceSongIDs = sourceSongIDs
         }
     }
 
@@ -11717,7 +11952,9 @@ extension MusicLibrary {
         preservingExistingSongs: Bool = false
     ) {
         // S2: 同上, 镜像歌单与它的歌曲都要等发布之后才在库里。
-        if deferringUntilReady({ [weak self] in
+        // AM-a: 歌曲模型放掉之后(小状态落得了盘、前面没有排着的突变)不排队:成员在不在曲库里由目录答;
+        // 与现在一模一样的一份(资料库刷新的常态)连目录都不读。带置灰占位的(要排认领)照旧排队。
+        let work: @MainActor () -> Void = { [weak self] in
             self?.replaceMirrorPlaylistSongs(
                 playlistID: playlistID,
                 songIDs: songIDs,
@@ -11725,7 +11962,20 @@ extension MusicLibrary {
                 pendingEntries: pendingEntries,
                 preservingExistingSongs: preservingExistingSongs
             )
-        }) { return }
+        }
+        let access: SmallStateSongAccess
+        if pendingEntries.isEmpty, smallStateWritesWithoutTheModel != nil {
+            if mirrorPlaylistReplacementChangesNothing(
+                playlistID: playlistID, songIDs: songIDs, coverArtPath: coverArtPath,
+                preservingExistingSongs: preservingExistingSongs
+            ) { return }
+            let asked = songIDs + (preservingExistingSongs ? playlistSongIDs[playlistID] ?? [] : [])
+            guard let resolved = songAccessForSmallState(asked, orDeferring: work) else { return }
+            access = resolved
+        } else {
+            if deferringUntilReady(work) { return }
+            access = .memory
+        }
         guard MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               allPlaylists.contains(where: { $0.id == playlistID && !$0.isDeleted }) else { return }
         let previousPending = playlistPendingEntries
@@ -11742,7 +11992,7 @@ extension MusicLibrary {
         var members = songIDs
         if preservingExistingSongs {
             var seen = Set(members)
-            for id in playlistSongIDs[playlistID] ?? [] where songIndexByID[id] != nil {
+            for id in playlistSongIDs[playlistID] ?? [] where librarySongIsStored(id, access) {
                 if seen.insert(id).inserted { members.append(id) }
             }
         }
@@ -11751,13 +12001,33 @@ extension MusicLibrary {
             songIDs: members,
             mirrorCoverArtPath: coverArtPath,
             replacesCoverArtPath: true,
-            allowsPendingEntries: true
+            allowsPendingEntries: true,
+            access: access
         )
         playlistPendingEntries = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
         if playlistPendingEntries != previousPending {
             persistSnapshot(after: Self.snapshotDelay(forPlaylistID: playlistID))
         }
         if !pendingEntries.isEmpty { schedulePlaylistPendingResolution() }
+    }
+
+    /// AM-a:不带占位的这一次替换落地之后什么都不会变(同 `replaceMirrorPlaylistSongs` 走到底的结果),不读目录就答得出:
+    /// 交来的成员与现在逐位相同、封面相同,歌单成员的核对还作数(于是现在的每个成员不是在曲库里就是置灰占位,
+    /// 筛下来还是这一份),这张歌单没有等认领的身份,也没有没人引用、会被顺手清掉的占位。答不出(false)不等于会变。
+    private func mirrorPlaylistReplacementChangesNothing(
+        playlistID: String, songIDs: [String], coverArtPath: String?, preservingExistingSongs: Bool
+    ) -> Bool {
+        guard !preservingExistingSongs, MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
+              let playlist = allPlaylists.first(where: { $0.id == playlistID && !$0.isDeleted }),
+              playlistSongIDs[playlistID] == songIDs,
+              pendingPlaylistIdentities[playlistID]?.isEmpty ?? true,
+              playlistCleanupIsVerified,
+              // 核对认得出本机移除后保留着的行,替换只认曲库里的:有这样的成员就不是同一份。
+              deviceLocalExcludedSongsByID.isEmpty || !songIDs.contains(where: { deviceLocalExcludedSongsByID[$0] != nil })
+        else { return false }
+        let cover = normalizedArtworkReference(coverArtPath)
+        guard playlist.coverArtPath == cover, playlist.hasDedicatedCoverArt == (cover != nil) else { return false }
+        return Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs) == playlistPendingEntries
     }
 
     /// 服务器歌单换先后(#449): 写服务器之前先按新先后显示, 服务器确认后由回读的明细落地;
@@ -12019,14 +12289,30 @@ extension MusicLibrary {
         sourceID: String,
         indexMaintenance: LibraryMaintenanceDisposition
     ) {
-        if deferringUntilReady({ [weak self] in
+        // 交来的一首都没有:哪条路都什么也不做(排着也是重放一次空操作)。
+        guard incoming.contains(where: { $0.sourceID == sourceID }) else { return }
+        let work: @MainActor () -> Void = { [weak self] in
             self?.admitCollectionOnlySongs(incoming, sourceID: sourceID, indexMaintenance: indexMaintenance)
-        }) { return }
+        }
+        // AM-a: 歌曲模型放掉之后(小状态落得了盘、前面没有排着的突变)先由目录答「哪些还不在曲库里」:都在就什么都
+        // 不做,不排队;有新的(要 `addSongs`)才排队等模型。别的时候与以前相同:要排就先排。
+        let access: SmallStateSongAccess
+        if smallStateWritesWithoutTheModel != nil {
+            guard let resolved = songAccessForSmallState(incoming.map(\.id), orDeferring: work) else { return }
+            access = resolved
+        } else {
+            if deferringUntilReady(work) { return }
+            access = .memory
+        }
         var admittedIDs = Set<String>()
         let fresh = incoming.filter {
-            $0.sourceID == sourceID && songIndexByID[$0.id] == nil && admittedIDs.insert($0.id).inserted
+            $0.sourceID == sourceID && !librarySongIsStored($0.id, access) && admittedIDs.insert($0.id).inserted
         }
         guard !fresh.isEmpty else { return }
+        if case .stored = access {
+            _ = deferringUntilReady(work)
+            return
+        }
         let store = CollectionOnlySongStore.shared
         store.replace(store.songIDs(forSourceID: sourceID).union(admittedIDs), forSourceID: sourceID)
         addSongs(
@@ -12041,9 +12327,11 @@ extension MusicLibrary {
     /// 这个源的仅歌单歌曲里, 已经没有任何歌单(含「我喜欢」和回收站里的歌单)引用、也不在
     /// 播放队列里的那些移出曲库。不留删除墓碑: 歌单以后再列出它, 照样加得回来。
     func releaseUnreferencedCollectionOnlySongs(sourceID: String) {
-        if deferringUntilReady({ [weak self] in
-            self?.releaseUnreferencedCollectionOnlySongs(sourceID: sourceID)
-        }) { return }
+        let work: @MainActor () -> Void = { [weak self] in self?.releaseUnreferencedCollectionOnlySongs(sourceID: sourceID) }
+        // AM-a: 歌曲模型放掉之后(小状态落得了盘、前面没有排着的突变)先看有没有要放掉的 —— 只看登记表、播放队列与
+        // 歌单成员;没有就什么都不做,不排队。有才排队等模型(要按源剪掉那几行)。
+        let releasesWithoutTheModel = smallStateWritesWithoutTheModel != nil
+        if !releasesWithoutTheModel, deferringUntilReady(work) { return }
         let store = CollectionOnlySongStore.shared
         let tracked = store.songIDs(forSourceID: sourceID)
         guard !tracked.isEmpty else { return }
@@ -12053,6 +12341,7 @@ extension MusicLibrary {
         }
         let released = tracked.subtracting(retained)
         guard !released.isEmpty else { return }
+        if releasesWithoutTheModel, deferringUntilReady(work) { return }
         store.replace(retained, forSourceID: sourceID)
         let present = released.filter { songIndexByID[$0] != nil }
         guard !present.isEmpty else { return }
@@ -12386,7 +12675,13 @@ extension MusicLibrary {
     }
 
     func likedSongIDs(fromSourceID sourceID: String) -> [String] {
-        (playlistSongIDs[Self.likedSongsPlaylistID] ?? []).filter { id in
+        let liked = playlistSongIDs[Self.likedSongsPlaylistID] ?? []
+        // AM-a: 歌曲模型放掉之后由目录答这些成员各在哪个源上(按 id 读的那几行,含停用源)。
+        if !songModelAnswersFromMemory, let lookup = smallStateWritesWithoutTheModel,
+           let rows = rowsForWritingWithoutTheModel(liked, lookup: lookup) {
+            return liked.filter { rows[$0]?.sourceID == sourceID }
+        }
+        return liked.filter { id in
             guard let index = songIndexByID[id], songs.indices.contains(index) else { return false }
             return songs[index].sourceID == sourceID
         }
@@ -12656,14 +12951,25 @@ extension MusicLibrary {
         with authoritativeSongIDs: [String]
     ) {
         // S2: 该源的歌曲与「我喜欢」歌单成员都要等发布之后才存在。
-        if deferringUntilReady({ [weak self] in
+        // AM-a: 歌曲模型放掉之后(小状态落得了盘、前面没有排着的突变)不排队:成员在哪个源上由目录答。
+        let work: @MainActor () -> Void = { [weak self] in
             self?.replaceLikedSongs(fromSourceID: sourceID, with: authoritativeSongIDs)
-        }) { return }
+        }
+        let access: SmallStateSongAccess
+        if smallStateWritesWithoutTheModel != nil {
+            let asked = authoritativeSongIDs + (playlistSongIDs[Self.likedSongsPlaylistID] ?? [])
+            guard let resolved = songAccessForSmallState(asked, orDeferring: work) else { return }
+            access = resolved
+        } else {
+            if deferringUntilReady(work) { return }
+            access = .memory
+        }
         func belongsToSource(_ id: String) -> Bool {
+            if case .stored(let rows) = access { return rows[id]?.sourceID == sourceID }
             guard let index = songIndexByID[id], songs.indices.contains(index) else { return false }
             return songs[index].sourceID == sourceID
         }
-        let authoritative = validUniqueSongIDs(authoritativeSongIDs).filter {
+        let authoritative = validUniqueSongIDs(authoritativeSongIDs, access: access).filter {
             belongsToSource($0)
         }
         let current = playlistSongIDs[Self.likedSongsPlaylistID] ?? []
