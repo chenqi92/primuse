@@ -4199,6 +4199,125 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         hold.end()
     }
 
+    private func makeCloudSync(_ library: MusicLibrary, _ name: String) throws -> CloudKitSyncService {
+        let suite = "cloud-receive-\(name)-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        return CloudKitSyncService(
+            library: library,
+            sourcesStore: SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources-\(name)")),
+            radioStationsStore: RadioStationsStore(storeURL: directory.appendingPathComponent("radio-\(name).json")),
+            scraperSettingsStore: ScraperSettingsStore(defaults: defaults)
+        )
+    }
+
+    /// CK-a:CloudKit 的引擎事件只在带着要整库数组的记录时占用歌曲模型。模型放掉时:存游标(什么都没排着)五次,
+    /// 一次也不占用、不装;只动小状态的一批(智能歌单)直接落地、不装;要模型的一批(别的设备的歌单,按成员身份认歌)
+    /// 装一次、落地的与模型在内存里的那一台相同、做完放手;再放掉之后存游标仍不装 —— 放掉(和它引起的写)不会
+    /// 引出要装模型的事件。
+    func testCloudKitEventsTakeTheSongModelOnlyForRecordsThatNeedIt() async throws {
+        let songs = Self.fixture(prefix: "ckrecv")
+        let sender = try makeLaunchedTwin("ckrecv-sender", songs: songs).library
+        await assertShadowMatches(sender, "sender")
+        let playlist = sender.createPlaylist(name: "From another device", songIDs: [songs[0].id, songs[4].id, songs[2].id])
+        let smart = SmartPlaylist(name: "Remote smart")
+        sender.saveSmartPlaylist(smart)
+        let senderSync = try makeCloudSync(sender, "sender")
+        guard case .built(let playlistRecord) = senderSync.recordBuildOutcomeForTesting(
+            recordType: CloudKitSyncService.RecordType.playlist, localID: playlist.id
+        ), case .built(let smartRecord) = senderSync.recordBuildOutcomeForTesting(
+            recordType: CloudKitSyncService.RecordType.smartPlaylist, localID: smart.id
+        ) else { return XCTFail("the sender builds both records") }
+        XCTAssertTrue(CloudKitSyncService.recordTypeNeedsSongModel(playlistRecord.recordType))
+        XCTAssertFalse(CloudKitSyncService.recordTypeNeedsSongModel(smartRecord.recordType))
+
+        let loaded = try makeLaunchedTwin("ckrecv-loaded", songs: songs).library
+        let released = try makeLaunchedTwin("ckrecv-released", songs: songs).library
+        await assertShadowMatches(loaded, "loaded")
+        await assertShadowMatches(released, "released")
+        let loadedSync = try makeCloudSync(loaded, "loaded")
+        let releasedSync = try makeCloudSync(released, "released")
+        let before = try await releaseForReal(released)
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+
+        let cursorSaves = Tally()
+        for _ in 0..<5 { await releasedSync.receiveStateUpdate(isCurrent: { true }) { cursorSaves.count += 1 } }
+        XCTAssertEqual(cursorSaves.count, 5, "the cursor is saved each time")
+        XCTAssertEqual(songModelHolds(of: released), [], "saving the cursor takes no hold")
+        assertNoLoadAndNoArrayRead(released, since: before, "five cursor saves")
+
+        await releasedSync.receiveFetchedRecordsForTesting([smartRecord])
+        XCTAssertTrue(released.allSmartPlaylists.contains { $0.id == smart.id }, "the smart playlist is applied without the model")
+        XCTAssertEqual(songModelHolds(of: released), [])
+        assertNoLoadAndNoArrayRead(released, since: before, "a smart playlist record")
+
+        await loadedSync.receiveFetchedRecordsForTesting([playlistRecord])
+        await releasedSync.receiveFetchedRecordsForTesting([playlistRecord])
+        XCTAssertEqual(released.songModelResidencyStatistics.loads, before.loads + 1, "the playlist record loads the model once")
+        XCTAssertEqual(songModelHolds(of: released), [.cloudKitReceive])
+        XCTAssertTrue(released.isReady)
+        XCTAssertFalse(released.songModelHoldReasons.contains(.cloudKitReceive), "and lets go")
+        XCTAssertEqual(released.songIDs(forPlaylist: playlist.id), loaded.songIDs(forPlaylist: playlist.id))
+        XCTAssertEqual(loaded.songIDs(forPlaylist: playlist.id), [songs[0].id, songs[4].id, songs[2].id])
+
+        let again = try await releaseForReal(released)
+        for _ in 0..<5 { await releasedSync.receiveStateUpdate(isCurrent: { true }) { cursorSaves.count += 1 } }
+        XCTAssertEqual(cursorSaves.count, 10)
+        XCTAssertEqual(songModelHolds(of: released), [.cloudKitReceive], "no further hold")
+        assertNoLoadAndNoArrayRead(released, since: again, "cursor saves after the second release")
+    }
+
+    /// CK-a 第 2 项:模型不在内存里时补读不拿空的歌曲表去比剩余数(以前在这里读一次 `songs`、记一笔数组读;
+    /// 拿空表算出的「0 条」会把队列当成做完),队列状态原样留着。
+    func testBackfillDoesNotCountFromAnEmptyLibraryWhileTheModelIsReleased() async throws {
+        let songs = Self.fixture(prefix: "backfill")
+        let library = try makeLaunchedTwin("backfill", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        let state = directory.appendingPathComponent("backfill-state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let backfill = MetadataBackfillService(
+            library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
+            backfillableSourceIDs: { [Self.sourceA] }, storageDirectory: state
+        )
+        defer { backfill.stop() }
+        let pendingBefore = backfill.hasPendingWork
+        let before = try await releaseForReal(library)
+        XCTAssertFalse(backfill.applyCachedRemainingCountsForTesting(), "nothing is applied from an empty library")
+        XCTAssertEqual(backfill.hasPendingWork, pendingBefore, "the queue state is left as it is")
+        assertNoLoadAndNoArrayRead(library, since: before, "remaining counts while released")
+    }
+
+    /// CK-a 第 3 项:不装歌曲模型的启动在发布小状态的那一步就从目录补上有声(含本机播客)与环境音的 id 表 ——
+    /// `publishStartup` 返回时已经在,等可用的那些在它之后才放行;与照今天装法启动的库相同,`nonMusicSongIDs` 跟着对。
+    func testAnUnloadedLaunchHasTheSpokenWordAndAmbientSetsBeforeItIsUsable() async throws {
+        var songs = Self.fixture(prefix: "classes")
+        // 夹具里的播客在停用的源 B 里;另放一集到源 A,本机播客才有可见的。
+        var episode = try XCTUnwrap(songs.first { $0.id.hasSuffix("-pod-1") })
+        episode.id += "-a"
+        episode.sourceID = Self.sourceA
+        episode.filePath = "/Music/Podcasts/Weekly/1.mp3"
+        songs.append(episode)
+        let book = try XCTUnwrap(songs.first { $0.id.hasSuffix("-book-1") })
+        let rain = try XCTUnwrap(songs.first { $0.id.hasSuffix("-rain") })
+        let (_, storage) = try await launchFixture("classes", songs: songs)
+        let loaded = await launch(try copyOfDirectory(storage, "classes-loaded"), unloaded: false)
+        let unloaded = await launch(try copyOfDirectory(storage, "classes-unloaded"), unloaded: true)
+        XCTAssertTrue(loaded.isReady)
+        XCTAssertEqual(unloaded.songModelLaunch, "unloaded")
+        XCTAssertFalse(unloaded.isReady)
+        XCTAssertTrue(loaded.spokenWordSongIDs.isSuperset(of: [book.id, episode.id]))
+        XCTAssertEqual(loaded.ambientSongIDs, [rain.id])
+        XCTAssertEqual(unloaded.spokenWordSongIDs, loaded.spokenWordSongIDs)
+        XCTAssertEqual(unloaded.ambientSongIDs, loaded.ambientSongIDs)
+        XCTAssertEqual(unloaded.nonMusicSongIDs, loaded.nonMusicSongIDs)
+        XCTAssertFalse(unloaded.isWholeLibraryPlaybackSong(id: book.id))
+        XCTAssertFalse(unloaded.isWholeLibraryPlaybackSong(id: rain.id))
+        XCTAssertTrue(unloaded.isWholeLibraryPlaybackSong(id: songs[0].id))
+        try await waitUntilUsable(unloaded)
+        XCTAssertEqual(unloaded.songModelResidencyStatistics.loads, 0, "filling them needs no load")
+    }
+
     /// S8:放掉时一起换成空的、以前读了不记的那几份(三份分类数组、播客预览、两张分书表、节目数、收藏的艺人候选、
     /// 两份查找快照、按源的歌、首选封面表与封面回退),放掉之后每读一次记一笔;模型在内存里时不记。
     func testReadsOfTheOtherDroppedTablesWhileReleasedAreCounted() async throws {

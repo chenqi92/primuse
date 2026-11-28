@@ -1247,6 +1247,14 @@ final class LibraryStartupHarnessTests: XCTestCase {
         let usable = try await settle()
         let readsAfterLaunch = MusicLibrary.songModelStoreReads.withLock { $0 }
         XCTAssertEqual(readsAfterLaunch, readsBefore, "the launch read no song from the store")
+        // 发布时补的有声 / 环境音 id 表:这份夹具里一首都没有(花的时间在 `🧠 residency launch=unloaded … classificationMs=`)。
+        // 上限:整库都是有声时要读的那么多 id,拿音乐那一份量。
+        let catalog = try XCTUnwrap(library.catalogHost?.mirror.readableCatalog)
+        let idSetStarted = ContinuousClock.now
+        let everyID = try catalog.songIDSet(LibrarySongScope(kinds: [.music]))
+        let idSetMs = Double((ContinuousClock.now - idSetStarted) / .microseconds(1)) / 1_000
+        Self.report(String(format: "📏 unloaded launch: reading %d ids of one kind (the upper bound of the spoken-word set) took %.0fms",
+                           everyID.count, idSetMs))
 
         let loadStarted = ContinuousClock.now
         let hold = await library.holdSongModel(.legacyPage)

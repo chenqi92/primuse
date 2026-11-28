@@ -2489,14 +2489,59 @@ extension CloudKitSyncService {
         #endif
     }
 
-    /// 收到的改动要落进曲库(歌单成员按整库认身份等,仍要歌曲模型):占用歌曲模型再落,落完放手。歌曲模型被放掉了
-    /// 就请它装回来。6c: 以前是不具名的 `whenReady()`;占用带上理由,诊断里看得出是谁要的(还没有专门的理由,先记作
-    /// `.backgroundDrain`)。
-    private func withReadyLibrary(_ apply: @MainActor () -> Void) async {
-        let hold = await library.holdSongModel(.backgroundDrain)
-        defer { hold.end() }
+    /// 一个引擎事件落进本机(P3 步骤 6 CK-a)。
+    ///
+    /// - 曲库第一次发布之前先等它,同原来(装模型的启动等到装好,不装模型的启动等到小状态发布):收到的改动不抢在
+    ///   磁盘资料库发布之前落地。
+    /// - `needsSongModel` 为真(这一批里有经整库数组落进曲库的记录,见 `recordTypeNeedsSongModel`;或者曲库排着
+    ///   要模型的突变)时占用歌曲模型(`.cloudKitReceive`)再做,做完放手;模型放掉了就装回来,只装这一次。
+    /// - 否则直接做,不占用:存游标、记 system fields、确认上传、只动小状态的记录都用不到整库数组。做的过程中曲库要是
+    ///   排了要模型的突变(目录此刻答不了时会这样),返回之前占用一次等它们在装回来时做完:游标要在它们落盘之后才走。
+    ///
+    /// 放掉歌曲模型(和它引起的写)不会产生要占用的事件:能占用的只有带着要整库数组的记录的那几批,它们只从远端来。
+    private func applyingEngineEvent(needsSongModel: @MainActor () -> Bool, _ apply: @MainActor () -> Void) async {
+        if !library.isUsable { await library.whenUsable() }
+        guard !needsSongModel() else {
+            let hold = await library.holdSongModel(.cloudKitReceive)
+            defer { hold.end() }
+            apply()
+            return
+        }
         apply()
+        if library.hasQueuedMutations {
+            let hold = await library.holdSongModel(.cloudKitReceive)
+            hold.end()
+        }
     }
+
+    /// `.stateUpdate`:游标落盘前先把已拉到的记录落盘(游标一旦越过就不会再拉),再由 `saveCursor` 存游标。
+    /// 不要整库数组;只有曲库排着要模型的突变时先占用,等它们做完再存(游标不越过没落盘的改动)。
+    func receiveStateUpdate(isCurrent: @MainActor () -> Bool, saveCursor: @MainActor () -> Void) async {
+        await applyingEngineEvent(needsSongModel: { self.library.hasQueuedMutations }) {
+            guard isCurrent() else { return }
+            guard self.retryPendingLyricCommentMerges() else { return }
+            self.flushCoalescedRemoteWrites()
+            saveCursor()
+        }
+    }
+
+    /// 这类记录落进本机要不要歌曲模型。不要的:智能歌单、评分评论(含歌词评论)、喜欢的专辑与艺人(只动小状态或
+    /// 各自的存储,曲库那几样放掉之后当场写)、电台、刮削设置、听歌统计。别的(歌单——按整库认成员身份、动态封面与
+    /// 自定义封面也走这一类、播放记录——认身份、音乐源与云账号——会动整源的歌、手改标签与它的封面——改曲库里的行,
+    /// 以及不认识的类型)要。
+    nonisolated static func recordTypeNeedsSongModel(_ recordType: String) -> Bool {
+        !recordTypesAppliedWithoutSongModel.contains(recordType)
+    }
+
+    /// 这类记录在远端删掉、本机跟着删要不要歌曲模型:同上,另外歌单(删歌单、动态封面、自定义封面都只动小状态)不要。
+    nonisolated static func recordDeletionNeedsSongModel(_ recordType: String) -> Bool {
+        recordType != RecordType.playlist && recordTypeNeedsSongModel(recordType)
+    }
+
+    nonisolated static let recordTypesAppliedWithoutSongModel: Set<String> = [
+        RecordType.smartPlaylist, RecordType.libraryReview, RecordType.libraryFavorite,
+        RecordType.radioStation, RecordType.scraperConfig, RecordType.listeningStats,
+    ]
 
     private func engineIsCurrent(_ syncEngine: CKSyncEngine) -> Bool {
         syncEngine === engine || syncEngine === sharedEngine
@@ -3890,12 +3935,8 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         switch event {
         case .stateUpdate(let event):
             guard isCurrentEngine else { return }
-            await self.withReadyLibrary {
-                // 进入 handleEvent 时判过一次, 但跳回主 actor 之前引擎可能已被摘掉。
-                guard self.engineIsCurrent(syncEngine) else { return }
-                // 游标落盘前先把已拉到的记录落盘: 游标一旦越过就不会再拉。
-                guard self.retryPendingLyricCommentMerges() else { return }
-                self.flushCoalescedRemoteWrites()
+            // 进入 handleEvent 时判过一次, 但跳回主 actor 之前引擎可能已被摘掉。
+            await self.receiveStateUpdate(isCurrent: { self.engineIsCurrent(syncEngine) }) {
                 // private engine 跟 sharedEngine state 分开存, 否则下次启动
                 // 一个 engine 用错 state cursor 会重 fetch 全量。
                 if syncEngine === self.sharedEngine {
@@ -3911,9 +3952,12 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 return (record, record.recordType == RecordType.listeningStats
                     ? Self.decodeListeningStatsEntries(record) : nil)
             }
+            // 空的一批不占用;有记录时只在有经整库数组落地的那几类(或曲库排着突变)时占用。
+            let needsSongModel = prepared.contains { Self.recordTypeNeedsSongModel($0.0.recordType) }
+                || event.deletions.contains { Self.recordDeletionNeedsSongModel($0.recordType) }
             // Apply the batch in one actor turn. Yielding once per record let
             // observers rebuild the entire TV catalogue between every row.
-            await self.withReadyLibrary {
+            await self.applyingEngineEvent(needsSongModel: { needsSongModel || self.library.hasQueuedMutations }) {
                 guard self.engineIsCurrent(syncEngine) else { return }
                 for (record, entries) in prepared {
                     self.applyFetchedRecord(record, decodedListeningStats: entries, syncEngine: syncEngine)
@@ -3960,7 +4004,9 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 }
             }
         case .sentRecordZoneChanges(let event):
-            await self.withReadyLibrary {
+            // 记 system fields、确认上传不要整库数组;只有保存失败要拿服务器副本合并、而那一类要模型时才占用。
+            let needsSongModel = event.failedRecordSaves.contains { Self.recordTypeNeedsSongModel($0.record.recordType) }
+            await self.applyingEngineEvent(needsSongModel: { needsSongModel || self.library.hasQueuedMutations }) {
                 let current = self.engineIsCurrent(syncEngine)
                 let accepts = current || self.systemFieldsCacheGeneration == self.engineCacheGeneration
                 if acceptsSystemFieldUpdates, accepts {
@@ -4485,6 +4531,16 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     }
 
     #if DEBUG
+    /// 测试:收到一批记录,同 `.fetchedRecordZoneChanges` 里没有待传的那一支(每条经 `applyRemoteRecord` 落地),
+    /// 占不占用按同一条规则(`recordTypeNeedsSongModel`)。
+    func receiveFetchedRecordsForTesting(_ records: [CKRecord]) async {
+        let needsSongModel = records.contains { Self.recordTypeNeedsSongModel($0.recordType) }
+        await applyingEngineEvent(needsSongModel: { needsSongModel || self.library.hasQueuedMutations }) {
+            for record in records { self.applyRemoteRecord(record) }
+            self.flushCoalescedRemoteWrites()
+        }
+    }
+
     /// 测试:这一类、这个本机 id 的记录此刻拼不拼得出来。
     func recordBuildOutcomeForTesting(recordType: String, localID: String) -> RecordBuildOutcome {
         buildRecordForSending(recordID(recordType: recordType, id: localID))

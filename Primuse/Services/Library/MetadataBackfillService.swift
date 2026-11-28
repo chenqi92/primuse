@@ -9180,7 +9180,15 @@ extension MetadataBackfillService {
     }
 
     /// 上一次算好的剩余数正对得上此刻的输入时套用它(不重算),返回 true。
+    #if DEBUG
+    /// 测试:起补读、数完剩余数之后套用现成结果的那一步。
+    func applyCachedRemainingCountsForTesting() -> Bool { applyCachedRemainingCountsIfCurrent() }
+    #endif
+
     fileprivate func applyCachedRemainingCountsIfCurrent(now: Date = Date()) -> Bool {
+        // 歌曲模型不在内存里(放掉了,或这次启动没装):输入里的歌曲表是空的,拿它比不出「此刻」,也不读它;
+        // 队列状态原样留着(同 `refreshRemainingCounts` 的守卫),模型回来之后的对账再算。
+        guard library.isReady else { return false }
         let state = RemainingCountsState(
             input: makeRemainingCountsInput(),
             songGeneration: library.songMutationGenerationForMaintenance,

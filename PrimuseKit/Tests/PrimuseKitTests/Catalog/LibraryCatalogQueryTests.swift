@@ -95,6 +95,11 @@ struct LibraryCatalogQueryTests {
         try catalog.setSourceEnabled(false, sourceID: "B")
         #expect(try catalog.songCount(.visible) == 7)
         #expect(try catalog.songCount(.everything) == 9)
+        // 范围里的 id(只读一列):同按范围列出的那些。
+        #expect(try catalog.songIDSet(.visible) == ["a1", "a2", "a3", "a4", "a5", "cue1", "cue2"])
+        #expect(try catalog.songIDSet(.everything).count == 9)
+        #expect(try catalog.songIDSet(.source("B")) == ["b1", "b2"])
+        #expect(try catalog.songIDSet(LibrarySongScope(kinds: [.ambient])).isEmpty)
         #expect(try catalog.songs(ids: ["b1", "a1"], scope: .visible).map(\.id) == ["a1"])
         #expect(try catalog.songs(ids: ["b1", "a1"]).map(\.id) == ["b1", "a1"])
 

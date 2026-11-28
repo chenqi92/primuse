@@ -241,6 +241,18 @@ extension LibraryCatalog {
         }
     }
 
+    /// 范围里的歌曲 id,只读一列、不解码整首歌。给按类别要整份 id 集合的用(不装歌曲模型的启动时补上
+    /// 有声与环境音的 id 表);结果与范围同阶,调用方只拿它要小的那几类。
+    public func songIDSet(_ scope: LibrarySongScope) throws -> Set<String> {
+        try reader.read { db in
+            let (sql, arguments) = try scope.whereClause(in: db)
+            var ids = Set<String>()
+            let cursor = try String.fetchCursor(db, sql: "SELECT s.id FROM song s WHERE \(sql)", arguments: arguments)
+            while let id = try cursor.next() { ids.insert(id) }
+            return ids
+        }
+    }
+
     public func containsSongs(_ scope: LibrarySongScope) throws -> Bool {
         try reader.read { db in
             let (sql, arguments) = try scope.whereClause(in: db)

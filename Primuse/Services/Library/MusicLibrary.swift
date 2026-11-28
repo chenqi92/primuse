@@ -14498,6 +14498,10 @@ extension MusicLibrary {
         schedulePendingIdentityFlush()
     }
 
+    /// 曲库此刻排着突变(发布之前、删源期间,或者歌曲模型放掉之后要整库数组的那些:等模型装回来按顺序做)。
+    /// CloudKit 存同步游标之前看它:排着的做完、落了盘,游标才往前走。
+    var hasQueuedMutations: Bool { !deferredMutations.isEmpty }
+
     /// 还有等认领的身份(别的设备的歌单成员、最近播放先到,本机的歌还没扫到)。后台唤醒的「有没有活」看它。
     var hasPendingIdentityResolution: Bool {
         !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty
@@ -22912,13 +22916,43 @@ extension MusicLibrary {
         }
         let catalogMilliseconds = Int((ContinuousClock.now - started) / .milliseconds(1))
         songModelResidencyStatistics.launchCatalogMilliseconds = catalogMilliseconds
-        publishWithoutTheSongModel(prepared, catalogMilliseconds: catalogMilliseconds)
+        // 有声与环境音的 id 表在主线程外先读好(有声书多的库要读的 id 也多),发布那一步只是交进去。
+        let classificationStarted = ContinuousClock.now
+        let classification = await Self.launchClassificationSets(catalogHost?.mirror.caughtUpCatalog)
+        let classificationMilliseconds = Int((ContinuousClock.now - classificationStarted) / .milliseconds(1))
+        guard isPreparing, !songModelReleased else { return }
+        publishWithoutTheSongModel(
+            prepared, catalogMilliseconds: catalogMilliseconds,
+            classification: classification, classificationMilliseconds: classificationMilliseconds
+        )
+    }
+
+    /// 不装歌曲模型的启动:可见歌曲里有声(含本机播客)与环境音的 id,同装模型时可见缓存那一步按分类算出的两份
+    /// (目录的类别列按同一份分类输入写)。只读一列,在主线程外。读不出时 nil(两份留空,记一行)。
+    private nonisolated static func launchClassificationSets(
+        _ catalog: LibraryCatalog?
+    ) async -> (spokenWord: Set<String>, ambient: Set<String>)? {
+        guard let catalog else { return nil }
+        return await Task.detached(priority: .userInitiated) { () -> (spokenWord: Set<String>, ambient: Set<String>)? in
+            do {
+                return (
+                    try catalog.songIDSet(LibrarySongScope(kinds: [.spokenWord, .podcast])),
+                    try catalog.songIDSet(LibrarySongScope(kinds: [.ambient]))
+                )
+            } catch {
+                plog("🧠 residency launch: the spoken-word and ambient ids could not be read from the catalog (\(error))")
+                return nil
+            }
+        }.value
     }
 
     /// 只装了小状态的发布:小状态拷进来、接上目录,停在「可用、没装」(`.preparing`、放掉了、要用时自己装回来)。
     /// 等就绪的、`onReady` 的都不放行;等可用的在目录读得了之后放行。启动窗口里排了队的突变过一遍(只动小状态和
     /// 行的当场做,要模型的重新排队并开始装)。之后做 17f 的两步:本机移除的账本、歌单与最近播放的清理。
-    private func publishWithoutTheSongModel(_ prepared: PreparedStartup, catalogMilliseconds: Int) {
+    private func publishWithoutTheSongModel(
+        _ prepared: PreparedStartup, catalogMilliseconds: Int,
+        classification: (spokenWord: Set<String>, ambient: Set<String>)?, classificationMilliseconds: Int
+    ) {
         let storage = prepared.storage
         disabledSourceIDs = storage.disabledSourceIDs
         artistNameConfiguration = storage.artistNameConfiguration
@@ -22969,9 +23003,16 @@ extension MusicLibrary {
         // 接上之后目录马上读得了(追上了旧库、持有方已发布):入口的标记、书架条数、按源的曲数这时就从目录数好,
         // 界面第一次看它们时已经是对的。
         applyLaunchCountsFromTheCatalog()
+        // 有声与环境音的 id 表(`nonMusicSongIDs`、播放历史的分类)也在放行等可用的之前补上(上面主线程外从目录读好的):
+        // 放掉之后它们本来就留着,这里补的是不装模型启动时那一段,不让哪个读者看到空的、把书和环境音当成音乐。
+        if let classification {
+            if spokenWordSongIDs != classification.spokenWord { spokenWordSongIDs = classification.spokenWord }
+            if ambientSongIDs != classification.ambient { ambientSongIDs = classification.ambient }
+        }
         if storage.shouldPersistPlaylistDurabilityLedger { _ = persistPlaylistDurabilityLedger() }
         songModelResidencyRevision &+= 1
-        plog("🧠 residency launch=unloaded smallStateMs=\(storage.smallStateMilliseconds) catalogMs=\(catalogMilliseconds)")
+        plog("🧠 residency launch=unloaded smallStateMs=\(storage.smallStateMilliseconds) catalogMs=\(catalogMilliseconds)"
+             + " classificationMs=\(classificationMilliseconds)")
         songModelLaunch = "unloaded"
         let cleanUp = storage.smallStateStoreRevision == nil || storage.smallStateStoreRevision != storage.storeRevisionAtLaunch
         Task { @MainActor [weak self] in await self?.finishUnloadedLaunch(cleaningUpPlaylists: cleanUp) }
