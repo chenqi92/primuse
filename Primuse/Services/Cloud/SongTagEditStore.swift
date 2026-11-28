@@ -633,8 +633,40 @@ final class SongTagEditStore {
             self.queuedReconcileTask = nil
             let ids = Array(self.queuedReconcileIDs)
             self.queuedReconcileIDs.removeAll()
-            self.reconcile(songIDs: ids)
+            await self.reconcileHoldingTheModelIfNeeded(ids)
         }
+    }
+
+    /// 别的设备送来的改动套到本机这几行上(CK-b)。模型在内存里时与以前相同;不在时先按 id 问这几首有没有要做的
+    /// (`queuedReconcileHasWork`),有才占用模型(`.cloudKitReceive`,装回来)走同一条路,没有就什么都不装。
+    /// 以前收记录的那一刻占用、半秒后套的时候模型可能已经又放掉了,`reconcile` 见曲库没就绪就悄悄跳过。
+    func reconcileHoldingTheModelIfNeeded(_ songIDs: [String]) async {
+        guard let library, !songIDs.isEmpty else { return }
+        if library.isReady {
+            reconcile(songIDs: songIDs)
+            return
+        }
+        guard queuedReconcileHasWork(songIDs, in: library) else { return }
+        let hold = await library.holdSongModel(.cloudKitReceive)
+        defer { hold.end() }
+        reconcile(songIDs: songIDs)
+    }
+
+    /// 这几首里有没有 `reconcile` 会动的(改行、改记下的版本、记等着读标签或重读的):按 id 读行,不读整库数组。
+    /// 目录此刻答不了时算有(占用模型照原来那条路做)。本机没有这首歌、或者这一版已经套上了的,`reconcile` 也是跳过。
+    private func queuedReconcileHasWork(_ songIDs: [String], in library: MusicLibrary) -> Bool {
+        guard library.canAnswerSongLookups else { return true }
+        for id in songIDs {
+            guard let entry = entries[id], let song = library.storedSong(id: id) else { continue }
+            if entry.hasActiveFields {
+                if pendingRestoreIDs.contains(id) { return true }
+                if appliedRevisions[id] == stamps[id],
+                   song.userMetadataEditedAt != nil || !entry.hasActiveTextFields { continue }
+                return true
+            }
+            if pendingRestoreIDs.contains(id) || SongTagEditPolicy.needsRestore(entry, song: song) { return true }
+        }
+        return false
     }
 
     /// 云端那条记录没了(换了库区或被清空)。本机还有就传回去。

@@ -2493,7 +2493,7 @@ extension CloudKitSyncService {
     ///
     /// - 曲库第一次发布之前先等它,同原来(装模型的启动等到装好,不装模型的启动等到小状态发布):收到的改动不抢在
     ///   磁盘资料库发布之前落地。
-    /// - `needsSongModel` 为真(这一批里有经整库数组落进曲库的记录,见 `recordTypeNeedsSongModel`;或者曲库排着
+    /// - `needsSongModel` 为真(这一批此刻要整库数组才做得了,见 `receiveNeedsSongModel`;或者曲库排着
     ///   要模型的突变)时占用歌曲模型(`.cloudKitReceive`)再做,做完放手;模型放掉了就装回来,只装这一次。
     /// - 否则直接做,不占用:存游标、记 system fields、确认上传、只动小状态的记录都用不到整库数组。做的过程中曲库要是
     ///   排了要模型的突变(目录此刻答不了时会这样),返回之前占用一次等它们在装回来时做完:游标要在它们落盘之后才走。
@@ -2525,23 +2525,209 @@ extension CloudKitSyncService {
         }
     }
 
-    /// 这类记录落进本机要不要歌曲模型。不要的:智能歌单、评分评论(含歌词评论)、喜欢的专辑与艺人(只动小状态或
-    /// 各自的存储,曲库那几样放掉之后当场写)、电台、刮削设置、听歌统计。别的(歌单——按整库认成员身份、动态封面与
-    /// 自定义封面也走这一类、播放记录——认身份、音乐源与云账号——会动整源的歌、手改标签与它的封面——改曲库里的行,
-    /// 以及不认识的类型)要。
-    nonisolated static func recordTypeNeedsSongModel(_ recordType: String) -> Bool {
-        !recordTypesAppliedWithoutSongModel.contains(recordType)
+    /// 一批收到的记录落地要什么(P3 步骤 6 CK-b)。落地之前由 `receiveNeedsSongModel` 判占不占用模型。
+    @MainActor
+    struct ReceivePlan {
+        /// 有只能拿整库数组做的记录:音乐源(停用集合、整源的歌、扫描)、有待传的歌单与播放记录(合并本机那份)、
+        /// 不认识的类型。
+        var needsSongModel = false
+        /// 有落进曲库小状态的记录(智能歌单、评分评论、歌单与它的成员、封面覆盖、播放记录):模型不在内存里时
+        /// 小状态要当场落得了盘(排了队的落地拿不到「本机胜出、要传回去」的答案)。
+        var writesSmallState = false
+        /// 有要按 id 读歌的记录(手改标签、它的封面、动态封面认歌在不在跨设备的源上):模型不在内存里时目录要答得了。
+        var readsSongsByID = false
+        /// 别的设备的歌单成员、播放记录带来的身份。
+        var identities: [SongIdentity] = []
+        /// 音乐源的记录与远端删掉的源:套进来会改源表(停用集合、整源的歌、扫描跟着动)时才要模型,落地之前
+        /// 当场判(`musicSourceRecordChangesSources`)。本机推上去又拉回来的同一份不改。
+        var sourceRecords: [CKRecord] = []
+        var removedSourceIDs: [String] = []
+        /// 模型不在内存里时事先从曲库目录读好的身份候选。
+        var resolution: MusicLibrary.CatalogIdentityResolution?
+
+        /// 一条拉到的记录(`pendingSave`:本机这条还有待传,要与本机那份合并)。
+        mutating func add(fetched record: CKRecord, pendingSave: Bool, payload: () -> [SongIdentity]?) {
+            switch record.recordType {
+            case RecordType.smartPlaylist, RecordType.libraryReview:
+                writesSmallState = true
+            case RecordType.cloudAccount, RecordType.libraryFavorite, RecordType.radioStation,
+                 RecordType.scraperConfig, RecordType.listeningStats:
+                break
+            case RecordType.songTagEdit, RecordType.songTagEditCover:
+                readsSongsByID = true
+            case RecordType.playlist:
+                let id = record.recordID.recordName.hasPrefix(RecordType.playlist + "/")
+                    ? String(record.recordID.recordName.dropFirst(RecordType.playlist.count + 1)) : ""
+                if MotionCoverCloudRecordID.isMotionCover(id) || CloudKitSyncService.songCoverAssetContentID(id) != nil {
+                    readsSongsByID = true
+                } else if LibraryArtworkOwner.fromCloudRecordID(id) != nil {
+                    writesSmallState = true
+                } else if pendingSave {
+                    needsSongModel = true
+                } else {
+                    writesSmallState = true
+                    identities += payload() ?? []
+                }
+            case RecordType.playbackHistory:
+                if pendingSave {
+                    needsSongModel = true
+                } else {
+                    writesSmallState = true
+                    identities += payload() ?? []
+                }
+            case RecordType.musicSource:
+                sourceRecords.append(record)
+            default:
+                needsSongModel = true
+            }
+        }
+
+        /// 一条远端删掉的记录。
+        mutating func add(deletionOf recordType: String, id: String?) {
+            switch recordType {
+            case RecordType.playlist:
+                let id = id ?? ""
+                if MotionCoverCloudRecordID.isMotionCover(id) {
+                    readsSongsByID = true
+                } else if CloudKitSyncService.songCoverAssetContentID(id) == nil {
+                    writesSmallState = true
+                }
+            case RecordType.smartPlaylist, RecordType.playbackHistory:
+                writesSmallState = true
+            case RecordType.musicSource:
+                if let id { removedSourceIDs.append(id) }
+            case RecordType.libraryReview, RecordType.cloudAccount, RecordType.libraryFavorite, RecordType.radioStation,
+                 RecordType.scraperConfig, RecordType.listeningStats, RecordType.songTagEdit, RecordType.songTagEditCover:
+                break
+            default:
+                needsSongModel = true
+            }
+        }
+
+        /// 一条保存失败的记录(冲突时拿服务器那份合并)。
+        mutating func add(failedSaveOf recordType: String) {
+            switch recordType {
+            case RecordType.smartPlaylist, RecordType.libraryReview:
+                writesSmallState = true
+            case RecordType.cloudAccount, RecordType.libraryFavorite, RecordType.radioStation,
+                 RecordType.scraperConfig, RecordType.listeningStats:
+                break
+            case RecordType.songTagEdit, RecordType.songTagEditCover:
+                readsSongsByID = true
+            default:
+                needsSongModel = true
+            }
+        }
     }
 
-    /// 这类记录在远端删掉、本机跟着删要不要歌曲模型:同上,另外歌单(删歌单、动态封面、自定义封面都只动小状态)不要。
-    nonisolated static func recordDeletionNeedsSongModel(_ recordType: String) -> Bool {
-        recordType != RecordType.playlist && recordTypeNeedsSongModel(recordType)
+    /// `.fetchedRecordZoneChanges`:排好计划,在一轮主线程里落地整批(占不占用模型见 `receiveNeedsSongModel`)。
+    func receiveFetchedChanges(
+        _ prepared: [(CKRecord, [PlayHistoryStore.Entry]?)],
+        deletions: [(recordType: String, recordID: CKRecord.ID)],
+        syncEngine: CKSyncEngine
+    ) async {
+        func pendingSaveKeys() -> Set<String> {
+            Set(syncEngine.state.pendingRecordZoneChanges.compactMap { change -> String? in
+                guard case .saveRecord(let recordID) = change else { return nil }
+                return Self.systemFieldsKey(for: recordID)
+            })
+        }
+        let pendingSaves = pendingSaveKeys()
+        let plan = await receivePlan(fetched: prepared.map(\.0), deletions: deletions, pendingSaveKeys: pendingSaves)
+        // 计划是按那一刻的待传排的:等候选的那会儿本机又有记录排进待传(要合并本机那份),就占用模型走原来那条路。
+        func pendingSavesChanged() -> Bool {
+            let now = pendingSaveKeys()
+            return prepared.contains { record, _ in
+                let key = Self.systemFieldsKey(for: record.recordID)
+                return now.contains(key) != pendingSaves.contains(key)
+            }
+        }
+        // Apply the batch in one actor turn. Yielding once per record let
+        // observers rebuild the entire TV catalogue between every row.
+        await applyingEngineEvent(needsSongModel: {
+            self.receiveNeedsSongModel(plan) || self.library.hasQueuedMutations || pendingSavesChanged()
+        }) {
+            guard self.engineIsCurrent(syncEngine) else { return }
+            self.library.resolvingRemoteIdentities(plan.resolution) {
+                for (record, entries) in prepared {
+                    self.applyFetchedRecord(record, decodedListeningStats: entries, syncEngine: syncEngine)
+                }
+                for deletion in deletions {
+                    self.applyRemoteDeletion(
+                        recordID: deletion.recordID,
+                        recordType: deletion.recordType,
+                        allowLocalRestore: false
+                    )
+                }
+            }
+            self.flushCoalescedRemoteWrites()
+        }
     }
 
-    nonisolated static let recordTypesAppliedWithoutSongModel: Set<String> = [
-        RecordType.smartPlaylist, RecordType.libraryReview, RecordType.libraryFavorite,
-        RecordType.radioStation, RecordType.scraperConfig, RecordType.listeningStats,
-    ]
+    /// 一批拉到的记录的落地计划:分好类,有别的设备的身份要认、模型又不在内存里时,先在主线程外从曲库目录读好候选。
+    /// `pendingSaveKeys`:本机还有待传的记录(`systemFieldsKey`),拉到的那份要与本机合并。
+    func receivePlan(
+        fetched records: [CKRecord], deletions: [(recordType: String, recordID: CKRecord.ID)],
+        pendingSaveKeys: Set<String>
+    ) async -> ReceivePlan {
+        var plan = ReceivePlan()
+        for record in records {
+            plan.add(fetched: record, pendingSave: pendingSaveKeys.contains(Self.systemFieldsKey(for: record.recordID))) {
+                record.recordType == RecordType.playbackHistory
+                    ? decodeIdentities(record[Self.songIdentitiesField] as? Data)
+                    : decodePlaylistPayload(record).flatMap {
+                        MirrorPlaylistIdentity.isMirrorPlaylist($0.playlist.id) ? nil : $0.identities
+                    }
+            }
+        }
+        for deletion in deletions {
+            plan.add(deletionOf: deletion.recordType, id: parseLocalID(from: deletion.recordID, recordType: deletion.recordType))
+        }
+        guard !plan.needsSongModel, !plan.identities.isEmpty else { return plan }
+        if !library.isUsable { await library.whenUsable() }
+        if !library.isReady {
+            plan.resolution = await library.prepareCatalogIdentityResolution(for: plan.identities)
+        }
+        return plan
+    }
+
+    /// 紧接着落地之前(同一轮主线程里):这一批要不要占用模型。模型在内存里时只有只能拿整库数组做的那几类要;
+    /// 不在时,小状态、按 id 读、身份候选三样里这一批用到的都要此刻答得了 —— 答得了时落地的与模型在内存里时相同。
+    func receiveNeedsSongModel(_ plan: ReceivePlan) -> Bool {
+        if plan.needsSongModel { return true }
+        if library.isReady { return false }
+        if plan.sourceRecords.contains(where: musicSourceRecordChangesSources)
+            || plan.removedSourceIDs.contains(where: musicSourceRemovalChangesSources) { return true }
+        if plan.readsSongsByID, !library.canAnswerSongLookups { return true }
+        if plan.writesSmallState, !library.appliesSmallStateWithoutTheModel { return true }
+        if !plan.identities.isEmpty {
+            guard let resolution = plan.resolution, library.readyToResolveRemoteIdentities(resolution) else { return true }
+        }
+        return false
+    }
+
+    /// 这条拉到的音乐源记录落地会不会改源表(于是动到曲库):与落地那条路同样的几道关 —— 解不出、类型不能同步
+    /// (撤掉待传)、本机的删除墓碑要盖回去(重传墓碑)、源通道关着 —— 都不改;过了这几道,由
+    /// `SourcesStore.remoteUpsertWouldChangeSources` 照 `upsertFromRemote` 逐支判。有待传时远端那份未必胜出,
+    /// 按胜出算(多占用一次,不会少)。
+    func musicSourceRecordChangesSources(_ record: CKRecord) -> Bool {
+        guard var source = decodedSource(from: record), MusicSourceCloudSyncPolicy.isEligible(source) else { return false }
+        if CloudSyncChannel.isEnabled(.sources), shouldReassertSourceTombstone(for: record) { return false }
+        guard CloudSyncChannel.isEnabled(.sources) else { return false }
+        source.deviceId = nil
+        return sourcesStore.remoteUpsertWouldChangeSources(source)
+    }
+
+    /// 远端删掉的这个源在本机落地会不会改源表:与 `applyRemoteDeletion` 同样的几道关,过了才看本机有没有这一行。
+    func musicSourceRemovalChangesSources(_ id: String) -> Bool {
+        guard CloudSyncChannel.isEnabled(.sources) else { return false }
+        if let source = sourcesStore.source(id: id) ?? sourcesStore.sourceDeletionRecord(id: id)?.tombstone,
+           !MusicSourceCloudSyncPolicy.isEligible(source) {
+            return false
+        }
+        guard sourcesStore.syncsViaICloud(id) else { return false }
+        return sourcesStore.remoteRemovalWouldChangeSources(id: id)
+    }
 
     private func engineIsCurrent(_ syncEngine: CKSyncEngine) -> Bool {
         syncEngine === engine || syncEngine === sharedEngine
@@ -3952,25 +4138,11 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 return (record, record.recordType == RecordType.listeningStats
                     ? Self.decodeListeningStatsEntries(record) : nil)
             }
-            // 空的一批不占用;有记录时只在有经整库数组落地的那几类(或曲库排着突变)时占用。
-            let needsSongModel = prepared.contains { Self.recordTypeNeedsSongModel($0.0.recordType) }
-                || event.deletions.contains { Self.recordDeletionNeedsSongModel($0.recordType) }
-            // Apply the batch in one actor turn. Yielding once per record let
-            // observers rebuild the entire TV catalogue between every row.
-            await self.applyingEngineEvent(needsSongModel: { needsSongModel || self.library.hasQueuedMutations }) {
-                guard self.engineIsCurrent(syncEngine) else { return }
-                for (record, entries) in prepared {
-                    self.applyFetchedRecord(record, decodedListeningStats: entries, syncEngine: syncEngine)
-                }
-                for deletion in event.deletions {
-                    self.applyRemoteDeletion(
-                        recordID: deletion.recordID,
-                        recordType: deletion.recordType,
-                        allowLocalRestore: false
-                    )
-                }
-                self.flushCoalescedRemoteWrites()
-            }
+            // 空的一批不占用;有记录时只在只能拿整库数组做的那几类、或者模型不在内存里而这一批此刻答不了
+            // (小状态落不了盘、目录答不了、身份候选读不好)时占用(CK-b,`receiveNeedsSongModel`)。
+            await self.receiveFetchedChanges(
+                prepared, deletions: event.deletions.map { ($0.recordType, $0.recordID) }, syncEngine: syncEngine
+            )
             if !event.modifications.isEmpty || !event.deletions.isEmpty {
                 plog(
                     "☁️ CloudKitSync: fetched \(Self.recordTypeSummary(event.modifications.map(\.record.recordType))) "
@@ -4004,9 +4176,12 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 }
             }
         case .sentRecordZoneChanges(let event):
-            // 记 system fields、确认上传不要整库数组;只有保存失败要拿服务器副本合并、而那一类要模型时才占用。
-            let needsSongModel = event.failedRecordSaves.contains { Self.recordTypeNeedsSongModel($0.record.recordType) }
-            await self.applyingEngineEvent(needsSongModel: { needsSongModel || self.library.hasQueuedMutations }) {
+            // 记 system fields、确认上传不要整库数组;只有保存失败要拿服务器副本合并、而那一类此刻答不了时才占用。
+            await self.applyingEngineEvent(needsSongModel: {
+                var plan = ReceivePlan()
+                for failed in event.failedRecordSaves { plan.add(failedSaveOf: failed.record.recordType) }
+                return self.receiveNeedsSongModel(plan) || self.library.hasQueuedMutations
+            }) {
                 let current = self.engineIsCurrent(syncEngine)
                 let accepts = current || self.systemFieldsCacheGeneration == self.engineCacheGeneration
                 if acceptsSystemFieldUpdates, accepts {
@@ -4532,13 +4707,17 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
 
     #if DEBUG
     /// 测试:收到一批记录,同 `.fetchedRecordZoneChanges` 里没有待传的那一支(每条经 `applyRemoteRecord` 落地),
-    /// 占不占用按同一条规则(`recordTypeNeedsSongModel`)。
-    func receiveFetchedRecordsForTesting(_ records: [CKRecord]) async {
-        let needsSongModel = records.contains { Self.recordTypeNeedsSongModel($0.recordType) }
-        await applyingEngineEvent(needsSongModel: { needsSongModel || self.library.hasQueuedMutations }) {
-            for record in records { self.applyRemoteRecord(record) }
+    /// 占不占用按同一份计划(`receivePlan` / `receiveNeedsSongModel`)。返回那份计划。
+    @discardableResult
+    func receiveFetchedRecordsForTesting(_ records: [CKRecord]) async -> ReceivePlan {
+        let plan = await receivePlan(fetched: records, deletions: [], pendingSaveKeys: [])
+        await applyingEngineEvent(needsSongModel: { self.receiveNeedsSongModel(plan) || self.library.hasQueuedMutations }) {
+            self.library.resolvingRemoteIdentities(plan.resolution) {
+                for record in records { self.applyRemoteRecord(record) }
+            }
             self.flushCoalescedRemoteWrites()
         }
+        return plan
     }
 
     /// 测试:这一类、这个本机 id 的记录此刻拼不拼得出来。

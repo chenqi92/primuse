@@ -433,6 +433,26 @@ extension LibraryCatalog {
         }
     }
 
+    /// 流式遍历一个范围的 (行号, 标题, 路径),按库内顺序;`body` 返回 false 时提前结束。只读这三列:别的设备的
+    /// 歌单成员、播放记录按路径或标题认本机的歌时,一遍筛出候选(与内存模型一遍扫整库数组相同),命中的行号再交给
+    /// `songs(rowids:)`。列里存的文本把 NUL 换成了 U+FFFD,要按原文比的调用方对带 U+FFFD 的行物化之后再比。
+    public func forEachSongTitleAndPath(
+        _ scope: LibrarySongScope,
+        _ body: (_ rowid: Int32, _ title: String, _ filePath: String) throws -> Bool
+    ) throws {
+        try reader.read { db in
+            let (sql, arguments) = try scope.whereClause(in: db)
+            let rows = try Row.fetchCursor(
+                db,
+                sql: "SELECT s.rowid, s.title, s.filePath FROM song s WHERE \(sql) ORDER BY s.rowid",
+                arguments: arguments
+            )
+            while let row = try rows.next() {
+                guard try body(try Self.rowid32(row[0]), row[1], row[2]) else { return }
+            }
+        }
+    }
+
     /// 流式遍历一个范围的整首歌,按库内顺序,每批 `LibraryScale.importBatchSize` 首。
     public func forEachSong(
         _ scope: LibrarySongScope,

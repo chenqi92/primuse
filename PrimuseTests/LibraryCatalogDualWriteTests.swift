@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import Observation
 import PrimuseKit
@@ -4212,9 +4213,9 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
     }
 
     /// CK-a:CloudKit 的引擎事件只在带着要整库数组的记录时占用歌曲模型。模型放掉时:存游标(什么都没排着)五次,
-    /// 一次也不占用、不装;只动小状态的一批(智能歌单)直接落地、不装;要模型的一批(别的设备的歌单,按成员身份认歌)
-    /// 装一次、落地的与模型在内存里的那一台相同、做完放手;再放掉之后存游标仍不装 —— 放掉(和它引起的写)不会
-    /// 引出要装模型的事件。
+    /// 一次也不占用、不装;只动小状态的一批(智能歌单)直接落地、不装;别的设备的歌单(CK-b 起按成员身份从曲库目录
+    /// 认歌)也不装,落地的与模型在内存里的那一台相同;要模型的一批(音乐源)装一次、做完放手;再放掉之后存游标
+    /// 仍不装 —— 放掉(和它引起的写)不会引出要装模型的事件。
     func testCloudKitEventsTakeTheSongModelOnlyForRecordsThatNeedIt() async throws {
         let songs = Self.fixture(prefix: "ckrecv")
         let sender = try makeLaunchedTwin("ckrecv-sender", songs: songs).library
@@ -4228,8 +4229,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         ), case .built(let smartRecord) = senderSync.recordBuildOutcomeForTesting(
             recordType: CloudKitSyncService.RecordType.smartPlaylist, localID: smart.id
         ) else { return XCTFail("the sender builds both records") }
-        XCTAssertTrue(CloudKitSyncService.recordTypeNeedsSongModel(playlistRecord.recordType))
-        XCTAssertFalse(CloudKitSyncService.recordTypeNeedsSongModel(smartRecord.recordType))
+        let sourceRecord = try remoteSourceRecord(MusicSource(id: "ckrecv-source", name: "From another device", type: .navidrome))
 
         let loaded = try makeLaunchedTwin("ckrecv-loaded", songs: songs).library
         let released = try makeLaunchedTwin("ckrecv-released", songs: songs).library
@@ -4253,19 +4253,431 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         assertNoLoadAndNoArrayRead(released, since: before, "a smart playlist record")
 
         await loadedSync.receiveFetchedRecordsForTesting([playlistRecord])
-        await releasedSync.receiveFetchedRecordsForTesting([playlistRecord])
-        XCTAssertEqual(released.songModelResidencyStatistics.loads, before.loads + 1, "the playlist record loads the model once")
+        let playlistPlan = await releasedSync.receiveFetchedRecordsForTesting([playlistRecord])
+        XCTAssertFalse(playlistPlan.needsSongModel)
+        XCTAssertEqual(songModelHolds(of: released), [], "the members resolve from the catalog")
+        assertNoLoadAndNoArrayRead(released, since: before, "a playlist record")
+        XCTAssertEqual(released.rawSongIDs(forPlaylist: playlist.id), loaded.rawSongIDs(forPlaylist: playlist.id))
+        XCTAssertEqual(loaded.rawSongIDs(forPlaylist: playlist.id), [songs[0].id, songs[4].id, songs[2].id])
+
+        XCTAssertTrue(releasedSync.musicSourceRecordChangesSources(sourceRecord), "a new source changes the sources")
+        let sourcePlan = await releasedSync.receiveFetchedRecordsForTesting([sourceRecord])
+        XCTAssertEqual(sourcePlan.sourceRecords.count, 1, "judged at the moment of applying")
+        XCTAssertEqual(released.songModelResidencyStatistics.loads, before.loads + 1, "the source record loads the model once")
         XCTAssertEqual(songModelHolds(of: released), [.cloudKitReceive])
         XCTAssertTrue(released.isReady)
         XCTAssertFalse(released.songModelHoldReasons.contains(.cloudKitReceive), "and lets go")
-        XCTAssertEqual(released.songIDs(forPlaylist: playlist.id), loaded.songIDs(forPlaylist: playlist.id))
-        XCTAssertEqual(loaded.songIDs(forPlaylist: playlist.id), [songs[0].id, songs[4].id, songs[2].id])
 
         let again = try await releaseForReal(released)
         for _ in 0..<5 { await releasedSync.receiveStateUpdate(isCurrent: { true }) { cursorSaves.count += 1 } }
         XCTAssertEqual(cursorSaves.count, 10)
         XCTAssertEqual(songModelHolds(of: released), [.cloudKitReceive], "no further hold")
         assertNoLoadAndNoArrayRead(released, since: again, "cursor saves after the second release")
+    }
+
+    // MARK: CK-b — CloudKit receive without the song model
+
+    /// 别的设备的成员身份,每一级各一个:按 id;按云账号与路径;按本机文件源的相对路径(只有路径对得上;同一个文件上两首
+    /// CUE 分轨按标题挑);按标题、时长、艺人(停用源上的也算);认不出的两个(没有这首;标题对得上而艺人不对)。
+    private func remoteIdentities(_ songs: [Song]) -> [SongIdentity] {
+        func identity(_ id: String, _ title: String, _ artist: String?, _ duration: Double,
+                      account: String? = nil, path: String) -> SongIdentity {
+            SongIdentity(songID: id, title: title, artistName: artist, duration: duration, cloudAccountID: account, filePath: path)
+        }
+        return [
+            identity(songs[0].id, songs[0].title, songs[0].artistName, songs[0].duration, path: songs[0].filePath),
+            identity("remote-cloud", "Different", nil, 1, account: "ckb-account", path: songs[1].filePath),
+            identity("remote-local", "Renamed", nil, songs[2].duration, path: songs[2].filePath),
+            identity("remote-title", songs[5].title, songs[5].artistName, songs[5].duration + 0.5, path: "/Elsewhere/comp.flac"),
+            identity("remote-cue", "Cue 2", "DJ", songs[17].duration, path: songs[17].filePath),
+            identity("remote-disabled", songs[7].title, songs[7].artistName, songs[7].duration, path: "/Elsewhere/b.flac"),
+            identity("remote-none", "Nowhere", nil, 10, path: "/Elsewhere/none.flac"),
+            identity("remote-artist", songs[1].title, "Someone else", songs[1].duration, path: "/Elsewhere/blue.flac"),
+        ]
+    }
+
+    /// 音乐源记录的载荷(同 `SyncableSource`:`{"source": …}`)。
+    private struct RemoteSourcePayload: Codable {
+        var source: MusicSource
+    }
+
+    private func remoteSourceRecord(_ source: MusicSource) throws -> CKRecord {
+        let type = CloudKitSyncService.RecordType.musicSource
+        let record = CKRecord(
+            recordType: type, recordID: CKRecord.ID(recordName: "\(type)/\(source.id)", zoneID: CloudKitSyncService.zoneID)
+        )
+        record["payload"] = try JSONEncoder().encode(RemoteSourcePayload(source: source))
+        record["updatedAt"] = source.modifiedAt
+        return record
+    }
+
+    private func remotePlaylistRecord(_ playlist: Playlist, identities: [SongIdentity]) throws -> CKRecord {
+        let type = CloudKitSyncService.RecordType.playlist
+        let record = CKRecord(
+            recordType: type, recordID: CKRecord.ID(recordName: "\(type)/\(playlist.id)", zoneID: CloudKitSyncService.zoneID)
+        )
+        record["name"] = playlist.name
+        record["createdAt"] = playlist.createdAt
+        record["updatedAt"] = playlist.updatedAt
+        record["songIDs"] = identities.map(\.songID)
+        record[CloudKitSyncService.songIdentitiesField] = try JSONEncoder().encode(
+            PlaylistCloudSyncEnvelope(playlist: playlist, songIdentities: identities)
+        )
+        return record
+    }
+
+    private func remoteHistoryRecord(_ identities: [SongIdentity]) throws -> CKRecord {
+        let type = CloudKitSyncService.RecordType.playbackHistory
+        let record = CKRecord(recordType: type, recordID: CKRecord.ID(
+            recordName: "\(type)/\(CloudKitSyncService.playbackHistoryRecordName)", zoneID: CloudKitSyncService.zoneID
+        ))
+        record["songIDs"] = identities.map(\.songID)
+        record["updatedAt"] = Date()
+        record[CloudKitSyncService.songIdentitiesField] = try JSONEncoder().encode(identities)
+        return record
+    }
+
+    private struct RemoteMembershipOutcome: Equatable {
+        var members: [String]
+        var pending: [SongIdentity]
+        var pinned: [String]
+        var history: [String]
+        var historyPending: [SongIdentity]
+        var placeholders: [String]
+    }
+
+    private func remoteMembershipOutcome(_ library: MusicLibrary, playlistID: String) -> RemoteMembershipOutcome {
+        RemoteMembershipOutcome(
+            members: library.rawSongIDs(forPlaylist: playlistID),
+            pending: library.pendingSongIdentities(forPlaylist: playlistID),
+            pinned: library.playlist(id: playlistID)?.pinnedSongIDs ?? [],
+            history: library.recentPlaybackSongIDsForSync,
+            historyPending: library.pendingHistoryIdentitiesForTesting,
+            placeholders: library.playlistPendingEntries.keys.sorted()
+        )
+    }
+
+    /// CK-b:别的设备的歌单与播放记录(带成员身份)在模型真放掉之后、在从没装过模型的启动里都不占用模型、不装、
+    /// 不读整库数组 —— 身份候选在主线程外从曲库目录一遍读出来 —— 认出的成员、等着的身份、置顶、最近播放与模型在
+    /// 内存里的那一台逐项相同;之后装回模型,还是相同。
+    func testRemotePlaylistAndHistoryResolveFromTheCatalogLikeTheLoadedReceiver() async throws {
+        let songs = Self.fixture(prefix: "ckb")
+        let identities = remoteIdentities(songs)
+        let remote = Playlist(id: "ckb-remote-playlist", name: "From another device", pinnedSongIDs: ["remote-title"])
+        let records = [
+            try remotePlaylistRecord(remote, identities: identities),
+            try remoteHistoryRecord(Array(identities.reversed())),
+        ]
+        func configure(_ library: MusicLibrary) {
+            library.sourceIdentityResolver = { $0 == Self.sourceA ? "ckb-account" : nil }
+            library.deviceLocalSourceIDsProvider = { [Self.sourceA] }
+        }
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+
+        let loaded = try makeLaunchedTwin("ckb-loaded", songs: songs).library
+        let released = try makeLaunchedTwin("ckb-released", songs: songs).library
+        await assertShadowMatches(loaded, "loaded")
+        await assertShadowMatches(released, "released")
+        configure(loaded)
+        configure(released)
+        let loadedSync = try makeCloudSync(loaded, "ckb-loaded")
+        let releasedSync = try makeCloudSync(released, "ckb-released")
+        let before = try await releaseForReal(released)
+
+        await loadedSync.receiveFetchedRecordsForTesting(records)
+        let plan = await releasedSync.receiveFetchedRecordsForTesting(records)
+        XCTAssertFalse(plan.needsSongModel)
+        XCTAssertGreaterThan(plan.resolution?.candidateCount ?? 0, 0, "the candidates came from the catalog")
+        XCTAssertEqual(songModelHolds(of: released), [], "no hold")
+        XCTAssertFalse(released.isReady)
+        released.flushRemotePlaylistDurabilityLedger()
+        assertNoLoadAndNoArrayRead(released, since: before, "receiving while released")
+
+        let expected = remoteMembershipOutcome(loaded, playlistID: remote.id)
+        XCTAssertEqual(expected.members, [
+            songs[0].id, songs[1].id, songs[2].id, songs[5].id, songs[17].id, songs[7].id, "remote-none", "remote-artist",
+        ], "each tier on the loaded receiver")
+        XCTAssertEqual(expected.pending.map(\.songID), ["remote-none", "remote-artist"])
+        XCTAssertEqual(expected.pinned, [songs[5].id])
+        XCTAssertEqual(expected.history, [songs[7].id, songs[17].id, songs[5].id, songs[2].id, songs[1].id, songs[0].id])
+        XCTAssertEqual(expected.historyPending.map(\.songID), ["remote-artist", "remote-none"])
+        XCTAssertEqual(remoteMembershipOutcome(released, playlistID: remote.id), expected, "released: the same")
+
+        // 从没装过模型的启动,对一次照今天装法的启动(同一份落了盘的库)。
+        let (_, storage) = try await launchFixture("ckb-launch", songs: songs)
+        let neverLoaded = await launch(try copyOfDirectory(storage, "ckb-never"), unloaded: true)
+        let launchedLoaded = await launch(try copyOfDirectory(storage, "ckb-launch-loaded"), unloaded: false)
+        try await waitUntilUsable(neverLoaded)
+        XCTAssertFalse(neverLoaded.isReady)
+        XCTAssertTrue(launchedLoaded.isReady)
+        configure(neverLoaded)
+        configure(launchedLoaded)
+        let neverSync = try makeCloudSync(neverLoaded, "ckb-never")
+        let launchedSync = try makeCloudSync(launchedLoaded, "ckb-launch-loaded")
+        let neverBefore = neverLoaded.songModelResidencyStatistics
+        await launchedSync.receiveFetchedRecordsForTesting(records)
+        let neverPlan = await neverSync.receiveFetchedRecordsForTesting(records)
+        XCTAssertFalse(neverPlan.needsSongModel)
+        XCTAssertEqual(songModelHolds(of: neverLoaded), [], "never loaded: no hold")
+        neverLoaded.flushRemotePlaylistDurabilityLedger()
+        assertNoLoadAndNoArrayRead(neverLoaded, since: neverBefore, "receiving in a launch that never loaded")
+        XCTAssertEqual(
+            remoteMembershipOutcome(neverLoaded, playlistID: remote.id),
+            remoteMembershipOutcome(launchedLoaded, playlistID: remote.id),
+            "never loaded: the same as the launch that loaded"
+        )
+        XCTAssertEqual(remoteMembershipOutcome(launchedLoaded, playlistID: remote.id).members, expected.members)
+
+        // 装回来之后仍与一直在内存里的那一台相同。
+        let hold = await released.holdSongModel(.legacyPage)
+        XCTAssertEqual(remoteMembershipOutcome(released, playlistID: remote.id), expected, "after loading")
+        XCTAssertEqual(released.songIDs(forPlaylist: remote.id), loaded.songIDs(forPlaylist: remote.id))
+        hold.end()
+        await assertShadowMatches(released, "after loading")
+    }
+
+    /// CK-b:每一类记录落地要什么。只有音乐源、有待传要合并的歌单与播放记录、不认识的类型一定要模型;云账号什么都
+    /// 不要;手改标签与它的封面、动态封面要按 id 读;小状态的那几类要小状态落得了盘;歌单与播放记录还带上身份。
+    /// 模型放掉之后,按 id 读与小状态这两样此刻都答得了,不占用。
+    func testReceivePlanClassifiesEachRecordTypeForTheSongModel() async throws {
+        typealias RecordType = CloudKitSyncService.RecordType
+        func record(_ type: String, _ id: String) -> CKRecord {
+            CKRecord(recordType: type, recordID: CKRecord.ID(recordName: "\(type)/\(id)", zoneID: CloudKitSyncService.zoneID))
+        }
+        let someone = SongIdentity(songID: "x", title: "X", artistName: nil, duration: 1, cloudAccountID: nil, filePath: "/x.flac")
+        func fetched(_ type: String, _ id: String = "id", pending: Bool = false) -> CloudKitSyncService.ReceivePlan {
+            var plan = CloudKitSyncService.ReceivePlan()
+            plan.add(fetched: record(type, id), pendingSave: pending) { [someone] }
+            return plan
+        }
+        func deleted(_ type: String, _ id: String = "id") -> CloudKitSyncService.ReceivePlan {
+            var plan = CloudKitSyncService.ReceivePlan()
+            plan.add(deletionOf: type, id: id)
+            return plan
+        }
+        func failed(_ type: String) -> CloudKitSyncService.ReceivePlan {
+            var plan = CloudKitSyncService.ReceivePlan()
+            plan.add(failedSaveOf: type)
+            return plan
+        }
+        func summary(_ plan: CloudKitSyncService.ReceivePlan) -> String {
+            [plan.needsSongModel ? "model" : nil, plan.writesSmallState ? "small" : nil,
+             plan.readsSongsByID ? "byID" : nil, plan.identities.isEmpty ? nil : "identities",
+             plan.sourceRecords.isEmpty && plan.removedSourceIDs.isEmpty ? nil : "sources"]
+                .compactMap { $0 }.joined(separator: "+")
+        }
+        let artwork = LibraryArtworkOwner(kind: .album, id: "a").cloudRecordID
+        let motion = MotionCoverCloudRecordID.bindingPrefix + "a:x"
+
+        XCTAssertEqual(summary(fetched(RecordType.playlist)), "small+identities")
+        XCTAssertEqual(summary(fetched(RecordType.playlist, pending: true)), "model")
+        XCTAssertEqual(summary(fetched(RecordType.playlist, artwork)), "small")
+        XCTAssertEqual(summary(fetched(RecordType.playlist, artwork, pending: true)), "small")
+        XCTAssertEqual(summary(fetched(RecordType.playlist, motion)), "byID")
+        XCTAssertEqual(summary(fetched(RecordType.playbackHistory)), "small+identities")
+        XCTAssertEqual(summary(fetched(RecordType.playbackHistory, pending: true)), "model")
+        XCTAssertEqual(summary(fetched(RecordType.musicSource)), "sources")
+        XCTAssertEqual(summary(fetched("SomethingNew")), "model")
+        XCTAssertEqual(summary(fetched(RecordType.cloudAccount)), "")
+        XCTAssertEqual(summary(fetched(RecordType.cloudAccount, pending: true)), "")
+        XCTAssertEqual(summary(fetched(RecordType.songTagEdit)), "byID")
+        XCTAssertEqual(summary(fetched(RecordType.songTagEditCover)), "byID")
+        XCTAssertEqual(summary(fetched(RecordType.smartPlaylist)), "small")
+        XCTAssertEqual(summary(fetched(RecordType.libraryReview)), "small")
+        for type in [RecordType.libraryFavorite, RecordType.radioStation, RecordType.scraperConfig, RecordType.listeningStats] {
+            XCTAssertEqual(summary(fetched(type)), "", type)
+        }
+        XCTAssertEqual(summary(deleted(RecordType.musicSource)), "sources")
+        XCTAssertEqual(summary(deleted(RecordType.playlist)), "small")
+        XCTAssertEqual(summary(deleted(RecordType.playlist, motion)), "byID")
+        XCTAssertEqual(summary(deleted(RecordType.playbackHistory)), "small")
+        for type in [RecordType.cloudAccount, RecordType.songTagEdit, RecordType.songTagEditCover, RecordType.libraryReview] {
+            XCTAssertEqual(summary(deleted(type)), "", type)
+        }
+        XCTAssertEqual(summary(failed(RecordType.playlist)), "model")
+        XCTAssertEqual(summary(failed(RecordType.playbackHistory)), "model")
+        XCTAssertEqual(summary(failed(RecordType.musicSource)), "model")
+        XCTAssertEqual(summary(failed(RecordType.cloudAccount)), "")
+        XCTAssertEqual(summary(failed(RecordType.songTagEdit)), "byID")
+        XCTAssertEqual(summary(failed(RecordType.smartPlaylist)), "small")
+
+        let songs = Self.fixture(prefix: "ckb-plan")
+        let library = try makeLaunchedTwin("ckb-plan", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        let sync = try makeCloudSync(library, "ckb-plan")
+        XCTAssertFalse(sync.receiveNeedsSongModel(fetched(RecordType.songTagEdit)), "loaded")
+        XCTAssertTrue(sync.receiveNeedsSongModel(fetched("SomethingNew")), "loaded: an unknown type still holds")
+        let before = try await releaseForReal(library)
+        XCTAssertFalse(sync.receiveNeedsSongModel(fetched(RecordType.songTagEdit)), "released: the catalog answers by id")
+        XCTAssertFalse(sync.receiveNeedsSongModel(fetched(RecordType.smartPlaylist)), "released: small state is writable")
+        XCTAssertTrue(sync.receiveNeedsSongModel(fetched(RecordType.playlist)), "released: identities without candidates")
+        XCTAssertFalse(sync.receiveNeedsSongModel(fetched(RecordType.musicSource)), "released: a source record without a payload changes nothing")
+        XCTAssertTrue(sync.receiveNeedsSongModel(fetched("SomethingNew")))
+        assertNoLoadAndNoArrayRead(library, since: before, "classifying")
+    }
+
+    /// CK-b:云账号记录只进音乐源的存储,模型放掉时照收,不占用、不装。
+    func testCloudAccountRecordsApplyWithoutTheSongModel() async throws {
+        let songs = Self.fixture(prefix: "ckb-account")
+        let library = try makeLaunchedTwin("ckb-account", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        let suite = "cloud-receive-ckb-account-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        let sourcesStore = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources-ckb-account"))
+        let sync = CloudKitSyncService(
+            library: library, sourcesStore: sourcesStore,
+            radioStationsStore: RadioStationsStore(storeURL: directory.appendingPathComponent("radio-ckb-account.json")),
+            scraperSettingsStore: ScraperSettingsStore(defaults: defaults)
+        )
+        let account = CloudAccount(id: "ckb-acct", provider: .googleDrive, accountUID: "uid-1")
+        let type = CloudKitSyncService.RecordType.cloudAccount
+        let record = CKRecord(
+            recordType: type, recordID: CKRecord.ID(recordName: "\(type)/\(account.id)", zoneID: CloudKitSyncService.zoneID)
+        )
+        record["payload"] = try JSONEncoder().encode(account)
+        record["updatedAt"] = account.modifiedAt
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(library)
+
+        let plan = await sync.receiveFetchedRecordsForTesting([record])
+        XCTAssertFalse(plan.needsSongModel)
+        XCTAssertEqual(songModelHolds(of: library), [])
+        assertNoLoadAndNoArrayRead(library, since: before, "a cloud account record")
+        XCTAssertEqual(sourcesStore.allAccounts.map(\.id), [account.id])
+    }
+
+    /// CK-b:音乐源记录只在套进来会改源表时占用模型:别的设备新加的源装一次(停用集合、整源的歌那一套照原来那条路);
+    /// 同一份再拉回来(本机推上去又回来的那种)、比本机旧的一份、远端删掉一个本机没有的源,都不占用、不装,
+    /// 源表也没动。判法与 `upsertFromRemote` 逐支对应:判「会改」的那几条套进来确实改了,判「不改」的确实没改。
+    func testMusicSourceRecordsHoldTheModelOnlyWhenTheyChangeTheSources() async throws {
+        let songs = Self.fixture(prefix: "ckb-source")
+        let library = try makeLaunchedTwin("ckb-source", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        let suite = "cloud-receive-ckb-source-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        let sourcesStore = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources-ckb-source"))
+        let sync = CloudKitSyncService(
+            library: library, sourcesStore: sourcesStore,
+            radioStationsStore: RadioStationsStore(storeURL: directory.appendingPathComponent("radio-ckb-source.json")),
+            scraperSettingsStore: ScraperSettingsStore(defaults: defaults)
+        )
+        var remote = MusicSource(id: "ckb-remote-source", name: "Living room NAS", type: .navidrome)
+        remote.modifiedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let record = try remoteSourceRecord(remote)
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        func sourcesPicture() -> [String] {
+            sourcesStore.allSources.map { "\($0.id) \($0.name) deleted=\($0.isDeleted) modified=\($0.modifiedAt.timeIntervalSince1970)" }
+        }
+
+        let before = try await releaseForReal(library)
+        let newPlan = await sync.receiveFetchedRecordsForTesting([record])
+        XCTAssertEqual(newPlan.sourceRecords.count, 1)
+        XCTAssertEqual(songModelHolds(of: library), [.cloudKitReceive], "a new source: the model is held")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1)
+        XCTAssertEqual(sourcesStore.allSources.map(\.id), [remote.id])
+
+        let again = try await releaseForReal(library)
+        let afterNew = sourcesPicture()
+        XCTAssertFalse(sync.musicSourceRecordChangesSources(record), "the same source again changes nothing")
+        await sync.receiveFetchedRecordsForTesting([record])
+        var older = remote
+        older.name = "Older name"
+        older.modifiedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let olderRecord = try remoteSourceRecord(older)
+        XCTAssertFalse(sync.musicSourceRecordChangesSources(olderRecord), "an older copy changes nothing")
+        await sync.receiveFetchedRecordsForTesting([olderRecord])
+        XCTAssertFalse(sync.musicSourceRemovalChangesSources("ckb-not-here"), "removing a source this device does not have")
+        XCTAssertEqual(songModelHolds(of: library), [.cloudKitReceive], "no further hold")
+        assertNoLoadAndNoArrayRead(library, since: again, "unchanged source records")
+        XCTAssertEqual(sourcesPicture(), afterNew, "and the sources are as they were")
+
+        var renamed = remote
+        renamed.name = "Renamed elsewhere"
+        renamed.modifiedAt = Date(timeIntervalSince1970: 1_800_000_100)
+        XCTAssertTrue(sync.musicSourceRecordChangesSources(try remoteSourceRecord(renamed)), "a newer edit changes the sources")
+        XCTAssertTrue(sync.musicSourceRemovalChangesSources(remote.id), "removing a source this device has")
+    }
+
+    /// 账号迁移在有源认不出来、每次启动都重跑时,已有的账号原样留着:不盖修改时间、不发变更(以前每次启动 iCloud
+    /// 都传一份内容相同的账号记录,别的设备再收一遍 —— 收的那一下在模型放掉时会装模型)。没有的账号照旧加上。
+    func testEnsuringAnExistingCloudAccountDoesNotStampOrAnnounceIt() async throws {
+        let sourcesStore = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources-ckb-ensure"))
+        let announced = Tally()
+        let token = NotificationCenter.default.addObserver(forName: .primuseCloudAccountsDidChange, object: nil, queue: nil) { _ in
+            announced.count += 1
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        let first = sourcesStore.ensureAccount(CloudAccount(id: "ckb-ensure", provider: .baiduPan, accountUID: "uid"))
+        XCTAssertEqual(announced.count, 1, "a new account is added and announced")
+        XCTAssertEqual(sourcesStore.allAccounts.map(\.id), ["ckb-ensure"])
+        let stamped = try XCTUnwrap(sourcesStore.account(id: "ckb-ensure")).modifiedAt
+        try await Task.sleep(for: .milliseconds(20))
+        let second = sourcesStore.ensureAccount(CloudAccount(id: "ckb-ensure", provider: .baiduPan, accountUID: "uid"))
+        XCTAssertEqual(announced.count, 1, "an existing account is not announced again")
+        XCTAssertEqual(sourcesStore.account(id: "ckb-ensure")?.modifiedAt, stamped, "nor stamped")
+        XCTAssertEqual(second, first)
+    }
+
+    /// CK-b:别的设备的手改标签在模型放掉之后收到时不装;半秒后套到本机这一行时有活才占用(`.cloudKitReceive`)装回来,
+    /// 套出来的行与模型在内存里的那一台相同。本机没有的歌、同一版再收一次,都不装。
+    func testRemoteTagEditsLoadTheModelOnlyToApplyRealWork() async throws {
+        let songs = Self.fixture(prefix: "ckb-tag")
+        let loaded = try makeLaunchedTwin("ckb-tag-loaded", songs: songs).library
+        let released = try makeLaunchedTwin("ckb-tag-released", songs: songs).library
+        await assertShadowMatches(loaded, "loaded")
+        await assertShadowMatches(released, "released")
+        let loadedStore = SongTagEditStore(fileURL: directory.appendingPathComponent("ckb-tag-loaded.json"))
+        let releasedStore = SongTagEditStore(fileURL: directory.appendingPathComponent("ckb-tag-released.json"))
+        loadedStore.attach(library: loaded)
+        releasedStore.attach(library: released)
+        _ = await loadedStore.launchPass?.value
+        _ = await releasedStore.launchPass?.value
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        func waitUntil(_ condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now + .seconds(10)
+            while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        }
+        let before = try await releaseForReal(released)
+
+        var foreign = songs[3]
+        foreign.id = "ckb-tag-foreign"
+        foreign.title = "Not on this device (edited)"
+        foreign.userMetadataEditedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let foreignEdit = try XCTUnwrap(SongTagEditPolicy.legacyEdit(for: foreign, cover: nil))
+        _ = releasedStore.applyRemote(foreignEdit)
+        XCTAssertNotNil(releasedStore.entries[foreign.id], "the record is kept")
+        try await Task.sleep(for: .milliseconds(900))
+        XCTAssertEqual(songModelHolds(of: released), [], "a song this device does not have: no hold")
+        assertNoLoadAndNoArrayRead(released, since: before, "a tag edit for a song this device does not have")
+
+        var edited = songs[3]
+        edited.title = "Blue 4 (edited elsewhere)"
+        edited.userMetadataEditedAt = Date(timeIntervalSince1970: 1_800_000_100)
+        let edit = try XCTUnwrap(SongTagEditPolicy.legacyEdit(for: edited, cover: nil))
+        _ = loadedStore.applyRemote(edit)
+        _ = releasedStore.applyRemote(edit)
+        assertNoLoadAndNoArrayRead(released, since: before, "receiving the tag edit")
+        try await waitUntil { loaded.storedSong(id: edited.id)?.title == edited.title }
+        try await waitUntil { released.storedSong(id: edited.id)?.title == edited.title }
+        XCTAssertEqual(songModelHolds(of: released), [.cloudKitReceive], "applied under one hold")
+        XCTAssertEqual(released.songModelResidencyStatistics.loads, before.loads + 1)
+        let appliedLoaded = try XCTUnwrap(loaded.storedSong(id: edited.id))
+        let appliedReleased = try XCTUnwrap(released.storedSong(id: edited.id))
+        assertSameSongs([appliedReleased], [appliedLoaded], "the applied row")
+        XCTAssertEqual(releasedStore.entries[edited.id], loadedStore.entries[edited.id])
+        await assertShadowMatches(released, "after the tag edit")
+
+        let again = try await releaseForReal(released)
+        _ = releasedStore.applyRemote(edit)
+        try await Task.sleep(for: .milliseconds(900))
+        XCTAssertEqual(songModelHolds(of: released), [.cloudKitReceive], "the same version again: no further hold")
+        assertNoLoadAndNoArrayRead(released, since: again, "the same tag edit again")
     }
 
     /// CK-a 第 2 项:模型不在内存里时补读不拿空的歌曲表去比剩余数(以前在这里读一次 `songs`、记一笔数组读;

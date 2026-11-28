@@ -1210,6 +1210,55 @@ extension SourcesStore {
         )
     }
 
+    /// CK-b:`upsertFromRemote(remote)` 会不会改源表、发出源的变更(走到 `notifyChanged` 的那几支)。不会的 ——
+    /// 本机推上去又拉回来的同一份、比本机旧的、这台设备关了同步的、盖不过本机的墓碑 —— 不碰曲库,iCloud 收它
+    /// 不用歌曲模型。与 `upsertFromRemote` 逐支对应,只读不写(那边不发变更的几支里记的删除账本、暂存的远端修改、
+    /// 同步配置里的启用值都不是曲库的东西)。
+    func remoteUpsertWouldChangeSources(_ remote: MusicSource) -> Bool {
+        guard MusicSourceCloudSyncPolicy.isEligible(remote), deviceSettings.syncsViaICloud(remote.id) else { return false }
+        let existing = allSources.first(where: { $0.id == remote.id })
+        if remote.isDeleted {
+            guard let existing else { return false }
+            if !existing.isDeleted,
+               MusicSourceLifecyclePolicy.isExplicitRestore(existing, after: MusicSourceDeletionRecord(tombstone: remote)) {
+                return false
+            }
+            if existing.isDeleted, MusicSourceLifecyclePolicy.winner(local: existing, remote: remote) == .local { return false }
+            var merged = MusicSourceDeviceSettings.applyingLocalEnablement(to: remote, local: existing)
+            merged.lastScannedAt = existing.lastScannedAt
+            merged.songCount = existing.songCount
+            merged.deviceId = existing.deviceId
+            return !Self.isSameIgnoringSubsecondDates(merged, existing)
+        }
+        let restoresRecordedDeletion: Bool
+        if let deletion = sourceDeletionRecord(id: remote.id) {
+            guard MusicSourceLifecyclePolicy.isExplicitRestore(remote, after: deletion) else { return false }
+            restoresRecordedDeletion = true
+        } else {
+            restoresRecordedDeletion = false
+        }
+        guard let existing else { return true }
+        if existing.isDeleted,
+           !MusicSourceLifecyclePolicy.isExplicitRestore(remote, after: MusicSourceDeletionRecord(tombstone: existing)) {
+            return false
+        }
+        if Self.sourceClock(existing) > Self.sourceClock(remote) { return false }
+        var merged = MusicSourceDeviceSettings.applyingLocalEnablement(to: remote, local: existing)
+        merged.lastScannedAt = existing.lastScannedAt
+        merged.songCount = existing.songCount
+        merged.deviceId = existing.deviceId
+        merged.googleDriveAccessMode = GoogleDrivePickerPolicy.mergedStoredAccessMode(
+            local: existing.googleDriveAccessMode,
+            remote: remote.googleDriveAccessMode
+        )
+        return restoresRecordedDeletion || !Self.isSameIgnoringSubsecondDates(merged, existing)
+    }
+
+    /// CK-b:`removeFromRemote(id:)` 会不会改源表、发出变更:本机有这一行才会(已经是墓碑的也会,删除时间往后挪)。
+    func remoteRemovalWouldChangeSources(id: String) -> Bool {
+        allSources.contains { $0.id == id }
+    }
+
     // MARK: - This device only
 
     /// 这个源是否经 iCloud 同步。没单独关过的都是 true。
@@ -1672,6 +1721,15 @@ extension SourcesStore {
             object: nil,
             userInfo: ["ids": [stamped.id]]
         )
+    }
+
+    /// 有这个 id 的账号(含软删的)就原样返回,不盖修改时间、不发变更;没有才像 `upsertAccount` 那样加上。
+    /// 账号迁移每次启动都会认一遍账号,以前每次都 `upsertAccount`:内容没变,修改时间变了,iCloud 每次传一份。
+    @discardableResult
+    func ensureAccount(_ account: CloudAccount) -> CloudAccount {
+        if let existing = allAccounts.first(where: { $0.id == account.id }) { return existing }
+        upsertAccount(account)
+        return allAccounts.first(where: { $0.id == account.id }) ?? account
     }
 
     /// Soft-delete: hide the account from `accounts`, but the row stays

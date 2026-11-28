@@ -4458,6 +4458,9 @@ final class MusicLibrary {
     /// `.preparing` 期间排队的整行替换里已经改过的字段(歌曲 id → 字段名 → 值,清掉的字段记 `NSNull`),
     /// 见 `queuingRowEdits`。这期间按 id 从目录读出来的行叠上它;重放完清空。
     @ObservationIgnored private var queuedSongFieldEdits: [String: [String: Any]] = [:]
+    /// CK-b:正在落地的这一批 iCloud 记录认成员身份用的、事先从曲库目录读好的候选(`resolvingRemoteIdentities`),
+    /// 只在那一次同步落地期间有值。
+    @ObservationIgnored private var activeCatalogIdentityResolution: CatalogIdentityResolution?
     /// S2 例外 1: `.preparing` 期间记录下来的配置最新值, 发布后对账用。
     @ObservationIgnored private var preparingDisabledSourceIDs: Set<String>?
     @ObservationIgnored private var preparingArtistNameConfiguration: ArtistNameConfiguration?
@@ -13740,7 +13743,8 @@ extension MusicLibrary {
     ) -> Bool {
         // S2: 冲突判定要比对发布后的本地行, 身份解析也要在有歌之后再做;
         // 返回 false (= 远端值胜出) 让调用方不要立刻回推本地值。
-        if deferringUntilReady({ [weak self] in
+        // CK-b: 歌曲模型放掉之后, 这一批的身份候选已经从曲库目录读好(`resolvingRemoteIdentities`)时当场做。
+        if deferringRemoteMembership(identities: identities, { [weak self] in
             _ = self?.applyRemotePlaylist(playlist, songIDs: songIDs, identities: identities)
         }) { return false }
         if let index = allPlaylists.firstIndex(where: { $0.id == playlist.id }) {
@@ -13939,8 +13943,8 @@ extension MusicLibrary {
         songIDs: [String],
         identities: [SongIdentity]? = nil
     ) {
-        // S2: 播放历史在发布时整体拷回, 身份解析也需要发布后的歌曲行。
-        if deferringUntilReady({ [weak self] in
+        // S2: 播放历史在发布时整体拷回, 身份解析也需要发布后的歌曲行。CK-b: 同 `applyRemotePlaylist`。
+        if deferringRemoteMembership(identities: identities, { [weak self] in
             self?.applyRemotePlaybackHistory(songIDs: songIDs, identities: identities)
         }) { return }
         let previousSongIDs = recentPlaybackSongIDs
@@ -14027,9 +14031,20 @@ extension MusicLibrary {
 
     private struct IdentityResolutionIndex: Sendable {
         var songIDByCloudPath: [IdentityCloudPathKey: String]
-        var songIndicesByTitle: [String: [Int]]
+        /// 每个被问到的标题上有哪些歌(库内顺序),第 3 级按它们比时长与艺人。
+        var titleCandidates: [String: [IdentityTitleCandidate]]
         /// 本机文件源里, 每个被问到的相对路径上有哪些歌。
         var deviceLocalPathCandidates: [String: [SongIdentityDeviceLocalPathMatch.Candidate]] = [:]
+        /// 曲库目录作答时(CK-b,模型不在内存里):这一批要问「在不在」的 id 里在的那些,事先一次读出来。
+        /// nil:逐首问 `songForSynchronization`(模型在内存里时)。
+        // crash-pattern: allow song-id-collection-property 一批 iCloud 记录的成员身份加上不超过物化上限的候选行,用完即丢
+        var presentSongIDs: Set<String>?
+    }
+
+    private struct IdentityTitleCandidate: Sendable {
+        let songID: String
+        let artistName: String?
+        let duration: Double
     }
 
     /// Builds only the lookup buckets required by the pending identities.
@@ -14041,6 +14056,10 @@ extension MusicLibrary {
     }
 
     private func makeIdentityResolutionIndex(for identities: [SongIdentity]) -> IdentityResolutionIndex {
+        if !songModelAnswersFromMemory, let resolution = activeCatalogIdentityResolution,
+           let index = catalogIdentityResolutionIndex(for: identities, using: resolution) {
+            return index
+        }
         let unresolved = identities.filter { songForSynchronization(id: $0.songID) == nil }
         let candidates = Self.identityResolutionCandidates(
             for: unresolved, songs: songs, deviceLocalSourceIDs: deviceLocalSourceIDsProvider?() ?? []
@@ -14058,13 +14077,15 @@ extension MusicLibrary {
             identities.filter(SongIdentityDeviceLocalPathMatch.isEligible).map(\.filePath)
         )
         var result = IdentityResolutionCandidates(
-            index: IdentityResolutionIndex(songIDByCloudPath: [:], songIndicesByTitle: [:]), cloudPaths: []
+            index: IdentityResolutionIndex(songIDByCloudPath: [:], titleCandidates: [:]), cloudPaths: []
         )
         guard !titles.isEmpty || !paths.isEmpty || !localPaths.isEmpty else { return result }
         for index in songs.indices {
             if index.isMultiple(of: 256), isCancelled() { break }
             if !titles.isEmpty, titles.contains(songs[index].title) {
-                result.index.songIndicesByTitle[songs[index].title, default: []].append(index)
+                result.index.titleCandidates[songs[index].title, default: []].append(IdentityTitleCandidate(
+                    songID: songs[index].id, artistName: songs[index].artistName, duration: songs[index].duration
+                ))
             }
             if !localPaths.isEmpty, localPaths.contains(songs[index].filePath),
                deviceLocalSourceIDs.contains(songs[index].sourceID) {
@@ -14133,7 +14154,7 @@ extension MusicLibrary {
     /// iOS 前台的重试不建整库索引(见 `schedulePendingIdentityFlush`), 本机文件源
     /// 的相对路径照样能查: 只走这几个源在可见曲库里的位置, 不碰别的歌。
     private func makeDeviceLocalPathIndex(for identities: [SongIdentity]) -> IdentityResolutionIndex {
-        var index = IdentityResolutionIndex(songIDByCloudPath: [:], songIndicesByTitle: [:])
+        var index = IdentityResolutionIndex(songIDByCloudPath: [:], titleCandidates: [:])
         let requested = Set(
             identities.lazy.filter(SongIdentityDeviceLocalPathMatch.isEligible).map(\.filePath)
         )
@@ -14168,14 +14189,14 @@ extension MusicLibrary {
         exactIDOnly: Bool = false
     ) -> String? {
         // Tier 1: exact ID — same mount on both devices, or hash collision.
-        if songForSynchronization(id: identity.songID) != nil {
+        if identitySongIsPresent(identity.songID, resolutionIndex) {
             return identity.songID
         }
         // Tier 1b: 本机文件源按相对路径 —— 源 id 每台设备不同, 歌刚导入时还没读标签,
         // 下面的模糊匹配对不上。前台只按 id 重试时也查这一级, 索引只含本机文件源。
         if let candidates = resolutionIndex.deviceLocalPathCandidates[identity.filePath],
            let songID = SongIdentityDeviceLocalPathMatch.match(identity, among: candidates),
-           songForSynchronization(id: songID) != nil {
+           identitySongIsPresent(songID, resolutionIndex) {
             return songID
         }
         guard !exactIDOnly else { return nil }
@@ -14199,11 +14220,10 @@ extension MusicLibrary {
         // Tier 3: fuzzy match — for NAS / FTP / SMB / WebDAV / local
         // sources where there's no cloud account anchor.
         if !identity.title.isEmpty {
-            for songIndex in resolutionIndex.songIndicesByTitle[identity.title] ?? [] {
-                let song = songs[songIndex]
-                if abs(song.duration - identity.duration) < 1.0,
-                   (identity.artistName == nil || song.artistName == identity.artistName) {
-                    return song.id
+            for candidate in resolutionIndex.titleCandidates[identity.title] ?? [] {
+                if abs(candidate.duration - identity.duration) < 1.0,
+                   (identity.artistName == nil || candidate.artistName == identity.artistName) {
+                    return candidate.songID
                 }
             }
         }
@@ -20671,6 +20691,212 @@ extension MusicLibrary {
     ) -> Bool {
         if smallStateWritesWithoutTheModel != nil { return false }
         return deferringUntilReady(work, caller: caller)
+    }
+
+    /// 只动小状态的 iCloud 记录(智能歌单、评分评论、歌单的删除与封面覆盖……)此刻不排队就能落地:模型在内存里,
+    /// 或者放掉之后小状态落得了盘(`deferringSmallStateMutation` 不排队的那个条件)。CloudKit 那一边据此决定
+    /// 一批记录占不占用模型:排了队的落地拿不到「本机胜出、要传回去」的答案。
+    var appliesSmallStateWithoutTheModel: Bool {
+        smallStateWritesWithoutTheModel != nil
+    }
+
+    // MARK: CloudKit receive without the song model (P3 step 6 CK-b)
+
+    /// 别的设备的歌单成员、播放记录落地时排不排队等模型:同 `deferringUntilReady`,只是歌曲模型放掉之后,小状态
+    /// 落得了盘、这些身份的候选也已经从曲库目录读好(`resolvingRemoteIdentities` 装上的那一份,而且覆盖了它们)时
+    /// 当场做 —— 认出来的与模型在内存里时逐首相同。没有身份(旧版本的记录)只动小状态,同样当场做。
+    fileprivate func deferringRemoteMembership(
+        identities: [SongIdentity]?, _ work: @escaping @MainActor () -> Void, caller: StaticString = #function
+    ) -> Bool {
+        guard isPreparing || sourceRemovalInProgress else { return false }
+        if smallStateWritesWithoutTheModel != nil, !songModelAnswersFromMemory {
+            let identities = identities ?? []
+            if identities.isEmpty { return false }
+            if let resolution = activeCatalogIdentityResolution {
+                if catalogIdentityResolution(resolution, covers: identities) { return false }
+                plog("☁️ CK-b: identities outside the catalog candidates in \(caller); queued for the song model")
+            }
+        }
+        return deferringUntilReady(work, caller: caller)
+    }
+
+    /// 一批 iCloud 记录(别的设备的歌单、播放记录)里的身份,按 id 认不出的那些要的候选 —— 标题或路径对得上的歌
+    /// (含停用源,库内顺序)—— 与身份上的 id 在不在曲库里,在主线程外从曲库目录一次读出来。落地时由它答,
+    /// 与拿整库数组建的索引相同;主线程上只剩落地之前那一下核对(`readyToResolveRemoteIdentities`,不读目录)。
+    ///
+    /// nil:此刻不这样做,调用方占用模型走原来那条路:模型在内存里;小状态落不了盘;目录答不了;路上的改动两秒内
+    /// 等不到目录确认;还有排着的整行改动;候选多到取不全;或者读的途中曲库有了改动。
+    func prepareCatalogIdentityResolution(for identities: [SongIdentity]) async -> CatalogIdentityResolution? {
+        guard !identities.isEmpty, !songModelAnswersFromMemory, smallStateWritesWithoutTheModel != nil,
+              queuedSongFieldEdits.isEmpty, let lookup = lookupOutsideTheModel else { return nil }
+        let writes = lookup.pendingWrites
+        if writes.pendingCount > 0 {
+            // 刚做的改动还没到目录:等它到,目录列出来的才是内存模型那一刻的样子。
+            guard await writes.waitUntilAcknowledged(through: writes.lastSequence, timeout: .seconds(2)),
+                  !songModelAnswersFromMemory, smallStateWritesWithoutTheModel != nil, queuedSongFieldEdits.isEmpty
+            else { return nil }
+        }
+        let sequence = writes.lastSequence
+        guard writes.pendingCount == 0, writes.answersLikeMemory else { return nil }
+        let exclusionRevision = deviceLocalExclusionRevision
+        // 本机移除过歌时,目录里在的那一行在主线程上还要按排除表判一次;判下来不在的,它的标题与路径也要有候选。
+        let excludesSongsOnThisDevice = !deviceLocalExcludedSongIdentities.isEmpty
+        let started = ContinuousClock.now
+        guard let read = await Task.detached(priority: .utility, operation: {
+            try? CatalogIdentityRead(identities, lookup: lookup, candidatesForStoredIDs: excludesSongsOnThisDevice)
+        }).value else {
+            plog("☁️ CK-b: identity candidates unavailable (catalog error or more than the cap); the song model is held")
+            return nil
+        }
+        guard writes.lastSequence == sequence, writes.pendingCount == 0, writes.answersLikeMemory,
+              deviceLocalExclusionRevision == exclusionRevision, queuedSongFieldEdits.isEmpty,
+              !songModelAnswersFromMemory, smallStateWritesWithoutTheModel != nil else { return nil }
+        let elapsed = Int((ContinuousClock.now - started) / .milliseconds(1))
+        plog(
+            "☁️ CK-b: identities from the catalog identities=\(identities.count) stored=\(read.stored.count) "
+                + "candidates=\(read.rows.count) ms=\(elapsed)"
+        )
+        return CatalogIdentityResolution(
+            pendingWrites: ObjectIdentifier(writes), sequence: sequence, exclusionRevision: exclusionRevision,
+            identityIDs: Set(identities.map(\.songID)), read: read
+        )
+    }
+
+    /// 紧接着落地之前(同一轮主线程里):这份候选还作数吗(读的那一刻之后曲库没有一点改动、模型还不在内存里、
+    /// 小状态落得了盘)。作数时按此刻的本机移除表与保留着的行,定下这一批「在不在」的答案(与
+    /// `songsForSynchronization(ids:)` 同一个算法,只是行已经读好了),不读目录。
+    func readyToResolveRemoteIdentities(_ resolution: CatalogIdentityResolution) -> Bool {
+        guard catalogIdentityResolutionIsCurrent(resolution) else { return false }
+        let excludes = !deviceLocalExcludedSongIdentities.isEmpty
+        func admits(_ song: Song) -> Bool { !excludes || admittedOutsideTheModel(song) != nil }
+        var present = Set<String>()
+        for id in resolution.identityIDs {
+            if let song = resolution.read.stored[id], admits(song) {
+                present.insert(id)
+            } else if retainedSongForSynchronization(id) != nil {
+                present.insert(id)
+            }
+        }
+        let rows = resolution.read.rows.filter { admits($0) }
+        present.formUnion(rows.map(\.id))
+        resolution.rows = rows
+        resolution.askedIDs = resolution.identityIDs.union(rows.map(\.id))
+        resolution.presentIDs = present
+        return true
+    }
+
+    /// 落地这一批记录时装上事先读好的候选(nil 时什么都不装),做完卸下。
+    func resolvingRemoteIdentities(_ resolution: CatalogIdentityResolution?, _ work: () -> Void) {
+        let previous = activeCatalogIdentityResolution
+        activeCatalogIdentityResolution = resolution
+        defer { activeCatalogIdentityResolution = previous }
+        work()
+    }
+
+    private func catalogIdentityResolutionIsCurrent(_ resolution: CatalogIdentityResolution) -> Bool {
+        guard !songModelAnswersFromMemory, smallStateWritesWithoutTheModel != nil, queuedSongFieldEdits.isEmpty,
+              deviceLocalExclusionRevision == resolution.exclusionRevision,
+              let writes = lookupOutsideTheModel?.pendingWrites else { return false }
+        return ObjectIdentifier(writes) == resolution.pendingWrites && writes.answersLikeMemory
+            && writes.pendingCount == 0 && writes.lastSequence == resolution.sequence
+    }
+
+    /// 这些身份由这份候选答得了:候选还作数、它们的 id 都问过、按 id 认不出的那些要的标题与路径都读过候选。
+    private func catalogIdentityResolution(_ resolution: CatalogIdentityResolution, covers identities: [SongIdentity]) -> Bool {
+        guard !resolution.askedIDs.isEmpty, catalogIdentityResolutionIsCurrent(resolution) else { return false }
+        return identities.allSatisfy { identity in
+            guard resolution.askedIDs.contains(identity.songID) else { return false }
+            guard !resolution.presentIDs.contains(identity.songID) else { return true }
+            return (identity.title.isEmpty || resolution.titles.contains(identity.title))
+                && (identity.filePath.isEmpty || resolution.paths.contains(identity.filePath))
+        }
+    }
+
+    /// 由候选建的身份索引,与 `makeIdentityResolutionIndex` 拿整库数组建的相同(候选里有数组那一遍会收的每一行,
+    /// 先后相同);nil:这份候选答不了这些身份。
+    private func catalogIdentityResolutionIndex(
+        for identities: [SongIdentity], using resolution: CatalogIdentityResolution
+    ) -> IdentityResolutionIndex? {
+        guard catalogIdentityResolution(resolution, covers: identities) else { return nil }
+        let unresolved = identities.filter { !resolution.presentIDs.contains($0.songID) }
+        let candidates = Self.identityResolutionCandidates(
+            for: unresolved, songs: resolution.rows, deviceLocalSourceIDs: deviceLocalSourceIDsProvider?() ?? []
+        )
+        var index = finishIdentityResolutionIndex(candidates, identities: unresolved)
+        index.presentSongIDs = resolution.presentIDs
+        return index
+    }
+
+    private func identitySongIsPresent(_ id: String, _ index: IdentityResolutionIndex) -> Bool {
+        if let present = index.presentSongIDs { return present.contains(id) }
+        return songForSynchronization(id: id) != nil
+    }
+
+    #if DEBUG
+    /// 测试:播放记录里等着本机的歌出现的那些身份。
+    var pendingHistoryIdentitiesForTesting: [SongIdentity] { pendingHistoryIdentities.map(\.identity) }
+    #endif
+
+    /// 一批 iCloud 记录认成员身份要的候选(`prepareCatalogIdentityResolution`)。只在主线程上用。
+    final class CatalogIdentityResolution {
+        fileprivate let pendingWrites: ObjectIdentifier
+        fileprivate let sequence: UInt64
+        fileprivate let exclusionRevision: UInt64
+        fileprivate let identityIDs: Set<String>
+        fileprivate let read: CatalogIdentityRead
+        /// 按此刻的本机移除表筛过的候选行(`readyToResolveRemoteIdentities` 定下)。
+        // crash-pattern: allow library-array-property 不超过物化上限(`identityCandidates` 的 limit),落地完就丢
+        fileprivate var rows: [Song] = []
+        fileprivate var askedIDs: Set<String> = []
+        fileprivate var presentIDs: Set<String> = []
+
+        fileprivate init(
+            pendingWrites: ObjectIdentifier, sequence: UInt64, exclusionRevision: UInt64,
+            identityIDs: Set<String>, read: CatalogIdentityRead
+        ) {
+            self.pendingWrites = pendingWrites
+            self.sequence = sequence
+            self.exclusionRevision = exclusionRevision
+            self.identityIDs = identityIDs
+            self.read = read
+        }
+
+        fileprivate var titles: Set<String> { read.titles }
+        fileprivate var paths: Set<String> { read.paths }
+
+        /// 读出来的候选行数(测试与日志用)。
+        var candidateCount: Int { read.rows.count }
+    }
+
+    /// 在主线程外从目录读的那一份:身份上的 id 在目录里的那几行,按 id 认不出的身份要的候选。
+    fileprivate struct CatalogIdentityRead: Sendable {
+        /// 身份上的 id 在目录里存着的那一行(还没按本机移除表筛)。
+        // crash-pattern: allow library-array-property 一批 iCloud 记录的成员那么多行,落地完就丢
+        let stored: [String: Song]
+        let titles: Set<String>
+        let paths: Set<String>
+        /// 标题或路径对得上的歌(含停用源),库内顺序。
+        // crash-pattern: allow library-array-property 不超过物化上限(`identityCandidates` 的 limit)
+        let rows: [Song]
+
+        /// `candidatesForStoredIDs`:目录里在的那几首也读候选(本机移除过歌时,它们可能被判成不在)。
+        /// 候选多到取不全时抛 `unavailable`。
+        init(_ identities: [SongIdentity], lookup: LibraryCatalogSongLookup, candidatesForStoredIDs: Bool) throws {
+            let ids = Array(Set(identities.map(\.songID)))
+            var stored: [String: Song] = [:]
+            for case let song? in try lookup.songs(ids: ids) { stored[song.id] = song }
+            // 比数组那条路要的宽一些(那边只拿带云账号的路径、本机文件源的路径),多出来的候选落地时按同一套规则筛掉。
+            let unresolved = identities.filter { candidatesForStoredIDs || stored[$0.songID] == nil }
+            let titles = Set(unresolved.compactMap { $0.title.isEmpty ? nil : $0.title })
+            let paths = Set(unresolved.compactMap { $0.filePath.isEmpty ? nil : $0.filePath })
+            guard let rows = try lookup.identityCandidates(titles: titles, paths: paths) else {
+                throw LibraryCatalogReaderError.unavailable
+            }
+            self.stored = stored
+            self.titles = titles
+            self.paths = paths
+            self.rows = rows
+        }
     }
 
     /// 小状态突变对歌曲的两问 ——「在不在曲库里」「存着的那一行」—— 从哪里答。

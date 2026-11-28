@@ -269,6 +269,36 @@ struct LibraryCatalogSongLookup: Sendable {
         return result + late
     }
 
+    /// 别的设备的歌单成员、播放记录认本机的歌要的候选(CK-b):标题在 `titles` 里或路径在 `paths` 里的歌(含停用源),
+    /// 库内顺序,按原文比(与拿整库数组一遍筛的相同)。只读标题与路径两列来筛,命中的才物化;列里 NUL 换成了 U+FFFD,
+    /// 带 U+FFFD 的行先算进来,物化出原文后再比。要求路上没有改动(调用方先等目录确认);命中超过 `limit` 时为 nil:
+    /// 候选不全,不能拿来认。
+    func identityCandidates(
+        titles: Set<String>, paths: Set<String>, limit: Int = LibraryScale.maxMaterializedRows
+    ) throws -> [Song]? {
+        guard pendingWrites.answersLikeMemory, pendingWrites.pendingCount == 0 else {
+            throw LibraryCatalogReaderError.unavailable
+        }
+        guard !titles.isEmpty || !paths.isEmpty else { return [] }
+        func mayHoldReplacedNUL(_ text: String) -> Bool {
+            text.utf8.contains(0xEF) && text.unicodeScalars.contains("\u{FFFD}")
+        }
+        var rowids: [Int32] = []
+        var overflowed = false
+        try catalog.forEachSongTitleAndPath(.everything) { rowid, title, path in
+            guard titles.contains(title) || paths.contains(path) || mayHoldReplacedNUL(title) || mayHoldReplacedNUL(path)
+            else { return true }
+            guard rowids.count < limit else {
+                overflowed = true
+                return false
+            }
+            rowids.append(rowid)
+            return true
+        }
+        guard !overflowed else { return nil }
+        return try catalog.songs(rowids: rowids).filter { titles.contains($0.title) || paths.contains($0.filePath) }
+    }
+
     /// 同 `LibraryPendingSongWrites.resolve`,一批一起做。
     private func resolve(_ ids: [String]) throws -> [Song?] {
         guard let pending = pendingWrites.lookups(ids) else { return try rowCache.songs(ids: ids, in: catalog) }

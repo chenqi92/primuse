@@ -1145,6 +1145,21 @@ final class LibraryStartupHarnessTests: XCTestCase {
         XCTAssertEqual(library.songs.count, songCount)
         XCTAssertEqual(statistics.wholeLibraryLoads, 0, "the fixture's store is one a launch has seen")
         let reloaded = try await settle()
+        // CK-b:一张两千首的别的设备的歌单,成员均匀取自整库(只留身份,不留歌曲数组):一张按 id 全认得出,
+        // 一张全要按标题认(id 与路径都换掉)。放掉之后再量。
+        let (exactIdentities, titleIdentities) = { () -> ([SongIdentity], [SongIdentity]) in
+            let all = library.songs
+            let sample = stride(from: 0, to: all.count, by: max(1, all.count / 2_000)).prefix(2_000).map { all[$0] }
+            let exact = sample.map {
+                SongIdentity(songID: $0.id, title: $0.title, artistName: $0.artistName, duration: $0.duration,
+                             cloudAccountID: nil, filePath: $0.filePath)
+            }
+            let byTitle = sample.enumerated().map { offset, song in
+                SongIdentity(songID: "remote-\(offset)", title: song.title, artistName: song.artistName,
+                             duration: song.duration, cloudAccountID: nil, filePath: "/remote/\(offset).flac")
+            }
+            return (exact, byTitle)
+        }()
         hold.end()
 
         // 放掉之后删歌:一首没有歌单引用的(只数按源剩余),一首歌单里有的(另外按标题找另一份)。
@@ -1156,6 +1171,26 @@ final class LibraryStartupHarnessTests: XCTestCase {
         }
         guard case .released = second else { return XCTFail("not released again: \(second)") }
         await library.songModelReleaseDidReclaimMemory()
+        // CK-b:放掉之后收到那张歌单:身份与候选(主线程外读目录)与落地之前的核对(主线程,不读目录)各要多久。
+        func milliseconds(since start: ContinuousClock.Instant) -> Double {
+            Double((ContinuousClock.now - start) / .microseconds(1)) / 1_000
+        }
+        let loadsBeforeIdentities = library.songModelResidencyStatistics.loads
+        var identityStart = ContinuousClock.now
+        let exactResolution = await library.prepareCatalogIdentityResolution(for: exactIdentities)
+        let exactPrepareMs = milliseconds(since: identityStart)
+        identityStart = ContinuousClock.now
+        let exactReady = exactResolution.map { library.readyToResolveRemoteIdentities($0) } ?? false
+        let exactReadyMs = milliseconds(since: identityStart)
+        identityStart = ContinuousClock.now
+        let titleResolution = await library.prepareCatalogIdentityResolution(for: titleIdentities)
+        let titlePrepareMs = milliseconds(since: identityStart)
+        identityStart = ContinuousClock.now
+        let titleReady = titleResolution.map { library.readyToResolveRemoteIdentities($0) } ?? false
+        let titleReadyMs = milliseconds(since: identityStart)
+        XCTAssertTrue(exactReady, "exact ids: answered from the catalog")
+        XCTAssertEqual(library.songModelResidencyStatistics.loads, loadsBeforeIdentities, "no load for the identity candidates")
+
         // 删歌那条路在主线程上读目录的两下,单独量:按源剩余数(整表 GROUP BY),同名的另一份(整表标题一列)。
         let lookup = try XCTUnwrap(host.songLookup(), "the catalog answers right after the release")
         let usableBeforeDelete = library.isUsable
@@ -1204,6 +1239,12 @@ final class LibraryStartupHarnessTests: XCTestCase {
             usableBeforeDelete ? "yes" : "no", queuedBeforeDelete, countsRead / 1_000, countsAnswered ? "yes" : "no", titleRead / 1_000,
             titleCandidates, plainDelete / 1_000, plainQueued, referencedDelete / 1_000, referencedQueued,
             loadAfterDelete ? "yes" : "no"
+        ))
+        Self.report(String(
+            format: "📏 CK-b identity candidates while released (%d members): exact ids prepare=%.1fms ready=%.1fms (%@) | "
+                + "by title prepare=%.1fms ready=%.1fms rows=%d (%@)",
+            exactIdentities.count, exactPrepareMs, exactReadyMs, exactReady ? "answered" : "held",
+            titlePrepareMs, titleReadyMs, titleResolution?.candidateCount ?? -1, titleReady ? "answered" : "held"
         ))
         await library.stopCatalogMirror()
     }

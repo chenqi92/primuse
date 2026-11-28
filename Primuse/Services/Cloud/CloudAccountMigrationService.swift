@@ -127,16 +127,17 @@ enum CloudAccountMigrationService {
             let accountID = CloudAccount.deriveID(provider: provider, accountUID: accountUID)
             let keeper = electKeeper(among: members)
 
-            // Always ensure a CloudAccount row exists (idempotent —
-            // upsertAccount keys on the deterministic id).
-            let existing = sourcesStore.account(provider: provider, accountUID: accountUID)
-            let account = existing ?? CloudAccount(
+            // Always ensure a CloudAccount row exists (keyed on the
+            // deterministic id). An existing row is left as it is: re-upserting
+            // it only stamped a new `modifiedAt`, so every launch on which the
+            // migration had to retry (a source that cannot identify) sent the
+            // same account to iCloud again and every other device received it.
+            let account = sourcesStore.ensureAccount(CloudAccount(
                 id: accountID,
                 provider: provider,
                 accountUID: accountUID,
                 createdAt: Date()
-            )
-            sourcesStore.upsertAccount(account)
+            ))
 
             // Wire the keeper to the account and retain any directory labels
             // learned by duplicate mounts before those rows become tombstones.

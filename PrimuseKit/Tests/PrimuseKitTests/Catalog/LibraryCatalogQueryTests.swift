@@ -62,6 +62,33 @@ struct LibraryCatalogQueryTests {
         #expect(try titles(.everything).count == 4)
     }
 
+    @Test("Titles and paths stream together in library order; a NUL in the text reads back as U+FFFD")
+    func titleAndPathProjection() throws {
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        try catalog.apply(upserts: [
+            Self.song("a1", source: "A", path: "Music/1.flac", title: "One"),
+            Self.song("b1", source: "B", path: "Share/1.flac", title: "Two"),
+            Self.song("a2", source: "A", path: "Music/\u{0}2.flac", title: "Th\u{0}ree"),
+        ])
+        try catalog.setSourceEnabled(false, sourceID: "B")
+        var rows: [(Int32, String, String)] = []
+        try catalog.forEachSongTitleAndPath(.everything) { rowid, title, path in
+            rows.append((rowid, title, path))
+            return true
+        }
+        #expect(rows.map(\.1) == ["One", "Two", "Th\u{FFFD}ree"])
+        #expect(rows.map(\.2) == ["Music/1.flac", "Share/1.flac", "Music/\u{FFFD}2.flac"])
+        // 行号就是 `songs(rowids:)` 认的行号;物化出来的是原文。
+        #expect(try catalog.songs(rowids: rows.map(\.0)).map(\.title) == ["One", "Two", "Th\u{0}ree"])
+        var first: [String] = []
+        try catalog.forEachSongTitleAndPath(.visible) { _, title, _ in
+            first.append(title)
+            return false
+        }
+        #expect(first == ["One"])
+    }
+
     @Test("Source, path and count queries")
     func sourceAndPathQueries() throws {
         let temporary = try TemporaryCatalog()
