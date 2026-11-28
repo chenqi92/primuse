@@ -9,7 +9,6 @@ legacy-library-api	Primuse/App/PlayMediaIntentHandler.swift	7
 legacy-library-api	Primuse/App/PrimuseApp.swift	12
 legacy-library-api	Primuse/Services/AI/LibraryInsightBatchFill.swift	2
 legacy-library-api	Primuse/Services/AppleMusic/AppleMusicLibraryService.swift	1
-legacy-library-api	Primuse/Services/Audio/AudioCacheManager.swift	1
 legacy-library-api	Primuse/Services/Audio/AudioCacheSyncService.swift	2
 legacy-library-api	Primuse/Services/Audio/AudioPlayerService+AutoContinuation.swift	1
 legacy-library-api	Primuse/Services/Audio/AudioPlayerService+Casting.swift	1
@@ -109,7 +108,7 @@ legacy-library-api	Primuse/Views/Settings/CarPlayEditorCanvas.swift	2
 legacy-library-api	Primuse/Views/Settings/DuplicateSongsView.swift	1
 legacy-library-api	Primuse/Views/Settings/ListeningStatsView.swift	1
 legacy-library-api	Primuse/Views/Settings/OfflineDownloadsView.swift	1
-legacy-library-api	Primuse/Views/Settings/PlaylistImportView.swift	5
+legacy-library-api	Primuse/Views/Settings/PlaylistImportView.swift	2
 legacy-library-api	Primuse/Views/Settings/SettingsView.swift	3
 legacy-library-api	Primuse/Views/Sources/SourceDetailViews.swift	1
 legacy-library-api	Primuse/Views/Sources/SourceFileDetailSheet.swift	1

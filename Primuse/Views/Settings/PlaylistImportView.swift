@@ -1430,7 +1430,7 @@ struct PlaylistImportView: View {
             // 曲库目录可读(P2c):只取文件里点到的 id / 文件名 / 歌名对应的那些歌来对,不拍整库。
             raw = fromCatalog
         } else {
-            let snapshot = library.visibleSongs
+            let snapshot = try await Self.arrayMatchPool(library: library)
             raw = try await Task.detached(priority: .userInitiated) {
                 let parsed = try Self.parseAndMatchOffMain(data: data, ext: fileExtension, fileName: name, songs: snapshot)
                 return Self.refineUnmatchedOffMain(parsed, songs: snapshot, keyCache: keyCache)
@@ -2020,7 +2020,7 @@ struct PlaylistImportView: View {
         let keyCache = library.playlistEntryMatchKeyCache
         let catalogReader = P2cCatalogAccess.reader(for: library)
         // 目录可读时不拍整库(P2c);内存快照只在目录不可读或读失败时才取。
-        let memorySnapshot = catalogReader == nil ? library.visibleSongs : nil
+        let memorySnapshot: [Song]? = try await catalogReader == nil ? Self.arrayMatchPool(library: library) : nil
         let playlist = try await load()
         var catalogRows: [RawExternalMatch]?
         if let catalogReader {
@@ -2030,7 +2030,7 @@ struct PlaylistImportView: View {
         if let catalogRows {
             rows = catalogRows
         } else {
-            let snapshot = memorySnapshot ?? library.visibleSongs
+            let snapshot = try await Self.arrayMatchPool(memorySnapshot, library: library)
             rows = await Task.detached(priority: .userInitiated) {
                 Self.matchExternalOffMain(playlist.tracks, songs: snapshot, keyCache: keyCache)
             }.value

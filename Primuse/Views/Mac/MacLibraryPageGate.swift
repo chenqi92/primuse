@@ -11,14 +11,19 @@ struct MacLibraryPageGate: ViewModifier {
 
     func body(content: Content) -> some View {
         let readiness = kind.readiness
-        Group {
-            if MacPageKind.showsContent(readiness, isUsable: library.isUsable, isReady: library.isReady) {
-                content
-            } else {
-                MacLibraryPageLoading()
+        if kind.keepsInputOnRelease {
+            // 编辑器:显示过就挂着,模型不在时盖上加载(UB)。
+            content.modifier(SongModelInputPageModifier(readiness: readiness))
+        } else {
+            Group {
+                if MacPageKind.showsContent(readiness, isUsable: library.isUsable, isReady: library.isReady) {
+                    content
+                } else {
+                    MacLibraryPageLoading()
+                }
             }
+            .songModelPage(needsArrays: readiness == .legacy)
         }
-        .songModelPage(needsArrays: readiness == .legacy)
     }
 }
 

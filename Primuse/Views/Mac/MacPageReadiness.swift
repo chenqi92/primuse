@@ -69,13 +69,14 @@ extension MacPageKind {
         }
     }
 
-    /// 按规则此刻能不能画:`.always` 随时;`.catalog` 曲库可用(模型在不在内存里都行);`.legacy` 模型在内存里。
-    /// 主窗口本身等到可用才出来,所以 `.catalog` 在窗口里总是画的。
+    /// 收用户输入的页:显示过内容之后模型被放掉也不换成加载页,盖一层加载(`SongModelPageLatch`,UB)。
+    var keepsInputOnRelease: Bool {
+        self == .smartPlaylistEditor
+    }
+
+    /// 按规则此刻能不能画(`LibraryPageReadiness.showsContent`)。主窗口本身等到可用才出来,
+    /// 所以 `.catalog` 在窗口里总是画的。
     static func showsContent(_ readiness: LibraryPageReadiness, isUsable: Bool, isReady: Bool) -> Bool {
-        switch readiness {
-        case .always: true
-        case .catalog: isUsable || isReady
-        case .legacy: isReady
-        }
+        readiness.showsContent(isUsable: isUsable, isReady: isReady)
     }
 }

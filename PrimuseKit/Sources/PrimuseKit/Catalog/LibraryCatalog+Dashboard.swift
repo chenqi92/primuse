@@ -21,21 +21,6 @@ public struct LibraryCatalogSongStatistics: Sendable, Equatable {
     }
 }
 
-/// 「最近添加」的专辑:前 `limit` 张的键与 id(按顺序),以及一共有几张。
-public struct LibraryCatalogRecentlyAddedAlbums: Sendable, Equatable {
-    public var keys: [Int32]
-    public var ids: [String]
-    public var total: Int
-    public var revision: Int64
-
-    public init(keys: [Int32], ids: [String], total: Int, revision: Int64) {
-        self.keys = keys
-        self.ids = ids
-        self.total = total
-        self.revision = revision
-    }
-}
-
 extension LibraryCatalog {
     /// 范围里歌曲的统计,一句聚合,不物化歌曲。
     public func songStatistics(_ scope: LibrarySongScope) throws -> LibraryCatalogSongStatistics {
@@ -69,51 +54,5 @@ extension LibraryCatalog {
     public func newestSongRowList(_ scope: LibrarySongScope, limit: Int) throws -> LibraryRowList {
         let cap = min(max(0, limit), LibraryScale.maxMaterializedRows)
         return try rowList(orderBy: "s.dateAdded DESC, s.rowid ASC", limit: cap) { db in try scope.whereClause(in: db) }
-    }
-
-    /// Mac 首页「最近添加」的专辑顺序(`RecentlyAddedAlbumPolicy.Index`,每首歌按自己的 `dateAdded`):
-    /// 可见专辑按其中可见音乐歌曲(按歌曲的 `albumID` 归到专辑)最新的加入时间从新到旧,时间相同按专辑 id;
-    /// 没有这样的歌的专辑排在最后,按专辑 id。`includingExternalSongs` 为 false 时外部条目
-    /// (`Song.isExternal`)不算加入时间,只有外部条目的专辑不列。返回前 `limit` 张与总张数。
-    public func recentlyAddedAlbumKeys(includingExternalSongs: Bool, limit: Int) throws -> LibraryCatalogRecentlyAddedAlbums {
-        let cap = min(max(0, limit), LibraryScale.maxMaterializedRows)
-        return try reader.read { db in
-            let revision = try Self.revision(in: db)
-            let (songWhere, songArguments) = try LibrarySongScope.visibleMusic.whereClause(in: db)
-            let external = LibraryCatalogSongFlags.external
-            let visibleFilter = try Self.visibleSplitsLibrary(in: db)
-                ? "a.key IN (SELECT albumKey FROM albumSourceStat WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))"
-                : "1"
-            var arguments = StatementArguments([includingExternalSongs ? 1 : 0])
-            arguments += songArguments
-            let cursor = try Row.fetchCursor(
-                db,
-                sql: """
-                    WITH dated AS (
-                        SELECT s.albumID AS albumID,
-                               max(CASE WHEN ? = 1 OR (s.flags & \(external)) = 0 THEN s.dateAdded END) AS latest,
-                               max((s.flags & \(external)) != 0) AS hasExternal
-                        FROM song s
-                        WHERE \(songWhere) AND s.albumID IS NOT NULL AND s.albumID != ''
-                        GROUP BY s.albumID
-                    )
-                    SELECT a.key, a.id FROM album a LEFT JOIN dated d ON d.albumID = a.id
-                    WHERE \(visibleFilter) AND NOT (d.latest IS NULL AND coalesce(d.hasExternal, 0) = 1)
-                    ORDER BY d.latest IS NULL, d.latest DESC, a.id COLLATE \(DatabaseCollation.unicodeCompare.name)
-                    """,
-                arguments: arguments
-            )
-            var keys: [Int32] = []
-            var ids: [String] = []
-            var total = 0
-            while let row = try cursor.next() {
-                total += 1
-                guard keys.count < cap else { continue }
-                let key: Int64 = row[0]
-                keys.append(try Self.rowid32(key))
-                ids.append(row[1])
-            }
-            return LibraryCatalogRecentlyAddedAlbums(keys: keys, ids: ids, total: total, revision: revision)
-        }
     }
 }

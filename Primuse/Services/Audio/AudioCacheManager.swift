@@ -3389,8 +3389,8 @@ extension AlwaysDownloadCoordinator {
         guard !bookID.isEmpty else { return }
         if enabled {
             enabledBooks[bookID] = AudiobookOfflinePolicy.Record(title: title, songIDs: songIDs)
-            let ids = Set(songIDs)
-            allowAutomaticDownloadsAgain(library.songs.filter { ids.contains($0.id) })
+            // 按 id 取(歌曲模型不在内存里时由曲库目录作答):放掉之后读整库数组是空的,先前挡下的章节会一直挡着。
+            allowAutomaticDownloadsAgain(Array(Set(songIDs)).compactMap { library.storedSong(id: $0) })
         } else {
             guard enabledBooks.removeValue(forKey: bookID) != nil else { return }
         }

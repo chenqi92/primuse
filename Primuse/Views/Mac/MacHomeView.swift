@@ -884,6 +884,7 @@ struct MacHomeView: View {
             }
             guard !Task.isCancelled else { return }
             model.snapshot.recommendationResults = recommendations
+            MacHomeRecommendationMemory.save(recommendations)
             model.recommendationSignature = signature
             refreshCoordinator.computeTask = nil
             diagnostics.mark("refresh_end", "refresh=\(refresh) total_ms=\(MacHomePerformanceDiagnostics.ms(ProcessInfo.processInfo.systemUptime - startedAt)) recommend_compute_ms=\(MacHomePerformanceDiagnostics.ms(recommendSeconds)) recommend_roundtrip_ms=\(MacHomePerformanceDiagnostics.ms(ProcessInfo.processInfo.systemUptime - recommendRequestedAt)) recommendations=\(recommendations.count)")
@@ -924,11 +925,14 @@ struct MacHomeView: View {
                 model.needsSongModel = true
                 return
             }
-            snapshot.recommendationResults = model.snapshot.recommendationResults.compactMap { result in
-                library.unobservedVisibleSong(id: result.song.id).map {
-                    MusicDiscoveryResult(song: $0, score: result.score, reasons: result.reasons)
+            // 推荐沿用这次进程里上一份;一份都没有(这次启动没装模型)时取存着的上一次那组(UB)。
+            snapshot.recommendationResults = model.snapshot.recommendationResults.isEmpty
+                ? MacHomeRecommendationMemory.restore(in: library)
+                : model.snapshot.recommendationResults.compactMap { result in
+                    library.unobservedVisibleSong(id: result.song.id).map {
+                        MusicDiscoveryResult(song: $0, score: result.score, reasons: result.reasons)
+                    }
                 }
-            }
             if signature.showsExternalAlbums != showsExternalAlbums {
                 snapshot.clearRecentlyAddedAlbums()
             }
@@ -1615,7 +1619,7 @@ struct MacHomeView: View {
             ) {
                 ForEach(model.snapshot.recentlyAddedAlbums.prefix(12)) { album in
                     MacHomeDetailLink(album: album) {
-                        albumCard(album)
+                        MacHomeAlbumCard(album: album)
                     }
                     .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
                 }
@@ -1646,28 +1650,6 @@ struct MacHomeView: View {
                 albumIDs: albumIDs, includingExternalSongs: includingExternalSongs, shuffled: shuffled,
                 library: library, player: player
             )
-        }
-    }
-
-    private func albumCard(_ album: Album) -> some View {
-        return VStack(alignment: .leading, spacing: 8) {
-            AlbumArtworkView(album: album, cornerRadius: PMRadius.m)
-            .aspectRatio(1, contentMode: .fit)
-            .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
-
-            Text(album.title)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(PMColor.text)
-                .lineLimit(1)
-            if let artist = album.artistName {
-                Text(artist)
-                    .font(.system(size: 11))
-                    .foregroundStyle(PMColor.textFaint)
-                    .lineLimit(1)
-            }
-            Text(LibraryCountText.songs(album.songCount))
-                .font(.system(size: 11))
-                .foregroundStyle(PMColor.textFaint)
         }
     }
 
@@ -1822,49 +1804,17 @@ struct MacHomeView: View {
         }
     }
 
-    /// 快照里只有首页那一段(歌曲模型放掉之后)时,这一页要全部:显示加载、替这一页占用模型,装回来后首页重算出全部。
+    /// 从曲库目录按页列出(UB),歌曲模型在不在内存里都马上打开。
     private func recentlyAddedAllView(onBack: @escaping () -> Void) -> some View {
-        let albums = model.snapshot.recentlyAddedAlbums
-        let hasAll = model.snapshot.hasAllRecentlyAddedAlbums
-
-        return ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                homeCollectionHeader(
-                    eyebrow: "library_title",
-                    title: LocalizedStringKey(HomeDiscoveryText.string("recent_albums")),
-                    detail: LibraryCountText.albums(model.snapshot.recentlyAddedAlbumTotal),
-                    onBack: onBack
-                )
-
-                if hasAll {
-                    LazyVGrid(
-                        columns: Array(repeating: GridItem(.flexible(), spacing: 24, alignment: .top), count: 5),
-                        alignment: .leading,
-                        spacing: 24
-                    ) {
-                        ForEach(albums) { album in
-                            MacHomeDetailLink(album: album) {
-                                albumCard(album)
-                            }
-                            .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
-                        }
-                    }
-                    .padding(.horizontal, PMSpace.xxxl)
-                } else {
-                    MacHomeCollectionLoading()
-                }
-            }
-            .padding(.top, 24)
-            .padding(.bottom, 112)
-        }
-        .background(PMColor.bg.ignoresSafeArea())
-        .navigationBarBackButtonHidden(true)
-        .songModelPage(needsArrays: !hasAll)
+        MacHomeRecentlyAddedPage(
+            includingExternalSongs: showsExternalAlbums, knownTotal: model.snapshot.recentlyAddedAlbumTotal,
+            showsExternalAlbums: $showsExternalAlbums, onBack: onBack
+        )
     }
 
     private func artistsAllView(onBack: @escaping () -> Void) -> some View {
         VStack(spacing: 0) {
-            homeCollectionHeader(
+            MacHomeCollectionHeader(
                 eyebrow: "library_title",
                 title: "tab_artists",
                 detail: LibraryCountText.artists(model.snapshot.artistCount),
@@ -1887,37 +1837,6 @@ struct MacHomeView: View {
         .background(PMColor.bg.ignoresSafeArea())
         .navigationBarBackButtonHidden(true)
         .songModelPage(needsArrays: !model.snapshot.hasAllArtists)
-    }
-
-    private func homeCollectionHeader(
-        eyebrow: LocalizedStringKey,
-        title: LocalizedStringKey,
-        detail: String,
-        onBack: @escaping () -> Void
-    ) -> some View {
-        HStack(alignment: .bottom, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(eyebrow)
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(0.8)
-                    .textCase(.uppercase)
-                    .foregroundStyle(PMColor.textMuted)
-                HStack(alignment: .lastTextBaseline, spacing: 12) {
-                    Text(title)
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(PMColor.text)
-                    Text(verbatim: detail)
-                        .font(.system(size: 12))
-                        .foregroundStyle(PMColor.textFaint)
-                }
-            }
-            Spacer(minLength: 16)
-            MacNavigationBackButton(
-                accessibilityIdentifier: "homeSectionInlineBack",
-                action: onBack
-            )
-        }
-        .padding(.horizontal, PMSpace.xxxl)
     }
 
     private func closeSection() {

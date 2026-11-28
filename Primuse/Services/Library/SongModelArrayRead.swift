@@ -15,8 +15,8 @@ enum SongModelArrayRead {
         _ body: @MainActor () -> T
     ) async -> T? {
         if library.isReady { return body() }
-        guard let hold = await acquire(library, timeout: timeout) else { return nil }
-        defer { hold.end() }
+        guard let token = await hold(library, timeout: timeout) else { return nil }
+        defer { token.end() }
         return body()
     }
 
@@ -27,14 +27,14 @@ enum SongModelArrayRead {
         timeout: Duration = defaultTimeout,
         _ body: @MainActor () async -> T
     ) async -> T? {
-        guard let hold = await acquire(library, timeout: timeout) else { return nil }
-        defer { hold.end() }
+        guard let token = await hold(library, timeout: timeout) else { return nil }
+        defer { token.end() }
         return await body()
     }
 
-    /// 拿一个 `.userAction` 占用(日志里分得清是一个操作、不是一个页面),等模型在内存里;`timeout` 内没等到
-    /// (或任务取消)时撤掉占用,nil。
-    private static func acquire(_ library: MusicLibrary, timeout: Duration) async -> MusicLibrary.SongModelHold? {
+    /// 拿一个 `.userAction` 占用(日志里分得清是一个操作、不是一个页面),等模型在内存里(模型本来就在时也登记,
+    /// 用完 `end()`);`timeout` 内没等到(或任务取消)时撤掉占用,nil。给一段跨几个等待的操作用(AI 歌单的生成)。
+    static func hold(_ library: MusicLibrary, timeout: Duration = defaultTimeout) async -> MusicLibrary.SongModelHold? {
         // 占用放在自己的任务里,超时就取消它:`holdSongModel` 被取消时撤掉这次占用、不再等。
         let acquisition = Task { @MainActor in await library.holdSongModel(.userAction) }
         let timer = Task { @MainActor in

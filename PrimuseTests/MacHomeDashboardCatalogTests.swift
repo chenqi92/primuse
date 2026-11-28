@@ -43,7 +43,7 @@ final class MacHomeDashboardCatalogTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(catalog.coverCount, arrays.coverCount, "\(step): covers", file: file, line: line)
         XCTAssertEqual(catalog.lyricsCount, arrays.lyricsCount, "\(step): lyrics", file: file, line: line)
         XCTAssertEqual(catalog.playableCount, arrays.playableCount, "\(step): playable", file: file, line: line)
-        XCTAssertEqual(catalog.recentlyAddedAlbumTotal, arrays.recentlyAddedAlbums.count, "\(step): recently added total",
+        XCTAssertEqual(catalog.recentlyAddedAlbumTotal, arrays.recentlyAddedAlbumTotal, "\(step): recently added total",
                        file: file, line: line)
         func albumFields(_ albums: [Album]) -> [String] {
             albums.map { "\($0.id) \($0.title) \($0.artistName ?? "-") \($0.artistID ?? "-") \($0.songCount) \($0.year ?? 0)" }
@@ -56,7 +56,7 @@ final class MacHomeDashboardCatalogTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(artistFields(catalog.artists), artistFields(Array(arrays.artists.prefix(shownArtists))),
                        "\(step): artists", file: file, line: line)
         XCTAssertEqual(catalog.mosaicSongs.map(\.id), arrays.mosaicSongs.map(\.id), "\(step): mosaic", file: file, line: line)
-        XCTAssertEqual(catalog.hasAllRecentlyAddedAlbums, shownAlbums >= arrays.recentlyAddedAlbums.count,
+        XCTAssertEqual(catalog.hasAllRecentlyAddedAlbums, shownAlbums >= arrays.recentlyAddedAlbumTotal,
                        "\(step): all recently added albums", file: file, line: line)
         XCTAssertEqual(catalog.hasAllArtists, shownArtists >= arrays.artists.count, "\(step): all artists", file: file, line: line)
     }

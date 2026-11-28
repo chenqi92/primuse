@@ -149,7 +149,14 @@ struct SongModelPageModifier: ViewModifier {
 extension View {
     /// 这一页(或这一支,`needsArrays` 随页面状态变)还要整库数组:歌曲模型不在内存里时替它占用、装回来,
     /// 页面消失或 App 进后台时放手。页面自己在 `isReady` 之前显示「加载中」。
-    func songModelPage(needsArrays: Bool = true) -> some View {
-        modifier(SongModelPageModifier(needsArrays: needsArrays))
+    /// `keepsInputOnRelease`:收用户输入的页(编辑器)由这里来画加载:显示过内容之后模型被放掉也不换下来,
+    /// 盖一层加载、不接输入,装回来就揭开(`SongModelPageLatch`,UB)。
+    @ViewBuilder
+    func songModelPage(needsArrays: Bool = true, keepsInputOnRelease: Bool = false) -> some View {
+        if keepsInputOnRelease {
+            modifier(SongModelInputPageModifier(readiness: needsArrays ? .legacy : .catalog))
+        } else {
+            modifier(SongModelPageModifier(needsArrays: needsArrays))
+        }
     }
 }

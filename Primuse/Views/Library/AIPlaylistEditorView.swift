@@ -517,11 +517,15 @@ struct AIPlaylistEditorView: View {
         let existingIdentities = isListeningScene ? [] : (existing?.aiConfiguration?.selections.map(\.identity) ?? [])
 
         generationTask = Task { @MainActor in
+            // 候选从整库里挑:整个生成占着歌曲模型(放掉了先装回来),做到一半在后台也不会被放掉;装不回来就不生成。
+            let hold = await SongModelArrayRead.hold(library)
             defer {
+                hold?.end()
                 if generationID == operationID {
                     isGenerating = false
                 }
             }
+            guard hold != nil else { return }
             let queries = await AIPlaylistCandidateFinder.queries(for: requestPrompt, intelligence: intelligence)
             let finder = AIPlaylistCandidateFinder(queries: queries, library: library, existing: existingIdentities)
             let didGenerate = await nextRecommendation.refreshPlaylist(

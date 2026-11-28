@@ -12,7 +12,7 @@ struct MacHomeDashboardSnapshot: Sendable {
     // crash-pattern: allow library-array-property 主卡马赛克,至多 6 首(`mosaicCount`)
     var mosaicSongs: [Song] = []
     var recommendationResults: [MusicDiscoveryResult] = []
-    /// 「最近添加」的专辑,按顺序;可能只有前一段(见 `hasAllRecentlyAddedAlbums`)。
+    /// 「最近添加」的专辑,首页显示的那一段(「查看全部」从目录按页取,`MacHomeRecentlyAddedQuery`)。
     var recentlyAddedAlbums: [Album] = []
     /// 「最近添加」一共几张。
     var recentlyAddedAlbumTotal = 0
@@ -108,8 +108,10 @@ extension MacHomeDashboardSnapshot {
         snapshot.coverCount = coverCount
         snapshot.lyricsCount = lyricsCount
         snapshot.playableCount = playableCount
-        snapshot.recentlyAddedAlbums = recentIndex.sorted(albums: albums)
-        snapshot.recentlyAddedAlbumTotal = snapshot.recentlyAddedAlbums.count
+        // 只留首页那一排;「查看全部」与播放键从目录按同样的顺序取(UB)。
+        let recentlyAdded = recentIndex.sorted(albums: albums)
+        snapshot.recentlyAddedAlbums = Array(recentlyAdded.prefix(shownRecentlyAddedAlbums))
+        snapshot.recentlyAddedAlbumTotal = recentlyAdded.count
 
         let sortedByAdded = songs.sorted { $0.dateAdded > $1.dateAdded }
         snapshot.mosaicSongs = mosaic(recentlyPlayed: recentlyPlayed, newest: sortedByAdded.prefix(newestPoolLimit))
@@ -140,9 +142,9 @@ extension MacHomeDashboardSnapshot {
             let artistKeys = try catalog.artistKeys(visibleOnly: true)
             snapshot.artistCount = artistKeys.count
             snapshot.artists = try catalog.artists(keys: artistKeys.keys.prefix(max(0, shownArtists)), visibleCounts: true)
-            let recent = try catalog.recentlyAddedAlbumKeys(includingExternalSongs: includingExternalSongs, limit: shownAlbums)
-            snapshot.recentlyAddedAlbums = try catalog.albums(keys: recent.keys, visibleCounts: true)
-            snapshot.recentlyAddedAlbumTotal = recent.total
+            let recent = try MacHomeRecentlyAddedQuery.browseKeys(catalog, includingExternalSongs: includingExternalSongs)
+            snapshot.recentlyAddedAlbums = try catalog.albums(keys: recent.keys.prefix(max(0, shownAlbums)), visibleCounts: true)
+            snapshot.recentlyAddedAlbumTotal = recent.keys.count
             let played = try catalog.songs(ids: playedIDs, scope: .visible).prefix(Self.recentlyPlayedPoolLimit)
             let newest = try catalog.songs(rowids: catalog.newestSongRowList(.visibleMusic, limit: Self.newestPoolLimit).rowids)
             snapshot.mosaicSongs = Self.mosaic(recentlyPlayed: Array(played), newest: newest)
@@ -162,9 +164,8 @@ extension MacHomeDashboardSnapshot {
         if snapshot.hasAllRecentlyAddedAlbums { return snapshot.recentlyAddedAlbums.map(\.id) }
         if let reader = library.readableCatalogReader,
            let ids = try? await reader.read({ catalog in
-               try catalog.recentlyAddedAlbumKeys(
-                   includingExternalSongs: includingExternalSongs, limit: LibraryScale.maxMaterializedRows
-               ).ids
+               let keys = try MacHomeRecentlyAddedQuery.browseKeys(catalog, includingExternalSongs: includingExternalSongs).keys
+               return try catalog.albums(keys: keys.prefix(LibraryScale.maxMaterializedRows), visibleCounts: true).map(\.id)
            }) {
             return ids
         }
@@ -175,4 +176,61 @@ extension MacHomeDashboardSnapshot {
             ).map(\.id)
         }
     }
+}
+
+/// Mac 首页「为你推荐」上一次算出来的那组(UB):推荐要整库的特征,只在歌曲模型在内存里时算;这次启动没装模型
+/// 或模型放掉了时,首页按 id 把这一组从曲库目录取回来先摆上(同 iPhone 首页 `PersistedHomeSnapshot.recommendations`),
+/// 模型装回来后才重算。只存 id、分数与理由,不存歌。
+enum MacHomeRecommendationMemory {
+    static let defaultsKey = "primuse.macHome.recommendations.v1"
+
+    static func save(_ results: [MusicDiscoveryResult], defaults: UserDefaults = .standard) {
+        let entries = results.map {
+            PersistedHomeRecommendation(songID: $0.song.id, score: $0.score, reasons: $0.reasons.map(\.rawValue))
+        }
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        if defaults.data(forKey: defaultsKey) != data { defaults.set(data, forKey: defaultsKey) }
+    }
+
+    static func savedEntries(defaults: UserDefaults = .standard) -> [PersistedHomeRecommendation] {
+        guard let data = defaults.data(forKey: defaultsKey),
+              let entries = try? JSONDecoder().decode([PersistedHomeRecommendation].self, from: data) else { return [] }
+        return entries
+    }
+
+    /// 存着的那一组,按 id 取回此刻可见的歌(模型不在时由曲库目录作答);取不到的那几首不摆。
+    @MainActor
+    static func restore(in library: MusicLibrary, defaults: UserDefaults = .standard) -> [MusicDiscoveryResult] {
+        savedEntries(defaults: defaults).compactMap { entry in
+            library.unobservedVisibleSong(id: entry.songID).map {
+                MusicDiscoveryResult(
+                    song: $0, score: entry.score,
+                    reasons: entry.reasons.compactMap(MusicDiscoveryReason.init(rawValue:))
+                )
+            }
+        }
+    }
+}
+
+/// Mac 首页「最近添加」在曲库目录上的顺序(首页那一排、「查看全部」、播放键共用):可见音乐里每首歌按自己的
+/// `dateAdded` 归到专辑(`RecentlyAddedAlbumPolicy.Index` 的 Mac 写法),「显示外部专辑」关着时外部条目不算(S5c)。
+struct MacHomeRecentlyAddedQuery: LibraryListQuery {
+    let includingExternalSongs: Bool
+
+    static func browseKeys(_ catalog: LibraryCatalog, includingExternalSongs: Bool) throws -> LibraryCatalogBrowseKeys {
+        try catalog.recentlyAddedAlbumBrowseKeys(
+            scope: .visibleMusic, includingExternalSongs: includingExternalSongs, dateRule: .songDateAdded
+        )
+    }
+
+    func fetchRows(_ catalog: LibraryCatalog) throws -> LibraryListRows {
+        let keys = try Self.browseKeys(catalog, includingExternalSongs: includingExternalSongs)
+        return LibraryListRows(ids: keys.keys, sections: [], revision: keys.revision)
+    }
+
+    func materialize(_ ids: [Int32], catalog: LibraryCatalog, rowCache: LibraryRowCache) throws -> [Int32: Album] {
+        try LibraryAlbumListQuery(visibleOnly: true).materialize(ids, catalog: catalog, rowCache: rowCache)
+    }
+
+    func isAffected(by change: LibraryCatalogChange) -> Bool { true }
 }
