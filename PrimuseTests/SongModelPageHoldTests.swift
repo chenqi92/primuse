@@ -77,6 +77,10 @@ final class SongModelPageHoldTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .ambient), .catalog)
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .statistics), .catalog)
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .folders), .catalog)
+        XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .playlists), .catalog, "U9b, as Mac's .section(.playlists)")
+        XCTAssertEqual(MacPageKind.section(.playlists).readiness, LibraryReadyContent<EmptyView>.readiness(for: .playlists))
+        XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .releaseDate), .legacy)
+        XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .recommendations), .legacy)
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: nil), .legacy)
     }
 

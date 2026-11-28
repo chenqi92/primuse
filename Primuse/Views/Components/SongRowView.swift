@@ -249,11 +249,8 @@ struct SongRowView: View {
             .presentationDetents([.large])
         }
         .sheet(isPresented: $showTagEditor, onDismiss: { tagEditorSongID = nil }) {
-            TagEditorView(
-                song: tagEditorSong,
-                queue: tagEditorQueue,
-                onNavigate: { tagEditorSongID = $0.id }
-            )
+            // 翻页队列(同源同目录的歌)在打开、翻页时取;歌曲模型不在内存里时从曲库目录取(6c 单元 4 U9b)。
+            TagEditorQueueSheet(song: tagEditorSong, anchor: song, onNavigate: { tagEditorSongID = $0.id })
             .presentationDetents([.large])
         }
         #if os(iOS)
@@ -696,7 +693,7 @@ struct SongRowView: View {
             [
                 showsRowNumbers ? trackNumber.map { $0.formatted(.number.grouping(.never).locale(locale)) } : nil,
                 song.title,
-                (library.song(id: song.id) ?? song).contentMetadata?.isExplicit == true
+                SongRowLatest.song(song, library: library).contentMetadata?.isExplicit == true
                     ? String(localized: "content_explicit") : nil,
                 library.artistDisplayName(for: song),
                 unreachable
@@ -1153,26 +1150,8 @@ struct SongRowView: View {
         return resolved
     }
 
-    /// 翻页队列 = 同源同目录的歌，按文件名排。整理标签基本都是一个文件夹一个
-    /// 文件夹地过，跨目录翻页反而乱。
-    private var tagEditorQueue: [Song] {
-        let directory = (song.filePath as NSString).deletingLastPathComponent
-        guard !directory.isEmpty else { return [] }
-        // A prefix test per song; parsing every path in a large library
-        // took about a second on the main thread.
-        let prefix = directory.hasSuffix("/") ? directory : directory + "/"
-        let siblings = library.visibleSongs.filter { candidate in
-            guard candidate.sourceID == song.sourceID,
-                  candidate.filePath.hasPrefix(prefix) else { return false }
-            return !candidate.filePath.dropFirst(prefix.count).contains("/")
-        }
-        guard siblings.count > 1 else { return [] }
-        return siblings.sorted {
-            ($0.filePath as NSString).lastPathComponent
-                .localizedStandardCompare(($1.filePath as NSString).lastPathComponent)
-                == .orderedAscending
-        }
-    }
+    // 翻页队列 = 同源同目录的歌，按文件名排。整理标签基本都是一个文件夹一个
+    // 文件夹地过，跨目录翻页反而乱。取法见 `SongTagEditorQueue`(TagEditorView+Queue.swift)。
 
 
     /// 音乐服务器上的歌再确认一次（服务器上的所有用户和客户端都会失去它），文件来源直接删。
@@ -1994,7 +1973,10 @@ struct SimilarSongsSheet: View {
     private func loadLocalResults() async {
         guard !resultsLoaded else { return }
         await Task.yield()
-        results = MusicDiscoveryEngine.similarSongs(to: seed, in: library, limit: 30)
+        // 整库相似度要歌曲模型:放掉了先占用、装回来再算;等不到时不算成「没有相似的歌」(6c 单元 4 U9b)。
+        guard let found = await SongModelArrayRead.read(library, { MusicDiscoveryEngine.similarSongs(to: seed, in: library, limit: 30) })
+        else { return }
+        results = found
         resultsLoaded = true
     }
 
@@ -2004,7 +1986,8 @@ struct SimilarSongsSheet: View {
             return
         }
         let service = AppServices.shared.similarTracks
-        let pool = library.musicSongs
+        // 对回库里的歌要整库音乐:同上,放掉了先装回来;等不到就不对。
+        guard let pool = await SongModelArrayRead.read(library, { library.musicSongs }) else { isLoadingLastFm = false; return }
         do {
             lastFmCandidates = try await service.fetchSimilar(
                 to: seed,
@@ -2074,7 +2057,10 @@ struct SimilarSongsSheet: View {
         // 让按钮 loading 态上屏, 万首库上点这个按钮才不会像彻底卡死。
         Task { @MainActor in
             await Task.yield()
-            let queue = await SongRadioBuilder.queue(from: seed, in: library, limit: 48).filteredPlayable()
+            // 本地那一路在整库数组上算:占着歌曲模型做完(放掉了先装回来,等不到就不播)。
+            let queue = await SongModelArrayRead.holding(library) {
+                await SongRadioBuilder.queue(from: seed, in: library, limit: 48)
+            }?.filteredPlayable() ?? []
             isBuildingRadio = false
             guard !queue.isEmpty else { return }
             player.shuffleEnabled = false
@@ -2798,7 +2784,7 @@ struct SongContentRatingBadge: View {
     let song: Song
 
     var body: some View {
-        if (library.song(id: song.id) ?? song).contentMetadata?.isExplicit == true {
+        if SongRowLatest.song(song, library: library).contentMetadata?.isExplicit == true {
             Image(systemName: "e.square.fill")
                 .font(.caption)
                 .foregroundStyle(.secondary)

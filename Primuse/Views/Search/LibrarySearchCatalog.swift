@@ -258,6 +258,8 @@ struct SearchCollectionDetailView: View {
     /// library made SwiftUI register every row up front — seconds on the main
     /// thread — so the page keeps IDs and a lazy stack resolves what it shows.
     @State private var songIDs: [String] = []
+    /// 模型不在内存里时按页从曲库目录物化的行(6c 单元 4 U9b)。
+    @State private var pagedRows = SearchCollectionRows()
     @State private var songLocation = SongListLocation()
     @State private var consumedInitialLocationID: UUID?
     @State private var folderLocationDestination: FolderSongLocationRequest?
@@ -283,9 +285,8 @@ struct SearchCollectionDetailView: View {
                 .padding(.vertical, 12)
                 Divider().padding(.leading, 20)
                 ForEach(Array(ids.enumerated()), id: \.element) { index, songID in
-                    // Unobserved: a metadata write elsewhere must not make
-                    // the page walk every ID of a huge folder again.
-                    if let song = library.unobservedVisibleSong(id: songID) {
+                    // 模型在内存里照原来按 id 取(不登记观察);放掉了取按页物化的那一行,不逐行读目录。
+                    if let song = pagedRows.song(at: index, id: songID, library: library) {
                         SongRowView(song: song, isPlaying: player.currentSong?.id == song.id,
                                     trackNumber: index + 1, largestTrackNumber: ids.count,
                                     context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill))
@@ -309,8 +310,15 @@ struct SearchCollectionDetailView: View {
                 songLocation.locate(initialLocation.songID)
             }
         }
+        // 行的来源跟着模型在不在内存里换(放掉了从目录按页取,装回来照原来按 id 取)。
+        .task(id: SearchCollectionRowsKey(ids: songIDs, released: !library.isReady)) {
+            await pagedRows.refresh(ids: songIDs, library: library)
+        }
         .songLocationReader(songLocation, revision: songIDs)
-        .onDisappear { songLocation.cancel() }
+        .onDisappear {
+            songLocation.cancel()
+            pagedRows.stop()
+        }
         .navigationTitle(result.title)
         #if os(iOS)
         .toolbar {

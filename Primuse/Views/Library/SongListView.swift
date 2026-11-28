@@ -995,102 +995,6 @@ enum LibraryFolderSongOrderPreference {
     static let followsListSortKey = "library.folderFollowsListSort.v1"
 }
 
-@MainActor
-@Observable
-private final class LibraryFolderBrowserCache {
-    enum QueryScope: Hashable {
-        case visible
-        case action
-    }
-
-    private struct OrderedQueryKey: Hashable {
-        let folderRevision: Int
-        let rowOrderRevision: Int
-        let nodeID: LibraryFolderNodeID
-        let scope: QueryScope
-        let followsListSort: Bool
-    }
-
-    @ObservationIgnored private var indexReference: LibraryFolderIndex?
-    @ObservationIgnored private var orderedQueries: [OrderedQueryKey: [String]] = [:]
-    private(set) var hasIndex = false
-    private(set) var revision = 0
-    /// false = 曲目顺序(默认): 一个文件夹通常就是一张专辑, 按碟号/曲号读;
-    /// true = 跟随歌曲列表当前的排序。
-    var followsListSort = false
-
-    var index: LibraryFolderIndex? {
-        _ = revision
-        return indexReference
-    }
-
-    func publish(_ index: LibraryFolderIndex) {
-        indexReference = index
-        orderedQueries.removeAll(keepingCapacity: true)
-        if !hasIndex { hasIndex = true }
-        revision &+= 1
-    }
-
-    func node(withID id: LibraryFolderNodeID) -> LibraryFolderNode? {
-        index?.node(withID: id)
-    }
-
-    func children(of id: LibraryFolderNodeID) -> [LibraryFolderNode] {
-        index?.children(of: id) ?? []
-    }
-
-    func rootNodes(sourceID: String?) -> [LibraryFolderNode] {
-        guard let index else { return [] }
-        return LibraryFolderBrowsePolicy.rootNodes(in: index, sourceID: sourceID)
-    }
-
-    func orderedSongIDs(
-        in nodeID: LibraryFolderNodeID,
-        scope: QueryScope,
-        listCache: SongListCache
-    ) -> [String] {
-        let rowOrderRevision = listCache.rowOrderRevision
-        let key = OrderedQueryKey(
-            folderRevision: revision,
-            rowOrderRevision: rowOrderRevision,
-            nodeID: nodeID,
-            scope: scope,
-            followsListSort: followsListSort
-        )
-        if let cached = orderedQueries[key] { return cached }
-        guard let index else { return [] }
-
-        if !followsListSort {
-            let ordered = LibraryFolderBrowsePolicy.trackOrderedSongIDs(
-                in: nodeID,
-                scope: scope == .visible ? .direct : .descendants,
-                index: index,
-                isVisible: listCache.isEmpty ? { _ in true } : { listCache.contains(songID: $0) }
-            )
-            orderedQueries[key] = ordered
-            return ordered
-        }
-
-        let ordered: [String]
-        switch scope {
-        case .visible:
-            ordered = LibraryFolderBrowsePolicy.visibleSongIDs(
-                in: nodeID,
-                index: index,
-                orderedBy: listCache.orderedSongIDs
-            )
-        case .action:
-            ordered = LibraryFolderBrowsePolicy.actionSongIDs(
-                in: nodeID,
-                index: index,
-                orderedBy: listCache.orderedSongIDs
-            )
-        }
-        orderedQueries[key] = ordered
-        return ordered
-    }
-}
-
 private struct SongListProjection {
     let rows: [SongListRowIdentity]
     let playableCount: Int
@@ -1458,7 +1362,9 @@ struct SongListView: View {
         observedContent
             // 6c U5: 目录给不出这一页(内存才排得出的排序、页内查找、目录版式、读目录失败)时占用模型,
             // 装好之前照旧转圈;页面上的编辑页(标签、歌词)在模型放掉时不丢输入。
-            .songModelPage(needsArrays: !usesCatalogList && !showsCatalogList && !folderLayoutFromCatalog, keepsInputOnRelease: true)
+            // U9b:目录版式由目录排时,目录排不出的那个文件夹、目录版式里的多选另外占用(页面照常显示,不换成转圈)。
+            .songModelPage(needsArrays: (!usesCatalogList && !showsCatalogList && !folderLayoutFromCatalog)
+                || folderLayoutNeedsTheSongModel, keepsInputOnRelease: true)
             #if os(iOS)
             // 定位、目录键可能收在「⋯」系统菜单里，要问的这两句都挂在页面上。
             .filteredSongLocationAlert($filteredLocationTarget) { locateCurrentButton.locateClearingFilters($0) }
@@ -1470,6 +1376,9 @@ struct SongListView: View {
                 folderCache.followsListSort = follows
                 if follows { ensureSortedSnapshotIfNeeded() }
             }
+            .onChange(of: folderCatalogKey, initial: true) { _, key in applyFolderCatalog(key) }
+            // 目录版式由目录排时模型装回来了:文件夹要的内存快照现在排(排好之前目录接着给)。
+            .onChange(of: library.isReady) { _, ready in if ready, folderCache.servesFromCatalog { ensureSortedSnapshotIfNeeded() } }
             // Keep $sortOrder's State location stable across navigation-bar hosts.
             // A closure-backed Binding invalidates folder menus repeatedly on iOS 18.
             .onChange(of: sortOrder) { previous, requested in
@@ -2091,9 +2000,43 @@ struct SongListView: View {
         browseMode == .folder && folderBrowseBlocker == nil
     }
 
-    /// 目录版式按曲目顺序、目录可读:索引按目录建,行按 id 逐首取,不要整库数组(6c U6b)。跟着列表排序时要内存快照。
+    /// 目录版式、目录可读:索引按目录建,不要整库数组(6c U6b);每个文件夹的歌在目录上排(曲目顺序,或跟着列表排序),
+    /// 行按页从目录物化(U9b,`LibraryFolderBrowserCache.setCatalog`)。模型在内存里时只在刚装回来、文件夹要的内存快照
+    /// 还没排好的那一会儿接着用目录:不把页面先换成转圈(那会把推入的文件夹页弹回去)。
     private var folderLayoutFromCatalog: Bool {
-        showsFolderBrowser && !folderFollowsListSort && library.catalogHost?.revisions.isReadable == true
+        guard showsFolderBrowser, library.catalogHost?.revisions.isReadable == true,
+              LibraryFolderBrowserCache.catalogServes(followsListSort: folderFollowsListSort, order: sortOrder.libraryOrder)
+        else { return false }
+        #if os(macOS)
+        let foldersNeedSnapshot = true
+        #else
+        let foldersNeedSnapshot = folderFollowsListSort
+        #endif
+        return !library.isReady || (folderCache.servesFromCatalog && foldersNeedSnapshot && listCache.isEmpty)
+    }
+
+    /// 目录版式由目录排时还得占用模型的两处:目录排不出的文件夹(要整首歌而太大,或读失败,`catalogNeedsModel`),
+    /// 与多选(批量操作在页面根上按整页的先后取选中的歌:曲目顺序是库内顺序,跟着排序是列表的先后)。
+    private var folderLayoutNeedsTheSongModel: Bool {
+        folderLayoutFromCatalog && (folderCache.catalogNeedsModel || selection.isActive)
+    }
+
+    private struct FolderCatalogKey: Equatable {
+        let order: LibrarySongSortOrder
+        let sortRevision: UUID?
+    }
+
+    /// 交给文件夹缓存的目录读法变了没有;nil = 照内存的做法。
+    private var folderCatalogKey: FolderCatalogKey? {
+        guard folderLayoutFromCatalog else { return nil }
+        return FolderCatalogKey(order: sortOrder.libraryOrder, sortRevision: sortValuesVersion.revision(for: sortOrder.libraryOrder))
+    }
+
+    private func applyFolderCatalog(_ key: FolderCatalogKey?) {
+        guard let key, let host = library.catalogHost else { return folderCache.setCatalog(nil) }
+        folderCache.setCatalog(LibraryFolderBrowserCache.CatalogContext(
+            host: host, listOrder: key.order, sortValues: songListSortValues, sortRevision: key.sortRevision
+        ))
     }
 
     /// 开着「已下载」或页内查找有字时目录出不来，歌照平铺列出。
@@ -2170,7 +2113,8 @@ struct SongListView: View {
         if !usesCatalogList, !library.isReady, !folderLayoutFromCatalog { return true }
         // 目录那一份第一次取行号还没回来,手里也没有内存快照。
         if usesCatalogList { return listCache.isEmpty }
-        return (!songs.isEmpty && requiresSortedSnapshot && listCache.isEmpty)
+        // 目录版式由目录排时只等索引(刚装回来、快照还在排的那一会儿也不等快照);整库数组最后才读。
+        return (!folderLayoutFromCatalog && requiresSortedSnapshot && listCache.isEmpty && !songs.isEmpty)
             || (showsFolderBrowser && !folderCache.hasIndex)
     }
 
@@ -2207,7 +2151,8 @@ struct SongListView: View {
     /// 只是播放键先不能点，数量先按整库的歌数写（筛了「已下载」时先空着），换成列表时这一行不动。
     private var minimalHeader: SongListMinimalHeader {
         let isPreparing = isPreparingList
-        let preparingTotal: Int? = usesCatalogList ? catalogList.baseCount : songs.count
+        // 模型不在内存里时整页的歌数按目录建的文件夹索引给(同一范围),不读整库数组。
+        let preparingTotal: Int? = usesCatalogList ? catalogList.baseCount : library.isReady ? songs.count : folderCache.index?.songCount
         let preparingCount = effectiveSongFilter == .all
             ? preparingTotal.map { LibraryCountText.formattedSongs($0) } ?? " "
             : " "
@@ -2353,7 +2298,7 @@ struct SongListView: View {
         let count = showsCatalogList
             ? catalogList.count
             : showsFolderBrowser && listCache.isEmpty
-                ? songs.count
+                ? (library.isReady ? songs.count : folderCache.index?.songCount ?? 0)
                 : filteredProjection.rows.count
         return LibraryCountText.formattedSongs(count)
     }
@@ -3947,6 +3892,8 @@ struct SongListView: View {
     }
 
     private func scheduleDownloadedFilterRefresh(delay: Duration? = nil) {
+        // 目录版式由目录排、模型不在内存里:没有整库数组可探测(读到的是空的),不探测(U9b)。
+        if !library.isReady, folderLayoutFromCatalog { return }
         downloadedFilterGeneration &+= 1
         let generation = downloadedFilterGeneration
         let songsSnapshot = songs
@@ -4025,8 +3972,10 @@ struct SongListView: View {
             // 多选开始时按显示顺序取一次;还没取好时先只给已选的那些。
             return catalogList.selectionIDs ?? Array(selection.selectedIDs)
         }
+        // 目录版式的多选在模型不在内存里时占用模型(`folderLayoutNeedsTheSongModel`);装回来之前先只给已选的那些,
+        // 不读空的整库数组(同目录列表的多选 id 取好之前)。
         return showsFolderBrowser
-            ? (listCache.isEmpty ? songs.map(\.id) : listCache.orderedSongIDs)
+            ? (listCache.isEmpty ? (library.isReady ? songs.map(\.id) : Array(selection.selectedIDs)) : listCache.orderedSongIDs)
             : filteredSongIDs
     }
 
@@ -4426,6 +4375,9 @@ struct SongListView: View {
         pruneRowModels: Bool,
         isExplicitSort: Bool = false
     ) {
+        // 目录版式由目录排、模型不在内存里:没有整库数组可排(读到的是空的,排出一份空快照会让多选、计数当成没有歌);
+        // 文件夹的歌由文件夹缓存在目录上照新的排序排(U9b)。
+        if !library.isReady, folderLayoutFromCatalog { return }
         if !isExplicitSort, let explicitGeneration = sortProgress.generation {
             sortFeedbackTask?.cancel()
             sortFeedbackTask = nil
@@ -5426,6 +5378,7 @@ private struct MacLibraryFolderInlineContent: View {
                             totalCount: visibleSongIDs.count,
                             orderedIDs: { visibleSongIDs },
                             listCache: listCache,
+                            folderCache: folderCache, nodeID: nodeID,
                             selection: selection,
                             onPlay: playSong
                         )
@@ -5433,7 +5386,10 @@ private struct MacLibraryFolderInlineContent: View {
                     }
                 }
 
-                if children.isEmpty && visibleSongIDs.isEmpty {
+                if folderCache.isCatalogPending(nodeID) {
+                    // 目录那条路上这个文件夹的歌还在排(第一次):转圈,不画成空文件夹(U9b)。
+                    ProgressView().frame(maxWidth: .infinity).padding(.top, 48)
+                } else if children.isEmpty && visibleSongIDs.isEmpty {
                     ContentUnavailableView(
                         "no_songs",
                         systemImage: "folder",
@@ -5527,7 +5483,8 @@ private struct MacLibraryFolderInlineContent: View {
                     .background(theme.uiAccentColor, in: Capsule())
             }
             .buttonStyle(.plain)
-            .disabled(actionSongIDs.isEmpty || selection.isActive)
+            // 跟着列表排序而目录在排时,排好之前先不能点(那时给的是曲目顺序,U9b)。
+            .disabled(actionSongIDs.isEmpty || selection.isActive || !folderCache.actionIDsReady(in: node.id))
 
             if let actions = LibraryFolderMaintenanceActions.make(
                 nodeID: node.id,
@@ -5605,6 +5562,7 @@ private struct MacLibraryFolderInlineContent: View {
     }
 
     private func playAllSongsInFolder() {
+        guard let nodeID = folderPath.last, folderCache.actionIDsReady(in: nodeID) else { return }
         let ids = actionSongIDs
         guard let first = ids.lazy.compactMap({ library.unobservedVisibleSong(id: $0) }).first else { return }
         SiriMediaInteractionDonor.donate(song: first)
@@ -5819,11 +5777,8 @@ private struct LibraryFolderSelectionButton: View {
     let selection: SongSelectionModel
 
     var body: some View {
-        let songIDs = folderCache.orderedSongIDs(
-            in: node.id,
-            scope: .action,
-            listCache: listCache
-        )
+        // 只看成员:目录那条路上不为每一行文件夹在后台排一遍(U9b)。
+        let songIDs = folderCache.memberSongIDs(in: node.id, listCache: listCache)
         let membership = selection.groupMembership(
             for: node.id,
             version: LibraryFolderSelectionVersion(
@@ -6112,7 +6067,10 @@ private struct LibraryFolderNodeView: View {
                         }
                     }
 
-                    if children.isEmpty && visibleSongIDs.isEmpty {
+                    if folderCache.isCatalogPending(nodeID) {
+                        // 目录那条路上这个文件夹的歌还在排(第一次):转圈,不画成空文件夹(U9b)。
+                        ProgressView().frame(maxWidth: .infinity).padding(.top, 48)
+                    } else if children.isEmpty && visibleSongIDs.isEmpty {
                         ContentUnavailableView(
                             "no_songs",
                             systemImage: "folder",
@@ -6148,6 +6106,7 @@ private struct LibraryFolderNodeView: View {
                 totalCount: visibleSongIDs.count,
                 orderedIDs: { visibleSongIDs },
                 listCache: listCache,
+                folderCache: folderCache, nodeID: nodeID,
                 selection: selection,
                 onPlay: playSong
             )
@@ -6277,7 +6236,9 @@ private struct LibraryFolderNodeView: View {
             LocateCurrentSongButton(
                 isEditing: selection.isActive,
                 titled: verticalBarEdge != nil,
-                contains: { listCache.contains(songID: $0) }
+                // 跟着列表排序而目录在排(U9b):内存快照不在,在不在这一页按目录建的索引问(范围与快照相同)。
+                contains: { followsListSort && folderCache.servesFromCatalog
+                    ? folderCache.index?.nodeID(containingSongID: $0) != nil : listCache.contains(songID: $0) }
             ) { songID, _ in
                 guard let target = folderCache.index?.nodeID(containingSongID: songID) else { return }
                 if target == nodeID {
@@ -6309,7 +6270,7 @@ private struct LibraryFolderNodeView: View {
         ToolbarItemGroup(placement: .topBarTrailing) {
             LibraryFolderPlayAllToolbarItem(
                 selection: selection,
-                isEnabled: !actionSongIDs.isEmpty,
+                isEnabled: !actionSongIDs.isEmpty && folderCache.actionIDsReady(in: nodeID),
                 titled: true,
                 action: playAllSongsInFolder
             )
@@ -6344,7 +6305,7 @@ private struct LibraryFolderNodeView: View {
         ToolbarItem(placement: .topBarTrailing) {
             LibraryFolderPlayAllToolbarItem(
                 selection: selection,
-                isEnabled: !actionSongIDs.isEmpty,
+                isEnabled: !actionSongIDs.isEmpty && folderCache.actionIDsReady(in: nodeID),
                 action: playAllSongsInFolder
             )
         }
@@ -6372,6 +6333,7 @@ private struct LibraryFolderNodeView: View {
     #endif
 
     private func playAllSongsInFolder() {
+        guard folderCache.actionIDsReady(in: nodeID) else { return }
         let ids = actionSongIDs
         guard let first = ids.lazy.compactMap({ library.unobservedVisibleSong(id: $0) }).first else { return }
         SiriMediaInteractionDonor.donate(song: first)
@@ -6403,15 +6365,17 @@ private struct LibraryFolderSongRow: View {
     let totalCount: Int
     let orderedIDs: () -> [String]
     let listCache: SongListCache
+    let folderCache: LibraryFolderBrowserCache
+    let nodeID: LibraryFolderNodeID
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
 
     @ViewBuilder
     var body: some View {
-        if let model = listCache.rowModel(
-            id: songID,
-            song: library.unobservedVisibleSong(id: songID)
-        ) {
+        // 目录那条路:按页物化的那一行(这一页还没到时先不画,不逐行同步读目录);不在目录那条路上时照原来按 id 取(U9b)。
+        if let model = folderCache.servesFromCatalog
+            ? folderCache.catalogRowModel(in: nodeID, at: ordinal - 1, id: songID)
+            : listCache.rowModel(id: songID, song: library.unobservedVisibleSong(id: songID)) {
             #if os(iOS)
             // 时间线与封面的留白、行距由外面的 `SongTimelineStack` 与固定的槽位高度给。
             IOSSongListRow(model: model, ordinal: ordinal, totalCount: totalCount, selection: selection, onPlay: onPlay)
@@ -7486,84 +7450,6 @@ private struct IOSSelectionSongRow: View {
 }
 
 // MARK: - Folder maintenance
-
-/// 文件夹页「重新读取文件标签」的进度。iPhone 文件夹页与 Mac 内嵌文件夹浏览各持一份，
-/// 离开页面就随页面释放；读取本身在回填服务里继续跑完。
-@MainActor
-@Observable
-final class LibraryFolderMaintenanceModel {
-    private(set) var rereadProgress: MetadataTagRereadProgress?
-    private(set) var isRereading = false
-    @ObservationIgnored private var rereadTask: Task<Void, Never>?
-
-    func rereadTags(songIDs: [String], sourceID: String, backfill: MetadataBackfillService) {
-        let readable = songIDs.filter { backfill.canRereadTags(songID: $0, expectedSourceID: sourceID) }
-        guard rereadTask == nil, !readable.isEmpty else { return }
-        isRereading = true
-        rereadProgress = MetadataTagRereadProgress(total: readable.count)
-        rereadTask = Task { @MainActor [weak self] in
-            let result = await backfill.rereadTags(songIDs: readable, expectedSourceID: sourceID) { progress in
-                self?.rereadProgress = progress
-            }
-            self?.rereadProgress = result
-            self?.isRereading = false
-            self?.rereadTask = nil
-        }
-    }
-}
-
-/// 文件夹页「⋯」里的「增量扫描此目录」与「重新读取文件标签」。服务由页面在自己的视图
-/// 层级里取好再交进来：导航栏菜单的宿主拿不到环境（见 `FolderPlaylistMenuButton`）。
-@MainActor
-struct LibraryFolderMaintenanceActions {
-    var rescan: (() -> Void)?
-    var rereadTags: (() -> Void)?
-    var isRereading = false
-
-    static func make(
-        nodeID: LibraryFolderNodeID,
-        index: LibraryFolderIndex?,
-        songIDs: [String],
-        model: LibraryFolderMaintenanceModel,
-        scanService: ScanService,
-        sourceManager: SourceManager,
-        sourcesStore: SourcesStore,
-        library: MusicLibrary,
-        scraperService: MusicScraperService,
-        backfill: MetadataBackfillService
-    ) -> LibraryFolderMaintenanceActions? {
-        guard nodeID.kind == .folder || nodeID.kind == .scanRoot,
-              let source = sourcesStore.source(id: nodeID.sourceID),
-              source.isEnabled, !source.isDeleted else { return nil }
-        var actions = LibraryFolderMaintenanceActions(isRereading: model.isRereading)
-        if ScanService.supportsFolderRescan(source),
-           let index,
-           let anchor = LibraryFolderRescanAnchor.make(for: nodeID, in: index) {
-            actions.rescan = {
-                _ = scanService.rescanFolder(
-                    of: source,
-                    request: SourceFolderRescanRequest(
-                        anchorSongID: anchor.songID,
-                        levelsAbove: anchor.levelsAbove
-                    ),
-                    sourceManager: sourceManager,
-                    library: library,
-                    sourceStore: sourcesStore,
-                    scraperService: scraperService
-                )
-            }
-        }
-        // 只看前几首判断能不能读：整个文件夹逐首过一遍留到点下去的时候。
-        if songIDs.prefix(24).contains(where: {
-            backfill.canRereadTags(songID: $0, expectedSourceID: source.id)
-        }) {
-            actions.rereadTags = {
-                model.rereadTags(songIDs: songIDs, sourceID: source.id, backfill: backfill)
-            }
-        }
-        return actions.rescan == nil && actions.rereadTags == nil ? nil : actions
-    }
-}
 
 private struct LibraryFolderMaintenanceMenuItems: View {
     let actions: LibraryFolderMaintenanceActions

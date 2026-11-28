@@ -87,8 +87,6 @@ Primuse/Views/Library/LibrarySectionRail.swift	LibrarySectionRailState	13
 Primuse/Views/Library/LibraryView+Catalog.swift	GenreCatalogList	5
 Primuse/Views/Library/LibraryView+Catalog.swift	LibraryHubCatalogCountsModel	7
 Primuse/Views/Library/LibraryView.swift	LibraryStartupPlaybackCoordinator	9
-Primuse/Views/Library/SongListView.swift	LibraryFolderBrowserCache	8
-Primuse/Views/Library/SongListView.swift	LibraryFolderMaintenanceModel	1
 Primuse/Views/Library/SongListView.swift	SongListLocation	7
 Primuse/Views/Library/SongListView.swift	SongListPositionModel	1
 Primuse/Views/Library/SongListView.swift	SongListRowModel	3

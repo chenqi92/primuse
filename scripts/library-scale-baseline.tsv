@@ -61,7 +61,7 @@ legacy-library-api	Primuse/Services/Sources/SourceManager.swift	1
 legacy-library-api	Primuse/Views/Components/BatchSelection/BatchTagEditorView.swift	1
 legacy-library-api	Primuse/Views/Components/CachedArtworkView.swift	1
 legacy-library-api	Primuse/Views/Components/MediaDetailActionBar.swift	1
-legacy-library-api	Primuse/Views/Components/SongRowView.swift	3
+legacy-library-api	Primuse/Views/Components/SongRowView.swift	2
 legacy-library-api	Primuse/Views/Components/StoredCoverArtView.swift	4
 legacy-library-api	Primuse/Views/ContentView.swift	11
 legacy-library-api	Primuse/Views/Home/HomeDiscoveryModel.swift	3
@@ -82,7 +82,7 @@ legacy-library-api	Primuse/Views/Library/LibraryOrganizationViews.swift	5
 legacy-library-api	Primuse/Views/Library/LibraryView+Catalog.swift	3
 legacy-library-api	Primuse/Views/Library/LibraryView.swift	13
 legacy-library-api	Primuse/Views/Library/PlaylistDetailView.swift	2
-legacy-library-api	Primuse/Views/Library/PlaylistListView.swift	5
+legacy-library-api	Primuse/Views/Library/PlaylistListView.swift	4
 legacy-library-api	Primuse/Views/Library/PlaylistPendingEntryRow.swift	1
 legacy-library-api	Primuse/Views/Library/ReleaseDateLibraryView.swift	2
 legacy-library-api	Primuse/Views/Library/SongListView.swift	2

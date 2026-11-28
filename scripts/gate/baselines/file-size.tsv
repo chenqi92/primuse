@@ -79,7 +79,7 @@ Primuse/Views/Components/CachedArtworkView.swift	3016
 Primuse/Views/Components/MediaDetailActionBar.swift	1644
 Primuse/Views/Components/MinimalShell.swift	1256
 Primuse/Views/Components/SongPlaybackRangeEditor.swift	1147
-Primuse/Views/Components/SongRowView.swift	2809
+Primuse/Views/Components/SongRowView.swift	2795
 Primuse/Views/Components/StoredCoverArtView.swift	2315
 Primuse/Views/ContentView.swift	4635
 Primuse/Views/Home/HomeFoldersSection.swift	2431
@@ -98,10 +98,10 @@ Primuse/Views/Library/LibraryView.swift	2489
 Primuse/Views/Library/LyricsEditorView.swift	3952
 Primuse/Views/Library/LyricsSourcesView.swift	1070
 Primuse/Views/Library/PlaylistDetailView.swift	3374
-Primuse/Views/Library/PlaylistListView.swift	1836
+Primuse/Views/Library/PlaylistListView.swift	1822
 Primuse/Views/Library/SmartPlaylistDetailView.swift	1165
 Primuse/Views/Library/SmartPlaylistEditorView.swift	1344
-Primuse/Views/Library/SongListView.swift	8039
+Primuse/Views/Library/SongListView.swift	7925
 Primuse/Views/Library/SpokenWordLibraryView.swift	3272
 Primuse/Views/Library/TagEditorView.swift	2756
 Primuse/Views/Mac/DesktopLyricsIslandView.swift	1161

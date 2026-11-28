@@ -48,6 +48,7 @@ struct PlaylistListView: View {
     @State private var renamingPlaylist: Playlist?
     @State private var pendingRemoval: PlaylistRemovalRequest?
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
+    @State private var shareTargets = PlaylistShareTargets()
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
     @AppStorage(PlaylistListOrder.storageKey) private var listOrderRawValue = PlaylistListOrder.custom.rawValue
     /// 顶栏排序菜单绑定到稳定 `@State` 存储，避免闭包 `Binding` 在 iOS 18 导航栏反复失效触发主线程卡死。
@@ -79,16 +80,17 @@ struct PlaylistListView: View {
         }
         let localSourceIDs = SourceManager.localDeviceSourceIDs(in: sourcesStore.sources)
         var matched = Set<String>()
+        // 模型不在内存里时歌在主线程外从曲库目录分段取;答不了的照样列出来,不当成没有离线的歌(6c 单元 4 U9b)。
         for playlist in playlists {
-            let songs = library.songIDs(forPlaylist: playlist.id).compactMap { library.visibleSong(id: $0) }
-            if await sourceManager.containsOfflinePlayableSong(in: songs, localSourceIDs: localSourceIDs) {
+            let songs = await PlaylistListCatalog.offlineProbeSongs(playlist: playlist, library: library)
+            if await PlaylistListCatalog.mayPlayOffline(songs, sourceManager: sourceManager, localSourceIDs: localSourceIDs) {
                 matched.insert(playlist.id)
             }
             guard !Task.isCancelled else { return }
         }
         for smart in smartPlaylists {
-            let songs = await SmartPlaylistEngine.matchedSongs(smart, in: library, history: PlayHistoryStore.shared)
-            if await sourceManager.containsOfflinePlayableSong(in: songs, localSourceIDs: localSourceIDs) {
+            let songs = await PlaylistListCatalog.offlineProbeSongs(smart: smart, library: library)
+            if await PlaylistListCatalog.mayPlayOffline(songs, sourceManager: sourceManager, localSourceIDs: localSourceIDs) {
                 matched.insert(smart.id)
             }
             guard !Task.isCancelled else { return }
@@ -496,9 +498,9 @@ struct PlaylistListView: View {
             var smartSongIDs: [String: [String]] = [:]
             for smart in smarts
             where groups.groupID(for: PlaylistGrouping.reference(id: smart.id, smart: true)) == id {
-                smartSongIDs[smart.id] = await SmartPlaylistEngine.matchedSongIDs(
-                    smart, in: library, history: PlayHistoryStore.shared
-                )
+                // AI 歌单在模型不在内存里时先装回来再对;答不了就不播,不当成空歌单(U9b)。
+                guard let ids = await PlaylistListCatalog.matchedSongIDs(smart, library: library) else { return }
+                smartSongIDs[smart.id] = ids
             }
             let songIDs = groups.playbackSongIDs(
                 for: id, playlists: orderedPlaylists, smartPlaylists: smarts,
@@ -1464,26 +1466,10 @@ struct PlaylistListView: View {
         }
     }
 
-    private func makeServerMediaShareTarget(
-        for playlist: Playlist
-    ) -> ServerMediaShareTarget? {
-        // 长按菜单跟着每一行一起求值: 先只看第一首歌的源能不能这样分享, 能的才取出
-        // 整张歌单逐首核对。没有 Subsonic 一类源的歌单不再每行都拷一遍整张歌单。
-        guard let firstSong = library.songSummary(forPlaylist: playlist.id).first,
-              let source = sourcesStore.source(id: firstSong.sourceID),
-              ServerMediaShareTargetPolicy.supports(source.type) else { return nil }
-        let songs = library.songs(forPlaylist: playlist.id)
-        return try? ServerMediaShareTargetPolicy.makeTarget(
-            kind: .playlist,
-            title: playlist.name,
-            songs: songs,
-            source: source
-        )
-    }
-
+    /// 目标的建法见 `PlaylistShareTargets.make`;模型不在内存里时不在每次求值时从目录读整张歌单(U9b)。
     @ViewBuilder
     private func serverMediaShareButton(for playlist: Playlist) -> some View {
-        if let target = makeServerMediaShareTarget(for: playlist) {
+        if let target = shareTargets.target(for: playlist, library: library, sourcesStore: sourcesStore) {
             Button {
                 serverMediaShareTarget = target
             } label: {
