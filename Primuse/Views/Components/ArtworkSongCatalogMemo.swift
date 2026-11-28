@@ -11,6 +11,8 @@ final class ArtworkSongCatalogMemo {
     static let capacity = 512
 
     private var generation: Int?
+    /// 记的是哪一个曲库的答案(一个进程里可能有几个曲库,测试里就是):换了曲库与换代一样清掉,不拿别的曲库的答案来用。
+    private var libraryIdentity: ObjectIdentifier?
     private var answers: [String: String?] = [:]
     private var inFlight: [String: Task<String??, Never>] = [:]
 
@@ -36,8 +38,10 @@ final class ArtworkSongCatalogMemo {
 
     func preferredSongID(for owner: Owner, library: MusicLibrary) async -> String? {
         let current = library.songModelGenerationForArtworkMemo
-        if generation != current {
+        let identity = ObjectIdentifier(library)
+        if generation != current || libraryIdentity != identity {
             generation = current
+            libraryIdentity = identity
             answers.removeAll(keepingCapacity: true)
             inFlight.removeAll()
         }
@@ -64,7 +68,7 @@ final class ArtworkSongCatalogMemo {
         let answer = await task.value
         inFlight[key] = nil
         guard let answer else { return nil }
-        if generation == current {
+        if generation == current, libraryIdentity == identity {
             if answers.count >= Self.capacity { answers.removeAll(keepingCapacity: true) }
             answers[key] = answer
         }
