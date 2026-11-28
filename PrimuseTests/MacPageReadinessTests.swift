@@ -30,21 +30,20 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
             XCTAssertEqual(MacPageKind.section(section).readiness, LibraryReadyContent<EmptyView>.readiness(for: section),
                            "same as the iPhone library section")
         }
-        for section in [LibrarySection.genres, .ambient] {
-            XCTAssertEqual(MacPageKind.section(section).readiness, .catalog, "U6a: \(section)")
+        for section in [LibrarySection.genres, .ambient, .statistics, .folders] {
+            XCTAssertEqual(MacPageKind.section(section).readiness, .catalog, "U6a/U6b: \(section)")
             XCTAssertEqual(MacPageKind.section(section).readiness, LibraryReadyContent<EmptyView>.readiness(for: section),
                            "same as the iPhone library section")
         }
         XCTAssertEqual(MacPageKind.smartPlaylist.readiness, .catalog, "U6a: rule playlists match on the catalog")
         XCTAssertEqual(MacPageKind.smartPlaylistDetail.readiness, .catalog)
-        let legacySections: [LibrarySection] = [
-            .folders, .releaseDate, .recommendations, .statistics,
-        ]
+        XCTAssertEqual(MacPageKind.listeningStats.readiness, .catalog, "U6b")
+        let legacySections: [LibrarySection] = [.releaseDate, .recommendations]
         for section in legacySections {
             XCTAssertEqual(MacPageKind.section(section).readiness, .legacy, "\(section)")
         }
         let legacyPages: [MacPageKind] = [
-            .listeningStats, .sources, .source, .search,
+            .sources, .source, .search,
             .searchCollection, .tool, .recommendationsPanel, .smartPlaylistEditor,
         ]
         for page in legacyPages {
@@ -64,7 +63,7 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
     }
 
     /// 模型真放掉之后:首页、歌单、歌曲这些读目录的页直接画,不占用、不装、不读整库数组;还读数组的页
-    /// (这里拿统计页)显示加载并占用 `.legacyPage`,装回来就画,页面消失就放手。
+    /// (这里拿发行年代页)显示加载并占用 `.legacyPage`,装回来就画,页面消失就放手。
     func testPagesAfterTheSongModelWasReleased() async throws {
         let (library, _) = try makeLaunchedTwin("mac-pages-released", songs: Self.fixture(prefix: "mac-pages-released"))
         await assertShadowMatches(library, "fixture")
@@ -128,12 +127,12 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         try await Task.sleep(for: .milliseconds(100))
         assertNoLoadAndNoArrayRead(library, since: before, "\(state): converted pages", file: file, line: line)
 
-        let legacy = MacPageKind.section(.statistics)
+        let legacy = MacPageKind.section(.releaseDate)
         XCTAssertFalse(MacPageKind.showsContent(legacy.readiness, isUsable: library.isUsable, isReady: library.isReady),
-                       "\(state): the statistics page shows loading", file: file, line: line)
+                       "\(state): the release-date page shows loading", file: file, line: line)
         let page = SongModelPageHold()
         page.update(library: library, needsArrays: legacy.readiness == .legacy, isVisible: true, isActive: true)
-        XCTAssertTrue(page.isHolding, "\(state): the statistics page holds", file: file, line: line)
+        XCTAssertTrue(page.isHolding, "\(state): the release-date page holds", file: file, line: line)
         try await waitUntilReady(library)
         XCTAssertTrue(library.isReady, "\(state): the hold brought the model", file: file, line: line)
         XCTAssertTrue(MacPageKind.showsContent(legacy.readiness, isUsable: library.isUsable, isReady: library.isReady),

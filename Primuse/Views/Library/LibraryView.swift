@@ -851,11 +851,11 @@ struct LibraryView: View {
     private var shelfPins: [LibraryPinReference] {
         library.isReady ? hubPins : (lastHubPins ?? [])
     }
-    /// 放掉之后货架还要整库(书、目录的收藏要整份有声条目或目录索引;一次都没算过时也要):入口占用模型直到它回来。
+    /// 放掉之后货架还要整库(书的收藏、目录读不了时目录的收藏、一次都没算过时):入口占用模型直到它回来(目录索引按目录建,U6b)。
     private var shelfNeedsTheSongModel: Bool {
         guard !library.isReady, visibleLibrarySections.contains(.favorites) else { return false }
         guard let pins = lastHubPins else { return true }
-        return pins.contains { $0.kind == .book || ($0.kind == .folder && favoriteFolderModel.index == nil) }
+        return pins.contains { $0.kind == .book || ($0.kind == .folder && favoriteFolderModel.index == nil && library.readableCatalogReader == nil) }
     }
     /// 「专辑艺术家」列法的人数与头像要 U4b 的目录查询;那之前放掉时入口占用模型。
     private var artistTileNeedsTheSongModel: Bool {

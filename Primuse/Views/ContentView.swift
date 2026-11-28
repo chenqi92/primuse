@@ -1382,8 +1382,8 @@ struct LibraryReadyContent<Content: View>: View {
         switch section {
         case .radio, .podcasts, .spokenWord: .always
         // 专辑页、歌曲页读曲库目录,还读整库数组的那几种自己占用(6c 单元 4 U4a、U5);MV 页、收藏页(U8b)、艺术家页(U4b)、
-        // 流派页、环境音页(U6a)同。
-        case .albums, .songs, .musicVideos, .favorites, .artists, .genres, .ambient: .catalog
+        // 流派页、环境音页(U6a)、统计页与目录页(U6b)同。
+        case .albums, .songs, .musicVideos, .favorites, .artists, .genres, .ambient, .statistics, .folders: .catalog
         default: .legacy
         }
     }
@@ -2135,9 +2135,9 @@ struct ContentView: View {
         case .libraryFavorites:
             LibraryView(rootSection: .favorites)
         case .libraryFolders:
-            librarySubpane(title: "library_browse_folder") { HomeFolderManagementView() }
+            librarySubpane(title: "library_browse_folder", startupSection: .folders) { HomeFolderManagementView() }
         case .libraryStatistics:
-            librarySubpane(title: "stats_title") { ListeningStatsScreen() }
+            librarySubpane(title: "stats_title", startupSection: .statistics) { ListeningStatsScreen() }
         case .librarySongs:
             librarySubpane(title: "tab_songs", startupSection: .songs) { SongListView() }
         case .librarySpokenWord:

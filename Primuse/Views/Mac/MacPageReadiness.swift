@@ -56,7 +56,10 @@ extension MacPageKind {
         case .albumDetail, .artistDetail:
             // 专辑页的歌、艺人链接按 id 与范围读目录;艺人页的两排专辑与发行分类从目录算(详情页单元)。
             .catalog
-        case .listeningStats, .sources, .source, .search, .searchCollection,
+        case .listeningStats:
+            // 统计页:历史 + 曲库目录(归属、特征表);目录读不了时页面自己装回模型(6c U6b)。
+            .catalog
+        case .sources, .source, .search, .searchCollection,
              .tool, .recommendationsPanel, .smartPlaylistEditor:
             .legacy
         }
@@ -79,9 +82,10 @@ extension MacPageKind {
         case .artists:
             // 艺术家左栏从目录按页取;去掉只有单曲的专辑艺人、右边的详情还读整库数组,那两处自己占用(U4b)。
             .catalog
-        case .genres, .ambient:
+        case .genres, .ambient, .statistics, .folders:
+            // 流派、环境音(U6a);统计、目录页(U6b:目录索引按目录建)。
             .catalog
-        case .folders, .releaseDate, .recommendations, .statistics:
+        case .releaseDate, .recommendations:
             .legacy
         }
     }

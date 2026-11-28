@@ -629,8 +629,10 @@ struct HomeDiscoveryObserver: View {
         let spokenWordSongIDs = library.spokenWordSongIDs
         let sharesLibraryIndex = library.nonMusicSongIDs.isEmpty
         let reuseKey = folderIndexReuseKey(replacementToken: metadataToken, request: request)
-        let songs = library.visibleSongs
-        let lookup = library.visibleSongLookup()
+        // 6c U6b:歌曲模型不在内存里时不读整库数组:索引按目录建,卡片封面在显示时逐个补(`coverSongs(for:)`)。
+        let released = !library.isReady
+        let songs = released ? [] : library.visibleSongs
+        let lookup = released ? nil : library.visibleSongLookup()
         let pins = Self.coverPins()
         let collectionSnapshot = library.appleMusicFolderSnapshot()
         let descriptors = request.sources
@@ -649,7 +651,11 @@ struct HomeDiscoveryObserver: View {
         let task = Task.detached(priority: .utility) {
             [descriptors, providers, spokenWordSongIDs, catalogReader] () async -> (LibraryFolderIndex, PrewarmedCovers)? in
             guard !Task.isCancelled else { return nil }
-            let collections = collectionSnapshot.collections(availableSongs: songs)
+            // Apple Music 虚拟集合只看那个源的歌(库内顺序):模型不在内存里时从目录取;目录答不出来这一轮不发布。
+            guard let collectionSongs = released
+                ? await LibraryFolderCatalogSongs.appleMusicSongs(collectionSnapshot, scope: .visible, reader: catalogReader)
+                : songs else { return nil }
+            let collections = collectionSnapshot.collections(availableSongs: collectionSongs)
             if let catalogReader {
                 // 目录可读:按目录建,索引里每首歌只留行号。配置里没有的源由目录里出现的先后补描述。
                 var configured: [LibraryFolderSourceDescriptor] = []
@@ -667,7 +673,7 @@ struct HomeDiscoveryObserver: View {
                     configured.append(attached)
                 }
                 let virtualSourceIDs = Set(collections.filter { $0.kind == .librarySongs }.map(\.sourceID))
-                let memorySongs = virtualSourceIDs.isEmpty ? [] : songs.filter { virtualSourceIDs.contains($0.sourceID) }
+                let memorySongs = virtualSourceIDs.isEmpty ? [] : collectionSongs.filter { virtualSourceIDs.contains($0.sourceID) }
                 do {
                     let index = try await catalogReader.folderIndex { [configured] catalog, isCancelled in
                         try LibraryFolderIndexBuilder.build(
@@ -695,6 +701,8 @@ struct HomeDiscoveryObserver: View {
                     plog("⚠️ Home folder index from catalog failed, using memory: \(error)")
                 }
             }
+            // 模型不在内存里时没有整库数组可建(目录读不了、读失败):这一轮不发布,等下一次请求。
+            if released { return nil }
             var descriptors = descriptors
             var known = Set(descriptors.map(\.sourceID))
             for index in songs.indices {
@@ -772,7 +780,7 @@ struct HomeDiscoveryObserver: View {
             sharesLibraryIndex: library.nonMusicSongIDs.isEmpty
         ) else { return false }
         pendingMetadataIDs.removeAll()
-        let lookup = library.visibleSongLookup()
+        let lookup = library.isReady ? library.visibleSongLookup() : nil
         let pins = Self.coverPins()
         let task = Task.detached(priority: .utility) {
             Self.prewarmedCovers(for: cachedIndex, lookup: lookup, pins: pins) { Task.isCancelled }
@@ -858,12 +866,14 @@ struct HomeDiscoveryObserver: View {
 
     /// 首页会摆出来的那几个文件夹（钉住的、各源根目录和它们前几个子目录）先挑好封面。
     /// 在主线程外做：源的根目录就是整个源，挑满四张就停，不先展开整棵子树。
+    /// `lookup` 为 nil(歌曲模型不在内存里):不预挑,卡片显示时按 id 逐个补。
     private nonisolated static func prewarmedCovers(
         for index: LibraryFolderIndex,
-        lookup: VisibleSongLookup,
+        lookup: VisibleSongLookup?,
         pins: CoverPins,
         isCancelled: () -> Bool
     ) -> PrewarmedCovers {
+        guard let lookup else { return PrewarmedCovers(songsByID: [:], covers: [:], pinnedNodeIDs: []) }
         var candidateNodeIDs = Set(
             HomeFolderPinStorage.resolvedPins(pins.raw, index: index, defaultCount: pins.displayCount)
         )

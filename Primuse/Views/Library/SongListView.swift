@@ -713,10 +713,8 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
 }
 #endif
 
-/// Reference-backed storage prevents AttributeGraph from applying
-/// `Array<Song>.==` to the list cache whenever metadata changes. Song's
-/// synthesized equality includes lyricsText, so a value-backed SwiftUI state
-/// made each background backfill publication walk the full lyrics library.
+/// Reference-backed storage keeps AttributeGraph from comparing `[Song]` (lyrics included) on every
+/// metadata publication.
 @MainActor
 @Observable
 final class SongListRowModel {
@@ -1286,10 +1284,8 @@ struct SongListView: View {
     @State private var catalogDownloadedSongIDs: Set<String> = []
     @State private var showViewOptions = false
     @State private var showAddVisibleToPlaylist = false
-    // Bind context-menu sheets to the selected value itself.  A separate
-    // `songID` + `isPresented` pair can publish in either order when a menu
-    // closes, letting SwiftUI create a permanently empty sheet before the ID
-    // becomes visible.
+    // Bind context-menu sheets to the selected value: a separate id + `isPresented` pair could
+    // publish out of order and leave a permanently empty sheet.
     @State private var contextAddToPlaylistSong: Song?
     @State private var contextSongInfoSong: Song?
     @State private var contextTagEditorSong: Song?
@@ -1462,7 +1458,7 @@ struct SongListView: View {
         observedContent
             // 6c U5: 目录给不出这一页(内存才排得出的排序、页内查找、目录版式、读目录失败)时占用模型,
             // 装好之前照旧转圈;页面上的编辑页(标签、歌词)在模型放掉时不丢输入。
-            .songModelPage(needsArrays: !usesCatalogList && !showsCatalogList, keepsInputOnRelease: true)
+            .songModelPage(needsArrays: !usesCatalogList && !showsCatalogList && !folderLayoutFromCatalog, keepsInputOnRelease: true)
             #if os(iOS)
             // 定位、目录键可能收在「⋯」系统菜单里，要问的这两句都挂在页面上。
             .filteredSongLocationAlert($filteredLocationTarget) { locateCurrentButton.locateClearingFilters($0) }
@@ -2095,6 +2091,11 @@ struct SongListView: View {
         browseMode == .folder && folderBrowseBlocker == nil
     }
 
+    /// 目录版式按曲目顺序、目录可读:索引按目录建,行按 id 逐首取,不要整库数组(6c U6b)。跟着列表排序时要内存快照。
+    private var folderLayoutFromCatalog: Bool {
+        showsFolderBrowser && !folderFollowsListSort && library.catalogHost?.revisions.isReadable == true
+    }
+
     /// 开着「已下载」或页内查找有字时目录出不来，歌照平铺列出。
     private var folderBrowseBlocker: LibraryFolderBrowseBlocker? {
         if isLocalOnlySongFilter { return .downloadedFilter }
@@ -2166,7 +2167,7 @@ struct SongListView: View {
     private var isPreparingList: Bool {
         if showsCatalogList { return false }
         // 内存路径而模型不在内存里:等它装回来(页面替自己占用了)。
-        if !usesCatalogList, !library.isReady { return true }
+        if !usesCatalogList, !library.isReady, !folderLayoutFromCatalog { return true }
         // 目录那一份第一次取行号还没回来,手里也没有内存快照。
         if usesCatalogList { return listCache.isEmpty }
         return (!songs.isEmpty && requiresSortedSnapshot && listCache.isEmpty)
@@ -4030,8 +4031,8 @@ struct SongListView: View {
     }
 
     private var requiresSortedSnapshot: Bool {
-        // 目录列表不需要内存里的整库快照。
-        if usesCatalogList { return false }
+        // 目录列表、模型不在内存里时按目录建的目录版式(曲目顺序)不需要内存里的整库快照。
+        if usesCatalogList || (folderLayoutFromCatalog && !library.isReady) { return false }
         #if os(macOS)
         return true
         #else
@@ -4076,11 +4077,8 @@ struct SongListView: View {
         filteredSongIDs.compactMap { library.unobservedVisibleSong(id: $0) }
     }
 
-    /// Patch only the rows touched by a metadata replacement. Do not reorder
-    /// the complete list while background scraping/backfill is publishing:
-    /// besides forcing a 10K-row List diff, that could move the row whose
-    /// More menu the user is currently operating. The next explicit sort,
-    /// collection change, or appearance rebuilds the order from fresh data.
+    /// Patch only the rows touched by a metadata replacement; reordering during background publishing
+    /// would diff the whole list and could move the row whose menu is open. The next sort or change rebuilds it.
     private func applyLibrarySongReplacements() {
         let replacedIDs = replacedSongIDs
         guard !replacedIDs.isEmpty, !listCache.isEmpty else { return }
@@ -4099,11 +4097,8 @@ struct SongListView: View {
         listCache.patch(replacements, resolve: { library.unobservedVisibleSong(id: $0) })
     }
 
-    /// A full scan can replace a Song in place while preserving the ordered
-    /// song IDs, so `visibleSongCollectionRevision` intentionally does not
-    /// change. Compare only the replaced IDs against the existing index and
-    /// rebuild when source/path placement moved; title/artist/lyrics updates
-    /// stay on the cheap row-patch path.
+    /// A scan can replace a Song in place without changing `visibleSongCollectionRevision`: rebuild only when
+    /// a replaced song's source/path placement moved; tag-only updates stay on the row-patch path.
     private func folderReplacementChangesStructure() -> Bool {
         guard browseMode == .folder,
               let index = folderCache.index,
@@ -4206,7 +4201,8 @@ struct SongListView: View {
 
         folderIndexGeneration &+= 1
         let generation = folderIndexGeneration
-        let songsSnapshot = songs
+        let released = !library.isReady
+        let songsSnapshot = released ? [] : songs
         let configuredDescriptors = configuredFolderSourceDescriptors
         var providerHierarchyInputs: [String: ProviderFolderHierarchyInput] = [:]
         for descriptor in configuredDescriptors {
@@ -4227,9 +4223,7 @@ struct SongListView: View {
         let sourceRevision = folderSourceRevision
         let collectionRevision = songListVersion.collectionRevision
         let playlistRevision = library.playlistCollectionRevision
-        let virtualCollections = library.appleMusicFolderCollections(
-            availableSongs: songsSnapshot
-        )
+        let collectionSnapshot = library.appleMusicFolderSnapshot()
         let version = LibraryFolderIndexVersion(
             collectionRevision: collectionRevision,
             // This token identifies this view/store scope; metadata-only song
@@ -4254,7 +4248,6 @@ struct SongListView: View {
             catalogRevision: library.folderIndexCatalogRevision
         )
         let catalogScope = folderCatalogScope
-        let virtualSourceIDs = Set(virtualCollections.filter { $0.kind == .librarySongs }.map(\.sourceID))
         let appleMusicName = String(localized: "apple_music_library_section")
         let genericSourceName = String(localized: "source_label")
 
@@ -4282,15 +4275,22 @@ struct SongListView: View {
                 }
             }.value
             guard !Task.isCancelled else { return }
+            // 6c U6b:模型不在内存里时 Apple Music 虚拟集合那个源的歌从目录取(`LibraryFolderCatalogSongs`);答不出来不发布。
+            guard let collectionSongs = released ? await LibraryFolderCatalogSongs.appleMusicSongs(
+                collectionSnapshot, scope: LibrarySongScope(kinds: catalogScope.kinds, sourceID: catalogScope.sourceID),
+                reader: catalogReader
+            ) : songsSnapshot else { return }
+            let virtualCollections = collectionSnapshot.collections(availableSongs: collectionSongs)
+            let virtualSourceIDs = Set(virtualCollections.filter { $0.kind == .librarySongs }.map(\.sourceID))
             var catalogPrepared: LibraryFolderIndex?
             if let catalogReader {
                 catalogPrepared = await folderIndexStore.index(version: catalogVersion) {
-                    [descriptors, songsSnapshot, virtualSourceIDs, virtualCollections, catalogScope, appleMusicName,
+                    [descriptors, collectionSongs, virtualSourceIDs, virtualCollections, catalogScope, appleMusicName,
                      genericSourceName] in
                     // 带 Apple Music 虚拟集合的源仍按内存里的歌建,只挑出这些源的歌(在主线程外挑)。
                     let catalogMemorySongs = virtualSourceIDs.isEmpty
                         ? []
-                        : songsSnapshot.filter { virtualSourceIDs.contains($0.sourceID) }
+                        : collectionSongs.filter { virtualSourceIDs.contains($0.sourceID) }
                     do {
                         return try await catalogReader.folderIndex { catalog, isCancelled in
                             try LibraryFolderIndexBuilder.build(
@@ -4324,6 +4324,8 @@ struct SongListView: View {
             let prepared: LibraryFolderIndex
             if let catalogPrepared {
                 prepared = catalogPrepared
+            } else if released {
+                return // 模型不在内存里时没有整库数组可建:不发布,等下一次。
             } else {
                 prepared = await folderIndexStore.index(
                     version: version,
@@ -4346,7 +4348,7 @@ struct SongListView: View {
             if let reuseKey {
                 Self.releaseOffMain(LibraryFolderIndexReuseCache.shared.store(prepared, for: reuseKey))
             }
-            if selection.isActive, !selection.isEmpty {
+            if selection.isActive, !selection.isEmpty, library.isReady {
                 let validIDs = listCache.isEmpty
                     ? Set(songs.lazy.map(\.id))
                     : Set(listCache.orderedSongIDs)
@@ -7424,11 +7426,8 @@ private struct IOSSongListRow: View {
     }
 }
 
-/// Selection scrolling deliberately uses a compact row instead of the full
-/// single-song interaction tree. The regular row owns menus, sheets, alerts,
-/// offline-cache work, and metadata recovery actions; none of those are
-/// reachable while batch selection is active, but constructing them for every
-/// newly visible row made large flat lists hitch during a drag.
+/// Selection scrolling uses a compact row: the regular row's menus, sheets and offline work are unreachable
+/// during batch selection, and building them for every newly visible row made large lists hitch.
 private struct IOSSelectionSongRow: View {
     @AppStorage(LibraryRowNumberPreferences.storageKey)
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue

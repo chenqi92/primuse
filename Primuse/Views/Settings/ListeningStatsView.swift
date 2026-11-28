@@ -529,8 +529,12 @@ extension ListeningStatsView {
                 music: corpus.music, live: live, deleted: deleted, library: library
             ) {
                 librarySongs = catalogSongs
+            } else if let library {
+                // 6c U6b:目录读不了而歌曲模型不在内存里时先装回来(有界);装不回来时这一轮不算,页面留着上一份。
+                guard let songs = await SongModelArrayRead.read(library, { library.songs }) else { return }
+                librarySongs = songs
             } else {
-                librarySongs = library?.songs ?? []
+                librarySongs = []
             }
             guard !Task.isCancelled, trigger == refreshTrigger else { return }
             attribution = await Task.detached(priority: .userInitiated) {
@@ -556,10 +560,14 @@ extension ListeningStatsView {
             for: corpus.music, library: library, resolvedCandidates: resolvedCandidates
         ) {
             traits = catalogTraits
+        } else if let library {
+            // 同上:要整库的特征表时先装回模型,装不回来不算。
+            guard let computed = await SongModelArrayRead.read(library, {
+                YearlyReportAnalyzer.songTraits(for: corpus.music, library: library, resolvedCandidates: resolvedCandidates)
+            }) else { return }
+            traits = computed
         } else {
-            traits = library.map {
-                YearlyReportAnalyzer.songTraits(for: corpus.music, library: $0, resolvedCandidates: resolvedCandidates)
-            } ?? [:]
+            traits = [:]
         }
         guard !Task.isCancelled, trigger == refreshTrigger else { return }
         let calendar = statsCalendar
@@ -637,7 +645,7 @@ extension ListeningStatsView {
 
     /// 与 `YearlyReportAnalyzer.songTraits(for:library:)` 相同(按 id 取,含停用源),只是从曲库目录取。
     @MainActor
-    private static func catalogSongTraits(
+    static func catalogSongTraits(
         for entries: [PlayHistoryStore.Entry],
         library: MusicLibrary,
         resolvedCandidates: [String: [String]] = [:]

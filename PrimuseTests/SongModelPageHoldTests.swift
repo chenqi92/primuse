@@ -75,6 +75,8 @@ final class SongModelPageHoldTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .artists), .catalog, "U4b")
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .genres), .catalog)
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .ambient), .catalog)
+        XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .statistics), .catalog)
+        XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .folders), .catalog)
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: nil), .legacy)
     }
 
