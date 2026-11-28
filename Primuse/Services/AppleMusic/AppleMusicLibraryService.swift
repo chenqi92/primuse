@@ -1902,15 +1902,16 @@ extension AppleMusicLibraryService {
         }
     }
 
-    /// `unchanged`:歌曲模型不在内存里时比过、一首都没变的凭据(`prepareUnchangedIncomingSongs`)。落地这一刻
-    /// 还作数就不调 `addSongs`,只做它对一首不改的整源也会做的那几步;不作数(或没有)照旧 `addSongs`。
+    /// `unchanged`:歌曲模型不在内存里时比过的凭据(`prepareUnchangedIncomingSongs`):没有新行、没有少了的行,
+    /// 改了的行都只改不影响分组的字段。落地这一刻还作数就不调 `addSongs`:改了的那几行不靠模型写下去
+    /// (与 `addSongs` 落地的同一个合并结果),再做它对整源也会做的那几步;不作数(或没有、写不了)照旧 `addSongs`。
     func commitLibrarySongs(
         _ prepared: MusicLibrary.PreparedIncomingSongs,
         librarySongIDs: [String],
         syncMode: AppleMusicLibrarySyncMode,
         unchanged: MusicLibrary.UnchangedIncomingSongs? = nil
     ) {
-        if let unchanged, library.incomingSongsAreUnchanged(unchanged) {
+        if let unchanged, library.incomingSongsAreUnchanged(unchanged), library.applyChangedIncomingRows(of: unchanged) {
             library.noteUnchangedIncomingSongs(
                 affectedSourceIDs: [Self.systemSourceID],
                 notifyRemovals: syncMode.shouldPruneMissingSongs,

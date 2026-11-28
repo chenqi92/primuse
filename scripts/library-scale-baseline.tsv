@@ -53,7 +53,6 @@ legacy-library-api	Primuse/Services/Metadata/MotionCoverStore.swift	1
 legacy-library-api	Primuse/Services/Metadata/MusicScraperService.swift	5
 legacy-library-api	Primuse/Services/Playlist/LibraryBackupService.swift	1
 legacy-library-api	Primuse/Services/Playlist/PlaylistImporter.swift	4
-legacy-library-api	Primuse/Services/Playlist/ServerBookFavoriteSyncService.swift	1
 legacy-library-api	Primuse/Services/Playlist/ServerCollectionFavoriteSyncService.swift	4
 legacy-library-api	Primuse/Services/Playlist/ServerPlaylistSyncService.swift	2
 legacy-library-api	Primuse/Services/Playlist/ServerRatingSyncService.swift	5

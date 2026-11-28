@@ -437,6 +437,23 @@ extension LibraryCatalog {
 
     // MARK: - Books, folders, kinds
 
+    /// 一个源上可见的、已归书的有声书条目,按库内顺序:路径与所在的书 id(书架分书的结果,与内存里
+    /// `spokenWordBookIDs` 同一份)。服务端按书收藏的对账拿它把服务端的书对到书架上的书。
+    public func spokenWordBookAssignments(sourceID: String) throws -> [(filePath: String, bookID: String)] {
+        try reader.read { db in
+            guard let sourceKey = try Int64.fetchOne(db, sql: "SELECT key FROM source WHERE id = ?", arguments: [sourceID]) else {
+                return []
+            }
+            return try Row.fetchAll(db, sql: """
+                SELECT s.filePath, b.bookID FROM song s JOIN songBook b ON b.songRowid = s.rowid
+                WHERE s.sourceKey = ? AND s.kind = ? AND b.bookID IS NOT NULL AND s.sourceKey IN (\(Self.enabledSourcesSQL))
+                ORDER BY s.rowid
+                """, arguments: [sourceKey, LibraryCatalogContentKind.spokenWord.rawValue]).map { row in
+                (filePath: row[0] as String, bookID: row[1] as String)
+            }
+        }
+    }
+
     /// 一首歌的书(或播客节目)id 与它在书里显示的标题。
     public func bookPlacement(songID: String) throws -> (bookID: String, kind: LibraryCatalogContentKind, displayTitle: String?)? {
         try reader.read { db in

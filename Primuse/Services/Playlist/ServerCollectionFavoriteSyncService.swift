@@ -76,10 +76,12 @@ final class ServerCollectionFavoriteSyncService {
         if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
-    /// 扫描收尾 / 镜像刷新时调用。
-    func refresh(source: MusicSource, applyFence: ServerMirrorApplyFence) async {
+    /// 扫描收尾 / 镜像刷新时调用。`acquireSongModel`:镜像刷新那一轮的占用(一轮最多一次)。对账本身(取服务端、比基线、
+    /// 把服务端的改动记进本机的喜欢)不读整库;只有本机有要推上去的喜欢(要从这个源上的一首歌反查服务端 id)而
+    /// 歌曲模型不在内存里时才占用。没变的一轮不占用、不装模型。
+    func refresh(source: MusicSource, applyFence: ServerMirrorApplyFence, acquireSongModel: (@MainActor () async -> Void)? = nil) async {
         guard source.type.supportsServerCollectionFavorites, applyFence() else { return }
-        await reconcileSerially(source.id)
+        await reconcileSerially(source.id, acquireSongModel: acquireSongModel)
     }
 
     /// 测试与诊断用：立即对所有支持的源对一次账。
@@ -110,7 +112,7 @@ final class ServerCollectionFavoriteSyncService {
     }
 
     /// 同一个源同时只对一轮账；进行中又来请求就在这一轮结束后再补一轮。
-    private func reconcileSerially(_ sourceID: String) async {
+    private func reconcileSerially(_ sourceID: String, acquireSongModel: (@MainActor () async -> Void)? = nil) async {
         if let task = running[sourceID] {
             rerunRequested.insert(sourceID)
             await task.value
@@ -120,7 +122,7 @@ final class ServerCollectionFavoriteSyncService {
             rerunRequested.remove(sourceID)
             let task = Task { @MainActor [weak self] in
                 guard let self else { return }
-                await self.reconcile(sourceID: sourceID)
+                await self.reconcile(sourceID: sourceID, acquireSongModel: acquireSongModel)
             }
             running[sourceID] = task
             await task.value
@@ -130,7 +132,7 @@ final class ServerCollectionFavoriteSyncService {
 
     // MARK: - Reconciliation
 
-    private func reconcile(sourceID: String) async {
+    private func reconcile(sourceID: String, acquireSongModel: (@MainActor () async -> Void)?) async {
         guard let source = eligibleSources().first(where: { $0.id == sourceID }),
               let connector = connectorProvider(source) else { return }
         let sourceTag = LogRedactionPolicy.digest(source.id)
@@ -176,6 +178,11 @@ final class ServerCollectionFavoriteSyncService {
                 )
             }
 
+            // 要推上去的喜欢得从这个源上的一首歌反查服务端 id(读整库的专辑、艺人表):歌曲模型不在内存里时,
+            // 镜像刷新那一轮这时才占用。
+            if !plan.starOnServer.isEmpty, !libraryCanAnswer(), let acquireSongModel {
+                await acquireSongModel()
+            }
             var keys = Set(serverByKey.keys)
             var starred = 0, unstarred = 0, notOnSource = 0
             var failedEntries: [LibraryFavorite] = []

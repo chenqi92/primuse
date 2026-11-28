@@ -365,6 +365,44 @@ final class ServerCollectionFavoriteSyncServiceTests: XCTestCase {
         XCTAssertTrue(store.isLiked(liked))
     }
 
+    /// 7e:镜像刷新那一轮,歌曲模型不在内存里时只在本机有要推上去的喜欢时才占用(从这个源上的歌反查服务端 id
+    /// 要整库那一层);第一次对账、带回服务端改动的一轮、没变的一轮都不占用。占用之后照常推上去。
+    func testTheMirrorRoundTakesTheSongModelOnlyToPushALocalLike() async throws {
+        final class Model { var loaded = false; var acquisitions = 0 }
+        let model = Model()
+        let (store, connector, service, _, url) = makeFixture(libraryCanAnswer: { model.loaded })
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = MusicSource(id: "nav", name: "Navidrome", type: .navidrome)
+        let acquire: @MainActor () async -> Void = {
+            model.acquisitions += 1
+            model.loaded = true
+        }
+        await connector.setFavorites([
+            ServerCollectionFavorite(kind: .album, itemID: "al-1", albumTitle: "Fantasy", artistName: "Jay Chou"),
+        ])
+        await service.refresh(source: source, applyFence: { true }, acquireSongModel: acquire)
+        XCTAssertTrue(store.isLiked(Album(id: "y", title: "Fantasy", artistName: "Jay Chou")), "imported without the model")
+        await service.refresh(source: source, applyFence: { true }, acquireSongModel: acquire)
+        let removed = await connector.favorites.filter { $0.itemID != "al-1" }
+        await connector.setFavorites(removed)
+        await service.refresh(source: source, applyFence: { true }, acquireSongModel: acquire)
+        XCTAssertFalse(store.isLiked(Album(id: "y", title: "Fantasy", artistName: "Jay Chou")), "a server removal lands too")
+        XCTAssertEqual(model.acquisitions, 0, "first, unchanged and server-only rounds take no hold")
+
+        try await Task.sleep(for: .milliseconds(20))
+        let liked = Album(id: "z", title: "25", artistName: "Adele")
+        store.setLiked(true, album: liked)
+        await service.refresh(source: source, applyFence: { true }, acquireSongModel: acquire)
+        XCTAssertEqual(model.acquisitions, 1, "a like to push takes the model once")
+        let calls = await connector.setCalls
+        XCTAssertEqual(calls.last?.itemID, "server-album-of-server-song-1")
+        XCTAssertEqual(calls.last?.isFavorite, true)
+
+        model.loaded = false
+        await service.refresh(source: source, applyFence: { true }, acquireSongModel: acquire)
+        XCTAssertEqual(model.acquisitions, 1, "nothing left to push: no hold")
+    }
+
     func testALikeMadeWhileAPassIsPushingIsPushedByTheNextPass() async throws {
         let (store, connector, service, _, url) = makeFixture()
         defer { try? FileManager.default.removeItem(at: url) }

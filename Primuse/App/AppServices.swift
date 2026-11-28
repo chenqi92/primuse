@@ -1782,12 +1782,15 @@ final class AppServices {
                 guard applyFence() else { return }
                 await favoriteSync?.refresh(source: source, applyFence: applyFence, songModel: songModel)
                 guard applyFence() else { return }
-                // 专辑 / 艺人收藏与有声书收藏的对照还读整库数组:支持它们的源照旧先占用。
-                if source.type.supportsServerCollectionFavorites { await songModel.acquire() }
-                await collectionFavoriteSync?.refresh(source: source, applyFence: applyFence)
+                // 专辑 / 艺人收藏与有声书收藏:对账本身不读整库数组(书架上的书从曲库目录读);真有要落地、又要整库
+                // 那一层的改动时,各自在那一步才经 `songModel` 占用。没变的一轮不占用。
+                await collectionFavoriteSync?.refresh(
+                    source: source, applyFence: applyFence, acquireSongModel: { await songModel.acquire() }
+                )
                 guard applyFence() else { return }
-                if ServerBookFavoriteSyncService.supports(source.type) { await songModel.acquire() }
-                await bookFavoriteSync?.refresh(source: source, applyFence: applyFence)
+                await bookFavoriteSync?.refresh(
+                    source: source, applyFence: applyFence, acquireSongModel: { await songModel.acquire() }
+                )
                 guard applyFence() else { return }
                 // 评分的续传要发布后的曲库;有要续的才占用。
                 if ratingSync?.hasWorkToResume(sourceID: source.id) == true { await songModel.acquire() }

@@ -8245,6 +8245,10 @@ extension MusicLibrary {
             func admitted(_ song: Song?) -> Song? { excludes ? admittedOutsideTheModel(song) : song }
             // 逐首过 `addSongs` 那一步;库里的那一行按落地时的先后跟着变(同一首交来两次时第二次对着第一次的结果)。
             var current: [String: Song] = [:]
+            // 改了的行(只改不影响分组、不搬文件、不换内容的字段):与 `addSongs` 落地的同一个合并结果,
+            // 落地时不靠模型写进旧库与目录(`applyChangedIncomingRows`)。
+            var changedRows: [String: UnchangedIncomingSongs.ChangedRow] = [:]
+            var changedOrder: [String] = []
             let memo = DerivedIDMemo()
             for song in incoming where !blockedIDs.contains(song.id) {
                 guard let existing = current[song.id] ?? admitted(read.stored[song.id]) else { return refuse("new row \(song.id)") }
@@ -8252,10 +8256,26 @@ extension MusicLibrary {
                     song, existing: existing, mergeServerCatalogRows: mergeServerCatalogRows,
                     derivedFieldsArePrepared: derivationIsCurrent, memo: memo
                 )
-                guard !merge.changesTheRow, !merge.movesFile, !merge.presentationChanged, !merge.serverReplacedArtwork else {
-                    return refuse("row differs \(song.id): " + Self.incomingRowDifference(merge, existing: existing))
+                guard merge.changesTheRow || merge.movesFile || merge.presentationChanged || merge.serverReplacedArtwork else {
+                    current[song.id] = existing
+                    continue
                 }
-                current[song.id] = existing
+                let difference = Self.incomingRowDifference(merge, existing: existing)
+                if case .contentChanged = merge.change { return refuse("row differs \(song.id): \(difference)") }
+                guard !merge.movesFile, !merge.serverReplacedArtwork, Self.sharesGroupingInputs(existing, merge.row) else {
+                    return refuse("row differs \(song.id): \(difference)")
+                }
+                guard changedRows.count < LibraryScale.maxMaterializedRows else {
+                    return refuse("more than \(LibraryScale.maxMaterializedRows) rows differ")
+                }
+                if changedRows[song.id] == nil { changedOrder.append(song.id) }
+                let previous = changedRows[song.id]?.previous ?? existing
+                changedRows[song.id] = UnchangedIncomingSongs.ChangedRow(
+                    previous: previous, row: merge.row, presentationChanged: merge.presentationChanged
+                        || changedRows[song.id]?.presentationChanged == true,
+                    difference: "\(song.id): \(difference)"
+                )
+                current[song.id] = merge.row
             }
             if pruneMissingSongs {
                 // 这几个源里存着、这次没交来的(按本机移除表筛过之后还在的)要删。
@@ -8271,9 +8291,11 @@ extension MusicLibrary {
                 }
             }
             let elapsed = Int((ContinuousClock.now - started) / .milliseconds(1))
+            let changed = changedOrder.compactMap { changedRows[$0] }
             plog("🧠 AM-a: incoming songs unchanged sources=\(affectedSourceIDs.count) songs=\(incoming.count) ms=\(elapsed)"
-                 + (attempt > 1 ? " attempts=\(attempt)" : ""))
-            return UnchangedIncomingSongs(state: state)
+                 + (attempt > 1 ? " attempts=\(attempt)" : "")
+                 + (changed.isEmpty ? "" : " changedRows=\(changed.count) first: " + changed.prefix(2).map(\.difference).joined(separator: " | ")))
+            return UnchangedIncomingSongs(state: state, changedRows: changed)
         }
     }
 
@@ -8351,12 +8373,51 @@ extension MusicLibrary {
         case .replaced(let changed): if changed { parts.append("replaced") }
         }
         if let fields = fieldEdits(from: existing, to: merge.row), !fields.isEmpty {
-            parts.append("fields " + fields.keys.sorted().prefix(4).joined(separator: ","))
+            let names = fields.keys.sorted()
+            parts.append("fields " + names.prefix(4).joined(separator: ","))
+            // 前两个字段前后的值(各截到 240 个字符):手机上分得清是真改了,还是同一样东西换了个写法。
+            let before = encodedFields(of: existing) ?? [:]
+            func value(_ any: Any?) -> String {
+                guard let any, !(any is NSNull) else { return "nil" }
+                let text = String(describing: any)
+                return text.count > 240 ? String(text.prefix(240)) + "…" : text
+            }
+            for name in names.prefix(2) {
+                parts.append("\(name) '\(value(before[name]))' → '\(value(fields[name]))'")
+            }
         }
         if merge.movesFile { parts.append("moves the file") }
         if merge.presentationChanged { parts.append("presentation") }
         if merge.serverReplacedArtwork { parts.append("server artwork") }
         return parts.joined(separator: "; ")
+    }
+
+    /// 凭据里改了的那几行(与 `addSongs` 落地的同一个合并结果)此刻写下去:模型不在内存里时走不靠模型的行写
+    /// (旧库与目录),替换令牌、搜索缓存与 `addSongs` 对这些行做的相同(分组输入没变,不用整库重建;没有新行、
+    /// 没有删掉的行,歌单、最近播放与待认领身份都不受影响)。一行都没改时什么都不做。紧接着
+    /// `incomingSongsAreUnchanged` 用(同一轮主线程里)。false:此刻写不了(调用方照旧 `addSongs`)。
+    func applyChangedIncomingRows(of unchanged: UnchangedIncomingSongs) -> Bool {
+        let changed = unchanged.changedRows
+        guard !changed.isEmpty else { return true }
+        guard !songModelAnswersFromMemory, rowWritesWithoutTheModel != nil else { return false }
+        var replacementIDs: Set<String> = []
+        var songListSnapshotChanged = false
+        for change in changed where change.presentationChanged {
+            replacementIDs.insert(change.row.id)
+            if change.previous.sourceID != change.row.sourceID || change.previous.isPlayable != change.row.isPlayable {
+                songListSnapshotChanged = true
+            }
+        }
+        invalidateSearchCaches()
+        persistSongChanges(upserts: changed.map(\.row), withoutTheModel: true)
+        if !replacementIDs.isEmpty {
+            lastReplacedSongIDs = replacementIDs
+            lastReplacedSong = replacementIDs.count == 1 ? changed.first { $0.row.id == replacementIDs.first }?.row : nil
+            if songListSnapshotChanged { songListSnapshotInvalidationRevision &+= 1 }
+            songReplacementToken = UUID()
+        }
+        plog("🧠 AM-a: \(changed.count) changed incoming rows written without the song model")
+        return true
     }
 
     /// `addSongs` 对着一首不改的整源会做、而又不要整库数组的那几步:剪枝的通知(播放队列按它对账),
@@ -8399,6 +8460,19 @@ extension MusicLibrary {
             let artwork: UInt64
         }
         fileprivate let state: State
+        /// 改了的行(合并结果与库里原来那一行):落地时不靠模型写(`applyChangedIncomingRows`)。空 = 一首都没改。
+        fileprivate let changedRows: [ChangedRow]
+
+        fileprivate struct ChangedRow {
+            let previous: Song
+            let row: Song
+            let presentationChanged: Bool
+            /// 日志用:哪一首、哪种改动、前几个字段前后的值。
+            let difference: String
+        }
+
+        /// 要写的行数(0 = 原样)。
+        var changedRowCount: Int { changedRows.count }
     }
 
     /// 在主线程外从目录读的那一份:交来的 id 在目录里存着的行,剪枝时这几个源在目录里的全部 id。
@@ -18687,6 +18761,26 @@ extension MusicLibrary {
     /// 歌曲模型不在内存里时能不能导出整库快照(iCloud 整库上传、给 Apple TV / 局域网的传输、给对端的种子都经它):
     /// 放掉了(或者从没装过)、目录答得了、小状态是发布过的那一份、快照没有损坏,也没有排着等模型的改动(那些改动
     /// 装着时已经在库里了,导出会缺它们:等装回来做完再导)。自动上传据此不再因为模型不在而跳过。
+    /// 某个源上书架里的有声书条目(库内顺序)与各自所在的书:装着模型时读 `spokenWordSongs` / `spokenWordBookIDs`,
+    /// 不在时从目录读同一份(`songBook` 里记的就是书架分书的结果)。服务端按书收藏的对账用它。
+    /// nil:模型不在内存里、目录此刻也答不了 —— 不是「这个源上没有书」。
+    func spokenWordBookAssignments(sourceID: String) -> [(filePath: String, bookID: String)]? {
+        if songModelAnswersFromMemory {
+            let bookIDs = spokenWordBookIDsStorage
+            return spokenWordSongsReference.value.compactMap { song in
+                guard song.sourceID == sourceID, let bookID = bookIDs[song.id] else { return nil }
+                return (song.filePath, bookID)
+            }
+        }
+        guard let lookup = lookupOutsideTheModel else { return nil }
+        do {
+            return try lookup.catalog.spokenWordBookAssignments(sourceID: sourceID)
+        } catch {
+            noteCatalogByIDReadFailure(error)
+            return nil
+        }
+    }
+
     /// 续播(#166)要在整份音乐列表上挑相似的歌:歌曲模型不在内存里、目录答得了(路上的写都确认了,目录就是内存
     /// 模型的样子)时给目录,调用方在目录的一个版本里流式扫一遍(`continuationSongIDsFromTheCatalog`),不占用、
     /// 不装模型。模型在内存里、或者目录此刻答不了时 nil(调用方照旧占住模型)。

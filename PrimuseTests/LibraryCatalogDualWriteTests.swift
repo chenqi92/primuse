@@ -4875,6 +4875,153 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(library.storedSong(id: songs[5].id)?.lyricsText, "words written during the read")
     }
 
+    /// AM-a 跟进:Apple Music 交来的行真的变了(MusicKit 隔几次启动换一个封面地址)而歌曲模型不在内存里时,改了的那几行
+    /// 不靠模型写下去 —— 与装着模型时 `addSongs` 落地的同一个合并结果(同样的行、同样的替换令牌);不排队、不占用、
+    /// 不装、不读整库数组;从没装过模型的启动也一样。改了分组输入(标题)的照旧交给 `addSongs`。
+    func testAChangedAppleMusicRowWhileTheModelIsOutIsWrittenLikeAddSongs() async throws {
+        let songs = Self.fixture(prefix: "amc")
+        let (stored, fetched) = appleMusicFixture("amc")
+        let source = AppleMusicLibraryService.systemSourceID
+        var refetched = fetched
+        refetched[4].coverArtFileName = "musicKit://artwork/library/L/600x600?at=item&fas=cloud"
+            + "&fat=Music221%2Fv4%2F4c%2Fcover%2Ejpg&id=87&lid=L&mt=music"
+        refetched[5].genre = "Jazz"
+        let changedIDs: Set<String> = [refetched[4].id, refetched[5].id]
+        func land(_ library: MusicLibrary, _ incoming: [Song], _ step: String) async throws -> Int {
+            let prepared = await library.prepareIncomingSongsOffMain(incoming)
+            let judged = await library.prepareUnchangedIncomingSongs(
+                prepared, affectedSourceIDs: [source], pruneMissingSongs: true, mergeServerCatalogRows: false
+            )
+            let unchanged = try XCTUnwrap(judged, "\(step): \(library.unchangedIncomingRefusal ?? "-")")
+            XCTAssertTrue(library.incomingSongsAreUnchanged(unchanged), step)
+            XCTAssertTrue(library.applyChangedIncomingRows(of: unchanged), step)
+            library.noteUnchangedIncomingSongs(affectedSourceIDs: [source], notifyRemovals: true, pruneMissingSongs: true)
+            return unchanged.changedRowCount
+        }
+
+        let loaded = try makeLaunchedTwin("amc-loaded", songs: songs, extra: stored).library
+        await assertShadowMatches(loaded, "loaded")
+        loaded.persistedSongChangeSetsForTesting = []
+        loaded.addSongs(
+            await loaded.prepareIncomingSongsOffMain(refetched), affectedSourceIDs: [source], notifyRemovals: true,
+            pruneMissingSongs: true, mergeServerCatalogRows: false, indexMaintenance: .immediate
+        )
+        let loadedWritten = (loaded.persistedSongChangeSetsForTesting ?? []).flatMap(\.upserts).sorted { $0.id < $1.id }
+        XCTAssertEqual(Set(loadedWritten.map(\.id)), changedIDs, "the loaded library writes the two changed rows")
+
+        let released = try makeLaunchedTwin("amc-released", songs: songs, extra: stored).library
+        await assertShadowMatches(released, "released")
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(released)
+        released.persistedSongChangeSetsForTesting = []
+        let tokenBefore = released.songReplacementToken
+        let changedCount = try await land(released, refetched, "released")
+        XCTAssertEqual(changedCount, 2)
+        let releasedWritten = (released.persistedSongChangeSetsForTesting ?? []).flatMap(\.upserts).sorted { $0.id < $1.id }
+        assertSameSongs(releasedWritten, loadedWritten, "released: the same rows written")
+        XCTAssertEqual(released.lastReplacedSongIDs, loaded.lastReplacedSongIDs, "the same rows to redraw")
+        XCTAssertNotEqual(released.songReplacementToken, tokenBefore)
+        await released.waitForCatalogMirror()
+        for id in changedIDs.sorted() {
+            assertSameSongs(
+                [try XCTUnwrap(released.storedSong(id: id))], [try XCTUnwrap(loaded.storedSong(id: id))], "stored \(id)"
+            )
+        }
+        XCTAssertEqual(released.deferredMutationCountForTesting, 0, "nothing queued")
+        XCTAssertEqual(songModelHolds(of: released), [], "no hold")
+        assertNoLoadAndNoArrayRead(released, since: before, "a changed Apple Music row while released")
+        // 同一份再来一次:已经写过了,一首都没改。
+        let againCount = try await land(released, refetched, "released again")
+        XCTAssertEqual(againCount, 0)
+
+        // 改了标题(分组输入):照旧交给 `addSongs`。
+        var retitled = refetched
+        retitled[3].title = "AM 4 (remastered)"
+        let retitledPrepared = await released.prepareIncomingSongsOffMain(retitled)
+        let retitledJudged = await released.prepareUnchangedIncomingSongs(
+            retitledPrepared, affectedSourceIDs: [source], pruneMissingSongs: true, mergeServerCatalogRows: false
+        )
+        XCTAssertNil(retitledJudged)
+        XCTAssertTrue(released.unchangedIncomingRefusal?.contains("fields title") == true, released.unchangedIncomingRefusal ?? "-")
+        XCTAssertTrue(released.unchangedIncomingRefusal?.contains("'AM 4' → 'AM 4 (remastered)'") == true, "both values logged")
+
+        // 从没装过模型的启动。
+        let launchStorage = try await persistedLaunchFixture("amc-launch", songs: songs, extra: stored)
+        let neverLoaded = await launch(try copyOfDirectory(launchStorage, "amc-never"), unloaded: true)
+        try await waitUntilUsable(neverLoaded)
+        let neverBefore = neverLoaded.songModelResidencyStatistics
+        let neverCount = try await land(neverLoaded, refetched, "never loaded")
+        XCTAssertEqual(neverCount, 2)
+        await neverLoaded.waitForCatalogMirror()
+        for id in changedIDs.sorted() {
+            assertSameSongs(
+                [try XCTUnwrap(neverLoaded.storedSong(id: id))], [try XCTUnwrap(loaded.storedSong(id: id))], "never loaded \(id)"
+            )
+        }
+        assertNoLoadAndNoArrayRead(neverLoaded, since: neverBefore, "a changed Apple Music row in a launch that never loaded")
+    }
+
+    /// 7e:服务端按书收藏的对账从曲库目录读书架上的书(服务端书 id → 书架上的书),与装着模型时读出的相同;
+    /// 镜像刷新那一轮没变时不占用、不装,服务端多收藏了一本(要收进本机、挪收藏顺序)时才占用一次。
+    func testBookFavoritesReconcileFromTheCatalogAndHoldOnlyToCollect() async throws {
+        var songs = Self.fixture(prefix: "bkf")
+        let books: [(server: String, chapters: Int)] = [("tr-101", 3), ("tr-202", 2)]
+        for (book, chapterCount) in books {
+            for chapter in 1...chapterCount {
+                var song = Song(
+                    id: "bkf-\(book)-\(chapter)", title: "\(book) chapter \(chapter)", albumTitle: "Book \(book)",
+                    artistName: "Reader", trackNumber: chapter, duration: 600, fileFormat: .mp3,
+                    filePath: TingReaderAPIProtocol.trackPath(bookID: book, chapterID: "\(book)-c\(chapter)", fileExtension: "mp3"),
+                    sourceID: Self.sourceA, genre: "Audiobook"
+                )
+                song.dateAdded = Date(timeIntervalSince1970: 1_700_500_000 + Double(songs.count))
+                songs.append(song)
+            }
+        }
+        let library = try makeLaunchedTwin("bkf", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        let loadedBooks = try XCTUnwrap(ServerBookFavoriteSyncService.localBooks(sourceID: Self.sourceA, library: library))
+        XCTAssertEqual(Set(loadedBooks.keys), ["tr-101", "tr-202"], "both server books are on the shelf")
+
+        let suite = "bkf-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let favorites = LibraryFavoritesStore(fileURL: directory.appendingPathComponent("bkf-favorites.json"))
+        let collection = FavoriteCollectionStore(defaults: defaults, favorites: favorites)
+        let connector = FakeBookFavoriteConnector()
+        let source = MusicSource(id: Self.sourceA, name: "Ting", type: .tingReader)
+        let service = ServerBookFavoriteSyncService(
+            sourcesProvider: { [source] }, connectorProvider: { _ in connector }, library: library,
+            collection: collection, defaults: defaults, localChangeDelay: .seconds(3600)
+        )
+        await connector.setFavorites(["tr-101"])
+        await service.refresh(source: source, applyFence: { true })
+        XCTAssertEqual(collection.collectedBookIDs, [try XCTUnwrap(loadedBooks["tr-101"])], "the first round collects the server's book")
+
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(library)
+        XCTAssertEqual(ServerBookFavoriteSyncService.localBooks(sourceID: Self.sourceA, library: library), loadedBooks,
+                       "the shelf's books from the catalog")
+        final class Acquisitions { var count = 0; var hold: MusicLibrary.SongModelHold? }
+        let acquisitions = Acquisitions()
+        let acquire: @MainActor () async -> Void = { [weak library] in
+            acquisitions.count += 1
+            guard let library else { return }
+            acquisitions.hold = await library.holdSongModel(.scan)
+        }
+        await service.refresh(source: source, applyFence: { true }, acquireSongModel: acquire)
+        XCTAssertEqual(acquisitions.count, 0, "an unchanged round takes no hold")
+        assertNoLoadAndNoArrayRead(library, since: before, "an unchanged book favorites round")
+
+        await connector.setFavorites(["tr-101", "tr-202"])
+        await service.refresh(source: source, applyFence: { true }, acquireSongModel: acquire)
+        XCTAssertEqual(acquisitions.count, 1, "a book to collect takes the model once")
+        XCTAssertEqual(collection.collectedBookIDs, Set(loadedBooks.values), "and collects it as the loaded library does")
+        acquisitions.hold?.end()
+    }
+
     /// AM-a:服务器歌单镜像在模型放掉之后由目录对照、走小状态落地:同一份快照什么都不写、不排队、不装;
     /// 换了先后又多了一张歌单的快照落下来,与模型在内存里的那一台相同,也不装。
     func testServerPlaylistMirrorAppliesFromTheCatalogWhileReleased() async throws {
@@ -6670,5 +6817,26 @@ private final class CatalogExportPages: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return pages
+    }
+}
+
+/// 服务端按书收藏的假连接(Ting Reader 那一路)。
+private actor FakeBookFavoriteConnector: ServerBookFavoriteConnector {
+    let sourceID = "fake-ting"
+    private(set) var favorites: Set<String> = []
+
+    func setFavorites(_ favorites: Set<String>) { self.favorites = favorites }
+    func fetchServerBookFavorites() async throws -> Set<String> { favorites }
+    func setServerBookFavorite(bookID: String, isFavorite: Bool) async throws {
+        if isFavorite { favorites.insert(bookID) } else { favorites.remove(bookID) }
+    }
+
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        .init { $0.finish() }
     }
 }
