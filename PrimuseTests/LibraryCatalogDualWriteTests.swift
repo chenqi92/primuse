@@ -4288,6 +4288,113 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         assertNoLoadAndNoArrayRead(library, since: before, "remaining counts while released")
     }
 
+    private func makeBackfill(_ library: MusicLibrary, _ name: String) throws -> MetadataBackfillService {
+        let state = directory.appendingPathComponent("backfill-\(name)")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let backfill = MetadataBackfillService(
+            library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
+            backfillableSourceIDs: { [Self.sourceA, Self.sourceB] }, storageDirectory: state
+        )
+        return backfill
+    }
+
+    /// 19d:重试补读失败的那几首,歌曲模型放掉之后照样做:有被拦下的账才占用(`.userAction`)装回来,重开的与模型
+    /// 在内存里的那一台相同,做完放手;一条都没有时什么也不装、不读整库数组。
+    func testRetryingFailedBackfillWhileReleasedReopensTheSameRows() async throws {
+        let songs = Self.fixture(prefix: "retry")
+        let loaded = try makeLaunchedTwin("retry-loaded", songs: songs).library
+        let released = try makeLaunchedTwin("retry-released", songs: songs).library
+        await assertShadowMatches(loaded, "loaded")
+        await assertShadowMatches(released, "released")
+        let loadedBackfill = try makeBackfill(loaded, "retry-loaded")
+        let releasedBackfill = try makeBackfill(released, "retry-released")
+        defer {
+            loadedBackfill.stop()
+            releasedBackfill.stop()
+        }
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(released)
+
+        let nothing = await releasedBackfill.retryFailedLoadingTheModelIfNeeded(startImmediately: false)
+        XCTAssertEqual(nothing, 0)
+        XCTAssertEqual(songModelHolds(of: released), [], "nothing blocked: no hold")
+        assertNoLoadAndNoArrayRead(released, since: before, "nothing to retry")
+
+        let failed = [songs[0].id, songs[4].id]
+        loadedBackfill.markFailedForTesting(failed)
+        releasedBackfill.markFailedForTesting(failed)
+        let expected = loadedBackfill.retryFailed(startImmediately: false)
+        XCTAssertEqual(expected, failed.count)
+        let reopened = await releasedBackfill.retryFailedLoadingTheModelIfNeeded(startImmediately: false)
+        XCTAssertEqual(reopened, expected, "the same rows are reopened")
+        XCTAssertEqual(released.songModelResidencyStatistics.loads, before.loads + 1, "loaded once for the retry")
+        XCTAssertEqual(songModelHolds(of: released), [.userAction])
+        XCTAssertFalse(released.songModelHoldReasons.contains(.userAction), "and let go")
+        for id in failed {
+            XCTAssertFalse(loadedBackfill.isMarkedFailedForTesting(id))
+            XCTAssertFalse(releasedBackfill.isMarkedFailedForTesting(id))
+        }
+    }
+
+    /// 19d:删掉一个源时补读丢掉它那些歌的账,歌曲模型放掉之后照样:这个源的歌从目录按源取 id,不装模型、不读整库
+    /// 数组;丢掉的与模型在内存里的那一台相同,别的源的账留着。
+    func testDiscardingARemovedSourceWhileReleasedDropsItsBackfillRows() async throws {
+        let songs = Self.fixture(prefix: "discard")
+        let loaded = try makeLaunchedTwin("discard-loaded", songs: songs).library
+        let released = try makeLaunchedTwin("discard-released", songs: songs).library
+        await assertShadowMatches(loaded, "loaded")
+        await assertShadowMatches(released, "released")
+        let loadedBackfill = try makeBackfill(loaded, "discard-loaded")
+        let releasedBackfill = try makeBackfill(released, "discard-released")
+        defer {
+            loadedBackfill.stop()
+            releasedBackfill.stop()
+        }
+        let ofSourceA = try XCTUnwrap(songs.first { $0.sourceID == Self.sourceA }).id
+        let ofSourceB = try XCTUnwrap(songs.first { $0.sourceID == Self.sourceB }).id
+        loadedBackfill.markFailedForTesting([ofSourceA, ofSourceB])
+        releasedBackfill.markFailedForTesting([ofSourceA, ofSourceB])
+        let before = try await releaseForReal(released)
+
+        loadedBackfill.discardWork(forSourceID: Self.sourceA)
+        releasedBackfill.discardWork(forSourceID: Self.sourceA)
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline,
+              loadedBackfill.isMarkedFailedForTesting(ofSourceA) || releasedBackfill.isMarkedFailedForTesting(ofSourceA) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertFalse(loadedBackfill.isMarkedFailedForTesting(ofSourceA))
+        XCTAssertFalse(releasedBackfill.isMarkedFailedForTesting(ofSourceA), "the removed source's row is dropped while released")
+        XCTAssertTrue(loadedBackfill.isMarkedFailedForTesting(ofSourceB))
+        XCTAssertTrue(releasedBackfill.isMarkedFailedForTesting(ofSourceB), "another source's row stays")
+        assertNoLoadAndNoArrayRead(released, since: before, "discarding a removed source's rows")
+    }
+
+    /// 19d:挂起之前再放一次各连接的页缓存(目录各连接、跟旧库的只读连接、旧库本身):做完才返回,不装模型,之后照样答;
+    /// 后台放掉之后经读接口读目录的,开着记录时一次记一笔。
+    func testReleasingTheDatabaseMemoryAndCountingBackgroundCatalogReads() async throws {
+        let songs = Self.fixture(prefix: "dbmem")
+        let library = try makeLaunchedTwin("dbmem", songs: songs).library
+        await assertShadowMatches(library, "fixture")
+        let host = try XCTUnwrap(library.catalogHost)
+        let before = try await releaseForReal(library)
+        let releasesBefore = host.mirror.statistics.memoryReleases
+        await library.releaseDatabaseMemoryAndWait()
+        // 放掉那一步自己也排了一次(在后台队列上,可能正好在这前后做完):至少多了这一次。
+        XCTAssertGreaterThanOrEqual(host.mirror.statistics.memoryReleases, releasesBefore + 1, "done when it returns")
+        XCTAssertEqual(library.visibleSong(id: songs[0].id)?.title, songs[0].title, "it still answers by id")
+        assertNoLoadAndNoArrayRead(library, since: before, "releasing the page caches")
+
+        LibraryCatalogBackgroundReadWatch.begin()
+        _ = try await host.reader.read { try $0.songCount() }
+        _ = try await host.reader.read { try $0.songCount(.everything) }
+        XCTAssertEqual(LibraryCatalogBackgroundReadWatch.end(), 2)
+        XCTAssertFalse(LibraryCatalogBackgroundReadWatch.isActive)
+        _ = try await host.reader.read { try $0.songCount() }
+        XCTAssertEqual(LibraryCatalogBackgroundReadWatch.end(), 0, "nothing is counted while it is off")
+    }
+
     /// CK-a 第 3 项:不装歌曲模型的启动在发布小状态的那一步就从目录补上有声(含本机播客)与环境音的 id 表 ——
     /// `publishStartup` 返回时已经在,等可用的那些在它之后才放行;与照今天装法启动的库相同,`nonMusicSongIDs` 跟着对。
     func testAnUnloadedLaunchHasTheSpokenWordAndAmbientSetsBeforeItIsUsable() async throws {

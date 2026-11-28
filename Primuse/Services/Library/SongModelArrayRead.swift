@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 /// 只有整库数组答得了的读(删文件时判断共用的旁挂文件、整库候选池……),iPhone 与 Mac 共用(6c 单元 4 U2b)。
-/// 歌曲模型在内存里时直接读,与原来相同;放掉了(或这次启动没装)时先占用模型(`.legacyPage`)、等它装回来
+/// 歌曲模型在内存里时直接读,与原来相同;放掉了(或这次启动没装)时先占用模型(`.userAction`)、等它装回来
 /// 再读,读完放手。等不到(超过 `timeout`)时是 nil:「答不了」,调用方不能把它当成「没有歌」。
 @MainActor
 enum SongModelArrayRead {
@@ -32,10 +32,11 @@ enum SongModelArrayRead {
         return await body()
     }
 
-    /// 拿一个 `.legacyPage` 占用,等模型在内存里;`timeout` 内没等到(或任务取消)时撤掉占用,nil。
+    /// 拿一个 `.userAction` 占用(日志里分得清是一个操作、不是一个页面),等模型在内存里;`timeout` 内没等到
+    /// (或任务取消)时撤掉占用,nil。
     private static func acquire(_ library: MusicLibrary, timeout: Duration) async -> MusicLibrary.SongModelHold? {
         // 占用放在自己的任务里,超时就取消它:`holdSongModel` 被取消时撤掉这次占用、不再等。
-        let acquisition = Task { @MainActor in await library.holdSongModel(.legacyPage) }
+        let acquisition = Task { @MainActor in await library.holdSongModel(.userAction) }
         let timer = Task { @MainActor in
             try? await Task.sleep(for: timeout)
             guard !Task.isCancelled else { return }

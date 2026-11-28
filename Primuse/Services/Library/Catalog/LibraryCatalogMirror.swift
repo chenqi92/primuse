@@ -127,6 +127,8 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         var stopped = false
         var poisoned = false
         var catalog: LibraryCatalog?
+        /// 跟旧库用的那个只读连接(导入、补流水、对账都经它读);放页缓存时一起放。
+        var scanner: IncrementalSongStoreScanner?
         /// 整库重建分组、对账期间给读者的冻结视图(开始那一刻的目录);nil 时读者读实时目录。
         var frozenView: LibraryCatalog?
         var readable = false
@@ -255,11 +257,29 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     /// 进后台、收到内存警告:放掉目录各连接的页缓存与列表缓存(都能重读,PLAN §4.1)。
     /// 要等手上的读写做完才放得掉,所以在后台队列上做,不占调用线程。
     func releaseMemory() {
-        guard let catalog = lock.withLock({ state.stopped ? nil : state.catalog }) else { return }
-        DispatchQueue.global(qos: .utility).async { [self] in
-            catalog.releaseMemory()
-            lock.withLock { state.statistics.memoryReleases += 1 }
+        DispatchQueue.global(qos: .utility).async { [self] in releaseMemoryNow() }
+    }
+
+    /// 同上,做完才返回(后台放掉歌曲模型、醒着等空页还完之后,挂起之前再放一次时用)。跟旧库的那个只读连接
+    /// 一起放(冻结视图的快照连接放不了,它只在整库重建、对账期间存在)。
+    func releaseMemoryAndWait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .utility).async { [self] in
+                releaseMemoryNow()
+                continuation.resume()
+            }
         }
+    }
+
+    private func releaseMemoryNow() {
+        let held = lock.withLock { () -> (LibraryCatalog, IncrementalSongStoreScanner?)? in
+            guard !state.stopped, let catalog = state.catalog else { return nil }
+            return (catalog, state.scanner)
+        }
+        guard let (catalog, scanner) = held else { return }
+        catalog.releaseMemory()
+        scanner?.releaseMemory()
+        lock.withLock { state.statistics.memoryReleases += 1 }
     }
 
     /// 读者此刻读的是冻结视图(整库重建分组或对账还没做完,列表停在开始那一刻)。按 id 读照样对:
@@ -451,6 +471,7 @@ final class LibraryCatalogMirror: @unchecked Sendable {
         }
         lock.withLock {
             state.catalog = catalog
+            state.scanner = scanner
             state.mirroredRevision = summary.2
         }
         if catalogExisted, summary.0, environment.resumeDelay > .zero {

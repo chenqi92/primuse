@@ -67,6 +67,11 @@ public final class IncrementalSongStoreScanner: @unchecked Sendable {
         database = try DatabaseQueue(path: path, configuration: configuration)
     }
 
+    /// 退到后台、内存告警时放掉这个只读连接的页缓存(同 `IncrementalSongStore.releaseMemory`)。
+    public func releaseMemory() {
+        database.releaseMemory()
+    }
+
     public func contentRevision() throws -> Int64 {
         try database.read { db in
             try Int64.fetchOne(

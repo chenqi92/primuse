@@ -1,5 +1,6 @@
 import Foundation
 import PrimuseKit
+import os
 
 enum LibraryCatalogReaderError: Error, Equatable {
     /// 目录还没准备好(首次迁移、整库分组、对账还在做),或这台设备上没开目录。
@@ -127,6 +128,9 @@ final class LibraryCatalogReader: Sendable {
 
     /// 在主线程外对目录执行一段同步查询。
     func read<T: Sendable>(_ body: @escaping @Sendable (LibraryCatalog) throws -> T) async throws -> T {
+        if LibraryCatalogBackgroundReadWatch.isActive {
+            LibraryCatalogBackgroundReadWatch.note(Thread.callStackReturnAddresses.dropFirst(1).prefix(5).map(\.uintValue))
+        }
         guard let catalog = provider() else { throw LibraryCatalogReaderError.unavailable }
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -813,5 +817,41 @@ struct SeededGenerator: RandomNumberGenerator {
         z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
         z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
         return z ^ (z >> 31)
+    }
+}
+
+/// 后台放掉歌曲模型之后醒着的那一段里,谁经这里读曲库目录(P3 19d:设备上一个目录连接的页缓存在放掉之后又长回
+/// 约 4.2 MiB,读者不明)。只在那一段开着:每次读记一笔,前 8 次记下调用者,结束时由调用方记总数。主线程上直接
+/// 读目录的(按 id、计数)不经这里,不在里面。
+enum LibraryCatalogBackgroundReadWatch {
+    private static let state = OSAllocatedUnfairLock(initialState: (active: false, reads: 0))
+
+    static var isActive: Bool { state.withLock { $0.active } }
+
+    static func begin() {
+        state.withLock { $0 = (true, 0) }
+    }
+
+    /// 停下,返回这一段里读了几次。
+    @discardableResult
+    static func end() -> Int {
+        state.withLock { current in
+            let reads = current.reads
+            current = (false, 0)
+            return reads
+        }
+    }
+
+    static func note(_ addresses: [UInt]) {
+        let count: Int? = state.withLock { current in
+            guard current.active else { return nil }
+            current.reads += 1
+            return current.reads
+        }
+        guard let count, count <= 8 else { return }
+        DispatchQueue.global(qos: .utility).async {
+            plog("📚 catalog read in the background after a release #\(count): "
+                 + MusicLibrary.symbolNames(addresses).joined(separator: " < "))
+        }
     }
 }

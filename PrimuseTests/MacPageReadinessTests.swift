@@ -153,14 +153,14 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         let loadedAlone = await SongModelArrayRead.deletesSidecars(for: alone, in: library)
         XCTAssertFalse(loadedShared)
         XCTAssertTrue(loadedAlone)
-        XCTAssertFalse(songModelHolds(of: library).contains(.legacyPage), "loaded: no hold")
+        XCTAssertFalse(songModelHolds(of: library).contains(.userAction), "loaded: no hold")
 
         var before = try await releaseForReal(library)
         let releasedShared = await SongModelArrayRead.deletesSidecars(for: shared, in: library)
         XCTAssertFalse(releasedShared, "released: the sidecar another song uses stays")
-        XCTAssertEqual(songModelHolds(of: library).filter { $0 == .legacyPage }.count, 1)
+        XCTAssertEqual(songModelHolds(of: library).filter { $0 == .userAction }.count, 1)
         XCTAssertEqual(library.songModelResidencyStatistics.loads, before.loads + 1)
-        XCTAssertFalse(library.songModelHoldReasons.contains(.legacyPage), "the hold ended after the decision")
+        XCTAssertFalse(library.songModelHoldReasons.contains(.userAction), "the hold ended after the decision")
 
         before = try await releaseForReal(library)
         let releasedAlone = await SongModelArrayRead.deletesSidecars(for: alone, in: library)
@@ -179,7 +179,7 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         XCTAssertFalse(decision, "cannot answer: keep the files")
         let pool = await SongModelArrayRead.read(library, timeout: .milliseconds(100)) { 1 }
         XCTAssertNil(pool, "cannot answer is nil, not an empty answer")
-        XCTAssertFalse(library.songModelHoldReasons.contains(.legacyPage), "the hold was withdrawn")
+        XCTAssertFalse(library.songModelHoldReasons.contains(.userAction), "the hold was withdrawn")
     }
 
     // MARK: - A launch that does not load the song model

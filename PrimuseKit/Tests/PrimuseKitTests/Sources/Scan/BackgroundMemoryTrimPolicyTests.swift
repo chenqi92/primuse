@@ -143,3 +143,30 @@ struct DecodedImageCacheBudgetTests {
             > DecodedImageCacheBudget.backgroundLimit(for: .artworkViews, carPlayActive: false))
     }
 }
+
+@Suite("Freed page return policy")
+struct FreedPageReturnPolicyTests {
+    private let mib: UInt64 = 1 << 20
+
+    @Test("Stays awake through the minimum, then until two samples in a row stop dropping")
+    func staysUntilTheFootprintSettles() {
+        // 头几秒不论降没降都醒着。
+        #expect(FreedPageReturnPolicy.keepsAwake(elapsed: 0, drops: [], backgroundTimeRemaining: 25))
+        #expect(FreedPageReturnPolicy.keepsAwake(elapsed: 6, drops: [0, 0, 0], backgroundTimeRemaining: 25))
+        // 过了下限还在往下掉:接着醒着。
+        #expect(FreedPageReturnPolicy.keepsAwake(elapsed: 10, drops: [0, 0, 0, 6 * mib], backgroundTimeRemaining: 20))
+        #expect(FreedPageReturnPolicy.keepsAwake(elapsed: 10, drops: [6 * mib, mib], backgroundTimeRemaining: 20))
+        // 连续两次都没再少 1 MiB:还完了。
+        #expect(!FreedPageReturnPolicy.keepsAwake(elapsed: 10, drops: [6 * mib, 0, mib / 2], backgroundTimeRemaining: 20))
+    }
+
+    @Test("Never past the maximum, never into the last seconds of the background time")
+    func bounded() {
+        #expect(!FreedPageReturnPolicy.keepsAwake(elapsed: 20, drops: [9 * mib, 9 * mib], backgroundTimeRemaining: 100))
+        #expect(!FreedPageReturnPolicy.keepsAwake(elapsed: 0, drops: [], backgroundTimeRemaining: 5))
+        #expect(!FreedPageReturnPolicy.keepsAwake(elapsed: 3, drops: [9 * mib], backgroundTimeRemaining: 4))
+        // 放歌时系统给的后台时间不封顶(`.greatestFiniteMagnitude`):照样按最长醒着时间封顶。
+        #expect(!FreedPageReturnPolicy.keepsAwake(elapsed: 21, drops: [9 * mib, 9 * mib],
+                                                    backgroundTimeRemaining: .greatestFiniteMagnitude))
+    }
+}

@@ -2672,14 +2672,41 @@ extension MetadataBackfillService {
     private func flushPendingDiscardWork() async {
         let sourceIDs = pendingDiscardSourceIDs
         guard !sourceIDs.isEmpty else { return }
-        let songs = library.songs
-        let songIDs = await Task.detached(priority: .utility) {
-            Set(songs.lazy.filter { sourceIDs.contains($0.sourceID) }.map(\.id))
-        }.value
+        let songIDs: Set<String>
+        if library.isReady {
+            let songs = library.songs
+            songIDs = await Task.detached(priority: .utility) {
+                Set(songs.lazy.filter { sourceIDs.contains($0.sourceID) }.map(\.id))
+            }.value
+        } else if let fromCatalog = await Self.catalogSongIDs(ofSources: sourceIDs, library: library) {
+            // 歌曲模型不在内存里:这几个源的歌从曲库目录按源取 id(含停用源,同上面的整库表),不装模型。
+            songIDs = fromCatalog
+        } else {
+            // 目录也答不了:装回来再按整库表找(占用 `.userAction`);装不回来就留着,同以前。
+            songIDs = await SongModelArrayRead.read(library) {
+                // crash-pattern: allow legacy-library-api 装回来之后才读,同模型在内存里时的那一支
+                Set(library.songs.lazy.filter { sourceIDs.contains($0.sourceID) }.map(\.id))
+            } ?? []
+        }
         guard !Task.isCancelled else { return }
         pendingDiscardSourceIDs.subtract(sourceIDs)
         discardWorkTask = nil
         await discardPersistedWork(forSourceIDs: sourceIDs, songIDs: songIDs)
+    }
+
+    /// 这些源(含停用的)在曲库目录里的歌曲 id,主线程外读一列;目录读不了时 nil。
+    private static func catalogSongIDs(ofSources sourceIDs: Set<String>, library: MusicLibrary) async -> Set<String>? {
+        guard let host = library.catalogHost, host.revisions.isReadable else { return nil }
+        do {
+            return try await host.reader.read { catalog in
+                try sourceIDs.reduce(into: Set<String>()) { ids, sourceID in
+                    ids.formUnion(try catalog.songIDSet(.source(sourceID)))
+                }
+            }
+        } catch {
+            plog("📥 Backfill: removed-source ids could not be read from the catalog (\(error))")
+            return nil
+        }
     }
 
     private func removeDiscardedIDs(_ removed: Set<String>, from ids: inout MetadataBackfillFlagSet) {
@@ -3835,6 +3862,17 @@ extension MetadataBackfillService {
         forSource sourceID: String? = nil,
         startImmediately: Bool = true
     ) -> Int {
+        // 歌曲模型不在内存里(放掉了,或这次启动没装):逐首要看的歌曲表是空的,在这里找不到要重开的。有被拦下的账时
+        // 先占用模型(`.userAction`)装回来再照常做(要知道重开了几首的,用 `retryFailedLoadingTheModelIfNeeded`);
+        // 一条都没有就什么也不做,同模型在内存里时。
+        guard library.isReady else {
+            if hasBlockedInspectionRows {
+                Task { @MainActor [weak self] in
+                    _ = await self?.retryFailedLoadingTheModelIfNeeded(forSource: sourceID, startImmediately: startImmediately)
+                }
+            }
+            return 0
+        }
         let reasons = makeRowWorkReasons()
         let sourceRetryCounts = sourceTransientFailureCounts
         var retryIDs = Set<String>()
@@ -3897,6 +3935,23 @@ extension MetadataBackfillService {
             }
         }
         return retryIDs.count
+    }
+
+    /// 同 `retryFailed`,歌曲模型不在内存里而有被拦下的账时先装回来(占用 `.userAction`,做完放手),返回重开了几首。
+    /// 装不回来(超过 `SongModelArrayRead.defaultTimeout`)时 0,什么也没动。
+    func retryFailedLoadingTheModelIfNeeded(forSource sourceID: String? = nil, startImmediately: Bool = true) async -> Int {
+        if library.isReady { return retryFailed(forSource: sourceID, startImmediately: startImmediately) }
+        guard hasBlockedInspectionRows else { return 0 }
+        return await SongModelArrayRead.holding(library) {
+            self.retryFailed(forSource: sourceID, startImmediately: startImmediately)
+        } ?? 0
+    }
+
+    /// 有没有显式重试可能重开的账(确认失败、源出错、本次会话放弃、等着自动重试的)。不读歌曲表:只问账本。
+    private var hasBlockedInspectionRows: Bool {
+        cachedFailedCount > 0
+            || [MetadataBackfillMaintenanceStore.Flags.failed, .sourceIssue, .sessionGivenUp, .deferredRetry]
+                .contains { !maintenance.isEmpty($0) }
     }
 
     func retry(songID: String) {
@@ -9183,6 +9238,12 @@ extension MetadataBackfillService {
     #if DEBUG
     /// 测试:起补读、数完剩余数之后套用现成结果的那一步。
     func applyCachedRemainingCountsForTesting() -> Bool { applyCachedRemainingCountsIfCurrent() }
+
+    /// 测试:把这些歌记成确认失败(同读的时候出错那样)。
+    func markFailedForTesting(_ songIDs: [String]) { failedSongIDs.formUnion(songIDs) }
+
+    /// 测试:这首歌此刻记着确认失败。
+    func isMarkedFailedForTesting(_ songID: String) -> Bool { failedSongIDs.contains(songID) }
     #endif
 
     fileprivate func applyCachedRemainingCountsIfCurrent(now: Date = Date()) -> Bool {

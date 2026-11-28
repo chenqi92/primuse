@@ -1890,7 +1890,13 @@ extension RebuildableMemoryReliefCoordinator {
                 case .released:
                     await library.songModelReleaseDidReclaimMemory()
                     // 放歌时空页没还给系统(不整理大堆):放歌一停就还,不让它们一直留到这一轮进程结束。
-                    if activity.isPlaybackActive { self.returnFreedPagesWhenPlaybackStops() }
+                    if activity.isPlaybackActive {
+                        self.returnFreedPagesWhenPlaybackStops()
+                    } else {
+                        #if os(iOS)
+                        await self.stayAwakeWhileFreedPagesReturn(generation: generation, library: library)
+                        #endif
+                    }
                     return
                 case .skipped(let why) where why.hasPrefix("hold(") || why == "the song model is not loaded"
                     || why == "residency is off":
@@ -1901,6 +1907,43 @@ extension RebuildableMemoryReliefCoordinator {
             }
         }
     }
+
+    #if os(iOS)
+    /// 后台放掉歌曲模型之后醒着等 libmalloc 把空页还给系统(P3 19d:它自己延迟着还,设备上约 20 秒;挂起得早,
+    /// 进程就多留约 30 MiB)。何时停见 `FreedPageReturnPolicy`:至多 20 秒,系统给的后台时间快用完时、回到前台时、
+    /// 这一轮作废时(后台断言到期的回调会作废它)都当场停,不拖系统要的挂起。醒着靠这一轮放掉时已经拿着的后台断言
+    /// (`primuse.song-model-release`)。这一段里读过目录的(放掉之后界面按状态重画、计数刷新)会把某个连接的页缓存
+    /// 读回来:醒完、挂起之前再放一次各连接的页缓存,并记下这一段里经读接口读了几次目录(前几次的调用者另有日志)。
+    private func stayAwakeWhileFreedPagesReturn(generation: Int, library: MusicLibrary) async {
+        let started = ContinuousClock.now
+        func seconds(_ duration: Duration) -> TimeInterval {
+            TimeInterval(duration.components.seconds) + TimeInterval(duration.components.attoseconds) / 1e18
+        }
+        let startFootprint = MusicLibrary.residencyFootprintBytes()
+        var previous = startFootprint
+        var drops: [UInt64] = []
+        LibraryCatalogBackgroundReadWatch.begin()
+        while !Task.isCancelled, songModelReleaseGeneration == generation, LiveApplicationState.isBackground,
+              FreedPageReturnPolicy.keepsAwake(
+                  elapsed: seconds(ContinuousClock.now - started), drops: drops,
+                  backgroundTimeRemaining: UIApplication.shared.backgroundTimeRemaining
+              ) {
+            try? await Task.sleep(for: .seconds(FreedPageReturnPolicy.sampleInterval))
+            let now = MusicLibrary.residencyFootprintBytes()
+            if let before = previous, let now { drops.append(before > now ? before - now : 0) }
+            previous = now
+        }
+        let catalogReads = LibraryCatalogBackgroundReadWatch.end()
+        // 作废了(回到前台、后台时间到期):不再做别的。
+        guard !Task.isCancelled, songModelReleaseGeneration == generation else { return }
+        await library.releaseDatabaseMemoryAndWait()
+        await MusicLibrary.returnFreedMemoryToSystem()
+        func mebibytes(_ bytes: UInt64?) -> String { bytes.map { String(format: "%.1fMiB", Double($0) / 1_048_576) } ?? "?" }
+        plog("🧠 residency awake after release ms=\(Int(seconds(ContinuousClock.now - started) * 1_000))"
+             + " footprint=\(mebibytes(startFootprint))→\(mebibytes(MusicLibrary.residencyFootprintBytes()))"
+             + " catalogReads=\(catalogReads) \(MusicLibrary.mallocZoneUsage())")
+    }
+    #endif
 
     /// 放歌停下的那一刻把放掉的歌曲模型留下的空页还给系统(那时放掉,为了不断音没有整理大堆)。
     private func returnFreedPagesWhenPlaybackStops() {

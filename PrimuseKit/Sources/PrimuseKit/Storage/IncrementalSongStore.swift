@@ -98,6 +98,12 @@ public final class IncrementalSongStore: @unchecked Sendable {
         try migrator.migrate(database)
     }
 
+    /// 退到后台、内存告警时放掉这个连接的页缓存(SQLite 用到哪页重读哪页)。等手上的读写做完才放得掉,
+    /// 调用方在主线程外调。
+    public func releaseMemory() {
+        database.releaseMemory()
+    }
+
     /// 曲库目录已经是修订号 `revision` 的样子:不超过它的流水用不着了,下一次 `apply` 时删掉。各线程都可以调用。
     public func noteCatalogMirrored(revision: Int64) {
         journalLock.withLock {

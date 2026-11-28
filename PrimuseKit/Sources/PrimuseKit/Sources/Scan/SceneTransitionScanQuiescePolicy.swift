@@ -259,6 +259,26 @@ public enum SongModelReleasePolicy {
     }
 }
 
+/// 在后台放掉歌曲模型之后醒着多久,等 libmalloc 把放掉的空页还给系统(P3 19d)。它自己延迟着还、要醒着的时间:
+/// 设备上放掉之后约 20 秒;醒着的时间不够就挂起时,进程比还完时多出约 30 MiB。
+///
+/// 至少醒 `minimumAwake`(放掉之后头几秒往往还没开始还);之后连续两次采样都没再少 `settledDropBytes` 就算还完了;
+/// 最多 `maximumAwake`;系统给的后台时间剩不到 `backgroundTimeMargin` 就不再醒着(留给收尾,不拖系统要的挂起)。
+public enum FreedPageReturnPolicy {
+    public static let minimumAwake: TimeInterval = 8
+    public static let maximumAwake: TimeInterval = 20
+    public static let sampleInterval: TimeInterval = 2
+    public static let settledDropBytes: UInt64 = 1 << 20
+    public static let backgroundTimeMargin: TimeInterval = 5
+
+    /// 还要不要接着醒着。`drops`:按时间先后,每次采样比上一次少了多少字节(多了记 0)。
+    public static func keepsAwake(elapsed: TimeInterval, drops: [UInt64], backgroundTimeRemaining: TimeInterval) -> Bool {
+        guard elapsed < maximumAwake, backgroundTimeRemaining > backgroundTimeMargin else { return false }
+        guard elapsed >= minimumAwake, drops.count >= 2 else { return true }
+        return drops.suffix(2).contains { $0 >= settledDropBytes }
+    }
+}
+
 /// 已解码图片缓存的上限,按前后台换。
 ///
 /// 前台是各个缓存原来的上限。退到后台时不论还在不在放歌、扫描都清空、上限压低:后台用得到的图

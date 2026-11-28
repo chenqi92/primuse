@@ -52,7 +52,7 @@ final class WholeLibraryActionHoldTests: LibraryReleasedTwinTestCase {
     }
 
     /// 模型在内存里、真放掉之后、这次启动没装:批量删源文件判断出的要删的文件与旁挂文件、移走的行都相同;
-    /// 后两种各装一次模型(占用 `.legacyPage`),做完放手。
+    /// 后两种各装一次模型(占用 `.userAction`),做完放手。
     func testBatchSourceDeletionDecidesTheSameWithoutTheSongModel() async throws {
         MusicLibrary.songModelHoldRequestsForTesting = []
         defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
@@ -73,7 +73,7 @@ final class WholeLibraryActionHoldTests: LibraryReleasedTwinTestCase {
         let afterRelease = try await deleteSourceFiles(in: released, "released")
         XCTAssertEqual(afterRelease, expected, "released: the same files, sidecars and rows")
         XCTAssertEqual(released.songModelResidencyStatistics.loads, before.loads + 1)
-        XCTAssertFalse(released.songModelHoldReasons.contains(.legacyPage), "the hold ended with the operation")
+        XCTAssertFalse(released.songModelHoldReasons.contains(.userAction), "the hold ended with the operation")
 
         let (_, storage) = try await launchFixture("ua-launch", songs: Self.fixture(prefix: "ua"))
         let unloaded = await launch(try copyOfDirectory(storage, "ua-unloaded"), unloaded: true)
@@ -98,7 +98,7 @@ final class WholeLibraryActionHoldTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(result.attempts, [], "cannot answer: nothing is deleted")
         XCTAssertEqual(result.removed, 0)
         XCTAssertEqual(result.failed, 2, "reported as failed deletions")
-        XCTAssertFalse(library.songModelHoldReasons.contains(.legacyPage))
+        XCTAssertFalse(library.songModelHoldReasons.contains(.userAction))
     }
 
     /// 删整个分轨文件前的确认框里「有 N 首用这个文件」:放掉之后按文件问目录,与模型在内存里时的数相同,

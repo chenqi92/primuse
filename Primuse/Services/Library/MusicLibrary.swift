@@ -710,6 +710,8 @@ actor LibrarySearchIndex {
 
     func releaseReadCaches() {
         searchDisplayPaths = [:]
+        // 搜索库各连接的页缓存也放(进后台、内存告警时调;SQLite 用到哪页重读哪页)。
+        dbPool?.releaseMemory()
     }
 
     /// 曲库目录的读接口,由持有目录的一方挂上(`attachCatalog`)。挂上后,被杀、崩溃后待做的整库对账
@@ -21762,6 +21764,18 @@ extension MusicLibrary: LibraryCatalogOwner {
     /// 行缓存不动(有上限,在屏的列表正用着)。
     func releaseCatalogMemory() {
         catalogHost?.mirror.releaseMemory()
+        // 旧库那个连接的页缓存也放(以前没有放它的地方,设备上后台时一直留着约 2.75 MiB)。
+        if let store = songStore {
+            DispatchQueue.global(qos: .utility).async { store.releaseMemory() }
+        }
+    }
+
+    /// 同 `releaseCatalogMemory`,做完才返回:后台放掉歌曲模型、醒着等空页还完之后,挂起之前再放一次 ——
+    /// 这段时间里读过目录的(放掉之后界面按状态重画、计数刷新)又把页缓存读满了一个连接(设备上约 4.2 MiB)。
+    func releaseDatabaseMemoryAndWait() async {
+        await catalogHost?.mirror.releaseMemoryAndWait()
+        guard let store = songStore else { return }
+        await Task.detached(priority: .utility) { store.releaseMemory() }.value
     }
 
     fileprivate func catalogInputs() -> LibraryCatalogMirrorInputs {
@@ -22056,6 +22070,9 @@ extension MusicLibrary {
         case export
         /// 主数据还是整库数组的页面。
         case legacyPage
+        /// 用户的一个操作要整库数组才判得了、做得了(删源文件、合并艺人、整理标签、重试补读……,`SongModelArrayRead`):
+        /// 日志里分得清是页面占着还是一个操作占着。
+        case userAction
         /// CarPlay 连着的期间。
         case carPlay
         /// 启动后的例行维护(按源计数、清理过期的源、一次性的迁移检查)。
@@ -22293,7 +22310,7 @@ extension MusicLibrary {
     }
 
     /// 返回地址所在函数的(改编过的)符号名,查不到的给地址本身。
-    private nonisolated static func symbolNames(_ addresses: [UInt]) -> [String] {
+    nonisolated static func symbolNames(_ addresses: [UInt]) -> [String] {
         addresses.map { address in
             var info = Dl_info()
             guard let pointer = UnsafeRawPointer(bitPattern: address), dladdr(pointer, &info) != 0,
@@ -22303,6 +22320,21 @@ extension MusicLibrary {
     }
 
     /// 进程此刻的 phys_footprint(与诊断模式记的是同一个数),诊断日志用。
+    /// 同 `residencyFootprint()`,给要比大小的(后台放掉之后醒着等空页还完的那一段)。读不出时 nil。
+    nonisolated static func residencyFootprintBytes() -> UInt64? {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
+        )
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        return info.phys_footprint
+    }
+
     nonisolated static func residencyFootprint() -> String {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(

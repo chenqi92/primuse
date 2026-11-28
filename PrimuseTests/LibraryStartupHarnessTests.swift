@@ -1132,7 +1132,8 @@ final class LibraryStartupHarnessTests: XCTestCase {
         let reclaimed = Self.residentFootprint().current
         let keyCacheReleased = library.playlistEntryMatchKeyCache.count
         let released = try await settle()
-        library.releaseCatalogMemory()
+        // 挂起之前那一次(19d):目录各连接、跟旧库的只读连接、旧库本身的页缓存,做完才返回。
+        await library.releaseDatabaseMemoryAndWait()
         host.reader.rowCache.removeAll()
         let catalogReleased = try await settle()
         XCTAssertEqual(library.storedSong(id: samples[0].id)?.id, samples[0].id, "by-id reads answer from the catalog")

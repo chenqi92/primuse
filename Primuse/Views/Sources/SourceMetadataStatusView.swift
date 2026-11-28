@@ -1403,20 +1403,23 @@ struct SourceMetadataStatusView: View {
     }
 
     private func retryFailedItems() {
-        let reopened = backfill.retryFailed(
-            forSource: source.id,
-            startImmediately: false
-        )
-        if reopened > 0 {
-            _ = backfill.startUserInitiated(sourceID: source.id)
-            resultMessage = String(
-                format: String(localized: "metadata_status_retry_started_format"),
-                reopened
+        // 歌曲模型不在内存里时先装回来再重开(有被拦下的账才装),数到的才是真的几首。
+        Task {
+            let reopened = await backfill.retryFailedLoadingTheModelIfNeeded(
+                forSource: source.id,
+                startImmediately: false
             )
-        } else {
-            resultMessage = String(localized: "metadata_status_no_retryable_work")
+            if reopened > 0 {
+                _ = backfill.startUserInitiated(sourceID: source.id)
+                resultMessage = String(
+                    format: String(localized: "metadata_status_retry_started_format"),
+                    reopened
+                )
+            } else {
+                resultMessage = String(localized: "metadata_status_no_retryable_work")
+            }
+            await reload(force: true)
         }
-        Task { await reload(force: true) }
     }
 
     private func reread(_ item: MetadataBackfillStatusDisplayItem) {
