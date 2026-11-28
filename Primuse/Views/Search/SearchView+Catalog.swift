@@ -64,6 +64,13 @@ enum SearchCatalogSupport {
         )
     }
 
+    /// 要不要「歌名命中带出的专辑」(`LibrarySearchIndex.search` 的 `wantsAlbums`,也决定专辑块开着时要不要搜元数据):
+    /// 模型在内存里时同以前看交进去的专辑数组;不在时(C1)专辑块开着、从目录准备专辑就要 —— 不再因为那份数组是空的
+    /// 就不要,两种状态下这一句的答案相同。
+    static func wantsAlbums(_ albums: [Album], _ catalog: SearchCollectionCatalogScope?) -> Bool {
+        !albums.isEmpty || catalog?.albums == true
+    }
+
     /// 专辑、艺人的命中:`catalog` 为 nil 时同以前交给 `index`(内存里的数组);否则从目录准备、打分与先后相同。
     static func collections(
         index: LibraryCatalogSearchIndex, query: String, albums: [Album], artists: [Artist],
@@ -133,6 +140,28 @@ struct SearchCollectionCatalogScope: Sendable {
     let artists: Bool
     /// 目录的修订号与要不要专辑 / 艺人:变了整代重排。
     let revision: Int64
+}
+
+extension SearchCollectionCatalogScope {
+    /// 歌名命中带出的专辑按 id 从目录取(C1,交给 `LibrarySearchIndex.search(albumsByID:)`):一次批量的按 id 读
+    /// (`albums(visibleIDs:)`,至多 `songLimit * 2` 个 id 的几倍,远在物化上限之内),给的专辑与 `visibleAlbums` 里同
+    /// id 的那张相同、不可见的不给。不要专辑时 nil。读失败时空(同旁边按 id 回查歌的那一步:记日志,这一次搜索没有
+    /// 这几张;目录下一次动时搜索页重搜)。
+    var albumsByID: (@Sendable (Set<String>) async -> [String: Album])? {
+        guard albums else { return nil }
+        let reader = self.reader
+        return { ids in
+            do {
+                let found = try await reader.read { try $0.albums(visibleIDs: ids) }
+                return Dictionary(found.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            } catch {
+                if !(error is CancellationError) {
+                    plog("🔎 Song-matched albums from the catalog failed: \(error.localizedDescription)")
+                }
+                return [:]
+            }
+        }
+    }
 }
 
 /// 搜索页专辑、艺人的命中在歌曲模型不在内存里时从曲库目录来(Q5,6c 单元 4 U7):同一个搜索库、同一套预处理与

@@ -532,6 +532,10 @@ final class LibraryCatalogMirrorTests: XCTestCase {
         mirror.enqueueApply(upserts: [added], deletingIDs: [], storeRevision: revision)
         let found = try await Self.waitForCatalog(mirror, timeout: .seconds(5)) { try $0.song(id: added.id) != nil }
         XCTAssertTrue(found, "an incremental write must not wait for the bulk-work gate")
+        // 行先写进目录,修订号在下一步才记(`recordMirroredRevision`):有界地等它,不在行刚看得见时只读一次。门一直关着。
+        let recorded = await Self.waitForMirroredRevision(mirror, revision, timeout: .seconds(5))
+        XCTAssertTrue(recorded, "the revision is recorded while the bulk-work gate stays closed")
+        XCTAssertTrue(blocked.isSet)
         XCTAssertEqual(mirror.mirroredStoreRevision, revision)
         await mirror.stop()
     }
@@ -571,6 +575,17 @@ final class LibraryCatalogMirrorTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(50))
         }
         return false
+    }
+
+    /// 等镜像记下这个修订号,或超时。
+    private static func waitForMirroredRevision(
+        _ mirror: LibraryCatalogMirror, _ revision: Int64, timeout: Duration
+    ) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while mirror.mirroredStoreRevision != revision, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return mirror.mirroredStoreRevision == revision
     }
 
     func testIncrementalWritesKeepTheStoreOrderAcrossDeleteAndReinsert() async throws {

@@ -35,6 +35,51 @@ struct LibraryOrganizationTests {
         #expect(restored.categories(album: Album(id: "renamed", title: "Album"), songs: [song()]) == [.album])
     }
 
+    /// 手动改分类的起点(`categories(album:songs:)`)与列表、详情页显示的(`AlbumReleaseMetadataIndex`,经
+    /// `AlbumReleaseCategoryRule`)同一个口径:去掉首尾空白的标题与以前逐字相同,带首尾空白的标题现在也按去掉之后的算;
+    /// 手动选过的照旧优先,存着的选择一个字节都不变。
+    @Test @MainActor func manualChangeStartsFromTheRuleTheShelvesUse() throws {
+        let suite = "ReleaseCategoryRuleTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = AlbumReleaseCategoryStore(defaults: defaults)
+        let titles = ["Show", "Blue - Single", "Live at Wembley", "Show (Live) - EP", "Olive", "Live Forever",
+                      "Night Live", "演唱会", "夜曲 单曲", "Tour (Live)"]
+        let typeSets: [[String?]] = [[], [nil], [""], ["album"], ["ep", nil], ["live", "album"], ["ep; live"], ["mixtape"]]
+        var changedByPadding = 0
+        for title in titles {
+            for padded in [title, " \(title)", "\(title) ", "\n\(title)\t "] {
+                for types in typeSets {
+                    let songs = types.enumerated().map { index, type -> Song in
+                        var song = Song(id: "s\(index)", title: "T\(index)", albumTitle: padded, fileFormat: .flac,
+                                        filePath: "/a/\(index).flac", sourceID: "source")
+                        song.albumID = "album"
+                        if let type { song.contentMetadata = SongContentMetadata(releaseType: type) }
+                        return song
+                    }
+                    let album = Album(id: "album", title: padded)
+                    var shelves = AlbumReleaseMetadataIndex()
+                    songs.forEach { shelves.include($0) }
+                    shelves.prepare(albums: [album])
+                    let start = store.categories(album: album, songs: songs)
+                    #expect(start == shelves.categories(albumID: album.id), "\(padded.debugDescription) \(types)")
+                    let before = AlbumReleaseClassification.categories(title: padded, releaseTypes: types.compactMap { $0 })
+                    #expect(start == AlbumReleaseClassification.categories(title: title, releaseTypes: types.compactMap { $0 }))
+                    if padded == title { #expect(start == before, "a trimmed title answers as before") }
+                    if start != before { changedByPadding += 1 }
+                }
+            }
+        }
+        #expect(changedByPadding > 0, "the old copy got some padded titles wrong")
+
+        let song = Song(id: "s0", title: "T", albumTitle: " Live at Wembley ", fileFormat: .flac, filePath: "/a.flac", sourceID: "source")
+        store.set([.singleEP], albumID: "album", songIDs: [song.id])
+        let stored = defaults.data(forKey: "library.releaseCategories.v1")
+        #expect(store.categories(album: Album(id: "album", title: " Live at Wembley "), songs: [song]) == [.singleEP])
+        #expect(defaults.data(forKey: "library.releaseCategories.v1") == stored, "reading never rewrites a stored choice")
+        #expect(store.classifications(albums: [Album(id: "other", title: " Live at Wembley ")], songs: []) == ["other": [.live]])
+    }
+
     @Test func releaseTagsPersistAndFillMissingContent() throws {
         var original = song()
         original.contentMetadata = SongContentMetadata(releaseType: "ep;live")

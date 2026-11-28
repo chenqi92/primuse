@@ -94,6 +94,13 @@ public enum AlbumReleaseCategoryRule {
     public static func categories(explicit: Flags, title: Flags) -> Set<AlbumReleaseCategory> {
         (explicit.isEmpty ? title : explicit).categories
     }
+
+    /// 一张专辑按它的标题与这些歌的发行类型标签自动认出的类别(各首的标签认出的取并集,一首都没有时看标题):
+    /// 手动改分类时的起点(`AlbumReleaseCategoryStore.categories(album:songs:)`)也走这里,与列表、详情页显示的同一个口径。
+    public static func categories(title: String, releaseTypes: some Sequence<String?>) -> Set<AlbumReleaseCategory> {
+        let explicit = releaseTypes.reduce(into: Flags()) { $0.formUnion(explicitFlags(releaseType: $1)) }
+        return explicit.isEmpty ? titleFlags(title).categories : categories(explicit: explicit, title: [])
+    }
 }
 
 /// Aggregated release tags, without retaining songs or a second song-ID index.
@@ -262,11 +269,11 @@ public final class AlbumReleaseCategoryStore {
             .compactMap { entries[$0] }.max { $1.isNewer(than: $0) }?.categories
     }
 
+    /// 手动选过的(按专辑或按歌,新的为准),否则自动认出的 —— 后者经 `AlbumReleaseCategoryRule`,标题去掉首尾空白,
+    /// 与列表、详情页显示的同一个口径(C1;以前这里另抄了一份不去空白的规则)。
     public func categories(album: Album, songs: [Song]) -> Set<AlbumReleaseCategory> {
         override(albumID: album.id, songIDs: songs.map(\.id))
-            ?? AlbumReleaseClassification.categories(
-                title: album.title, releaseTypes: songs.compactMap { $0.contentMetadata?.releaseType }
-            )
+            ?? AlbumReleaseCategoryRule.categories(title: album.title, releaseTypes: songs.lazy.map { $0.contentMetadata?.releaseType })
     }
 
     public func classifications(albums: [Album], songs: [Song]) -> [String: Set<AlbumReleaseCategory>] {
@@ -281,8 +288,8 @@ public final class AlbumReleaseCategoryStore {
             if let type = song.contentMetadata?.releaseType { types[albumID, default: []].insert(type) }
         }
         return Dictionary(albums.map { album in
-            (album.id, overrides[album.id]?.categories ?? AlbumReleaseClassification.categories(
-                title: album.title, releaseTypes: Array(types[album.id] ?? [])
+            (album.id, overrides[album.id]?.categories ?? AlbumReleaseCategoryRule.categories(
+                title: album.title, releaseTypes: (types[album.id] ?? []).lazy.map { Optional($0) }
             ))
         }, uniquingKeysWith: { first, _ in first })
     }

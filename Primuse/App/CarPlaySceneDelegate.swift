@@ -861,25 +861,23 @@ extension CarPlaySceneDelegate {
         return items.isEmpty ? [] : [CPListSection(items: items)]
     }
 
-    /// 跟手机上艺术家页的列法：「全部艺术家」或「专辑艺术家」。
-    private func browsableArtists(_ library: MusicLibrary) -> [Artist] {
-        library.browsableArtists(.resolved(UserDefaults.standard.string(forKey: ArtistBrowseMode.storageKey)))
-    }
-
+    /// 两份艺人列表跟手机上艺术家页的列法：「全部艺术家」或「专辑艺术家」(`CarPlayArtistLists`)。歌曲模型不在内存里时
+    /// 从曲库目录取,还答不出时摆一行「正在准备」,不显示「没有内容」(C1)。
     private func likedArtistsSections() -> [CPListSection] {
-        let library = AppServices.shared.musicLibrary
-        let artists = Array(LibraryFavoritesStore.shared.likedArtists(in: browsableArtists(library)).prefix(500))
+        guard let artists = CarPlayArtistLists.shared.liked(in: AppServices.shared.musicLibrary) else {
+            return CarPlayArtistLists.preparingSections
+        }
         let items = artists.map(artistItem)
         return items.isEmpty ? [] : [CPListSection(items: items)]
     }
 
     private func artistsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        // 「全部艺术家」列法在目录上取;「专辑艺术家」列法目录还没有对应的索引,照旧在内存里挑。
+        // 「全部艺术家」列法在目录上取;「专辑艺术家」列法模型在内存里时照旧在内存里挑,不在时从目录取(C1)。
         let mode = ArtistBrowseMode.resolved(UserDefaults.standard.string(forKey: ArtistBrowseMode.storageKey))
         let catalogArtists = mode == .allArtists ? fromCatalog("artists", { try $0.firstArtistsByName(limit: 500) }) : nil
-        let artists = catalogArtists ?? CarPlayListSelection.firstSorted(browsableArtists(library), limit: 500) {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        guard let artists = catalogArtists ?? CarPlayArtistLists.shared.firstByName(mode, in: library) else {
+            return CarPlayArtistLists.preparingSections
         }
         return Self.sectionedByIndexLetter(artists, titleKey: \.name, makeItem: artistItem)
     }
@@ -2990,6 +2988,7 @@ extension CarPlaySceneDelegate {
             _ = CarPlayFolderLibrary.shared.index
             _ = CarPlayEditorCatalog.shared.revision
             _ = LibraryFavoritesStore.shared.revision
+            _ = CarPlayArtistLists.shared.revision  // 模型不在内存里时从目录取的两份艺人列表到了(C1)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.interfaceController != nil, self.connectionGeneration == generation else { return }

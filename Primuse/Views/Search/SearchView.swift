@@ -4844,7 +4844,7 @@ struct SearchView: View {
             : nil
         let visibleLookup = scopedSearch && !scopeFromCatalog ? library.visibleSongLookup() : nil
         let sourceTypes = memorySnapshot?.sourceTypes ?? library.searchSources?.typesByID ?? [:]
-        // 模型不在内存里时不交那份空数组:专辑、艺人的命中从目录准备(`collectionCatalog`,U7)。
+        // 模型不在内存里时不交那份空数组:专辑、艺人的命中从目录准备(`collectionCatalog`,U7),歌名带出的专辑按 id 取(C1)。
         let albumsSnapshot = scopedSearch || !layout.shows(.albums) || !library.isReady ? [] : library.visibleAlbums
         let artistsSnapshot = scopedSearch || !layout.shows(.artists) || !library.isReady ? [] : library.visibleArtists
         let collectionCatalog = SearchCatalogSupport.collectionScope(
@@ -4918,7 +4918,7 @@ struct SearchView: View {
                     do {
                         searchSnapshot = try await LibrarySearchCatalogSnapshot.make(
                             reader: catalogReader, query: query, matchKinds: matchKinds,
-                            wantsAlbums: !albumsSnapshot.isEmpty, songLimit: 120, sourceTypes: sourceTypes
+                            wantsAlbums: SearchCatalogSupport.wantsAlbums(albumsSnapshot, collectionCatalog), songLimit: 120, sourceTypes: sourceTypes
                         )
                     } catch {
                         guard !Task.isCancelled else { return }
@@ -4932,7 +4932,7 @@ struct SearchView: View {
                 indexed = await LibrarySearchIndex.shared.search(
                     query: query,
                     snapshot: searchSnapshot,
-                    albums: albumsSnapshot,
+                    albums: albumsSnapshot, albumsByID: collectionCatalog?.albumsByID,
                     metadataRevisionKey: metadataRevisionKey,
                     matchKinds: matchKinds
                 )

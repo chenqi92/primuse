@@ -796,9 +796,9 @@ struct LibraryView: View {
         case .songs: return counts.music
         case .albums: return counts.albums
         case .artists:
-            // 「专辑艺术家」按 U4b 的目录列表数(U3c);只看完整专辑的那一种要发行类别,目录还没有,答不了。
+            // 「专辑艺术家」按 U4b 的目录列表数(U3c);只看完整专辑的那一种按 RC-b 的名单数,发行类别还没算齐时答不了(C1)。
             if ArtistBrowseMode.resolved(artistBrowseModeRaw) == .allArtists { return counts.artists }
-            return hidesSingleOnlyAlbumArtists ? nil : AlbumArtistCatalogCount.current(in: library)
+            return AlbumArtistCatalogCount.current(in: library, hidingSingleOnly: hidesSingleOnlyAlbumArtists)
         case .genres: return counts.genres
         case .playlists: return regularPlaylists.count + library.smartPlaylists.count
         case .ambient: return counts.ambient
@@ -865,12 +865,11 @@ struct LibraryView: View {
         guard let pins = lastVisiblePins else { return true }
         return pins.contains { $0.kind == .book || ($0.kind == .folder && favoriteFolderModel.index == nil) }
     }
-    /// 「专辑艺术家」列法放掉之后按 U4b 的目录列表数人、挑头像(U3c);只看完整专辑的那一种要发行类别,目录还没有,
-    /// 目录读不了时也一样:入口占用模型。
+    /// 「专辑艺术家」列法放掉之后按 U4b 的目录列表数人、挑头像(U3c);只看完整专辑的那一种按 RC-b 的名单(C1),发行类别
+    /// 还没算齐、目录读不了时入口占用模型(`LibraryHubArtistTile`)。
     private var artistTileNeedsTheSongModel: Bool {
         !library.isReady && visibleLibrarySections.contains(.artists)
-            && ArtistBrowseMode.resolved(artistBrowseModeRaw) != .allArtists
-            && (hidesSingleOnlyAlbumArtists || library.readableCatalogReader == nil)
+            && LibraryHubArtistTile.needsTheSongModel(library, modeRawValue: artistBrowseModeRaw, hidingSingleOnly: hidesSingleOnlyAlbumArtists)
     }
     private var hasFolderFavorites: Bool {
         !FavoriteCollectionStore.collectedFolderIDs(in: folderPinsRawValue).isEmpty
@@ -2107,10 +2106,10 @@ struct LibraryView: View {
 
     @MainActor
     private func refreshArtworkPreviews(for revision: String) async {
-        // 6c U3b: 模型放掉了时从曲库目录挑;「专辑艺术家」按 U4b 的目录列表挑头像(U3c),只看完整专辑的那一种入口占用模型。
+        // 6c U3b: 模型放掉了时从曲库目录挑;「专辑艺术家」按 U4b 的目录列表挑头像(U3c),只看完整专辑的按 RC-b 的名单筛过再挑(C1)。
         let released = !library.isReady
-        let albumArtists = ArtistBrowseMode.resolved(artistBrowseModeRaw) == .albumArtists
-        guard !released || (hubIsLive && !(albumArtists && hidesSingleOnlyAlbumArtists)) else { return }
+        let (albumArtists, fullReleaseChoices) = LibraryHubArtistTile.faces(library, modeRawValue: artistBrowseModeRaw, hidingSingleOnly: hidesSingleOnlyAlbumArtists)
+        guard !released || (hubIsLive && !(albumArtists && hidesSingleOnlyAlbumArtists && fullReleaseChoices == nil)) else { return }
         if artworkPreviewSelection.revision == revision {
             await saveHubPreview(artworkPreviewSelection, revision: revision)
             return
@@ -2145,6 +2144,7 @@ struct LibraryView: View {
         let albumsSnapshot = released ? [] : albums
         let artistsSnapshot = released ? [] : artists
         let releasedCatalog = released ? library.catalogHost?.mirror.readableCatalog : nil
+        let shownSelection = artworkPreviewSelection  // 目录读失败(名单答不出也算)时留着此刻摆着的这份,不换成空的(C1)
         let playlistsSnapshot = regularPlaylists
         let radioSnapshot = radioStationsStore.stations
         // 收藏货架上摆出来的那几张才要备用封面。
@@ -2185,13 +2185,13 @@ struct LibraryView: View {
         ) { randomSeed in
             if let releasedCatalog {
                 return (try? LibraryArtworkPreviewBuilder.catalogSelection(
-                    catalog: releasedCatalog, albumArtists: albumArtists,
+                    catalog: releasedCatalog, albumArtists: albumArtists, fullReleaseChoices: fullReleaseChoices,
                     randomSeed: randomSeed, revision: revision, userRevision: userRevision,
                     playlists: playlistsSnapshot, playlistMemberIDs: playlistMemberIDs, radioStations: radioSnapshot,
                     albumOverrideIDs: albumOverrideIDs, artistOverrideIDs: artistOverrideIDs,
                     playlistOverrideIDs: playlistOverrideIDs,
                     pinnedAlbumIDs: pinnedAlbumIDs, pinnedArtistIDs: pinnedArtistIDs
-                )) ?? LibraryArtworkPreviewSelection()
+                )) ?? shownSelection
             }
             return LibraryArtworkPreviewBuilder.memorySelection(
                 songs: songsSnapshot, albums: albumsSnapshot, artists: artistsSnapshot,

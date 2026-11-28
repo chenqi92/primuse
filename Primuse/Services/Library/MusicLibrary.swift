@@ -1315,8 +1315,9 @@ actor LibrarySearchIndex {
                      songLimit: songLimit, albumLimit: albumLimit)
     }
 
+    /// `albumsByID`:模型不在内存里(`albums` 为空)时歌名命中带出的专辑按 id 从曲库目录取(C1);nil 时只看 `albums`。
     func search(
-        query: String, snapshot: LibrarySearchSongSnapshot, albums: [Album],
+        query: String, snapshot: LibrarySearchSongSnapshot, albums: [Album], albumsByID: (@Sendable (Set<String>) async -> [String: Album])? = nil,
         metadataRevisionKey: String, excluding excluded: Set<String> = [],
         matchKinds: Set<LibrarySearchMatchKind> = LibrarySearchMatchKind.all,
         songLimit: Int = 120, albumLimit: Int = 10
@@ -1345,7 +1346,7 @@ actor LibrarySearchIndex {
             var pathIDs: [String] = []
             var seenPaths = Set<String>()
 
-            let wantsAlbums = albumLimit > 0 && !albums.isEmpty
+            let wantsAlbums = albumLimit > 0 && (!albums.isEmpty || albumsByID != nil)
             let searchesMetadata = wantsAlbums || matchKinds.contains(.metadata) || matchKinds.contains(.fuzzy)
             let shortHan = trimmed.count < 3 && Self.containsHan(trimmed)
             if searchesMetadata, trimmed.count >= 3 {
@@ -1555,18 +1556,15 @@ actor LibrarySearchIndex {
                 candidateAlbumIDs.append(albumID)
             }
             var albumByID: [String: Album] = [:]
-            if !wantedAlbumIDs.isEmpty {
+            if !wantedAlbumIDs.isEmpty, albums.isEmpty, let albumsByID {
+                albumByID = await albumsByID(wantedAlbumIDs)
+            } else if !wantedAlbumIDs.isEmpty {
                 for album in albums where wantedAlbumIDs.contains(album.id) && albumByID[album.id] == nil {
                     albumByID[album.id] = album
                     if albumByID.count == wantedAlbumIDs.count { break }
                 }
             }
-            var albumResults: [Album] = []
-            for albumID in candidateAlbumIDs {
-                guard let album = albumByID[albumID] else { continue }
-                albumResults.append(album)
-                if albumResults.count == albumLimit { break }
-            }
+            let albumResults = Array(candidateAlbumIDs.lazy.compactMap { albumByID[$0] }.prefix(max(albumLimit, 0)))
 
             let lyricsComplete = !Self.isPreparationPending()
             return LibraryIndexedSearchOutput(

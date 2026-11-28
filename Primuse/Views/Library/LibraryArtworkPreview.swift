@@ -115,11 +115,14 @@ extension LibraryArtworkPreviewBuilder {
     /// - 第一趟按库内顺序走可见的歌:挑三首,记下有封面线索的歌所在的专辑、艺人,以及歌单里有线索的成员;
     /// - 专辑、艺人按目录的可见列表取 id(与头像路径),挑三个;`albumArtists` 时艺人是「专辑艺术家」列表(U4b 的
     ///   `albumArtistBrowse`,6c 单元 4 U3c,同内存里的 `browsableArtists(.albumArtists)`;只当过专辑艺人的没有头像路径,同内存);
+    ///   给了 `fullReleaseChoices`(「不列只有单曲、EP 的人」,C1)时是按 RC-b 的名单筛过的那份,同内存里筛过的列表;
+    ///   名单答不出时抛错,不拿空名单挑出空头像;
     /// - 第二趟只看备用封面要的那几张专辑、那几个艺人(收藏货架上的与挑中的),各挑三首。
     /// 挑中的歌、专辑、艺人最后按 id / 键物化。歌单、电台是小状态,照内存那一份挑。
     static func catalogSelection(
         catalog: LibraryCatalog,
         albumArtists: Bool = false,
+        fullReleaseChoices: FullReleaseAlbumArtistMemo.Choices? = nil,
         randomSeed: String, revision: String, userRevision: String,
         playlists: [Playlist], playlistMemberIDs: [String: [String]], radioStations: [RadioStation],
         albumOverrideIDs: Set<String>, artistOverrideIDs: Set<String>, playlistOverrideIDs: Set<String>,
@@ -164,7 +167,13 @@ extension LibraryArtworkPreviewBuilder {
         var artists = LibraryArtworkPreviewAccumulator<Int32>(randomSeed: "\(randomSeed)#artists")
         var artistIDByKey: [Int32: String] = [:]
         // 专辑艺术家列表里曲目艺人的键大于 0(艺人表),只当过专辑艺人的是 -(序号 + 1)(列表里整项留着)。
-        let browse = albumArtists ? try catalog.albumArtistBrowse() : nil
+        let keeping = try fullReleaseChoices.map { choices -> Set<String> in
+            guard let ids = try FullReleaseAlbumArtistMemo.shared.artistIDs(catalog: catalog, choices: choices) else {
+                throw LibraryCatalogReaderError.unavailable
+            }
+            return ids
+        }
+        let browse = albumArtists ? try catalog.albumArtistBrowse(keeping: keeping) : nil
         let artistKeys = try browse.map { Array($0.keys) } ?? Array(catalog.artistKeys(visibleOnly: true).keys)
         for start in stride(from: 0, to: artistKeys.count, by: LibraryScale.maxMaterializedRows) {
             let chunk = artistKeys[start..<min(artistKeys.count, start + LibraryScale.maxMaterializedRows)]
