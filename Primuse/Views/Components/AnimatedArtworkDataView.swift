@@ -4,6 +4,7 @@ import Foundation
 import ImageIO
 import PrimuseKit
 import SwiftUI
+import VideoToolbox
 
 private struct UploadedArtworkAnimationRequest: Hashable, Sendable {
     let contentID: String?
@@ -92,53 +93,54 @@ struct MotionArtworkVideoView<Fallback: View>: View {
     @State private var isVideoReady = false
     @State private var poster: CGImage?
     @State private var posterSourcePath: String?
+    @State private var pausedFrame: CGImage?
+    @State private var pausedFrameSourcePath: String?
+    @State private var pausedLoopTime: CMTime?
 
-    init(
-        url: URL,
-        displayMode: ArtworkAnimationDisplayMode,
-        posterURL: URL? = nil,
-        @ViewBuilder fallback: @escaping () -> Fallback
-    ) {
-        self.url = url
-        self.displayMode = displayMode
-        self.posterURL = posterURL
-        self.fallback = fallback
+    init(url: URL, displayMode: ArtworkAnimationDisplayMode, posterURL: URL? = nil, @ViewBuilder fallback: @escaping () -> Fallback) {
+        self.url = url; self.displayMode = displayMode; self.posterURL = posterURL; self.fallback = fallback
     }
 
-    init(
-        url: URL,
-        shouldAnimate: Bool,
-        posterURL: URL? = nil,
-        @ViewBuilder fallback: @escaping () -> Fallback
-    ) {
-        self.init(
-            url: url,
-            displayMode: shouldAnimate ? .playing : .stopped,
-            posterURL: posterURL,
-            fallback: fallback
-        )
+    init(url: URL, shouldAnimate: Bool, posterURL: URL? = nil, @ViewBuilder fallback: @escaping () -> Fallback) {
+        self.init(url: url, displayMode: shouldAnimate ? .playing : .stopped, posterURL: posterURL, fallback: fallback)
     }
 
     private var showsVideoLayer: Bool {
-        displayMode == .playing || displayMode == .pausedOnCurrentFrame
+        playback != nil && (displayMode == .playing || displayMode == .pausedOnCurrentFrame)
+    }
+
+    private var stillFrameImage: CGImage? {
+        if pausedFrameSourcePath == url.path, let pausedFrame { return pausedFrame }
+        if posterSourcePath == url.path, let poster { return poster }
+        return nil
     }
 
     private var posterTaskIdentity: String {
-        guard displayMode.preservesDynamicArtwork else { return "" }
-        return "\(url.path)|\(posterURL?.path ?? "")"
+        displayMode.preservesDynamicArtwork ? "\(url.path)|\(posterURL?.path ?? "")" : ""
     }
 
-    private var playbackTaskIdentity: String {
-        "\(url.path)|\(displayMode)"
+    private var playbackTaskIdentity: String { "\(url.path)|\(displayMode)" }
+
+    private func clearPlayback() {
+        playback?.stop()
+        playback = nil
+        playbackURL = nil
+        isVideoReady = false
+    }
+
+    private func clearPausedFrame() {
+        pausedFrame = nil
+        pausedFrameSourcePath = nil
+        pausedLoopTime = nil
     }
 
     var body: some View {
         fallback()
             .overlay {
-                if let poster, !(isVideoReady && playback != nil && showsVideoLayer) {
+                if let stillFrameImage, !(isVideoReady && showsVideoLayer) {
                     Color.clear
                         .overlay {
-                            Image(decorative: poster, scale: 1)
+                            Image(decorative: stillFrameImage, scale: 1)
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         }
@@ -149,19 +151,13 @@ struct MotionArtworkVideoView<Fallback: View>: View {
             }
             .overlay {
                 if showsVideoLayer, let playback {
-                    MotionArtworkVideoLayer(playback: playback) { ready in
-                        isVideoReady = ready
-                    }
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                    MotionArtworkVideoLayer(playback: playback) { isVideoReady = $0 }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
             .task(id: posterTaskIdentity) {
-                guard displayMode.preservesDynamicArtwork else {
-                    poster = nil
-                    posterSourcePath = nil
-                    return
-                }
+                guard displayMode.preservesDynamicArtwork else { poster = nil; posterSourcePath = nil; return }
                 if posterSourcePath == url.path, poster != nil { return }
                 let decoded = await MotionArtworkPosterLoader.load(posterURL: posterURL, videoURL: url)
                 guard !Task.isCancelled else { return }
@@ -169,47 +165,46 @@ struct MotionArtworkVideoView<Fallback: View>: View {
                 posterSourcePath = decoded == nil ? nil : url.path
             }
             .task(id: playbackTaskIdentity) {
-                if playbackURL != url {
-                    playback?.stop()
-                    playback = nil
-                    playbackURL = nil
-                    isVideoReady = false
-                }
+                if playbackURL != url { clearPlayback() }
+                if pausedFrameSourcePath != url.path { clearPausedFrame() }
                 switch displayMode {
                 case .stopped, .stillFrame:
-                    playback?.stop()
-                    playback = nil
-                    playbackURL = nil
-                    isVideoReady = false
+                    clearPlayback()
+                    clearPausedFrame()
                 case .pausedOnCurrentFrame:
-                    playback?.pause()
-                case .playing:
-                    if let playback, playbackURL == url {
-                        playback.play()
-                        return
+                    guard let currentPlayback = playback, playbackURL == url else { return }
+                    let wasReady = isVideoReady
+                    let snapshot = await currentPlayback.pauseAndCaptureFrame()
+                    guard !Task.isCancelled, playback === currentPlayback else { return }
+                    if let image = snapshot.image {
+                        pausedFrame = image
+                        pausedFrameSourcePath = url.path
                     }
+                    if wasReady, let loopTime = snapshot.loopTime { pausedLoopTime = loopTime }
+                    clearPlayback()
+                case .playing:
+                    if let existing = playback, playbackURL == url { existing.play(); return }
+                    let resumeTime = pausedFrameSourcePath == url.path ? pausedLoopTime : nil
                     do {
-                        let prepared = try await MotionArtworkVideoPlayback.prepare(url: url)
+                        let prepared = try await MotionArtworkVideoPlayback.prepare(url: url, startingAt: resumeTime)
                         guard !Task.isCancelled else { prepared.stop(); return }
                         playback = prepared
                         playbackURL = url
-                        if #available(tvOS 17.4, *) {
-                            isVideoReady = prepared.videoLayer.isReadyForDisplay
-                        } else {
-                            isVideoReady = true
+                        if #available(tvOS 17.4, *) { isVideoReady = prepared.videoLayer.isReadyForDisplay } else { isVideoReady = true }
+                        prepared.play { [weak prepared] in
+                            Task { @MainActor in
+                                guard let prepared, playback === prepared else { return }
+                                clearPlayback()
+                            }
                         }
-                        prepared.play()
                     } catch {
-                        // The static cover (or the poster frame) remains visible if the rendition cannot be decoded.
                         plog("🎞️ motion artwork video failed to prepare file=\(url.lastPathComponent) error=\(error)")
                     }
                 }
             }
             .onDisappear {
-                playback?.stop()
-                playback = nil
-                playbackURL = nil
-                isVideoReady = false
+                clearPlayback()
+                clearPausedFrame()
                 poster = nil
                 posterSourcePath = nil
             }
@@ -219,41 +214,87 @@ struct MotionArtworkVideoView<Fallback: View>: View {
 @MainActor
 final class MotionArtworkVideoPlayback {
     let videoLayer: AVSampleBufferDisplayLayer
+    private let url: URL
+    private let range: CMTimeRange
+    private let preferredTransform: CGAffineTransform
     private let feed: MotionArtworkVideoFeed
 
-    private init(asset: AVAsset, track: AVAssetTrack, range: CMTimeRange) {
-        videoLayer = AVSampleBufferDisplayLayer()
-        videoLayer.videoGravity = .resizeAspectFill
-        feed = MotionArtworkVideoFeed(
-            renderer: videoLayer.sampleBufferRenderer,
-            frames: MotionArtworkVideoFrames(asset: asset, track: track, range: range)
-        )
-    }
-
-    static func prepare(url: URL) async throws -> MotionArtworkVideoPlayback {
-        guard url.isFileURL else { throw URLError(.unsupportedURL) }
-        let asset = AVURLAsset(url: url, options: [
+    private nonisolated static var restrictedAssetOptions: [String: Any] {
+        [
             AVURLAssetOverrideMIMETypeKey: "video/mp4",
             AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue,
             AVURLAssetAllowsCellularAccessKey: false,
             AVURLAssetAllowsExpensiveNetworkAccessKey: false,
             AVURLAssetAllowsConstrainedNetworkAccessKey: false,
-        ])
+        ]
+    }
+
+    private init(url: URL, asset: AVAsset, track: AVAssetTrack, range: CMTimeRange,
+                 preferredTransform: CGAffineTransform, startingAt: CMTime?) {
+        self.url = url
+        self.range = range
+        self.preferredTransform = preferredTransform
+        videoLayer = AVSampleBufferDisplayLayer()
+        videoLayer.videoGravity = .resizeAspectFill
+        feed = MotionArtworkVideoFeed(
+            renderer: videoLayer.sampleBufferRenderer,
+            frames: MotionArtworkVideoFrames(asset: asset, track: track, range: range, initialStartTime: startingAt)
+        )
+    }
+
+    static func prepare(url: URL, startingAt: CMTime? = nil) async throws -> MotionArtworkVideoPlayback {
+        guard url.isFileURL else { throw URLError(.unsupportedURL) }
+        let asset = AVURLAsset(url: url, options: Self.restrictedAssetOptions)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw URLError(.cannotDecodeContentData)
         }
-        let (range, size) = try await track.load(.timeRange, .naturalSize)
+        let (range, size, preferredTransform) = try await track.load(.timeRange, .naturalSize, .preferredTransform)
         guard range.duration.seconds.isFinite, range.duration.seconds > 0, range.duration.seconds <= 60,
               size.width > 0, size.height > 0, max(size.width, size.height) <= 1080 else {
             throw URLError(.cannotDecodeContentData)
         }
         try Task.checkCancellation()
-        return MotionArtworkVideoPlayback(asset: asset, track: track, range: range)
+        return MotionArtworkVideoPlayback(url: url, asset: asset, track: track, range: range,
+                                          preferredTransform: preferredTransform, startingAt: startingAt)
     }
 
-    func play() { feed.play() }
-    func pause() { feed.pause() }
+    func play(onFailure: (@Sendable () -> Void)? = nil) { feed.play(onFailure: onFailure) }
     func stop() { feed.stop() }
+
+    /// 暂停并定格当前帧为普通 CGImage，避免真机挂着 rate=0 的 AVSampleBufferDisplayLayer 被硬件合成层清黑。
+    func pauseAndCaptureFrame() async -> (image: CGImage?, loopTime: CMTime?) {
+        let loopTime = await feed.pauseAndCaptureTime()
+        let renderer = videoLayer.sampleBufferRenderer
+        let deadline = Date().addingTimeInterval(0.08)
+        while CMTimebaseGetRate(renderer.timebase) != 0, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        var captured: CGImage?
+        if #available(iOS 17.4, macOS 14.4, tvOS 17.4, *),
+           preferredTransform.isIdentity,
+           renderer.status != .failed,
+           let pixelBuffer = renderer.displayedPixelBuffer() {
+            var image: CGImage?
+            if VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &image) == noErr {
+                captured = image
+            }
+        }
+        if captured == nil {
+            captured = await Self.extractFrame(url: url, at: loopTime ?? range.start)
+        }
+        return (captured, loopTime)
+    }
+
+    private nonisolated static func extractFrame(url: URL, at time: CMTime) async -> CGImage? {
+        let asset = AVURLAsset(url: url, options: restrictedAssetOptions)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 1_080, height: 1_080)
+        generator.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 30)
+        generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 30)
+        return try? await generator.image(at: time).image
+    }
+
     deinit { feed.stop() }
 }
 
@@ -261,34 +302,63 @@ final class MotionArtworkVideoPlayback {
 /// even when muted, so decorative artwork must never create an AVPlayer.
 /// This reader and its loop state are confined to the feed's serial queue.
 final class MotionArtworkVideoFrames {
+    private struct LoopSegment {
+        let timelineStart: CMTime
+        let sourceOrigin: CMTime
+    }
+
     private let asset: AVAsset
     private let track: AVAssetTrack
     private let range: CMTimeRange
+    private var pendingInitialStart: CMTime?
+    private var currentLoopUsesCustomStart = false
     private var reader: AVAssetReader?
     private var output: AVAssetReaderTrackOutput?
     private var loopStart = CMTime.zero
     private var sourceOrigin = CMTime.invalid
     private var loopDuration = CMTime.zero
     private var samplesInLoop = 0
+    private var segments: [LoopSegment] = []
 
-    init(asset: AVAsset, track: AVAssetTrack, range: CMTimeRange) {
+    init(asset: AVAsset, track: AVAssetTrack, range: CMTimeRange, initialStartTime: CMTime? = nil) {
         self.asset = asset
         self.track = track
         self.range = range
+        if let start = initialStartTime,
+           start.isNumeric,
+           CMTimeCompare(start, range.start) > 0,
+           CMTimeSubtract(CMTimeRangeGetEnd(range), start).seconds >= 0.15 {
+            self.pendingInitialStart = start
+        }
     }
 
     func next() throws -> CMSampleBuffer {
         if reader == nil { try beginLoop() }
         if let sample = copyNextVideoSample() { return try retimed(sample) }
-        guard reader?.status == .completed, samplesInLoop > 0, loopDuration.seconds > 0 else {
+        guard reader?.status == .completed else {
             throw reader?.error ?? URLError(.cannotDecodeContentData)
         }
-        loopStart = CMTimeAdd(loopStart, loopDuration)
+        if samplesInLoop > 0, loopDuration.seconds > 0 {
+            loopStart = CMTimeAdd(loopStart, loopDuration)
+        } else if !currentLoopUsesCustomStart {
+            throw URLError(.cannotDecodeContentData)
+        }
         try beginLoop()
         guard let sample = copyNextVideoSample() else {
             throw reader?.error ?? URLError(.cannotDecodeContentData)
         }
         return try retimed(sample)
+    }
+
+    func sourceTime(forTimelineTime timelineTime: CMTime) -> CMTime? {
+        guard timelineTime.isNumeric, let segment = segments.last(where: {
+            CMTimeCompare($0.timelineStart, timelineTime) <= 0
+        }) ?? segments.first else { return nil }
+        let elapsed = CMTimeMaximum(.zero, CMTimeSubtract(timelineTime, segment.timelineStart))
+        let candidate = CMTimeAdd(segment.sourceOrigin, elapsed)
+        let rangeEnd = CMTimeRangeGetEnd(range)
+        if CMTimeCompare(candidate, rangeEnd) >= 0 { return range.start }
+        return CMTimeMaximum(range.start, candidate)
     }
 
     private func copyNextVideoSample() -> CMSampleBuffer? {
@@ -307,15 +377,25 @@ final class MotionArtworkVideoFrames {
 
     func reset() {
         cancel()
+        pendingInitialStart = nil
+        currentLoopUsesCustomStart = false
         loopStart = .zero
         sourceOrigin = .invalid
         loopDuration = .zero
         samplesInLoop = 0
+        segments.removeAll(keepingCapacity: true)
+    }
+
+    private func recordSegment(timelineStart: CMTime, sourceOrigin: CMTime) {
+        segments.append(LoopSegment(timelineStart: timelineStart, sourceOrigin: sourceOrigin))
+        if segments.count > 32 { segments.removeFirst(segments.count - 32) }
     }
 
     private func beginLoop() throws {
+        let customStart = pendingInitialStart
+        pendingInitialStart = nil
         let reader = try AVAssetReader(asset: asset)
-        reader.timeRange = range
+        reader.timeRange = customStart.map { CMTimeRange(start: $0, end: CMTimeRangeGetEnd(range)) } ?? range
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
         output.alwaysCopiesSampleData = false
         guard reader.canAdd(output) else { throw URLError(.cannotDecodeContentData) }
@@ -324,8 +404,15 @@ final class MotionArtworkVideoFrames {
         self.reader = reader
         self.output = output
         samplesInLoop = 0
-        sourceOrigin = .invalid
         loopDuration = .zero
+        if let customStart {
+            sourceOrigin = customStart
+            currentLoopUsesCustomStart = true
+            recordSegment(timelineStart: loopStart, sourceOrigin: customStart)
+        } else {
+            sourceOrigin = .invalid
+            currentLoopUsesCustomStart = false
+        }
     }
 
     private func retimed(_ sample: CMSampleBuffer) throws -> CMSampleBuffer {
@@ -336,7 +423,10 @@ final class MotionArtworkVideoFrames {
         guard CMSampleBufferGetSampleTimingInfoArray(sample, entryCount: count, arrayToFill: &timings, entriesNeededOut: nil) == noErr else {
             throw URLError(.cannotDecodeContentData)
         }
-        if !sourceOrigin.isValid { sourceOrigin = timings[0].presentationTimeStamp }
+        if !sourceOrigin.isValid {
+            sourceOrigin = timings[0].presentationTimeStamp
+            if sourceOrigin.isNumeric { recordSegment(timelineStart: loopStart, sourceOrigin: sourceOrigin) }
+        }
         guard sourceOrigin.isNumeric else { throw URLError(.cannotDecodeContentData) }
         let offset = CMTimeSubtract(loopStart, sourceOrigin)
         for index in timings.indices {
@@ -369,6 +459,7 @@ private final class MotionArtworkVideoFeed: @unchecked Sendable {
     private let renderer: AVSampleBufferVideoRenderer
     private let synchronizer = AVSampleBufferRenderSynchronizer()
     private let frames: MotionArtworkVideoFrames
+    private var onFailure: (@Sendable () -> Void)?
     private var started = false
     private var paused = false
     private var stopped = false
@@ -378,9 +469,10 @@ private final class MotionArtworkVideoFeed: @unchecked Sendable {
         self.frames = frames
     }
 
-    func play() {
+    func play(onFailure: (@Sendable () -> Void)? = nil) {
         queue.async { [self] in
             guard !stopped else { return }
+            if let onFailure { self.onFailure = onFailure }
             if !started {
                 started = true
                 paused = false
@@ -403,29 +495,36 @@ private final class MotionArtworkVideoFeed: @unchecked Sendable {
         }
     }
 
-    func pause() {
-        queue.async { [self] in
-            guard started, !stopped, !paused else { return }
-            paused = true
-            renderer.stopRequestingMediaData()
-            synchronizer.setRate(0, time: .invalid)
+    func pauseAndCaptureTime() async -> CMTime? {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                guard started, !stopped else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                paused = true
+                synchronizer.setRate(0, time: .invalid)
+                renderer.stopRequestingMediaData()
+                let timelineTime = CMTimebaseGetTime(renderer.timebase)
+                continuation.resume(returning: frames.sourceTime(forTimelineTime: timelineTime))
+            }
         }
     }
 
     func stop() {
-        queue.async { [self] in finish() }
+        queue.async { [self] in finish(notifyFailure: false) }
     }
 
     private func enqueueFrames() {
         do {
             while !stopped, !paused, renderer.isReadyForMoreMediaData {
-                guard renderer.status != .failed else { finish(); return }
+                guard renderer.status != .failed else { finish(notifyFailure: true); return }
                 renderer.enqueue(try frames.next())
             }
-        } catch { finish() }
+        } catch { finish(notifyFailure: true) }
     }
 
-    private func finish() {
+    private func finish(notifyFailure: Bool) {
         guard !stopped else { return }
         stopped = true
         paused = false
@@ -433,6 +532,7 @@ private final class MotionArtworkVideoFeed: @unchecked Sendable {
         synchronizer.setRate(0, time: .invalid)
         frames.cancel()
         renderer.flush(removingDisplayedImage: true)
+        if notifyFailure { onFailure?() }
     }
 }
 

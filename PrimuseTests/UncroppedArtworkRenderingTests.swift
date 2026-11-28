@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import UIKit
 import XCTest
@@ -93,5 +94,47 @@ final class UncroppedArtworkRenderingTests: XCTestCase {
         ))
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         return pixels
+    }
+
+    func testVideoArtworkFramesResumeFromPausedSourceTimeAndLoop() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 64, AVVideoHeightKey: 64,
+            AVVideoCompressionPropertiesKey: [AVVideoAllowFrameReorderingKey: true]
+        ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input,
+            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+        writer.add(input); XCTAssertTrue(writer.startWriting()); writer.startSession(atSourceTime: .zero)
+        var pb: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, 64, 64, kCVPixelFormatType_32BGRA, nil, &pb), kCVReturnSuccess)
+        let buffer = try XCTUnwrap(pb)
+        for index in 0..<45 {
+            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(5)) }
+            XCTAssertTrue(adaptor.append(buffer, withPresentationTime: CMTime(value: Int64(index), timescale: 30)))
+        }
+        writer.endSession(atSourceTime: CMTime(value: 45, timescale: 30))
+        input.markAsFinished(); await writer.finishWriting(); XCTAssertEqual(writer.status, .completed)
+
+        let asset = AVURLAsset(url: url)
+        let tracks = try await asset.loadTracks(withMediaType: .video)
+        let track = try XCTUnwrap(tracks.first)
+        let range = try await track.load(.timeRange)
+        let frames = MotionArtworkVideoFrames(asset: asset, track: track, range: range, initialStartTime: CMTime(seconds: 0.7, preferredTimescale: 600))
+        defer { frames.cancel() }
+        var displayedPTS: [Double] = []
+        for _ in 0..<90 {
+            let sample = try frames.next()
+            let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[CFString: Any]]
+            if attachments?.first?[kCMSampleAttachmentKey_DoNotDisplay] as? Bool == true { continue }
+            displayedPTS.append(CMSampleBufferGetPresentationTimeStamp(sample).seconds)
+            if displayedPTS.count >= 60 { break }
+        }
+        XCTAssertGreaterThanOrEqual(displayedPTS.count, 50)
+        XCTAssertEqual(try XCTUnwrap(displayedPTS.first), 0, accuracy: 0.1)
+        XCTAssertGreaterThan(try XCTUnwrap(displayedPTS.last), 1.5)
+        XCTAssertEqual(try XCTUnwrap(frames.sourceTime(forTimelineTime: CMTime(seconds: 0.2, preferredTimescale: 600))).seconds, 0.9, accuracy: 0.05)
+        XCTAssertEqual(try XCTUnwrap(frames.sourceTime(forTimelineTime: CMTime(seconds: 1.0, preferredTimescale: 600))).seconds, 0.2, accuracy: 0.1)
     }
 }

@@ -4418,7 +4418,7 @@ struct NowPlayingView: View {
                 if activity.startLocation != value.startLocation {
                     activity.startLocation = value.startLocation
                     activity.axis = nil
-                    if !surfaceMotion.isDragging { surfaceMotion.isDragging = true }
+                    if surfaceMotion.isDragging { surfaceMotion.isDragging = false }
                 }
                 let startDistance = NowPlayingDismissGesturePolicy.distanceFromLeadingEdge(
                     startX: Double(value.startLocation.x),
@@ -4442,7 +4442,7 @@ struct NowPlayingView: View {
                 // 转轮停在两侧的页上时,从左边沿横滑是转回播放器,不是侧滑收起。
                 if axis == .horizontal, isAwayFromPlayer { return }
                 activity.axis = axis
-
+                if !surfaceMotion.isDragging { surfaceMotion.isDragging = true }
                 switch axis {
                 case .horizontal:
                     onLeadingMinimizeDragChanged?(CGFloat(max(0, towardCenter)))

@@ -301,18 +301,18 @@ final class MotionArtworkEndpointClientTests: XCTestCase {
 
     @MainActor
     func testVideoArtworkFreezesCurrentFrameOnPauseAndResumesFromSameTime() async throws {
-        let url = try await makeArtworkVideo()
+        let url = try await makeArtworkVideo(allowReordering: true, frameCount: 45, timescale: 30)
         defer { try? FileManager.default.removeItem(at: url) }
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 64, height: 64)
-        let host = UIHostingController(rootView: MotionArtworkVideoView(url: url, displayMode: .playing) { Color.clear })
+        window.frame = CGRect(x: 0, y: 0, width: 80, height: 80)
+        let host = UIHostingController(rootView: MotionArtworkVideoView(url: url, displayMode: .playing) { Color.blue })
+        host.safeAreaRegions = [] // 窗口贴着屏幕顶,不然中心那点落在状态栏的安全区里,读到的是宿主的白底
         window.rootViewController = host
         window.isHidden = false
         defer {
-            host.rootView = MotionArtworkVideoView(url: url, displayMode: .stopped) { Color.clear }
-            window.isHidden = true
-            window.rootViewController = nil
+            host.rootView = MotionArtworkVideoView(url: url, displayMode: .stopped) { Color.blue }
+            window.isHidden = true; window.rootViewController = nil
         }
 
         let startDeadline = Date().addingTimeInterval(8)
@@ -320,96 +320,96 @@ final class MotionArtworkEndpointClientTests: XCTestCase {
         while Date() < startDeadline {
             videoLayer = findArtworkVideoLayer(in: host.view.layer)
             if let videoLayer, videoLayer.isReadyForDisplay, !videoLayer.isHidden,
-               CMTimebaseGetTime(videoLayer.sampleBufferRenderer.timebase).seconds > 0.6 { break }
-            try await Task.sleep(for: .milliseconds(40))
-        }
-        let layer = try XCTUnwrap(videoLayer)
-        let renderer = layer.sampleBufferRenderer
-        XCTAssertTrue(layer.isReadyForDisplay)
-        XCTAssertFalse(layer.isHidden)
-
-        // 暂停时停表但不移除视频层、不清空已显示画面。
-        host.rootView = MotionArtworkVideoView(url: url, displayMode: .pausedOnCurrentFrame) { Color.clear }
-        let pauseDeadline = Date().addingTimeInterval(2)
-        while Date() < pauseDeadline, CMTimebaseGetRate(renderer.timebase) != 0 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        XCTAssertEqual(CMTimebaseGetRate(renderer.timebase), 0)
-        XCTAssertNotNil(layer.superlayer)
-        XCTAssertFalse(layer.isHidden)
-        XCTAssertEqual(renderer.status, .rendering)
-        let pausedTime = CMTimebaseGetTime(renderer.timebase).seconds
-        XCTAssertGreaterThan(pausedTime, 0.5)
-
-        try await Task.sleep(for: .milliseconds(250))
-        XCTAssertEqual(CMTimebaseGetTime(renderer.timebase).seconds, pausedTime, accuracy: 0.02)
-        XCTAssertNotNil(layer.superlayer)
-
-        // 继续播放复用同一个视频层并从暂停时刻接着走，不从头重建。
-        host.rootView = MotionArtworkVideoView(url: url, displayMode: .playing) { Color.clear }
-        let resumeDeadline = Date().addingTimeInterval(3)
-        while Date() < resumeDeadline,
-              CMTimebaseGetRate(renderer.timebase) == 0
-                || CMTimebaseGetTime(renderer.timebase).seconds <= pausedTime + 0.3 {
+               CMTimebaseGetTime(videoLayer.sampleBufferRenderer.timebase).seconds > 0.7 { break }
             try await Task.sleep(for: .milliseconds(30))
         }
-        XCTAssertTrue(findArtworkVideoLayer(in: host.view.layer) === layer)
-        XCTAssertEqual(CMTimebaseGetRate(renderer.timebase), 1, accuracy: 0.01)
-        XCTAssertGreaterThan(CMTimebaseGetTime(renderer.timebase).seconds, pausedTime + 0.25)
+        let layer = try XCTUnwrap(videoLayer)
+        XCTAssertTrue(layer.isReadyForDisplay && !layer.isHidden)
 
-        // 退到后台或不可见（.stopped）时彻底拆掉解码器和视频层。
-        host.rootView = MotionArtworkVideoView(url: url, displayMode: .stopped) { Color.clear }
-        let stopDeadline = Date().addingTimeInterval(2)
-        while Date() < stopDeadline,
-              CMTimebaseGetRate(renderer.timebase) != 0 || layer.superlayer != nil {
-            try await Task.sleep(for: .milliseconds(20))
+        // 暂停时捕获当前帧为静态图并撤掉 AVSampleBufferDisplayLayer，不能黑屏也不能退回首帧。
+        host.rootView = MotionArtworkVideoView(url: url, displayMode: .pausedOnCurrentFrame) { Color.blue }
+        let pauseDeadline = Date().addingTimeInterval(3)
+        while Date() < pauseDeadline, findArtworkVideoLayer(in: host.view.layer) != nil { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertNil(findArtworkVideoLayer(in: host.view.layer))
+        let pausedPixel = try centerRGB(of: host.view)
+        XCTAssertGreaterThan(pausedPixel.r, 150, "Paused motion cover must not turn black: \(pausedPixel)")
+        XCTAssertGreaterThan(Int(pausedPixel.r) - Int(pausedPixel.b), 80, "Must keep video frame, not fallback")
+        XCTAssertGreaterThan(pausedPixel.g, 85, "Must freeze mid-video frame instead of frame 0: \(pausedPixel)")
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(Int(try centerRGB(of: host.view).g), Int(pausedPixel.g), accuracy: 8)
+        XCTAssertNil(findArtworkVideoLayer(in: host.view.layer))
+
+        // 继续播放后重建视频层并跨过循环边界平滑播放。
+        host.rootView = MotionArtworkVideoView(url: url, displayMode: .playing) { Color.blue }
+        let resumeDeadline = Date().addingTimeInterval(6)
+        var resumedLayer: AVSampleBufferDisplayLayer?
+        while Date() < resumeDeadline {
+            resumedLayer = findArtworkVideoLayer(in: host.view.layer)
+            if let resumedLayer, resumedLayer.isReadyForDisplay, !resumedLayer.isHidden,
+               CMTimebaseGetTime(resumedLayer.sampleBufferRenderer.timebase).seconds > 0.9 { break }
+            try await Task.sleep(for: .milliseconds(30))
         }
-        XCTAssertEqual(CMTimebaseGetRate(renderer.timebase), 0)
-        XCTAssertNil(layer.superlayer)
+        let activeLayer = try XCTUnwrap(resumedLayer)
+        XCTAssertEqual(CMTimebaseGetRate(activeLayer.sampleBufferRenderer.timebase), 1, accuracy: 0.01)
+        XCTAssertEqual(activeLayer.sampleBufferRenderer.status, .rendering)
+
+        // 停止（.stopped）后撤掉视频层并清空定格帧，退回静态封面 fallback。
+        host.rootView = MotionArtworkVideoView(url: url, displayMode: .stopped) { Color.blue }
+        let stopDeadline = Date().addingTimeInterval(2)
+        while Date() < stopDeadline, findArtworkVideoLayer(in: host.view.layer) != nil { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertNil(findArtworkVideoLayer(in: host.view.layer))
+        let stoppedPixel = try centerRGB(of: host.view)
+        XCTAssertGreaterThan(Int(stoppedPixel.b) - Int(stoppedPixel.r), 80)
+    }
+
+    @MainActor
+    private func centerRGB(of view: UIView) throws -> (r: UInt8, g: UInt8, b: UInt8) {
+        let image = UIGraphicsImageRenderer(bounds: view.bounds).image { _ in view.drawHierarchy(in: view.bounds, afterScreenUpdates: true) }
+        let cg = try XCTUnwrap(image.cgImage)
+        var data = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+        let ctx = try XCTUnwrap(CGContext(data: &data, width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: cg.width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        let i = ((cg.height / 2) * cg.width + (cg.width / 2)) * 4
+        return (data[i], data[i + 1], data[i + 2])
     }
 
     @MainActor
     private func findArtworkVideoLayer(in layer: CALayer) -> AVSampleBufferDisplayLayer? {
         if let video = layer as? AVSampleBufferDisplayLayer { return video }
-        for child in layer.sublayers ?? [] {
-            if let video = findArtworkVideoLayer(in: child) { return video }
-        }
-        return nil
+        return (layer.sublayers ?? []).lazy.compactMap { self.findArtworkVideoLayer(in: $0) }.first
     }
 
     @MainActor
-    private func makeArtworkVideo() async throws -> URL {
+    private func makeArtworkVideo(allowReordering: Bool = false, frameCount: Int = 12, timescale: Int32 = 10) async throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: 32, AVVideoHeightKey: 32,
-            AVVideoCompressionPropertiesKey: [AVVideoAllowFrameReorderingKey: false]
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 64, AVVideoHeightKey: 64,
+            AVVideoCompressionPropertiesKey: [AVVideoAllowFrameReorderingKey: allowReordering]
         ])
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input,
-            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB])
-        writer.add(input)
-        XCTAssertTrue(writer.startWriting())
-        writer.startSession(atSourceTime: .zero)
+            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+        writer.add(input); XCTAssertTrue(writer.startWriting()); writer.startSession(atSourceTime: .zero)
         var pixelBuffer: CVPixelBuffer?
-        XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, 32, 32,
-            kCVPixelFormatType_32ARGB, nil, &pixelBuffer), kCVReturnSuccess)
+        XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, 64, 64, kCVPixelFormatType_32BGRA, nil, &pixelBuffer), kCVReturnSuccess)
         let buffer = try XCTUnwrap(pixelBuffer)
-        for index in 0..<12 {
+        for index in 0..<frameCount {
             CVPixelBufferLockBaseAddress(buffer, [])
-            memset(CVPixelBufferGetBaseAddress(buffer), Int32(index * 20), CVPixelBufferGetDataSize(buffer))
+            let ptr = try XCTUnwrap(CVPixelBufferGetBaseAddress(buffer)).assumingMemoryBound(to: UInt8.self)
+            let bpr = CVPixelBufferGetBytesPerRow(buffer)
+            let green = UInt8(min(240, 20 + index * max(1, 220 / max(1, frameCount))))
+            for y in 0..<64 { for x in 0..<64 {
+                let off = y * bpr + x * 4; ptr[off] = 30; ptr[off + 1] = green; ptr[off + 2] = 240; ptr[off + 3] = 255
+            } }
             CVPixelBufferUnlockBaseAddress(buffer, [])
             let deadline = Date().addingTimeInterval(5)
-            while !input.isReadyForMoreMediaData, Date() < deadline {
-                try await Task.sleep(for: .milliseconds(10))
-            }
+            while !input.isReadyForMoreMediaData, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
             XCTAssertTrue(input.isReadyForMoreMediaData)
-            XCTAssertTrue(adaptor.append(buffer, withPresentationTime: CMTime(value: Int64(index), timescale: 10)))
+            XCTAssertTrue(adaptor.append(buffer, withPresentationTime: CMTime(value: Int64(index), timescale: timescale)))
         }
-        writer.endSession(atSourceTime: CMTime(value: 12, timescale: 10))
-        input.markAsFinished()
-        await writer.finishWriting()
-        XCTAssertEqual(writer.status, .completed)
+        writer.endSession(atSourceTime: CMTime(value: Int64(frameCount), timescale: timescale))
+        input.markAsFinished(); await writer.finishWriting(); XCTAssertEqual(writer.status, .completed)
         return url
     }
 
