@@ -16,10 +16,19 @@ private struct ArtistCompactTintRequest: Hashable {
 
 /// 艺人页一次重绘要问好几遍「这位艺人的歌」(计数、是否为空、分享、排行、货架),
 /// 每问一遍都要从库里逐首查出、整份拷贝; 排行还要整份排序。按可见歌曲的版本记住。
-private final class ArtistSongsCache {
+final class ArtistSongsCache {
     struct Key: Equatable {
         let version: MusicLibrary.VisibleSongsVersion
         let artistID: String
+        /// 歌曲模型不在内存里时曲库目录的修订号(歌、成员):目录变了重取(那时可见歌曲的版本不动);在内存里时 nil。
+        var catalog: [UInt64]?
+    }
+
+    @MainActor
+    static func key(artistID: String, library: MusicLibrary) -> Key {
+        let revisions = library.isReady ? nil : library.catalogHost?.revisions
+        return Key(version: library.visibleSongsVersion, artistID: artistID,
+                   catalog: revisions.map { [$0.songs, $0.membership, $0.everything] })
     }
 
     private struct RankedKey: Equatable {
@@ -118,6 +127,8 @@ struct ArtistDetailView: View {
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var listeningSnapshot = ArtistListeningSnapshot()
     @State private var albumShelvesCache = ArtistAlbumShelvesCache()
+    /// 歌曲模型不在内存里时从曲库目录取的两排专辑(`ArtistCatalogShelves`)。
+    @State private var catalogShelves: ArtistCatalogShelves?
     @State private var songsCache = ArtistSongsCache()
     #if os(macOS)
     /// 热门歌曲右键菜单里的刮削数据、编辑标签、编辑歌词、重新读取文件标签，交给 `macSongActionHost`。
@@ -144,7 +155,7 @@ struct ArtistDetailView: View {
     }
 
     private var songsKey: ArtistSongsCache.Key {
-        ArtistSongsCache.Key(version: library.visibleSongsVersion, artistID: artist.id)
+        ArtistSongsCache.key(artistID: artist.id, library: library)
     }
 
     private var songs: [Song] {
@@ -174,6 +185,9 @@ struct ArtistDetailView: View {
     /// 发行与参与的专辑要把整库专辑筛一遍、排一遍, 一次重绘却会问好几回 (头部计数、
     /// 各个货架、最常听), 所以按专辑表与署名索引的修订号记住结果。
     private var albumShelves: ArtistAlbumShelves {
+        if !library.isReady, library.isUsable {
+            return ArtistAlbumShelves(release: catalogShelves?.release ?? [], appearsOn: catalogShelves?.appearsOn ?? [])
+        }
         let key = ArtistAlbumShelves.Key(
             albumsRevision: library.visibleAlbumsRevision,
             albumCreditsRevision: library.albumArtistCreditsRevision,
@@ -197,7 +211,7 @@ struct ArtistDetailView: View {
     private var releaseAlbums: [Album] { albumShelves.release }
 
     private func releases(in category: AlbumReleaseCategory) -> [Album] {
-        releaseAlbums.filter { LibraryReleaseCategoryIndex.shared.categories(for: $0, in: library).contains(category) }
+        releaseAlbums.filter { ReleaseCategoryCatalog.categories(for: $0, in: library).contains(category) }
     }
     private var appearsOnAlbums: [Album] { albumShelves.appearsOn }
 
@@ -350,6 +364,12 @@ struct ArtistDetailView: View {
             resolve: { library.song(id: $0) }
         )
         .onAppear(perform: refreshListeningSnapshot)
+        .task(id: ArtistCatalogShelves.key(artistID: artist.id, displayName: displayArtistName, library: library)) {
+            guard let key = ArtistCatalogShelves.key(artistID: artist.id, displayName: displayArtistName, library: library),
+                  catalogShelves?.key != key, let loaded = await ArtistCatalogShelves.load(key, songs: songs, library: library),
+                  !Task.isCancelled else { return }
+            catalogShelves = loaded
+        }
         .onChange(of: library.visibleSongCollectionRevision) { _, _ in
             refreshListeningSnapshot()
         }
@@ -1359,128 +1379,5 @@ struct ArtistAlbumsGrid: View {
                     }
             }
         }
-    }
-}
-
-private struct ArtistAllSongsView: View {
-    @Environment(AudioPlayerService.self) private var player
-    @Environment(MusicLibrary.self) private var library
-    @Environment(SourceManager.self) private var sourceManager
-    @Environment(SourcesStore.self) private var sourcesStore
-    @Environment(MetadataBackfillService.self) private var backfill
-    #if os(iOS)
-    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
-    #endif
-
-    let artist: Artist
-    var initialLocationID: String? = nil
-    @State private var songLocation = SongListLocation()
-    @State private var selection = SongSelectionModel()
-    @State private var songsCache = ArtistSongsCache()
-
-    private var songs: [Song] {
-        songsCache.songs(
-            for: ArtistSongsCache.Key(version: library.visibleSongsVersion, artistID: artist.id)
-        ) { library.songs(forArtist: artist.id) }
-    }
-    private var playableSongs: [Song] { songs.filteredPlayable() }
-
-    var body: some View {
-        Group {
-            if songs.isEmpty {
-                EmptyStateView(
-                    titleKey: "no_songs",
-                    descriptionKey: "no_songs_desc",
-                    systemImage: "music.note"
-                )
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                            SongRowView(
-                                song: song,
-                                isPlaying: player.currentSong?.id == song.id,
-                                trackNumber: index + 1,
-                                largestTrackNumber: songs.count,
-                                selection: selection,
-                                context: SongRowView.context(
-                                    for: song,
-                                    sourcesStore: sourcesStore,
-                                    backfill: backfill
-                                )
-                            )
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .contentShape(Rectangle())
-                            .onTapGesture { playSong(song) }
-                            .accessibilityElement(children: .combine)
-                            .accessibilityIdentifier("artistSong.\(song.id)")
-                            .songLocationRow(song.id)
-                            .songSelectable(
-                                songID: song.id,
-                                selection: selection,
-                                orderedIDs: { songs.map(\.id) },
-                                defaultAction: SongSelectableDefaultAction.macOnly { playSong(song) }
-                            )
-
-                            if index != songs.count - 1 {
-                                Divider()
-                                    .padding(.leading, 66)
-                                    .accessibilityHidden(true)
-                            }
-                        }
-                    }
-                    .accessibilityElement(children: .contain)
-                    #if os(macOS)
-                    .background(PMColor.bgElev, in: RoundedRectangle(cornerRadius: 8))
-                    .padding(24)
-                    #endif
-                }
-            }
-        }
-        .songLocationReader(songLocation, revision: songs.map(\.id))
-        .onAppear {
-            if let initialLocationID { songLocation.locate(initialLocationID) }
-        }
-        .onDisappear { songLocation.cancel() }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                LocateCurrentSongButton(
-                    isEditing: selection.isActive,
-                    contains: { id in songs.contains { $0.id == id } }
-                ) { songID, _ in songLocation.locate(songID) }
-            }
-        }
-        .navigationTitle("all_songs_section")
-        .toolbarTitleDisplayMode(.inline)
-        #if os(iOS)
-        .toolbar {
-            SongSelectionToolbarItems(
-                selection: selection,
-                orderedIDs: { songs.map(\.id) },
-                titled: verticalBarEdge != nil
-            )
-        }
-        .minimalNavigationDetail()
-        .librarySearchContext {
-            let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            return LibrarySearchScope(
-                title: name.isEmpty ? String(localized: "unknown_artist") : name,
-                songIDs: Set(songs.map(\.id)),
-                kind: .artist
-            )
-        }
-        #endif
-        .songBatchActions(
-            selection: selection,
-            orderedIDs: { songs.map(\.id) },
-            resolve: { library.song(id: $0) }
-        )
-    }
-
-    private func playSong(_ song: Song) {
-        guard let index = playableSongs.firstIndex(where: { $0.id == song.id }) else { return }
-        SiriMediaInteractionDonor.donate(song: song)
-        Task { await player.play(queue: playableSongs, startingAt: index) }
     }
 }

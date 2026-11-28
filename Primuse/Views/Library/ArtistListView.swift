@@ -700,14 +700,14 @@ struct ArtistListView: View {
                     .frame(width: 0.5)
 
                 Group {
-                    if let artist = selectedArtist, library.isReady {
+                    if let artist = selectedArtist {
                         // 只在重建后淡入: 详情页一次 body 要过滤整库专辑,
                         // 不能把它拉进交叉淡入的事务里。
                         ArtistDetailView(artist: artist)
                             .pmAppearFade()
                             .id(artist.id)
-                    } else if selectedArtist != nil || (!library.isReady && !showsCatalogArtistList) {
-                        // U4b:详情还读整库专辑,模型不在内存里时这一栏占用模型、先显示加载;左栏不等。
+                    } else if !library.isReady && !showsCatalogArtistList {
+                        // 模型不在内存里、目录那一份还没到:先显示加载,不说没有艺人。
                         ProgressView()
                     } else if showsEmptyBrowseList || (showsCatalogArtistList && catalogArtistList?.count == 0) {
                         emptyBrowseList
@@ -717,7 +717,6 @@ struct ArtistListView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityElement(children: .contain)
-                .songModelPage(needsArrays: selectedArtist != nil)
             }
             .background(PMColor.bg.ignoresSafeArea())
         }

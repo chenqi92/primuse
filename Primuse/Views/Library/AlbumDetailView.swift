@@ -20,6 +20,8 @@ struct AlbumDetailView: View {
     @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.songRowStyle) private var songRowStyle
+    /// 模型不在内存里时封面借的那首(`ArtworkSongCatalogMemo`),整页底色跟着它。
+    @State private var catalogArtworkSong: Song?
     #elseif os(macOS)
     @Environment(\.locale) private var locale
     #endif
@@ -72,17 +74,11 @@ struct AlbumDetailView: View {
         .padding(.top, 12)
     }
 
-    private var songs: [Song] {
-        library.songs(forAlbum: album.id)
-    }
+    private var songs: [Song] { library.songs(forAlbum: album.id) }
 
-    private var albumArtists: [Artist] {
-        library.linkedArtists(for: album)
-    }
+    private var albumArtists: [Artist] { library.linkedArtists(for: album) }
 
-    private var albumArtist: Artist? {
-        albumArtists.first
-    }
+    private var albumArtist: Artist? { albumArtists.first }
 
     private var multiArtistSeparator: String {
         if let raw = album.artistName {
@@ -223,9 +219,9 @@ struct AlbumDetailView: View {
     }
 
     #if os(iOS)
-    /// 整页底色取自这张专辑的封面 —— 跟封面视图挑的是同一首歌。
+    /// 整页底色取自这张专辑的封面 —— 跟封面视图挑的是同一首歌(模型不在内存里时同封面视图问曲库目录)。
     private var artworkTintSong: Song? {
-        library.preferredArtworkSong(forAlbumID: album.id) ?? songs.first ?? albumSongs.first
+        (library.isReady ? library.preferredArtworkSong(forAlbumID: album.id) : catalogArtworkSong) ?? songs.first ?? albumSongs.first
     }
 
     private var tint: LibraryDetailTintStyle {
@@ -245,6 +241,10 @@ struct AlbumDetailView: View {
             #endif
         }
         #if os(iOS)
+        .task(id: library.isReady) {
+            guard !library.isReady else { return }
+            catalogArtworkSong = await ArtworkSongCatalogMemo.shared.preferredSong(for: .album(album.id), library: library)
+        }
         .libraryDetailTint(from: artworkTintSong)
         .minimalNavigationDetail()
         .modifier(AlbumScrollEdgeEffectModifier())

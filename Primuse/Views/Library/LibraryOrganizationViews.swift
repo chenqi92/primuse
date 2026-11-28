@@ -85,7 +85,7 @@ struct AlbumReleaseCategoryMenu: View {
     private let store = AlbumReleaseCategoryStore.shared
 
     var body: some View {
-        let categories = LibraryReleaseCategoryIndex.shared.categories(for: album, in: library)
+        let categories = ReleaseCategoryCatalog.categories(for: album, in: library)
         Menu {
             ForEach(AlbumReleaseCategory.allCases) { category in
                 Toggle(LocalizedStringKey(category.titleKey), isOn: Binding(

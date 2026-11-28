@@ -92,7 +92,7 @@ Primuse/Views/Home/HomeView.swift	6235
 Primuse/Views/Library/AIRecommendationLibraryView.swift	2203
 Primuse/Views/Library/AlbumDetailView.swift	1763
 Primuse/Views/Library/AlbumGridView.swift	1164
-Primuse/Views/Library/ArtistDetailView.swift	1486
+Primuse/Views/Library/ArtistDetailView.swift	1383
 Primuse/Views/Library/LibraryInsightCard.swift	1054
 Primuse/Views/Library/LibraryView.swift	2495
 Primuse/Views/Library/LyricsEditorView.swift	3952

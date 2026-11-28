@@ -53,8 +53,11 @@ extension MacPageKind {
         case .smartPlaylist, .smartPlaylistDetail:
             // 规则歌单在曲库目录上匹配;AI 歌单、目录读不了时在内存里匹配,页面自己占用并留着上一份(6c U6a)。
             .catalog
-        case .listeningStats, .sources, .source, .search, .albumDetail, .artistDetail,
-             .searchCollection, .tool, .recommendationsPanel, .smartPlaylistEditor:
+        case .albumDetail, .artistDetail:
+            // 专辑页的歌、艺人链接按 id 与范围读目录;艺人页的两排专辑与发行分类从目录算(详情页单元)。
+            .catalog
+        case .listeningStats, .sources, .source, .search, .searchCollection,
+             .tool, .recommendationsPanel, .smartPlaylistEditor:
             .legacy
         }
     }

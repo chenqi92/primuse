@@ -76,7 +76,7 @@ legacy-library-api	Primuse/Views/Library/AISongDiscoveryView.swift	2
 legacy-library-api	Primuse/Views/Library/AlbumDetailView.swift	1
 legacy-library-api	Primuse/Views/Library/AlbumGridView.swift	6
 legacy-library-api	Primuse/Views/Library/AmbientSoundsView.swift	1
-legacy-library-api	Primuse/Views/Library/ArtistDetailView.swift	4
+legacy-library-api	Primuse/Views/Library/ArtistDetailView.swift	3
 legacy-library-api	Primuse/Views/Library/ArtistListView.swift	2
 legacy-library-api	Primuse/Views/Library/FavoriteCollectionView.swift	6
 legacy-library-api	Primuse/Views/Library/LibraryDetailEvidence.swift	6

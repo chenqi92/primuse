@@ -164,6 +164,75 @@ extension LibraryCatalog {
         return result
     }
 
+    /// 艺人页两排专辑(他发行的、他参与的)的候选,给 `ArtistAlbumShelfPolicy.partition` 用(6c 单元 4 详情页):
+    /// 可见专辑里署名有他的(同 `isAlbum(_:creditedToArtist:)`,署名按 `AlbumArtistCreditPolicy.resolvedCredits` 现算)、
+    /// 专辑艺人 id 是他的、专辑艺人写的就是 `displayName` 的(不分大小写、变音符号与全半角),以及 `songAlbumIDs` 里的,
+    /// 按专辑墙的先后,带上哪几张署名有他。只要不沾边的专辑不进来,对它们跑 `partition` 与对整库专辑跑的结果相同。
+    /// 至多 `maxMaterializedRows` 张。
+    public func artistAlbumShelfCandidates(
+        artistID: String, displayName: String, songAlbumIDs: Set<String>
+    ) throws -> (albums: [Album], creditedAlbumIDs: Set<String>) {
+        let keys: [Int32] = try reader.read { db in
+            let ref = try Int64.fetchOne(db, sql: "SELECT ref FROM artistRef WHERE id = ?", arguments: [artistID])
+            let creditedKeys = Set(try ref.map {
+                try Int64.fetchAll(db, sql: "SELECT albumKey FROM albumArtistCredit WHERE artistRef = ?", arguments: [$0])
+            } ?? [])
+            let splits = try Self.visibleSplitsLibrary(in: db)
+            let filter = splits
+                ? """
+                  WHERE album.key IN (SELECT albumKey FROM albumSourceStat
+                      WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))
+                  """
+                : ""
+            let cursor = try Row.fetchCursor(db, sql: """
+                SELECT key, id, artistRef, artistName FROM album \(filter)
+                ORDER BY title COLLATE \(LibraryCatalogSchema.localizedCollation), firstRowid
+                """)
+            var keys: [Int32] = []
+            while let row = try cursor.next(), keys.count < LibraryScale.maxMaterializedRows {
+                let key: Int64 = row[0]
+                let id: String = row[1]
+                let owner: Int64 = row[2]
+                let name: String = row[3]
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard owner == ref || creditedKeys.contains(key) || name.contains(" • ") || songAlbumIDs.contains(id)
+                        || (!trimmed.isEmpty && trimmed.compare(
+                            displayName, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+                        ) == .orderedSame) else { continue }
+                keys.append(try Self.rowid32(key))
+            }
+            return keys
+        }
+        let albums = try self.albums(keys: keys)
+        let configuration = groupingConfiguration.artistNames.normalized()
+        var trackArtists: [String: Artist?] = [:]
+        var lookupError: Error?
+        func trackArtist(_ id: String) -> Artist? {
+            if let known = trackArtists[id] { return known }
+            do {
+                let artist = try visibleArtist(id: id)
+                trackArtists[id] = .some(artist)
+                return artist
+            } catch {
+                lookupError = error
+                return nil
+            }
+        }
+        var credited = Set<String>()
+        for album in albums {
+            let credits = AlbumArtistCreditPolicy.resolvedCredits(
+                for: album,
+                configuration: configuration,
+                isKnownTrackArtist: { trackArtist($0) != nil },
+                knownTrackArtistName: { trackArtist($0)?.name },
+                artistID: { LibraryGroupingReference.hashID(ArtistIdentityPolicy.groupingKey($0)) }
+            )
+            if let lookupError { throw lookupError }
+            if credits.contains(where: { $0.id == artistID }) { credited.insert(album.id) }
+        }
+        return (albums, credited)
+    }
+
     private enum AlbumArtistRow {
         case track(Int32, String)
         case albumOnly(Int, String)

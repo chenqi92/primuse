@@ -165,6 +165,30 @@ struct LibraryGroupingDifferentialTests {
         return artists
     }
 
+    /// 艺人页两排专辑(详情页):对 `artistAlbumShelfCandidates` 的候选跑 `partition`,与对整份可见专辑跑的相同
+    /// (署名用参照实现的专辑艺人索引)。也唱歌的人与只当过专辑艺人的都比。
+    static func checkArtistShelves(_ catalog: LibraryCatalog, albums: [Album], artists: [Artist]) throws {
+        let index = try catalog.albumArtistIndexForReference()
+        let known = Set(artists.map(\.id))
+        for artist in artists + index.artists.filter({ !known.contains($0.id) }) {
+            let displayName = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let songRows = try catalog.artistSongRowList(artistID: artist.id).rowids
+            let songAlbumIDs = Set(try catalog.songs(rowids: songRows).compactMap(\.albumID))
+            let candidates = try catalog.artistAlbumShelfCandidates(
+                artistID: artist.id, displayName: displayName, songAlbumIDs: songAlbumIDs
+            )
+            let expected = ArtistAlbumShelfPolicy.partition(
+                albums: albums, artistID: artist.id, displayName: displayName, songAlbumIDs: songAlbumIDs,
+                isCredited: { index.albumIDsByArtistID[artist.id]?.contains($0.id) == true }
+            )
+            let actual = ArtistAlbumShelfPolicy.partition(
+                albums: candidates.albums, artistID: artist.id, displayName: displayName, songAlbumIDs: songAlbumIDs,
+                isCredited: { candidates.creditedAlbumIDs.contains($0.id) }
+            )
+            #expect(actual == expected, "shelves of \(artist.name)")
+        }
+    }
+
     static func catalogSnapshot(_ catalog: LibraryCatalog) throws -> Snapshot {
         let albums = try catalog.albums(keys: catalog.albumKeys(visibleOnly: false).keys, visibleCounts: false)
         let artists = try catalog.artists(keys: catalog.artistKeys(visibleOnly: false).keys, visibleCounts: false)
@@ -173,6 +197,7 @@ struct LibraryGroupingDifferentialTests {
         let genres = try catalog.genres().map { "\($0.id)|\($0.name)|\($0.songCount)|\($0.albumCount)" }
         let albumArtists = try browsedAlbumArtists(catalog)
         #expect(albumArtists == (try catalog.albumArtistIndexForReference().artists))
+        try checkArtistShelves(catalog, albums: visibleAlbums, artists: visibleArtists)
         let visibleCounts = try catalog.songCountsBySource(.visible)
         let allCounts = try catalog.songCountsBySource(.everything)
         return try catalog.pool.read { db in
