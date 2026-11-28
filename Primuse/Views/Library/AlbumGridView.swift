@@ -11,6 +11,8 @@ struct AlbumGridView: View {
     @AppStorage("library.albumReleaseFilter") private var releaseCategory = ""
     /// 右上角菜单里点了「补全缺少的简介」。
     @State private var requestsIntroFill = false
+    /// 「补全缺少的简介」要整库专辑:歌曲模型不在内存里时先装回来,装好再交给补全(6c)。
+    @State private var introFillReady = false
     /// 只看喜欢的专辑。有喜欢的专辑时才给这个开关。
     @State private var showsLikedOnly = false
     /// 只看离线可用（含本机、已下载与完整缓存）的专辑。
@@ -53,7 +55,8 @@ struct AlbumGridView: View {
     }
 
     private var orderRequest: AlbumGridOrderRequest {
-        AlbumGridOrderRequest(order: albumOrder, albums: library.visibleAlbums)
+        // 6c: 只有内存路径要这份数组;歌曲模型不在内存里时那条路先占用装回来(`songModelPage`),这里不读空数组。
+        AlbumGridOrderRequest(order: albumOrder, albums: library.isReady ? library.visibleAlbums : [])
     }
 
     private var effectiveOfflineOnly: Bool {
@@ -107,14 +110,13 @@ struct AlbumGridView: View {
     /// 目录可读、按艺术家/标题/年份排、没有按发行类别筛时读目录;其余照旧排内存里的专辑。
     /// 读目录失败的那组条件改走内存路径。
     private var catalogKey: AlbumGridCatalogKey? {
-        guard !effectiveOfflineOnly,
-              library.catalogHost?.revisions.isReadable == true,
-              let order = albumOrder.browseOrder, order == .artist || order == .title || order == .year,
-              releaseCategory.isEmpty else { return nil }
+        guard library.catalogHost?.revisions.isReadable == true, releaseCategory.isEmpty else { return nil }
         let key = AlbumGridCatalogKey(
-            order: order, query: albumFilter.trimmingCharacters(in: .whitespacesAndNewlines),
+            order: albumOrder.browseOrder ?? .title, bySongCount: albumOrder == .songCount,
+            query: albumFilter.trimmingCharacters(in: .whitespacesAndNewlines),
             likedOnly: showsLikedOnly, hidesSingleSongAlbums: hidesSingleSongAlbums,
-            favoritesRevision: showsLikedOnly ? favorites.revision : 0
+            favoritesRevision: showsLikedOnly ? favorites.revision : 0,
+            offlineOnly: effectiveOfflineOnly, offlineRevision: effectiveOfflineOnly ? offlineAlbumFilterRevision : 0
         )
         return catalogList.failedKey == key ? nil : key
     }
@@ -132,10 +134,11 @@ struct AlbumGridView: View {
         let unknownArtistName = String(localized: "unknown_artist")
         let predicate = AlbumGridAlbumPredicate(
             query: key.query, likedOnly: key.likedOnly, hidesSingleSongAlbums: key.hidesSingleSongAlbums,
-            favorites: favorites.ledger, unknownArtistName: unknownArtistName
+            favorites: favorites.ledger, unknownArtistName: unknownArtistName,
+            offlineAlbumIDs: key.offlineOnly ? offlineAlbumIDs : nil
         )
         catalogList.update(key, host: host, query: LibraryAlbumBrowseQuery(
-            order: key.order, unknownArtistName: unknownArtistName,
+            order: key.order, bySongCount: key.bySongCount, unknownArtistName: unknownArtistName,
             currentYear: Calendar.current.component(.year, from: Date()),
             predicate: predicate.isEmpty ? nil : predicate
         ))
@@ -150,7 +153,8 @@ struct AlbumGridView: View {
     /// 曲库里的可见专辑数(目录可读时数目录)。
     private var totalAlbumCount: Int {
         if let counts = LibraryHubCatalogCountsModel.shared(for: library)?.readableCounts { return counts.albums }
-        return library.visibleAlbums.count
+        // 目录的计数还没读到而模型不在内存里:先用列表本身的数,不拿空数组的 0。
+        return library.isReady ? library.visibleAlbums.count : displayedAlbumCount
     }
 
     /// 「补全缺少的简介」要的专辑:目录路径下按同样的条件从内存曲库筛(P3 删内存曲库前改成按键分批取)。
@@ -158,9 +162,17 @@ struct AlbumGridView: View {
         guard let key = catalogKey else { return filteredAlbums }
         let predicate = AlbumGridAlbumPredicate(
             query: key.query, likedOnly: key.likedOnly, hidesSingleSongAlbums: key.hidesSingleSongAlbums,
-            favorites: favorites.ledger, unknownArtistName: String(localized: "unknown_artist")
+            favorites: favorites.ledger, unknownArtistName: String(localized: "unknown_artist"),
+            offlineAlbumIDs: key.offlineOnly ? offlineAlbumIDs : nil
         )
-        return library.visibleAlbums.filter(predicate.matches)
+        // 6c: 整库筛选;点菜单时已先把模型装回来(`introFillReady`),这里模型在内存里。
+        return library.isReady ? library.visibleAlbums.filter(predicate.matches) : []
+    }
+
+    private func startIntroFill(_ requested: Bool) {
+        guard requested else { return }
+        requestsIntroFill = false
+        Task { if await SongModelArrayRead.read(library, { true }) == true { introFillReady = true } }
     }
 
     private var filteredAlbums: [Album] {
@@ -244,7 +256,9 @@ struct AlbumGridView: View {
                     if catalogKey == nil { await prepareAlbums(filterRequest) }
                 }
                 .task(id: catalogKey) { updateCatalogList() }
-                .libraryInsightBatchFill(kind: .album, request: $requestsIntroFill) {
+                .onChange(of: requestsIntroFill) { _, requested in startIntroFill(requested) }
+                .songModelPage(needsArrays: catalogKey == nil)
+                .libraryInsightBatchFill(kind: .album, request: $introFillReady) {
                     batchFillAlbums().map(LibraryInsightBatchItem.album)
                 }
             #else
@@ -310,7 +324,9 @@ struct AlbumGridView: View {
                     if catalogKey == nil { await prepareAlbums(filterRequest) }
                 }
                 .task(id: catalogKey) { updateCatalogList() }
-                .libraryInsightBatchFill(kind: .album, request: $requestsIntroFill) {
+                .onChange(of: requestsIntroFill) { _, requested in startIntroFill(requested) }
+                .songModelPage(needsArrays: catalogKey == nil)
+                .libraryInsightBatchFill(kind: .album, request: $introFillReady) {
                     batchFillAlbums().map(LibraryInsightBatchItem.album)
                 }
             #endif
@@ -1020,28 +1036,6 @@ struct AlbumGridFilterRequest: Hashable, Sendable {
 
 /// 专辑页筛选里与发行类别无关的几项(隐藏单曲专辑、只看喜欢、页内搜索)。内存路径和目录路径共用,
 /// 两边筛出来的专辑一样。
-struct AlbumGridAlbumPredicate: Sendable {
-    let query: String
-    let likedOnly: Bool
-    let hidesSingleSongAlbums: Bool
-    let favorites: LibraryFavoriteLedger
-    let unknownArtistName: String
-
-    var isEmpty: Bool { query.isEmpty && !likedOnly && !hidesSingleSongAlbums }
-
-    func matches(_ album: Album) -> Bool {
-        if hidesSingleSongAlbums && album.songCount == 1 { return false }
-        if likedOnly && !favorites.isLiked(LibraryFavoriteKey.id(
-            kind: .album, albumTitle: album.title, artistName: album.artistName ?? "",
-            unknownArtistName: unknownArtistName
-        )) { return false }
-        if !query.isEmpty && !album.title.localizedCaseInsensitiveContains(query)
-            && !(album.artistName?.localizedCaseInsensitiveContains(query) ?? false)
-            && !(album.year.map(String.init)?.contains(query) ?? false) { return false }
-        return true
-    }
-}
-
 struct AlbumGridFilteredAlbums: Sendable {
     let request: AlbumGridFilterRequest
     let source: [Album]

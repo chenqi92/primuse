@@ -654,6 +654,8 @@ struct AlbumArtworkView: View {
     @State private var missingCachedAlbumIdentity: String?
     @State private var missingCachedAlbumMarkedAt: Date?
     @State private var failedFallbacks = ArtworkFallbackAttempts()
+    /// 歌曲模型不在内存里时借的那首(S3,`ArtworkSongCatalogMemo`)。
+    @State private var catalogFallbackSong: PrimuseKit.Song?
 
     private var staticAlbumIdentity: String {
         "\(album.id)#\(library.artworkOverrideRevision)#\(reloadRevision)"
@@ -666,6 +668,7 @@ struct AlbumArtworkView: View {
     /// 只随这张专辑自己的首选封面变化失效; 扫描入库时别的专辑加入不影响这张卡片。
     /// 首选那首在本机读不出封面时换专辑里另一首有封面的歌, 不让一首歌拖累整张专辑。
     private var fallbackSong: PrimuseKit.Song? {
+        guard library.isReady else { return catalogFallbackSong }
         let preferred = library.scopedPreferredArtworkSong(forAlbumID: album.id)
         guard let preferred,
               failedFallbacks.hasFailed(identity: fallbackArtworkIdentity(for: preferred)),
@@ -725,6 +728,11 @@ struct AlbumArtworkView: View {
             }
             missingCachedAlbumIdentity = nil
             missingCachedAlbumMarkedAt = nil
+        }
+        .task(id: library.isReady ? nil : "album#\(album.id)#\(library.songModelGenerationForArtworkMemo)") {
+            // 6c S3: 模型不在内存里时借哪一首从曲库目录问。
+            guard !library.isReady else { return }
+            catalogFallbackSong = await ArtworkSongCatalogMemo.shared.preferredSong(for: .album(album.id), library: library)
         }
         .task(id: "\(uploadedContentID ?? "")#\(library.artworkOverrideRevision)#\(reloadRevision)") {
             await UploadedArtworkLoader.load(contentID: uploadedContentID) {
@@ -979,6 +987,8 @@ struct ArtistArtworkView: View {
     @State private var reloadRevision = 0
     @State private var automaticArtworkResolved: Bool?
     @State private var failedFallbacks = ArtworkFallbackAttempts()
+    /// 歌曲模型不在内存里时借的那首(S3,`ArtworkSongCatalogMemo`)。
+    @State private var catalogFallbackSong: PrimuseKit.Song?
 
     /// 只随这个艺人自己的封面字段失效; `visibleArtist(id:)` 读整份艺人数组,
     /// 扫描每入库一批, 屏幕上的艺人卡片就要全部重算一遍。
@@ -988,6 +998,7 @@ struct ArtistArtworkView: View {
 
     /// 没有专属头像时借的那首歌; 它的封面在本机读不出来就换这个艺人的另一首。
     private var fallbackSong: PrimuseKit.Song? {
+        guard library.isReady else { return catalogFallbackSong }
         let preferred = library.scopedPreferredArtworkSong(forArtistID: currentArtist.id)
         guard let preferred,
               failedFallbacks.hasFailed(identity: fallbackArtworkIdentity(for: preferred)),
@@ -1040,6 +1051,11 @@ struct ArtistArtworkView: View {
                 .onPreferenceChange(ArtworkImagePreferenceKey.self) { artwork in
                     onImageChange?(artwork?.image)
                 }
+        }
+        .task(id: library.isReady ? nil : "artist#\(artist.id)#\(library.songModelGenerationForArtworkMemo)") {
+            // 6c S3: 模型不在内存里时借哪一首从曲库目录问。
+            guard !library.isReady else { return }
+            catalogFallbackSong = await ArtworkSongCatalogMemo.shared.preferredSong(for: .artist(artist.id), library: library)
         }
         .task(id: "\(uploadedContentID ?? "")#\(library.artworkOverrideRevision)#\(reloadRevision)") {
             await UploadedArtworkLoader.load(contentID: uploadedContentID) {

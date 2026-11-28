@@ -1381,6 +1381,8 @@ struct LibraryReadyContent<Content: View>: View {
     static func readiness(for section: LibrarySection?) -> LibraryPageReadiness {
         switch section {
         case .radio, .podcasts, .spokenWord: .always
+        // 专辑页读曲库目录,还读整库数组的那几种自己占用(6c 单元 4 U4a)。
+        case .albums: .catalog
         default: .legacy
         }
     }

@@ -104,4 +104,32 @@ struct LibraryCatalogDashboardQueriesTests {
             }
         }
     }
+
+    /// S5c(6c 单元 4 U4a):资料库专辑页「最近添加」与首页、Mac 首页「查看全部」读的整份键,两种加入时间的算法、
+    /// 两种范围(全部可见、只算音乐)、显示 / 不显示外部专辑,都与 `RecentlyAddedAlbumPolicy` 同序同成员。
+    @Test("Recently added album browse keys follow RecentlyAddedAlbumPolicy", arguments: [UInt64(3), 29, 88])
+    func recentlyAddedAlbumBrowseKeys(seed: UInt64) throws {
+        for disabled in [Set<String>(), ["src-nas"]] {
+            let temporary = try Self.makeCatalog(seed: seed, disabled: disabled)
+            let catalog = temporary.catalog
+            let albums = try catalog.albums(keys: catalog.albumKeys(visibleOnly: true).keys, visibleCounts: true)
+            for scope in [LibrarySongScope.visible, .visibleMusic] {
+                let songs = try catalog.songs(rowids: catalog.rowList(scope).rowids)
+                for including in [true, false] {
+                    for rule in [LibraryRecentlyAddedDateRule.policy, .songDateAdded] {
+                        var index = RecentlyAddedAlbumPolicy.Index(includingExternalSongs: including)
+                        for song in songs {
+                            if rule == .policy { index.add(song) } else { index.add(song, addedDate: song.dateAdded) }
+                        }
+                        let expected = index.sorted(albums: albums).map(\.id)
+                        let keys = try catalog.recentlyAddedAlbumBrowseKeys(
+                            scope: scope, includingExternalSongs: including, dateRule: rule
+                        )
+                        let context = "seed \(seed) disabled \(disabled.sorted()) scope \(scope) including \(including) \(rule)"
+                        #expect(try catalog.albums(keys: keys.keys, visibleCounts: true).map(\.id) == expected, "\(context)")
+                    }
+                }
+            }
+        }
+    }
 }

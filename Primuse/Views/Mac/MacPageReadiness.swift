@@ -60,9 +60,10 @@ extension MacPageKind {
             // 与 iPhone 的分类相同(`LibraryReadyContent.readiness(for:)`):电台、播客不读曲库,
             // 有声书架自己先摆上次的书架。
             .always
-        case .playlists:
+        case .playlists, .albums:
+            // 专辑页(`AlbumGridView`)读曲库目录,还读整库数组的那几种(按发行类别筛)自己占用(6c 单元 4 U4a)。
             .catalog
-        case .songs, .albums, .artists, .genres, .folders, .favorites, .releaseDate, .recommendations,
+        case .songs, .artists, .genres, .folders, .favorites, .releaseDate, .recommendations,
              .statistics, .ambient, .musicVideos:
             .legacy
         }

@@ -298,3 +298,100 @@ extension LibraryCatalog {
         return min(Int(first), LibraryCollationPolicy.letterBuckets.count)
     }
 }
+
+/// 「最近添加」按哪个时间算一首歌的加入时间。
+public enum LibraryRecentlyAddedDateRule: Sendable, Equatable {
+    /// `RecentlyAddedAlbumPolicy.date(for:)`:服务端的专辑加入时间,其次服务端的加入时间,再其次本机的加入时间
+    /// (资料库专辑页、首页「最近添加」的查看全部)。
+    case policy
+    /// 每首歌自己的 `dateAdded`(Mac 首页的仪表盘,`Index.add(song, addedDate: song.dateAdded)`)。
+    case songDateAdded
+}
+
+extension LibraryCatalog {
+    /// 可见专辑按「最近添加」排好的键(S5c),整份、可分页物化 —— 与 `RecentlyAddedAlbumPolicy` 同序同成员:
+    /// 专辑的时间是范围里归到它(按歌曲的 `albumID`)的歌按 `dateRule` 算的加入时间里最新的;从新到旧,
+    /// 时间相同按专辑 id;没有这样的歌的专辑排在最后(按 id)。`includingExternalSongs` 为 false 时
+    /// 外部条目不算时间,只有外部条目的专辑不列(首页「显示外部专辑」关着时)。
+    /// 歌曲只读专辑 id、两个加入时间、标记位与 extra(覆盖值、服务端专辑加入时间),不整首解码。
+    public func recentlyAddedAlbumBrowseKeys(
+        scope: LibrarySongScope = .visible,
+        includingExternalSongs: Bool = true,
+        dateRule: LibraryRecentlyAddedDateRule = .policy,
+        visibleOnly: Bool = true
+    ) throws -> LibraryCatalogBrowseKeys {
+        try reader.read { db in
+            let revision = try Self.revision(in: db)
+            let (songWhere, arguments) = try scope.whereClause(in: db)
+            var latest: [String: Double] = [:]
+            var externalAlbumIDs = Set<String>()
+            let songs = try Row.fetchCursor(
+                db,
+                sql: """
+                    SELECT s.albumID, s.dateAdded, s.serverDateAdded, s.flags, s.extra FROM song s
+                    WHERE \(songWhere)
+                    """,
+                arguments: arguments
+            )
+            while let row = try songs.next() {
+                let fields = try LibraryCatalogSongCodec.recentlyAddedFields(
+                    albumID: row[0], dateAdded: row[1], serverDateAdded: row[2], extra: row.dataNoCopy(atIndex: 4)
+                )
+                guard let albumID = fields.albumID, !albumID.isEmpty else { continue }
+                let flags: Int64 = row[3]
+                if !includingExternalSongs, flags & Int64(LibraryCatalogSongFlags.external) != 0 {
+                    externalAlbumIDs.insert(albumID)
+                    continue
+                }
+                let date: Double
+                switch dateRule {
+                case .songDateAdded: date = fields.dateAdded
+                case .policy: date = fields.serverAlbumDateAdded ?? fields.serverDateAdded ?? fields.dateAdded
+                }
+                latest[albumID] = max(latest[albumID] ?? -Double.infinity, date)
+            }
+            let splitsLibrary = try Self.visibleSplitsLibrary(in: db)
+            let filter = visibleOnly && splitsLibrary
+                ? """
+                  WHERE a.key IN (SELECT albumKey FROM albumSourceStat
+                      WHERE kind = 0 AND sourceKey IN (\(Self.enabledSourcesSQL)))
+                  """
+                : ""
+            var entries: [(key: Int32, id: String, date: Double)] = []
+            let albums = try Row.fetchCursor(db, sql: "SELECT a.key, a.id FROM album a \(filter)")
+            while let row = try albums.next() {
+                let id: String = row[1]
+                let date = latest[id]
+                if date == nil, externalAlbumIDs.contains(id) { continue }
+                let key: Int64 = row[0]
+                entries.append((try Self.rowid32(key), id, date ?? -Double.infinity))
+            }
+            // 同 `RecentlyAddedAlbumPolicy.sorted(albums:latestDates:)`:没有时间的按 `distantPast` 算。
+            entries.sort { $0.date == $1.date ? $0.id < $1.id : $0.date > $1.date }
+            return LibraryCatalogBrowseKeys(keys: ContiguousArray(entries.map(\.key)), sections: [], revision: revision)
+        }
+    }
+}
+
+extension LibraryCatalogSongCodec {
+    /// 「最近添加」要的几样,按 `decode(_:)` 的规则读(extra 里的覆盖值优先于列)。
+    static func recentlyAddedFields(
+        albumID: String?, dateAdded: Double?, serverDateAdded: Double?, extra: Data?
+    ) throws -> (albumID: String?, dateAdded: Double, serverDateAdded: Double?, serverAlbumDateAdded: Double?) {
+        guard let extra else { return (albumID, dateAdded ?? 0, serverDateAdded, nil) }
+        var reader = ExtraReader(extra)
+        var strings: [Int: String] = [:]
+        var doubles: [Int: UInt64] = [:]
+        var rare = RareFields()
+        try decodeRareFields(&reader, into: &rare, strings: &strings, doubles: &doubles)
+        func real(_ column: Int, _ value: Double?) -> Double? {
+            doubles[column].map { Double(bitPattern: $0) } ?? value
+        }
+        return (
+            strings[Column.albumID] ?? albumID,
+            real(Column.dateAdded, dateAdded) ?? 0,
+            real(Column.serverDateAdded, serverDateAdded),
+            rare.serverAlbumDateAdded?.timeIntervalSinceReferenceDate
+        )
+    }
+}

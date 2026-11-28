@@ -8,15 +8,29 @@ import SwiftUI
 /// 结果与内存路径(`AlbumGridOrder.layout` + `AlbumGridFilterRequest.filter`)一致。
 struct LibraryAlbumBrowseQuery: LibraryListQuery {
     let order: LibraryAlbumBrowseOrder
+    /// 按专辑的歌曲数从多到少(同数按标题顺序),同内存路径 `AlbumGridOrder.layout(.songCount)`。
+    var bySongCount = false
     let unknownArtistName: String
     let currentYear: Int
     /// nil:不筛。
     let predicate: AlbumGridAlbumPredicate?
 
     func fetchRows(_ catalog: LibraryCatalog) throws -> LibraryListRows {
-        guard let browse = try catalog.albumBrowseKeys(
-            order: order, unknownArtistName: unknownArtistName, currentYear: currentYear, visibleOnly: true
-        ) else { return .empty }
+        let browse: LibraryCatalogBrowseKeys
+        if bySongCount {
+            guard let byTitle = try catalog.albumBrowseKeys(
+                order: .title, unknownArtistName: unknownArtistName, currentYear: currentYear, visibleOnly: true
+            ) else { return .empty }
+            browse = try Self.sortedBySongCount(byTitle, catalog: catalog)
+        } else if order == .recentlyAdded {
+            // S5c:同 `RecentlyAddedAlbumPolicy.sorted(albums: visibleAlbums, songs: visibleSongs)`。
+            browse = try catalog.recentlyAddedAlbumBrowseKeys()
+        } else {
+            guard let keys = try catalog.albumBrowseKeys(
+                order: order, unknownArtistName: unknownArtistName, currentYear: currentYear, visibleOnly: true
+            ) else { return .empty }
+            browse = keys
+        }
         guard let predicate, !predicate.isEmpty else {
             return LibraryListRows(ids: browse.keys, sections: [], revision: browse.revision, browseSections: browse.sections)
         }
@@ -51,16 +65,66 @@ struct LibraryAlbumBrowseQuery: LibraryListQuery {
         try LibraryAlbumListQuery(visibleOnly: true).materialize(ids, catalog: catalog, rowCache: rowCache)
     }
 
+    /// 标题顺序的键按专辑的(可见)歌曲数稳定地重排:多的在前,一样多的保持标题顺序。分批物化取歌曲数。
+    static func sortedBySongCount(_ byTitle: LibraryCatalogBrowseKeys, catalog: LibraryCatalog) throws -> LibraryCatalogBrowseKeys {
+        var counts: [Int] = []
+        counts.reserveCapacity(byTitle.keys.count)
+        var start = 0
+        while start < byTitle.keys.count {
+            let end = min(byTitle.keys.count, start + LibraryScale.maxMaterializedRows)
+            let chunk = Array(byTitle.keys[start..<end])
+            let albums = try catalog.albums(keys: chunk, visibleCounts: true)
+            if albums.count == chunk.count {
+                counts.append(contentsOf: albums.map(\.songCount))
+            } else {
+                for key in chunk { counts.append(try catalog.albums(keys: [key], visibleCounts: true).first?.songCount ?? 0) }
+            }
+            start = end
+        }
+        let order = byTitle.keys.indices.sorted { counts[$0] != counts[$1] ? counts[$0] > counts[$1] : $0 < $1 }
+        return LibraryCatalogBrowseKeys(keys: ContiguousArray(order.map { byTitle.keys[$0] }), sections: [], revision: byTitle.revision)
+    }
+
     func isAffected(by change: LibraryCatalogChange) -> Bool { true }
+}
+
+/// 专辑页的筛选条件(目录路径与内存路径共用)。
+struct AlbumGridAlbumPredicate: Sendable {
+    let query: String
+    let likedOnly: Bool
+    let hidesSingleSongAlbums: Bool
+    let favorites: LibraryFavoriteLedger
+    let unknownArtistName: String
+    /// 只留这些专辑(离线可放的);nil:不按离线筛。
+    var offlineAlbumIDs: Set<String>? = nil
+
+    var isEmpty: Bool { query.isEmpty && !likedOnly && !hidesSingleSongAlbums && offlineAlbumIDs == nil }
+
+    func matches(_ album: Album) -> Bool {
+        if let offlineAlbumIDs, !offlineAlbumIDs.contains(album.id) { return false }
+        if hidesSingleSongAlbums && album.songCount == 1 { return false }
+        if likedOnly && !favorites.isLiked(LibraryFavoriteKey.id(
+            kind: .album, albumTitle: album.title, artistName: album.artistName ?? "",
+            unknownArtistName: unknownArtistName
+        )) { return false }
+        if !query.isEmpty && !album.title.localizedCaseInsensitiveContains(query)
+            && !(album.artistName?.localizedCaseInsensitiveContains(query) ?? false)
+            && !(album.year.map(String.init)?.contains(query) ?? false) { return false }
+        return true
+    }
 }
 
 /// 一组专辑页条件对应的目录列表。条件变了先在后台把新列表取好,再换下旧的(打字搜索时不闪成转圈)。
 struct AlbumGridCatalogKey: Hashable, Sendable {
     let order: LibraryAlbumBrowseOrder
+    let bySongCount: Bool
     let query: String
     let likedOnly: Bool
     let hidesSingleSongAlbums: Bool
     let favoritesRevision: Int
+    /// 只看离线可放的(或全局离线模式):专辑 id 那一份由页面在目录上算好(`offlinePlayableAlbumIDs`)。
+    let offlineOnly: Bool
+    let offlineRevision: Int
 }
 
 /// 一组页面条件对应的目录列表(专辑页、艺人页)。条件变了先在后台把新列表取好,再换下旧的
