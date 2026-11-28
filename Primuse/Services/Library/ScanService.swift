@@ -5710,20 +5710,18 @@ extension ScanService {
         )
         let changes: IncrementalSourceChanges
         if let snapshotConnector = connector as? any ResumableSnapshotMusicSourceConnector {
-            changes = try await snapshotConnector.snapshotChanges(
-                from: state,
-                roots: directories,
-                rootIdentities: rootIdentities,
-                resumeState: checkpoint?.baiduSnapshotState,
-                budget: snapshotBudget
-            ) { [weak self] resumeState, telemetry in
-                await self?.persistBaiduSnapshotProgress(
-                    sourceID: source.id,
-                    generation: generation,
-                    effectiveDirectories: directories,
-                    resumeState: resumeState,
-                    telemetry: telemetry
-                )
+            do {
+                changes = try await snapshotConnector.snapshotChanges(
+                    from: state, roots: directories, rootIdentities: rootIdentities,
+                    resumeState: checkpoint?.baiduSnapshotState, budget: snapshotBudget
+                ) { [weak self] resumeState, telemetry in
+                    await self?.persistBaiduSnapshotProgress(
+                        sourceID: source.id, generation: generation, effectiveDirectories: directories,
+                        resumeState: resumeState, telemetry: telemetry
+                    )
+                }
+            } catch BaiduSnapshotDiffError.duplicateStableKey where checkpoint?.baiduSnapshotState != nil {
+                throw BaiduSnapshotExecutionError.snapshotRestartRequired(checkpoint?.baiduTelemetry ?? SourceSyncTelemetry(resumed: true))
             }
         } else if let incremental = connector as? any IncrementalMusicSourceConnector {
             changes = try await incremental.changes(
@@ -5794,6 +5792,7 @@ extension ScanService {
         }
 
         let requiresCompleteListings = connector is any ResumableSnapshotMusicSourceConnector
+        let retainedMissingKeys = Set(changes.reconciliation?.unresolvedStableKeys ?? [])
         let result: ConnectorScanner.IncrementalResult
         var combinedTelemetry = changes.telemetry
         let snapshotWorkCount = checkpoints[source.id]?.baiduSnapshotState.map {
@@ -5807,25 +5806,22 @@ extension ScanService {
             )
             do {
                 publishBaiduReconciliationProgress(
-                    sourceID: source.id,
-                    snapshotWorkCount: snapshotWorkCount,
-                    completedDirectoryCount: 0,
-                    totalDirectoryCount: changes.changedParentPaths.count,
+                    sourceID: source.id, snapshotWorkCount: snapshotWorkCount,
+                    completedDirectoryCount: 0, totalDirectoryCount: changes.changedParentPaths.count,
                     currentDirectory: scanStates[source.id]?.currentFile ?? ""
                 )
                 result = try await scanner.reconcileChangedDirectories(
                     changes.changedParentPaths,
                     deletedStableKeys: changes.deletedStableKeys,
+                    retainedMissingKeys: retainedMissingKeys,
                     existingSongs: existingSongs,
                     existingIndex: changes.reconciledIndex ?? state.index,
                     scanEpoch: nextScanEpoch,
                     requiresCompleteListings: true
                 ) { [weak self] completedCount, totalCount, currentDirectory in
                     await self?.publishBaiduReconciliationProgress(
-                        sourceID: source.id,
-                        snapshotWorkCount: snapshotWorkCount,
-                        completedDirectoryCount: completedCount,
-                        totalDirectoryCount: totalCount,
+                        sourceID: source.id, snapshotWorkCount: snapshotWorkCount,
+                        completedDirectoryCount: completedCount, totalDirectoryCount: totalCount,
                         currentDirectory: currentDirectory
                     )
                 }
@@ -5835,12 +5831,15 @@ extension ScanService {
                 let finalTelemetry = await budgeted.finishSnapshotReconciliationBudget()
                 if case .budgetExhausted = error {
                     throw BaiduSnapshotExecutionError.reconciliationRequiresDeepScan(
-                        finalTelemetry ?? changes.telemetry ?? SourceSyncTelemetry(
-                            budgetExhausted: true
-                        )
+                        finalTelemetry ?? changes.telemetry ?? SourceSyncTelemetry(budgetExhausted: true)
                     )
                 }
                 throw error
+            } catch is ConnectorSnapshotReconciliationError, BaiduSnapshotDiffError.duplicateStableKey {
+                let finalTelemetry = await budgeted.finishSnapshotReconciliationBudget()
+                throw BaiduSnapshotExecutionError.snapshotRestartRequired(
+                    finalTelemetry ?? changes.telemetry ?? SourceSyncTelemetry()
+                )
             } catch {
                 _ = await budgeted.finishSnapshotReconciliationBudget()
                 throw error
@@ -5849,6 +5848,7 @@ extension ScanService {
             result = try await scanner.reconcileChangedDirectories(
                 changes.changedParentPaths,
                 deletedStableKeys: changes.deletedStableKeys,
+                retainedMissingKeys: retainedMissingKeys,
                 existingSongs: existingSongs,
                 existingIndex: changes.reconciledIndex ?? state.index,
                 scanEpoch: nextScanEpoch,

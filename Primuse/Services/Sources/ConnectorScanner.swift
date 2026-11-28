@@ -208,16 +208,13 @@ actor ConnectorScanner {
     func reconcileChangedDirectories(
         _ directories: Set<String>,
         deletedStableKeys: Set<String>,
+        retainedMissingKeys: Set<String> = [],
         existingSongs: [Song],
         existingIndex: SourceSyncIndex,
         scanEpoch: Int64,
         requiresCompleteListings: Bool = false,
         allowedArtworkParents: Set<String>? = nil,
-        progress: (@Sendable (
-            _ completedCount: Int,
-            _ totalCount: Int,
-            _ currentDirectory: String
-        ) async -> Void)? = nil
+        progress: (@Sendable (_ completedCount: Int, _ totalCount: Int, _ currentDirectory: String) async -> Void)? = nil
     ) async throws -> IncrementalResult {
         defer { finishCoverRevisions() }
         try await connector.connect()
@@ -272,24 +269,19 @@ actor ConnectorScanner {
                     await progress?(completedDirectoryCount, orderedDirectories.count, directory)
                     continue
                 }
-                let unconfirmedMissing = BaiduSnapshotDirectoryReconciliationPolicy
-                    .unconfirmedMissingKeys(
-                        expectedKeys: Set(oldEntries.keys),
-                        listedKeys: [],
-                        confirmedDeletedKeys: deletedStableKeys
-                    )
-                guard requiresCompleteListings,
-                      isMissingPathError(error),
-                      unconfirmedMissing.isEmpty else { throw error }
+                let unconfirmedMissing = BaiduSnapshotDirectoryReconciliationPolicy.unconfirmedMissingKeys(
+                    expectedKeys: Set(oldEntries.keys), listedKeys: [],
+                    confirmedDeletedKeys: deletedStableKeys, retainedMissingKeys: retainedMissingKeys
+                )
+                guard requiresCompleteListings, isMissingPathError(error) else { throw error }
+                guard unconfirmedMissing.isEmpty else {
+                    throw ConnectorSnapshotReconciliationError.incompleteDirectory(directory, unconfirmedMissing.sorted())
+                }
                 // A moved directory's old path (or a directory whose children
-                // were all confirmed deleted) may legitimately return -9.
+                // were all confirmed deleted or retained missing) may legitimately return -9.
                 // Nothing unconfirmed is owned by that stale path anymore.
                 completedDirectoryCount += 1
-                await progress?(
-                    completedDirectoryCount,
-                    orderedDirectories.count,
-                    directory
-                )
+                await progress?(completedDirectoryCount, orderedDirectories.count, directory)
                 continue
             }
             if requiresCompleteListings,
@@ -299,9 +291,9 @@ actor ConnectorScanner {
             let sidecarIndex = await directoryIndex(siblings, of: directory, allowedParents: allowedArtworkParents)
             var rebuiltStableKeys: Set<String> = []
             for (key, entry) in oldEntries {
-                // If another changed directory already moved this stable key,
-                // do not let the old-parent pass delete the replacement.
-                guard index[key]?.parentPath == entry.parentPath else { continue }
+                // If another changed directory already moved this stable key, or
+                // the snapshot retained it for two-pass deletion confirmation, keep it.
+                guard index[key]?.parentPath == entry.parentPath, !retainedMissingKeys.contains(key) else { continue }
                 index[key] = nil
                 for id in entry.songIDs { songsByID[id] = nil }
             }
@@ -477,17 +469,12 @@ actor ConnectorScanner {
             }
 
             if requiresCompleteListings {
-                let unconfirmedMissing = BaiduSnapshotDirectoryReconciliationPolicy
-                    .unconfirmedMissingKeys(
-                        expectedKeys: Set(oldEntries.keys),
-                        listedKeys: rebuiltStableKeys,
-                        confirmedDeletedKeys: deletedStableKeys
-                    )
+                let unconfirmedMissing = BaiduSnapshotDirectoryReconciliationPolicy.unconfirmedMissingKeys(
+                    expectedKeys: Set(oldEntries.keys), listedKeys: rebuiltStableKeys,
+                    confirmedDeletedKeys: deletedStableKeys, retainedMissingKeys: retainedMissingKeys
+                )
                 guard unconfirmedMissing.isEmpty else {
-                    throw ConnectorSnapshotReconciliationError.incompleteDirectory(
-                        directory,
-                        unconfirmedMissing.sorted()
-                    )
+                    throw ConnectorSnapshotReconciliationError.incompleteDirectory(directory, unconfirmedMissing.sorted())
                 }
             }
 
@@ -2514,6 +2501,6 @@ actor ConnectorScanner {
     }
 }
 
-private enum ConnectorSnapshotReconciliationError: Error {
+enum ConnectorSnapshotReconciliationError: Error, Equatable, Sendable {
     case incompleteDirectory(String, [String])
 }

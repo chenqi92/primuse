@@ -772,3 +772,216 @@ final class ObservedChildPathIndexTests: XCTestCase {
         catch { XCTAssertTrue(error is CancellationError) }
     }
 }
+
+final class BaiduSnapshotReconciliationRegressionTests: XCTestCase {
+    @MainActor
+    private func makeHarness(items: [RemoteFileItem]) throws -> (
+        root: URL, source: MusicSource, store: SourcesStore, library: MusicLibrary,
+        connector: BaiduSnapshotReconciliationFixture, scan: ScanService, manager: SourceManager
+    ) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        var source = MusicSource(id: UUID().uuidString, name: "Baidu", type: .baiduPan)
+        source.extraConfig = MusicSource.encodeScannedDirectories(["/Music"], into: nil, type: source.type)
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let connector = BaiduSnapshotReconciliationFixture(sourceID: source.id, items: items)
+        let scan = ScanService(fileManager: BaiduSnapshotTestFileManager(root: root),
+            connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) })
+        let manager = SourceManager(sourcesProvider: { [source] in [source] })
+        return (root, source, store, library, connector, scan, manager)
+    }
+
+    @MainActor
+    func testSameDirectoryFirstPassMissingAndSiblingChangeCommitsAndDeletesOnSecondPass() async throws {
+        let h = try makeHarness(items: [.baiduFile(id: 1, name: "keep.flac"), .baiduFile(id: 2, name: "vanish.flac")])
+        defer { h.scan.cancelAllActiveScans(); try? FileManager.default.removeItem(at: h.root) }
+
+        try await runScan(h.scan, source: h.source, manager: h.manager, library: h.library, store: h.store)
+        XCTAssertEqual(Set(h.library.songs.map(\.filePath)), ["/Music/keep.flac", "/Music/vanish.flac"])
+
+        // First pass: vanish.flac disappears while added.flac arrives in the same directory.
+        await h.connector.setItems([.baiduFile(id: 1, name: "keep.flac"), .baiduFile(id: 3, name: "added.flac")])
+        try await runScan(h.scan, source: h.source, manager: h.manager, library: h.library, store: h.store)
+        XCTAssertNil(h.scan.scanStates[h.source.id]?.failureMessage)
+        XCTAssertFalse(h.scan.scanStates[h.source.id]?.canResume == true)
+        XCTAssertEqual(Set(h.library.songs.map(\.filePath)), [
+            "/Music/keep.flac", "/Music/vanish.flac", "/Music/added.flac",
+        ], "First-pass missing file must stay retained while sibling changes commit")
+
+        // Second pass confirms the deletion and prunes vanish.flac cleanly.
+        try await runScan(h.scan, source: h.source, manager: h.manager, library: h.library, store: h.store)
+        XCTAssertNil(h.scan.scanStates[h.source.id]?.failureMessage)
+        XCTAssertEqual(Set(h.library.songs.map(\.filePath)), ["/Music/keep.flac", "/Music/added.flac"])
+    }
+
+    @MainActor
+    func testReconciliationDriftFromConcurrentReplacementRestartsStaleSnapshotAndRecovers() async throws {
+        let h = try makeHarness(items: [.baiduFile(id: 10, name: "song.flac", revision: "v1")])
+        defer { h.scan.cancelAllActiveScans(); try? FileManager.default.removeItem(at: h.root) }
+
+        try await runScan(h.scan, source: h.source, manager: h.manager, library: h.library, store: h.store)
+        let originalSongID = try XCTUnwrap(h.library.songs.first?.id)
+
+        // Phase 1 snapshot sees baidu:10 + baidu:11, then concurrent writeback replaces song.flac
+        // with a new fs_id (baidu:20) before Phase 2 lists /Music.
+        await h.connector.setItems([
+            .baiduFile(id: 10, name: "song.flac", revision: "v1"),
+            .baiduFile(id: 11, name: "new.flac", revision: "v1"),
+        ])
+        await h.connector.injectDriftOnNextReconciliation(replacement: [
+            .baiduFile(id: 20, name: "song.flac", revision: "v2"),
+            .baiduFile(id: 11, name: "new.flac", revision: "v1"),
+        ], remainingDrifts: 1)
+
+        try await runScan(h.scan, source: h.source, manager: h.manager, library: h.library, store: h.store)
+        XCTAssertNil(h.scan.scanStates[h.source.id]?.failureMessage)
+        XCTAssertFalse(h.scan.scanStates[h.source.id]?.canResume == true)
+        let snapshotCalls = await h.connector.snapshotCallCount
+        XCTAssertEqual(snapshotCalls, 2, "Stale snapshot must restart once and finish cleanly")
+        XCTAssertEqual(Set(h.library.songs.map(\.filePath)), ["/Music/song.flac", "/Music/new.flac"])
+        XCTAssertEqual(h.library.songs.first { $0.filePath == "/Music/song.flac" }?.id, originalSongID)
+    }
+
+    @MainActor
+    func testRepeatedReconciliationDriftPausesCleanlyWithFreshCheckpoint() async throws {
+        let h = try makeHarness(items: [.baiduFile(id: 10, name: "song.flac", revision: "v1")])
+        defer { h.scan.cancelAllActiveScans(); try? FileManager.default.removeItem(at: h.root) }
+
+        try await runScan(h.scan, source: h.source, manager: h.manager, library: h.library, store: h.store)
+        await h.connector.setItems([
+            .baiduFile(id: 10, name: "song.flac", revision: "v1"),
+            .baiduFile(id: 11, name: "new.flac", revision: "v1"),
+        ])
+        await h.connector.injectDriftOnNextReconciliation(replacement: [
+            .baiduFile(id: 20, name: "song.flac", revision: "v2"),
+            .baiduFile(id: 11, name: "new.flac", revision: "v1"),
+        ], remainingDrifts: 5, keepOriginalSnapshotItems: true)
+
+        try await runScan(h.scan, source: h.source, manager: h.manager, library: h.library, store: h.store)
+        XCTAssertNil(h.scan.scanStates[h.source.id]?.failureMessage)
+        let snapshotCalls = await h.connector.snapshotCallCount
+        XCTAssertEqual(snapshotCalls, 3, "At most two automatic restarts per foreground run")
+        XCTAssertEqual(h.library.songs.map(\.filePath), ["/Music/song.flac"])
+    }
+
+    func testConnectorScannerStillFailsClosedOnUnconfirmedLiveOmission() async throws {
+        let keep = RemoteFileItem.baiduFile(id: 1, name: "keep.flac")
+        let connector = BaiduSnapshotReconciliationFixture(sourceID: "src", items: [keep])
+        let scanner = ConnectorScanner(connector: connector, sourceID: "src")
+        let songs = [
+            Song(id: "s1", title: "Keep", fileFormat: .flac, filePath: "/Music/keep.flac", sourceID: "src"),
+            Song(id: "s2", title: "Live", fileFormat: .flac, filePath: "/Music/live.flac", sourceID: "src"),
+        ]
+        let index = SourceSyncIndex([
+            "baidu:1": SourceSyncIndexedItem(stableKey: "baidu:1", path: "/Music/keep.flac",
+                displayName: "keep.flac", parentPath: "/Music", isDirectory: false, songIDs: ["s1"],
+                size: 100, modifiedDate: nil, revision: "r1"),
+            "baidu:2": SourceSyncIndexedItem(stableKey: "baidu:2", path: "/Music/live.flac",
+                displayName: "live.flac", parentPath: "/Music", isDirectory: false, songIDs: ["s2"],
+                size: 100, modifiedDate: nil, revision: "r1"),
+        ])
+        do {
+            _ = try await scanner.reconcileChangedDirectories(
+                ["/Music"], deletedStableKeys: [], retainedMissingKeys: [],
+                existingSongs: songs, existingIndex: index, scanEpoch: 2, requiresCompleteListings: true
+            )
+            XCTFail("Expected unconfirmed live omission to abort reconciliation")
+        } catch let error as ConnectorSnapshotReconciliationError {
+            XCTAssertEqual(error, .incompleteDirectory("/Music", ["baidu:2"]))
+        }
+    }
+
+    @MainActor
+    private func runScan(
+        _ scan: ScanService, source: MusicSource, manager: SourceManager, library: MusicLibrary, store: SourcesStore
+    ) async throws {
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library,
+            sourceStore: store, requestsContinuedProcessing: false))
+        let deadline = Date().addingTimeInterval(10)
+        while scan.scanStates[source.id]?.isScanning == true, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertFalse(scan.scanStates[source.id]?.isScanning == true)
+    }
+}
+
+private final class BaiduSnapshotTestFileManager: FileManager, @unchecked Sendable {
+    let root: URL
+    init(root: URL) { self.root = root; super.init() }
+    override func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
+}
+
+private extension RemoteFileItem {
+    static func baiduFile(id: Int64, name: String, revision: String = "r1") -> RemoteFileItem {
+        RemoteFileItem(name: name, path: "/Music/\(name)", isDirectory: false, size: 100,
+            modifiedDate: nil, revision: revision, providerID: "baidu:\(id)", parentPath: "/Music")
+    }
+}
+
+private actor BaiduSnapshotReconciliationFixture: ResumableSnapshotMusicSourceConnector, SnapshotReconciliationBudgetConnector {
+    let sourceID: String
+    private var items: [RemoteFileItem]
+    private var driftedListing: [RemoteFileItem]?
+    private var remainingDrifts = 0
+    private var keepOriginalSnapshotItems = false
+    private(set) var snapshotCallCount = 0
+
+    init(sourceID: String, items: [RemoteFileItem]) { self.sourceID = sourceID; self.items = items }
+    func setItems(_ newItems: [RemoteFileItem]) { items = newItems }
+    func injectDriftOnNextReconciliation(replacement: [RemoteFileItem], remainingDrifts: Int, keepOriginalSnapshotItems: Bool = false) {
+        self.driftedListing = replacement; self.remainingDrifts = remainingDrifts; self.keepOriginalSnapshotItems = keepOriginalSnapshotItems
+    }
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        guard path == "/Music" else { return [] }
+        if remainingDrifts > 0, let driftedListing {
+            remainingDrifts -= 1
+            if !keepOriginalSnapshotItems { items = driftedListing }
+            return driftedListing
+        }
+        return items
+    }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        let current = items
+        return AsyncThrowingStream { c in for item in current { c.yield(item) }; c.finish() }
+    }
+    func initialSnapshotMarker(for roots: [String]) async throws -> [String: String] {
+        [BaiduSnapshotIdentity.cursorKey: BaiduSnapshotIdentity.cursorVersion]
+    }
+    func snapshotChanges(
+        from state: SourceSyncState, roots: [String], rootIdentities: [SourceSyncRootIdentity],
+        resumeState: BaiduSnapshotResumeState?, budget: BaiduSnapshotRefreshBudget,
+        progress: @escaping @Sendable (BaiduSnapshotResumeState, SourceSyncTelemetry) async -> Void
+    ) async throws -> IncrementalSourceChanges {
+        snapshotCallCount += 1
+        let indexed = items.map {
+            SourceSyncIndexedItem(stableKey: $0.providerID!, path: $0.path, displayName: $0.name,
+                parentPath: "/Music", isDirectory: false, songIDs: [], size: $0.size,
+                modifiedDate: $0.modifiedDate, revision: $0.revision, seenEpoch: state.scanEpoch + 1)
+        }
+        let resume = BaiduSnapshotResumeState(baselineScanEpoch: state.scanEpoch, roots: roots,
+            pendingDirectories: [], visitedDirectories: Set(roots), liveDirectories: Set(roots),
+            snapshot: Dictionary(uniqueKeysWithValues: indexed.map { ($0.stableKey, $0) }))
+        await progress(resume, SourceSyncTelemetry(requestCount: 1, directoryCount: 1, elapsed: 0.01, resumed: resumeState != nil))
+        let diff = try BaiduSnapshotDiffPolicy.plan(
+            previousIndex: state.index, currentItems: indexed, liveDirectories: Set(roots),
+            identityAliases: state.identityAliases, missingStableKeys: state.missingStableKeys
+        )
+        return IncrementalSourceChanges(
+            cursors: [BaiduSnapshotIdentity.cursorKey: BaiduSnapshotIdentity.cursorVersion],
+            changedParentPaths: diff.changedParentPaths, deletedStableKeys: diff.deletedStableKeys,
+            requiresDeepScan: false, reconciledIndex: diff.reconciledIndex, identityAliases: diff.identityAliases,
+            rootIdentities: rootIdentities, missingStableKeys: diff.missingStableKeys,
+            reconciliation: diff.reconciliation, telemetry: SourceSyncTelemetry(requestCount: 1, directoryCount: 1, elapsed: 0.01)
+        )
+    }
+    func beginSnapshotReconciliationBudget(_ budget: BaiduSnapshotRefreshBudget, consumed: SourceSyncTelemetry?) async {}
+    func reserveSnapshotReconciliationDirectory() async throws {}
+    func checkSnapshotReconciliationBudget() async throws {}
+    func finishSnapshotReconciliationBudget() async -> SourceSyncTelemetry? { nil }
+}

@@ -1629,16 +1629,16 @@ public enum BaiduSnapshotDiffPolicy {
 }
 
 public enum BaiduSnapshotDirectoryReconciliationPolicy {
-    /// A post-snapshot directory read may omit only keys whose deletion was
-    /// already confirmed by the complete snapshot policy. Any other omission
-    /// means the provider tree changed between phases (or the listing was not
-    /// complete), so the caller must abort without committing state.
+    /// A post-snapshot directory read may omit only keys confirmed deleted or
+    /// already retained as first-pass missing by the snapshot policy. Any other
+    /// omission means the remote tree drifted between phases, so the caller
+    /// must abort without committing state.
     public static func unconfirmedMissingKeys(
         expectedKeys: Set<String>,
         listedKeys: Set<String>,
-        confirmedDeletedKeys: Set<String>
+        confirmedDeletedKeys: Set<String>, retainedMissingKeys: Set<String> = []
     ) -> Set<String> {
-        expectedKeys.subtracting(listedKeys).subtracting(confirmedDeletedKeys)
+        expectedKeys.subtracting(listedKeys).subtracting(confirmedDeletedKeys).subtracting(retainedMissingKeys)
     }
 }
 
