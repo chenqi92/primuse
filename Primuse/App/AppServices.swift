@@ -1394,8 +1394,9 @@ final class AppServices {
                     favorites: .shared
                 )
             },
-            // 按名字找专辑 / 艺人读的是整库的专辑、艺人表:歌曲模型在内存里才答得出。
-            libraryCanAnswer: { [weak library] in library?.isReady ?? false }
+            // 按名字找专辑 / 艺人读的是整库的专辑、艺人表:歌曲模型在内存里才答得出。不在时问曲库目录(DL3)。
+            libraryCanAnswer: { [weak library] in library?.isReady ?? false },
+            catalogSongProvider: ServerCollectionFavoriteSyncService.catalogSongProvider(library: library)
         )
         let bookFavoriteSync = ServerBookFavoriteSyncService(
             sourcesProvider: { [weak store] in store?.sources ?? [] },
@@ -1784,17 +1785,13 @@ final class AppServices {
                 guard applyFence() else { return }
                 // 专辑 / 艺人收藏与有声书收藏:对账本身不读整库数组(书架上的书从曲库目录读);真有要落地、又要整库
                 // 那一层的改动时,各自在那一步才经 `songModel` 占用。没变的一轮不占用。
-                await collectionFavoriteSync?.refresh(
-                    source: source, applyFence: applyFence, acquireSongModel: { await songModel.acquire() }
-                )
+                await collectionFavoriteSync?.refresh(source: source, applyFence: applyFence) { await songModel.acquire(step: "collection-favorites", sourceID: source.id, reason: $0) }
                 guard applyFence() else { return }
-                await bookFavoriteSync?.refresh(
-                    source: source, applyFence: applyFence, acquireSongModel: { await songModel.acquire() }
-                )
+                await bookFavoriteSync?.refresh(source: source, applyFence: applyFence) { await songModel.acquire(step: "book-favorites", sourceID: source.id, reason: $0) }
                 guard applyFence() else { return }
-                // 评分的续传要发布后的曲库;有要续的才占用。
-                if ratingSync?.hasWorkToResume(sourceID: source.id) == true { await songModel.acquire() }
-                ratingSync?.resume(sourceID: source.id)
+                // 评分的续传要发布后的曲库;有要续的才占用。DL3:模型不在内存里时先从小状态判有没有要补回、要上传的,
+                // 确认过的条目都已在曲库里(常态)时不占用;真要整库那一层时才占用(见 `resumeInMirrorRound`)。
+                await ratingSync?.resumeInMirrorRound(sourceID: source.id) { await songModel.acquire(step: "ratings", sourceID: source.id, reason: $0) }
                 guard let radioStore, applyFence() else { return }
                 await ServerRadioSyncService.sync(
                     source: source,
@@ -2486,8 +2483,9 @@ final class AppServices {
         // 续扫会把整份检查点重新播种一遍, 并把源的 songCount 写成 0。守卫放在
         // 入口, 后台 settle、非 iOS 的 .active 与 drain 三个调用方一起覆盖。
         // 6c: 歌曲模型放掉了(可用)时照样判有没有活(时长问曲库目录),有活才在起扫描前占用模型。
+        // DL3: 还不可用时等「可用」(不装模型的启动里等就绪就是等到有人装模型),开关关着时与等就绪相同。
         guard musicLibrary.isUsable else {
-            musicLibrary.onReady { [weak self] in
+            musicLibrary.onUsable { [weak self] in
                 self?.resumePendingLocalImportScanIfNeeded()
             }
             return

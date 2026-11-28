@@ -5006,7 +5006,7 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
                        "the shelf's books from the catalog")
         final class Acquisitions { var count = 0; var hold: MusicLibrary.SongModelHold? }
         let acquisitions = Acquisitions()
-        let acquire: @MainActor () async -> Void = { [weak library] in
+        let acquire: @MainActor (String) async -> Void = { [weak library] _ in
             acquisitions.count += 1
             guard let library else { return }
             acquisitions.hold = await library.holdSongModel(.scan)

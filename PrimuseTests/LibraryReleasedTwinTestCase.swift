@@ -260,8 +260,10 @@ class LibraryReleasedTwinTestCase: XCTestCase {
     }
 
     /// 像 App 那样启动一个库:准备中构造、装开关、目录提前启动、主线程外准备、`publishStartup` 发布。
+    /// `beforePublish`:开关装好、目录提前启动之后、准备与发布之前调一次(DL3:场景先于「可用」变成活跃的那种启动)。
     func launch(
-        _ directory: URL, unloaded: Bool, residency: Bool = true, catalog: LibraryCatalogMirroring = .enabled(startDelay: .zero)
+        _ directory: URL, unloaded: Bool, residency: Bool = true, catalog: LibraryCatalogMirroring = .enabled(startDelay: .zero),
+        beforePublish: (MusicLibrary) -> Void = { _ in }
     ) async -> MusicLibrary {
         let library = MusicLibrary.makePreparing(
             storageDirectory: directory, disabledSourceIDs: [Self.sourceB], artistNameConfiguration: .defaultValue,
@@ -274,6 +276,7 @@ class LibraryReleasedTwinTestCase: XCTestCase {
         ))
         let classification = SpokenWordStore.shared.classificationSnapshot
         library.startCatalogBeforePublish(spokenWordClassification: classification)
+        beforePublish(library)
         let disabled: Set<String> = [Self.sourceB]
         let prepared = await MusicLibrary.prepareStartup(
             disabledSourceIDs: disabled, storageDirectory: directory, artistNameConfiguration: .defaultValue,

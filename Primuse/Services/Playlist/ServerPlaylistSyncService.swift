@@ -76,7 +76,7 @@ enum ServerPlaylistSyncService {
         // AM-a: 歌曲模型放掉之后对照由目录算,落地走小状态那条路(一模一样的一份什么都不写、不装模型);
         // 小状态此刻落不了(前面排着要模型的突变等)时才占用模型,装好之后对着它重算对照再落。
         if !library.isReady, !library.appliesSmallStateWithoutTheModel, let songModel {
-            await songModel.acquire()
+            await songModel.acquire(step: "playlists", sourceID: source.id, reason: "small state cannot be written now")
             guard !Task.isCancelled, applyFence(), library.isReady else {
                 plog("\(context) stage=apply result=skipped reason=library-not-ready")
                 return result
@@ -924,7 +924,7 @@ final class ServerFavoriteSyncService {
         // 曲库没装好时服务器的收藏一首都对不上本机的歌,对出来的「空」不能当成「都取消了」。
         // AM-a: 歌曲模型放掉之后对照读目录、落地走小状态,不装模型;那条路此刻走不通时才占用模型(网络已经读完)。
         if !library.isLibraryLoaded, !library.reconcilesFavoritesWithoutTheSongModel {
-            await songModel?.acquire()
+            await songModel?.acquire(step: "favorites", sourceID: sourceID, reason: "the catalog cannot reconcile likes now")
         }
         guard library.isLibraryLoaded || library.reconcilesFavoritesWithoutTheSongModel else { return false }
         // 曲库里没有的收藏(插件的在线收藏)先作为仅歌单的歌入库, 下面才对得上号。
@@ -936,7 +936,7 @@ final class ServerFavoriteSyncService {
         )
         // 模型不在内存里而刚才有新歌要入库(排了队):后面「这个源喜欢了哪些」要对着装好的库答,先占用模型。
         if !library.isLibraryLoaded, library.hasQueuedMutations {
-            await songModel?.acquire()
+            await songModel?.acquire(step: "favorites", sourceID: sourceID, reason: "new playlist-only songs were queued")
             guard library.isLibraryLoaded else { return false }
         }
         if let musicLibrary = library as? MusicLibrary, let reader = P2cCatalogAccess.reader(for: musicLibrary) {
@@ -1135,13 +1135,12 @@ final class ServerMirrorSongModelAccess {
     private weak var library: MusicLibrary?
     private var hold: MusicLibrary.SongModelHold?
 
-    init(library: MusicLibrary?) {
-        self.library = library
-    }
+    init(library: MusicLibrary?) { self.library = library }
 
-    /// 已经占着、或者模型本来就在内存里时什么都不做。
-    func acquire() async {
+    /// 已经占着、或者模型本来就在内存里时什么都不做。真去占用时记一行哪一步、哪个源、为什么(DL3):真机日志据此点名。
+    func acquire(step: String, sourceID: String, reason: String) async {
         guard hold == nil, let library, !library.isReady else { return }
+        plog("🧠 mirror round hold step=\(step) source=\(LogRedactionPolicy.digest(sourceID)) reason=\(reason)")
         hold = await library.holdSongModel(.scan)
     }
 

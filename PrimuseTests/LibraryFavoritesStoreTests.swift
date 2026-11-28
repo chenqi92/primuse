@@ -373,7 +373,7 @@ final class ServerCollectionFavoriteSyncServiceTests: XCTestCase {
         let (store, connector, service, _, url) = makeFixture(libraryCanAnswer: { model.loaded })
         defer { try? FileManager.default.removeItem(at: url) }
         let source = MusicSource(id: "nav", name: "Navidrome", type: .navidrome)
-        let acquire: @MainActor () async -> Void = {
+        let acquire: @MainActor (String) async -> Void = { _ in
             model.acquisitions += 1
             model.loaded = true
         }

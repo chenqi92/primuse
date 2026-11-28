@@ -67,7 +67,7 @@ final class ServerBookFavoriteSyncService {
 
     /// 扫描收尾 / 镜像刷新时调用。`acquireSongModel`:镜像刷新那一轮的占用(一轮最多一次)。书架上的书从曲库目录也读得出,
     /// 不为它占用;只有服务端带回来要收进本机的书(挪收藏顺序要读收藏的专辑、艺人)、或者目录也答不了时才占用。
-    func refresh(source: MusicSource, applyFence: ServerMirrorApplyFence, acquireSongModel: (@MainActor () async -> Void)? = nil) async {
+    func refresh(source: MusicSource, applyFence: ServerMirrorApplyFence, acquireSongModel: (@MainActor (String) async -> Void)? = nil) async {
         guard Self.supports(source.type), applyFence() else { return }
         await reconcileSerially(source.id, acquireSongModel: acquireSongModel)
     }
@@ -95,7 +95,7 @@ final class ServerBookFavoriteSyncService {
     }
 
     /// 同一个源同时只对一轮账；进行中又来请求就在这一轮结束后再补一轮。
-    private func reconcileSerially(_ sourceID: String, acquireSongModel: (@MainActor () async -> Void)? = nil) async {
+    private func reconcileSerially(_ sourceID: String, acquireSongModel: (@MainActor (String) async -> Void)? = nil) async {
         if let task = running[sourceID] {
             rerunRequested.insert(sourceID)
             await task.value
@@ -120,7 +120,7 @@ final class ServerBookFavoriteSyncService {
         "\(source.id)|\(source.username ?? "")"
     }
 
-    private func reconcile(sourceID: String, acquireSongModel: (@MainActor () async -> Void)?) async {
+    private func reconcile(sourceID: String, acquireSongModel: (@MainActor (String) async -> Void)?) async {
         guard let source = eligibleSources().first(where: { $0.id == sourceID }),
               let connector = connectorProvider(source),
               let library else { return }
@@ -128,7 +128,7 @@ final class ServerBookFavoriteSyncService {
         func currentLocalBooks() async -> [String: String]? {
             if let books = Self.localBooks(sourceID: sourceID, library: library) { return books }
             guard let acquireSongModel else { return nil }
-            await acquireSongModel()
+            await acquireSongModel("the catalog cannot list the shelf")
             return Self.localBooks(sourceID: sourceID, library: library)
         }
         guard let initialBooks = await currentLocalBooks(), !initialBooks.isEmpty else { return }
@@ -150,7 +150,7 @@ final class ServerBookFavoriteSyncService {
             // 装回来之后按内存里的书架再算一遍(与装着时同一份输入)。没有占用的入口这一次不落地,下一轮再来。
             if !plan.collectLocally.isEmpty, !library.isReady {
                 guard let acquireSongModel else { return }
-                await acquireSongModel()
+                await acquireSongModel("server books to collect n=\(plan.collectLocally.count)")
                 guard let reloaded = Self.localBooks(sourceID: sourceID, library: library), !reloaded.isEmpty else { return }
                 localBooks = reloaded
                 plan = TingReaderFavoriteReconciliation.plan(

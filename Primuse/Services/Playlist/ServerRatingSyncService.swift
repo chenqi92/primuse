@@ -544,3 +544,79 @@ final class ServerRatingSyncService {
         defaults.set(data, forKey: storageKey)
     }
 }
+
+// MARK: - 镜像刷新那一轮的续传,歌曲模型不在内存里时(DL3)
+
+extension ServerRatingSyncService {
+    /// 那一轮要做的:什么都不用做、把这几条评价补回曲库(只动小状态),或者要占用歌曲模型(带原因)。
+    private enum MirrorRoundResume {
+        case nothing
+        case restore([LibraryReview])
+        case needsTheSongModel(String)
+    }
+
+    /// 服务端镜像刷新那一轮的 `resume(sourceID:)`。模型在内存里、或者这个源没有要续的(`hasWorkToResume`):照旧。
+    /// 模型不在时先从小状态判:确认过的条目一直留着(这是常态),它们的评价都已经在曲库里时 `resume` 什么都不改 ——
+    /// 以前只要这个源记着一条评分,每一轮都为它装一次模型(真机第 5 轮那次 +19 s 的 `hold scan`)。有要补回曲库的,
+    /// 补的只是评价(小状态,不是歌曲行),小状态此刻落得了盘、每条的「这首还在不在」按 id 从目录答得出时当场补,
+    /// 交给 `restoreLocallyAuthoredServerRatings` 的是与装着模型时同样的那几条(同一个筛法、同一个先后)。
+    /// 占用模型只为:一次性的迁移还没做、有要上传的评分(上传逐条核对时读整库)、打分的那首按 id 查不到或换了条目 id
+    /// (要整个源的条目 id)、专辑评分的那张专辑目录答不了、小状态此刻落不了盘(排着要模型的改动、正在装回)。
+    func resumeInMirrorRound(sourceID: String, acquireSongModel: @MainActor (String) async -> Void) async {
+        guard library.readiness != .ready, hasWorkToResume(sourceID: sourceID) else {
+            resume(sourceID: sourceID)
+            return
+        }
+        switch mirrorRoundResume(sourceID: sourceID) {
+        case .nothing:
+            return
+        case .restore(let reviews):
+            library.restoreLocallyAuthoredServerRatings(reviews)
+            plog("⭐️ server ratings checked without the song model source=\(LogRedactionPolicy.digest(sourceID)) entries=\(reviews.count)")
+        case .needsTheSongModel(let reason):
+            await acquireSongModel(reason)
+            resume(sourceID: sourceID)
+        }
+    }
+
+    private func mirrorRoundResume(sourceID: String) -> MirrorRoundResume {
+        guard migratedExistingRatings else { return .needsTheSongModel("existing ratings not migrated yet") }
+        // 与 `resume` 同一个先后(同一张表的 `values`)。
+        let ofSource = entries.values.filter { $0.target.sourceID == sourceID }
+        let uploads = ofSource.filter { $0.pending && !$0.blockedByConflict }.count
+        if uploads > 0 { return .needsTheSongModel("ratings to upload n=\(uploads)") }
+        let current = ofSource.filter { currentSource(for: $0) != nil }
+        // 只比小状态:这些评分没有一条比曲库里那条新,就什么都补不进去(筛掉不在了的只会更少)。
+        guard library.restoresAnyLocallyAuthoredServerRating(current.map(\.review)) else { return .nothing }
+        guard library.appliesSmallStateWithoutTheModel else { return .needsTheSongModel("small state cannot be written now") }
+        var reviews: [LibraryReview] = []
+        for entry in current {
+            guard let present = hasItemOutsideTheModel(for: entry) else {
+                return .needsTheSongModel("a rated item is not answered by id from the catalog")
+            }
+            if present { reviews.append(entry.review) }
+        }
+        return .restore(reviews)
+    }
+
+    /// `hasItem(for:)` 不读整库数组的那一半。歌曲目标:按 id 从目录取打分的那首,条目 id 对得上就是在。专辑目标:
+    /// 绑着它的本机专辑在这个源上有没有歌,问目录那张专辑的歌。nil:这样答不了 —— 打分的那首按 id 查不到(读失败,
+    /// 或者换了 id,装着时要扫整个源的条目 id)、条目 id 对不上、专辑那一页读不了或给满了上限;调用方占用模型照旧判。
+    private func hasItemOutsideTheModel(for entry: Entry) -> Bool? {
+        guard library.canAnswerSongLookups else { return nil }
+        let target = entry.target
+        if target.isAlbum {
+            guard let review = library.review(forServerRatingTarget: target),
+                  review.subject.kind == .album else { return false }
+            guard let songs = library.songsFromTheCatalog(forAlbum: review.subject.entityID) else { return nil }
+            if songs.contains(where: { $0.sourceID == target.sourceID }) { return true }
+            return songs.count < LibraryScale.maxMaterializedRows ? false : nil
+        }
+        guard let sourceType = sourcesStore.source(id: target.sourceID)?.type else { return false }
+        if let song = library.storedSong(id: entry.review.subject.entityID),
+           Self.itemID(of: song, sourceID: target.sourceID, sourceType: sourceType) == target.itemID {
+            return true
+        }
+        return nil
+    }
+}

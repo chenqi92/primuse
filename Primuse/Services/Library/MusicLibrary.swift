@@ -18949,7 +18949,7 @@ extension MusicLibrary {
         guard emptyArrayObject.count > suffix.count, emptyArrayObject.suffix(suffix.count).elementsEqual(suffix),
               [UInt8(ascii: "{"), UInt8(ascii: ",")].contains(emptyArrayObject[emptyArrayObject.endIndex - suffix.count - 1])
         else { throw CatalogExportError.unexpectedHead }
-        var output = Data(emptyArrayObject[..<(emptyArrayObject.endIndex - 2)])
+        let output = LibraryCatalogExportOutput(head: Data(emptyArrayObject[..<(emptyArrayObject.endIndex - 2)]))
         var isFirst = true
         func append(_ songs: [Song]) throws -> Bool {
             guard !songs.isEmpty else { return true }
@@ -18977,7 +18977,7 @@ extension MusicLibrary {
             retainedStart = end
         }
         output.append(contentsOf: Array("]}".utf8))
-        return output.count <= byteLimit ? .snapshot(output) : .tooLarge(songCount: count)
+        return output.count <= byteLimit ? .snapshot(try output.finish()) : .tooLarge(songCount: count)
     }
 
     private var writesSongsIntoPortableSnapshot: Bool {
@@ -19638,7 +19638,7 @@ extension MusicLibrary {
         if let encoded = try? encoder.encode(snapshot),
            encoded.count <= maximumEncodedSnapshotBytes {
             return PortableSnapshotTransferData(
-                data: encoded,
+                data: LibraryCatalogExportOutput.fileBacked(encoded),
                 eligibleLyricsFileNames: eligibleLyricsFileNames,
                 eligibleSongCount: snapshot.songs.count,
                 artworkBytes: artwork.rawBytes,
@@ -19654,7 +19654,7 @@ extension MusicLibrary {
             if let encoded = try? encoder.encode(snapshot),
                encoded.count <= maximumEncodedSnapshotBytes {
                 return PortableSnapshotTransferData(
-                    data: encoded,
+                    data: LibraryCatalogExportOutput.fileBacked(encoded),
                     eligibleLyricsFileNames: eligibleLyricsFileNames,
                     eligibleSongCount: snapshot.songs.count,
                     artworkBytes: artwork.rawBytes,
@@ -19673,7 +19673,7 @@ extension MusicLibrary {
             if let encoded = try? encoder.encode(snapshot),
                encoded.count <= maximumEncodedSnapshotBytes {
                 return PortableSnapshotTransferData(
-                    data: encoded,
+                    data: LibraryCatalogExportOutput.fileBacked(encoded),
                     eligibleLyricsFileNames: eligibleLyricsFileNames,
                     eligibleSongCount: snapshot.songs.count,
                     artworkBytes: 0,
@@ -19685,7 +19685,7 @@ extension MusicLibrary {
         guard let encoded = try? encoder.encode(snapshot),
               encoded.count <= 64 * 1024 * 1024 else { return nil }
         return PortableSnapshotTransferData(
-            data: encoded,
+            data: LibraryCatalogExportOutput.fileBacked(encoded),
             eligibleLyricsFileNames: eligibleLyricsFileNames,
             eligibleSongCount: snapshot.songs.count,
             artworkBytes: 0,
@@ -22226,7 +22226,7 @@ extension MusicLibrary {
     }
 
     /// 那几种有界的范围查询(一张专辑、一位艺人、一个流派、一张歌单的歌)此刻先问目录时用的读法。
-    fileprivate var rangeLookupOutsideTheModel: LibraryCatalogSongLookup? {
+    var rangeLookupOutsideTheModel: LibraryCatalogSongLookup? {
         #if DEBUG
         if byIDReadsUseCatalogForTesting { return catalogHost?.songLookup() }
         #endif
@@ -22354,7 +22354,7 @@ extension MusicLibrary {
     }
 
     /// 一张专辑的可见歌曲,按碟号、曲号、标题;同 `songs(forAlbum:)`。nil:目录这条路此刻答不了。
-    fileprivate func songsOutsideTheModel(forAlbum albumID: String, lookup: LibraryCatalogSongLookup) -> [Song]? {
+    func songsOutsideTheModel(forAlbum albumID: String, lookup: LibraryCatalogSongLookup) -> [Song]? {
         observeCatalogSongs()
         do {
             return try albumSongsOutsideTheModel(albumID, lookup: lookup)
@@ -22372,7 +22372,7 @@ extension MusicLibrary {
     }
 
     /// 一位艺人署名的可见歌曲,库内顺序;只当过专辑艺人的人取名下各张专辑的歌。同 `songs(forArtist:)`。
-    fileprivate func songsOutsideTheModel(forArtist artistID: String, lookup: LibraryCatalogSongLookup) -> [Song]? {
+    func songsOutsideTheModel(forArtist artistID: String, lookup: LibraryCatalogSongLookup) -> [Song]? {
         observeCatalogSongs()
         do {
             let rowids = try lookup.catalog.artistSongRowList(artistID: artistID).rowids
@@ -23913,7 +23913,7 @@ extension MusicLibrary {
     static var unloadedLaunchCatalogWait: Duration = .milliseconds(500)
 
     /// 不装歌曲模型的启动开着,而且还在第一次发布之前(启动窗口):等可用的另排,`whenReady()` 记下是谁。
-    fileprivate var launchMayPublishWithoutTheSongModel: Bool {
+    var launchMayPublishWithoutTheSongModel: Bool {
         songModelResidencyEnabled && songModelResidencySettings.launchUnloaded && !songModelReleased
     }
 

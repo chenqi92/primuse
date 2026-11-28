@@ -3125,20 +3125,14 @@ struct PrimuseApp: App {
                                 scraperService: scraperService
                             )
                         }
-                        if musicLibrary.isUsable, !musicLibrary.isReady, !scanService.isStartupStateReady {
-                            // 6c: 歌曲模型放掉了(或启动没装)而扫描的启动状态还没读完:先读完再判有没有要续的,
-                            // 不按有算 —— 那会为一个还没答的判断把模型装回来。
-                            Task { @MainActor in
-                                await scanService.whenStartupStateReady()
-                                musicLibrary.onReady(holding: .scan, ifThereIsWork: {
-                                    scanService.hasResumableScanWork
-                                }) { resumeForegroundScans() }
-                            }
-                        } else {
-                            musicLibrary.onReady(holding: .scan, ifThereIsWork: {
-                                !scanService.isStartupStateReady || scanService.hasResumableScanWork
-                            }) { resumeForegroundScans() }
-                        }
+                        // 模型在不在内存里决定先不先占用(6c 的两支,见 `resumeScansOnSceneActivation`);不装模型的启动
+                        // 还没到「可用」时那个问题答不了,等到可用再判(DL3)。
+                        musicLibrary.resumeScansOnSceneActivation(
+                            isStartupStateReady: { scanService.isStartupStateReady },
+                            whenStartupStateReady: { await scanService.whenStartupStateReady() },
+                            hasResumableScanWork: { scanService.hasResumableScanWork },
+                            resume: resumeForegroundScans
+                        )
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
                             backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivityFromCachedCounts,
@@ -3166,15 +3160,10 @@ struct PrimuseApp: App {
                                 scraperService: scraperService
                             )
                         }
-                        if musicLibrary.isUsable, !musicLibrary.isReady {
-                            // 6c: 模型放掉了(或启动没装):不先占用。细查(同步状态、目录的按源计数)不要模型;真要重建的
-                            // 那一轮扫描到提交前自己等模型。有服务器源就每次回前台装一次模型的那一步就此没了。
-                            startTopologyRebuilds()
-                        } else {
-                            musicLibrary.onReady(holding: .scan, ifThereIsWork: {
-                                scanService.mayNeedFolderTopologyRebuild(sourceStore: sourcesStore)
-                            }) { startTopologyRebuilds() }
-                        }
+                        musicLibrary.startFolderTopologyRebuildsOnSceneActivation(
+                            mayNeedRebuild: { scanService.mayNeedFolderTopologyRebuild(sourceStore: sourcesStore) },
+                            start: startTopologyRebuilds
+                        )
                         playerService.handleAppDidBecomeActive()
                         playerService.autoplayRestoredSessionIfEnabled()
                         // 回到前台顺手对一次服务端歌单 /「喜欢」/ 电台, 自带冷却。
