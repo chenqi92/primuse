@@ -1587,6 +1587,7 @@ struct ContentView: View {
     @State private var padRootWidth: CGFloat = 0
     /// iPad 侧栏布局迷你条的实测高度，详情栏的导航栈照它让位。
     @State private var padAccessoryHeight: CGFloat = 0
+    @State private var launchPersistedSessionCache = LaunchPersistedSessionCache()
     @Environment(\.layoutDirection) private var layoutDirection
 
     /// 与 mainContent 里 LegacyNowPlayingAccessory 的挂载条件同源。
@@ -1985,6 +1986,16 @@ struct ContentView: View {
         }
     }
 
+    private func systemBottomAccessoryState(suppressedByOverlay: Bool) -> TabBarStartupPolicy.SystemBottomAccessoryState {
+        TabBarStartupPolicy.systemBottomAccessoryState(
+            hasLivePlayback: miniPlayerActive,
+            restorePhase: player.playbackSessionRestoreLifecycle.phase,
+            hasPersistedSession: launchPersistedSessionCache.hasPersistedSession(at: player.playbackSessionStore.url),
+            isSafeModeActive: LaunchDiagnostics.isSafeModeActive,
+            isSuppressedByOverlay: suppressedByOverlay
+        )
+    }
+
     @ViewBuilder
     private var playerAwareTabRoot: some View {
         // Keep the modifier identity stable while search is active. Toggling
@@ -1995,16 +2006,21 @@ struct ContentView: View {
         if LegacyBottomChromeDebug.isForced {
             tabRoot
         } else if #available(iOS 26.1, *) {
+            let accessoryState = systemBottomAccessoryState(suppressedByOverlay: batchSelectionActive || carPlayEditorActive)
+            // A minimized tab bar keeps only the selected tab and Search.
+            // Without a player accessory that leaves a large empty gap at
+            // the bottom and looks like the other tabs disappeared. Only
+            // minimize when Now Playing can occupy that compact space.
+            // 多选期间整个标签栏已隐藏；保留滚动策略，让退出时接续原来的折叠状态。
+            let minimizesOnScroll = TabBarStartupPolicy.minimizesTabBarOnScroll(
+                accessoryState: systemBottomAccessoryState(suppressedByOverlay: false),
+                pinsMiniPlayer: pinsMiniPlayer, carPlayEditorActive: carPlayEditorActive
+            )
             tabRoot
                 .tabViewSearchActivation(searchTabActivation)
-                // A minimized tab bar keeps only the selected tab and Search.
-                // Without a player accessory that leaves a large empty gap at
-                // the bottom and looks like the other tabs disappeared. Only
-                // minimize when Now Playing can occupy that compact space.
-                // 多选期间整个标签栏已隐藏；保留滚动策略，让退出时接续原来的折叠状态。
-                .tabBarMinimizeBehavior(miniPlayerActive && !carPlayEditorActive && !pinsMiniPlayer ? .onScrollDown : .never)
-                .tabViewBottomAccessory(isEnabled: miniPlayerVisible) {
-                    NowPlayingAccessory(onTap: presentNowPlaying)
+                .tabBarMinimizeBehavior(minimizesOnScroll ? .onScrollDown : .never)
+                .tabViewBottomAccessory(isEnabled: accessoryState.isEnabled) {
+                    NowPlayingAccessory(onTap: { if miniPlayerActive { presentNowPlaying() } }, accessoryState: accessoryState)
                 }
         } else if #available(iOS 26.0, *) {
             // 26.0 has no `isEnabled:` overload and an empty system accessory
@@ -4202,35 +4218,6 @@ struct PadNowPlayingAccessory: View {
             showsNextButton: true,
             regularIconSize: 18
         )
-    }
-}
-
-@available(iOS 26.0, *)
-struct NowPlayingAccessory: View {
-    var onTap: () -> Void
-    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
-
-    private var isInline: Bool { placement == .inline }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            MiniPlayerSwipeContent(
-                onTap: onTap,
-                artworkSize: isInline ? 32 : 30,
-                artworkCornerRadius: 6,
-                artworkTrailingSpacing: isInline ? 10 : 8,
-                titleFont: isInline ? .caption : .subheadline
-            )
-
-            MiniPlayerTransportControls(
-                isInline: isInline,
-                showsNextButton: !isInline,
-                regularIconSize: 18
-            )
-        }
-        .padding(.horizontal, isInline ? 12 : 16)
-        .padding(.vertical, isInline ? 2 : 4)
-        .background(NowPlayingCapsuleProbe())
     }
 }
 
