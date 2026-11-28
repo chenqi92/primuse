@@ -12765,6 +12765,9 @@ struct NowPlayingView: View {
     }
 
     private var playbackSpeedAccessibilityValue: String {
+        if player.isVarispeedEffective {
+            return "\(VarispeedPolicy.signedPercentLabel(forRate: playbackSettings.varispeedRate)), \(VarispeedText.semitoneDisplay(forRate: playbackSettings.varispeedRate))"
+        }
         let speed = String(format: "%.2f×", Double(currentPlaybackRateBinding.wrappedValue))
         guard audiblePitchSemitones != 0 else { return speed }
         return "\(speed), \(PlaybackPitchText.menuTitle(audiblePitchSemitones))"

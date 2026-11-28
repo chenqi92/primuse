@@ -11,10 +11,20 @@ struct NowPlayingPitchMenuItem: View {
     let availability: PlaybackPitchPolicy.Availability
     let onShowUnavailableNotice: () -> Void
 
+    @Environment(PlaybackSettingsStore.self) private var playbackSettings: PlaybackSettingsStore?
+
     var body: some View {
         switch availability {
         case .available:
-            Picker(selection: $semitones) {
+            Picker(selection: Binding(
+                get: { semitones },
+                set: { newValue in
+                    if playbackSettings?.speedPitchMode == .varispeed {
+                        playbackSettings?.setSpeedPitchMode(.independent)
+                    }
+                    semitones = newValue
+                }
+            )) {
                 ForEach(PlaybackPitchPolicy.choices, id: \.self) { value in
                     Text(verbatim: PlaybackPitchText.valueLabel(value)).tag(value)
                 }
@@ -22,6 +32,10 @@ struct NowPlayingPitchMenuItem: View {
                 Label(PlaybackPitchText.menuTitle(semitones), systemImage: PlaybackPitchText.symbol)
             }
             .pickerStyle(.menu)
+
+            if let playbackSettings {
+                NowPlayingVarispeedMenuItem(playbackSettings: playbackSettings)
+            }
         case .appleMusic, .casting, .highFidelity:
             Button(action: onShowUnavailableNotice) {
                 Label {
@@ -35,6 +49,100 @@ struct NowPlayingPitchMenuItem: View {
             }
         case .notOffered:
             EmptyView()
+        }
+    }
+}
+
+/// 播放页菜单里的 Varispeed 子菜单(#494): 模式切换、速度预设(减速 75% / 夜核 125% 等)、
+/// 半音音高对齐(-12...+12 附精确百分比)与百分比微调。
+struct NowPlayingVarispeedMenuItem: View {
+    let playbackSettings: PlaybackSettingsStore
+
+    var body: some View {
+        let mode = playbackSettings.speedPitchMode
+        let rate = playbackSettings.varispeedRate
+        let currentPercent = VarispeedPolicy.percentChange(forRate: rate)
+
+        Menu {
+            Picker(
+                selection: Binding(
+                    get: { playbackSettings.speedPitchMode },
+                    set: { playbackSettings.setSpeedPitchMode($0) }
+                )
+            ) {
+                ForEach(PlaybackSpeedPitchMode.allCases) { option in
+                    Text(verbatim: VarispeedText.modeTitle(option)).tag(option)
+                }
+            } label: {
+                Text("speed_pitch_mode")
+            }
+            .pickerStyle(.inline)
+
+            Section(String(localized: "varispeed_align_speed")) {
+                ForEach(VarispeedPolicy.speedPresets) { preset in
+                    let isSelected = mode == .varispeed
+                        && VarispeedPolicy.matchingSpeedPreset(forRate: rate)?.id == preset.id
+                    Button {
+                        playbackSettings.setVarispeed(speedPercent: Double(preset.speedPercent))
+                    } label: {
+                        if isSelected {
+                            Label(VarispeedText.speedPresetMenuTitle(preset), systemImage: "checkmark")
+                        } else {
+                            Text(verbatim: VarispeedText.speedPresetMenuTitle(preset))
+                        }
+                    }
+                }
+            }
+
+            Menu {
+                ForEach(VarispeedPolicy.pitchPresets) { preset in
+                    let isSelected = mode == .varispeed
+                        && VarispeedPolicy.nearestSemitone(forRate: rate) == preset.semitones
+                    Button {
+                        playbackSettings.setVarispeed(semitones: preset.semitones)
+                    } label: {
+                        if isSelected {
+                            Label(VarispeedText.semitoneWithPercentLabel(preset), systemImage: "checkmark")
+                        } else {
+                            Text(verbatim: VarispeedText.semitoneWithPercentLabel(preset))
+                        }
+                    }
+                }
+            } label: {
+                Label(
+                    mode == .varispeed
+                        ? "\(String(localized: "varispeed_align_pitch")) · \(VarispeedText.semitoneDisplay(forRate: rate))"
+                        : String(localized: "varispeed_align_pitch"),
+                    systemImage: PlaybackPitchText.symbol
+                )
+            }
+
+            Menu {
+                ForEach([5, 1, -1, -5], id: \.self) { step in
+                    Button {
+                        playbackSettings.setVarispeed(percentChange: currentPercent + Double(step))
+                    } label: {
+                        Text(verbatim: String(format: "%+d%%", step))
+                    }
+                }
+            } label: {
+                Label(
+                    "\(String(localized: "varispeed_percent")) \(VarispeedPolicy.signedPercentLabel(forRate: rate))",
+                    systemImage: "percent"
+                )
+            }
+
+            if mode == .varispeed && VarispeedPolicy.isActiveRate(rate) {
+                Section {
+                    Button(role: .destructive) {
+                        playbackSettings.resetVarispeed()
+                    } label: {
+                        Label("varispeed_reset", systemImage: "arrow.counterclockwise")
+                    }
+                }
+            }
+        } label: {
+            Label(VarispeedText.menuTitle(mode: mode, rate: rate), systemImage: VarispeedText.symbol)
         }
     }
 }

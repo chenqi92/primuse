@@ -38,11 +38,12 @@ struct SettingsActionService {
         "appearance.artworkLyrics", "appearance.playerProgressGlow", "appearance.playerProgressArtworkColors",
         "appearance.replayGainBadge", "player.tapArtworkOpensLyrics", "library.showRowNumbers",
         "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "player.pinMiniPlayer",
-        "playback.spokenWordSmartRewind", "playback.spokenWordSmartSpeed", "playback.spokenWordVoiceBoost"
+        "playback.spokenWordSmartRewind", "playback.spokenWordSmartSpeed", "playback.spokenWordVoiceBoost",
+        "playback.musicHaptics"
     ]
     nonisolated static let readableIDs = toggleIDs.union([
         "playback.outputMode", "playback.dsdMode", "playback.crossfadeMode", "playback.crossfadeDuration",
-        "playback.replayGainMode", "playback.speed", "playback.pitch", "storage.audioCacheLimit", "playback.prewarmQueue",
+        "playback.replayGainMode", "playback.speed", "playback.pitch", "playback.varispeedMode", "storage.audioCacheLimit", "playback.prewarmQueue",
         "lyrics.translationTarget", "lyrics.translationMode", "about.version", "about.build"
     ])
     private static let effectsOnly: Set<String> = [
@@ -50,7 +51,7 @@ struct SettingsActionService {
         "playback.crossfadeMode", "playback.crossfadeDuration", "playback.skipLeadingSilence",
         "playback.skipTrailingSilence", "playback.replayGain", "playback.replayGainMode",
         "playback.spatialAudio", "playback.headTracking", "playback.speed", "playback.resetSpeed",
-        "playback.pitch"
+        "playback.pitch", "playback.varispeedMode", "playback.musicHaptics"
     ]
 
     func status(for id: String) -> SettingStatus {
@@ -68,6 +69,10 @@ struct SettingsActionService {
             case "playback.pitch":
                 value = PlaybackPitchPolicy.signedLabel(effectivePitchSemitones)
                     ?? String(localized: "karaoke_key_original")
+            case "playback.varispeedMode":
+                value = playback.speedPitchMode == .varispeed && playback.outputMode == .effects
+                    ? VarispeedPolicy.signedPercentLabel(forRate: playback.varispeedRate)
+                    : VarispeedText.modeTitle(.independent)
             case "playback.prewarmQueue": value = String(playback.prewarmQueueCount)
             case "storage.audioCacheLimit":
                 value = playback.audioCacheLimitBytes == AudioCacheLimitPolicy.unlimitedBytes
@@ -121,6 +126,9 @@ struct SettingsActionService {
         if id == "playback.headTracking", !playback.spatialAudioEnabled {
             return SettingsStrings.text("Enable spatial audio to adjust head tracking.")
         }
+        if id == "playback.musicHaptics", !MusicHapticsEngine.isHardwareSupported {
+            return String(localized: "music_haptics_unsupported")
+        }
         if id.hasPrefix("effects.reverb"), id != "effects.reverb", !playback.reverbEnabled {
             return SettingsStrings.text("Enable reverb to adjust this setting.")
         }
@@ -159,6 +167,7 @@ struct SettingsActionService {
         case "playback.replayGain": playback.replayGainEnabled
         case "playback.spatialAudio": playback.spatialAudioEnabled
         case "playback.headTracking": playback.spatialHeadTrackingEnabled
+        case "playback.musicHaptics": playback.musicHapticsEnabled
         case "lyrics.lockScreen": playback.lockScreenLyricsEnabled
         case "playback.lockScreenLike": playback.lockScreenShowsLike
         case "storage.audioCacheEnabled": playback.audioCacheEnabled
@@ -228,6 +237,7 @@ struct SettingsActionService {
         case "playback.replayGain": playback.replayGainEnabled = enabled
         case "playback.spatialAudio": playback.spatialAudioEnabled = enabled
         case "playback.headTracking": playback.spatialHeadTrackingEnabled = enabled
+        case "playback.musicHaptics": playback.musicHapticsEnabled = enabled
         case "lyrics.lockScreen": playback.lockScreenLyricsEnabled = enabled
         case "playback.lockScreenLike": playback.lockScreenShowsLike = enabled
         case "storage.audioCacheEnabled": playback.audioCacheEnabled = enabled

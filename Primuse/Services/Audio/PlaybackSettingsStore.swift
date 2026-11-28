@@ -119,6 +119,16 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     var playbackRate: Float = 1.0
     /// 升降调(半音, #332), 取值见 `PlaybackPitchPolicy.range`。只作用在音乐上, 有声内容与电台保持原声。
     var pitchSemitones: Int = 0
+    /// 速度与音高控制模式(#494): 独立控制或 Varispeed 联动。
+    var speedPitchMode: PlaybackSpeedPitchMode = .independent
+    /// Varispeed 联动倍率 (0.5x ~ 2.0x), 与音高严格按 `2^(semitones/12)` 对应。
+    var varispeedRate: Float = VarispeedPolicy.defaultRate
+    /// Varispeed 联动时 `playbackRate` 跟着联动倍率走, 独立控制的速度存在这里, 切回独立模式时恢复。
+    var independentPlaybackRate: Float = 1.0
+    /// 音乐触感引擎(iOS, #469): 开关、强度(0...1)与触感风格预设。
+    var musicHapticsEnabled: Bool = false
+    var musicHapticsIntensity: Double = MusicHapticsConfiguration.defaultIntensity
+    var musicHapticsStyle: MusicHapticsStyle = .balanced
     /// 有声内容单独一档速度: 听书常用 1.25×–1.5×, 不能带到下一首歌上。
     var spokenWordPlaybackRate: Float = 1.0
     /// 有声内容的后退 / 前进秒数, 取值见 `SpokenWordSkipPolicy.allowedIntervals`。
@@ -224,6 +234,13 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         prewarmQueueCount = try c.decodeIfPresent(Int.self, forKey: .prewarmQueueCount) ?? 3
         playbackRate = try c.decodeIfPresent(Float.self, forKey: .playbackRate) ?? 1.0
         pitchSemitones = try c.decodeIfPresent(Int.self, forKey: .pitchSemitones) ?? 0
+        speedPitchMode = (try? c.decodeIfPresent(PlaybackSpeedPitchMode.self, forKey: .speedPitchMode)) ?? .independent
+        varispeedRate = VarispeedPolicy.clampedRate(try c.decodeIfPresent(Float.self, forKey: .varispeedRate) ?? VarispeedPolicy.defaultRate)
+        independentPlaybackRate = VarispeedPolicy.clampedRate(try c.decodeIfPresent(Float.self, forKey: .independentPlaybackRate)
+            ?? (speedPitchMode == .independent ? playbackRate : 1.0))
+        musicHapticsEnabled = try c.decodeIfPresent(Bool.self, forKey: .musicHapticsEnabled) ?? false
+        musicHapticsIntensity = MusicHapticsConfiguration.clampedIntensity(try c.decodeIfPresent(Double.self, forKey: .musicHapticsIntensity) ?? MusicHapticsConfiguration.defaultIntensity)
+        musicHapticsStyle = (try? c.decodeIfPresent(MusicHapticsStyle.self, forKey: .musicHapticsStyle)) ?? .balanced
         spokenWordPlaybackRate = try c.decodeIfPresent(Float.self, forKey: .spokenWordPlaybackRate) ?? 1.0
         spokenWordSkipBackwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipBackwardSeconds) ?? 15
         spokenWordSkipForwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipForwardSeconds) ?? 30
@@ -288,6 +305,12 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         prewarmQueueCount: Int = 3,
         playbackRate: Float = 1.0,
         pitchSemitones: Int = 0,
+        speedPitchMode: PlaybackSpeedPitchMode = .independent,
+        varispeedRate: Float = VarispeedPolicy.defaultRate,
+        independentPlaybackRate: Float = 1.0,
+        musicHapticsEnabled: Bool = false,
+        musicHapticsIntensity: Double = MusicHapticsConfiguration.defaultIntensity,
+        musicHapticsStyle: MusicHapticsStyle = .balanced,
         spokenWordPlaybackRate: Float = 1.0,
         spokenWordSkipBackwardSeconds: Int = 15,
         spokenWordSkipForwardSeconds: Int = 30,
@@ -346,6 +369,12 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.prewarmQueueCount = prewarmQueueCount
         self.playbackRate = playbackRate
         self.pitchSemitones = pitchSemitones
+        self.speedPitchMode = speedPitchMode
+        self.varispeedRate = VarispeedPolicy.clampedRate(varispeedRate)
+        self.independentPlaybackRate = VarispeedPolicy.clampedRate(independentPlaybackRate)
+        self.musicHapticsEnabled = musicHapticsEnabled
+        self.musicHapticsIntensity = MusicHapticsConfiguration.clampedIntensity(musicHapticsIntensity)
+        self.musicHapticsStyle = musicHapticsStyle
         self.spokenWordPlaybackRate = spokenWordPlaybackRate
         self.spokenWordSkipBackwardSeconds = spokenWordSkipBackwardSeconds
         self.spokenWordSkipForwardSeconds = spokenWordSkipForwardSeconds
@@ -418,6 +447,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         // 离线缓存存成什么码率是这台设备的存储取舍: Mac 上存原文件, 手机上省空间。
         .init("offlineDownloadQuality", \.offlineDownloadQuality),
         .init("offlineDownloadFormat", \.offlineDownloadFormat),
+        // 音乐触感依赖本机 Taptic Engine 硬件, 按设备各自开关。
+        .init("musicHapticsEnabled", \.musicHapticsEnabled),
     ])
 
     static func load(defaults: UserDefaults = .standard) -> PlaybackSettings {
@@ -541,17 +572,7 @@ final class PlaybackSettingsStore {
             persist()
         }
     }
-    var playbackRate: Float {
-        didSet {
-            // 限定 0.5x - 2.0x, AVAudioUnitTimePitch 单元在此区间外音质会明显劣化
-            let clamped = max(0.5, min(2.0, playbackRate))
-            if clamped != playbackRate {
-                playbackRate = clamped
-                return
-            }
-            persist()
-        }
-    }
+    var playbackRate: Float { didSet { handlePlaybackRateChanged() } }
     var pitchSemitones: Int {
         didSet {
             let clamped = PlaybackPitchPolicy.clamped(pitchSemitones)
@@ -562,6 +583,11 @@ final class PlaybackSettingsStore {
             persist()
         }
     }
+    var speedPitchMode: PlaybackSpeedPitchMode { didSet { handleSpeedPitchModeChanged(from: oldValue) } }
+    var varispeedRate: Float { didSet { handleVarispeedRateChanged() } }
+    var musicHapticsEnabled: Bool { didSet { persist() } }
+    var musicHapticsIntensity: Double { didSet { handleMusicHapticsIntensityChanged() } }
+    var musicHapticsStyle: MusicHapticsStyle { didSet { persist() } }
     var spokenWordPlaybackRate: Float {
         didSet {
             let clamped = SpokenWordPlaybackRatePolicy.clamped(spokenWordPlaybackRate)
@@ -649,7 +675,8 @@ final class PlaybackSettingsStore {
     private let defaults: UserDefaults
     @ObservationIgnored private let cloudSync: CloudKVSSync
     @ObservationIgnored private var lastPersistedSettings: PlaybackSettings?
-    private var suppressPersist = false
+    var suppressPersist = false
+    @ObservationIgnored var savedIndependentPlaybackRate: Float = 1.0
     @ObservationIgnored var audioCacheEnabledDidChange: ((Bool) -> Void)?
 
     init(defaults: UserDefaults = .standard, cloudSync: CloudKVSSync = .shared) {
@@ -677,8 +704,16 @@ final class PlaybackSettingsStore {
         self.skipLeadingSilenceEnabled = s.skipLeadingSilenceEnabled
         self.skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         self.prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
-        self.playbackRate = max(0.5, min(2.0, s.playbackRate))
+        let clampedPlaybackRate = VarispeedPolicy.clampedRate(s.playbackRate)
+        self.playbackRate = clampedPlaybackRate
         self.pitchSemitones = PlaybackPitchPolicy.clamped(s.pitchSemitones)
+        self.speedPitchMode = s.speedPitchMode
+        self.varispeedRate = VarispeedPolicy.clampedRate(s.varispeedRate)
+        self.savedIndependentPlaybackRate = s.speedPitchMode == .independent
+            ? clampedPlaybackRate : VarispeedPolicy.clampedRate(s.independentPlaybackRate)
+        self.musicHapticsEnabled = s.musicHapticsEnabled
+        self.musicHapticsIntensity = MusicHapticsConfiguration.clampedIntensity(s.musicHapticsIntensity)
+        self.musicHapticsStyle = s.musicHapticsStyle
         self.spokenWordPlaybackRate = SpokenWordPlaybackRatePolicy.clamped(s.spokenWordPlaybackRate)
         self.spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
         self.spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
@@ -801,8 +836,15 @@ extension PlaybackSettingsStore {
         skipLeadingSilenceEnabled = s.skipLeadingSilenceEnabled
         skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
-        playbackRate = max(0.5, min(2.0, s.playbackRate))
+        playbackRate = VarispeedPolicy.clampedRate(s.playbackRate)
         pitchSemitones = PlaybackPitchPolicy.clamped(s.pitchSemitones)
+        speedPitchMode = s.speedPitchMode
+        varispeedRate = VarispeedPolicy.clampedRate(s.varispeedRate)
+        savedIndependentPlaybackRate = s.speedPitchMode == .independent
+            ? playbackRate : VarispeedPolicy.clampedRate(s.independentPlaybackRate)
+        musicHapticsEnabled = s.musicHapticsEnabled
+        musicHapticsIntensity = MusicHapticsConfiguration.clampedIntensity(s.musicHapticsIntensity)
+        musicHapticsStyle = s.musicHapticsStyle
         spokenWordPlaybackRate = SpokenWordPlaybackRatePolicy.clamped(s.spokenWordPlaybackRate)
         spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
         spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
@@ -872,6 +914,12 @@ extension PlaybackSettingsStore {
             prewarmQueueCount: prewarmQueueCount,
             playbackRate: playbackRate,
             pitchSemitones: pitchSemitones,
+            speedPitchMode: speedPitchMode,
+            varispeedRate: varispeedRate,
+            independentPlaybackRate: savedIndependentPlaybackRate,
+            musicHapticsEnabled: musicHapticsEnabled,
+            musicHapticsIntensity: musicHapticsIntensity,
+            musicHapticsStyle: musicHapticsStyle,
             spokenWordPlaybackRate: spokenWordPlaybackRate,
             spokenWordSkipBackwardSeconds: spokenWordSkipBackwardSeconds,
             spokenWordSkipForwardSeconds: spokenWordSkipForwardSeconds,
@@ -909,7 +957,7 @@ extension PlaybackSettingsStore {
         )
     }
 
-    private func persist() {
+    func persist() {
         guard !suppressPersist else { return }
         let settings = snapshot()
         // 联动字段的 didSet 和界面的 onChange 都可能回写同一份最终值。

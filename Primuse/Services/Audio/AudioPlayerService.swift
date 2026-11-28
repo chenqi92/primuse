@@ -701,6 +701,7 @@ final class AudioPlayerService {
     let audioEngine: AudioEngine
     let equalizerService: EqualizerService
     let audioEffectsService: AudioEffectsService
+    let musicHapticsEngine: MusicHapticsEngine
     let sourceManager: SourceManager?
     #if os(macOS)
     @ObservationIgnored var widgetLyricsPublisher: MacWidgetLyricsPublisher?
@@ -754,6 +755,7 @@ final class AudioPlayerService {
                 rememberMusicSessionIfLeaving(from: oldValue, to: currentSong)
             advanceBookSleepLockIfNeeded()
             advanceSelectedChapterSleepIfNeeded()
+            notifyMusicHapticsTrackChanged()
             }
         }
     }
@@ -763,7 +765,10 @@ final class AudioPlayerService {
                 if !oldValue { currentTimeAnchor = Date() }
                 schedulePlaybackMetadataReadIfNeeded()
             }
-            if isPlaying != oldValue { noteSpokenWordPlayingChanged() }
+            if isPlaying != oldValue {
+                noteSpokenWordPlayingChanged()
+                syncMusicHapticsState()
+            }
         }
     }
     var playbackKind: PlaybackKind = .track
@@ -813,7 +818,10 @@ final class AudioPlayerService {
                 if oldValue { currentTimeAnchor = Date() }
                 schedulePlaybackMetadataReadIfNeeded()
             }
-            if isLoading != oldValue { refreshLoadingIndicator() }
+            if isLoading != oldValue {
+                refreshLoadingIndicator()
+                syncMusicHapticsState()
+            }
         }
     }
     /// Whether transport controls show a spinner (and their disabled look).
@@ -1458,8 +1466,11 @@ final class AudioPlayerService {
         audioEngine = AudioEngine()
         equalizerService = EqualizerService(audioEngine: audioEngine, outputMode: playbackSettings.outputMode)
         audioEffectsService = AudioEffectsService(audioEngine: audioEngine, settingsStore: playbackSettings)
+        musicHapticsEngine = MusicHapticsEngine()
         applySpatialAudioSettings()
+        syncEffectsGraphExtras()
         applyPlaybackRate()
+        configureMusicHaptics()
         observeSpatialAudioSettings()
         observePlaybackRate()
         observeShufflePreference()
@@ -3097,32 +3108,6 @@ extension AudioPlayerService {
         )
     }
 
-    /// 同步当前 playbackRate 与升降调到 engine. 设置变化或新歌开播都会调它。
-    /// 音频图按内容和升降调选择变速算法; 视频播客的纯音频流由 AVPlayer 自己变速。
-    func applyPlaybackRate() {
-        let requestedRate = requestedPlaybackRate
-        let requestedPitch = requestedPitchSemitones
-        if isSystemAudioPlaybackActive,
-           (!systemAudioUsesNativePodcastStream && abs(requestedRate - 1) >= 0.001) || requestedPitch != 0,
-           let id = playID {
-            Task { @MainActor [weak self] in
-                await self?.fallbackSystemAudioToPCM(playID: id, error: nil)
-            }
-            return
-        }
-        audioEngine.applyPlaybackRate(
-            requestedRate,
-            userPitchCents: PlaybackPitchPolicy.cents(forSemitones: requestedPitch),
-            isSpokenWord: currentItemIsSpokenWord
-        )
-        // 视频管线自己变速(升降调做不了,和以前一样不管)。
-        if isMusicVideoPlaybackActive || systemAudioUsesNativePodcastStream,
-           let player = activeSystemMediaPlayer {
-            player.defaultRate = requestedRate
-            if player.rate != 0 { player.rate = requestedRate }
-        }
-    }
-
     func switchEmbeddedKaraokeAudio(_ file: EmbeddedKaraokeFile?, for song: Song) -> Bool {
         guard let currentSong, EmbeddedMediaTrackInventory.sameMediaFile(currentSong, song),
               !isCastingMode, !isAppleMusicMode, !isLiveRadio,
@@ -3372,32 +3357,6 @@ extension AudioPlayerService {
                 guard let self else { return }
                 self.applySpatialAudioSettings()
                 self.observeSpatialAudioSettings()
-            }
-        }
-    }
-
-    /// 单独跟踪 playbackRate(连同升降调), 别和 spatial observer 合并 — 不然改速度时会
-    /// 顺带触发 spatial node 的 sourceMode / renderingAlgorithm 重设, 在
-    /// engine 运行中可能导致音频 glitch / player 卡顿。
-    private func observePlaybackRate() {
-        withObservationTracking {
-            _ = playbackSettings.playbackRate
-            _ = playbackSettings.spokenWordPlaybackRate
-            _ = playbackSettings.pitchSemitones
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.applyPlaybackRate()
-                // 系统侧的进度按发布的速度往前推,换了速度要立刻重发,锁屏和车机的进度条才不会
-                // 越走越偏(按书记的速度在 `setSpokenWordRate` 里已经重发)。没在放就不碰,
-                // 免得把空快照当成「清掉正在播放」。
-                if self.currentSong != nil {
-                    self.updateNowPlayingInfo()
-                    #if os(iOS)
-                    self.publishWidgetLyricsIfNeeded()
-                    #endif
-                }
-                self.observePlaybackRate()
             }
         }
     }
@@ -5049,7 +5008,7 @@ extension AudioPlayerService {
         }
     }
 
-    private func fallbackSystemAudioToPCM(playID id: UUID, error: Error?) async {
+    func fallbackSystemAudioToPCM(playID id: UUID, error: Error?) async {
         guard playID == id,
               isSystemAudioPlaybackActive,
               let fallback = systemAudioFallbackContext,

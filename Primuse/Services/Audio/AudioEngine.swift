@@ -353,7 +353,7 @@ final class AudioEngine {
     /// 暂停、停下或换歌后多久放掉独占：换歌通常在这之内就重新出声，不必来回拿放。
     private static let exclusiveOutputIdleReleaseDelay: Duration = .seconds(2)
     #endif
-    private var engine: AVAudioEngine? {
+    var engine: AVAudioEngine? {
         didSet {
             guard engine !== oldValue else { return }
             if let oldValue { AudioEngineGraphRegistry.shared.unregister(oldValue) }
@@ -375,23 +375,34 @@ final class AudioEngine {
     private var reverbDryMixer: AVAudioMixerNode?
     private var reverbWetMixer: AVAudioMixerNode?
     private var reverbOutputMixer: AVAudioMixerNode?
-    private var timePitchProcessor: PlaybackTimePitchProcessor?
-    private var playbackRate: Float = 1
-    private var playbackIsSpokenWord = false
+    var timePitchProcessor: PlaybackTimePitchProcessor?
+    /// 变速变调单元与音乐触感的取样混音器只在用户打开对应功能后才串进效果图(下次建图时生效,
+    /// 播放服务按设置写这两个开关);没打开的人,效果图和以前逐样本相同。
+    var varispeedNode: AVAudioUnitVarispeed?
+    var varispeedEnabled = false
+    @ObservationIgnored var graphIncludesVarispeedUnit = false
+    #if os(iOS)
+    var hapticsTapMixer: AVAudioMixerNode?
+    @ObservationIgnored var graphIncludesHapticsTap = false
+    #endif
+    @ObservationIgnored var onMusicHapticsLifecycleEvent: (@MainActor (AudioEngineHapticsEvent) -> Void)?
+    var playbackRate: Float = 1
+    var playbackIsSpokenWord = false
     /// 卡拉OK人声消除, 夹在播放混音器和 EQ 之间, 淡入淡出/无缝衔接的两路
     /// 已经混成一路再处理。关闭时渲染里直接透传, 没有延迟。
-    private var karaokeVocalNode: AVAudioUnitEffect?
+    var karaokeVocalNode: AVAudioUnitEffect?
     /// 跨图重建保留的卡拉OK开关与回读状态, 渲染线程只读它。
     nonisolated let karaokeControl = KaraokeRenderControl()
     /// 卡拉OK升降调(音分)。只在卡拉OK开着时非零, 图重建后要重新套上。
-    private var karaokePitchCents: Float = 0
+    var karaokePitchCents: Float = 0
     /// 播放速度旁的整体升降调(音分, #332)。和卡拉OK的分开存: 舞台每拍都写它那份、关页写 0,
     /// 节点上写的是两者之和(`PlaybackPitchPolicy.combinedCents`), 谁也不覆盖谁。
-    private var userPitchCents: Float = 0
+    var userPitchCents: Float = 0
 
     private(set) var isPlaying = false {
         didSet {
             if isPlaying != oldValue, spatialHeadTrackingEnabled { updateSpatialHeadTracking() }
+            if isPlaying != oldValue { notifyMusicHapticsLifecycle(isPlaying ? .started : .paused) }
         }
     }
     private(set) var outputFormat: AVAudioFormat?
@@ -1082,6 +1093,7 @@ extension AudioEngine {
                 || hardwareRateChanged
                 || self.usesDSDCarrier != normalizedDSDCarrier
                 || !isSetUp
+                || (outputMode == .effects && effectsGraphExtrasNeedRebuild)
                 || hardwareConfigurationRecoveryState.requiresGraphRebuild else { return }
 
         #if os(macOS)
@@ -1157,6 +1169,7 @@ extension AudioEngine {
         stopSilenceKeepAlive()
         nodeRegistry.resetTimeline(for: .primary)
         nodeRegistry.resetTimeline(for: .crossfade)
+        notifyMusicHapticsLifecycle(.graphTeardown)
         playerNode?.stop()
         crossfadePlayerNode?.stop()
         engine?.stop()
@@ -1175,6 +1188,10 @@ extension AudioEngine {
         reverbWetMixer = nil
         reverbOutputMixer = nil
         timePitchProcessor = nil
+        varispeedNode = nil
+        #if os(iOS)
+        hapticsTapMixer = nil
+        #endif
         karaokeVocalNode = nil
         outputFormat = nil
         #if os(macOS)
@@ -1240,6 +1257,7 @@ extension AudioEngine {
             spatialAudioEnabled = false
             spatialHeadTrackingEnabled = false
             applyRequestedVolumeToGraph()
+            notifyMusicHapticsLifecycle(.graphReady)
             return
         }
 
@@ -1259,7 +1277,12 @@ extension AudioEngine {
         let reverbWet = AVAudioMixerNode()
         let reverbOutput = AVAudioMixerNode()
         let timePitch = PlaybackTimePitchProcessor(spectralOverlap: 16)
-        timePitch.apply(rate: playbackRate, pitchCents: combinedPitchCents, isSpokenWord: playbackIsSpokenWord)
+        let varispeed = graphIncludesVarispeedUnit ? AVAudioUnitVarispeed() : nil
+        varispeed?.rate = 1
+        varispeed?.bypass = true
+        #if os(iOS)
+        let hapticsTap = graphIncludesHapticsTap ? AVAudioMixerNode() : nil
+        #endif
 
         // 压缩器一直接在链路里:关着时由 AudioEffectsService 设成不压缩的参数(逐样本透明,
         // 只多 5.3 ms 预读延迟)。旁通是硬切,开关时会咔哒。
@@ -1280,6 +1303,10 @@ extension AudioEngine {
         eng.attach(reverbOutput)
         if let timeDomain = timePitch.timeDomainNode { eng.attach(timeDomain) }
         eng.attach(timePitch.spectralNode)
+        if let varispeed { eng.attach(varispeed) }
+        #if os(iOS)
+        if let hapticsTap { eng.attach(hapticsTap) }
+        #endif
         let karaokeVocal = KaraokeVocalReducerUnit.makeNode(control: karaokeControl)
         if let karaokeVocal {
             eng.attach(karaokeVocal)
@@ -1340,7 +1367,18 @@ extension AudioEngine {
         if let timeDomain = timePitch.timeDomainNode {
             try Self.connect(timeDomain, to: timePitch.spectralNode, format: format, in: eng)
         }
-        try Self.connect(timePitch.spectralNode, to: mainMixer, format: format, in: eng)
+        var chainTail: AVAudioNode = timePitch.spectralNode
+        if let varispeed {
+            try Self.connect(chainTail, to: varispeed, format: format, in: eng)
+            chainTail = varispeed
+        }
+        #if os(iOS)
+        if let hapticsTap {
+            try Self.connect(chainTail, to: hapticsTap, format: format, in: eng)
+            chainTail = hapticsTap
+        }
+        #endif
+        try Self.connect(chainTail, to: mainMixer, format: format, in: eng)
         // 接进图之前设的音量会丢,连好之后再设。压缩器先是不压缩的参数,
         // AudioEffectsService.applySettings 随后按设置改写。
         reverbWet.outputVolume = 0
@@ -1371,11 +1409,17 @@ extension AudioEngine {
         self.reverbWetMixer = reverbWet
         self.reverbOutputMixer = reverbOutput
         self.timePitchProcessor = timePitch
+        self.varispeedNode = varispeed
+        #if os(iOS)
+        self.hapticsTapMixer = hapticsTap
+        #endif
         self.karaokeVocalNode = karaokeVocal
         self.outputFormat = format
         self.isSetUp = true
+        applyPitchToGraph()
         applySpatialAudioConfiguration()
         restoreVolume()
+        notifyMusicHapticsLifecycle(.graphReady)
     }
 
     // MARK: - Engine Control
@@ -2178,6 +2222,7 @@ extension AudioEngine {
         // A seek or song change: the karaoke stem lock and the vocal
         // remover's delay line both belong to the old position.
         karaokeControl.markDiscontinuity()
+        notifyMusicHapticsLifecycle(.discontinuity)
         cancelTransportFade(restoreVolume: true)
         playbackClockReadsSuspended = true
         nodeRegistry.resetTimeline(for: .primary)
@@ -2225,56 +2270,6 @@ extension AudioEngine {
     /// re-enables reads after the node is running again.
     func suspendPlaybackClockReads() {
         playbackClockReadsSuspended = true
-    }
-
-    // MARK: - Playback Rate
-
-    /// 同时更新速度、内容类型和用户升降调, 避免切歌时短暂选中上一首的算法。
-    func applyPlaybackRate(_ rate: Float, userPitchCents: Float = 0, isSpokenWord: Bool = false) {
-        playbackRate = rate
-        self.userPitchCents = userPitchCents
-        playbackIsSpokenWord = isSpokenWord
-        applyPitchToGraph()
-    }
-
-    // MARK: - Karaoke
-
-    /// 效果图里有没有挂上人声消除单元(高保真直通图没有)。
-    var supportsKaraokeVocalReduction: Bool {
-        outputMode == .effects && karaokeVocalNode != nil
-    }
-
-    /// 升降调只作用在播放图上; 麦克风走自己的引擎, 不会被一起变调。
-    func applyKaraokePitch(cents: Float) {
-        karaokePitchCents = cents
-        applyPitchToGraph()
-    }
-
-    /// 播放速度旁的整体升降调。有声内容、电台由调用方传 0。
-    func applyUserPitch(cents: Float) {
-        userPitchCents = cents
-        applyPitchToGraph()
-    }
-
-    private var combinedPitchCents: Float {
-        PlaybackPitchPolicy.combinedCents(userCents: userPitchCents, karaokeCents: karaokePitchCents)
-    }
-
-    private func applyPitchToGraph() {
-        let cents = combinedPitchCents
-        guard outputMode == .effects else { return }
-        timePitchProcessor?.apply(rate: playbackRate, pitchCents: cents, isSpokenWord: playbackIsSpokenWord)
-    }
-
-    /// 渲染 → 扬声器的延迟, 录音对齐人声时要补上。
-    var outputPresentationLatency: TimeInterval {
-        engine?.outputNode.presentationLatency ?? 0
-    }
-
-    /// 录音时抓伴奏: 变调之后、主音量之前, 所以录下来的电平不跟音量滑块走。
-    /// 可视化已经占了 mainMixer 的 tap, 同一个总线只能挂一个。
-    var karaokeRecordingTapNode: AVAudioNode? {
-        outputMode == .effects ? timePitchProcessor?.spectralNode : nil
     }
 
     // MARK: - Spatial Audio
@@ -2441,6 +2436,10 @@ extension AudioEngine {
         reverbWetMixer?.reset()
         reverbOutputMixer?.reset()
         timePitchProcessor?.reset()
+        varispeedNode?.reset()
+        #if os(iOS)
+        hapticsTapMixer?.reset()
+        #endif
         karaokeVocalNode?.reset()
         engine.mainMixerNode.reset()
     }

@@ -2726,56 +2726,25 @@ struct PlaybackSettingsView: View {
             }
             .disabled(settings.outputMode == .highFidelity)
 
+            #if os(iOS)
             Section {
-                HStack {
-                    Text("playback_rate")
-                    Spacer()
-                    Text(String(format: "%.2fx", Double(settings.outputMode == .highFidelity ? Float(1) : settings.playbackRate)))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Slider(
-                    value: Binding(
-                        get: { settings.outputMode == .highFidelity ? 1 : settings.playbackRate },
-                        set: { settings.playbackRate = $0 }
-                    ),
-                    in: 0.5...2.0,
-                    step: 0.05
-                ) {
-                    Text("playback_rate")
-                } minimumValueLabel: {
-                    Text("0.5x").font(.caption2)
-                } maximumValueLabel: {
-                    Text("2.0x").font(.caption2)
-                }
-                .settingsAnchor("playback.speed")
-                .accessibilityHint(Text("playback_rate_desc"))
-                if settings.playbackRate != 1.0 {
-                    Button("playback_rate_reset") {
-                        settings.playbackRate = 1.0
-                    }
-                    .font(.caption)
-                }
-                // 升降调(#332):和速度一样走效果链里的变调节点,高保真直通下照样显示原调。
-                let shownPitch = settings.outputMode == .highFidelity ? 0 : settings.pitchSemitones
-                Stepper(value: $settings.pitchSemitones, in: PlaybackPitchPolicy.range) {
+                NavigationLink {
+                    MusicHapticsSettingsView()
+                } label: {
                     HStack {
-                        Text("karaoke_key")
+                        Label("music_haptics_title", systemImage: "iphone.radiowaves.left.and.right")
                         Spacer()
-                        Text(verbatim: PlaybackPitchText.valueLabel(shownPitch))
+                        Text(settings.musicHapticsEnabled && MusicHapticsEngine.isHardwareSupported
+                             ? settings.musicHapticsStyle.displayName
+                             : String(localized: "music_haptics_off"))
                             .foregroundStyle(.secondary)
-                            .monospacedDigit()
                     }
                 }
-                .settingsAnchor("playback.pitch")
-                .accessibilityValue(Text(verbatim: PlaybackPitchText.valueLabel(shownPitch)))
-                .accessibilityHint(Text("playback_pitch_desc"))
-            } header: {
-                Text("playback_rate_section")
-            } footer: {
-                Text("playback_pitch_desc")
+                .settingsAnchor("playback.musicHaptics")
             }
-            .disabled(settings.outputMode == .highFidelity)
+            #endif
+
+            PlaybackSpeedPitchSettingsSection()
 
             Section {
                 Picker("spoken_word_playback_rate", selection: $settings.spokenWordPlaybackRate) {
