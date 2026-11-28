@@ -1565,6 +1565,9 @@ struct SongListView: View {
 
     var body: some View {
         observedContent
+            // 6c U5: 目录给不出这一页(内存才排得出的排序、页内查找、目录版式、读目录失败)时占用模型,
+            // 装好之前照旧转圈;页面上的编辑页(标签、歌词)在模型放掉时不丢输入。
+            .songModelPage(needsArrays: !usesCatalogList && !showsCatalogList, keepsInputOnRelease: true)
             #if os(iOS)
             // 定位、目录键可能收在「⋯」系统菜单里，要问的这两句都挂在页面上。
             .filteredSongLocationAlert($filteredLocationTarget) { locateCurrentButton.locateClearingFilters($0) }
@@ -2029,7 +2032,8 @@ struct SongListView: View {
         if usesCatalogList || showsCatalogList {
             return catalogList.baseCount == 0
         }
-        return songs.isEmpty
+        // 模型不在内存里时整库数组是空的,不是「没有歌」(这时页面在等模型,见 `isPreparingList`)。
+        return library.isReady && songs.isEmpty
     }
 
     /// 眼前这份列表里可播放的歌数(页头、工具栏的播放与随机键)。
@@ -2252,6 +2256,8 @@ struct SongListView: View {
     /// 排序、分目录还没好：先转圈，好了换成列表。
     private var isPreparingList: Bool {
         if showsCatalogList { return false }
+        // 内存路径而模型不在内存里:等它装回来(页面替自己占用了)。
+        if !usesCatalogList, !library.isReady { return true }
         // 目录那一份第一次取行号还没回来,手里也没有内存快照。
         if usesCatalogList { return listCache.isEmpty }
         return (!songs.isEmpty && requiresSortedSnapshot && listCache.isEmpty)

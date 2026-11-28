@@ -1123,7 +1123,10 @@ struct ArtistArtworkView: View {
                 artistName: currentArtist.name,
                 artworkReference: SubsonicArtistArtworkRequest.contextualReference(
                     artist: currentArtist,
-                    song: library.scopedPreferredArtworkSong(forArtistID: currentArtist.id)
+                    // 6c: 模型不在内存里时那张表是空的,用曲库目录答的那首(同 `fallbackSong`)。
+                    song: library.isReady
+                        ? library.scopedPreferredArtworkSong(forArtistID: currentArtist.id)
+                        : catalogFallbackSong
                 ),
                 size: side,
                 cornerRadius: 0,

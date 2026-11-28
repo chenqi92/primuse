@@ -329,7 +329,8 @@ final class LibraryStartupPlaybackCoordinator {
                 plog("🎶 catalog whole-library ids failed (\(error)); using the in-memory library")
             }
         }
-        return library.musicSongIDsExcludingDisliked
+        // 6c U5: 目录给不出时照旧用整份音乐;模型不在内存里时先占用装回来(答不了就一首都不排)。
+        return await SongModelArrayRead.read(library) { library.musicSongIDsExcludingDisliked } ?? []
     }
 
     func request<Selection>(

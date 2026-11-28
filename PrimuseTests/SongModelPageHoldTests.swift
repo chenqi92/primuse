@@ -70,7 +70,7 @@ final class SongModelPageHoldTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .radio), .always)
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .podcasts), .always)
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .spokenWord), .always)
-        XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .songs), .legacy)
+        XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .songs), .catalog)
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .albums), .catalog)
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: .artists), .legacy)
         XCTAssertEqual(LibraryReadyContent<EmptyView>.readiness(for: nil), .legacy)

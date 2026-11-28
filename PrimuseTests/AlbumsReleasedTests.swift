@@ -1,5 +1,7 @@
 import Foundation
 import PrimuseKit
+import SwiftUI
+import UIKit
 import XCTest
 @testable import Primuse
 
@@ -60,4 +62,46 @@ final class AlbumsReleasedTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(artistArt, artistArtLoaded, "artist card artwork song")
         assertNoLoadAndNoArrayRead(library, since: before, "Albums page and cards while released")
     }
+
+    /// 专辑、艺人卡片真画在屏幕上(歌曲模型放掉之后):借封面的那首、艺人头像的上下文引用都从曲库目录答,
+    /// 不读整库的封面表(诊断数到的那几份表),也不装模型。设备上见过艺人卡片放掉后 0.3–1.2 秒读那张表。
+    func testArtworkCellsOnScreenReadNoWholeLibraryTableWhileReleased() async throws {
+        let songs = Self.fixture(prefix: "cells-released")
+        let (library, _) = try makeLaunchedTwin("cells-released", songs: songs)
+        await assertShadowMatches(library, "fixture")
+        let albums = library.visibleAlbums
+        let artists = library.visibleArtists
+        XCTAssertFalse(albums.isEmpty)
+        XCTAssertFalse(artists.isEmpty)
+        let before = try await releaseForReal(library)
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let original = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let host = UIHostingController(rootView:
+            ScrollView {
+                VStack {
+                    ForEach(albums) { AlbumArtworkView(album: $0, size: 40) }
+                    ForEach(artists) { ArtistArtworkView(artist: $0, size: 40) }
+                }
+            }
+            .environment(library)
+            .environment(SourceManager(sourcesProvider: { [] }))
+        )
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.frame = window.bounds
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            original?.makeKeyAndVisible()
+        }
+        for _ in 0..<20 {
+            try await Task.sleep(for: .milliseconds(100))
+            host.view.layoutIfNeeded()
+        }
+        assertNoLoadAndNoArrayRead(library, since: before, "album and artist cells on screen while released")
+    }
 }
+

@@ -243,6 +243,7 @@
 		16ACA6278033A2EF6EDB4549 /* SpokenChapterGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D36821ECE5B2C7F182ACD85 /* SpokenChapterGenerationSheet.swift */; };
 		16CEE442312B539A663C93CB /* PlayerBackdropResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C877D68222688CEEBA5183 /* PlayerBackdropResolver.swift */; };
 		16D57F73F7CB44EBD9355129 /* IssueFeedbackLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 921E338067F82D0270C7D0AB /* IssueFeedbackLink.swift */; };
+		17022676D37ADE95687259E5 /* SongsPageReleasedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F06F49DAF7D1A86C2DBD19B /* SongsPageReleasedTests.swift */; };
 		1704FF3236FFF8B84A0B00A9 /* PhoneRelayServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299BA8CA4513E33F5CF2BC7C /* PhoneRelayServer.swift */; };
 		17208CD578DB9F14812BDC2C /* AppleMusicCatalogSearchAvailabilityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79F472285DD8DED14E7D8C27 /* AppleMusicCatalogSearchAvailabilityPolicy.swift */; };
 		17385B54C3275E7F6DBFC4D0 /* GoogleDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */; };
@@ -3228,6 +3229,7 @@
 		0EB93858BE5E549D06AC3EA7 /* ArtistArtworkResolutionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistArtworkResolutionPolicy.swift; sourceTree = "<group>"; };
 		0EB9BD8B836299C30B3A1296 /* OpenAICompatibleProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICompatibleProviderTests.swift; sourceTree = "<group>"; };
 		0EFB19799BA6F65A902ABCA1 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/PlayMedia.strings; sourceTree = "<group>"; };
+		0F06F49DAF7D1A86C2DBD19B /* SongsPageReleasedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongsPageReleasedTests.swift; sourceTree = "<group>"; };
 		0F17B0DA596BEAA88C729B68 /* AppleMusicAlbumCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicAlbumCompletion.swift; sourceTree = "<group>"; };
 		0F1FB8FE969CCF679449C9E5 /* AsyncOperationTimeout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncOperationTimeout.swift; sourceTree = "<group>"; };
 		0F410BC196789520834DE698 /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/Localizable.strings"; sourceTree = "<group>"; };
@@ -7726,6 +7728,7 @@
 				C2F8A4F1C6E7B6C5EB3AF805 /* SongFileRenameTests.swift */,
 				D49E71BF5287E860A3FEAF61 /* SongModelInputPageTests.swift */,
 				C17CEFF4B5920E60C3FF9C7F /* SongModelPageHoldTests.swift */,
+				0F06F49DAF7D1A86C2DBD19B /* SongsPageReleasedTests.swift */,
 				8C63C384948C23C9211655CF /* SourceChangeScanInvalidationTests.swift */,
 				706956FFD4F6B3E0F21B65E2 /* SourceConnectionRouterTests.swift */,
 				65AAEE9A80B52776F5A9AD9D /* SpokenChapterGeneratorTests.swift */,
@@ -8800,6 +8803,7 @@
 				29173A7990E3E5BFA140861F /* SongFileRenameTests.swift in Sources */,
 				7BA1A84CF0A41A78EE218570 /* SongModelInputPageTests.swift in Sources */,
 				BBA34464DFE5AF0E646C60CB /* SongModelPageHoldTests.swift in Sources */,
+				17022676D37ADE95687259E5 /* SongsPageReleasedTests.swift in Sources */,
 				2D2452E38E6AAC8FD8248618 /* SourceChangeScanInvalidationTests.swift in Sources */,
 				17C3A71446796A7C89EE527B /* SourceConnectionRouterTests.swift in Sources */,
 				280E638AB9A82BBAE35BA259 /* SpokenChapterGeneratorTests.swift in Sources */,
