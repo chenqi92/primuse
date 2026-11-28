@@ -8392,3 +8392,9 @@
 "lyrics_track_language" = "언어";
 "lyrics_track_original" = "원문";
 "lyrics_track_off" = "끔";
+"player_menu_playback_order" = "재생 순서";
+"player_menu_lyrics_display" = "가사 표시";
+"player_menu_transcript_display" = "텍스트 표시";
+"player_menu_audio_and_sing_along" = "오디오 및 따라 부르기";
+"player_menu_edit_and_clips" = "편집 및 클립";
+"player_menu_transcript_and_edit" = "텍스트 및 편집";

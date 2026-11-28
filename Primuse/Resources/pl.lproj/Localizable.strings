@@ -8298,3 +8298,9 @@
 "lyrics_track_language" = "Język";
 "lyrics_track_original" = "Oryginał";
 "lyrics_track_off" = "Wył.";
+"player_menu_playback_order" = "Kolejność odtwarzania";
+"player_menu_lyrics_display" = "Wyświetlanie tekstu";
+"player_menu_transcript_display" = "Wyświetlanie transkrypcji";
+"player_menu_audio_and_sing_along" = "Dźwięk i śpiewanie";
+"player_menu_edit_and_clips" = "Edycja i fragmenty";
+"player_menu_transcript_and_edit" = "Transkrypcja i edycja";

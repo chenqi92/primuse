@@ -8298,3 +8298,9 @@
 "lyrics_track_language" = "भाषा";
 "lyrics_track_original" = "मूल";
 "lyrics_track_off" = "बंद";
+"player_menu_playback_order" = "चलाने का क्रम";
+"player_menu_lyrics_display" = "गीत प्रदर्शन";
+"player_menu_transcript_display" = "प्रतिलिपि प्रदर्शन";
+"player_menu_audio_and_sing_along" = "ऑडियो और साथ गाएँ";
+"player_menu_edit_and_clips" = "संपादन और क्लिप";
+"player_menu_transcript_and_edit" = "प्रतिलिपि और संपादन";

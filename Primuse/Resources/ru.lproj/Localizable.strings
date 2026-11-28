@@ -8298,3 +8298,9 @@
 "lyrics_track_language" = "Язык";
 "lyrics_track_original" = "Оригинал";
 "lyrics_track_off" = "Выкл.";
+"player_menu_playback_order" = "Порядок воспроизведения";
+"player_menu_lyrics_display" = "Отображение текста";
+"player_menu_transcript_display" = "Отображение стенограммы";
+"player_menu_audio_and_sing_along" = "Звук и подпевание";
+"player_menu_edit_and_clips" = "Правка и фрагменты";
+"player_menu_transcript_and_edit" = "Стенограмма и правка";

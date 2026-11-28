@@ -8369,3 +8369,9 @@
 "lyrics_track_language" = "語言";
 "lyrics_track_original" = "原文";
 "lyrics_track_off" = "關閉";
+"player_menu_playback_order" = "播放順序";
+"player_menu_lyrics_display" = "歌詞顯示";
+"player_menu_transcript_display" = "文字稿顯示";
+"player_menu_audio_and_sing_along" = "音效與伴唱";
+"player_menu_edit_and_clips" = "編輯與片段";
+"player_menu_transcript_and_edit" = "文字稿與編輯";

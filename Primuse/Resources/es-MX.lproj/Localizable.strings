@@ -8298,3 +8298,9 @@
 "lyrics_track_language" = "Idioma";
 "lyrics_track_original" = "Original";
 "lyrics_track_off" = "Desactivado";
+"player_menu_playback_order" = "Orden de reproducción";
+"player_menu_lyrics_display" = "Visualización de letra";
+"player_menu_transcript_display" = "Visualización de transcripción";
+"player_menu_audio_and_sing_along" = "Audio y acompañamiento";
+"player_menu_edit_and_clips" = "Edición y fragmentos";
+"player_menu_transcript_and_edit" = "Transcripción y edición";

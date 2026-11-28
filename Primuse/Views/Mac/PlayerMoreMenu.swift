@@ -3,15 +3,119 @@ import AppKit
 import SwiftUI
 import PrimuseKit
 
-/// 全部"播放器层面"菜单项的统一入口 —— 加入歌单 / 刮削 / 歌曲信息 /
-/// 分享 / 字号 / 睡眠定时 / 删除 / 上下首 / 随机 / 单曲循环。
+/// 播放器「更多」菜单的挂载位置。底栏、播放页和迷你播放器本身已有封面头与传输键,
+/// 只在右侧队列面板里保留曲目头与基础传输控制。
+enum PlayerMoreMenuSurface: Equatable {
+    case playerBar
+    case queuePanel
+
+    var showsHeaderAndTransport: Bool {
+        self == .queuePanel
+    }
+}
+
+/// 单浮层内的子页面路由,避免多层 Popover 套娃。
+enum PlayerMoreMenuSubpage: Equatable {
+    case root
+    case playbackOrder
+    case lyricsDisplay
+    case audioEffects
+    case editing
+}
+
+enum PlayerMoreMenuPolicy {
+    static func repeatTitleKey(for mode: RepeatMode) -> String {
+        switch mode {
+        case .off: return "repeat"
+        case .all: return "play_mode_repeat_all"
+        case .one: return "play_mode_repeat_one"
+        }
+    }
+
+    static func repeatChoiceTitleKey(for mode: RepeatMode) -> LocalizedStringKey {
+        switch mode {
+        case .off: return "repeat_behavior_off"
+        case .all: return "play_mode_repeat_all"
+        case .one: return "play_mode_repeat_one"
+        }
+    }
+
+    static func playbackOrderSummary(shuffleEnabled: Bool, repeatMode: RepeatMode, bundle: Bundle = .main) -> String {
+        var parts: [String] = []
+        if shuffleEnabled {
+            parts.append(bundle.localizedString(forKey: "shuffle", value: nil, table: nil))
+        }
+        if repeatMode != .off {
+            let key = repeatTitleKey(for: repeatMode)
+            parts.append(bundle.localizedString(forKey: key, value: nil, table: nil))
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// 限制最大高度并在内容超高时才回退到滚动容器,短页面紧贴内容高度不留空白。
+/// 高度按里面那一份 ScrollView 的理想高度(即内容高度)量,超过上限才截到上限、由它接着滚。
+/// 不用 ViewThatFits 在「原样 / 包一层滚动」两份之间挑:它测量候选分支时会在后台线程调菜单里
+/// ForEach 的闭包,触发 MainActor 断言闪退(1.15.0 macOS 刮削写回卡片同一个坑,见
+/// check-crash-patterns 的 viewthatfits-foreach),而且每次都把整份菜单建两遍。
+struct PlayerMoreMenuHeightCapLayout: Layout {
+    let maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let first = subviews.first else { return .zero }
+        let ideal = first.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: ideal.width, height: min(ideal.height, proposal.height ?? maxHeight, maxHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let first = subviews.first else { return }
+        first.place(
+            at: bounds.origin,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+        )
+    }
+}
+
+struct PlayerMoreMenuBoundedScroll<Content: View>: View {
+    let maxHeight: CGFloat
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        PlayerMoreMenuHeightCapLayout(maxHeight: maxHeight) {
+            // 滚动条走全局的 overlay 样式(PMScrollViewStyle),内容放得下时不露滚动条也不回弹。
+            ScrollView(.vertical) {
+                content()
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+}
+
+/// 全部"播放器层面"菜单项的统一入口 —— 按职能收敛为一级高频操作与单浮层内子页导航。
 ///
 /// 之前 NowPlaying 顶部和 BottomBar 各有一份不一致的 more 菜单,
 /// NowPlaying 的菜单项甚至比底栏多 2/3。把所有菜单项集中到这里,两边
 /// 同样行为；状态(加入歌单 / showSongInfo 等)和对应 sheet 都
 /// 在本组件内部,调用方只给一个 label 就行。
 struct PlayerMoreMenu<MenuLabel: View>: View {
-    @ViewBuilder var label: () -> MenuLabel
+    let surface: PlayerMoreMenuSurface
+    let maxPopoverHeightOverride: CGFloat?
+    let rendersInlineForTesting: Bool
+    private let label: () -> MenuLabel
+
+    init(
+        surface: PlayerMoreMenuSurface = .playerBar,
+        initialSubpage: PlayerMoreMenuSubpage = .root,
+        maxPopoverHeightOverride: CGFloat? = nil,
+        rendersInlineForTesting: Bool = false,
+        @ViewBuilder label: @escaping () -> MenuLabel
+    ) {
+        self.surface = surface
+        self.maxPopoverHeightOverride = maxPopoverHeightOverride
+        self.rendersInlineForTesting = rendersInlineForTesting
+        self.label = label
+        self._subpage = State(initialValue: initialSubpage)
+    }
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(SongBatchRemovalService.self) private var batchRemoval
@@ -68,9 +172,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 它的 hit test 只覆盖可见图标,玻璃圆环空白区会穿透到下层(歌词)。
     /// Button 是真 Button,整个 frame 都是 hit-testable。
     @State private var menuShown = false
+    @State private var subpage: PlayerMoreMenuSubpage
     @State private var fontPickerShown = false
     @State private var lyricsFontPickerShown = false
-    @State private var translationPickerShown = false
     /// 「导出歌词 / 文字稿」选格式的那一层,和点了之后要导出的那一份(#362)。
     @State private var textExportPickerShown = false
     @State private var lyricsExportRequest: LyricsExportRequest?
@@ -79,19 +183,23 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var pitchPickerShown = false
     /// 「伴唱」(#377)的第二层。
     @State private var singAlongPanelShown = false
-    @State private var shufflePreferencePickerShown = false
     /// 播客单集的详情(「转到这本书」对单集是空页, 换成这一页)。
     @State private var podcastSheet: PodcastPlayerSheetTarget?
 
     var body: some View {
-        baseBody
-            .popover(isPresented: $showSleepTimer, arrowEdge: .top) {
-                MacSleepTimerPopover {
-                    showSleepTimer = false
-                }
-                .focusEffectDisabled()
+        Group {
+            if rendersInlineForTesting {
+                popoverMenuContent
+            } else {
+                baseBody
+                    .popover(isPresented: $showSleepTimer, arrowEdge: .top) {
+                        MacSleepTimerPopover {
+                            showSleepTimer = false
+                        }
+                        .focusEffectDisabled()
+                    }
             }
-
+        }
     }
 
     private var baseBody: some View {
@@ -107,6 +215,16 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         .accessibilityLabel(Text("more"))
         .popover(isPresented: $menuShown, arrowEdge: .top) {
             popoverMenuContent
+        }
+        .onChange(of: menuShown) { _, shown in
+            if !shown {
+                closeChildPopovers()
+                subpage = .root
+            }
+        }
+        // 开着菜单时换成有声内容(或反过来)回到第一层:播放顺序那一页只给音乐,各页标题也跟着换。
+        .onChange(of: isSpokenWord) { _, _ in
+            openSubpage(.root)
         }
         .sheet(item: $libraryActions.playlistSong) { song in
             AddToPlaylistSheet(song: song)
@@ -215,6 +333,28 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
     }
 
+    private func closeChildPopovers() {
+        fontPickerShown = false
+        lyricsFontPickerShown = false
+        textExportPickerShown = false
+        equalizerPickerShown = false
+        playbackRatePickerShown = false
+        pitchPickerShown = false
+        singAlongPanelShown = false
+        showSimilarSongs = false
+    }
+
+    private func openSubpage(_ target: PlayerMoreMenuSubpage) {
+        closeChildPopovers()
+        subpage = target
+    }
+
+    private var maximumPopoverHeight: CGFloat {
+        if let maxPopoverHeightOverride { return maxPopoverHeightOverride }
+        let screenHeight = (NSApp.keyWindow?.screen ?? NSScreen.main)?.visibleFrame.height ?? 820
+        return max(340, screenHeight - 120)
+    }
+
     /// 正在播有声内容: 收起相似歌曲、串烧、卡拉OK、随机/循环、在线刮削、
     /// 歌词动效与听歌记录这些音乐的玩法, 「转到专辑/艺人」换成「转到这本书」。
     private var isSpokenWord: Bool {
@@ -247,23 +387,28 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         player.currentSong != nil && !player.isLiveRadio && currentHasTranscript == true
     }
 
+    private var hasEditingItems: Bool {
+        !isPodcastEpisode
+            || playbackRangeSong != nil
+            || transcriptGenerationRow != nil
+            || canImportTranscripts
+            || canExportText
+            || !isSpokenWord
+            || canReloadLyricsFromSource
+    }
+
+    private var offersSingAlongRow: Bool {
+        !isSpokenWord && player.currentSong != nil && !player.isLiveRadio && !player.currentItemIsAmbient
+    }
+
     private var textExportRow: some View {
-        Button { textExportPickerShown.toggle() } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "doc.text")
-                    .frame(width: 18)
-                    .foregroundStyle(PMColor.textMuted)
-                Text(LocalizedStringKey(isSpokenWord ? "transcript_export_menu" : "lyrics_export_menu"))
-                    .font(.callout)
-                    .foregroundStyle(PMColor.text)
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .pmRowBackground(cornerRadius: 6)
-            .contentShape(Rectangle())
+        flyoutRow(
+            symbol: "doc.text",
+            title: isSpokenWord ? "transcript_export_menu" : "lyrics_export_menu"
+        ) {
+            closeChildPopovers()
+            textExportPickerShown = true
         }
-        .buttonStyle(.plain)
         .popover(isPresented: $textExportPickerShown, arrowEdge: .leading) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(LyricsExportFormat.allCases) { format in
@@ -334,11 +479,43 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
     }
 
-    /// Popover 内的菜单内容。每个 row 都是真 Button,整个行 hit-testable,
-    /// 没有 NSPopUpButton 那种"只点中图标才响应"的问题。
-    @ViewBuilder
+    /// Popover 内的菜单内容。外层限制最大高度并在屏幕装不下时自动转成滚动容器。
     private var popoverMenuContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        PlayerMoreMenuBoundedScroll(maxHeight: maximumPopoverHeight) {
+            VStack(alignment: .leading, spacing: 0) {
+                switch subpage {
+                case .root:
+                    rootMenuRows
+                case .playbackOrder:
+                    playbackOrderSubpage
+                case .lyricsDisplay:
+                    lyricsDisplaySubpage
+                case .audioEffects:
+                    audioEffectsSubpage
+                case .editing:
+                    editingSubpage
+                }
+            }
+            .padding(.vertical, 6)
+            .frame(width: 260)
+        }
+        .frame(width: 260)
+        // 迷你播放器是深色面板, 系统 popover 的半透材质叠在它上面会把菜单染得发灰/
+        // 发白、文字对比度很低。铺一层 flat 不透明 bg (不画圆角描边 —— 系统 chrome
+        // 已经裁圆角带边框, 自己再画会变双框)。
+        .background(PMColor.bg)
+        // popover 一打开, SwiftUI 就把初始键盘焦点放在第一个按钮(上一首)上, 给它描一圈
+        // accent 焦点环。菜单行是整幅宽的, 环的左右两边正好落在菜单边界外被裁掉, 屏幕上
+        // 只剩贴着行上下沿的两条横线, 看着像凭空多了两条分隔线。这个菜单是鼠标点开的,
+        // 原生菜单打开时同样不高亮任何一项, 所以直接关掉焦点描边。
+        .focusEffectDisabled()
+    }
+
+    // MARK: - Root Menu
+
+    @ViewBuilder
+    private var rootMenuRows: some View {
+        if surface.showsHeaderAndTransport {
             if let song = player.currentSong {
                 menuHeader(song)
                 divider()
@@ -357,141 +534,127 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 Task { await player.next() }
             }
             divider()
-            // 有声内容按书的顺序听, 随机与列表循环只会打乱章节；有声书单独支持单章循环。
-            if !isSpokenWord {
-                toggleRow(title: "shuffle", symbol: "shuffle",
-                          isOn: Binding(get: { player.shuffleEnabled },
-                                        set: { player.shuffleEnabled = $0 }))
-                shufflePreferenceRow
-                checkRow(title: repeatMenuTitleKey,
-                         symbol: player.repeatMode == .one ? "repeat.1" : "repeat",
-                         isChecked: player.repeatMode != .off) {
-                    cycleRepeat()
-                }
-                divider()
-            } else if player.currentItemIsAudiobook {
-                checkRow(title: "spoken_word_repeat_chapter",
-                         symbol: "repeat.1",
-                         isChecked: player.isRepeatingCurrentSpokenWordChapter) {
-                    player.toggleSpokenWordChapterRepeat()
-                }
-                divider()
+        }
+
+        rootCurateAndShareSection
+        divider()
+        rootDiscoverAndNavigateSection
+        divider()
+        rootPlaybackAndSessionSection
+        divider()
+        rootSubpagesSection
+        divider()
+        rootSettingsAndDeleteSection
+    }
+
+    @ViewBuilder
+    private var rootCurateAndShareSection: some View {
+        if isPodcastEpisode {
+            podcastEpisodeRows
+        } else {
+            menuRow(title: "add_to_playlist",
+                    symbol: "text.badge.plus",
+                    disabled: player.currentSong == nil || libraryActions.isBusy) {
+                guard let song = player.currentSong else { return }
+                Task { await libraryActions.perform(.addToPlaylist, song: song, library: library) }
             }
-            if !isPodcastEpisode {
-                menuRow(title: "add_to_playlist",
-                        symbol: "text.badge.plus",
-                        disabled: player.currentSong == nil || libraryActions.isBusy) {
-                    guard let song = player.currentSong else { return }
-                    Task { await libraryActions.perform(.addToPlaylist, song: song, library: library) }
-                }
+        }
+        if commentServerStore.hasEnabledServers, !isSpokenWord, !player.isLiveRadio, player.currentSong != nil {
+            menuRow(title: "comments_view_action", symbol: "bubble.left.and.text.bubble.right") {
+                showComments = true
             }
-            if !isSpokenWord {
-                if !player.isLiveRadio {
-                    menuRow(
-                        title: "start_song_radio",
-                        symbol: "dot.radiowaves.left.and.right",
-                        disabled: player.currentSong == nil
-                    ) {
-                        guard let seed = player.currentSong else { return }
-                        menuShown = false
-                        Task { @MainActor in
-                            let queue = await SongRadioBuilder.queue(from: seed, in: library, limit: 48).filteredPlayable()
-                            guard queue.count > 1 else { return }
-                            player.shuffleEnabled = false
-                            await player.play(queue: queue, startingAt: 0)
-                        }
-                    }
-                }
-                // 相似歌曲 —— 飞出二级浮层 (和字号子菜单一致),点外部自动消失,
-                // 不是之前那个没关闭按钮的固定 sheet。整行 hit-testable。
-                Button {
-                    guard player.currentSong != nil else { return }
-                    showSimilarSongs.toggle()
-                } label: {
+        }
+        if player.canDislikeCurrentSong {
+            // 不喜欢(#193): 记下来并切到下一首; 已经不喜欢时再点只撤销。
+            // 心形保持「喜欢 / 取消喜欢」两态, 不叠第三态。
+            menuRow(title: isCurrentDisliked ? "song_undislike" : "song_dislike",
+                    symbol: isCurrentDisliked ? "hand.thumbsdown.fill" : "hand.thumbsdown") {
+                player.toggleDislikeForCurrentSong()
+            }
+        }
+        if isPodcastEpisode {
+            // 单集分享网页地址: 歌曲分享页的可播放链接和歌词海报对它都用不上。
+            if let url = SpokenWordPlayerText.podcastShareURL(player) {
+                ShareLink(item: url) {
                     HStack(spacing: 10) {
-                        Image(systemName: "sparkles")
+                        Image(systemName: "square.and.arrow.up")
                             .frame(width: 18)
                             .foregroundStyle(PMColor.textMuted)
-                        Text("similar_songs")
+                        Text("share")
                             .font(.callout)
                             .foregroundStyle(PMColor.text)
                         Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundStyle(PMColor.textFaint)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .pmRowBackground(cornerRadius: 6)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(player.currentSong == nil)
-                .popover(isPresented: $showSimilarSongs, arrowEdge: .leading) {
-                    if let song = player.currentSong {
-                        MacSimilarSongsPopover(seed: song) {
-                            showSimilarSongs = false
-                            menuShown = false
-                        }
-                        .focusEffectDisabled()
+            }
+        } else {
+            menuRow(
+                title: "share",
+                symbol: "square.and.arrow.up",
+                disabled: player.currentSong == nil
+            ) {
+                shareSong = player.currentSong
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rootDiscoverAndNavigateSection: some View {
+        if !isSpokenWord {
+            if !player.isLiveRadio {
+                menuRow(
+                    title: "start_song_radio",
+                    symbol: "dot.radiowaves.left.and.right",
+                    disabled: player.currentSong == nil
+                ) {
+                    guard let seed = player.currentSong else { return }
+                    menuShown = false
+                    Task { @MainActor in
+                        let queue = await SongRadioBuilder.queue(from: seed, in: library, limit: 48).filteredPlayable()
+                        guard queue.count > 1 else { return }
+                        player.shuffleEnabled = false
+                        await player.play(queue: queue, startingAt: 0)
                     }
                 }
             }
-            if commentServerStore.hasEnabledServers, !isSpokenWord, !player.isLiveRadio, player.currentSong != nil {
-                menuRow(title: "comments_view_action", symbol: "bubble.left.and.text.bubble.right") {
-                    showComments = true
-                }
+            // 相似歌曲 —— 飞出二级浮层 (和字号子菜单一致),点外部自动消失,
+            // 不是之前那个没关闭按钮的固定 sheet。整行 hit-testable。
+            flyoutRow(
+                symbol: "sparkles",
+                title: "similar_songs",
+                disabled: player.currentSong == nil
+            ) {
+                guard player.currentSong != nil else { return }
+                closeChildPopovers()
+                showSimilarSongs = true
             }
-            if player.canDislikeCurrentSong {
-                // 不喜欢(#193): 记下来并切到下一首; 已经不喜欢时再点只撤销。
-                // 心形保持「喜欢 / 取消喜欢」两态, 不叠第三态。
-                menuRow(title: isCurrentDisliked ? "song_undislike" : "song_dislike",
-                        symbol: isCurrentDisliked ? "hand.thumbsdown.fill" : "hand.thumbsdown") {
-                    player.toggleDislikeForCurrentSong()
-                }
-            }
-            if let rangeSong = playbackRangeSong {
-                // 播放时间段:设过时这一行就是开关(行尾写着时间段,开着打勾),
-                // 下面一行编辑;没设过时只有「设置播放时间段…」。
-                if let range = SongPlaybackRangeStore.shared.range(for: rangeSong) {
-                    playbackRangeToggleRow(song: rangeSong, range: range)
-                    menuRow(title: "playback_range_edit", symbol: "slider.horizontal.3") {
-                        playbackRangeEditorRequest = .init(song: rangeSong, purpose: .playbackRange)
+            .popover(isPresented: $showSimilarSongs, arrowEdge: .leading) {
+                if let song = player.currentSong {
+                    MacSimilarSongsPopover(seed: song) {
+                        showSimilarSongs = false
+                        menuShown = false
                     }
-                } else {
-                    menuRow(title: "playback_range_set", symbol: "selection.pin.in.out") {
-                        playbackRangeEditorRequest = .init(song: rangeSong, purpose: .playbackRange)
-                    }
-                }
-                menuRow(title: "clip_export_menu_mac", symbol: SongPlaybackRangeEditor.clipSymbol) {
-                    playbackRangeEditorRequest = .init(song: rangeSong, purpose: .clip)
+                    .focusEffectDisabled()
                 }
             }
-            if let link = shuffleLinkState, let songID = player.currentSong?.id {
-                // 随机时连播(#335):两行开关,不收起面板。
-                if link.nextTitle != nil {
-                    checkRow(title: "shuffle_link_next_long", symbol: "forward.end", isChecked: link.linksNext) {
-                        library.setShuffleLinked(songID: songID, direction: .next, isLinked: !link.linksNext)
-                    }
-                }
-                if link.previousTitle != nil {
-                    checkRow(title: "shuffle_link_previous_long", symbol: "backward.end", isChecked: link.linksPrevious) {
-                        library.setShuffleLinked(songID: songID, direction: .previous, isLinked: !link.linksPrevious)
-                    }
-                }
+        }
+
+        if isPodcastEpisode, let episodeID = SpokenWordPlayerText.openablePodcastEpisodeID(player) {
+            menuRow(title: "podcast_player_episode_details", symbol: "info.circle") {
+                podcastSheet = .episode(episodeID)
             }
-            if isPodcastEpisode, let episodeID = SpokenWordPlayerText.openablePodcastEpisodeID(player) {
-                menuRow(title: "podcast_player_episode_details", symbol: "info.circle") {
-                    podcastSheet = .episode(episodeID)
-                }
+        }
+        if let target = PodcastPlayerSheetTarget.show(for: player) {
+            menuRow(title: "podcast_go_to_show", symbol: "rectangle.stack") {
+                podcastSheet = target
             }
-            if let target = PodcastPlayerSheetTarget.show(for: player) {
-                menuRow(title: "podcast_go_to_show", symbol: "rectangle.stack") {
-                    podcastSheet = target
-                }
-            }
-            if isPodcastEpisode {
-                podcastEpisodeRows
-            } else if player.currentItemIsAudiobook, let bookID = player.currentBookID {
+        }
+        if !isPodcastEpisode {
+            if player.currentItemIsAudiobook, let bookID = player.currentBookID {
                 menuRow(title: "spoken_word_go_to_book", symbol: "books.vertical") {
                     NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
                 }
@@ -517,231 +680,106 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     }
                 }
             }
-            divider()
-            if !isPodcastEpisode {
-                menuRow(title: "tag_editor_menu",
-                        symbol: "tag",
-                        disabled: tagEditorSong == nil) {
-                    showTagEditor = true
-                }
-                menuRow(title: "lyrics_editor_menu",
-                        symbol: "quote.bubble",
-                        disabled: player.currentSong == nil) {
-                    lyricsEditorTargetSong = player.currentSong
-                }
+            menuRow(title: "song_info", symbol: "info.circle",
+                    disabled: player.currentSong == nil) {
+                showSongInfo = true
             }
-            if let generation = transcriptGenerationRow {
-                menuRow(titleText: generation, symbol: "waveform.and.mic") {
-                    transcriptGenerationSong = player.currentSong
-                }
-            }
-            if canImportTranscripts {
-                menuRow(title: "transcript_import_menu", symbol: "square.and.arrow.down.on.square") {
-                    transcriptImportRequest = SpokenTranscriptImportRequest.currentBook(player: player, library: library)
-                }
-            }
-            if canExportText {
-                textExportRow
-            }
-            // 在线刮削查的是音乐资料库, 拿有声内容的章节名去搜只会配错。
-            if !isSpokenWord {
-                menuRow(title: "scrape_song", symbol: "wand.and.stars",
-                        disabled: player.currentSong == nil || isScrapingCurrentSong) {
-                    requestScrapeOptions()
-                }
-            }
-            if canReloadLyricsFromSource {
-                menuRow(
-                    title: isSpokenWord ? "transcript_reload_from_server" : "lyrics_reload_from_source",
-                    symbol: "arrow.clockwise.circle",
-                    disabled: isReloadingLyricsFromSource
-                ) {
-                    reloadLyricsFromSource()
-                }
-            }
-            divider()
-            if isPodcastEpisode {
-                // 单集分享网页地址: 歌曲分享页的可播放链接和歌词海报对它都用不上。
-                if let url = SpokenWordPlayerText.podcastShareURL(player) {
-                    ShareLink(item: url) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "square.and.arrow.up")
-                                .frame(width: 18)
-                                .foregroundStyle(PMColor.textMuted)
-                            Text("share")
-                                .font(.callout)
-                                .foregroundStyle(PMColor.text)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .pmRowBackground(cornerRadius: 6)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            } else {
-                menuRow(title: "song_info", symbol: "info.circle",
-                        disabled: player.currentSong == nil) {
-                    showSongInfo = true
-                }
-                menuRow(
-                    title: "share",
-                    symbol: "square.and.arrow.up",
-                    disabled: player.currentSong == nil
-                ) {
-                    shareSong = player.currentSong
-                }
-            }
-            divider()
-            if !isSpokenWord {
-                lyricsMotionRow
-            }
+        }
+    }
 
-            // 字号子菜单 —— 用 popover 打开第二层。
-            Button { fontPickerShown.toggle() } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "textformat.size").frame(width: 18)
-                        .foregroundStyle(PMColor.textMuted)
-                    Text("lyrics_font_size")
-                        .font(.callout)
-                        .foregroundStyle(PMColor.text)
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
-                }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .pmRowBackground(cornerRadius: 6)
-                .contentShape(Rectangle())
+    @ViewBuilder
+    private var rootPlaybackAndSessionSection: some View {
+        // 有声内容按书的顺序听, 随机与列表循环只会打乱章节；有声书单独支持单章循环。
+        if !isSpokenWord {
+            subpageRow(
+                symbol: playbackOrderSymbol,
+                title: "player_menu_playback_order",
+                value: playbackOrderSummary,
+                target: .playbackOrder
+            )
+        } else if player.currentItemIsAudiobook {
+            checkRow(title: "spoken_word_repeat_chapter",
+                     symbol: "repeat.1",
+                     isChecked: player.isRepeatingCurrentSpokenWordChapter) {
+                player.toggleSpokenWordChapterRepeat()
             }
-            .buttonStyle(.plain)
-            .popover(isPresented: $fontPickerShown, arrowEdge: .leading) {
-                fontPickerPopover
+        }
+        if player.isMedleyActive {
+            menuRow(title: "medley_continue_full", symbol: "music.note") {
+                Task { await player.continueCurrentMedleySongInFull() }
             }
-            // 歌词字体:每一种用它自己写个样字,要下载的选了就开始下。
-            Button { lyricsFontPickerShown.toggle() } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "textformat").frame(width: 18)
-                        .foregroundStyle(PMColor.textMuted)
-                    Text("transcript_font")
-                        .font(.callout)
-                        .foregroundStyle(PMColor.text)
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
-                }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .pmRowBackground(cornerRadius: 6)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: $lyricsFontPickerShown, arrowEdge: .leading) {
-                lyricsFontPickerPopover
-            }
-            // 有文稿的有声内容:这一集 / 这本书的文稿往前、往后挪(#320)。
-            if isSpokenWord, let song = player.currentSong,
-               SpokenWordTranscriptOffsetStore.shared.itemKey(for: song) != nil {
-                SpokenWordTranscriptOffsetRow(scope: .item(song), compact: true)
-                    .font(.callout)
-                    .foregroundStyle(PMColor.text)
-                    .padding(.leading, 12)
-                    .padding(.trailing, 2)
-            }
-            // 歌词翻译:关闭 / 系统翻译 / 智能翻译直接在这里选,和 iPhone 播放页菜单一致。
-            if !isSpokenWord {
-                Button { translationPickerShown.toggle() } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: LyricsTranslationSettingsStore.shared.isEnabled
-                              ? "character.bubble.fill" : "character.bubble")
-                            .frame(width: 18)
-                            .foregroundStyle(PMColor.textMuted)
-                        Text("lyrics_translation_title")
-                            .font(.callout)
-                            .foregroundStyle(PMColor.text)
-                        Spacer()
-                        Text(lyricsTranslationChoiceTitle(selectedLyricsTranslationChoice))
-                            .font(.caption)
-                            .foregroundStyle(PMColor.textFaint)
-                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .pmRowBackground(cornerRadius: 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $translationPickerShown, arrowEdge: .leading) {
-                    translationPickerPopover
+        } else if !isSpokenWord, !player.isLiveRadio, !player.isAppleMusicMode, player.canPlayMedleyFromQueue {
+            menuRow(titleText: player.playbackSettings.medleyPlayQueueTitle,
+                    symbol: "rectangle.stack.badge.play") {
+                let songs = player.medleyCandidatesFromQueue
+                if player.medleyNeedsDataUsageConfirmation(for: songs) {
+                    pendingMedleySongs = songs
+                } else {
+                    Task { await player.playMedley(songs) }
                 }
             }
-            divider()
-            if !isSpokenWord, player.currentSong != nil, !player.isLiveRadio, !player.isAppleMusicMode {
-                menuRow(title: "karaoke_title", symbol: "music.mic.circle") {
-                    showKaraoke = true
-                }
+        }
+        if !isSpokenWord, player.currentSong != nil, !player.isLiveRadio, !player.isAppleMusicMode {
+            menuRow(title: "karaoke_title", symbol: "music.mic.circle") {
+                showKaraoke = true
             }
-            // 伴唱 Apple Music 时也给:画灰、写原因,点开说明为什么只能放原唱。
-            if !isSpokenWord, player.currentSong != nil, !player.isLiveRadio, !player.currentItemIsAmbient {
-                singAlongRow
+        }
+        if player.currentItemIsSpokenWord, !player.isLiveRadio {
+            menuRow(title: "spoken_word_add_bookmark", symbol: "bookmark") {
+                player.addSpokenWordBookmark()
             }
-            if player.isMedleyActive {
-                menuRow(title: "medley_continue_full", symbol: "music.note") {
-                    Task { await player.continueCurrentMedleySongInFull() }
-                }
-            } else if !isSpokenWord, !player.isLiveRadio, !player.isAppleMusicMode,
-                      player.canPlayMedleyFromQueue {
-                menuRow(titleText: player.playbackSettings.medleyPlayQueueTitle,
-                        symbol: "rectangle.stack.badge.play") {
-                    let songs = player.medleyCandidatesFromQueue
-                    if player.medleyNeedsDataUsageConfirmation(for: songs) {
-                        pendingMedleySongs = songs
-                    } else {
-                        Task { await player.playMedley(songs) }
-                    }
-                }
+        }
+        if player.hasChapters || player.currentItemIsSpokenWord {
+            menuRow(title: "spoken_word_chapters_and_bookmarks", symbol: "list.bullet.indent") {
+                showChapterList = true
             }
-            if player.currentItemIsSpokenWord, !player.isLiveRadio {
-                menuRow(title: "spoken_word_add_bookmark", symbol: "bookmark") {
-                    player.addSpokenWordBookmark()
-                }
-            }
-            if player.hasChapters || player.currentItemIsSpokenWord {
-                menuRow(title: "spoken_word_chapters_and_bookmarks", symbol: "list.bullet.indent") {
-                    showChapterList = true
-                }
-            }
-            menuRow(title: player.isSleepTimerActive ? "sleep_timer_active" : "sleep_timer",
-                    symbol: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz") {
-                showSleepTimer = true
-            }
-            // Apple Music 由系统播放器出声,投放时由对方设备出声,都不经过本机均衡器。
-            if !player.isAppleMusicMode, player.castingRenderer == nil {
-                equalizerRow
-            }
-            // 播放速度与升降调(#332),和 iPhone 播放页同一套:Apple Music 由系统播放器出声、
-            // 电台是直播流,都没有这两项;升降调只给音乐。
-            if !player.isAppleMusicMode, !player.isLiveRadio, player.currentSong != nil {
-                playbackRateRow
-                if MacPlaybackPitchPanel.availability(player) != .notOffered {
-                    pitchRow
-                }
-            }
-            if !isSpokenWord {
-                menuRow(title: "scrobble_title", symbol: "waveform.path.ecg") {
-                    NotificationCenter.default.post(name: .primuseSelectScrobble, object: nil)
-                }
-            }
-            menuRow(titleText: playbackSettingsTitle, symbol: "slider.horizontal.3") {
-                openSettingsWindow()
-            }
-            divider()
-            if let song = player.currentSong {
-                let librarySong = library.song(id: song.id)
-                let target = librarySong ?? song
-                let isSegment = SourceFileDeletionPolicy.isFileSegment(target)
+        }
+    }
+
+    @ViewBuilder
+    private var rootSubpagesSection: some View {
+        subpageRow(
+            symbol: "textformat.size",
+            title: isSpokenWord ? "player_menu_transcript_display" : "player_menu_lyrics_display",
+            value: lyricsDisplaySummary,
+            target: .lyricsDisplay
+        )
+        subpageRow(
+            symbol: "slider.vertical.3",
+            title: offersSingAlongRow ? "player_menu_audio_and_sing_along" : "audio_effects",
+            value: audioEffectsSummary,
+            target: .audioEffects
+        )
+        if hasEditingItems {
+            subpageRow(
+                symbol: "square.and.pencil",
+                title: isSpokenWord ? "player_menu_transcript_and_edit" : "player_menu_edit_and_clips",
+                value: editingSummary,
+                target: .editing
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var rootSettingsAndDeleteSection: some View {
+        menuRow(titleText: playbackSettingsTitle, symbol: "gearshape") {
+            openSettingsWindow()
+        }
+        if let song = player.currentSong {
+            let librarySong = library.song(id: song.id)
+            let target = librarySong ?? song
+            let isSegment = SourceFileDeletionPolicy.isFileSegment(target)
+            let showsCueRemoval = isSegment && librarySong != nil
+            let showsDelete = canDeleteSourceFile(target)
+            if showsCueRemoval || showsDelete {
+                divider()
                 if isSegment, let librarySong {
                     menuRow(title: "cue_remove_track_from_device", symbol: "minus.circle", role: .destructive,
                             disabled: batchRemoval.isBusy) {
                         cueRemovalTarget = librarySong
                     }
                 }
-                if canDeleteSourceFile(target) {
+                if showsDelete {
                     menuRow(title: isSegment ? "batch_delete_source_files" : "delete_song",
                             symbol: "trash", role: .destructive, disabled: isSegment && batchRemoval.isBusy) {
                         deletionTarget = SongFileDeletionRequest(song: target, library: library)
@@ -749,17 +787,368 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
             }
         }
-        .padding(.vertical, 6)
-        .frame(width: 260)
-        // 迷你播放器是深色面板, 系统 popover 的半透材质叠在它上面会把菜单染得发灰/
-        // 发白、文字对比度很低。铺一层 flat 不透明 bg (不画圆角描边 —— 系统 chrome
-        // 已经裁圆角带边框, 自己再画会变双框)。
-        .background(PMColor.bg)
-        // popover 一打开, SwiftUI 就把初始键盘焦点放在第一个按钮(上一首)上, 给它描一圈
-        // accent 焦点环。菜单行是整幅宽的, 环的左右两边正好落在菜单边界外被裁掉, 屏幕上
-        // 只剩贴着行上下沿的两条横线, 看着像凭空多了两条分隔线。这个菜单是鼠标点开的,
-        // 原生菜单打开时同样不高亮任何一项, 所以直接关掉焦点描边。
-        .focusEffectDisabled()
+    }
+
+    // MARK: - Subpages
+
+    @ViewBuilder
+    private var playbackOrderSubpage: some View {
+        subpageHeader(title: "player_menu_playback_order")
+        divider()
+        toggleRow(title: "shuffle", symbol: "shuffle",
+                  isOn: Binding(get: { player.shuffleEnabled },
+                                set: { player.shuffleEnabled = $0 }))
+        divider()
+        ForEach([RepeatMode.off, .all, .one], id: \.self) { mode in
+            checkRow(
+                title: PlayerMoreMenuPolicy.repeatChoiceTitleKey(for: mode),
+                symbol: mode == .one ? "repeat.1" : "repeat",
+                isChecked: player.repeatMode == mode
+            ) {
+                player.repeatMode = mode
+            }
+        }
+        divider()
+        sectionCaption("shuffle_preference_title")
+        ForEach(ShufflePreference.allCases) { preference in
+            checkRowText(
+                titleText: preference.displayName,
+                isChecked: preference == player.playbackSettings.shufflePreference
+            ) {
+                player.playbackSettings.shufflePreference = preference
+            }
+        }
+        // Apple Music 自己排随机顺序时偏好不生效:照样能选,这里写明原因。
+        if player.isAppleMusicMode, !player.isPrimuseManagingAppleMusicQueue {
+            Text("shuffle_preference_apple_music_note")
+                .font(.caption)
+                .foregroundStyle(PMColor.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.vertical, 4)
+        }
+        if let link = shuffleLinkState, let songID = player.currentSong?.id,
+           link.nextTitle != nil || link.previousTitle != nil {
+            // 随机时连播(#335):两行开关,不收起面板。
+            divider()
+            if link.nextTitle != nil {
+                checkRow(title: "shuffle_link_next_long", symbol: "forward.end", isChecked: link.linksNext) {
+                    library.setShuffleLinked(songID: songID, direction: .next, isLinked: !link.linksNext)
+                }
+            }
+            if link.previousTitle != nil {
+                checkRow(title: "shuffle_link_previous_long", symbol: "backward.end", isChecked: link.linksPrevious) {
+                    library.setShuffleLinked(songID: songID, direction: .previous, isLinked: !link.linksPrevious)
+                }
+            }
+        }
+        divider()
+        menuRow(title: "scrobble_title", symbol: "waveform.path.ecg") {
+            NotificationCenter.default.post(name: .primuseSelectScrobble, object: nil)
+        }
+    }
+
+    @ViewBuilder
+    private var lyricsDisplaySubpage: some View {
+        subpageHeader(title: isSpokenWord ? "player_menu_transcript_display" : "player_menu_lyrics_display")
+        divider()
+        // 字号子菜单 —— 用 popover 打开第二层。
+        flyoutRow(symbol: "textformat.size", title: "lyrics_font_size") {
+            closeChildPopovers()
+            fontPickerShown = true
+        }
+        .popover(isPresented: $fontPickerShown, arrowEdge: .leading) {
+            fontPickerPopover
+        }
+        // 歌词字体:每一种用它自己写个样字,要下载的选了就开始下。
+        flyoutRow(symbol: "textformat", title: "transcript_font") {
+            closeChildPopovers()
+            lyricsFontPickerShown = true
+        }
+        .popover(isPresented: $lyricsFontPickerShown, arrowEdge: .leading) {
+            lyricsFontPickerPopover
+        }
+        // 有文稿的有声内容:这一集 / 这本书的文稿往前、往后挪(#320)。
+        if isSpokenWord, let song = player.currentSong,
+           SpokenWordTranscriptOffsetStore.shared.itemKey(for: song) != nil {
+            SpokenWordTranscriptOffsetRow(scope: .item(song), compact: true)
+                .font(.callout)
+                .foregroundStyle(PMColor.text)
+                .padding(.leading, 12)
+                .padding(.trailing, 2)
+        }
+        // 歌词翻译:关闭 / 系统翻译 / 智能翻译直接在这里选,和 iPhone 播放页菜单一致。
+        if !isSpokenWord {
+            divider()
+            sectionCaption("lyrics_translation_title")
+            ForEach(availableLyricsTranslationChoices, id: \.self) { choice in
+                checkRow(
+                    title: lyricsTranslationChoiceTitle(choice),
+                    isChecked: choice == selectedLyricsTranslationChoice
+                ) {
+                    let settings = LyricsTranslationSettingsStore.shared
+                    if let choice {
+                        settings.mode = choice
+                        settings.isEnabled = true
+                    } else {
+                        settings.isEnabled = false
+                    }
+                }
+            }
+            // 歌词文件里本来就有的译文，和上面的机翻方式分开管。
+            checkRow(
+                title: "lyrics_bundled_translation_shown",
+                isChecked: LyricsTranslationSettingsStore.shared.showsBundledTranslations
+            ) {
+                LyricsTranslationSettingsStore.shared.showsBundledTranslations.toggle()
+            }
+            .help(Text("lyrics_bundled_translation_shown_footer"))
+            divider()
+            lyricsMotionRow
+        }
+    }
+
+    @ViewBuilder
+    private var audioEffectsSubpage: some View {
+        subpageHeader(title: offersSingAlongRow ? "player_menu_audio_and_sing_along" : "audio_effects")
+        divider()
+        // 伴唱 Apple Music 时也给:画灰、写原因,点开说明为什么只能放原唱。
+        if offersSingAlongRow {
+            singAlongRow
+        }
+        // Apple Music 由系统播放器出声,投放时由对方设备出声,都不经过本机均衡器。
+        if !player.isAppleMusicMode, player.castingRenderer == nil {
+            equalizerRow
+        }
+        // 播放速度与升降调(#332),和 iPhone 播放页同一套:Apple Music 由系统播放器出声、
+        // 电台是直播流,都没有这两项;升降调只给音乐。
+        if !player.isAppleMusicMode, !player.isLiveRadio, player.currentSong != nil {
+            playbackRateRow
+            if MacPlaybackPitchPanel.availability(player) != .notOffered {
+                pitchRow
+            }
+        }
+        menuRow(title: player.isSleepTimerActive ? "sleep_timer_active" : "sleep_timer",
+                symbol: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz") {
+            showSleepTimer = true
+        }
+    }
+
+    @ViewBuilder
+    private var editingSubpage: some View {
+        subpageHeader(title: isSpokenWord ? "player_menu_transcript_and_edit" : "player_menu_edit_and_clips")
+        divider()
+        if let rangeSong = playbackRangeSong {
+            // 播放时间段:设过时这一行就是开关(行尾写着时间段,开着打勾),
+            // 下面一行编辑;没设过时只有「设置播放时间段…」。
+            if let range = SongPlaybackRangeStore.shared.range(for: rangeSong) {
+                playbackRangeToggleRow(song: rangeSong, range: range)
+                menuRow(title: "playback_range_edit", symbol: "slider.horizontal.3") {
+                    playbackRangeEditorRequest = .init(song: rangeSong, purpose: .playbackRange)
+                }
+            } else {
+                menuRow(title: "playback_range_set", symbol: "selection.pin.in.out") {
+                    playbackRangeEditorRequest = .init(song: rangeSong, purpose: .playbackRange)
+                }
+            }
+            menuRow(title: "clip_export_menu_mac", symbol: SongPlaybackRangeEditor.clipSymbol) {
+                playbackRangeEditorRequest = .init(song: rangeSong, purpose: .clip)
+            }
+            divider()
+        }
+        if !isPodcastEpisode {
+            menuRow(title: "tag_editor_menu",
+                    symbol: "tag",
+                    disabled: tagEditorSong == nil) {
+                showTagEditor = true
+            }
+            menuRow(title: "lyrics_editor_menu",
+                    symbol: "quote.bubble",
+                    disabled: player.currentSong == nil) {
+                lyricsEditorTargetSong = player.currentSong
+            }
+        }
+        if let generation = transcriptGenerationRow {
+            menuRow(titleText: generation, symbol: "waveform.and.mic") {
+                transcriptGenerationSong = player.currentSong
+            }
+        }
+        if canImportTranscripts {
+            menuRow(title: "transcript_import_menu", symbol: "square.and.arrow.down.on.square") {
+                transcriptImportRequest = SpokenTranscriptImportRequest.currentBook(player: player, library: library)
+            }
+        }
+        if canExportText {
+            textExportRow
+        }
+        // 在线刮削查的是音乐资料库, 拿有声内容的章节名去搜只会配错。
+        if !isSpokenWord {
+            menuRow(title: "scrape_song", symbol: "wand.and.stars",
+                    disabled: player.currentSong == nil || isScrapingCurrentSong) {
+                requestScrapeOptions()
+            }
+        }
+        if canReloadLyricsFromSource {
+            menuRow(
+                title: isSpokenWord ? "transcript_reload_from_server" : "lyrics_reload_from_source",
+                symbol: "arrow.clockwise.circle",
+                disabled: isReloadingLyricsFromSource
+            ) {
+                reloadLyricsFromSource()
+            }
+        }
+    }
+
+    // MARK: - Summaries & Row Helpers
+
+    private var playbackOrderSymbol: String {
+        if player.repeatMode == .one { return "repeat.1" }
+        return player.shuffleEnabled ? "shuffle" : "repeat"
+    }
+
+    private var playbackOrderSummary: String {
+        PlayerMoreMenuPolicy.playbackOrderSummary(
+            shuffleEnabled: player.shuffleEnabled,
+            repeatMode: player.repeatMode
+        )
+    }
+
+    private var lyricsDisplaySummary: String {
+        if isSpokenWord {
+            guard let song = player.currentSong,
+                  let key = SpokenWordTranscriptOffsetStore.shared.itemKey(for: song) else { return "" }
+            let delay = SpokenWordTranscriptOffsetStore.shared.itemDelay(forKey: key) ?? 0
+            return abs(delay) >= 0.05 ? SpokenWordTranscriptOffsetRow.valueText(delay) : ""
+        }
+        guard let choice = selectedLyricsTranslationChoice else { return "" }
+        return String(localized: lyricsTranslationChoiceResource(choice))
+    }
+
+    private var audioEffectsSummary: String {
+        var parts: [String] = []
+        if offersSingAlongRow, KaraokeSingAlong.shared.isEnabled {
+            parts.append(String(localized: "sing_along_title"))
+        }
+        if !player.isAppleMusicMode, player.castingRenderer == nil,
+           player.outputMode(for: player.currentSong) != .highFidelity,
+           player.equalizerService.menuSelectionID != EqualizerService.menuOffID {
+            parts.append(player.equalizerService.menuSelectionTitle)
+        }
+        if !player.isAppleMusicMode, !player.isLiveRadio, player.currentSong != nil,
+           MacPlaybackRatePanel.canChangeRate(player) {
+            let rate = MacPlaybackRatePanel.currentRate(player)
+            if abs(rate - 1) >= 0.001 {
+                parts.append(MacPlaybackRatePanel.valueLabel(rate))
+            }
+        }
+        if !player.isAppleMusicMode, !player.isLiveRadio, player.currentSong != nil,
+           MacPlaybackPitchPanel.availability(player) == .available,
+           player.playbackSettings.pitchSemitones != 0 {
+            parts.append(PlaybackPitchText.valueLabel(player.playbackSettings.pitchSemitones))
+        }
+        if player.isSleepTimerActive {
+            parts.append(String(localized: "sleep_timer_active"))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var editingSummary: String {
+        guard let rangeSong = playbackRangeSong,
+              let range = SongPlaybackRangeStore.shared.range(for: rangeSong),
+              range.isEnabled else { return "" }
+        return SongPlaybackRangePolicy.rangeLabel(range)
+    }
+
+    private func subpageHeader(title: LocalizedStringKey) -> some View {
+        Button { openSubpage(.root) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.left")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(PMColor.textMuted)
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("back"))
+        // 读屏先读到这一行:「返回」之外还要说清楚现在在哪一页。
+        .accessibilityValue(Text(title))
+    }
+
+    private func sectionCaption(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.caption)
+            .foregroundStyle(PMColor.textMuted)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+    }
+
+    private func subpageRow(
+        symbol: String,
+        title: LocalizedStringKey,
+        value: String,
+        target: PlayerMoreMenuSubpage
+    ) -> some View {
+        flyoutRow(symbol: symbol, title: title, value: value) {
+            openSubpage(target)
+        }
+    }
+
+    /// 打开第二层(或子页)的行,与均衡器那一行同一画法。用不了时画灰、第二行写原因,不显示当前值,
+    /// 仍然能点开看说明。
+    private func flyoutRow(
+        symbol: String,
+        title: LocalizedStringKey,
+        value: String = "",
+        unavailableReason: String? = nil,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        let isUnavailable = unavailableReason != nil
+        return Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .frame(width: 18)
+                    .foregroundStyle(isUnavailable ? PMColor.textFaint : PMColor.textMuted)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.callout)
+                        .foregroundStyle(isUnavailable ? PMColor.textMuted : PMColor.text)
+                    if let unavailableReason {
+                        Text(verbatim: unavailableReason)
+                            .font(.caption2)
+                            .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                // 当前值(预设名)长时先截它,别把标题截掉。
+                .layoutPriority(1)
+                Spacer(minLength: 8)
+                if !isUnavailable, !value.isEmpty {
+                    Text(verbatim: value)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(verbatim: unavailableReason ?? value))
     }
 
     private func menuHeader(_ song: Song) -> some View {
@@ -891,16 +1280,38 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
     }
 
-    /// 带状态的行。点了不收起菜单,当场看得到勾的变化(循环还要连点切档)。
-    private func checkRow(title: LocalizedStringKey, symbol: String, isChecked: Bool,
+    /// 带状态的行。点了不收起菜单,当场看得到勾的变化。
+    private func checkRow(title: LocalizedStringKey, symbol: String? = nil, isChecked: Bool,
                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .frame(width: 18)
-                    .foregroundStyle(PMColor.textMuted)
-                    .contentTransition(.symbolEffect(.replace))
+                if let symbol {
+                    Image(systemName: symbol)
+                        .frame(width: 18)
+                        .foregroundStyle(PMColor.textMuted)
+                        .contentTransition(.symbolEffect(.replace))
+                }
                 Text(title)
+                    .font(.callout)
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+                Image(systemName: "checkmark")
+                    .font(.caption)
+                    .foregroundStyle(PMColor.brand)
+                    .opacity(isChecked ? 1 : 0)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isChecked ? [.isToggle, .isSelected] : .isToggle)
+    }
+
+    private func checkRowText(titleText: String, isChecked: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(verbatim: titleText)
                     .font(.callout)
                     .foregroundStyle(PMColor.text)
                 Spacer()
@@ -977,38 +1388,15 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 没有均衡器:整行画成灰的、第二行写明原因,但仍然能点,第二层先说明原因。
     private var equalizerRow: some View {
         let isBypassed = player.outputMode(for: player.currentSong) == .highFidelity
-        return Button { equalizerPickerShown.toggle() } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "slider.vertical.3").frame(width: 18)
-                    .foregroundStyle(isBypassed ? PMColor.textFaint : PMColor.textMuted)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("equalizer")
-                        .font(.callout)
-                        .foregroundStyle(isBypassed ? PMColor.textMuted : PMColor.text)
-                    if isBypassed {
-                        Text("eq_menu_high_fidelity_unavailable")
-                            .font(.caption2)
-                            .foregroundStyle(PMColor.textFaint)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                // 预设名长时先截它,别把「均衡器」截掉。
-                .layoutPriority(1)
-                Spacer(minLength: 8)
-                if !isBypassed {
-                    Text(verbatim: player.equalizerService.menuSelectionTitle)
-                        .font(.caption)
-                        .foregroundStyle(PMColor.textMuted)
-                        .lineLimit(1)
-                }
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .pmRowBackground(cornerRadius: 6)
-            .contentShape(Rectangle())
+        return flyoutRow(
+            symbol: "slider.vertical.3",
+            title: "equalizer",
+            value: player.equalizerService.menuSelectionTitle,
+            unavailableReason: isBypassed ? String(localized: "eq_menu_high_fidelity_unavailable") : nil
+        ) {
+            closeChildPopovers()
+            equalizerPickerShown = true
         }
-        .buttonStyle(.plain)
         .popover(isPresented: $equalizerPickerShown, arrowEdge: .leading) {
             MacEqualizerMenuPanel(
                 player: player,
@@ -1026,13 +1414,14 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 不能变速:整行画灰、第二行写原因,仍然能点,第二层先说明原因并能一键切到音效输出。
     private var playbackRateRow: some View {
         let isUnavailable = !MacPlaybackRatePanel.canChangeRate(player)
-        return popoverRow(
+        return flyoutRow(
             symbol: "speedometer",
             title: "playback_rate",
-            unavailableReason: isUnavailable ? String(localized: "eq_menu_high_fidelity_unavailable") : nil,
-            value: MacPlaybackRatePanel.valueLabel(MacPlaybackRatePanel.currentRate(player))
+            value: MacPlaybackRatePanel.valueLabel(MacPlaybackRatePanel.currentRate(player)),
+            unavailableReason: isUnavailable ? String(localized: "eq_menu_high_fidelity_unavailable") : nil
         ) {
-            playbackRatePickerShown.toggle()
+            closeChildPopovers()
+            playbackRatePickerShown = true
         }
         .popover(isPresented: $playbackRatePickerShown, arrowEdge: .leading) {
             MacPlaybackRatePanel(player: player) { playbackRatePickerShown = false }
@@ -1042,13 +1431,14 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 伴唱:行尾是原唱留多少或在准备什么;放不了时画灰、第二行写原因,仍能点开看说明。
     private var singAlongRow: some View {
         let singAlong = KaraokeSingAlong.shared
-        return popoverRow(
+        return flyoutRow(
             symbol: KaraokeSingAlongText.symbol,
             title: "sing_along_title",
-            unavailableReason: KaraokeSingAlongText.unavailableReason(singAlong.phase),
-            value: KaraokeSingAlongText.summary(singAlong.phase, level: singAlong.level, showsProgress: true)
+            value: KaraokeSingAlongText.summary(singAlong.phase, level: singAlong.level, showsProgress: true),
+            unavailableReason: KaraokeSingAlongText.unavailableReason(singAlong.phase)
         ) {
-            singAlongPanelShown.toggle()
+            closeChildPopovers()
+            singAlongPanelShown = true
         }
         .popover(isPresented: $singAlongPanelShown, arrowEdge: .leading) {
             MacSingAlongPanel(player: player)
@@ -1058,65 +1448,33 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 升降调:第二层是 降调 / 当前调 / 升调 三个键,点了不收起,能连着调。
     private var pitchRow: some View {
         let availability = MacPlaybackPitchPanel.availability(player)
-        return popoverRow(
+        return flyoutRow(
             symbol: PlaybackPitchText.symbol,
             title: "karaoke_key",
-            unavailableReason: PlaybackPitchText.shortReason(availability),
-            value: PlaybackPitchText.valueLabel(player.playbackSettings.pitchSemitones)
+            value: PlaybackPitchText.valueLabel(player.playbackSettings.pitchSemitones),
+            unavailableReason: PlaybackPitchText.shortReason(availability)
         ) {
-            pitchPickerShown.toggle()
+            closeChildPopovers()
+            pitchPickerShown = true
         }
         .popover(isPresented: $pitchPickerShown, arrowEdge: .leading) {
             MacPlaybackPitchPanel(player: player)
         }
     }
 
-    /// 打开第二层的行,与均衡器那一行同一画法。用不了时画灰、第二行写原因,不显示当前值。
-    private func popoverRow(
-        symbol: String,
-        title: LocalizedStringKey,
-        unavailableReason: String?,
-        value: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        let isUnavailable = unavailableReason != nil
-        return Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol).frame(width: 18)
-                    .foregroundStyle(isUnavailable ? PMColor.textFaint : PMColor.textMuted)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(.callout)
-                        .foregroundStyle(isUnavailable ? PMColor.textMuted : PMColor.text)
-                    if let unavailableReason {
-                        Text(verbatim: unavailableReason)
-                            .font(.caption2)
-                            .foregroundStyle(PMColor.textFaint)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .layoutPriority(1)
-                Spacer(minLength: 8)
-                if !isUnavailable {
-                    Text(verbatim: value)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(PMColor.textMuted)
-                        .lineLimit(1)
-                }
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .pmRowBackground(cornerRadius: 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(title))
-        .accessibilityValue(Text(verbatim: unavailableReason ?? value))
-    }
-
     private var offersSmartLyricsTranslation: Bool {
         intelligence?.shouldExposeRemoteConfiguration == true
+    }
+
+    private var availableLyricsTranslationChoices: [LyricsTranslationMode?] {
+        var choices: [LyricsTranslationMode?] = offersSmartLyricsTranslation
+            ? [nil, .system, .intelligentWithSystemFallback]
+            : [nil, .system]
+        // 填好了百度翻译(或正选着它)才列出来,没用它的人不多一项(#320)。
+        if BaiduTranslateAccount.shared.isConfigured || LyricsTranslationSettingsStore.shared.mode == .baidu {
+            choices.append(.baidu)
+        }
+        return choices
     }
 
     /// nil 是关闭。
@@ -1136,139 +1494,13 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
     }
 
-    private var translationPickerPopover: some View {
-        var choices: [LyricsTranslationMode?] = offersSmartLyricsTranslation
-            ? [nil, .system, .intelligentWithSystemFallback]
-            : [nil, .system]
-        // 填好了百度翻译(或正选着它)才列出来,没用它的人不多一项(#320)。
-        if BaiduTranslateAccount.shared.isConfigured || LyricsTranslationSettingsStore.shared.mode == .baidu {
-            choices.append(.baidu)
+    private func lyricsTranslationChoiceResource(_ choice: LyricsTranslationMode?) -> String.LocalizationValue {
+        switch choice {
+        case nil: "lyrics_translation_mode_off"
+        case .system: "lyrics_translation_mode_system"
+        case .intelligentWithSystemFallback: "lyrics_translation_mode_smart"
+        case .baidu: "lyrics_translation_mode_baidu"
         }
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(choices, id: \.self) { choice in
-                Button {
-                    let settings = LyricsTranslationSettingsStore.shared
-                    if let choice {
-                        settings.mode = choice
-                        settings.isEnabled = true
-                    } else {
-                        settings.isEnabled = false
-                    }
-                    translationPickerShown = false
-                } label: {
-                    HStack {
-                        Text(lyricsTranslationChoiceTitle(choice))
-                            .font(.callout)
-                            .foregroundStyle(PMColor.text)
-                        Spacer()
-                        if choice == selectedLyricsTranslationChoice {
-                            Image(systemName: "checkmark")
-                                .font(.caption)
-                                .foregroundStyle(PMColor.brand)
-                        }
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .pmRowBackground(cornerRadius: 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-
-            Divider().padding(.vertical, 4)
-
-            // 歌词文件里本来就有的译文，和上面的机翻方式分开管。
-            Button {
-                let settings = LyricsTranslationSettingsStore.shared
-                settings.showsBundledTranslations.toggle()
-            } label: {
-                HStack {
-                    Text("lyrics_bundled_translation_shown")
-                        .font(.callout)
-                        .foregroundStyle(PMColor.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    if LyricsTranslationSettingsStore.shared.showsBundledTranslations {
-                        Image(systemName: "checkmark")
-                            .font(.caption)
-                            .foregroundStyle(PMColor.brand)
-                    }
-                }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .pmRowBackground(cornerRadius: 6)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(Text("lyrics_bundled_translation_shown_footer"))
-        }
-        .padding(.vertical, 6)
-        .frame(width: 220)
-        .focusEffectDisabled()
-    }
-
-    /// 抽歌偏好(#332):和字号、歌词翻译一样飞出第二层,行尾写着现在选的那一档。
-    private var shufflePreferenceRow: some View {
-        Button { shufflePreferencePickerShown.toggle() } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "dice")
-                    .frame(width: 18)
-                    .foregroundStyle(PMColor.textMuted)
-                Text("shuffle_preference_title")
-                    .font(.callout)
-                    .foregroundStyle(PMColor.text)
-                Spacer()
-                Text(verbatim: player.playbackSettings.shufflePreference.displayName)
-                    .font(.caption)
-                    .foregroundStyle(PMColor.textFaint)
-                    .lineLimit(1)
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .pmRowBackground(cornerRadius: 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $shufflePreferencePickerShown, arrowEdge: .leading) {
-            shufflePreferencePopover
-        }
-    }
-
-    private var shufflePreferencePopover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(ShufflePreference.allCases) { preference in
-                Button {
-                    player.playbackSettings.shufflePreference = preference
-                    shufflePreferencePickerShown = false
-                } label: {
-                    HStack {
-                        Text(verbatim: preference.displayName)
-                            .font(.callout)
-                            .foregroundStyle(PMColor.text)
-                        Spacer()
-                        if preference == player.playbackSettings.shufflePreference {
-                            Image(systemName: "checkmark")
-                                .font(.caption)
-                                .foregroundStyle(PMColor.brand)
-                        }
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .pmRowBackground(cornerRadius: 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            // Apple Music 自己排随机顺序时偏好不生效:照样能选,这里写明原因。
-            if player.isAppleMusicMode, !player.isPrimuseManagingAppleMusicQueue {
-                Divider().padding(.vertical, 4)
-                Text("shuffle_preference_apple_music_note")
-                    .font(.caption)
-                    .foregroundStyle(PMColor.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 12).padding(.vertical, 4)
-            }
-        }
-        .padding(.vertical, 6)
-        .frame(width: 220)
-        .focusEffectDisabled()
     }
 
     private var fontPickerPopover: some View {
@@ -1334,22 +1566,6 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private var repeatMenuTitleKey: LocalizedStringKey {
-        switch player.repeatMode {
-        case .off: return "repeat"
-        case .all: return "repeat_all"
-        case .one: return "repeat_one"
-        }
-    }
-
-    private func cycleRepeat() {
-        switch player.repeatMode {
-        case .off: player.repeatMode = .all
-        case .all: player.repeatMode = .one
-        case .one: player.repeatMode = .off
-        }
     }
 
     private func requestScrapeOptions() {
@@ -1575,390 +1791,6 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     private func openSettingsWindow() {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
-    }
-}
-
-/// 均衡器的第二层,播放器「更多」与菜单栏面板共用:「关闭」、预设(与均衡器页的卡片同序)、
-/// 「调整均衡器…」。高保真直通的图里没有均衡器,这时先说明原因、给一个切到音效输出的按钮;
-/// 切过去播放图当场重建,这一层随即换成预设列表,接着就能选。
-struct MacEqualizerMenuPanel: View {
-    let player: AudioPlayerService
-    let onPicked: () -> Void
-    let onAdjust: () -> Void
-
-    private var eq: EqualizerService { player.equalizerService }
-
-    var body: some View {
-        Group {
-            if player.outputMode(for: player.currentSong) == .highFidelity {
-                bypassNotice
-            } else {
-                presetList
-            }
-        }
-        .padding(.vertical, 6)
-        .focusEffectDisabled()
-    }
-
-    private var bypassNotice: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("eq_high_fidelity_alert_title")
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(PMColor.text)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("eq_high_fidelity_alert_message")
-                .font(.caption)
-                .foregroundStyle(PMColor.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("eq_use_effects_output") {
-                player.playbackSettings.outputMode = .effects
-            }
-            .buttonStyle(.macSheetPrimary)
-            .padding(.top, 2)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .frame(width: 250, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private var presetList: some View {
-        let presets = eq.menuPresets
-        // 自己存的预设多了,中间这段改成滚动,别把浮层撑出屏幕。
-        let visibleRows = 14
-        VStack(alignment: .leading, spacing: 0) {
-            pickerRow(String(localized: "eq_menu_off"), id: EqualizerService.menuOffID)
-            divider
-            if presets.count > visibleRows {
-                ScrollView {
-                    presetRows(presets)
-                }
-                .frame(height: CGFloat(visibleRows) * 28)
-            } else {
-                presetRows(presets)
-            }
-            divider
-            Button(action: onAdjust) {
-                HStack(spacing: 10) {
-                    Image(systemName: "slider.horizontal.3").frame(width: 18)
-                        .foregroundStyle(PMColor.textMuted)
-                    Text("eq_menu_adjust")
-                        .font(.callout)
-                        .foregroundStyle(PMColor.text)
-                    Spacer()
-                }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .pmRowBackground(cornerRadius: 6)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-        .frame(width: 210)
-    }
-
-    private func presetRows(_ presets: [EQPreset]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(presets) { preset in
-                pickerRow(preset.localizedName, id: preset.id)
-            }
-        }
-    }
-
-    private func pickerRow(_ title: String, id: String) -> some View {
-        let isSelected = eq.menuSelectionID == id
-        return Button {
-            eq.selectFromMenu(id)
-            onPicked()
-        } label: {
-            HStack {
-                Text(verbatim: title)
-                    .font(.callout)
-                    .foregroundStyle(PMColor.text)
-                    .lineLimit(1)
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.caption)
-                        .foregroundStyle(PMColor.brand)
-                }
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .pmRowBackground(cornerRadius: 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(PMColor.divider)
-            .frame(height: 0.5)
-            .padding(.vertical, 4)
-            .padding(.horizontal, 8)
-    }
-}
-
-/// 「更多」里播放速度的第二层:和 iPhone 播放页那颗速度键同一组档位。有声内容按书记速度,
-/// 音乐用全局那一档;高保真直通下音乐不能变速,这里先说明原因。
-struct MacPlaybackRatePanel: View {
-    let player: AudioPlayerService
-    let onPicked: () -> Void
-
-    static let presets: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
-
-    /// 有声内容总走效果链,语速随时可调;音乐只有效果模式能变速。
-    static func canChangeRate(_ player: AudioPlayerService) -> Bool {
-        player.currentItemIsSpokenWord || player.playbackSettings.outputMode == .effects
-    }
-
-    static func currentRate(_ player: AudioPlayerService) -> Float {
-        guard canChangeRate(player) else { return 1 }
-        return player.currentItemIsSpokenWord
-            ? player.currentSpokenWordRate
-            : player.playbackSettings.playbackRate
-    }
-
-    static func valueLabel(_ rate: Float) -> String {
-        abs(rate - 1) < 0.001
-            ? String(localized: "playback_rate_normal")
-            : SpokenWordPlaybackRatePolicy.label(for: rate)
-    }
-
-    var body: some View {
-        Group {
-            if Self.canChangeRate(player) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Self.presets, id: \.self) { rate in
-                        rateRow(rate)
-                    }
-                }
-                .frame(width: 180)
-            } else {
-                MacPlaybackUnavailableNotice(
-                    title: String(localized: "playback_rate"),
-                    message: String(localized: "player_controls_unavailable_speed_high_fidelity"),
-                    offersEffectsOutput: true,
-                    playbackSettings: player.playbackSettings
-                )
-            }
-        }
-        .padding(.vertical, 6)
-        .focusEffectDisabled()
-    }
-
-    private func rateRow(_ rate: Float) -> some View {
-        let isSelected = abs(Self.currentRate(player) - rate) < 0.001
-        return Button {
-            if player.currentItemIsSpokenWord {
-                player.setSpokenWordRateForCurrentBook(rate)
-            } else {
-                player.playbackSettings.playbackRate = rate
-            }
-            onPicked()
-        } label: {
-            HStack {
-                Text(verbatim: Self.valueLabel(rate))
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(PMColor.text)
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.caption)
-                        .foregroundStyle(PMColor.brand)
-                }
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .pmRowBackground(cornerRadius: 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
-/// 「更多」里伴唱的第二层(#377):开关、原唱留多少,以及此刻为什么还是原唱。选一档原唱音量也就打开了伴唱。
-struct MacSingAlongPanel: View {
-    let player: AudioPlayerService
-
-    private var singAlong: KaraokeSingAlong { .shared }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle(isOn: Binding(
-                get: { singAlong.isEnabled },
-                set: { singAlong.setEnabled($0) }
-            )) {
-                Text("sing_along_title")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(PMColor.text)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("sing_along_level_title")
-                    .font(.caption)
-                    .foregroundStyle(PMColor.textMuted)
-                // 和弹框里的分段选择同一种(不用系统的蓝色分段控件)。
-                MacSheetSegmentedControl(
-                    selection: Binding(
-                        get: { singAlong.level },
-                        set: { level in
-                            singAlong.setLevel(level)
-                            singAlong.setEnabled(true)
-                        }
-                    ),
-                    segments: KaraokeSingAlongLevel.allCases.map {
-                        .init(value: $0, title: KaraokeSingAlongText.levelTitle($0))
-                    },
-                    fillsWidth: true
-                )
-                .accessibilityLabel(Text("sing_along_level_title"))
-            }
-            ForEach(KaraokeSingAlongText.notes(singAlong), id: \.self) { note in
-                Text(verbatim: note)
-                    .font(.caption)
-                    .foregroundStyle(PMColor.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if KaraokeSingAlongText.offersEffectsOutput(singAlong.phase) || KaraokeSingAlongText.canRetry(singAlong.phase) {
-                HStack(spacing: 8) {
-                    if KaraokeSingAlongText.offersEffectsOutput(singAlong.phase) {
-                        Button("karaoke_use_effects_output") {
-                            player.playbackSettings.outputMode = .effects
-                        }
-                    }
-                    if KaraokeSingAlongText.canRetry(singAlong.phase) {
-                        Button("karaoke_ai_retry") { singAlong.retry() }
-                    }
-                }
-                .buttonStyle(.macSheet)
-            }
-        }
-        .padding(14)
-        .frame(width: 280, alignment: .leading)
-        // 开关跟品牌色。
-        .tint(PMColor.brand)
-        .focusEffectDisabled()
-    }
-}
-
-/// 「更多」里升降调的第二层(#332):降调、当前调、升调,点了不收起,能连着调;移了调时下面给「原调」。
-/// 投放、高保真直通时先说明为什么听不到,高保真直通能一键切到音效输出。
-struct MacPlaybackPitchPanel: View {
-    let player: AudioPlayerService
-
-    static func availability(_ player: AudioPlayerService) -> PlaybackPitchPolicy.Availability {
-        PlaybackPitchPolicy.availability(
-            isSpokenWord: player.currentItemIsSpokenWord,
-            isLiveRadio: player.isLiveRadio,
-            isAppleMusic: player.isAppleMusicMode,
-            isCasting: player.castingRenderer != nil,
-            isHighFidelityOutput: player.outputMode(for: player.currentSong) == .highFidelity
-        )
-    }
-
-    private var semitones: Int { player.playbackSettings.pitchSemitones }
-
-    var body: some View {
-        let availability = Self.availability(player)
-        Group {
-            if let message = PlaybackPitchText.message(availability) {
-                MacPlaybackUnavailableNotice(
-                    title: String(localized: "karaoke_key"),
-                    message: message,
-                    offersEffectsOutput: availability == .highFidelity,
-                    playbackSettings: player.playbackSettings
-                )
-            } else {
-                stepper
-            }
-        }
-        .padding(.vertical, 6)
-        .focusEffectDisabled()
-    }
-
-    private var stepper: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 14) {
-                stepButton(symbol: "minus", label: "karaoke_key_down",
-                           enabled: semitones > PlaybackPitchPolicy.range.lowerBound) {
-                    player.playbackSettings.pitchSemitones = semitones - 1
-                }
-                Text(verbatim: PlaybackPitchText.valueLabel(semitones))
-                    .font(.title3.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(semitones == 0 ? PMColor.text : PMColor.brand)
-                    .frame(minWidth: 56)
-                    .contentTransition(.numericText())
-                    .accessibilityLabel(Text("karaoke_key"))
-                    .accessibilityValue(Text(verbatim: PlaybackPitchText.valueLabel(semitones)))
-                stepButton(symbol: "plus", label: "karaoke_key_up",
-                           enabled: semitones < PlaybackPitchPolicy.range.upperBound) {
-                    player.playbackSettings.pitchSemitones = semitones + 1
-                }
-            }
-            Button("karaoke_key_original") {
-                player.playbackSettings.pitchSemitones = 0
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-            .disabled(semitones == 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .frame(width: 200)
-    }
-
-    private func stepButton(
-        symbol: String,
-        label: LocalizedStringKey,
-        enabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(enabled ? PMColor.text : PMColor.textFaint)
-                .frame(width: 30, height: 30)
-                .background(PMColor.bgElev, in: Circle())
-                .overlay(Circle().strokeBorder(PMColor.dividerStrong, lineWidth: 0.5))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .accessibilityLabel(Text(label))
-    }
-}
-
-/// 速度、升降调在当前输出下用不了时第二层的说明,和均衡器那一层同一画法。
-private struct MacPlaybackUnavailableNotice: View {
-    let title: String
-    let message: String
-    let offersEffectsOutput: Bool
-    let playbackSettings: PlaybackSettingsStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(verbatim: title)
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(PMColor.text)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(verbatim: message)
-                .font(.caption)
-                .foregroundStyle(PMColor.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            if offersEffectsOutput {
-                Button("eq_use_effects_output") {
-                    playbackSettings.outputMode = .effects
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .padding(.top, 2)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .frame(width: 250, alignment: .leading)
     }
 }
 

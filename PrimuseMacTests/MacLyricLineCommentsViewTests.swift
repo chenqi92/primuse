@@ -66,3 +66,83 @@ final class MacLyricLineCommentsViewTests: XCTestCase {
         add(attachment)
     }
 }
+
+@MainActor
+final class PlayerMoreMenuRegressionTests: XCTestCase {
+    func testRepeatAndSubmenuLocalizationKeysResolveInMainBundle() {
+        XCTAssertEqual(PlayerMoreMenuPolicy.repeatTitleKey(for: .off), "repeat")
+        XCTAssertEqual(PlayerMoreMenuPolicy.repeatTitleKey(for: .all), "play_mode_repeat_all")
+        XCTAssertEqual(PlayerMoreMenuPolicy.repeatTitleKey(for: .one), "play_mode_repeat_one")
+
+        let keys = [
+            PlayerMoreMenuPolicy.repeatTitleKey(for: .off),
+            PlayerMoreMenuPolicy.repeatTitleKey(for: .all),
+            PlayerMoreMenuPolicy.repeatTitleKey(for: .one),
+            "repeat_behavior_off",
+            "player_menu_playback_order",
+            "player_menu_lyrics_display",
+            "player_menu_transcript_display",
+            "player_menu_audio_and_sing_along",
+            "player_menu_edit_and_clips",
+            "player_menu_transcript_and_edit",
+        ]
+        for key in keys {
+            let resolved = Bundle.main.localizedString(forKey: key, value: "__MISSING__", table: nil)
+            XCTAssertNotEqual(resolved, "__MISSING__", "Missing localization for \(key)")
+            XCTAssertNotEqual(resolved, key, "Raw key leaked for \(key)")
+        }
+
+        let summary = PlayerMoreMenuPolicy.playbackOrderSummary(shuffleEnabled: true, repeatMode: .all)
+        XCTAssertFalse(summary.contains("repeat_all"))
+        XCTAssertFalse(summary.isEmpty)
+    }
+
+    func testPlayerBarMenuDeduplicatesTransportAndFallsBackToScrollWhenCapped() {
+        let player = AppServices.shared.playerService
+        let previousRepeat = player.repeatMode
+        defer { player.repeatMode = previousRepeat }
+        player.repeatMode = .all
+
+        let barHost = NSHostingView(
+            rootView: PlayerMoreMenu(surface: .playerBar, rendersInlineForTesting: true) {
+                EmptyView()
+            }
+            .applyPrimuseEnvironments()
+        )
+        barHost.layoutSubtreeIfNeeded()
+        let barHeight = barHost.fittingSize.height
+        XCTAssertGreaterThan(barHeight, 200)
+        XCTAssertLessThan(barHeight, 560)
+
+        let queueHost = NSHostingView(
+            rootView: PlayerMoreMenu(surface: .queuePanel, rendersInlineForTesting: true) {
+                EmptyView()
+            }
+            .applyPrimuseEnvironments()
+        )
+        queueHost.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(queueHost.fittingSize.height, barHeight + 60)
+
+        let cappedHost = NSHostingView(
+            rootView: PlayerMoreMenu(
+                surface: .queuePanel,
+                initialSubpage: .playbackOrder,
+                maxPopoverHeightOverride: 180,
+                rendersInlineForTesting: true
+            ) {
+                EmptyView()
+            }
+            .applyPrimuseEnvironments()
+        )
+        cappedHost.frame = NSRect(x: 0, y: 0, width: 260, height: 180)
+        cappedHost.layoutSubtreeIfNeeded()
+        XCTAssertLessThanOrEqual(cappedHost.fittingSize.height, 181)
+        XCTAssertFalse(scrollViews(in: cappedHost).isEmpty)
+    }
+
+    private func scrollViews(in view: NSView) -> [NSScrollView] {
+        view.subviews.flatMap { child in
+            (child as? NSScrollView).map { [$0] } ?? scrollViews(in: child)
+        }
+    }
+}

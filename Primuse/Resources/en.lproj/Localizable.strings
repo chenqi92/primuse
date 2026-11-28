@@ -8154,3 +8154,9 @@
 "lyrics_track_language" = "Language";
 "lyrics_track_original" = "Original";
 "lyrics_track_off" = "Off";
+"player_menu_playback_order" = "Playback Order";
+"player_menu_lyrics_display" = "Lyrics Display";
+"player_menu_transcript_display" = "Transcript Display";
+"player_menu_audio_and_sing_along" = "Audio & Sing Along";
+"player_menu_edit_and_clips" = "Edit & Clips";
+"player_menu_transcript_and_edit" = "Transcript & Edit";

@@ -231,7 +231,7 @@ struct MacQueuePanel: View {
             }
             Spacer(minLength: 0)
             if !isEmpty || player.currentSong != nil {
-                PlayerMoreMenu {
+                PlayerMoreMenu(surface: .queuePanel) {
                     PMRoundBtnIcon(symbol: "ellipsis")
                 }
                 .frame(width: 24, height: 24)

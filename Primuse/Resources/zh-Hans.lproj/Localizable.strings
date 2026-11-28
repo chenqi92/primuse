@@ -8485,3 +8485,9 @@
 "lyrics_track_language" = "语言";
 "lyrics_track_original" = "原文";
 "lyrics_track_off" = "关闭";
+"player_menu_playback_order" = "播放顺序";
+"player_menu_lyrics_display" = "歌词显示";
+"player_menu_transcript_display" = "文字稿显示";
+"player_menu_audio_and_sing_along" = "音效与伴唱";
+"player_menu_edit_and_clips" = "编辑与片段";
+"player_menu_transcript_and_edit" = "文字稿与编辑";

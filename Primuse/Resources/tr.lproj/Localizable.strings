@@ -8298,3 +8298,9 @@
 "lyrics_track_language" = "Dil";
 "lyrics_track_original" = "Orijinal";
 "lyrics_track_off" = "Kapalı";
+"player_menu_playback_order" = "Çalma Sırası";
+"player_menu_lyrics_display" = "Şarkı Sözü Görünümü";
+"player_menu_transcript_display" = "Döküm Görünümü";
+"player_menu_audio_and_sing_along" = "Ses ve Eşlik Etme";
+"player_menu_edit_and_clips" = "Düzenleme ve Kesitler";
+"player_menu_transcript_and_edit" = "Döküm ve Düzenleme";
