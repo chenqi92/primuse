@@ -38,7 +38,8 @@ struct MacSidebarCounts: Equatable, Sendable {
 extension MacSidebarCounts {
     /// 此刻答得出的数:曲库目录可读且计数读到了时读目录(`LibraryHubCatalogCountsModel`,与资料库入口同一份);
     /// 否则歌曲模型在内存里时数内存模型(与改之前相同);都答不了(模型放掉了、目录这会儿不可读)时是 nil。
-    /// 「专辑艺术家」列法模型不在内存里时数目录(`AlbumArtistCatalogCount`,去掉只有单曲的人时答不出)。
+    /// 「专辑艺术家」列法模型不在内存里时数目录(`AlbumArtistCatalogCount`;去掉只有单曲的人时要发行类别在目录里算齐,
+    /// 没齐时答不出)。
     /// 在视图里读会登记对这些值的观察。
     @MainActor
     static func current(
@@ -65,9 +66,9 @@ extension MacSidebarCounts {
             : "\(artistMode.rawValue)-\(hidesSingleOnlyAlbumArtists)"
         if artistMode == .allArtists, let catalog {
             counts.artists = catalog.artists
-        } else if artistMode == .albumArtists, !hidesSingleOnlyAlbumArtists, !arraysAnswer {
-            // U4b:模型不在内存里时「专辑艺术家」的人数从目录数;去掉只有单曲的人要专辑分类,目录没有,那时答不出。
-            counts.artists = AlbumArtistCatalogCount.current(in: library)
+        } else if artistMode == .albumArtists, !arraysAnswer {
+            // U4b:模型不在内存里时「专辑艺术家」的人数从目录数;去掉只有单曲的人(RC-b)按目录里的发行类别筛,没算齐时答不出。
+            counts.artists = AlbumArtistCatalogCount.current(in: library, hidingSingleOnly: hidesSingleOnlyAlbumArtists)
         } else {
             counts.artists = arraysAnswer ? library.browsableArtists(artistMode).count : nil
         }

@@ -385,8 +385,11 @@ extension GroupingMaintenance {
         let update = try db.cachedStatement(sql: """
             UPDATE albumSourceStat SET releaseFlags = ? WHERE albumKey = ? AND sourceKey = ? AND kind = ?
             """)
+        // 每一行都记上「写过了」(没有认得出的标签的也是,见 `releaseFlagsWritten`),再写认出的类别。
+        try db.cachedStatement(sql: "UPDATE albumSourceStat SET releaseFlags = ? WHERE albumKey = ?")
+            .execute(arguments: [Self.releaseFlagsWritten, key])
         for (statKey, flags) in flagsByStat where !flags.isEmpty {
-            try update.execute(arguments: [flags.rawValue, key, statKey.sourceKey, statKey.kind])
+            try update.execute(arguments: [flags.rawValue | Self.releaseFlagsWritten, key, statKey.sourceKey, statKey.kind])
         }
         try db.cachedStatement(sql: "UPDATE album SET releaseTitleFlags = ? WHERE key = ?")
             .execute(arguments: [AlbumReleaseCategoryRule.titleFlags(title).rawValue, key])
@@ -412,7 +415,8 @@ extension GroupingMaintenance {
             """)
         for (statKey, stat) in aggregate.stats {
             try insert.execute(arguments: [
-                key, statKey.sourceKey, statKey.kind, stat.count, stat.duration, stat.maxDateAdded, stat.releaseFlags.rawValue,
+                key, statKey.sourceKey, statKey.kind, stat.count, stat.duration, stat.maxDateAdded,
+                stat.releaseFlags.rawValue | Self.releaseFlagsWritten,
             ])
         }
         work.rowsWritten += 1 + aggregate.stats.count

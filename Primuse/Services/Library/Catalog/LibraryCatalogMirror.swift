@@ -954,9 +954,9 @@ final class LibraryCatalogMirror: @unchecked Sendable {
     }
 
     /// 工作线程上:看一眼目录的发行类别算齐了没有。第一次看只记下;之后由「没齐」变成「齐了」时通知读者一次,
-    /// 读它的界面改问目录。
+    /// 读它的界面改问目录。第一次看时先查有没有发行类别没写过的行(降级后旧版写的),有就退回补算(RC-b)。
     private func noteReleaseCategoryState(_ catalog: LibraryCatalog) {
-        let complete = (try? catalog.releaseCategoriesAreComplete()) ?? false
+        let complete = (try? catalog.releaseCategoriesAreComplete(checkingRows: lock.withLock { state.releaseCategoriesComplete == nil })) ?? false
         let became = lock.withLock { () -> Bool in
             let previous = state.releaseCategoriesComplete
             guard previous != true else { return false }

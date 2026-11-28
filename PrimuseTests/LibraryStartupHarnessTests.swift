@@ -1483,32 +1483,11 @@ final class LibraryStartupHarnessTests: XCTestCase {
         ))
         await library.stopCatalogMirror()
         // RC-a:同一个目录再当一次「刚升上来」,镜像停着,单独量补算一遍要多久、其间的峰值(启动时它在镜像空闲时跑,
-        // 上面那一次已经在加载期间跑完了,时间见日志里的 `releaseCategories stage=done`)。
+        // 上面那一次已经在加载期间跑完了,时间见日志里的 `releaseCategories stage=done`)。RC-b:先空等 3 秒作对照,
+        // 补完再记留下的与放掉 SQLite 页缓存、还掉 malloc 空页之后的(`ReleaseCategoryBackfillProbe.isolatedBackfill`)。
         let catalogPath = directory.appendingPathComponent("library-catalog.sqlite").path
-        let backfill = try await Task.detached(priority: .utility) { () -> (ms: Double, peak: UInt64, before: UInt64) in
-            let catalog = try LibraryCatalog(path: catalogPath)
-            try catalog.simulateReleaseCategoryUpgradeForTesting()
-            let before = MusicLibrary.residencyFootprintBytes() ?? 0
-            let sampler = PeakSampler(before)
-            let sampling = Task.detached(priority: .high) {
-                while !Task.isCancelled {
-                    sampler.note(MusicLibrary.residencyFootprintBytes() ?? 0)
-                    try? await Task.sleep(for: .milliseconds(5))
-                }
-            }
-            let started = ContinuousClock.now
-            let done = try catalog.backfillReleaseCategories()
-            let ms = Double((ContinuousClock.now - started) / .microseconds(1)) / 1_000
-            sampling.cancel()
-            sampler.note(MusicLibrary.residencyFootprintBytes() ?? 0)
-            let complete = try catalog.releaseCategoriesAreComplete()
-            precondition(done && complete, "the isolated backfill completed")
-            return (ms, sampler.peak, before)
-        }.value
-        Self.report(String(
-            format: "📏 RC-a isolated backfill (mirror stopped, model released) ms=%.0f footprint %.1f→peak %.1fMB",
-            backfill.ms, Self.megabytes(backfill.before), Self.megabytes(backfill.peak)
-        ))
+        let backfill = try await ReleaseCategoryBackfillProbe.isolatedBackfill(catalogPath: catalogPath)
+        Self.report("📏 RC-a isolated backfill (mirror stopped, model \(library.isReady ? "in memory again" : "released")) " + backfill)
     }
 
     /// 步骤 6e: 不装歌曲模型的启动。构造(准备中)到能用(只装小状态、目录接上读得了)要多久、能用时占多少;

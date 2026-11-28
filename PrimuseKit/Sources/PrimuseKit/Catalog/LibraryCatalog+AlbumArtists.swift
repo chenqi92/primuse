@@ -40,7 +40,11 @@ public enum LibraryAlbumArtistOrder: Sendable, Hashable {
 extension LibraryCatalog {
     /// 「专辑艺术家」列表。主线程外调用:按专辑墙的先后分块走一遍可见专辑(一块至多 `maxMaterializedRows` 张),
     /// 用参照实现同一条署名规则(`AlbumArtistCreditPolicy.resolvedCredits`)数每位署名者的专辑。
-    public func albumArtistBrowse(order: LibraryAlbumArtistOrder = .library) throws -> LibraryAlbumArtistBrowse {
+    /// `keeping`(RC-b,「不列只有单曲、EP 的人」):只留 id 在里面的人,先后与分段按留下的这些排、切,同对筛过的
+    /// 列表(`browsableArtists(.albumArtists)`)跑排法;专辑数、歌曲数不变。
+    public func albumArtistBrowse(
+        order: LibraryAlbumArtistOrder = .library, keeping: Set<String>? = nil
+    ) throws -> LibraryAlbumArtistBrowse {
         let tracks = try visibleTrackArtistsForBrowse()
         var trackIndexByID: [String: Int] = [:]
         trackIndexByID.reserveCapacity(tracks.rows.count)
@@ -106,6 +110,14 @@ extension LibraryCatalog {
             start = low
         }
         entries.append(contentsOf: shared[start...].map(Entry.track))
+        if let keeping {
+            entries = entries.filter { entry in
+                switch entry {
+                case .track(let index): keeping.contains(tracks.rows[index].id)
+                case .albumOnly(let index): keeping.contains(albumOnly[index].id)
+                }
+            }
+        }
 
         var sections: [LibraryBrowseSection] = []
         if case .reading(let unknownArtistName) = order {

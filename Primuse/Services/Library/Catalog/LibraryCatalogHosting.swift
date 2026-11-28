@@ -108,9 +108,11 @@ final class LibraryCatalogHost {
     }
 
     /// 专辑的发行类别能从目录答:目录可读、发行类别已经算齐(从 v3 升上来、后台还没补完时为 false,这时专辑页的
-    /// 发行类别筛选、艺术家页「不列只有单曲、EP 的人」照旧用内存模型)。
+    /// 发行类别筛选、艺术家页「不列只有单曲、EP 的人」照旧用内存模型)。在视图里读会跟着它变:镜像的记号不可观察,
+    /// 变成「齐了」时镜像发一次 `.invalidatedAll`,`revisions.everything` 跟着变。
     var releaseCategoriesComplete: Bool {
-        mirror.releaseCategoriesComplete && revisions.isReadable
+        _ = revisions.everything
+        return mirror.releaseCategoriesComplete && revisions.isReadable
     }
 
     /// 用户手动选的发行类别,对到专辑:按专辑记的直接用,按歌记的按歌此刻所在的专辑(只看启用的源里的歌,从目录

@@ -103,9 +103,10 @@ final class ArtistCatalogPagesTests: LibraryReadyCatalogFixture {
         XCTAssertEqual(ArtistCatalogKey.current(pagesLibrary: true, mode: .albumArtists, likedOnly: true, search: "a",
                                                 hidesSingles: false, requiresEmptySearch: true, library: library)?.mode,
                        .albumArtists, "released: album artists, find and liked come from the catalog")
-        XCTAssertNil(ArtistCatalogKey.current(pagesLibrary: true, mode: .albumArtists, likedOnly: false, search: "",
-                                              hidesSingles: true, requiresEmptySearch: true, library: library),
-                     "hiding single-only album artists needs the release categories: the page holds the model")
+        XCTAssertNotNil(ArtistCatalogKey.current(pagesLibrary: true, mode: .albumArtists, likedOnly: false, search: "",
+                                                 hidesSingles: true, requiresEmptySearch: true, library: library)?.fullReleaseRevision,
+                        "hiding single-only album artists reads the catalog's release categories (RC-b; the incomplete case "
+                            + "is in ReleaseCategoryPagesCatalogTests)")
         XCTAssertNil(ArtistCatalogKey.current(pagesLibrary: false, mode: .allArtists, likedOnly: false, search: "",
                                               hidesSingles: false, requiresEmptySearch: true, library: library),
                      "a supplied list is not paged")
@@ -115,8 +116,10 @@ final class ArtistCatalogPagesTests: LibraryReadyCatalogFixture {
             MacSidebarCounts.current(library: library, artistMode: .albumArtists, hidesSingleOnlyAlbumArtists: false,
                                      sourceIDs: []).artists == expected.albumArtists.count
         }
-        XCTAssertNil(MacSidebarCounts.current(library: library, artistMode: .albumArtists, hidesSingleOnlyAlbumArtists: true,
-                                              sourceIDs: []).artists, "cannot answer with single-only album artists hidden")
+        try await waitUntil("sidebar count with single-only album artists hidden (RC-b)") {
+            MacSidebarCounts.current(library: library, artistMode: .albumArtists, hidesSingleOnlyAlbumArtists: true,
+                                     sourceIDs: []).artists != nil
+        }
         assertNoLoadAndNoArrayRead(library, since: before, "released")
     }
 

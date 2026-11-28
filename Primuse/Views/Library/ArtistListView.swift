@@ -203,7 +203,10 @@ struct ArtistListView: View {
         if iosCatalogKey != nil {
             // 目录路径:整页没有艺人(搜索之前)。目录计数还没数出来时先不出空状态。
             let counts = LibraryHubCatalogCountsModel.shared(for: library)?.readableCounts
-            let total = (iosCatalogKey?.mode == .albumArtists ? counts?.albums : counts?.artists) ?? 1
+            // 去掉只有单曲的人(RC-b):筛完一个不剩才算空(同内存路径看的 `browsableArtists`),人数还没数出来时不算。
+            let total = iosCatalogKey?.fullReleaseRevision != nil
+                ? AlbumArtistCatalogCount.current(in: library, hidingSingleOnly: true) ?? 1
+                : (iosCatalogKey?.mode == .albumArtists ? counts?.albums : counts?.artists) ?? 1
             return !isPreparingOrder && total == 0
         }
         #endif

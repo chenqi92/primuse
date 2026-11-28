@@ -18,6 +18,8 @@ struct LibraryArtistBrowseQuery: LibraryListQuery {
     var readingOrder = true
     /// 只看喜欢:喜欢的键 → 先后(`FavoriteCatalogLikes.likedOrder`)。nil:不筛。
     var likedOrder: [String: Int]?
+    /// 「专辑艺术家」不列只有单曲、EP 的人(RC-b):手动选的发行类别。nil:不筛。
+    var fullReleaseChoices: FullReleaseAlbumArtistMemo.Choices?
     /// 「专辑艺术家」那一份:取行号时存下,按页物化时用。
     let albumArtists = AlbumArtistBrowseBox()
 
@@ -31,8 +33,15 @@ struct LibraryArtistBrowseQuery: LibraryListQuery {
             let list = try catalog.artistKeys(visibleOnly: true)
             return (list.keys, [], list.revision)
         case (.albumArtists, _):
+            // 名单答不出(发行类别还没算齐、目录读不了)时抛错:页面照旧走内存模型,不拿空名单筛出一个空列表。
+            var keeping: Set<String>?
+            if let fullReleaseChoices {
+                guard let ids = try FullReleaseAlbumArtistMemo.shared.artistIDs(catalog: catalog, choices: fullReleaseChoices)
+                else { throw LibraryCatalogReaderError.unavailable }
+                keeping = ids
+            }
             let browse = try catalog.albumArtistBrowse(
-                order: readingOrder ? .reading(unknownArtistName: unknownArtistName) : .library
+                order: readingOrder ? .reading(unknownArtistName: unknownArtistName) : .library, keeping: keeping
             )
             albumArtists.store(browse)
             return (browse.keys, browse.sections, browse.revision)
@@ -113,26 +122,31 @@ struct ArtistCatalogKey: Hashable, Sendable {
     var mode: ArtistBrowseMode = .allArtists
     /// 只看喜欢时喜欢的账本的修订号(账本变了重查);不只看喜欢时 nil。
     var likedRevision: Int?
+    /// 「专辑艺术家」不列只有单曲、EP 的人时手动分类的修订号(改了分类重查);不筛时 nil。
+    var fullReleaseRevision: Int?
 }
 
 extension ArtistCatalogKey {
     /// 资料库艺人页此刻走不走曲库目录、走哪一份。歌曲模型在内存里时同以前:只有「全部艺术家」、不只看喜欢
-    /// (`requiresEmptySearch`:Mac 还要不在查找)。不在内存里时(U4b)各种列法、查找、只看喜欢都走目录,
-    /// 只有「专辑艺术家」去掉只有单曲的人除外 —— 那要专辑分类,目录没有,页面占用模型。nil:读内存模型。
+    /// (`requiresEmptySearch`:Mac 还要不在查找)。不在内存里时(U4b)各种列法、查找、只看喜欢都走目录;
+    /// 「专辑艺术家」去掉只有单曲的人要专辑的发行类别,目录里算齐了(RC-b,`releaseCategoriesComplete`)才走目录,
+    /// 没齐时页面照旧占用模型。nil:读内存模型。
     @MainActor
     static func current(
         pagesLibrary: Bool, mode: ArtistBrowseMode, likedOnly: Bool, search: String, hidesSingles: Bool,
         requiresEmptySearch: Bool, library: MusicLibrary
     ) -> ArtistCatalogKey? {
-        guard pagesLibrary, library.catalogHost?.revisions.isReadable == true else { return nil }
+        guard pagesLibrary, let host = library.catalogHost, host.revisions.isReadable else { return nil }
         let search = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtersSingles = mode == .albumArtists && hidesSingles
         if library.isReady {
             guard mode == .allArtists, !likedOnly, !requiresEmptySearch || search.isEmpty else { return nil }
-        } else if mode == .albumArtists, hidesSingles {
+        } else if filtersSingles, !host.releaseCategoriesComplete {
             return nil
         }
         return ArtistCatalogKey(
-            search: search, mode: mode, likedRevision: likedOnly ? LibraryFavoritesStore.shared.revision : nil
+            search: search, mode: mode, likedRevision: likedOnly ? LibraryFavoritesStore.shared.revision : nil,
+            fullReleaseRevision: filtersSingles ? AlbumReleaseCategoryStore.shared.revision : nil
         )
     }
 
@@ -140,7 +154,8 @@ extension ArtistCatalogKey {
     func query(readingOrder: Bool) -> LibraryArtistBrowseQuery {
         LibraryArtistBrowseQuery(
             unknownArtistName: String(localized: "unknown_artist"), search: search, mode: mode, readingOrder: readingOrder,
-            likedOrder: likedRevision == nil ? nil : FavoriteCatalogLikes.likedOrder(.shared, .artist)
+            likedOrder: likedRevision == nil ? nil : FavoriteCatalogLikes.likedOrder(.shared, .artist),
+            fullReleaseChoices: fullReleaseRevision == nil ? nil : FullReleaseAlbumArtistMemo.Choices(.shared)
         )
     }
 

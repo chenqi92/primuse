@@ -107,16 +107,18 @@ struct AlbumGridView: View {
 
     // MARK: Catalog path (P3)
 
-    /// 目录可读、按艺术家/标题/年份排、没有按发行类别筛时读目录;其余照旧排内存里的专辑。
-    /// 读目录失败的那组条件改走内存路径。
+    /// 目录可读时读目录;按发行类别筛要目录里的发行类别算齐了(RC-b,见 `AlbumGridCatalogKey.catalogAnswers`),
+    /// 没齐时照旧排内存里的专辑。读目录失败的那组条件改走内存路径。
     private var catalogKey: AlbumGridCatalogKey? {
-        guard library.catalogHost?.revisions.isReadable == true, releaseCategory.isEmpty else { return nil }
+        guard AlbumGridCatalogKey.catalogAnswers(AlbumReleaseCategory(rawValue: releaseCategory), library: library) else { return nil }
         let key = AlbumGridCatalogKey(
             order: albumOrder.browseOrder ?? .title, bySongCount: albumOrder == .songCount,
             query: albumFilter.trimmingCharacters(in: .whitespacesAndNewlines),
             likedOnly: showsLikedOnly, hidesSingleSongAlbums: hidesSingleSongAlbums,
             favoritesRevision: showsLikedOnly ? favorites.revision : 0,
-            offlineOnly: effectiveOfflineOnly, offlineRevision: effectiveOfflineOnly ? offlineAlbumFilterRevision : 0
+            offlineOnly: effectiveOfflineOnly, offlineRevision: effectiveOfflineOnly ? offlineAlbumFilterRevision : 0,
+            releaseCategory: AlbumReleaseCategory(rawValue: releaseCategory),
+            releaseChoicesRevision: releaseCategory.isEmpty ? 0 : AlbumReleaseCategoryStore.shared.revision
         )
         return catalogList.failedKey == key ? nil : key
     }
@@ -140,7 +142,8 @@ struct AlbumGridView: View {
         catalogList.update(key, host: host, query: LibraryAlbumBrowseQuery(
             order: key.order, bySongCount: key.bySongCount, unknownArtistName: unknownArtistName,
             currentYear: Calendar.current.component(.year, from: Date()),
-            predicate: predicate.isEmpty ? nil : predicate
+            predicate: predicate.isEmpty ? nil : predicate,
+            releaseFilter: key.releaseCategory.map { ($0, AlbumReleaseCategoryStore.shared.snapshot) }
         ))
     }
 
@@ -157,22 +160,18 @@ struct AlbumGridView: View {
         return library.isReady ? library.visibleAlbums.count : displayedAlbumCount
     }
 
-    /// 「补全缺少的简介」要的专辑:目录路径下按同样的条件从内存曲库筛(P3 删内存曲库前改成按键分批取)。
+    /// 「补全缺少的简介」要的专辑:目录路径下按同样的条件(连同发行类别)从内存曲库筛(`AlbumGridIntroFill`)。
     private func batchFillAlbums() -> [Album] {
-        guard let key = catalogKey else { return filteredAlbums }
-        let predicate = AlbumGridAlbumPredicate(
-            query: key.query, likedOnly: key.likedOnly, hidesSingleSongAlbums: key.hidesSingleSongAlbums,
-            favorites: favorites.ledger, unknownArtistName: String(localized: "unknown_artist"),
-            offlineAlbumIDs: key.offlineOnly ? offlineAlbumIDs : nil
+        AlbumGridIntroFill.albums(
+            catalogKey: catalogKey, filtered: filteredAlbums, library: library,
+            favorites: favorites.ledger, offlineAlbumIDs: offlineAlbumIDs
         )
-        // 6c: 整库筛选;点菜单时已先把模型装回来(`introFillReady`),这里模型在内存里。
-        return library.isReady ? library.visibleAlbums.filter(predicate.matches) : []
     }
 
     private func startIntroFill(_ requested: Bool) {
         guard requested else { return }
         requestsIntroFill = false
-        Task { if await SongModelArrayRead.read(library, { true }) == true { introFillReady = true } }
+        Task { if await AlbumGridIntroFill.prepare(library, releaseCategory: catalogKey?.releaseCategory) { introFillReady = true } }
     }
 
     private var filteredAlbums: [Album] {

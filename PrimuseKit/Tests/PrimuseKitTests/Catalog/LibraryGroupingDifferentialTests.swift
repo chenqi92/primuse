@@ -206,6 +206,19 @@ struct LibraryGroupingDifferentialTests {
         return artists
     }
 
+    /// RC-b:按「不列只有单曲、EP 的人」的名单筛好的专辑艺人列表(`albumArtistBrowse(keeping:)`),两种先后都与
+    /// 对筛过的列表跑的结果逐项、逐段相同(页面的内存路径就是先筛再排)。
+    static func checkKeptAlbumArtists(_ catalog: LibraryCatalog, ids: Set<String>, expected: [Artist]) throws {
+        let kept = try catalog.albumArtistBrowse(keeping: ids)
+        let byKey = try catalog.albumArtists(keys: kept.keys, in: kept)
+        #expect(kept.keys.compactMap { byKey[$0] } == expected, "album artists kept by the full-release list")
+        let reading = try catalog.albumArtistBrowse(order: .reading(unknownArtistName: unknownArtist), keeping: ids)
+        let readingByKey = try catalog.albumArtists(keys: reading.keys, in: reading)
+        let layout = LibraryArtistBrowseLayoutBuilder.layout(artists: expected, unknownArtistName: unknownArtist)
+        #expect(reading.keys.compactMap { readingByKey[$0] } == layout.items, "kept album artists in reading order")
+        #expect(reading.sections == layout.sections, "kept album artists' sections")
+    }
+
     /// 艺人页两排专辑(详情页):对 `artistAlbumShelfCandidates` 的候选跑 `partition`,与对整份可见专辑跑的相同
     /// (署名用参照实现的专辑艺人索引)。也唱歌的人与只当过专辑艺人的都比。
     static func checkArtistShelves(_ catalog: LibraryCatalog, albums: [Album], artists: [Artist]) throws {
@@ -252,6 +265,7 @@ struct LibraryGroupingDifferentialTests {
         }
         let fullReleaseIDs = try #require(try catalog.albumArtistIDsWithFullReleases(overrides: overrides))
         let fullReleaseAlbumArtists = albumArtists.filter { fullReleaseIDs.contains($0.id) }.map(\.id)
+        try checkKeptAlbumArtists(catalog, ids: fullReleaseIDs, expected: albumArtists.filter { fullReleaseIDs.contains($0.id) })
         return try catalog.pool.read { db in
             var kinds: [String: Int] = [:]
             for row in try Row.fetchAll(db, sql: """
@@ -612,6 +626,35 @@ struct LibraryGroupingDifferentialTests {
         #expect(try catalog.releaseCategoriesAreComplete())
         let rebuilt = try Self.catalogSnapshot(catalog)
         #expect(rebuilt == expected, "after a rebuild:\n\(Self.describeDifference(rebuilt, expected))")
+    }
+
+    /// RC-b:降级后旧版写过的目录 —— 记着「算齐了」,却有专辑行的标题那一条是 0(旧版新插的)、有统计行没有「写过了」
+    /// 那一位(旧版重写的,标签认出的类别也丢了)。本次进程第一次看(`checkingRows`)时退回「待补算」,补齐之前查询都
+    /// 答 nil;补算把这些行补好,之后与参照实现逐项相同。好好的目录第一次看不退回;不查行时照旧只看记号。
+    @Test("Rows written by an older build send a complete catalog back to the backfill, which repairs them")
+    func releaseCategoriesHealAfterADowngrade() throws {
+        var rng = CatalogTestRandom(seed: 5_151)
+        var model = Model()
+        let temporary = try TemporaryCatalog()
+        let catalog = temporary.catalog
+        try catalog.setGroupingConfiguration(model.configuration)
+        var serial = 0
+        for _ in 0..<60 { _ = try Self.randomStep(&rng, model: &model, catalog: catalog, serial: &serial) }
+        let expected = Self.referenceSnapshot(model)
+        #expect(expected.albums.count >= 4, "enough albums for both kinds of rows")
+        #expect(try catalog.releaseCategoriesAreComplete(checkingRows: true), "an intact catalog stays complete")
+        #expect(try !catalog.hasPendingReleaseCategoryBackfill())
+
+        try catalog.simulateRowsWrittenByAnOlderBuildForTesting(count: 2)
+        #expect(try catalog.releaseCategoriesAreComplete(), "without the row check only the flag is read")
+        #expect(try !catalog.releaseCategoriesAreComplete(checkingRows: true), "the first look finds the unwritten rows")
+        #expect(try catalog.hasPendingReleaseCategoryBackfill())
+        #expect(try catalog.albumReleaseCategories() == nil, "nothing is answered until the rows are repaired")
+        #expect(try catalog.albumArtistIDsWithFullReleases(overrides: [:]) == nil)
+        #expect(try catalog.backfillReleaseCategories(batchSize: 3))
+        #expect(try catalog.releaseCategoriesAreComplete(checkingRows: true), "repaired: complete again, nothing left unwritten")
+        let actual = try Self.catalogSnapshot(catalog)
+        #expect(actual == expected, "after the repair:\n\(Self.describeDifference(actual, expected))")
     }
 
     /// RC-a:按歌记的手动选择从目录对到专辑(只看启用的源),与内存里按可见歌曲对的相同;按专辑记的、最新的那次
