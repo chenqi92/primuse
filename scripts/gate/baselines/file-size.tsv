@@ -93,7 +93,6 @@ Primuse/Views/Library/AIRecommendationLibraryView.swift	2203
 Primuse/Views/Library/AlbumDetailView.swift	1763
 Primuse/Views/Library/AlbumGridView.swift	1164
 Primuse/Views/Library/ArtistDetailView.swift	1486
-Primuse/Views/Library/ArtistListView.swift	1032
 Primuse/Views/Library/LibraryInsightCard.swift	1054
 Primuse/Views/Library/LibraryView.swift	3367
 Primuse/Views/Library/LyricsEditorView.swift	3952
@@ -107,7 +106,7 @@ Primuse/Views/Library/SpokenWordLibraryView.swift	3272
 Primuse/Views/Library/TagEditorView.swift	2756
 Primuse/Views/Mac/DesktopLyricsIslandView.swift	1161
 Primuse/Views/Mac/MacContentView.swift	1717
-Primuse/Views/Mac/MacHomeView.swift	2746
+Primuse/Views/Mac/MacHomeView.swift	2740
 Primuse/Views/Mac/MacImmersivePlayerView.swift	2407
 Primuse/Views/Mac/MacMiniPlayerView.swift	1249
 Primuse/Views/Mac/MacNowPlayingView.swift	3505

@@ -16,7 +16,7 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(MacPageKind.playlistDetail.readiness, .catalog)
         XCTAssertEqual(MacPageKind.section(.playlists).readiness, .catalog)
         XCTAssertEqual(MacPageKind.section(.albums).readiness, .catalog)
-        for section in [LibrarySection.albums, .songs, .musicVideos, .favorites] {
+        for section in [LibrarySection.albums, .songs, .musicVideos, .favorites, .artists] {
             XCTAssertEqual(MacPageKind.section(section).readiness, .catalog, "\(section)")
             XCTAssertEqual(MacPageKind.section(section).readiness, LibraryReadyContent<EmptyView>.readiness(for: section),
                            "same as the iPhone library section")
@@ -29,7 +29,7 @@ final class MacPageReadinessTests: LibraryReleasedTwinTestCase {
                            "same as the iPhone library section")
         }
         let legacySections: [LibrarySection] = [
-            .artists, .genres, .folders, .releaseDate, .recommendations, .statistics, .ambient,
+            .genres, .folders, .releaseDate, .recommendations, .statistics, .ambient,
         ]
         for section in legacySections {
             XCTAssertEqual(MacPageKind.section(section).readiness, .legacy, "\(section)")

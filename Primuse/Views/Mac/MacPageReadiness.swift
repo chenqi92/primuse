@@ -70,7 +70,10 @@ extension MacPageKind {
         case .musicVideos, .favorites:
             // MV 页、收藏页从目录读,答不了时(MV 太多、编辑收藏要挑整库专辑)自己占用(U8b)。
             .catalog
-        case .artists, .genres, .folders, .releaseDate, .recommendations, .statistics, .ambient:
+        case .artists:
+            // 艺术家左栏从目录按页取;去掉只有单曲的专辑艺人、右边的详情还读整库数组,那两处自己占用(U4b)。
+            .catalog
+        case .genres, .folders, .releaseDate, .recommendations, .statistics, .ambient:
             .legacy
         }
     }

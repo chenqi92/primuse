@@ -149,13 +149,30 @@ struct LibraryGroupingDifferentialTests {
         )
     }
 
+    /// 「专辑艺术家」从 `albumArtistBrowse` 按页取出来的整份(U4b);按读音排的那一份与对它跑的
+    /// `LibraryArtistBrowseLayoutBuilder`(iPhone 艺术家页的排法)逐项、逐段相同。
+    static func browsedAlbumArtists(_ catalog: LibraryCatalog) throws -> [Artist] {
+        let browse = try catalog.albumArtistBrowse()
+        let byKey = try catalog.albumArtists(keys: browse.keys, in: browse)
+        let artists = browse.keys.compactMap { byKey[$0] }
+        #expect(artists.count == browse.count)
+        #expect(browse.albumCounts.map(Int.init) == artists.map(\.albumCount))
+        let reading = try catalog.albumArtistBrowse(order: .reading(unknownArtistName: unknownArtist))
+        let readingByKey = try catalog.albumArtists(keys: reading.keys, in: reading)
+        let layout = LibraryArtistBrowseLayoutBuilder.layout(artists: artists, unknownArtistName: unknownArtist)
+        #expect(reading.keys.compactMap { readingByKey[$0] } == layout.items)
+        #expect(reading.sections == layout.sections)
+        return artists
+    }
+
     static func catalogSnapshot(_ catalog: LibraryCatalog) throws -> Snapshot {
         let albums = try catalog.albums(keys: catalog.albumKeys(visibleOnly: false).keys, visibleCounts: false)
         let artists = try catalog.artists(keys: catalog.artistKeys(visibleOnly: false).keys, visibleCounts: false)
         let visibleAlbums = try catalog.albums(keys: catalog.albumKeys(visibleOnly: true).keys, visibleCounts: true)
         let visibleArtists = try catalog.artists(keys: catalog.artistKeys(visibleOnly: true).keys, visibleCounts: true)
         let genres = try catalog.genres().map { "\($0.id)|\($0.name)|\($0.songCount)|\($0.albumCount)" }
-        let albumArtists = try catalog.albumArtistIndexForReference().artists
+        let albumArtists = try browsedAlbumArtists(catalog)
+        #expect(albumArtists == (try catalog.albumArtistIndexForReference().artists))
         let visibleCounts = try catalog.songCountsBySource(.visible)
         let allCounts = try catalog.songCountsBySource(.everything)
         return try catalog.pool.read { db in

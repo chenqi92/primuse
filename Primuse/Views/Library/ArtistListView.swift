@@ -51,6 +51,8 @@ extension ArtistBrowseMode {
 struct ArtistListView: View {
     /// nil：资料库里的艺术家页，按「全部艺术家 / 专辑艺术家」设置取曲库的列表。
     private let suppliedArtists: [Artist]?
+    /// 定死的列法(Mac 首页「艺术家 · 查看全部」,U4b):整个曲库按这一种列,没有资料库页的列法菜单与简介补全。
+    private let fixedMode: ArtistBrowseMode?
     private let intelligentRecommendationIDs: Set<String>
     @State private var searchText: String = ""
     @State private var showsMerge = false
@@ -80,12 +82,14 @@ struct ArtistListView: View {
     /// 搜索结果之类给定的一批艺人。
     init(artists: [Artist], intelligentRecommendationIDs: Set<String> = []) {
         suppliedArtists = artists
+        fixedMode = nil
         self.intelligentRecommendationIDs = intelligentRecommendationIDs
     }
 
-    /// 资料库里的艺术家页。
-    init() {
+    /// 资料库里的艺术家页;`libraryArtists`:整个曲库按这一种列法(目录按页取)。
+    init(libraryArtists mode: ArtistBrowseMode? = nil) {
         suppliedArtists = nil
+        fixedMode = mode
         intelligentRecommendationIDs = []
     }
 
@@ -93,16 +97,17 @@ struct ArtistListView: View {
         ArtistLayoutMode(rawValue: layoutModeRaw) ?? .grid
     }
 
-    private var browsesLibrary: Bool { suppliedArtists == nil }
+    private var browsesLibrary: Bool { suppliedArtists == nil && fixedMode == nil }
 
-    private var browseMode: ArtistBrowseMode { .resolved(browseModeRaw) }
+    private var browseMode: ArtistBrowseMode { fixedMode ?? .resolved(browseModeRaw) }
 
     private var artists: [Artist] {
         _ = hidesSingleOnlyAlbumArtists
         #if os(iOS)
         if browsesLibrary { return currentOrder?.items ?? [] }
         #endif
-        return suppliedArtists ?? library.browsableArtists(browseMode)
+        // 歌曲模型不在内存里时不读那份空数组(目录那条路答,答不了时页面占用模型)。
+        return suppliedArtists ?? (library.isReady ? library.browsableArtists(browseMode) : [])
     }
 
     #if os(iOS)
@@ -111,8 +116,8 @@ struct ArtistListView: View {
     @State private var orderedArtists: ArtistBrowseOrdered?
 
     private var orderRequest: ArtistBrowseOrderRequest? {
-        // 目录路径(P3)不用内存里排好的那一份。
-        guard browsesLibrary, iosCatalogKey == nil else { return nil }
+        // 目录路径(P3)不用内存里排好的那一份;模型不在内存里时等它装回来。
+        guard browsesLibrary, iosCatalogKey == nil, library.isReady else { return nil }
         return ArtistBrowseOrderRequest(mode: browseMode, artists: library.browsableArtists(browseMode))
     }
 
@@ -120,11 +125,12 @@ struct ArtistListView: View {
 
     @State private var catalogArtists = ArtistCatalogList()
 
-    /// 资料库「全部艺术家」、不只看喜欢、目录可读时读目录(带页内搜索);读失败的那组条件改走内存。
+    /// 走不走目录见 `ArtistCatalogKey.current`(带页内搜索);读失败的那组条件改走内存。
     private var iosCatalogKey: ArtistCatalogKey? {
-        guard browsesLibrary, browseMode == .allArtists, !showsLikedOnly,
-              library.catalogHost?.revisions.isReadable == true else { return nil }
-        let key = ArtistCatalogKey(search: searchText.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard let key = ArtistCatalogKey.current(
+            pagesLibrary: browsesLibrary, mode: browseMode, likedOnly: showsLikedOnly, search: searchText,
+            hidesSingles: hidesSingleOnlyAlbumArtists, requiresEmptySearch: false, library: library
+        ) else { return nil }
         return catalogArtists.failedKey == key ? nil : key
     }
 
@@ -138,9 +144,7 @@ struct ArtistListView: View {
             catalogArtists.reset()
             return
         }
-        catalogArtists.update(key, host: host, query: LibraryArtistBrowseQuery(
-            unknownArtistName: String(localized: "unknown_artist"), search: key.search
-        ))
+        catalogArtists.update(key, host: host, query: key.query(readingOrder: true))
     }
 
     private var currentOrder: ArtistBrowseOrdered? {
@@ -188,7 +192,9 @@ struct ArtistListView: View {
     /// 一个艺人都没有才给整页的空状态。资料库切到「专辑艺术家」后列表可能是空的
     /// （歌都没有专辑信息），那时页面照常显示，工具栏上还能切回来。
     private var hasNoArtists: Bool {
-        browsesLibrary ? library.visibleArtists.isEmpty && library.visibleAlbumArtists.isEmpty : artists.isEmpty
+        // U4b:模型不在内存里时数组是空的,看目录的计数(还没数出来时不算空)。
+        if suppliedArtists == nil, !library.isReady { return ArtistCatalogKey.libraryHasNoArtists(library) }
+        return browsesLibrary ? library.visibleArtists.isEmpty && library.visibleAlbumArtists.isEmpty : artists.isEmpty
     }
 
     /// 列表空了而且不是搜索 / 只看喜欢造成的。
@@ -196,11 +202,13 @@ struct ArtistListView: View {
         #if os(iOS)
         if iosCatalogKey != nil {
             // 目录路径:整页没有艺人(搜索之前)。目录计数还没数出来时先不出空状态。
-            let total = LibraryHubCatalogCountsModel.shared(for: library)?.readableCounts?.artists ?? 1
+            let counts = LibraryHubCatalogCountsModel.shared(for: library)?.readableCounts
+            let total = (iosCatalogKey?.mode == .albumArtists ? counts?.albums : counts?.artists) ?? 1
             return !isPreparingOrder && total == 0
         }
         #endif
-        return browsesLibrary && !isPreparingOrder && artists.isEmpty
+        // 模型不在内存里时数组是空的,不是没有艺人(目录列表自己判断,或者页面在等模型)。
+        return browsesLibrary && library.isReady && !isPreparingOrder && artists.isEmpty
     }
 
     /// 页面上显示的艺人数。
@@ -269,7 +277,7 @@ struct ArtistListView: View {
             macBody
                 .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenArtist)) { note in
                     guard let artist = note.object as? Artist else { return }
-                    if !artists.contains(where: { $0.id == artist.id }) {
+                    if library.isReady, !artists.contains(where: { $0.id == artist.id }) {
                         // 只在合辑、feat. 里出现的人不在「专辑艺术家」里，反过来「群星」只在那里:
                         // 换到列着他的那一种再选中。
                         guard browsesLibrary else { return }
@@ -281,7 +289,8 @@ struct ArtistListView: View {
                     selectedArtistID = artist.id
                     selectedCatalogArtist = artist
                 }
-                .task(id: usesCatalogArtistList) { updateCatalogArtistList() }
+                .task(id: macCatalogKey) { updateCatalogArtistList() }
+                .songModelPage(needsArrays: suppliedArtists == nil && macCatalogKey == nil)
                 .libraryInsightBatchFill(kind: .artist, request: $requestsIntroFill) {
                     filteredArtists.map(LibraryInsightBatchItem.artist)
                 }
@@ -295,6 +304,7 @@ struct ArtistListView: View {
                     await prepareOrder(orderRequest)
                 }
                 .task(id: iosCatalogKey) { updateIOSCatalogArtists() }
+                .songModelPage(needsArrays: suppliedArtists == nil && iosCatalogKey == nil)
             #endif
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -624,38 +634,33 @@ struct ArtistListView: View {
     #if os(macOS)
     /// 当前选中的艺术家 (nil → 取过滤后列表第一个), 驱动右侧详情。
     @State private var selectedArtistID: String?
-    /// 资料库「全部艺术家」列法、不在查找也不只看喜欢时,左栏从曲库目录按页取(P2a)。
-    @State private var catalogArtistList: LibraryListModel<LibraryArtistListQuery>?
+    /// 左栏从曲库目录按页取(P2a;走不走、走哪一份见 `ArtistCatalogKey.current`,U4b)。
+    @State private var macCatalogArtists = ArtistCatalogList()
     /// 目录列表里点选(或从别处打开)的那位。目录列表只物化可见区附近,选中的那位单独留着。
     @State private var selectedCatalogArtist: Artist?
 
-    /// 目录的艺人顺序与 `visibleArtists` 一致(名字本地化排序、同名按首次出现),计数按可见歌曲算;
-    /// 「专辑艺术家」列法、查找、只看喜欢目录还给不出一样的结果,走内存模型。
-    private var usesCatalogArtistList: Bool {
-        browsesLibrary
-            && browseMode == .allArtists
-            && !showsLikedOnly
-            && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && library.catalogHost?.revisions.isReadable == true
+    /// 目录的艺人顺序与 `visibleArtists` / `visibleAlbumArtists` 一致,计数按可见歌曲算。读失败的那组条件走内存模型。
+    private var macCatalogKey: ArtistCatalogKey? {
+        guard let key = ArtistCatalogKey.current(
+            pagesLibrary: suppliedArtists == nil, mode: browseMode, likedOnly: showsLikedOnly, search: searchText,
+            hidesSingles: hidesSingleOnlyAlbumArtists, requiresEmptySearch: true, library: library
+        ) else { return nil }
+        return macCatalogArtists.failedKey == key ? nil : key
+    }
+
+    private var catalogArtistList: LibraryListModel<LibraryArtistBrowseQuery>? {
+        macCatalogKey == nil ? nil : macCatalogArtists.model
     }
 
     /// 目录那一份已经取到行号(与第一页),而且没有读错。读错时这一页照旧用内存模型。
     private var showsCatalogArtistList: Bool {
-        guard usesCatalogArtistList, let model = catalogArtistList,
-              !model.isLoading, model.lastError == nil else { return false }
+        guard let model = catalogArtistList, !model.isLoading, model.lastError == nil else { return false }
         return model.count == 0 || model.item(at: 0) != nil
     }
 
     private func updateCatalogArtistList() {
-        guard usesCatalogArtistList, let host = library.catalogHost else {
-            catalogArtistList?.deactivate()
-            catalogArtistList = nil
-            return
-        }
-        guard catalogArtistList == nil else { return }
-        let model = host.artistList(visibleOnly: true)
-        model.activate()
-        catalogArtistList = model
+        guard let key = macCatalogKey, let host = library.catalogHost else { return macCatalogArtists.reset() }
+        macCatalogArtists.update(key, host: host, query: key.query(readingOrder: false))
     }
 
     private var selectedArtist: Artist? {
@@ -695,12 +700,15 @@ struct ArtistListView: View {
                     .frame(width: 0.5)
 
                 Group {
-                    if let artist = selectedArtist {
+                    if let artist = selectedArtist, library.isReady {
                         // 只在重建后淡入: 详情页一次 body 要过滤整库专辑,
                         // 不能把它拉进交叉淡入的事务里。
                         ArtistDetailView(artist: artist)
                             .pmAppearFade()
                             .id(artist.id)
+                    } else if selectedArtist != nil || (!library.isReady && !showsCatalogArtistList) {
+                        // U4b:详情还读整库专辑,模型不在内存里时这一栏占用模型、先显示加载;左栏不等。
+                        ProgressView()
                     } else if showsEmptyBrowseList || (showsCatalogArtistList && catalogArtistList?.count == 0) {
                         emptyBrowseList
                     } else {
@@ -709,6 +717,7 @@ struct ArtistListView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityElement(children: .contain)
+                .songModelPage(needsArrays: selectedArtist != nil)
             }
             .background(PMColor.bg.ignoresSafeArea())
         }
@@ -967,66 +976,6 @@ private struct ArtistListRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(Color.primary.opacity(configuration.isPressed ? 0.08 : 0))
-    }
-}
-
-/// 资料库艺人页一次排序的输入：列法 + 曲库给的那份数组。曲库每次发布都换一份新数组，
-/// 所以数组按存储地址与个数认（同 `AlbumGridOrderRequest`）；排好的结果留着那份数组，
-/// 它的地址在被留着期间不会分给别的数组。
-struct ArtistBrowseOrderRequest: Hashable, Sendable {
-    let mode: ArtistBrowseMode
-    private let sourceAddress: Int
-    private let sourceCount: Int
-
-    init(mode: ArtistBrowseMode, artists: [Artist]) {
-        self.mode = mode
-        sourceCount = artists.count
-        sourceAddress = artists.withUnsafeBufferPointer { buffer in
-            buffer.baseAddress.map { Int(bitPattern: $0) } ?? 0
-        }
-    }
-
-    func matches(_ artists: [Artist]) -> Bool {
-        self == ArtistBrowseOrderRequest(mode: mode, artists: artists)
-    }
-}
-
-/// 按读音排好的艺人，连同字母条。
-struct ArtistBrowseOrdered: Sendable {
-    let request: ArtistBrowseOrderRequest
-    let source: [Artist]
-    let items: [Artist]
-    let railModel: LibraryIndexRailModel?
-
-    /// 在后台调用。「未知艺术家」排最后。
-    static func prepare(
-        request: ArtistBrowseOrderRequest, source: [Artist], unknownArtistName: String
-    ) -> ArtistBrowseOrdered? {
-        let layout = LibraryArtistBrowseLayoutBuilder.layout(artists: source, unknownArtistName: unknownArtistName)
-        guard !Task.isCancelled else { return nil }
-        let model = LibraryIndexRailModel(sections: layout.sections)
-        return ArtistBrowseOrdered(
-            request: request, source: source, items: layout.items,
-            railModel: layout.items.count >= 24 && model.isUseful ? model : nil
-        )
-    }
-}
-
-/// 最近一次排好的结果：换页回来、iPad 侧栏和资料库里同时开着都不必重排。
-/// 不是 Observable：结果由各页自己的 @State 交付。
-@MainActor
-final class ArtistBrowseOrderCache {
-    static let shared = ArtistBrowseOrderCache()
-    private var latest: ArtistBrowseOrdered?
-
-    func entry(for request: ArtistBrowseOrderRequest) -> ArtistBrowseOrdered? {
-        latest?.request == request ? latest : nil
-    }
-
-    func store(_ entry: ArtistBrowseOrdered) {
-        let previous = latest
-        latest = entry
-        Task.detached(priority: .utility) { withExtendedLifetime(previous) {} }
     }
 }
 #endif

@@ -1826,17 +1826,11 @@ struct MacHomeView: View {
                 .fill(PMColor.divider)
                 .frame(height: 0.5)
 
-            // 只有首页那几位(歌曲模型放掉之后)时同「最近添加」那一页:加载、占用模型,装回来后显示全部。
-            if model.snapshot.hasAllArtists {
-                ArtistListView(artists: model.snapshot.artists)
-            } else {
-                MacHomeCollectionLoading()
-                    .frame(maxHeight: .infinity, alignment: .top)
-            }
+            // 整个曲库的「全部艺术家」,左栏从曲库目录按页取(U4b),歌曲模型在不在内存里都马上打开。
+            ArtistListView(libraryArtists: .allArtists)
         }
         .background(PMColor.bg.ignoresSafeArea())
         .navigationBarBackButtonHidden(true)
-        .songModelPage(needsArrays: !model.snapshot.hasAllArtists)
     }
 
     private func closeSection() {
