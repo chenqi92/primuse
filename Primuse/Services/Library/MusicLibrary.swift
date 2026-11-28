@@ -4463,6 +4463,12 @@ final class MusicLibrary {
     @ObservationIgnored private var activeCatalogIdentityResolution: CatalogIdentityResolution?
     /// 歌曲模型不在内存里时排过队的突变入口(每个只记一次日志,AM-a)。
     @ObservationIgnored private var queuedMutationEntryPointsLogged: Set<String> = []
+    /// CF-a: 歌曲模型不在内存里时,入口标记、计数与有声 / 环境音的 id 表跟着目录变化重读(节流)。
+    @ObservationIgnored private var catalogFollowTask: Task<Void, Never>?
+    @ObservationIgnored private var catalogFollowDirty = false
+    @ObservationIgnored private var catalogFollowRefreshedAt: ContinuousClock.Instant?
+    /// CF-a: 歌曲模型不在内存里时 `displayTitle(for:)` 从目录读到的书架章节名(nil:没有改名),目录一变就清空。
+    @ObservationIgnored private var releasedChapterTitles: [String: String?] = [:]
     /// S2 例外 1: `.preparing` 期间记录下来的配置最新值, 发布后对账用。
     @ObservationIgnored private var preparingDisabledSourceIDs: Set<String>?
     @ObservationIgnored private var preparingArtistNameConfiguration: ArtistNameConfiguration?
@@ -5336,7 +5342,13 @@ extension MusicLibrary {
     /// The title a list shows for `song`: the shelf's chapter title for a
     /// renamed file, the tagged title for everything else.
     func displayTitle(for song: Song) -> String {
-        spokenWordDisplayTitles.isEmpty ? song.title : (spokenWordDisplayTitles[song.id] ?? song.title)
+        // CF-a: 歌曲模型不在内存里时那张表放掉了(或者从没装过):有声书的章节名由目录答(`songBook.displayTitle`,
+        // 同一个归书函数写的),只问可见的有声书条目 —— 那张表也只收它们。
+        if songModelReleased, !songModelAnswersFromMemory {
+            guard spokenWordSongIDs.contains(song.id), !disabledSourceIDs.contains(song.sourceID) else { return song.title }
+            return releasedChapterTitle(song.id) ?? song.title
+        }
+        return spokenWordDisplayTitles.isEmpty ? song.title : (spokenWordDisplayTitles[song.id] ?? song.title)
     }
 
     /// The id `bookID`'s book goes by now: a widget, a timer or an intent
@@ -6263,6 +6275,9 @@ extension MusicLibrary {
         }
         guard !isPreparing else {
             preparingContentClassificationRefresh = true
+            // CF-a: 歌曲模型放掉之后(或者从没装过)不只是记下来等下次装载:新的分类当场交给曲库目录,
+            // 目录按它重分组(与装好时可见缓存同一份分类、同一套归类),落下来之后入口与计数跟着目录重读。
+            reclassifyInTheCatalogWithoutTheModel()
             return
         }
         let next = SpokenWordStore.shared.classificationSnapshot
@@ -22290,6 +22305,12 @@ extension MusicLibrary: LibraryCatalogOwner {
         }
         // 搜索库被杀后待做的整库对账,改按目录变更流水只补改过的歌(目录读不了时它自己退回整库对账)。
         LibrarySearchIndex.attachCatalog(catalogHost.reader)
+        // CF-a: 歌曲模型不在内存里时,入口与计数跟着目录走。
+        catalogHost.revisions.addListener { [weak self] _ in
+            guard let self else { return false }
+            self.catalogDidChangeWhileTheModelIsOut()
+            return true
+        }
     }
 
     /// 曲库目录各连接的页缓存、列表缓存都能重读:进后台、收到内存警告时放掉(PLAN §4.1)。
@@ -23567,6 +23588,8 @@ extension MusicLibrary {
         // 接上之后目录马上读得了(追上了旧库、持有方已发布):入口的标记、书架条数、按源的曲数这时就从目录数好,
         // 界面第一次看它们时已经是对的。
         applyLaunchCountsFromTheCatalog()
+        // 有声书几本几章(要按书数)在主线程外从目录读一次;之后目录每变一次跟着重读(CF-a)。
+        catalogDidChangeWhileTheModelIsOut()
         // 有声与环境音的 id 表(`nonMusicSongIDs`、播放历史的分类)也在放行等可用的之前补上(上面主线程外从目录读好的):
         // 放掉之后它们本来就留着,这里补的是不装模型启动时那一段,不让哪个读者看到空的、把书和环境音当成音乐。
         if let classification {
@@ -23636,6 +23659,118 @@ extension MusicLibrary {
             releasedSongSourceIDs.formUnion(counts.keys)
         }
     }
+
+    // MARK: Classification, counts and chapter titles while the song model is out (CF-a)
+
+    /// 改了内容分类(标为音乐、把书或节目换一类、目录标签)而歌曲模型不在内存里:新的分类交给曲库目录,
+    /// 目录按它重分组(与装好时可见缓存用的是同一份分类输入、同一套归类,影子校验比的就是这两边);
+    /// 重分组落下来是一次「全都可能变了」的目录变化,入口、计数与有声 / 环境音的 id 表随之从目录重读
+    /// (`catalogDidChangeWhileTheModelIsOut`)。没有装模型:用户点了就看得到,不必等别的什么把模型装回来。
+    /// 那个「下次装好再刷一遍」的标记照旧留着:装好时可见缓存按当时的分类算,那一遍会发现没有变化。
+    private func reclassifyInTheCatalogWithoutTheModel() {
+        guard songModelReleased, !songModelAnswersFromMemory, catalogAttached, let catalogHost else { return }
+        let next = SpokenWordStore.shared.classificationSnapshot
+        guard visibleContentClassification != next else { return }
+        visibleContentClassification = next
+        catalogHost.mirror.updateInputs(catalogInputs())
+        plog("🎧 Content classification handed to the catalog while the song model is out")
+    }
+
+    /// 目录变了。歌曲模型不在内存里时(放掉之后、从没装过的启动)入口的标记与计数、有声 / 环境音的 id 表没有
+    /// 可见缓存跟着变,改从目录重读:空闲时立刻读,连续变化时最多每秒一次,停下之后补读一次(同资料库入口的计数)。
+    /// 模型在内存里时它们跟可见缓存走,这里什么都不做。
+    fileprivate func catalogDidChangeWhileTheModelIsOut() {
+        releasedChapterTitles.removeAll(keepingCapacity: true)
+        guard songModelReleased, !songModelAnswersFromMemory else { return }
+        guard catalogFollowTask == nil else {
+            catalogFollowDirty = true
+            return
+        }
+        let now = ContinuousClock.now
+        let earliest = catalogFollowRefreshedAt.map { $0.advanced(by: .seconds(1)) } ?? now
+        let delay = earliest > now ? earliest - now : .zero
+        catalogFollowTask = Task { @MainActor [weak self] in
+            if delay > .zero { try? await Task.sleep(for: delay) }
+            await self?.refreshClassificationAndCountsFromTheCatalog()
+            guard let self else { return }
+            self.catalogFollowTask = nil
+            self.catalogFollowRefreshedAt = .now
+            if self.catalogFollowDirty {
+                self.catalogFollowDirty = false
+                self.catalogDidChangeWhileTheModelIsOut()
+            }
+        }
+    }
+
+    private struct CatalogFollowedState: Sendable {
+        // crash-pattern: allow song-id-collection-property 与放掉之后一直留着的那两份 id 表同规模(有声、环境音),读完就交进去
+        var spokenWordSongIDs: Set<String>
+        // crash-pattern: allow song-id-collection-property 同上
+        var ambientSongIDs: Set<String>
+        var spokenWordCount: Int
+        var ambientCount: Int
+        var musicVideoCount: Int
+        var books: Int
+        var chapters: Int
+    }
+
+    /// 主线程外从目录读,回到主线程交进去(只交变了的,订阅它们的界面才重画)。查法与不装模型启动时那几步相同
+    /// (`launchClassificationSets`、`applyLaunchCountsFromTheCatalog`),书与章节数与资料库入口的目录计数相同。
+    private func refreshClassificationAndCountsFromTheCatalog() async {
+        guard let catalogHost, catalogHost.revisions.isReadable else { return }
+        let state: CatalogFollowedState
+        do {
+            state = try await catalogHost.reader.read { catalog in
+                let totals = try catalog.spokenWordTotals()
+                return CatalogFollowedState(
+                    spokenWordSongIDs: try catalog.songIDSet(LibrarySongScope(kinds: [.spokenWord, .podcast])),
+                    ambientSongIDs: try catalog.songIDSet(LibrarySongScope(kinds: [.ambient])),
+                    spokenWordCount: try catalog.songCount(LibrarySongScope(kinds: [.spokenWord])),
+                    ambientCount: try catalog.songCount(LibrarySongScope(kinds: [.ambient])),
+                    musicVideoCount: try catalog.musicVideoSongCount(),
+                    books: totals.books,
+                    chapters: totals.chapters
+                )
+            }
+        } catch {
+            plog("🧠 residency: classification and counts could not be read from the catalog (\(error))")
+            return
+        }
+        guard songModelReleased, !songModelAnswersFromMemory else { return }
+        if spokenWordSongIDs != state.spokenWordSongIDs { spokenWordSongIDs = state.spokenWordSongIDs }
+        if ambientSongIDs != state.ambientSongIDs { ambientSongIDs = state.ambientSongIDs }
+        if hasSpokenWordContent != (state.spokenWordCount > 0) { hasSpokenWordContent = state.spokenWordCount > 0 }
+        if spokenWordSongCount != state.spokenWordCount { spokenWordSongCount = state.spokenWordCount }
+        if hasAmbientContent != (state.ambientCount > 0) { hasAmbientContent = state.ambientCount > 0 }
+        if hasMusicVideoContent != (state.musicVideoCount > 0) { hasMusicVideoContent = state.musicVideoCount > 0 }
+        if spokenWordBookCount != state.books { spokenWordBookCount = state.books }
+        if spokenWordChapterCount != state.chapters { spokenWordChapterCount = state.chapters }
+        PlayHistoryStore.shared.refreshClassification(library: self)
+    }
+
+    /// 歌曲模型不在内存里时这一首的书架章节名(nil:没有改名,列表用标签里的标题)。按 id 读目录一次,
+    /// 记到目录下一次变化;只答有声书(播客的那份装好时也不进这张表)。
+    private func releasedChapterTitle(_ songID: String) -> String? {
+        observeCatalogSongs()
+        if let cached = releasedChapterTitles[songID] { return cached }
+        guard let catalog = catalogHost?.mirror.readableCatalog else { return nil }
+        let placement = try? catalog.bookPlacement(songID: songID)
+        let title = placement?.kind == .spokenWord ? placement?.displayTitle : nil
+        if releasedChapterTitles.count > 4_096 { releasedChapterTitles.removeAll(keepingCapacity: true) }
+        releasedChapterTitles[songID] = .some(title)
+        return title
+    }
+
+    #if DEBUG
+    /// 测试:等跟着目录重读的那一轮做完(目录先跟上)。
+    func waitForCatalogFollowForTesting() async {
+        await waitForCatalogMirror()
+        while let task = catalogFollowTask { await task.value }
+        // 目录的变化经主线程转发,可能还没到:再读一轮,读到的就是目录此刻的样子。
+        catalogDidChangeWhileTheModelIsOut()
+        while let task = catalogFollowTask { await task.value }
+    }
+    #endif
 
     // MARK: 歌单的可见曲数,模型不在内存里时
 

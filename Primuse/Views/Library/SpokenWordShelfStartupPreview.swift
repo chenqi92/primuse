@@ -226,7 +226,9 @@ final class SpokenWordShelfStartupStore {
     /// 跟着有声内容走: 装好的曲库里一本书也没有了(有声归属关掉、书都移成音乐、源里的书没了)就删掉,
     /// 书架页没开着也不留着上次的书名。
     func follow(library: MusicLibrary) {
-        library.onReady { [weak self, weak library] in
+        // CF-a: 跟「可用」而不是「就绪」:不装歌曲模型的启动一直不就绪,有没有有声书由目录数出来
+        // (`hasSpokenWordContent`),一本都没有时照样把启动时的书架快照清掉。
+        library.onUsable { [weak self, weak library] in
             guard let self, let library else { return }
             self.observeSpokenWordContent(in: library)
         }
@@ -390,3 +392,10 @@ private actor SpokenWordShelfStartupWriter {
         }
     }
 }
+
+#if DEBUG
+extension SpokenWordShelfStartupStore {
+    /// 测试:删过启动快照、之后还没再记过。
+    var isClearedForTesting: Bool { isCleared }
+}
+#endif

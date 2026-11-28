@@ -4885,6 +4885,135 @@ final class LibraryCatalogDualWriteTests: LibraryReleasedTwinTestCase {
         XCTAssertEqual(released.deferredMutationCountForTesting, 1, "a new playlist-only song still waits for the model")
     }
 
+    // MARK: CF-a — classification, chapter titles and counts while the song model is out
+
+    /// 一本书的三章,第 2 章的文件后来改过名(文件名说第2集,标签说第4969集):书架按文件名列。
+    private func renamedChapterBook(_ prefix: String) -> [Song] {
+        func chapter(_ number: Int, title: String) -> Song {
+            var song = Song(
+                id: "\(prefix)-novel-\(number)", title: title, albumTitle: "Novel", artistName: "Reader",
+                trackNumber: number, duration: 600 + Double(number), fileFormat: .m4a,
+                filePath: "/Books/Novel/第\(number)集.m4b", sourceID: Self.sourceA, genre: "Audiobook"
+            )
+            song.dateAdded = Date(timeIntervalSince1970: 1_700_300_000 + Double(number))
+            return song
+        }
+        return [chapter(1, title: "第1集"), chapter(2, title: "第4969集"), chapter(3, title: "第3集")]
+    }
+
+    /// 入口与计数那几样(与分类 id 表),比两个库用。
+    private func classificationPicture(_ library: MusicLibrary) -> [String] {
+        [
+            "spokenWordIDs=\(library.spokenWordSongIDs.sorted())",
+            "ambientIDs=\(library.ambientSongIDs.sorted())",
+            "hasSpokenWord=\(library.hasSpokenWordContent) count=\(library.spokenWordSongCount)",
+            "books=\(library.spokenWordBookCount) chapters=\(library.spokenWordChapterCount)",
+            "ambient=\(library.hasAmbientContent) musicVideo=\(library.hasMusicVideoContent)",
+        ]
+    }
+
+    /// CF-a:模型真放掉之后改分类(一章书标为音乐、一首音乐标为有声书):新的分类当场交给目录,目录重分组之后
+    /// 有声与环境音的 id 表、入口标记、书与章节数与模型在内存里的那一台改完之后相同;不占用、不装、不读整库数组。
+    /// 放掉期间按 id 删一章(不装模型的那条路)之后,计数也跟着目录走。装回来之后两边的模型逐项相同。
+    func testReclassifyingWhileReleasedReachesTheCatalogWithoutALoad() async throws {
+        let songs = Self.fixture(prefix: "cfa")
+        let book = renamedChapterBook("cfa")
+        let loaded = try makeLaunchedTwin("cfa-loaded", songs: songs, extra: book).library
+        let released = try makeLaunchedTwin("cfa-released", songs: songs, extra: book).library
+        await assertShadowMatches(loaded, "loaded")
+        await assertShadowMatches(released, "released")
+        XCTAssertEqual(classificationPicture(released), classificationPicture(loaded), "the same before")
+        MusicLibrary.songModelHoldRequestsForTesting = []
+        defer { MusicLibrary.songModelHoldRequestsForTesting = nil }
+        let before = try await releaseForReal(released)
+        defer {
+            SpokenWordStore.shared.move([songs[10]], to: .spokenWord)
+            SpokenWordStore.shared.move([songs[4]], to: .music)
+        }
+        SpokenWordStore.shared.move([songs[10]], to: .music)
+        SpokenWordStore.shared.move([songs[4]], to: .spokenWord)
+        loaded.refreshContentClassification()
+        released.refreshContentClassification()
+        await loaded.waitForPendingIndex()
+        await assertShadowMatches(loaded, "loaded, reclassified")
+        await released.waitForCatalogFollowForTesting()
+        XCTAssertTrue(released.spokenWordSongIDs.contains(songs[4].id), "the moved song is spoken word now")
+        XCTAssertFalse(released.spokenWordSongIDs.contains(songs[10].id), "and the chapter is music")
+        XCTAssertEqual(classificationPicture(released), classificationPicture(loaded), "released: the same after")
+        XCTAssertEqual(songModelHolds(of: released), [], "no hold")
+        assertNoLoadAndNoArrayRead(released, since: before, "reclassifying while released")
+
+        _ = loaded.deleteSongs([book[2]])
+        _ = released.deleteSongs([book[2]])
+        await loaded.waitForPendingIndex()
+        await assertShadowMatches(loaded, "loaded, after the delete")
+        await released.waitForCatalogFollowForTesting()
+        XCTAssertFalse(released.spokenWordSongIDs.contains(book[2].id), "the deleted chapter is gone")
+        XCTAssertEqual(classificationPicture(released), classificationPicture(loaded), "after a delete while released")
+        assertNoLoadAndNoArrayRead(released, since: before, "a delete while released")
+
+        let hold = await released.holdSongModel(.legacyPage)
+        XCTAssertEqual(modelPicture(released), modelPicture(loaded), "loaded again: the same model")
+        XCTAssertEqual(classificationPicture(released), classificationPicture(loaded))
+        hold.end()
+        await assertShadowMatches(released, "loaded again")
+    }
+
+    /// CF-a:书架上改过名的章节,模型放掉之后与从没装过的启动里,列表照书架的章节名列(目录的 `songBook.displayTitle`),
+    /// 与模型在内存里时逐首相同;音乐与没改过名的章节照标签。不装、不读整库数组。
+    func testChapterTitlesWhileTheModelIsOutMatchTheShelf() async throws {
+        let songs = Self.fixture(prefix: "cft")
+        let book = renamedChapterBook("cft")
+        let loaded = try makeLaunchedTwin("cft-loaded", songs: songs, extra: book).library
+        let released = try makeLaunchedTwin("cft-released", songs: songs, extra: book).library
+        await assertShadowMatches(loaded, "loaded")
+        await assertShadowMatches(released, "released")
+        let expected = (songs + book).map { loaded.displayTitle(for: $0) }
+        XCTAssertEqual(loaded.displayTitle(for: book[1]), "第2集", "the shelf lists the renamed chapter by its file name")
+        XCTAssertEqual(loaded.displayTitle(for: book[0]), "第1集")
+        let before = try await releaseForReal(released)
+        XCTAssertEqual((songs + book).map { released.displayTitle(for: $0) }, expected, "released: the same titles")
+        assertNoLoadAndNoArrayRead(released, since: before, "chapter titles while released")
+
+        let (_, storage) = try await launchFixture("cft-launch", songs: songs + book)
+        let neverLoaded = await launch(try copyOfDirectory(storage, "cft-never"), unloaded: true)
+        try await waitUntilUsable(neverLoaded)
+        let neverBefore = neverLoaded.songModelResidencyStatistics
+        XCTAssertEqual((songs + book).map { neverLoaded.displayTitle(for: $0) }, expected, "never loaded: the same titles")
+        assertNoLoadAndNoArrayRead(neverLoaded, since: neverBefore, "chapter titles in a launch that never loaded")
+    }
+
+    /// CF-a:从没装过模型的启动里,书与章节数从目录数出来(与装好的那一次启动相同);启动时的书架快照跟「可用」走:
+    /// 书都标为音乐之后入口标记变成没有,快照随之删掉。都不装模型。
+    func testTheUnloadedLaunchFollowsTheCatalogForBooksAndTheShelfSnapshot() async throws {
+        let songs = Self.fixture(prefix: "cfl")
+        let (_, storage) = try await launchFixture("cfl", songs: songs)
+        let neverLoaded = await launch(try copyOfDirectory(storage, "cfl-never"), unloaded: true)
+        let launchedLoaded = await launch(try copyOfDirectory(storage, "cfl-loaded"), unloaded: false)
+        try await waitUntilUsable(neverLoaded)
+        XCTAssertTrue(launchedLoaded.isReady)
+        let neverBefore = neverLoaded.songModelResidencyStatistics
+        await neverLoaded.waitForCatalogFollowForTesting()
+        XCTAssertEqual(classificationPicture(neverLoaded), classificationPicture(launchedLoaded), "books and chapters at launch")
+
+        let shelf = SpokenWordShelfStartupStore()
+        shelf.follow(library: neverLoaded)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(shelf.isClearedForTesting, "there are books: the snapshot stays")
+        let chapters = Array(songs[10...12])
+        defer { SpokenWordStore.shared.move(chapters, to: .spokenWord) }
+        SpokenWordStore.shared.move(chapters, to: .music)
+        neverLoaded.refreshContentClassification()
+        launchedLoaded.refreshContentClassification()
+        await neverLoaded.waitForCatalogFollowForTesting()
+        XCTAssertFalse(neverLoaded.hasSpokenWordContent)
+        XCTAssertEqual(classificationPicture(neverLoaded), classificationPicture(launchedLoaded), "after moving the books")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !shelf.isClearedForTesting, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(shelf.isClearedForTesting, "no books left: the shelf snapshot is cleared without a load")
+        assertNoLoadAndNoArrayRead(neverLoaded, since: neverBefore, "the never-loaded launch following the catalog")
+    }
+
     /// CK-a 第 2 项:模型不在内存里时补读不拿空的歌曲表去比剩余数(以前在这里读一次 `songs`、记一笔数组读;
     /// 拿空表算出的「0 条」会把队列当成做完),队列状态原样留着。
     func testBackfillDoesNotCountFromAnEmptyLibraryWhileTheModelIsReleased() async throws {
